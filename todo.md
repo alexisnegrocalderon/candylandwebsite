@@ -57,3 +57,7 @@
 ## Tests
 - [x] Tests unitarios para lógica de negocio
 - [x] Tests de integración para APIs
+
+## Mejoras Solicitadas
+- [x] Acceso visible al panel de admin desde la navegación (para usuarios admin)
+- [x] Panel de usuario/embajador con inicio de sesión y estadísticas de referidos
