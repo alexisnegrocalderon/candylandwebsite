@@ -3,13 +3,8 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@font-face {
-  font-family: 'Gliker';
-  src: url('/manus-storage/Gliker-SemiBoldExtraExpanded_3cfdd2c2.ttf') format('truetype');
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
+/* Gliker no está disponible localmente (era un asset de manus-storage);
+   Syne cumple el mismo rol editorial expandido y ya se carga desde Google Fonts. */
 
 @theme inline {
   --color-background: oklch(0.08 0.01 280);
@@ -46,7 +41,13 @@
   --color-sidebar-ring: oklch(0.7 0.25 330);
   --radius: 0.625rem;
   --font-sans: 'Space Grotesk', system-ui, sans-serif;
-  --font-heading: 'Gliker', 'Syne', sans-serif;
+  --font-heading: 'Syne', sans-serif;
+
+  /* Candy After Dark */
+  --color-cherry: oklch(0.62 0.24 15);
+  --color-violet-electric: oklch(0.65 0.24 300);
+  --color-candy-blue: oklch(0.55 0.2 262);
+  --color-candy-cream: oklch(0.97 0.015 340);
 }
 
 @layer base {
@@ -117,6 +118,95 @@ html {
 
 .glow-blue {
   box-shadow: 0 0 40px oklch(0.6 0.2 250 / 0.3), 0 0 80px oklch(0.6 0.2 250 / 0.1);
+}
+
+/* ─── Candy After Dark ─────────────────────────────────────── */
+
+.text-gradient-candy {
+  background: linear-gradient(120deg, oklch(0.78 0.22 340), oklch(0.62 0.24 15) 35%, oklch(0.65 0.24 300) 70%, oklch(0.6 0.2 262));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Botón jelly: rebote táctil + brillo glossy que lo cruza */
+.btn-jelly {
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+}
+.btn-jelly:hover {
+  transform: scale(1.045);
+  box-shadow: 0 0 40px oklch(0.7 0.25 330 / 0.45), 0 0 90px oklch(0.7 0.25 330 / 0.18);
+}
+.btn-jelly:active {
+  transform: scale(0.96);
+}
+.btn-jelly::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 40%, oklch(1 0 0 / 0.35) 50%, transparent 60%);
+  transform: translateX(-120%);
+}
+.btn-jelly:hover::after {
+  animation: shine-sweep 0.9s ease forwards;
+}
+
+@keyframes shine-sweep {
+  to { transform: translateX(120%); }
+}
+
+/* Caramelos flotantes decorativos */
+@keyframes candy-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-18px) rotate(8deg); }
+}
+.candy-float {
+  animation: candy-float 6s ease-in-out infinite;
+}
+.candy-float-slow {
+  animation: candy-float 9s ease-in-out infinite;
+}
+
+/* Pulso suave para chips de urgencia */
+@keyframes candy-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 oklch(0.62 0.24 15 / 0.5); }
+  60% { box-shadow: 0 0 0 12px oklch(0.62 0.24 15 / 0); }
+}
+.candy-pulse {
+  animation: candy-pulse 2.4s ease-out infinite;
+}
+
+/* Card glossy translúcida */
+.glass-candy {
+  background: oklch(0.14 0.02 320 / 0.65);
+  backdrop-filter: blur(18px);
+  border: 1px solid oklch(0.7 0.25 330 / 0.18);
+}
+
+/* Accesibilidad: sin animaciones decorativas si el usuario lo pide */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .candy-float,
+  .candy-float-slow,
+  .candy-pulse {
+    animation: none;
+  }
+  .btn-jelly,
+  .btn-jelly::after {
+    transition: none;
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Interactive button */

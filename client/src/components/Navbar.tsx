@@ -39,7 +39,7 @@ export default function Navbar() {
         <div className="container flex items-center justify-between h-20">
           <Link href="/" className="flex items-center gap-3 interactive">
             <img
-              src="/manus-storage/logo-playroom_2ea4ca93.png"
+              src="/candyland/logo-wordmark.webp"
               alt="Mansion Playroom"
               className="h-12 w-auto"
             />
@@ -124,12 +124,12 @@ export default function Navbar() {
               </button>
             )}
 
-            <Link
-              href="/eventos"
+            <a
+              href="/#entradas"
               className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-semibold tracking-wide uppercase transition-transform duration-200 hover:scale-105 active:scale-95 interactive"
             >
               Comprar Entradas
-            </Link>
+            </a>
           </div>
 
           {/* Mobile menu button */}
@@ -199,13 +199,13 @@ export default function Navbar() {
                 </button>
               )}
 
-              <Link
-                href="/eventos"
+              <a
+                href="/#entradas"
                 onClick={() => setMobileOpen(false)}
                 className="mt-4 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center"
               >
                 Comprar Entradas
-              </Link>
+              </a>
 
               {isAuthenticated && (
                 <button
