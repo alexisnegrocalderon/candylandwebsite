@@ -7,71 +7,122 @@
 
 export type EstadoAcceso = 'available' | 'last_tickets' | 'soldout' | 'coming_soon';
 
+// ── Motor de formularios ─────────────────────────────────────
+// Cada acceso define qué campos extra pide en el checkout.
+// EDITAR libremente: agrega/quita campos o cambia required.
+export type CampoTipo = 'text' | 'email' | 'tel' | 'number' | 'date' | 'select' | 'textarea' | 'checkbox';
+
+export interface CampoForm {
+  name: string; // clave única (sin espacios)
+  label: string;
+  type: CampoTipo;
+  required?: boolean;
+  placeholder?: string;
+  options?: string[]; // solo para type: 'select'
+  help?: string;
+}
+
+// Datos que SIEMPRE pide el comprador (cabecera del pedido)
+// NOTA: Instagram es el ÚNICO dato opcional. Todo lo demás es obligatorio.
+export const CAMPOS_COMPRADOR: CampoForm[] = [
+  { name: 'nombre', label: 'Nombre completo', type: 'text', required: true, placeholder: 'Tu nombre y apellido' },
+  { name: 'email', label: 'Email', type: 'email', required: true, placeholder: 'tu@email.com', help: 'Aquí llega tu entrada y la dirección.' },
+  { name: 'whatsapp', label: 'WhatsApp', type: 'tel', required: true, placeholder: '+56 9 1234 5678' },
+  { name: 'rut', label: 'RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
+  { name: 'instagram', label: 'Instagram (opcional)', type: 'text', required: false, placeholder: '@tu_usuario' },
+  { name: 'mayorEdad', label: 'Confirmo que soy mayor de 18 años', type: 'checkbox', required: true },
+];
+
 export interface Acceso {
   id: string;
   nombre: string;
   precio: number;
+  personas: number; // cuántas personas suma este acceso a la Misión 300
   descripcion: string;
   beneficios: string[];
   estado: EstadoAcceso;
   exclusivoComunidad: boolean;
+  nota?: string; // texto destacado bajo la card (ej. "+1 gratis")
+  campos?: CampoForm[]; // campos extra específicos de este acceso
 }
 
-// Precios placeholder — EDITAR con los valores reales
+// Precios y campos — EDITAR con los valores/datos reales
 const ACCESOS: Acceso[] = [
   {
     id: 'duo',
     nombre: 'Dúo',
-    precio: 30000,
+    precio: 40000,
+    personas: 2,
     descripcion: 'Acceso para 2 personas. La entrada clásica de la mansión.',
     beneficios: ['2 accesos', 'Todas las zonas', 'Playground XXL'],
     estado: 'available',
     exclusivoComunidad: false,
+    campos: [
+      { name: 'acomp1_nombre', label: 'Acompañante — Nombre', type: 'text', required: true, placeholder: 'Nombre y apellido' },
+      { name: 'acomp1_rut', label: 'Acompañante — RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
+      { name: 'acomp1_instagram', label: 'Acompañante — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
+    ],
   },
   {
     id: 'soltera',
     nombre: 'Soltera',
-    precio: 12000,
+    precio: 20000,
+    personas: 1,
     descripcion: 'Acceso individual para ella.',
-    beneficios: ['1 acceso', 'Todas las zonas', 'Playground XXL'],
+    beneficios: ['1 acceso', 'Ven con una amiga +1 gratis', 'Todas las zonas'],
     estado: 'available',
     exclusivoComunidad: false,
+    nota: '🍒 Incluye un +1 gratis para que vengas con una amiga, totalmente liberada. Puedes agregar sus datos ahora o después.',
+    campos: [
+      { name: 'acomp1_nombre', label: 'Tu +1 — Nombre (opcional)', type: 'text', required: false, placeholder: 'Nombre y apellido de tu amiga' },
+      { name: 'acomp1_rut', label: 'Tu +1 — RUT (opcional)', type: 'text', required: false, placeholder: '12.345.678-9' },
+      { name: 'acomp1_instagram', label: 'Tu +1 — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
+    ],
   },
   {
     id: 'soltero',
     nombre: 'Soltero',
-    precio: 18000,
-    descripcion: 'Acceso individual para él. Solo miembros de la comunidad.',
-    beneficios: ['1 acceso', 'Todas las zonas', 'Requiere validación'],
+    precio: 30000,
+    personas: 1,
+    descripcion: 'Acceso individual para él. Exclusivo para miembros validados de la comunidad.',
+    beneficios: ['1 acceso', 'Requiere código de comunidad', 'Todas las zonas'],
     estado: 'available',
     exclusivoComunidad: true,
+    nota: '🔑 Necesitas un código de comunidad. ¿No lo tienes? Escríbenos por WhatsApp para validarte. Si no eres parte de la comunidad, tu opción es el acceso Dúo (con una acompañante).',
+    campos: [
+      { name: 'codigo_acceso', label: 'Código de acceso (comunidad)', type: 'text', required: true, placeholder: 'Tu código de validación', help: 'Sin código no se puede completar la compra. Solicítalo por WhatsApp.' },
+    ],
   },
   {
     id: 'trio',
     nombre: 'Trío',
-    precio: 40000,
+    precio: 50000,
+    personas: 3,
     descripcion: 'Acceso para 3 personas. Más dulce entre más son.',
     beneficios: ['3 accesos', 'Todas las zonas', 'Playground XXL'],
     estado: 'available',
     exclusivoComunidad: false,
+    campos: [
+      { name: 'acomp1_nombre', label: 'Acompañante 1 — Nombre', type: 'text', required: true, placeholder: 'Nombre y apellido' },
+      { name: 'acomp1_rut', label: 'Acompañante 1 — RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
+      { name: 'acomp1_instagram', label: 'Acompañante 1 — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
+      { name: 'acomp2_nombre', label: 'Acompañante 2 — Nombre', type: 'text', required: true, placeholder: 'Nombre y apellido' },
+      { name: 'acomp2_rut', label: 'Acompañante 2 — RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
+      { name: 'acomp2_instagram', label: 'Acompañante 2 — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
+    ],
   },
   {
     id: 'cumpleaneros',
     nombre: 'Cumpleañeros',
     precio: 8000,
+    personas: 1,
     descripcion: 'Si cumples en agosto, Candyland te celebra con acceso especial.',
     beneficios: ['1 acceso', 'Sorpresa de cumpleaños', 'Requiere carnet'],
     estado: 'available',
     exclusivoComunidad: false,
-  },
-  {
-    id: 'vip',
-    nombre: 'VIP',
-    precio: 60000,
-    descripcion: 'La experiencia completa: zona VIP, atención dedicada y más.',
-    beneficios: ['Acceso VIP', 'Zona exclusiva', 'Sorpresas dulces'],
-    estado: 'available',
-    exclusivoComunidad: false,
+    campos: [
+      { name: 'fecha_nacimiento', label: 'Fecha de nacimiento', type: 'date', required: true, help: 'Se valida en la entrada con tu carnet.' },
+    ],
   },
 ];
 
@@ -86,7 +137,7 @@ export const CANDYLAND = {
   fechaTexto: 'Sábado 08 de Agosto',
   horarioTexto: '21:00 — 04:30 hrs',
   afterTexto: 'After hasta el amanecer',
-  ciudad: 'Santiago, Chile',
+  ciudad: 'Valparaíso, Chile',
   lugar: 'La Mansión — dirección exacta al comprar',
 
   valores: ['Respeto', 'Consentimiento', 'Libertad'] as const,
@@ -97,8 +148,8 @@ export const CANDYLAND = {
   mision: {
     meta: 300,
     // Fallback manual mientras no hay base de datos conectada.
-    // Con DB, se usa la suma real de entradas vendidas.
-    confirmadosFallback: 187,
+    // Con DB, se usa la suma real de PERSONAS vendidas (dúo=2, trío=3, etc.).
+    confirmadosFallback: 48,
     titulo: 'Misión 300',
     copy: 'Cada acceso desbloquea una Candyland más grande: más producción, más sorpresas, más dulce. Esto lo construimos entre todos.',
   },
@@ -125,26 +176,42 @@ export const CANDYLAND = {
     { icono: 'ShieldCheck', texto: 'Ambiente seguro' },
   ],
 
-  // ── Accesos (precios placeholder — EDITAR) ─────────────────
+  // ── Accesos ────────────────────────────────────────────────
   accesos: ACCESOS,
 
-  // ── Galería ────────────────────────────────────────────────
-  galeria: [
-    { src: '/candyland/mansion-noche.webp', alt: 'La mansión de noche', span: 'tall' },
-    { src: '/candyland/candy-girl.webp', alt: 'Candy girl', span: 'tall' },
-    { src: '/candyland/gomitas.webp', alt: 'Ositos de gomita', span: 'tall' },
-    { src: '/candyland/cubo-dj-2.webp', alt: 'Cubo DJ neón', span: 'normal' },
-    { src: '/candyland/paletas-ositos.webp', alt: 'Paletas de ositos', span: 'normal' },
-    { src: '/candyland/audifonos-neon.webp', alt: 'Audífonos neón', span: 'normal' },
-    { src: '/candyland/banana-lips.webp', alt: 'Banana lips', span: 'normal' },
-    { src: '/candyland/banana-tape.webp', alt: 'Banana tape art', span: 'normal' },
-  ],
+  // ── Add-ons (se suman al total en el checkout) ─────────────
+  // estacionamiento: cupo asegurado. covers: consumos anticipados con precio
+  // early-bird (más barato antes) y tope de días antes del evento.
+  addons: {
+    estacionamiento: {
+      id: 'estacionamiento',
+      nombre: 'Estacionamiento',
+      descripcion: 'Asegura tu cupo de estacionamiento privado.',
+      precio: 5000,
+      tipo: 'checkbox' as const, // uno por compra
+    },
+    // covers: consumos anticipados. Se compran por cantidad y se suman al total.
+    // Solo disponibles hasta `maxDiasAntes` días antes del evento.
+    covers: {
+      activo: true,
+      maxDiasAntes: 3,
+      titulo: 'Covers anticipados',
+      descripcion: 'Compra tus consumos ahora y ahórrate la fila. Precio anticipado.',
+      // EDITAR: agrega más productos o cambia precios
+      productos: [
+        { id: 'piscolon', nombre: 'Piscolón', precio: 5000 },
+      ],
+    },
+  },
+
+  // WhatsApp para validación del acceso Soltero (comunidad)
+  whatsappSoltero: '+56933135140',
 
   // ── FAQ ────────────────────────────────────────────────────
   faqs: [
     {
       q: '¿Dónde es la fiesta?',
-      a: 'En La Mansión, Santiago. La dirección exacta te llega junto a tu entrada por correo, para mantener la privacidad del espacio.',
+      a: 'En La Mansión, Valparaíso. La dirección exacta te llega junto a tu entrada por correo, para mantener la privacidad del espacio.',
     },
     {
       q: '¿A qué hora empieza y termina?',
@@ -174,13 +241,28 @@ export const CANDYLAND = {
 
   // ── Redes ──────────────────────────────────────────────────
   redes: {
-    instagram: 'https://instagram.com/mansionplayroom',
+    instagram: 'https://instagram.com/mansionplayroom.cl',
     tiktok: 'https://tiktok.com/@mansionplayroom',
-    whatsapp: 'https://wa.me/56900000000', // EDITAR: número real
+    whatsapp: 'https://wa.me/56933135140',
     web: 'https://www.mansionplayroom.cl',
   },
 } as const;
 
 export function formatCLP(value: number): string {
   return value.toLocaleString('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 });
+}
+
+/** ¿Los covers todavía se pueden comprar? (hasta maxDiasAntes días antes del evento) */
+export function coversDisponibles(now: Date = new Date()): boolean {
+  const c = CANDYLAND.addons.covers;
+  if (!c.activo) return false;
+  const limite = CANDYLAND.eventDate.getTime() - c.maxDiasAntes * 86_400_000;
+  return now.getTime() < limite;
+}
+
+/** Link de WhatsApp con mensaje para validar el acceso Soltero. */
+export function whatsappSolteroLink(): string {
+  const num = CANDYLAND.whatsappSoltero.replace(/[^0-9]/g, '');
+  const msg = encodeURIComponent('Hola! Quiero validarme como miembro de la comunidad para comprar el acceso Soltero de Candyland 🍭');
+  return `https://wa.me/${num}?text=${msg}`;
 }

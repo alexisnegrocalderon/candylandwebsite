@@ -1,10 +1,12 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
+import { Route, Switch, useLocation } from "wouter";
+import { AnimatePresence, motion } from "framer-motion";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import CustomCursor from "./components/CustomCursor";
+import SmoothScroll from "./components/SmoothScroll";
 import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
 
@@ -28,21 +30,33 @@ function PageLoader() {
 }
 
 function Router() {
+  const [location] = useLocation();
   return (
     <Suspense fallback={<PageLoader />}>
-      <Switch>
-        <Route path="/" component={Home} />
-        <Route path="/eventos" component={Events} />
-        <Route path="/eventos/:slug" component={EventDetail} />
-        <Route path="/checkout/:eventSlug" component={Checkout} />
-        <Route path="/pago/exito" component={PaymentSuccess} />
-        <Route path="/pago/error" component={PaymentFailure} />
-        <Route path="/nosotros" component={About} />
-        <Route path="/mis-referidos" component={MyReferrals} />
-        <Route path="/admin" component={AdminDashboard} />
-        <Route path="/404" component={NotFound} />
-        <Route component={NotFound} />
-      </Switch>
+      {/* Transición inmersiva entre rutas: fade+rise corto, sin salto de página */}
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={location}
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
+        >
+          <Switch>
+            <Route path="/" component={Home} />
+            <Route path="/eventos" component={Events} />
+            <Route path="/eventos/:slug" component={EventDetail} />
+            <Route path="/checkout/:eventSlug" component={Checkout} />
+            <Route path="/pago/exito" component={PaymentSuccess} />
+            <Route path="/pago/error" component={PaymentFailure} />
+            <Route path="/nosotros" component={About} />
+            <Route path="/mis-referidos" component={MyReferrals} />
+            <Route path="/admin" component={AdminDashboard} />
+            <Route path="/404" component={NotFound} />
+            <Route component={NotFound} />
+          </Switch>
+        </motion.div>
+      </AnimatePresence>
     </Suspense>
   );
 }
@@ -52,6 +66,7 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
+          <SmoothScroll />
           <CustomCursor />
           <Navbar />
           <Toaster />

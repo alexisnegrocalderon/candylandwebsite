@@ -122,6 +122,9 @@ export const appRouter = router({
       })),
       discountCode: z.string().optional(),
       ambassadorCode: z.string().optional(),
+      // Datos por asistente/tipo de acceso (JSON serializado). Se adjunta a la
+      // preferencia de Mercado Pago como metadata; no requiere migración de schema.
+      attendeeData: z.string().optional(),
     })).mutation(async ({ input }) => {
       return db.createOrder(input);
     }),

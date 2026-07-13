@@ -116,7 +116,7 @@ export function buildConfirmationEmail(data: {
     <!-- Footer -->
     <div style="text-align:center;margin-top:32px;">
       <p style="color:#666;font-size:12px;">© ${new Date().getFullYear()} Mansion Playroom. Todos los derechos reservados.</p>
-      <p style="color:#666;font-size:12px;">Santiago, Chile</p>
+      <p style="color:#666;font-size:12px;">Valparaíso, Chile</p>
     </div>
   </div>
 </body>

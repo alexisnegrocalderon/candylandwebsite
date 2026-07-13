@@ -25,6 +25,7 @@ export interface CreatePreferenceInput {
   buyerEmail: string;
   buyerName: string;
   total: number;
+  attendeeData?: string;
 }
 
 export async function createPaymentPreference(input: CreatePreferenceInput) {
@@ -64,6 +65,7 @@ export async function createPaymentPreference(input: CreatePreferenceInput) {
       external_reference: input.orderNumber,
       notification_url: `${baseUrl}/api/webhooks/mercadopago`,
       statement_descriptor: 'MANSION PLAYROOM',
+      metadata: input.attendeeData ? { attendee_data: input.attendeeData } : undefined,
     },
   });
 

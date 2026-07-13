@@ -62,7 +62,7 @@ export default function MyReferrals() {
   };
 
   const handleShare = () => {
-    const text = `Usa mi código ${ambassadorCode} para comprar entradas en Mansion Playroom y vive la mejor experiencia nocturna de Santiago.`;
+    const text = `Usa mi código ${ambassadorCode} para comprar entradas en Mansion Playroom y vive la mejor experiencia nocturna de Valparaíso.`;
     if (navigator.share) {
       navigator.share({ title: 'Mansion Playroom', text });
     } else {

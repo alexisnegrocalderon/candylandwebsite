@@ -7,6 +7,11 @@ export default function CustomCursor() {
   const outerPos = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
+    // Solo en dispositivos con puntero fino (mouse). En touch no corre nada.
+    if (typeof window === 'undefined' || !window.matchMedia('(pointer: fine)').matches) {
+      return;
+    }
+
     const handleMouseMove = (e: MouseEvent) => {
       pos.current = { x: e.clientX, y: e.clientY };
     };

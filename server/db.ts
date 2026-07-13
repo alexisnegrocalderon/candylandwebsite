@@ -214,6 +214,7 @@ export async function createOrder(input: {
   items: { ticketTypeId: number; quantity: number }[];
   discountCode?: string;
   ambassadorCode?: string;
+  attendeeData?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -302,6 +303,7 @@ export async function createOrder(input: {
     buyerEmail: input.buyerEmail,
     buyerName: input.buyerName,
     total,
+    attendeeData: input.attendeeData,
   });
 
   // Update order with preference ID
