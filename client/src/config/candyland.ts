@@ -151,7 +151,10 @@ export const CANDYLAND = {
     // Con DB, se usa la suma real de PERSONAS vendidas (dúo=2, trío=3, etc.).
     confirmadosFallback: 48,
     titulo: 'Misión 300',
-    copy: 'Cada acceso desbloquea una Candyland más grande: más producción, más sorpresas, más dulce. Esto lo construimos entre todos.',
+    copy: 'Cada dulce representa una entrada confirmada.',
+    // EDITAR: cuando generes el loop ambiental en Higgsfield (corto, sin audio),
+    // ponlo en client/public/candyland/ y escribe aquí la ruta, ej: '/candyland/machine-loop.mp4'
+    videoLoop: '',
   },
 
   // ── Pistas / Line-up ───────────────────────────────────────

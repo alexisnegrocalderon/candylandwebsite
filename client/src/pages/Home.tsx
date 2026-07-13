@@ -106,70 +106,78 @@ function useIncreaseBurst(value: number) {
   return burstId;
 }
 
-/* ─── Frasco de dulces (contador Misión 300) ───────────────── */
+/* ─── Máquina de dulces (contador Misión 300) ──────────────── */
 
 const JAR_CANDIES = ['🍬', '🍭', '🍒', '🍡', '🧁', '🍩', '🍫', '🍪'];
 
 /**
- * Frasco de vidrio que se llena de dulces según el avance de la Misión 300.
- * pct = porcentaje de llenado (0-100). Cuando `dropId` cambia, caen dulces
- * nuevos al frasco (animación de gravedad).
+ * Máquina de dulces estilo gumball: cúpula de vidrio que se llena según el
+ * avance de la Misión 300 y base con dispensador. Cuando `dropId` cambia,
+ * un dulce cae por el conducto hasta el depósito (compra confirmada).
+ * Si config.mision.videoLoop existe, se reproduce como ambiente dentro de la cúpula.
  */
-function CandyJar({ pct, dropId }: { pct: number; dropId: number }) {
-  // Dulces visibles ∝ porcentaje (grilla que se revela con el nivel)
-  const filas = 6;
-  const porFila = 4;
+function CandyMachine({ pct, dropId }: { pct: number; dropId: number }) {
+  const video = CANDYLAND.mision.videoLoop;
   return (
-    <div className="relative w-36 md:w-44 shrink-0 select-none" aria-hidden>
-      {/* Tapa */}
-      <div className="h-4 md:h-5 mx-6 rounded-t-xl bg-gradient-to-b from-primary/70 to-primary/40 border border-white/25" />
-      <div className="h-1.5 mx-3 rounded-full bg-white/20 mb-0.5" />
-
-      {/* Cuerpo de vidrio */}
-      <div className="relative h-44 md:h-52 rounded-b-3xl rounded-t-lg border-2 border-white/25 bg-white/[0.04] backdrop-blur-sm overflow-hidden">
+    <div className="relative w-40 md:w-48 shrink-0 select-none" aria-hidden>
+      {/* Cúpula de vidrio */}
+      <div className="relative aspect-square rounded-full border-2 border-white/25 bg-white/[0.04] backdrop-blur-sm overflow-hidden">
+        {video && (
+          <video
+            className="absolute inset-0 w-full h-full object-cover opacity-50"
+            src={video}
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+          />
+        )}
         {/* Brillo de vidrio */}
-        <div className="absolute top-2 left-2 w-1.5 h-3/4 rounded-full bg-white/20" />
+        <div className="absolute top-3 left-4 w-2 h-1/2 rounded-full bg-white/25 rotate-12" />
 
-        {/* Nivel de dulces */}
+        {/* Nivel de dulces dentro de la cúpula */}
         <motion.div
           initial={{ height: 0 }}
-          animate={{ height: `${Math.max(6, pct)}%` }}
+          animate={{ height: `${Math.max(10, Math.min(92, pct))}%` }}
           transition={{ duration: 1.4, ease: [0.23, 1, 0.32, 1] }}
           className="absolute bottom-0 inset-x-0 overflow-hidden"
         >
-          <div className="absolute bottom-0 inset-x-0 h-44 md:h-52 flex flex-wrap-reverse content-start items-end justify-center gap-0.5 p-1 bg-gradient-to-t from-primary/25 via-violet-electric/15 to-transparent">
-            {Array.from({ length: filas * porFila }).map((_, i) => (
-              <span
-                key={i}
-                className="text-base md:text-lg leading-none"
-                style={{ transform: `rotate(${((i * 47) % 40) - 20}deg)` }}
-              >
+          <div className="absolute bottom-0 inset-x-0 h-40 md:h-48 flex flex-wrap-reverse content-start items-end justify-center gap-0.5 p-2 bg-gradient-to-t from-primary/25 via-violet-electric/15 to-transparent">
+            {Array.from({ length: 24 }).map((_, i) => (
+              <span key={i} className="text-base md:text-lg leading-none" style={{ transform: `rotate(${((i * 47) % 40) - 20}deg)` }}>
                 {JAR_CANDIES[i % JAR_CANDIES.length]}
               </span>
             ))}
           </div>
         </motion.div>
+      </div>
 
-        {/* Dulces cayendo al sumar personas */}
-        <AnimatePresence>
-          {dropId > 0 && (
-            <motion.div key={dropId} className="absolute inset-0 pointer-events-none">
-              {[0, 1, 2].map((i) => (
-                <motion.span
-                  key={i}
-                  className="absolute text-lg"
-                  style={{ left: `${25 + i * 22}%` }}
-                  initial={{ top: '-14%', opacity: 1, rotate: 0 }}
-                  animate={{ top: `${88 - pct * 0.8}%`, opacity: [1, 1, 0.9], rotate: 180 + i * 90 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.7 + i * 0.15, ease: [0.34, 1.2, 0.64, 1] }}
-                >
-                  {JAR_CANDIES[(dropId + i) % JAR_CANDIES.length]}
-                </motion.span>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
+      {/* Cuello + base de la máquina */}
+      <div className="h-2 mx-10 bg-gradient-to-b from-white/20 to-transparent" />
+      <div className="relative h-16 md:h-20 mx-3 rounded-b-2xl rounded-t-md bg-gradient-to-b from-primary/60 via-cherry/50 to-primary/35 border border-white/20 overflow-hidden">
+        {/* Ventana del dispensador */}
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-12 h-8 md:w-14 md:h-9 rounded-lg bg-background/70 border border-white/25 flex items-center justify-center overflow-hidden">
+          {/* Dulce que cae al confirmarse una compra */}
+          <AnimatePresence>
+            {dropId > 0 && (
+              <motion.span
+                key={dropId}
+                className="text-lg md:text-xl"
+                initial={{ y: -46, opacity: 0, rotate: 0 }}
+                animate={{ y: 0, opacity: 1, rotate: 200 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.65, ease: [0.34, 1.4, 0.64, 1] }}
+              >
+                {JAR_CANDIES[dropId % JAR_CANDIES.length]}
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </div>
+        {/* Perilla */}
+        <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-7 h-7 rounded-full border-2 border-white/30 bg-white/10">
+          <div className="absolute inset-y-1 left-1/2 -translate-x-1/2 w-1 rounded bg-white/30" />
+        </div>
       </div>
     </div>
   );
@@ -287,9 +295,15 @@ function Hero() {
           initial={{ opacity: 0, y: 50, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 1, delay: 0.35, ease: [0.23, 1, 0.32, 1] }}
-          className="font-heading font-extrabold text-[clamp(2.6rem,8vw,6.2rem)] leading-[0.95] tracking-tight text-gradient-candy drop-shadow-[0_4px_30px_rgba(255,46,99,0.25)] whitespace-nowrap"
+          className="font-heading font-extrabold text-[clamp(2.6rem,8vw,6.2rem)] leading-[0.95] tracking-tight drop-shadow-[0_4px_30px_rgba(255,46,99,0.25)] whitespace-nowrap"
+          aria-label={CANDYLAND.nombre}
         >
-          {CANDYLAND.nombre}
+          {/* Letras interactivas: hover material candy en desktop, shimmer automático en móvil */}
+          {CANDYLAND.nombre.split('').map((ch, i) => (
+            <span key={i} aria-hidden className="candy-letter" style={{ animationDelay: `${i * 0.22}s` }}>
+              {ch}
+            </span>
+          ))}
         </motion.h1>
 
         <motion.p
@@ -364,6 +378,7 @@ function UrgencySection({ vendidos }: { vendidos: number }) {
   const progreso = Math.min(100, Math.round((vendidos / meta) * 100));
   const displayCount = useCountUp(vendidos);
   const burstId = useIncreaseBurst(vendidos);
+  const soldOut = vendidos >= meta;
 
   return (
     <section className="relative py-16 md:py-20 border-y border-primary/15 bg-gradient-to-r from-primary/10 via-violet-electric/10 to-candy-blue/10 overflow-hidden">
@@ -393,25 +408,38 @@ function UrgencySection({ vendidos }: { vendidos: number }) {
 
         <motion.div {...reveal} className="relative glass-candy rounded-3xl p-6 md:p-8 overflow-visible">
           <h3 className="font-heading font-bold text-xl md:text-2xl text-gradient-candy text-center mb-1">{titulo}</h3>
-          <p className="text-center text-muted-foreground text-xs md:text-sm mb-5">{copy}</p>
 
-          {/* Frasco de dulces + número: cada persona confirmada es un dulce más */}
-          <div className="relative flex items-center justify-center gap-5 md:gap-8 mb-5">
+          {/* Máquina de dulces + número: cada dulce es una entrada confirmada */}
+          <div className="relative flex items-center justify-center gap-5 md:gap-8 my-5">
             <div aria-hidden className="absolute w-44 h-44 md:w-52 md:h-52 rounded-full bg-primary/30 blur-3xl candy-glow-pulse" />
-            <CandyJar pct={progreso} dropId={burstId} />
-            <div className="relative flex flex-col items-start">
+            <CandyMachine pct={progreso} dropId={burstId} />
+            <div className="relative flex flex-col items-start max-w-[10rem] md:max-w-[12rem]">
               <div className="flex items-baseline gap-1.5">
-                <span className="font-heading font-extrabold text-5xl md:text-6xl text-gradient-candy tabular-nums drop-shadow-[0_0_30px_rgba(255,79,195,0.55)]">
+                <span className="font-heading font-extrabold text-5xl md:text-6xl text-gradient-candy tabular-nums drop-shadow-[0_0_30px_rgba(255,79,195,0.55)]" aria-live="polite">
                   {displayCount}
                 </span>
                 <span className="font-heading font-bold text-xl md:text-2xl text-muted-foreground">/{meta}</span>
               </div>
-              <span className="text-[10px] md:text-xs uppercase tracking-[0.25em] text-foreground/70 mt-1">
-                personas confirmadas
+              <span className="text-[11px] md:text-sm font-semibold text-foreground/85 mt-1 leading-snug">
+                ya entraron a Candyland
               </span>
-              <span className="text-[10px] md:text-xs text-muted-foreground mt-2">
-                🍬 Cada acceso llena el frasco
-              </span>
+              <span className="text-[10px] md:text-xs text-muted-foreground mt-2 leading-snug">{copy}</span>
+
+              {/* Microcelebración al confirmarse una compra */}
+              <AnimatePresence>
+                {burstId > 0 && (
+                  <motion.span
+                    key={burstId}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.4 }}
+                    className="text-[10px] md:text-xs text-primary font-semibold mt-2"
+                  >
+                    ✨ Una persona más se suma a la noche
+                  </motion.span>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 
@@ -426,13 +454,18 @@ function UrgencySection({ vendidos }: { vendidos: number }) {
             </motion.div>
           </div>
 
-          <button
-            onClick={scrollToEntradas}
-            className="btn-jelly mt-5 w-full inline-flex items-center justify-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive"
-          >
-            Sumarme a la misión
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          {soldOut ? (
+            <div className="mt-5 w-full text-center px-6 py-3 rounded-full bg-muted text-muted-foreground text-sm font-bold uppercase tracking-wide" role="status">
+              Candyland está completo · Sold out
+            </div>
+          ) : (
+            <button
+              onClick={scrollToEntradas}
+              className="btn-jelly mt-5 w-full inline-flex items-center justify-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive"
+            >
+              🍭 Quiero mi dulce · Comprar entrada
+            </button>
+          )}
         </motion.div>
       </div>
     </section>
@@ -1010,7 +1043,9 @@ function StickyMobileCTA() {
 export default function Home() {
   const { data: liveTickets } = trpc.events.getTicketTypes.useQuery(
     { slug: CANDYLAND.slug },
-    { retry: false },
+    // Polling suave: con DB conectada, el contador Misión 300 se actualiza solo
+    // cuando entran compras aprobadas (webhook MP → soldCount). Sin DB, no-op.
+    { retry: false, refetchInterval: 30_000, refetchIntervalInBackground: false },
   );
 
   const vendidos = useMemo(() => {
