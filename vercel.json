@@ -3,7 +3,7 @@
   "buildCommand": "vite build && pnpm run build:api",
   "outputDirectory": "dist/public",
   "functions": {
-    "api/index.ts": {
+    "api/index.js": {
       "maxDuration": 30
     }
   },
