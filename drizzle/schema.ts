@@ -162,6 +162,17 @@ export const communityCodes = mysqlTable("communityCodes", {
 export type CommunityCode = typeof communityCodes.$inferSelect;
 export type InsertCommunityCode = typeof communityCodes.$inferInsert;
 
+// Config general del sitio (fila única) — hoy solo guarda los números de
+// Instagram que se muestran en el footer, editables desde el admin.
+export const siteSettings = mysqlTable("siteSettings", {
+  id: int("id").autoincrement().primaryKey(),
+  instagramFollowers: int("instagramFollowers").default(0).notNull(),
+  instagramPosts: int("instagramPosts").default(0).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SiteSettings = typeof siteSettings.$inferSelect;
+
 // Ambassador referrals tracking
 export const referrals = mysqlTable("referrals", {
   id: int("id").autoincrement().primaryKey(),

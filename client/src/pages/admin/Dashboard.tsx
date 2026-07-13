@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { trpc } from '@/lib/trpc';
@@ -8,7 +8,6 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Calendar, DollarSign, Ticket, Users, Plus, Trash2, Edit } from 'lucide-react';
-import { startLogin } from '@/const';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -316,14 +315,50 @@ function CommunityCodesManager() {
 }
 
 function OrdersView() {
-  const { data: ordersData } = trpc.orders.listAll.useQuery({});
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+
+  const { data: ordersData } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter });
   const { data: stats } = trpc.orders.getStats.useQuery();
 
   const ordersList = ordersData?.orders ?? [];
+  const pendingCount = ordersList.filter((o: any) => o.paymentStatus === 'pending').length;
+
+  const exportUrl = () => {
+    const params = new URLSearchParams();
+    if (statusFilter !== 'all') params.set('status', statusFilter);
+    if (dateFrom) params.set('dateFrom', dateFrom);
+    if (dateTo) params.set('dateTo', dateTo);
+    return `/api/admin/orders/export.csv?${params.toString()}`;
+  };
 
   return (
     <div className="space-y-6">
-      <h2 className="font-heading text-2xl">Ventas</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-heading text-2xl">Ventas</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los estados</SelectItem>
+              <SelectItem value="approved">Aprobados</SelectItem>
+              <SelectItem value="pending">Sin pagar (pendientes)</SelectItem>
+              <SelectItem value="rejected">Rechazados</SelectItem>
+              <SelectItem value="refunded">Reembolsados</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-36" aria-label="Desde" />
+          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-36" aria-label="Hasta" />
+          <a href={exportUrl()} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" className="interactive">Descargar CSV</Button>
+          </a>
+        </div>
+      </div>
+
+      {pendingCount > 0 && (
+        <p className="text-sm text-yellow-500">⚠️ {pendingCount} orden{pendingCount > 1 ? 'es' : ''} sin pagar — usa el filtro "Sin pagar" para exportar sus emails y contactarlos.</p>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
@@ -360,6 +395,7 @@ function OrdersView() {
                   <th className="text-left py-2 px-3">Total</th>
                   <th className="text-left py-2 px-3">Estado</th>
                   <th className="text-left py-2 px-3">Fecha</th>
+                  <th className="text-left py-2 px-3">Contacto</th>
                 </tr>
               </thead>
               <tbody>
@@ -374,6 +410,16 @@ function OrdersView() {
                       </span>
                     </td>
                     <td className="py-2 px-3 text-muted-foreground">{new Date(order.createdAt).toLocaleDateString('es-CL')}</td>
+                    <td className="py-2 px-3">
+                      {order.paymentStatus !== 'approved' && (
+                        <div className="flex gap-2">
+                          <a href={`mailto:${order.buyerEmail}`} className="text-primary text-xs underline">Email</a>
+                          {order.buyerPhone && (
+                            <a href={`https://wa.me/${String(order.buyerPhone).replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-primary text-xs underline">WhatsApp</a>
+                          )}
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -425,6 +471,83 @@ function ReferralsView() {
   );
 }
 
+function SettingsManager() {
+  const { data: settings, refetch } = trpc.settings.get.useQuery();
+  const updateSettings = trpc.settings.update.useMutation({ onSuccess: () => refetch() });
+  const [followers, setFollowers] = useState('');
+  const [posts, setPosts] = useState('');
+
+  useEffect(() => {
+    if (settings) {
+      setFollowers(String(settings.instagramFollowers ?? 0));
+      setPosts(String(settings.instagramPosts ?? 0));
+    }
+  }, [settings]);
+
+  const handleSave = () => {
+    updateSettings.mutate({ instagramFollowers: Number(followers) || 0, instagramPosts: Number(posts) || 0 });
+  };
+
+  return (
+    <div className="space-y-6">
+      <h2 className="font-heading text-2xl">Ajustes</h2>
+      <Card>
+        <CardHeader><CardTitle>Instagram</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">Números que se muestran junto al ícono de Instagram en el footer. Actualízalos cuando quieras — no se auto-sincronizan.</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div><Label>Seguidores</Label><Input type="number" value={followers} onChange={(e) => setFollowers(e.target.value)} className="mt-1" /></div>
+            <div><Label>Publicaciones</Label><Input type="number" value={posts} onChange={(e) => setPosts(e.target.value)} className="mt-1" /></div>
+          </div>
+          <Button onClick={handleSave} disabled={updateSettings.isPending} className="interactive">
+            {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function AdminLoginForm() {
+  const utils = trpc.useUtils();
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const adminLogin = trpc.auth.adminLogin.useMutation({
+    onSuccess: async () => {
+      setError('');
+      await utils.auth.me.invalidate();
+    },
+    onError: () => setError('Contraseña incorrecta'),
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!password) return;
+    adminLogin.mutate({ password });
+  };
+
+  return (
+    <div className="min-h-screen pt-24 flex items-center justify-center">
+      <form onSubmit={handleSubmit} className="text-center w-full max-w-xs">
+        <h2 className="font-heading text-3xl mb-4">Acceso Restringido</h2>
+        <p className="text-muted-foreground mb-6">Ingresa la contraseña de administrador.</p>
+        <Input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Contraseña"
+          autoFocus
+          className="mb-3 h-12 text-center"
+        />
+        {error && <p className="text-sm text-destructive mb-3" role="alert">{error}</p>}
+        <Button type="submit" disabled={adminLogin.isPending || !password} className="interactive w-full">
+          {adminLogin.isPending ? 'Entrando…' : 'Entrar'}
+        </Button>
+      </form>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const { user, loading, isAuthenticated } = useAuth();
 
@@ -437,15 +560,7 @@ export default function AdminDashboard() {
   }
 
   if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen pt-24 flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="font-heading text-3xl mb-4">Acceso Restringido</h2>
-          <p className="text-muted-foreground mb-6">Inicia sesión para acceder al panel de administración.</p>
-          <Button onClick={() => startLogin()} className="interactive">Iniciar Sesión</Button>
-        </div>
-      </div>
-    );
+    return <AdminLoginForm />;
   }
 
   if (user?.role !== 'admin') {
@@ -476,6 +591,7 @@ export default function AdminDashboard() {
               <TabsTrigger value="discounts">Descuentos</TabsTrigger>
               <TabsTrigger value="community">Códigos Comunidad</TabsTrigger>
               <TabsTrigger value="referrals">Referidos</TabsTrigger>
+              <TabsTrigger value="settings">Ajustes</TabsTrigger>
             </TabsList>
 
             <TabsContent value="events"><EventsManager /></TabsContent>
@@ -483,6 +599,7 @@ export default function AdminDashboard() {
             <TabsContent value="discounts"><DiscountsManager /></TabsContent>
             <TabsContent value="community"><CommunityCodesManager /></TabsContent>
             <TabsContent value="referrals"><ReferralsView /></TabsContent>
+            <TabsContent value="settings"><SettingsManager /></TabsContent>
           </Tabs>
         </motion.div>
       </div>

@@ -1,5 +1,6 @@
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
@@ -11,6 +12,9 @@ const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   return next({ ctx });
 });
 
+// openId sintético para el admin local (login por contraseña, sin OAuth externo).
+const ADMIN_LOCAL_OPEN_ID = 'admin-local';
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -18,6 +22,19 @@ export const appRouter = router({
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+    // Login simple por contraseña para el panel admin — no depende de ningún
+    // OAuth externo, solo de la variable de entorno ADMIN_PASSWORD.
+    adminLogin: publicProcedure.input(z.object({ password: z.string() })).mutation(async ({ input, ctx }) => {
+      const adminPassword = process.env.ADMIN_PASSWORD;
+      if (!adminPassword || input.password !== adminPassword) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Contraseña incorrecta' });
+      }
+      await db.upsertUser({ openId: ADMIN_LOCAL_OPEN_ID, name: 'Admin', role: 'admin', lastSignedIn: new Date() });
+      const sessionToken = await sdk.createSessionToken(ADMIN_LOCAL_OPEN_ID, { name: 'Admin' });
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
       return { success: true } as const;
     }),
   }),
@@ -181,6 +198,18 @@ export const appRouter = router({
     }),
     delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       return db.deleteDiscountCode(input.id);
+    }),
+  }),
+
+  settings: router({
+    get: publicProcedure.query(async () => {
+      return db.getSiteSettings();
+    }),
+    update: adminProcedure.input(z.object({
+      instagramFollowers: z.number().optional(),
+      instagramPosts: z.number().optional(),
+    })).mutation(async ({ input }) => {
+      return db.updateSiteSettings(input);
     }),
   }),
 

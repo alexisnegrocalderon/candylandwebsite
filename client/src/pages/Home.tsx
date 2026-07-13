@@ -232,12 +232,14 @@ function Hero() {
           className="absolute inset-0 w-full h-full object-cover opacity-30 blur-3xl scale-125"
         />
         <video
-          className="absolute inset-0 w-full h-full object-cover opacity-60 hidden motion-safe:md:block"
+          className="absolute inset-0 w-full h-full object-cover opacity-60 motion-reduce:hidden"
           src="/candyland/hero-video.mp4"
+          poster="/candyland/poster-hero.webp"
           autoPlay
           muted
           loop
           playsInline
+          preload="auto"
         />
       </motion.div>
       <div className="absolute inset-0 bg-gradient-to-b from-background/55 via-background/30 to-background" />
@@ -273,7 +275,7 @@ function Hero() {
           initial={{ opacity: 0, y: 50, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 1, delay: 0.35, ease: [0.23, 1, 0.32, 1] }}
-          className="font-heading font-extrabold text-[clamp(2.6rem,8vw,6.2rem)] leading-[0.95] tracking-tight drop-shadow-[0_4px_30px_oklch(0.76_0.13_35_/_0.25)] whitespace-nowrap"
+          className="font-heading font-extrabold text-[clamp(1.7rem,8.5vw,6.2rem)] leading-[0.95] tracking-tight drop-shadow-[0_4px_30px_oklch(0.76_0.13_35_/_0.25)] whitespace-normal sm:whitespace-nowrap break-words"
           aria-label={CANDYLAND.nombre}
         >
           {/* Letras interactivas: hover material candy en desktop, shimmer automático en móvil */}
@@ -814,6 +816,34 @@ function FinalCTASection() {
 
 /* ─── Footer ───────────────────────────────────────────────── */
 
+/** Bar con avatar + seguidores/publicaciones — más confianza que un ícono suelto. */
+function InstagramBar() {
+  const { data: settings } = trpc.settings.get.useQuery();
+  const followers = settings?.instagramFollowers ?? 0;
+  const posts = settings?.instagramPosts ?? 0;
+  const handle = CANDYLAND.redes.instagram.split('/').filter(Boolean).pop();
+  const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K` : String(n));
+
+  return (
+    <a
+      href={CANDYLAND.redes.instagram}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="glass-candy rounded-full pl-2.5 pr-5 py-2 flex items-center gap-3 hover:border-primary/50 transition-colors interactive"
+    >
+      <span className="w-9 h-9 rounded-full bg-gradient-to-br from-primary via-cherry to-violet-electric flex items-center justify-center shrink-0">
+        <Instagram className="w-4.5 h-4.5 text-white" />
+      </span>
+      <span className="flex flex-col leading-tight text-left">
+        <span className="text-xs font-bold text-foreground">@{handle}</span>
+        {(followers > 0 || posts > 0) && (
+          <span className="text-[11px] text-muted-foreground">{fmt(followers)} seguidores · {fmt(posts)} publicaciones</span>
+        )}
+      </span>
+    </a>
+  );
+}
+
 function Footer() {
   return (
     <footer className="border-t border-primary/15 py-14">
@@ -822,15 +852,7 @@ function Footer() {
           <img src="/candyland/logo-wordmark.webp" alt="Mansion Playroom" className="h-12 w-auto" />
 
           <div className="flex items-center gap-5">
-            <a
-              href={CANDYLAND.redes.instagram}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Instagram"
-              className="w-11 h-11 rounded-full glass-candy flex items-center justify-center hover:border-primary/50 transition-colors interactive"
-            >
-              <Instagram className="w-5 h-5 text-primary" />
-            </a>
+            <InstagramBar />
             <a
               href={CANDYLAND.redes.tiktok}
               target="_blank"

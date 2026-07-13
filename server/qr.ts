@@ -1,26 +1,25 @@
 import QRCode from 'qrcode';
-import { storagePut } from './storage';
 
+/**
+ * Genera el QR como data URI (PNG embebido en base64) — no depende de storage
+ * externo (S3/Forge), así el ticket funciona igual en cualquier hosting.
+ * Colores altamente contrastados (negro sobre blanco) para que escanee bien
+ * incluso impreso o con brillo bajo de pantalla.
+ */
 export async function generateTicketQR(ticketCode: string, eventTitle: string): Promise<{ qrData: string; qrImageUrl: string }> {
-  // QR data contains the ticket verification URL
   const baseUrl = process.env.APP_URL || 'https://mansionplayroom.cl';
   const qrData = `${baseUrl}/verificar/${ticketCode}`;
 
-  // Generate QR as PNG buffer with branding colors
-  const qrBuffer = await QRCode.toBuffer(qrData, {
-    type: 'png',
+  const qrImageUrl = await QRCode.toDataURL(qrData, {
+    type: 'image/png',
     width: 400,
     margin: 2,
     color: {
-      dark: '#FF1493', // Mansion Playroom pink
-      light: '#0D0D1A', // Dark background
+      dark: '#000000',
+      light: '#FFFFFF',
     },
     errorCorrectionLevel: 'H',
   });
 
-  // Upload to S3
-  const key = `qr/ticket-${ticketCode}.png`;
-  const { url } = await storagePut(key, qrBuffer, 'image/png');
-
-  return { qrData, qrImageUrl: url };
+  return { qrData, qrImageUrl };
 }

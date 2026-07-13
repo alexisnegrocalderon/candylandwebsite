@@ -1,6 +1,6 @@
-import { eq, desc, and, sql, or } from "drizzle-orm";
+import { eq, desc, and, sql, or, gte, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { createPaymentPreference } from './mercadopago';
@@ -263,6 +263,27 @@ export async function deleteCommunityCode(id: number) {
   return { success: true };
 }
 
+// Site settings (fila única — Instagram followers/posts para el footer)
+export async function getSiteSettings() {
+  const db = await getDb();
+  if (!db) return { instagramFollowers: 0, instagramPosts: 0 };
+  const [row] = await db.select().from(siteSettings).limit(1);
+  if (row) return row;
+  return { instagramFollowers: 0, instagramPosts: 0 };
+}
+
+export async function updateSiteSettings(data: { instagramFollowers?: number; instagramPosts?: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [row] = await db.select().from(siteSettings).limit(1);
+  if (row) {
+    await db.update(siteSettings).set(data).where(eq(siteSettings.id, row.id));
+  } else {
+    await db.insert(siteSettings).values({ instagramFollowers: 0, instagramPosts: 0, ...data });
+  }
+  return { success: true };
+}
+
 // Orders
 export async function createOrder(input: {
   eventSlug: string;
@@ -388,10 +409,45 @@ export async function getAllOrders(page: number = 1, limit: number = 50, status?
   if (!db) return { orders: [], total: 0 };
 
   const offset = (page - 1) * limit;
-  let query = db.select().from(orders).orderBy(desc(orders.createdAt)).limit(limit).offset(offset);
+  const conditions = status ? [eq(orders.paymentStatus, status as any)] : [];
+  const query = db.select().from(orders)
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(orders.createdAt)).limit(limit).offset(offset);
 
   const allOrders = await query;
   return { orders: allOrders, total: allOrders.length };
+}
+
+// Export completo (sin paginar) para CSV — filtra por evento/rango de fechas/estado.
+export async function getOrdersForExport(filters: { eventId?: number; dateFrom?: string; dateTo?: string; status?: string }) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conditions = [];
+  if (filters.eventId) conditions.push(eq(orders.eventId, filters.eventId));
+  if (filters.status) conditions.push(eq(orders.paymentStatus, filters.status as any));
+  if (filters.dateFrom) conditions.push(gte(orders.createdAt, new Date(filters.dateFrom)));
+  if (filters.dateTo) conditions.push(lte(orders.createdAt, new Date(filters.dateTo)));
+
+  const rows = await db.select({
+    orderNumber: orders.orderNumber,
+    createdAt: orders.createdAt,
+    eventTitle: events.title,
+    buyerName: orders.buyerName,
+    buyerEmail: orders.buyerEmail,
+    buyerPhone: orders.buyerPhone,
+    subtotal: orders.subtotal,
+    discount: orders.discount,
+    total: orders.total,
+    paymentStatus: orders.paymentStatus,
+    paymentMethod: orders.paymentMethod,
+    ambassadorCode: orders.ambassadorCode,
+  }).from(orders)
+    .leftJoin(events, eq(orders.eventId, events.id))
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(orders.createdAt));
+
+  return rows;
 }
 
 export async function getOrderStats() {
