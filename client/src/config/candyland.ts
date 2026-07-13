@@ -112,6 +112,27 @@ const ACCESOS: Acceso[] = [
     ],
   },
   {
+    id: 'grupo',
+    nombre: 'Grupo',
+    precio: 60000,
+    personas: 4,
+    descripcion: 'Acceso para 4 personas. La forma más dulce de venir en banda.',
+    beneficios: ['4 accesos', 'Todas las zonas', 'Playground XXL'],
+    estado: 'available',
+    exclusivoComunidad: false,
+    campos: [
+      { name: 'acomp1_nombre', label: 'Acompañante 1 — Nombre', type: 'text', required: true, placeholder: 'Nombre y apellido' },
+      { name: 'acomp1_rut', label: 'Acompañante 1 — RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
+      { name: 'acomp1_instagram', label: 'Acompañante 1 — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
+      { name: 'acomp2_nombre', label: 'Acompañante 2 — Nombre', type: 'text', required: true, placeholder: 'Nombre y apellido' },
+      { name: 'acomp2_rut', label: 'Acompañante 2 — RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
+      { name: 'acomp2_instagram', label: 'Acompañante 2 — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
+      { name: 'acomp3_nombre', label: 'Acompañante 3 — Nombre', type: 'text', required: true, placeholder: 'Nombre y apellido' },
+      { name: 'acomp3_rut', label: 'Acompañante 3 — RUT', type: 'text', required: true, placeholder: '12.345.678-9' },
+      { name: 'acomp3_instagram', label: 'Acompañante 3 — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
+    ],
+  },
+  {
     id: 'cumpleaneros',
     nombre: 'Cumpleañeros',
     precio: 8000,
@@ -265,7 +286,12 @@ export function coversDisponibles(now: Date = new Date()): boolean {
 
 /** Link de WhatsApp con mensaje para validar el acceso Soltero. */
 export function whatsappSolteroLink(): string {
+  return whatsappComunidadLink('Soltero');
+}
+
+/** Link de WhatsApp genérico para conseguir el código de comunidad (Soltero, Dúo Dos Hombres, etc). */
+export function whatsappComunidadLink(contexto: string): string {
   const num = CANDYLAND.whatsappSoltero.replace(/[^0-9]/g, '');
-  const msg = encodeURIComponent('Hola! Quiero validarme como miembro de la comunidad para comprar el acceso Soltero de Candyland 🍭');
+  const msg = encodeURIComponent(`Hola! Quiero validarme como miembro de la comunidad para comprar el acceso ${contexto} de Candyland 🍭`);
   return `https://wa.me/${num}?text=${msg}`;
 }

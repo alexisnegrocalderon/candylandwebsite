@@ -26,6 +26,11 @@ export const appRouter = router({
     listPublished: publicProcedure.query(async () => {
       return db.getPublishedEvents();
     }),
+    // Para la sección "Próximos Eventos" de la home: incluye publicados y pasados
+    // (para mostrar el historial en blanco y negro junto a los próximos a color).
+    listForHome: publicProcedure.query(async () => {
+      return db.getHomeEvents();
+    }),
     getBySlug: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input }) => {
       return db.getEventBySlug(input.slug);
     }),
@@ -49,6 +54,7 @@ export const appRouter = router({
       eventDate: z.string(),
       doorsOpen: z.string().optional(),
       status: z.enum(['draft', 'published', 'soldout', 'cancelled', 'past']).optional(),
+      featured: z.number().optional(),
     })).mutation(async ({ input }) => {
       return db.createEvent(input);
     }),
@@ -64,6 +70,7 @@ export const appRouter = router({
       eventDate: z.string().optional(),
       doorsOpen: z.string().optional(),
       status: z.enum(['draft', 'published', 'soldout', 'cancelled', 'past']).optional(),
+      featured: z.number().optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return db.updateEvent(id, data);
@@ -122,6 +129,7 @@ export const appRouter = router({
       })),
       discountCode: z.string().optional(),
       ambassadorCode: z.string().optional(),
+      communityCode: z.string().optional(),
       // Datos por asistente/tipo de acceso (JSON serializado). Se adjunta a la
       // preferencia de Mercado Pago como metadata; no requiere migración de schema.
       attendeeData: z.string().optional(),
@@ -173,6 +181,38 @@ export const appRouter = router({
     }),
     delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       return db.deleteDiscountCode(input.id);
+    }),
+  }),
+
+  communityCodes: router({
+    validate: publicProcedure.input(z.object({
+      code: z.string(),
+    })).mutation(async ({ input }) => {
+      return db.validateCommunityCode(input.code);
+    }),
+    // Admin
+    listAll: adminProcedure.query(async () => {
+      return db.getAllCommunityCodes();
+    }),
+    create: adminProcedure.input(z.object({
+      code: z.string(),
+      label: z.string().optional(),
+      maxUses: z.number().optional(),
+    })).mutation(async ({ input }) => {
+      return db.createCommunityCode(input);
+    }),
+    update: adminProcedure.input(z.object({
+      id: z.number(),
+      code: z.string().optional(),
+      label: z.string().optional(),
+      maxUses: z.number().optional(),
+      isActive: z.number().optional(),
+    })).mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      return db.updateCommunityCode(id, data);
+    }),
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      return db.deleteCommunityCode(input.id);
     }),
   }),
 

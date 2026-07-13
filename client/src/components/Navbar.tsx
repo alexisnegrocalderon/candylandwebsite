@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X, User, Shield, LogOut } from 'lucide-react';
-import { useAuth } from '@/_core/hooks/useAuth';
-import { startLogin } from '@/const';
+import { Menu, X } from 'lucide-react';
+import { CANDYLAND } from '@/config/candyland';
 
 const navLinks = [
   { href: '/', label: 'Inicio' },
@@ -14,17 +13,13 @@ const navLinks = [
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [location] = useLocation();
-  const { user, isAuthenticated, logout } = useAuth();
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
-
-  const isAdmin = user?.role === 'admin';
 
   return (
     <>
@@ -59,77 +54,12 @@ export default function Navbar() {
               </Link>
             ))}
 
-            {/* User menu */}
-            {isAuthenticated ? (
-              <div className="relative">
-                <button
-                  onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center gap-2 px-4 py-2 border border-border/50 rounded-full text-sm font-medium text-foreground hover:border-primary/50 transition-all duration-300 interactive"
-                >
-                  <User className="w-4 h-4" />
-                  <span className="max-w-[100px] truncate">{user?.name || 'Mi Cuenta'}</span>
-                </button>
-
-                <AnimatePresence>
-                  {userMenuOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                      transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
-                      className="absolute right-0 top-12 w-56 bg-card border border-border/50 rounded-xl shadow-xl overflow-hidden"
-                    >
-                      <div className="p-3 border-b border-border/50">
-                        <p className="text-sm font-medium text-foreground truncate">{user?.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
-                      </div>
-                      <div className="p-2">
-                        <Link
-                          href="/mis-referidos"
-                          onClick={() => setUserMenuOpen(false)}
-                          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-muted/50 transition-colors w-full"
-                        >
-                          <User className="w-4 h-4 text-primary" />
-                          Mis Referidos
-                        </Link>
-                        {isAdmin && (
-                          <Link
-                            href="/admin"
-                            onClick={() => setUserMenuOpen(false)}
-                            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-muted/50 transition-colors w-full"
-                          >
-                            <Shield className="w-4 h-4 text-primary" />
-                            Panel Admin
-                          </Link>
-                        )}
-                        <button
-                          onClick={() => { logout(); setUserMenuOpen(false); }}
-                          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors w-full"
-                        >
-                          <LogOut className="w-4 h-4" />
-                          Cerrar Sesión
-                        </button>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            ) : (
-              <button
-                onClick={() => startLogin()}
-                className="flex items-center gap-2 px-4 py-2 border border-border/50 rounded-full text-sm font-medium text-muted-foreground hover:text-foreground hover:border-primary/50 transition-all duration-300 interactive"
-              >
-                <User className="w-4 h-4" />
-                Ingresar
-              </button>
-            )}
-
-            <a
-              href="/#entradas"
+            <Link
+              href={`/checkout/${CANDYLAND.slug}`}
               className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-semibold tracking-wide uppercase transition-transform duration-200 hover:scale-105 active:scale-95 interactive"
             >
               Comprar Entradas
-            </a>
+            </Link>
           </div>
 
           {/* Mobile menu button */}
@@ -141,11 +71,6 @@ export default function Navbar() {
           </button>
         </div>
       </motion.nav>
-
-      {/* Click outside to close user menu */}
-      {userMenuOpen && (
-        <div className="fixed inset-0 z-40" onClick={() => setUserMenuOpen(false)} />
-      )}
 
       {/* Mobile menu */}
       <AnimatePresence>
@@ -169,52 +94,13 @@ export default function Navbar() {
                 </Link>
               ))}
 
-              {isAuthenticated && (
-                <>
-                  <Link
-                    href="/mis-referidos"
-                    onClick={() => setMobileOpen(false)}
-                    className="text-2xl font-heading tracking-tight text-primary"
-                  >
-                    Mis Referidos
-                  </Link>
-                  {isAdmin && (
-                    <Link
-                      href="/admin"
-                      onClick={() => setMobileOpen(false)}
-                      className="text-2xl font-heading tracking-tight text-primary"
-                    >
-                      Panel Admin
-                    </Link>
-                  )}
-                </>
-              )}
-
-              {!isAuthenticated && (
-                <button
-                  onClick={() => { startLogin(); setMobileOpen(false); }}
-                  className="text-2xl font-heading tracking-tight text-muted-foreground"
-                >
-                  Iniciar Sesión
-                </button>
-              )}
-
-              <a
-                href="/#entradas"
+              <Link
+                href={`/checkout/${CANDYLAND.slug}`}
                 onClick={() => setMobileOpen(false)}
                 className="mt-4 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center"
               >
                 Comprar Entradas
-              </a>
-
-              {isAuthenticated && (
-                <button
-                  onClick={() => { logout(); setMobileOpen(false); }}
-                  className="text-lg text-destructive text-left"
-                >
-                  Cerrar Sesión
-                </button>
-              )}
+              </Link>
             </div>
           </motion.div>
         )}

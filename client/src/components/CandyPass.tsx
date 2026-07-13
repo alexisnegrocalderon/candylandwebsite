@@ -11,6 +11,7 @@ const MOTIVOS: Record<string, { emoji: string; from: string; to: string; glow: s
   soltera: { emoji: '🍭', from: 'oklch(0.78 0.14 340 / 0.55)', to: 'oklch(0.75 0.13 300 / 0.35)', glow: 'oklch(0.75 0.19 340 / 0.5)' },
   soltero: { emoji: '🔑', from: 'oklch(0.7 0.12 262 / 0.55)', to: 'oklch(0.72 0.14 300 / 0.35)', glow: 'oklch(0.65 0.17 262 / 0.5)' },
   trio: { emoji: '🍬', from: 'oklch(0.74 0.15 300 / 0.55)', to: 'oklch(0.75 0.13 340 / 0.35)', glow: 'oklch(0.68 0.2 300 / 0.5)' },
+  grupo: { emoji: '🌈', from: 'oklch(0.76 0.14 130 / 0.55)', to: 'oklch(0.73 0.13 262 / 0.35)', glow: 'oklch(0.7 0.19 160 / 0.5)' },
   cumpleaneros: { emoji: '🎂', from: 'oklch(0.78 0.13 340 / 0.55)', to: 'oklch(0.73 0.12 262 / 0.35)', glow: 'oklch(0.72 0.18 330 / 0.5)' },
 };
 
@@ -78,7 +79,7 @@ export default function CandyPass({ acceso }: { acceso: Acceso }) {
         <div className="relative" style={{ transform: 'translateZ(20px)' }}>
           {/* Emoji al lado del nombre (compacto) */}
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-2xl md:text-3xl drop-shadow-[0_3px_12px_rgba(255,79,195,0.4)]">{motivo.emoji}</span>
+            <span className="text-2xl md:text-3xl drop-shadow-[0_3px_12px_oklch(0.68_0.16_340_/_0.3)]">{motivo.emoji}</span>
             <h3 className="font-heading font-extrabold text-xl md:text-2xl tracking-tight text-foreground">{acceso.nombre}</h3>
           </div>
 

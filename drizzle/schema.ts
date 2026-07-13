@@ -147,6 +147,21 @@ export const discountCodes = mysqlTable("discountCodes", {
 export type DiscountCode = typeof discountCodes.$inferSelect;
 export type InsertDiscountCode = typeof discountCodes.$inferInsert;
 
+// Community access codes (gate-only, no discount — e.g. Soltero / Dúo Dos Hombres)
+export const communityCodes = mysqlTable("communityCodes", {
+  id: int("id").autoincrement().primaryKey(),
+  code: varchar("code", { length: 50 }).notNull().unique(),
+  label: varchar("label", { length: 255 }),
+  maxUses: int("maxUses"),
+  usedCount: int("usedCount").default(0).notNull(),
+  isActive: int("isActive").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type CommunityCode = typeof communityCodes.$inferSelect;
+export type InsertCommunityCode = typeof communityCodes.$inferInsert;
+
 // Ambassador referrals tracking
 export const referrals = mysqlTable("referrals", {
   id: int("id").autoincrement().primaryKey(),

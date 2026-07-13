@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, referrals } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { createPaymentPreference } from './mercadopago';
@@ -76,6 +76,16 @@ export async function getAllEvents() {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(events).orderBy(desc(events.createdAt));
+}
+
+// Publicados + pasados (para la sección "Próximos Eventos" de la home: pasados en
+// blanco y negro, próximos a color). Nunca expone 'draft'/'cancelled'.
+export async function getHomeEvents() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(events)
+    .where(or(eq(events.status, 'published'), eq(events.status, 'past'), eq(events.status, 'soldout')))
+    .orderBy(events.eventDate);
 }
 
 export async function getEventBySlug(slug: string) {
@@ -205,6 +215,54 @@ export async function deleteDiscountCode(id: number) {
   return { success: true };
 }
 
+// Community Access Codes (gate-only — Soltero / Dúo Dos Hombres)
+export async function validateCommunityCode(code: string) {
+  const db = await getDb();
+  if (!db) return { valid: false, message: 'Service unavailable' };
+
+  const result = await db.select().from(communityCodes).where(eq(communityCodes.code, code)).limit(1);
+  if (result.length === 0) return { valid: false, message: 'Código no encontrado' };
+
+  const entry = result[0];
+  if (!entry.isActive) return { valid: false, message: 'Código inactivo' };
+  if (entry.maxUses && entry.usedCount >= entry.maxUses) return { valid: false, message: 'Código agotado' };
+
+  return { valid: true, communityCode: entry };
+}
+
+export async function markCommunityCodeUsed(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(communityCodes).set({ usedCount: sql`usedCount + 1` }).where(eq(communityCodes.id, id));
+}
+
+export async function getAllCommunityCodes() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(communityCodes).orderBy(desc(communityCodes.createdAt));
+}
+
+export async function createCommunityCode(data: any) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(communityCodes).values(data);
+  return { success: true };
+}
+
+export async function updateCommunityCode(id: number, data: any) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(communityCodes).set(data).where(eq(communityCodes.id, id));
+  return { success: true };
+}
+
+export async function deleteCommunityCode(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(communityCodes).where(eq(communityCodes.id, id));
+  return { success: true };
+}
+
 // Orders
 export async function createOrder(input: {
   eventSlug: string;
@@ -214,6 +272,7 @@ export async function createOrder(input: {
   items: { ticketTypeId: number; quantity: number }[];
   discountCode?: string;
   ambassadorCode?: string;
+  communityCode?: string;
   attendeeData?: string;
 }) {
   const db = await getDb();
@@ -249,6 +308,14 @@ export async function createOrder(input: {
       // Increment used count
       await db.update(discountCodes).set({ usedCount: sql`usedCount + 1` }).where(eq(discountCodes.id, disc.id));
     }
+  }
+
+  // Confirm community access code (Soltero / Dúo Dos Hombres) — defense in depth,
+  // el checkout ya lo valida en vivo antes de dejar avanzar.
+  if (input.communityCode) {
+    const validation = await validateCommunityCode(input.communityCode);
+    if (!validation.valid) throw new Error(validation.message || 'Código de comunidad inválido');
+    if (validation.communityCode) await markCommunityCodeUsed(validation.communityCode.id);
   }
 
   const total = Math.max(0, subtotal - discountAmount);
@@ -313,7 +380,7 @@ export async function createOrder(input: {
 
   const checkoutUrl = preference.initPoint || `/pago/exito?order=${orderNumber}`;
 
-  return { orderId, orderNumber, checkoutUrl, total };
+  return { orderId, orderNumber, checkoutUrl, total, preferenceId: preference.id };
 }
 
 export async function getAllOrders(page: number = 1, limit: number = 50, status?: string) {

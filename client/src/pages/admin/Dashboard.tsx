@@ -22,7 +22,8 @@ function EventsManager() {
   const deleteTicketType = trpc.events.deleteTicketType.useMutation({ onSuccess: () => refetch() });
 
   const [newEvent, setNewEvent] = useState({
-    title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', eventDate: '', doorsOpen: '', status: 'draft' as const,
+    title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', eventDate: '', doorsOpen: '',
+    status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false,
   });
   const [newTicket, setNewTicket] = useState({ eventId: 0, name: '', price: 0, totalStock: 0, description: '' });
   const [showEventForm, setShowEventForm] = useState(false);
@@ -33,13 +34,14 @@ function EventsManager() {
 
   const handleCreateEvent = async () => {
     if (!newEvent.title || !newEvent.slug || !newEvent.eventDate) return;
+    const payload = { ...newEvent, featured: newEvent.featured ? 1 : 0 };
     if (editingEventId) {
-      await updateEvent.mutateAsync({ id: editingEventId, ...newEvent });
+      await updateEvent.mutateAsync({ id: editingEventId, ...payload });
       setEditingEventId(null);
     } else {
-      await createEvent.mutateAsync(newEvent);
+      await createEvent.mutateAsync(payload);
     }
-    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', eventDate: '', doorsOpen: '', status: 'draft' });
+    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', eventDate: '', doorsOpen: '', status: 'draft', imageUrl: '', featured: false });
     setShowEventForm(false);
   };
 
@@ -72,6 +74,26 @@ function EventsManager() {
             </div>
             <div><Label>Descripción corta</Label><Input value={newEvent.shortDescription} onChange={(e) => setNewEvent({ ...newEvent, shortDescription: e.target.value })} className="mt-1" /></div>
             <div><Label>Descripción completa</Label><textarea value={newEvent.description} onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })} className="mt-1 w-full h-24 bg-input border border-border rounded-md p-2 text-foreground" /></div>
+            <div><Label>URL del flyer/imagen</Label><Input value={newEvent.imageUrl} onChange={(e) => setNewEvent({ ...newEvent, imageUrl: e.target.value })} className="mt-1" placeholder="https://..." /></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+              <div>
+                <Label>Estado</Label>
+                <Select value={newEvent.status} onValueChange={(v) => setNewEvent({ ...newEvent, status: v as any })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">Borrador (oculto)</SelectItem>
+                    <SelectItem value="published">Publicado (próximo)</SelectItem>
+                    <SelectItem value="soldout">Agotado</SelectItem>
+                    <SelectItem value="past">Pasado (aparece en blanco y negro)</SelectItem>
+                    <SelectItem value="cancelled">Cancelado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
+                <input type="checkbox" checked={newEvent.featured} onChange={(e) => setNewEvent({ ...newEvent, featured: e.target.checked })} className="w-4 h-4 accent-primary" />
+                <span className="text-sm">Destacar como próximo evento</span>
+              </label>
+            </div>
             <div className="flex gap-2">
               <Button onClick={handleCreateEvent} disabled={createEvent.isPending || updateEvent.isPending}>
                 {editingEventId ? 'Guardar Cambios' : 'Crear Evento'}
@@ -101,6 +123,8 @@ function EventsManager() {
                       eventDate: event.eventDate ? new Date(event.eventDate).toISOString().slice(0, 16) : '',
                       doorsOpen: event.doorsOpen ? new Date(event.doorsOpen).toISOString().slice(0, 16) : '',
                       status: event.status || 'draft',
+                      imageUrl: event.imageUrl || '',
+                      featured: !!event.featured,
                     });
                     setShowEventForm(true);
                   }}>
@@ -213,6 +237,76 @@ function DiscountsManager() {
               <Button variant="outline" size="sm" className="text-destructive" onClick={() => deleteDiscount.mutateAsync({ id: d.id })}>
                 <Trash2 className="w-3 h-3" />
               </Button>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CommunityCodesManager() {
+  const { data: codesData, refetch } = trpc.communityCodes.listAll.useQuery();
+  const createCode = trpc.communityCodes.create.useMutation({ onSuccess: () => refetch() });
+  const deleteCode = trpc.communityCodes.delete.useMutation({ onSuccess: () => refetch() });
+  const updateCode = trpc.communityCodes.update.useMutation({ onSuccess: () => refetch() });
+
+  const [newCode, setNewCode] = useState({ code: '', label: '', maxUses: 0 });
+  const [showForm, setShowForm] = useState(false);
+
+  const codes = codesData ?? [];
+
+  const handleCreate = async () => {
+    if (!newCode.code) return;
+    await createCode.mutateAsync({ ...newCode, maxUses: newCode.maxUses || undefined });
+    setNewCode({ code: '', label: '', maxUses: 0 });
+    setShowForm(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="font-heading text-2xl">Códigos Comunidad</h2>
+          <p className="text-muted-foreground text-sm mt-1">Desbloquean el acceso Soltero y Dúo Dos Hombres en el checkout — no aplican descuento, solo validan pertenencia a la comunidad.</p>
+        </div>
+        <Button onClick={() => setShowForm(!showForm)} className="interactive"><Plus className="w-4 h-4 mr-2" /> Nuevo Código</Button>
+      </div>
+
+      {showForm && (
+        <Card>
+          <CardContent className="pt-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div><Label>Código</Label><Input value={newCode.code} onChange={(e) => setNewCode({ ...newCode, code: e.target.value.toUpperCase() })} className="mt-1" /></div>
+              <div><Label>Etiqueta (opcional)</Label><Input value={newCode.label} onChange={(e) => setNewCode({ ...newCode, label: e.target.value })} className="mt-1" placeholder="Ej: Grupo WhatsApp Playroom" /></div>
+              <div><Label>Usos máximos</Label><Input type="number" value={newCode.maxUses} onChange={(e) => setNewCode({ ...newCode, maxUses: Number(e.target.value) })} className="mt-1" /></div>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={handleCreate}>Crear Código</Button>
+              <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="space-y-3">
+        {codes.map((c: any) => (
+          <Card key={c.id}>
+            <CardContent className="pt-4 flex justify-between items-center">
+              <div>
+                <span className="font-mono font-bold text-primary">{c.code}</span>
+                {c.label && <span className="text-muted-foreground text-sm ml-3">{c.label}</span>}
+                <span className="text-muted-foreground text-sm ml-3">Usos: {c.usedCount}/{c.maxUses || '∞'}</span>
+                <span className={`text-xs ml-3 px-2 py-0.5 rounded-full ${c.isActive ? 'bg-green-500/20 text-green-400' : 'bg-muted text-muted-foreground'}`}>{c.isActive ? 'Activo' : 'Inactivo'}</span>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => updateCode.mutateAsync({ id: c.id, isActive: c.isActive ? 0 : 1 })}>
+                  {c.isActive ? 'Desactivar' : 'Activar'}
+                </Button>
+                <Button variant="outline" size="sm" className="text-destructive" onClick={() => deleteCode.mutateAsync({ id: c.id })}>
+                  <Trash2 className="w-3 h-3" />
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ))}
@@ -380,12 +474,14 @@ export default function AdminDashboard() {
               <TabsTrigger value="events">Eventos</TabsTrigger>
               <TabsTrigger value="orders">Ventas</TabsTrigger>
               <TabsTrigger value="discounts">Descuentos</TabsTrigger>
+              <TabsTrigger value="community">Códigos Comunidad</TabsTrigger>
               <TabsTrigger value="referrals">Referidos</TabsTrigger>
             </TabsList>
 
             <TabsContent value="events"><EventsManager /></TabsContent>
             <TabsContent value="orders"><OrdersView /></TabsContent>
             <TabsContent value="discounts"><DiscountsManager /></TabsContent>
+            <TabsContent value="community"><CommunityCodesManager /></TabsContent>
             <TabsContent value="referrals"><ReferralsView /></TabsContent>
           </Tabs>
         </motion.div>

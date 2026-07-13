@@ -7,47 +7,50 @@
    Syne cumple el mismo rol editorial expandido y ya se carga desde Google Fonts. */
 
 @theme inline {
-  --color-background: oklch(0.08 0.01 280);
-  --color-foreground: oklch(0.98 0.005 280);
-  --color-card: oklch(0.12 0.015 280);
-  --color-card-foreground: oklch(0.98 0.005 280);
-  --color-popover: oklch(0.12 0.015 280);
-  --color-popover-foreground: oklch(0.98 0.005 280);
-  --color-primary: oklch(0.7 0.25 330);
-  --color-primary-foreground: oklch(0.98 0.005 280);
-  --color-secondary: oklch(0.6 0.2 250);
-  --color-secondary-foreground: oklch(0.98 0.005 280);
-  --color-muted: oklch(0.2 0.02 280);
-  --color-muted-foreground: oklch(0.65 0.02 280);
-  --color-accent: oklch(0.7 0.25 330);
-  --color-accent-foreground: oklch(0.98 0.005 280);
-  --color-destructive: oklch(0.55 0.2 25);
-  --color-destructive-foreground: oklch(0.98 0.005 280);
-  --color-border: oklch(0.25 0.02 280);
-  --color-input: oklch(0.2 0.02 280);
-  --color-ring: oklch(0.7 0.25 330);
-  --color-chart-1: oklch(0.7 0.25 330);
-  --color-chart-2: oklch(0.6 0.2 250);
-  --color-chart-3: oklch(0.65 0.15 150);
-  --color-chart-4: oklch(0.7 0.15 60);
-  --color-chart-5: oklch(0.6 0.2 0);
-  --color-sidebar: oklch(0.1 0.015 280);
-  --color-sidebar-foreground: oklch(0.98 0.005 280);
-  --color-sidebar-primary: oklch(0.7 0.25 330);
-  --color-sidebar-primary-foreground: oklch(0.98 0.005 280);
-  --color-sidebar-accent: oklch(0.2 0.02 280);
-  --color-sidebar-accent-foreground: oklch(0.98 0.005 280);
-  --color-sidebar-border: oklch(0.25 0.02 280);
-  --color-sidebar-ring: oklch(0.7 0.25 330);
+  /* Candy Pastel Matte — inspirado en el video hero (fondo magenta/violeta,
+     dulces gomosos naranja/coral/celeste/amarillo). Fondo claro, mate,
+     minimalista; el color vive en los acentos, no en el fondo. */
+  --color-background: oklch(0.97 0.014 340);
+  --color-foreground: oklch(0.3 0.05 335);
+  --color-card: oklch(0.995 0.006 340);
+  --color-card-foreground: oklch(0.3 0.05 335);
+  --color-popover: oklch(0.995 0.006 340);
+  --color-popover-foreground: oklch(0.3 0.05 335);
+  --color-primary: oklch(0.68 0.16 340);
+  --color-primary-foreground: oklch(0.99 0.005 340);
+  --color-secondary: oklch(0.72 0.1 300);
+  --color-secondary-foreground: oklch(0.3 0.05 335);
+  --color-muted: oklch(0.94 0.016 330);
+  --color-muted-foreground: oklch(0.5 0.04 330);
+  --color-accent: oklch(0.68 0.16 340);
+  --color-accent-foreground: oklch(0.99 0.005 340);
+  --color-destructive: oklch(0.58 0.19 25);
+  --color-destructive-foreground: oklch(0.99 0.005 340);
+  --color-border: oklch(0.88 0.025 335);
+  --color-input: oklch(0.92 0.02 335);
+  --color-ring: oklch(0.68 0.16 340);
+  --color-chart-1: oklch(0.68 0.16 340);
+  --color-chart-2: oklch(0.72 0.1 300);
+  --color-chart-3: oklch(0.7 0.1 235);
+  --color-chart-4: oklch(0.78 0.12 70);
+  --color-chart-5: oklch(0.72 0.13 25);
+  --color-sidebar: oklch(0.98 0.01 340);
+  --color-sidebar-foreground: oklch(0.3 0.05 335);
+  --color-sidebar-primary: oklch(0.68 0.16 340);
+  --color-sidebar-primary-foreground: oklch(0.99 0.005 340);
+  --color-sidebar-accent: oklch(0.94 0.016 330);
+  --color-sidebar-accent-foreground: oklch(0.3 0.05 335);
+  --color-sidebar-border: oklch(0.88 0.025 335);
+  --color-sidebar-ring: oklch(0.68 0.16 340);
   --radius: 0.625rem;
   --font-sans: 'Space Grotesk', system-ui, sans-serif;
   --font-heading: 'Syne', sans-serif;
 
-  /* Candy After Dark */
-  --color-cherry: oklch(0.62 0.24 15);
-  --color-violet-electric: oklch(0.65 0.24 300);
-  --color-candy-blue: oklch(0.55 0.2 262);
-  --color-candy-cream: oklch(0.97 0.015 340);
+  /* Candy Pastel Matte — acentos */
+  --color-cherry: oklch(0.76 0.13 35);
+  --color-violet-electric: oklch(0.68 0.1 295);
+  --color-candy-blue: oklch(0.76 0.09 235);
+  --color-candy-cream: oklch(0.98 0.012 90);
 }
 
 @layer base {
@@ -74,7 +77,7 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: oklch(0.7 0.25 330 / 0.8);
+  background: oklch(0.68 0.16 340 / 0.8);
   pointer-events: none;
   z-index: 9999;
   mix-blend-mode: difference;
@@ -86,7 +89,7 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  border: 1px solid oklch(0.7 0.25 330 / 0.4);
+  border: 1px solid oklch(0.68 0.16 340 / 0.4);
   pointer-events: none;
   z-index: 9998;
   transition: transform 0.3s cubic-bezier(0.23, 1, 0.32, 1), width 0.3s, height 0.3s;
@@ -95,7 +98,7 @@
 .custom-cursor-outer.hovering {
   width: 60px;
   height: 60px;
-  border-color: oklch(0.7 0.25 330 / 0.8);
+  border-color: oklch(0.68 0.16 340 / 0.8);
 }
 
 /* Smooth scroll */
@@ -105,7 +108,7 @@ html {
 
 /* Text gradient */
 .text-gradient {
-  background: linear-gradient(135deg, oklch(0.7 0.25 330), oklch(0.6 0.2 250));
+  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -113,17 +116,17 @@ html {
 
 /* Glow effect */
 .glow-pink {
-  box-shadow: 0 0 40px oklch(0.7 0.25 330 / 0.3), 0 0 80px oklch(0.7 0.25 330 / 0.1);
+  box-shadow: 0 0 40px oklch(0.68 0.16 340 / 0.22), 0 0 80px oklch(0.68 0.16 340 / 0.08);
 }
 
 .glow-blue {
-  box-shadow: 0 0 40px oklch(0.6 0.2 250 / 0.3), 0 0 80px oklch(0.6 0.2 250 / 0.1);
+  box-shadow: 0 0 40px oklch(0.76 0.09 235 / 0.22), 0 0 80px oklch(0.76 0.09 235 / 0.08);
 }
 
-/* ─── Candy After Dark ─────────────────────────────────────── */
+/* ─── Candy Pastel Matte ───────────────────────────────────── */
 
 .text-gradient-candy {
-  background: linear-gradient(120deg, oklch(0.78 0.22 340), oklch(0.62 0.24 15) 35%, oklch(0.65 0.24 300) 70%, oklch(0.6 0.2 262));
+  background: linear-gradient(120deg, var(--color-primary), var(--color-cherry) 35%, var(--color-violet-electric) 70%, var(--color-candy-blue));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -137,7 +140,7 @@ html {
 }
 .btn-jelly:hover {
   transform: scale(1.045);
-  box-shadow: 0 0 40px oklch(0.7 0.25 330 / 0.45), 0 0 90px oklch(0.7 0.25 330 / 0.18);
+  box-shadow: 0 0 30px oklch(0.68 0.16 340 / 0.35), 0 0 60px oklch(0.68 0.16 340 / 0.14);
 }
 .btn-jelly:active {
   transform: scale(0.96);
@@ -146,7 +149,7 @@ html {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(105deg, transparent 40%, oklch(1 0 0 / 0.35) 50%, transparent 60%);
+  background: linear-gradient(105deg, transparent 40%, oklch(1 0 0 / 0.4) 50%, transparent 60%);
   transform: translateX(-120%);
 }
 .btn-jelly:hover::after {
@@ -190,26 +193,28 @@ html {
 
 /* Pulso suave para chips de urgencia */
 @keyframes candy-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 oklch(0.62 0.24 15 / 0.5); }
-  60% { box-shadow: 0 0 0 12px oklch(0.62 0.24 15 / 0); }
+  0%, 100% { box-shadow: 0 0 0 0 oklch(0.76 0.13 35 / 0.5); }
+  60% { box-shadow: 0 0 0 12px oklch(0.76 0.13 35 / 0); }
 }
 .candy-pulse {
   animation: candy-pulse 2.4s ease-out infinite;
 }
 
-/* Card glossy translúcida */
+/* Card glossy translúcida — glassmorphism claro/mate sobre el fondo pastel */
 .glass-candy {
-  background: oklch(0.14 0.02 320 / 0.65);
+  background: oklch(0.995 0.006 340 / 0.55);
   backdrop-filter: blur(18px);
-  border: 1px solid oklch(0.7 0.25 330 / 0.18);
+  border: 1px solid oklch(0.68 0.16 340 / 0.16);
+  box-shadow: 0 4px 24px oklch(0.68 0.16 340 / 0.06);
 }
 
-/* Variante más clara/pastel para el Candy Pass: base más luminosa
-   para que los tonos candy del gradiente interno se lean vivos, no oscuros. */
+/* Variante para el Candy Pass: un poco más opaca/tinte cálido para separarse
+   del fondo cuando hay varias tarjetas encimadas. */
 .glass-candy-pastel {
-  background: oklch(0.24 0.03 320 / 0.55);
+  background: oklch(0.98 0.014 340 / 0.75);
   backdrop-filter: blur(20px);
-  border: 1px solid oklch(0.85 0.06 340 / 0.35);
+  border: 1px solid oklch(0.68 0.16 340 / 0.22);
+  box-shadow: 0 4px 24px oklch(0.68 0.16 340 / 0.08);
 }
 
 /* Accesibilidad: sin animaciones decorativas si el usuario lo pide */
@@ -304,9 +309,9 @@ html {
   background: linear-gradient(
     115deg,
     transparent 20%,
-    oklch(0.78 0.22 340 / 0.5) 35%,
-    oklch(0.65 0.24 300 / 0.5) 50%,
-    oklch(0.6 0.2 262 / 0.5) 65%,
+    oklch(0.68 0.16 340 / 0.45) 35%,
+    oklch(0.68 0.1 295 / 0.45) 50%,
+    oklch(0.76 0.09 235 / 0.45) 65%,
     transparent 80%
   );
   background-size: 200% 200%;
@@ -317,7 +322,7 @@ html {
 
 .candy-letter {
   display: inline-block;
-  background: linear-gradient(120deg, oklch(0.78 0.22 340), oklch(0.62 0.24 15) 35%, oklch(0.65 0.24 300) 70%, oklch(0.6 0.2 262));
+  background: linear-gradient(120deg, var(--color-primary), var(--color-cherry) 35%, var(--color-violet-electric) 70%, var(--color-candy-blue));
   background-size: 220% 220%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -329,7 +334,7 @@ html {
 @media (hover: hover) and (pointer: fine) {
   .candy-letter:hover {
     transform: translateY(-6%) scale(1.1) rotate(-2deg);
-    filter: brightness(1.4) saturate(1.35) drop-shadow(0 0 18px oklch(0.7 0.25 330 / 0.65));
+    filter: brightness(1.15) saturate(1.25) drop-shadow(0 0 14px oklch(0.68 0.16 340 / 0.4));
     background-position: 100% 60%;
   }
 }
@@ -342,7 +347,7 @@ html {
 }
 @keyframes candy-letter-shimmer {
   0%, 100% { filter: none; transform: translateY(0); }
-  50% { filter: brightness(1.3) saturate(1.25) drop-shadow(0 0 12px oklch(0.7 0.25 330 / 0.5)); transform: translateY(-3%); }
+  50% { filter: brightness(1.1) saturate(1.15) drop-shadow(0 0 10px oklch(0.68 0.16 340 / 0.3)); transform: translateY(-3%); }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -46,7 +46,7 @@ export default function CandyIntro() {
             className="absolute inset-0"
             style={{
               background:
-                'radial-gradient(circle at 30% 30%, oklch(0.65 0.24 300 / 0.5), transparent 55%), radial-gradient(circle at 70% 70%, oklch(0.62 0.24 15 / 0.5), transparent 55%), oklch(0.06 0.01 300)',
+                'radial-gradient(circle at 30% 30%, oklch(0.68 0.1 295 / 0.35), transparent 55%), radial-gradient(circle at 70% 70%, oklch(0.76 0.13 35 / 0.3), transparent 55%), oklch(0.97 0.014 340)',
             }}
             animate={opening ? { scale: 1.3, opacity: 0 } : {}}
             transition={{ duration: 0.9, ease: [0.23, 1, 0.32, 1] }}
@@ -74,7 +74,7 @@ export default function CandyIntro() {
             aria-label="Toca para entrar"
           >
             <motion.div
-              className="text-[7rem] md:text-[10rem] leading-none drop-shadow-[0_0_40px_rgba(255,79,195,0.6)]"
+              className="text-[7rem] md:text-[10rem] leading-none drop-shadow-[0_0_40px_oklch(0.68_0.16_340_/_0.4)]"
               animate={
                 opening
                   ? { scale: [1, 1.25, 0], rotate: [0, -8, 20] }

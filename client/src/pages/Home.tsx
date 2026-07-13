@@ -8,13 +8,12 @@ import {
   Clock,
   Gamepad2,
   Instagram,
+  Lollipop,
   MapPin,
   Martini,
   MessageCircle,
-  Minus,
   Music,
   Music2,
-  Plus,
   ShieldCheck,
   Shirt,
   Sparkles,
@@ -29,11 +28,9 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { trpc } from '@/lib/trpc';
-import { CANDYLAND, formatCLP, whatsappSolteroLink } from '@/config/candyland';
+import { CANDYLAND } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
-import CandyPass from '@/components/CandyPass';
 import { scrollToId, prefersReducedMotion } from '@/lib/smoothScroll';
-import { cinematicOn, ensureScrollTrigger } from '@/lib/scrollFx';
 
 /* ─── Utilidades ───────────────────────────────────────────── */
 
@@ -62,10 +59,6 @@ function useCountdown(target: Date) {
     segundos: Math.floor((diff / 1000) % 60),
     esHoy: diff === 0,
   };
-}
-
-function scrollToEntradas() {
-  scrollToId('entradas');
 }
 
 /** Anima un número desde su valor previo hasta `target` (easeOutCubic). */
@@ -106,79 +99,64 @@ function useIncreaseBurst(value: number) {
   return burstId;
 }
 
-/* ─── Máquina de dulces (contador Misión 300) ──────────────── */
-
-const JAR_CANDIES = ['🍬', '🍭', '🍒', '🍡', '🧁', '🍩', '🍫', '🍪'];
+/* ─── Anillo de progreso (contador Misión 300) ─────────────── */
 
 /**
- * Máquina de dulces estilo gumball: cúpula de vidrio que se llena según el
- * avance de la Misión 300 y base con dispensador. Cuando `dropId` cambia,
- * un dulce cae por el conducto hasta el depósito (compra confirmada).
- * Si config.mision.videoLoop existe, se reproduce como ambiente dentro de la cúpula.
+ * Anillo de progreso Misión 300: reemplaza la vieja "máquina de dulces" por
+ * un aro moderno con gradiente candy que se llena según el avance. Cuando
+ * `dropId` cambia (compra confirmada) se dispara un pequeño brillo ✨.
  */
-function CandyMachine({ pct, dropId }: { pct: number; dropId: number }) {
-  const video = CANDYLAND.mision.videoLoop;
+function MissionRing({ pct, dropId }: { pct: number; dropId: number }) {
+  const size = 176;
+  const stroke = 12;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference * (1 - Math.max(0, Math.min(100, pct)) / 100);
+
   return (
-    <div className="relative w-40 md:w-48 shrink-0 select-none" aria-hidden>
-      {/* Cúpula de vidrio */}
-      <div className="relative aspect-square rounded-full border-2 border-white/25 bg-white/[0.04] backdrop-blur-sm overflow-hidden">
-        {video && (
-          <video
-            className="absolute inset-0 w-full h-full object-cover opacity-50"
-            src={video}
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="metadata"
-          />
-        )}
-        {/* Brillo de vidrio */}
-        <div className="absolute top-3 left-4 w-2 h-1/2 rounded-full bg-white/25 rotate-12" />
-
-        {/* Nivel de dulces dentro de la cúpula */}
-        <motion.div
-          initial={{ height: 0 }}
-          animate={{ height: `${Math.max(10, Math.min(92, pct))}%` }}
+    <div className="relative w-36 h-36 md:w-44 md:h-44 shrink-0 select-none" aria-hidden>
+      <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--color-muted)" strokeWidth={stroke} />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="url(#missionRingGradient)"
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset: offset }}
           transition={{ duration: 1.4, ease: [0.23, 1, 0.32, 1] }}
-          className="absolute bottom-0 inset-x-0 overflow-hidden"
-        >
-          <div className="absolute bottom-0 inset-x-0 h-40 md:h-48 flex flex-wrap-reverse content-start items-end justify-center gap-0.5 p-2 bg-gradient-to-t from-primary/25 via-violet-electric/15 to-transparent">
-            {Array.from({ length: 24 }).map((_, i) => (
-              <span key={i} className="text-base md:text-lg leading-none" style={{ transform: `rotate(${((i * 47) % 40) - 20}deg)` }}>
-                {JAR_CANDIES[i % JAR_CANDIES.length]}
-              </span>
-            ))}
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Cuello + base de la máquina */}
-      <div className="h-2 mx-10 bg-gradient-to-b from-white/20 to-transparent" />
-      <div className="relative h-16 md:h-20 mx-3 rounded-b-2xl rounded-t-md bg-gradient-to-b from-primary/60 via-cherry/50 to-primary/35 border border-white/20 overflow-hidden">
-        {/* Ventana del dispensador */}
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-12 h-8 md:w-14 md:h-9 rounded-lg bg-background/70 border border-white/25 flex items-center justify-center overflow-hidden">
-          {/* Dulce que cae al confirmarse una compra */}
-          <AnimatePresence>
-            {dropId > 0 && (
-              <motion.span
-                key={dropId}
-                className="text-lg md:text-xl"
-                initial={{ y: -46, opacity: 0, rotate: 0 }}
-                animate={{ y: 0, opacity: 1, rotate: 200 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.65, ease: [0.34, 1.4, 0.64, 1] }}
-              >
-                {JAR_CANDIES[dropId % JAR_CANDIES.length]}
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </div>
-        {/* Perilla */}
-        <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-7 h-7 rounded-full border-2 border-white/30 bg-white/10">
-          <div className="absolute inset-y-1 left-1/2 -translate-x-1/2 w-1 rounded bg-white/30" />
+        />
+        <defs>
+          <linearGradient id="missionRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="var(--color-primary)" />
+            <stop offset="50%" stopColor="var(--color-cherry)" />
+            <stop offset="100%" stopColor="var(--color-violet-electric)" />
+          </linearGradient>
+        </defs>
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="w-16 h-16 md:w-20 md:h-20 rounded-full glass-candy flex items-center justify-center">
+          <Lollipop className="w-8 h-8 md:w-10 md:h-10 text-primary" strokeWidth={1.5} />
         </div>
       </div>
+      <AnimatePresence>
+        {dropId > 0 && (
+          <motion.span
+            key={dropId}
+            className="absolute top-0 right-0 text-2xl md:text-3xl"
+            initial={{ scale: 0, opacity: 0, y: 6 }}
+            animate={{ scale: 1.1, opacity: 1, y: -6 }}
+            exit={{ opacity: 0, scale: 0.6 }}
+            transition={{ duration: 0.6, ease: [0.34, 1.4, 0.64, 1] }}
+          >
+            ✨
+          </motion.span>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -221,7 +199,7 @@ function DraggableCandies({ boundsRef }: { boundsRef: React.RefObject<HTMLElemen
           dragMomentum
           whileDrag={{ scale: 1.25, zIndex: 30 }}
           whileTap={{ scale: 1.15 }}
-          className={`absolute ${c.size} select-none cursor-grab active:cursor-grabbing z-20 drop-shadow-[0_4px_20px_rgba(255,79,195,0.5)] touch-none`}
+          className={`absolute ${c.size} select-none cursor-grab active:cursor-grabbing z-20 drop-shadow-[0_4px_20px_oklch(0.68_0.16_340_/_0.35)] touch-none`}
           style={{ left: c.left, top: c.top }}
           animate={{ y: [0, -16, 0], rotate: [0, 8, 0] }}
           transition={{ duration: c.dur, repeat: Infinity, ease: 'easeInOut' }}
@@ -244,17 +222,17 @@ function Hero() {
 
   return (
     <section ref={sectionRef} className="relative min-h-[100svh] flex items-center justify-center overflow-hidden">
-      {/* Fondo: video en desktop (si el usuario no pide movimiento reducido), afiche siempre de base */}
-      {/* Blur alto + overlay fuerte: el afiche aporta color, no texto (tiene la fecha de la edición pasada) */}
+      {/* Fondo: el video candy define la paleta del sitio, con un velo claro
+          suficiente para que el texto se lea sin taparle el color. */}
       <motion.div className="absolute inset-0" style={{ y: bgY }}>
         <img
           src="/candyland/poster-hero.webp"
           alt=""
           aria-hidden
-          className="absolute inset-0 w-full h-full object-cover opacity-30 blur-2xl scale-125"
+          className="absolute inset-0 w-full h-full object-cover opacity-30 blur-3xl scale-125"
         />
         <video
-          className="absolute inset-0 w-full h-full object-cover opacity-35 hidden motion-safe:md:block"
+          className="absolute inset-0 w-full h-full object-cover opacity-60 hidden motion-safe:md:block"
           src="/candyland/hero-video.mp4"
           autoPlay
           muted
@@ -262,7 +240,7 @@ function Hero() {
           playsInline
         />
       </motion.div>
-      <div className="absolute inset-0 bg-gradient-to-b from-background/80 via-background/50 to-background" />
+      <div className="absolute inset-0 bg-gradient-to-b from-background/55 via-background/30 to-background" />
 
       {/* Brillos de club */}
       <div aria-hidden className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-primary/25 blur-[120px] candy-float-slow" />
@@ -276,7 +254,7 @@ function Hero() {
         <motion.img
           src="/candyland/logo-wordmark.webp"
           alt="Mansion Playroom"
-          className="h-16 md:h-20 w-auto mx-auto mb-6 drop-shadow-[0_0_25px_rgba(255,79,195,0.35)]"
+          className="h-16 md:h-20 w-auto mx-auto mb-6 drop-shadow-[0_0_25px_oklch(0.68_0.16_340_/_0.3)]"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
@@ -286,7 +264,7 @@ function Hero() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.8, delay: 0.25 }}
-          className="text-xs md:text-sm uppercase tracking-[0.35em] text-candy-cream/80 mb-4"
+          className="text-xs md:text-sm uppercase tracking-[0.35em] text-foreground/70 mb-4"
         >
           {CANDYLAND.valores.join(' · ')}
         </motion.p>
@@ -295,7 +273,7 @@ function Hero() {
           initial={{ opacity: 0, y: 50, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 1, delay: 0.35, ease: [0.23, 1, 0.32, 1] }}
-          className="font-heading font-extrabold text-[clamp(2.6rem,8vw,6.2rem)] leading-[0.95] tracking-tight drop-shadow-[0_4px_30px_rgba(255,46,99,0.25)] whitespace-nowrap"
+          className="font-heading font-extrabold text-[clamp(2.6rem,8vw,6.2rem)] leading-[0.95] tracking-tight drop-shadow-[0_4px_30px_oklch(0.76_0.13_35_/_0.25)] whitespace-nowrap"
           aria-label={CANDYLAND.nombre}
         >
           {/* Letras interactivas: hover material candy en desktop, shimmer automático en móvil */}
@@ -338,19 +316,19 @@ function Hero() {
           transition={{ duration: 0.8, delay: 0.85 }}
           className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4"
         >
-          <button
-            onClick={scrollToEntradas}
+          <Link
+            href={`/checkout/${CANDYLAND.slug}`}
             className="btn-jelly inline-flex items-center gap-3 px-10 py-5 bg-primary text-primary-foreground rounded-full text-lg font-bold uppercase tracking-wide interactive"
           >
             <Ticket className="w-5 h-5" />
             Comprar entrada
-          </button>
+          </Link>
           <button
             type="button"
-            onClick={() => scrollToId('experiencia')}
+            onClick={() => scrollToId('proximos-eventos')}
             className="inline-flex items-center gap-2 px-8 py-4 border border-primary/40 text-foreground rounded-full text-base font-semibold hover:border-primary hover:text-primary transition-colors interactive"
           >
-            Ver la experiencia
+            Próximos Eventos
             <ArrowRight className="w-4 h-4" />
           </button>
         </motion.div>
@@ -359,15 +337,162 @@ function Hero() {
   );
 }
 
+/* ─── Próximos Eventos ─────────────────────────────────────── */
+
+type HomeEventItem = {
+  id: string;
+  title: string;
+  date: Date;
+  dateLabel: string;
+  venue?: string | null;
+  imageUrl: string;
+  isPast: boolean;
+  featured: boolean;
+  href: string;
+};
+
+function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'featured' | 'normal' | 'small' }) {
+  const isFeatured = size === 'featured';
+  const isSmall = size === 'small';
+  return (
+    <Link
+      href={event.href}
+      className={`group relative block rounded-2xl md:rounded-3xl overflow-hidden glass-candy interactive ${
+        isFeatured ? 'aspect-[16/10] md:aspect-[21/9]' : isSmall ? 'aspect-square' : 'aspect-[4/5]'
+      }`}
+    >
+      <img
+        src={event.imageUrl}
+        alt={event.title}
+        loading="lazy"
+        className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${
+          event.isPast ? 'grayscale group-hover:grayscale-0 opacity-80 group-hover:opacity-100' : 'group-hover:scale-105'
+        }`}
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-background/20 to-transparent" />
+      {event.featured && !event.isPast && (
+        <span className="absolute top-3 left-3 md:top-4 md:left-4 px-3 py-1 rounded-full bg-primary text-primary-foreground text-[10px] md:text-xs font-bold uppercase tracking-wide">
+          ✨ Próximo evento
+        </span>
+      )}
+      {event.isPast && (
+        <span className="absolute top-3 left-3 px-2.5 py-0.5 rounded-full bg-muted/90 text-muted-foreground text-[9px] font-bold uppercase tracking-wide">
+          Finalizado
+        </span>
+      )}
+      <div className={`absolute bottom-0 inset-x-0 p-3 md:p-5 ${isFeatured ? 'md:p-8' : ''}`}>
+        <p className={`flex items-center gap-1.5 text-primary font-semibold mb-1 ${isSmall ? 'text-[10px]' : 'text-xs md:text-sm'}`}>
+          <Calendar className={isSmall ? 'w-3 h-3' : 'w-3.5 h-3.5 md:w-4 md:h-4'} /> {event.dateLabel}
+        </p>
+        <h3 className={`font-heading font-bold text-foreground leading-tight ${isFeatured ? 'text-2xl md:text-4xl' : isSmall ? 'text-sm' : 'text-lg md:text-xl'}`}>
+          {event.title}
+        </h3>
+        {event.venue && !isSmall && (
+          <p className="flex items-center gap-1.5 text-muted-foreground text-xs md:text-sm mt-1">
+            <MapPin className="w-3.5 h-3.5" /> {event.venue}
+          </p>
+        )}
+        {isFeatured && !event.isPast && (
+          <span className="btn-jelly inline-flex items-center gap-2 mt-4 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide">
+            <Ticket className="w-4 h-4" /> Comprar entrada
+          </span>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+function UpcomingEventsSection() {
+  const { data } = trpc.events.listForHome.useQuery(undefined, { retry: false });
+  const now = Date.now();
+
+  const dbEvents = (data ?? []).filter((e: any) => e.slug !== CANDYLAND.slug);
+
+  const staticEvent: HomeEventItem = {
+    id: 'static-candyland',
+    title: CANDYLAND.nombre,
+    date: CANDYLAND.eventDate,
+    dateLabel: CANDYLAND.fechaTexto,
+    venue: CANDYLAND.ciudad,
+    imageUrl: '/candyland/poster-hero.webp',
+    isPast: CANDYLAND.eventDate.getTime() < now,
+    featured: true,
+    href: `/checkout/${CANDYLAND.slug}`,
+  };
+
+  const mapped: HomeEventItem[] = dbEvents.map((e: any) => {
+    const date = new Date(e.eventDate);
+    return {
+      id: String(e.id),
+      title: e.title,
+      date,
+      dateLabel: date.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' }),
+      venue: e.venue,
+      imageUrl: e.imageUrl || '/candyland/poster-hero.webp',
+      isPast: e.status === 'past' || date.getTime() < now,
+      featured: !!e.featured,
+      href: `/checkout/${e.slug}`,
+    };
+  });
+
+  const all = [staticEvent, ...mapped];
+  const upcoming = all.filter((e) => !e.isPast).sort((a, b) => a.date.getTime() - b.date.getTime());
+  const past = all.filter((e) => e.isPast).sort((a, b) => b.date.getTime() - a.date.getTime());
+
+  // El destacado: el que el admin marcó featured, o si no hay ninguno, el próximo más cercano.
+  const featuredEvent = upcoming.find((e) => e.featured) ?? upcoming[0];
+  const restUpcoming = upcoming.filter((e) => e.id !== featuredEvent?.id);
+
+  if (!featuredEvent && past.length === 0) return null;
+
+  return (
+    <section id="proximos-eventos" className="relative scroll-mt-24 py-20 md:py-28">
+      <div className="container">
+        <motion.div {...reveal} className="max-w-2xl mb-10 md:mb-12">
+          <p className="text-sm uppercase tracking-[0.3em] text-primary mb-4">Calendario</p>
+          <h2 className="font-heading font-bold text-4xl md:text-6xl tracking-tight">
+            Próximos <span className="text-gradient-candy">Eventos</span>
+          </h2>
+        </motion.div>
+
+        {featuredEvent && (
+          <motion.div {...reveal} className="mb-6 md:mb-8">
+            <EventCard event={{ ...featuredEvent, featured: true }} size="featured" />
+          </motion.div>
+        )}
+
+        {restUpcoming.length > 0 && (
+          <motion.div {...reveal} className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 mb-12 md:mb-16">
+            {restUpcoming.map((e) => (
+              <EventCard key={e.id} event={e} size="normal" />
+            ))}
+          </motion.div>
+        )}
+
+        {past.length > 0 && (
+          <motion.div {...reveal}>
+            <p className="text-sm uppercase tracking-[0.25em] text-muted-foreground mb-4">Ediciones anteriores</p>
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3 md:gap-4">
+              {past.map((e) => (
+                <EventCard key={e.id} event={e} size="small" />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /* ─── Countdown + Misión 300 ───────────────────────────────── */
 
 function CountdownUnit({ value, label }: { value: number; label: string }) {
   return (
-    <div className="flex flex-col items-center min-w-[52px] md:min-w-[80px]">
-      <span className="font-heading font-bold text-3xl md:text-6xl tabular-nums text-foreground">
+    <div className="flex items-baseline gap-1.5">
+      <span className="font-heading font-bold text-xl md:text-3xl tabular-nums text-foreground">
         {String(value).padStart(2, '0')}
       </span>
-      <span className="text-[10px] md:text-xs uppercase tracking-[0.2em] text-muted-foreground mt-1">{label}</span>
+      <span className="text-[9px] md:text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{label}</span>
     </div>
   );
 }
@@ -381,91 +506,90 @@ function UrgencySection({ vendidos }: { vendidos: number }) {
   const soldOut = vendidos >= meta;
 
   return (
-    <section className="relative py-16 md:py-20 border-y border-primary/15 bg-gradient-to-r from-primary/10 via-violet-electric/10 to-candy-blue/10 overflow-hidden">
-      {/* Blobs candy ambientales */}
-      <div aria-hidden className="absolute -top-16 left-[10%] w-72 h-72 rounded-full bg-primary/20 blur-[100px] candy-float-slow" />
-      <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/20 blur-[110px] candy-float" />
+    <section className="relative py-10 md:py-14 overflow-hidden">
+      <div aria-hidden className="absolute -top-16 left-[10%] w-72 h-72 rounded-full bg-primary/15 blur-[100px] candy-float-slow" />
+      <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/15 blur-[110px] candy-float" />
 
-      <div className="container relative grid lg:grid-cols-2 gap-12 items-center">
-        <motion.div {...reveal} className="text-center lg:text-left">
-          <p className="text-sm uppercase tracking-[0.3em] text-cherry font-semibold mb-4 inline-flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-cherry candy-pulse inline-block" />
-            {esHoy ? '¡Es hoy!' : 'La cuenta regresiva empezó'}
+      <div className="container relative space-y-6 md:space-y-8">
+        {/* Countdown — tira delgada, poco alto */}
+        <motion.div
+          {...reveal}
+          className="glass-candy rounded-2xl px-5 py-3.5 md:px-8 md:py-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2"
+        >
+          <p className="text-[10px] md:text-xs uppercase tracking-[0.25em] text-cherry font-semibold inline-flex items-center gap-1.5 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-cherry candy-pulse inline-block" />
+            {esHoy ? '¡Es hoy!' : 'Cuenta regresiva'}
           </p>
-          <div className="flex items-center justify-center lg:justify-start gap-1.5 md:gap-6">
+          <div className="flex items-center gap-3 md:gap-5">
             <CountdownUnit value={dias} label="Días" />
-            <span className="text-2xl md:text-3xl text-primary/50 font-heading">:</span>
-            <CountdownUnit value={horas} label="Horas" />
-            <span className="text-2xl md:text-3xl text-primary/50 font-heading">:</span>
+            <CountdownUnit value={horas} label="Hrs" />
             <CountdownUnit value={minutos} label="Min" />
-            <span className="text-2xl md:text-3xl text-primary/50 font-heading">:</span>
             <CountdownUnit value={segundos} label="Seg" />
           </div>
-          <p className="mt-4 text-muted-foreground text-sm md:text-base">
-            {CANDYLAND.fechaTexto} · {CANDYLAND.horarioTexto} · {CANDYLAND.afterTexto}
+          <p className="text-muted-foreground text-xs md:text-sm shrink-0">
+            {CANDYLAND.fechaTexto} · {CANDYLAND.horarioTexto}
           </p>
         </motion.div>
 
-        <motion.div {...reveal} className="relative glass-candy rounded-3xl p-6 md:p-8 overflow-visible">
-          <h3 className="font-heading font-bold text-xl md:text-2xl text-gradient-candy text-center mb-1">{titulo}</h3>
+        {/* Misión 300 — a todo el ancho, con espacio para respirar */}
+        <motion.div {...reveal} className="relative glass-candy rounded-3xl p-6 md:p-10 overflow-visible">
+          <div className="flex flex-col md:flex-row items-center gap-6 md:gap-10">
+            <div className="relative shrink-0">
+              <div aria-hidden className="absolute inset-0 rounded-full bg-primary/25 blur-3xl candy-glow-pulse" />
+              <MissionRing pct={progreso} dropId={burstId} />
+            </div>
 
-          {/* Máquina de dulces + número: cada dulce es una entrada confirmada */}
-          <div className="relative flex items-center justify-center gap-5 md:gap-8 my-5">
-            <div aria-hidden className="absolute w-44 h-44 md:w-52 md:h-52 rounded-full bg-primary/30 blur-3xl candy-glow-pulse" />
-            <CandyMachine pct={progreso} dropId={burstId} />
-            <div className="relative flex flex-col items-start max-w-[10rem] md:max-w-[12rem]">
-              <div className="flex items-baseline gap-1.5">
-                <span className="font-heading font-extrabold text-5xl md:text-6xl text-gradient-candy tabular-nums drop-shadow-[0_0_30px_rgba(255,79,195,0.55)]" aria-live="polite">
+            <div className="flex-1 text-center md:text-left w-full">
+              <h3 className="font-heading font-bold text-xl md:text-2xl text-gradient-candy mb-1">{titulo}</h3>
+              <div className="flex items-baseline justify-center md:justify-start flex-wrap gap-x-2 gap-y-0.5">
+                <span className="font-heading font-extrabold text-4xl md:text-5xl text-gradient-candy tabular-nums" aria-live="polite">
                   {displayCount}
                 </span>
-                <span className="font-heading font-bold text-xl md:text-2xl text-muted-foreground">/{meta}</span>
+                <span className="font-heading font-bold text-lg md:text-xl text-muted-foreground">/{meta}</span>
+                <span className="text-sm md:text-base font-semibold text-foreground/85">ya entraron</span>
               </div>
-              <span className="text-[11px] md:text-sm font-semibold text-foreground/85 mt-1 leading-snug">
-                ya entraron a Candyland
-              </span>
-              <span className="text-[10px] md:text-xs text-muted-foreground mt-2 leading-snug">{copy}</span>
+              <p className="text-xs md:text-sm text-muted-foreground mt-1">{copy}</p>
 
-              {/* Microcelebración al confirmarse una compra */}
               <AnimatePresence>
                 {burstId > 0 && (
-                  <motion.span
+                  <motion.p
                     key={burstId}
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.4 }}
-                    className="text-[10px] md:text-xs text-primary font-semibold mt-2"
+                    className="text-xs md:text-sm text-primary font-semibold mt-2"
                   >
                     ✨ Una persona más se suma a la noche
-                  </motion.span>
+                  </motion.p>
                 )}
               </AnimatePresence>
+
+              <div className="h-3.5 rounded-full bg-muted overflow-hidden mt-4">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${progreso}%` }}
+                  transition={{ duration: 1.2, ease: [0.23, 1, 0.32, 1] }}
+                  className="h-full rounded-full bg-gradient-to-r from-primary via-cherry to-violet-electric relative overflow-hidden"
+                >
+                  <span className="absolute inset-0 candy-bar-shine" />
+                </motion.div>
+              </div>
+
+              {soldOut ? (
+                <div className="mt-5 w-full md:w-auto text-center px-6 py-3 rounded-full bg-muted text-muted-foreground text-sm font-bold uppercase tracking-wide" role="status">
+                  Candyland está completo · Sold out
+                </div>
+              ) : (
+                <Link
+                  href={`/checkout/${CANDYLAND.slug}`}
+                  className="btn-jelly mt-5 inline-flex items-center justify-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive"
+                >
+                  🍭 Quiero mi dulce · Comprar entrada
+                </Link>
+              )}
             </div>
           </div>
-
-          <div className="h-4 rounded-full bg-muted overflow-hidden">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${progreso}%` }}
-              transition={{ duration: 1.2, ease: [0.23, 1, 0.32, 1] }}
-              className="h-full rounded-full bg-gradient-to-r from-primary via-cherry to-violet-electric relative overflow-hidden"
-            >
-              <span className="absolute inset-0 candy-bar-shine" />
-            </motion.div>
-          </div>
-
-          {soldOut ? (
-            <div className="mt-5 w-full text-center px-6 py-3 rounded-full bg-muted text-muted-foreground text-sm font-bold uppercase tracking-wide" role="status">
-              Candyland está completo · Sold out
-            </div>
-          ) : (
-            <button
-              onClick={scrollToEntradas}
-              className="btn-jelly mt-5 w-full inline-flex items-center justify-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive"
-            >
-              🍭 Quiero mi dulce · Comprar entrada
-            </button>
-          )}
         </motion.div>
       </div>
     </section>
@@ -616,275 +740,6 @@ function LineupSection() {
   );
 }
 
-/* ─── Entradas ─────────────────────────────────────────────── */
-
-type LiveTicket = {
-  id: number;
-  name: string;
-  description: string | null;
-  price: string;
-  totalStock: number;
-  soldCount: number;
-  maxPerOrder: number;
-  status: string;
-};
-
-function estadoBadge(estado: string) {
-  switch (estado) {
-    case 'last_tickets':
-      return <span className="px-3 py-1 rounded-full bg-cherry/20 text-cherry text-xs font-bold uppercase tracking-wide candy-pulse">Últimos cupos</span>;
-    case 'soldout':
-      return <span className="px-3 py-1 rounded-full bg-muted text-muted-foreground text-xs font-bold uppercase tracking-wide">Agotado</span>;
-    case 'coming_soon':
-      return <span className="px-3 py-1 rounded-full bg-candy-blue/20 text-candy-blue text-xs font-bold uppercase tracking-wide">Próximo tramo</span>;
-    default:
-      return null;
-  }
-}
-
-
-function TicketCardLive({
-  ticket,
-  quantity,
-  onChange,
-}: {
-  ticket: LiveTicket;
-  quantity: number;
-  onChange: (delta: number) => void;
-}) {
-  const disponibles = ticket.totalStock - ticket.soldCount;
-  const agotado = ticket.status === 'soldout' || disponibles <= 0;
-  const ultimos = !agotado && disponibles <= 10;
-  return (
-    <motion.div {...reveal} className={`glass-candy rounded-3xl p-6 flex flex-col ${agotado ? 'opacity-60' : ''}`}>
-      <div className="flex items-start justify-between mb-3">
-        <h3 className="font-heading font-bold text-2xl">{ticket.name}</h3>
-        {agotado
-          ? estadoBadge('soldout')
-          : ultimos
-            ? estadoBadge('last_tickets')
-            : null}
-      </div>
-      {ticket.description && (
-        <p className="text-muted-foreground text-sm mb-4">{ticket.description}</p>
-      )}
-      <div className="mt-auto flex items-center justify-between gap-4">
-        <p className="font-heading font-bold text-2xl">{formatCLP(Number(ticket.price))}</p>
-        {!agotado && (
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => onChange(-1)}
-              className="w-9 h-9 rounded-full border border-primary/40 flex items-center justify-center hover:bg-primary/10 interactive"
-              aria-label={`Quitar ${ticket.name}`}
-            >
-              <Minus className="w-4 h-4" />
-            </button>
-            <span className="w-6 text-center font-bold tabular-nums">{quantity}</span>
-            <button
-              onClick={() => onChange(1)}
-              className="w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:scale-105 transition-transform interactive"
-              aria-label={`Agregar ${ticket.name}`}
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-/* Hook: fija la sección y desplaza un track en horizontal con el scroll (GSAP+Lenis).
-   Solo desktop (cinematicOn). En móvil no hace nada → el track queda swipe táctil. */
-/**
- * Fija `triggerRef` en el viewport y desplaza `trackRef` en horizontal mientras
- * se hace scroll vertical. Si ambos refs son el mismo elemento, se pinea
- * exactamente ese elemento (sin arrastrar contenido extra como un heading).
- * `start: 'top 90px'` deja el elemento pineado siempre por debajo del navbar
- * fijo (h-20 ≈ 80px), evitando que el navbar tape su borde superior.
- */
-function useHorizontalPin(
-  triggerRef: React.RefObject<HTMLElement | null>,
-  trackRef: React.RefObject<HTMLDivElement | null>,
-) {
-  useEffect(() => {
-    if (!cinematicOn() || !triggerRef.current || !trackRef.current) return;
-    const trigger = triggerRef.current;
-    const track = trackRef.current;
-    const { gsap, ScrollTrigger } = ensureScrollTrigger();
-    let kill = () => {};
-    const ctx = gsap.context(() => {
-      const distance = () => Math.max(0, track.scrollWidth - track.clientWidth);
-      const tween = gsap.to(track, {
-        x: () => -distance(),
-        ease: 'none',
-        scrollTrigger: {
-          trigger,
-          start: 'top 90px',
-          end: () => `+=${distance()}`,
-          scrub: 1,
-          pin: true,
-          anticipatePin: 1,
-          invalidateOnRefresh: true,
-        },
-      });
-      kill = () => tween.scrollTrigger?.kill();
-    }, trigger);
-    ScrollTrigger.refresh();
-    return () => {
-      kill();
-      ctx.revert();
-    };
-  }, [triggerRef, trackRef]);
-}
-
-/* Accesos con scroll horizontal cinematográfico (desktop) / swipe táctil (móvil).
-   Solo el riel de tarjetas se pinea (no el título) para que su alto quepa
-   siempre en el viewport, sin cortar contenido. */
-function CandyPassesSection() {
-  const trackRef = useRef<HTMLDivElement>(null);
-  const [active, setActive] = useState(0);
-  useHorizontalPin(trackRef, trackRef);
-  const accesos = CANDYLAND.accesos;
-
-  const step = () => {
-    const card = trackRef.current?.querySelector('.candy-perspective') as HTMLElement | null;
-    return (card?.offsetWidth ?? 280) + 16;
-  };
-  const goTo = (i: number) => trackRef.current?.scrollTo({ left: i * step(), behavior: 'smooth' });
-  const onScroll = () => {
-    if (trackRef.current) setActive(Math.round(trackRef.current.scrollLeft / step()));
-  };
-
-  return (
-    <section id="entradas" className="relative scroll-mt-24 py-20 md:py-28">
-      <div aria-hidden className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[40rem] h-[20rem] rounded-full bg-primary/10 blur-[130px]" />
-      <div className="container relative mb-8 md:mb-12">
-        <motion.div {...reveal} className="max-w-2xl">
-          <p className="text-sm uppercase tracking-[0.3em] text-primary mb-4">Accesos</p>
-          <h2 className="font-heading font-bold text-4xl md:text-6xl tracking-tight">
-            Desliza y elige tu <span className="text-gradient-candy">llave a Candyland</span>
-          </h2>
-          <p className="mt-4 text-muted-foreground text-base md:text-lg">
-            <span className="hidden md:inline">Haz scroll para recorrer los accesos. </span>
-            Compra directa con Mercado Pago.
-          </p>
-        </motion.div>
-      </div>
-
-      {/* Riel: en desktop lo mueve GSAP (pineado, alto fijo que cabe en pantalla); en móvil es swipe táctil */}
-      <div
-        ref={trackRef}
-        onScroll={onScroll}
-        className="flex items-stretch gap-4 px-4 md:px-12 py-6 overflow-x-auto md:overflow-x-hidden scrollbar-hide snap-x snap-mandatory md:snap-none"
-      >
-        {accesos.map((a) => (
-          <CandyPass key={a.id} acceso={a} />
-        ))}
-        <div className="shrink-0 w-2 md:w-[8vw]" aria-hidden />
-      </div>
-
-      <div className="container relative mt-6 md:mt-10">
-        {/* Dots (solo móvil) */}
-        <div className="flex md:hidden justify-center gap-2 mb-4">
-          {accesos.map((a, i) => (
-            <button
-              key={a.id}
-              type="button"
-              onClick={() => goTo(i)}
-              aria-label={`Ir a ${a.nombre}`}
-              className={`h-2 rounded-full transition-all ${i === active ? 'w-8 bg-primary' : 'w-2 bg-muted-foreground/40'}`}
-            />
-          ))}
-        </div>
-        <p className="text-center text-muted-foreground text-sm">
-          Pago seguro procesado por <span className="text-foreground font-semibold">Mercado Pago</span> · Evento +{CANDYLAND.edadMinima}
-        </p>
-      </div>
-    </section>
-  );
-}
-
-/* Accesos con datos reales (DB): grilla + selector de cantidad */
-function LiveTicketsSection({ liveTickets }: { liveTickets: LiveTicket[] }) {
-  const [quantities, setQuantities] = useState<Record<number, number>>({});
-
-  const totalItems = Object.values(quantities).reduce((s, q) => s + q, 0);
-  const totalPrice = liveTickets.reduce((s, t) => s + (quantities[t.id] || 0) * Number(t.price), 0);
-
-  const checkoutUrl = useMemo(() => {
-    const items = Object.entries(quantities)
-      .filter(([, q]) => q > 0)
-      .map(([id, q]) => `${id}:${q}`)
-      .join(',');
-    return `/checkout/${CANDYLAND.slug}?items=${items}`;
-  }, [quantities]);
-
-  return (
-    <section id="entradas" className="py-24 md:py-32 relative scroll-mt-24">
-      <div aria-hidden className="absolute top-0 left-1/2 -translate-x-1/2 w-[40rem] h-[20rem] rounded-full bg-primary/10 blur-[130px]" />
-      <div className="container relative">
-        <motion.div {...reveal} className="text-center max-w-2xl mx-auto mb-14">
-          <p className="text-sm uppercase tracking-[0.3em] text-primary mb-4">Accesos</p>
-          <h2 className="font-heading font-bold text-4xl md:text-6xl tracking-tight">
-            Elige tu <span className="text-gradient-candy">llave a Candyland</span>
-          </h2>
-          <p className="mt-4 text-muted-foreground text-lg">
-            Cada acceso incluye la experiencia completa. Compra directa con Mercado Pago.
-          </p>
-        </motion.div>
-
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {liveTickets
-            .filter((t) => t.status !== 'hidden')
-            .map((t) => (
-              <TicketCardLive
-                key={t.id}
-                ticket={t}
-                quantity={quantities[t.id] || 0}
-                onChange={(delta) =>
-                  setQuantities((prev) => {
-                    const disponibles = t.totalStock - t.soldCount;
-                    const max = Math.min(t.maxPerOrder, disponibles);
-                    const next = Math.max(0, Math.min(max, (prev[t.id] || 0) + delta));
-                    return { ...prev, [t.id]: next };
-                  })
-                }
-              />
-            ))}
-        </div>
-        {totalItems > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="sticky bottom-4 mt-8 glass-candy rounded-2xl p-4 flex items-center justify-between gap-4 max-w-xl mx-auto z-30"
-          >
-            <div>
-              <p className="text-sm text-muted-foreground">{totalItems} acceso{totalItems > 1 ? 's' : ''}</p>
-              <p className="font-heading font-bold text-2xl">{formatCLP(totalPrice)}</p>
-            </div>
-            <a
-              href={checkoutUrl}
-              className="btn-jelly inline-flex items-center gap-2 px-8 py-4 bg-primary text-primary-foreground rounded-full font-bold uppercase tracking-wide text-sm interactive"
-            >
-              Ir a pagar <ArrowRight className="w-4 h-4" />
-            </a>
-          </motion.div>
-        )}
-
-        <motion.p {...reveal} className="text-center text-muted-foreground text-sm mt-10">
-          Pago seguro procesado por <span className="text-foreground font-semibold">Mercado Pago</span> · Evento +{CANDYLAND.edadMinima}
-        </motion.p>
-      </div>
-    </section>
-  );
-}
-
-function TicketsSection({ liveTickets }: { liveTickets: LiveTicket[] | undefined }) {
-  const live = (liveTickets?.length ?? 0) > 0;
-  return live ? <LiveTicketsSection liveTickets={liveTickets!} /> : <CandyPassesSection />;
-}
-
 /* ─── Info esencial + FAQ ──────────────────────────────────── */
 
 function InfoSection() {
@@ -936,7 +791,7 @@ function FinalCTASection() {
           src="/candyland/logo-wordmark.webp"
           alt=""
           aria-hidden
-          className="h-24 w-auto mx-auto mb-8 candy-float drop-shadow-[0_0_30px_rgba(255,79,195,0.4)]"
+          className="h-24 w-auto mx-auto mb-8 candy-float drop-shadow-[0_0_25px_oklch(0.68_0.16_340_/_0.3)]"
         />
         <h2 className="font-heading font-bold text-4xl md:text-7xl tracking-tight leading-[1.02] mb-6">
           Tu entrada es la llave a{' '}
@@ -945,13 +800,13 @@ function FinalCTASection() {
         <p className="text-lg md:text-xl text-muted-foreground mb-10">
           {CANDYLAND.fechaTexto} · {CANDYLAND.horarioTexto} · {CANDYLAND.ciudad}
         </p>
-        <button
-          onClick={scrollToEntradas}
+        <Link
+          href={`/checkout/${CANDYLAND.slug}`}
           className="btn-jelly inline-flex items-center gap-3 px-12 py-6 bg-primary text-primary-foreground rounded-full text-xl font-bold uppercase tracking-wide interactive"
         >
           <Ticket className="w-6 h-6" />
           Comprar entrada ahora
-        </button>
+        </Link>
       </motion.div>
     </section>
   );
@@ -1027,13 +882,13 @@ function StickyMobileCTA() {
       transition={{ duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
       className="fixed bottom-0 inset-x-0 z-40 p-3 md:hidden"
     >
-      <button
-        onClick={scrollToEntradas}
-        className="btn-jelly w-full py-4 bg-primary text-primary-foreground rounded-full font-bold uppercase tracking-wide text-base shadow-[0_-4px_30px_rgba(255,79,195,0.35)] inline-flex items-center justify-center gap-2"
+      <Link
+        href={`/checkout/${CANDYLAND.slug}`}
+        className="btn-jelly w-full py-4 bg-primary text-primary-foreground rounded-full font-bold uppercase tracking-wide text-base shadow-[0_-4px_24px_oklch(0.68_0.16_340_/_0.25)] inline-flex items-center justify-center gap-2"
       >
         <Ticket className="w-5 h-5" />
         Comprar acceso
-      </button>
+      </Link>
     </motion.div>
   );
 }
@@ -1066,10 +921,10 @@ export default function Home() {
       <ScrollCandies />
       <div className="noise-overlay" />
       <Hero />
+      <UpcomingEventsSection />
       <UrgencySection vendidos={vendidos} />
-      <TicketsSection liveTickets={liveTickets as LiveTicket[] | undefined} />
-      <ExperienceSection />
       <LineupSection />
+      <ExperienceSection />
       <InfoSection />
       <FinalCTASection />
       <Footer />
