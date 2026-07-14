@@ -20,23 +20,71 @@ const onMutationError = (error: unknown) => {
   toast.error(message === 'Database not available' ? 'Base de datos no configurada — nada se guardó. Revisa DATABASE_URL en Vercel.' : message);
 };
 
+/* Debe coincidir con los ids de CANDYLAND.accesos (client/src/config/candyland.ts)
+ * y con el enum accesoSlug del router — es lo que conecta cada entrada con la
+ * pregunta correspondiente del checkout conversacional. */
+type AccesoSlug = 'duo' | 'soltera' | 'soltero' | 'trio' | 'grupo' | 'cumpleaneros';
+const ACCESO_SLUG_OPTIONS: { value: AccesoSlug; label: string }[] = [
+  { value: 'soltera', label: 'Soltera (ella sola)' },
+  { value: 'soltero', label: 'Soltero (él solo)' },
+  { value: 'duo', label: 'Dúo (pareja)' },
+  { value: 'trio', label: 'Trío' },
+  { value: 'grupo', label: 'Grupo' },
+  { value: 'cumpleaneros', label: 'Cumpleañeros' },
+];
+
+function TicketTypesList({
+  eventId, onEdit,
+}: { eventId: number; onEdit: (tt: any) => void }) {
+  const { data: ticketTypesData, refetch } = trpc.events.listTicketTypes.useQuery({ eventId });
+  const deleteTicketType = trpc.events.deleteTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const ticketTypes = ticketTypesData ?? [];
+
+  if (ticketTypes.length === 0) {
+    return <p className="text-muted-foreground text-xs mt-3">Todavía no hay entradas para este evento.</p>;
+  }
+
+  return (
+    <div className="mt-3 space-y-2 border-t border-border/50 pt-3">
+      {ticketTypes.map((tt: any) => (
+        <div key={tt.id} className="flex items-center justify-between text-sm bg-muted/30 rounded-lg px-3 py-2">
+          <div>
+            <span className="font-semibold">{tt.name}</span>
+            <span className="text-muted-foreground ml-2">${Number(tt.price).toLocaleString('es-CL')} · stock {tt.totalStock} · vendidas {tt.soldCount ?? 0} · {tt.status}</span>
+            {tt.accesoSlug ? (
+              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary">{ACCESO_SLUG_OPTIONS.find((o) => o.value === tt.accesoSlug)?.label ?? tt.accesoSlug}</span>
+            ) : (
+              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-destructive/15 text-destructive">Sin tipo de acceso — no se puede comprar</span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => onEdit(tt)}><Edit className="w-3 h-3" /></Button>
+            <Button variant="outline" size="sm" className="text-destructive" onClick={() => deleteTicketType.mutateAsync({ id: tt.id })}><Trash2 className="w-3 h-3" /></Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function EventsManager() {
   const { data: eventsData, refetch } = trpc.events.listAll.useQuery();
   const createEvent = trpc.events.create.useMutation({ onSuccess: () => { refetch(); toast.success('Evento creado'); }, onError: onMutationError });
   const deleteEvent = trpc.events.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
   const updateEvent = trpc.events.update.useMutation({ onSuccess: () => { refetch(); toast.success('Evento actualizado'); }, onError: onMutationError });
-  const createTicketType = trpc.events.createTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
-  const updateTicketType = trpc.events.updateTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
-  const deleteTicketType = trpc.events.deleteTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const utils = trpc.useUtils();
+  const createTicketType = trpc.events.createTicketType.useMutation({ onSuccess: () => { utils.events.listTicketTypes.invalidate(); toast.success('Entrada creada'); }, onError: onMutationError });
+  const updateTicketType = trpc.events.updateTicketType.useMutation({ onSuccess: () => { utils.events.listTicketTypes.invalidate(); toast.success('Entrada actualizada'); }, onError: onMutationError });
 
   const [newEvent, setNewEvent] = useState({
     title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', eventDate: '', doorsOpen: '',
     status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false,
   });
-  const [newTicket, setNewTicket] = useState({ eventId: 0, name: '', price: 0, totalStock: 0, description: '' });
+  const [newTicket, setNewTicket] = useState({ eventId: 0, name: '', accesoSlug: '' as '' | AccesoSlug, price: 0, totalStock: 0, description: '' });
   const [showEventForm, setShowEventForm] = useState(false);
   const [showTicketForm, setShowTicketForm] = useState(false);
   const [editingEventId, setEditingEventId] = useState<number | null>(null);
+  const [editingTicketId, setEditingTicketId] = useState<number | null>(null);
 
   const events = eventsData ?? [];
 
@@ -55,9 +103,22 @@ function EventsManager() {
 
   const handleCreateTicketType = async () => {
     if (!newTicket.eventId || !newTicket.name || !newTicket.price) return;
-    await createTicketType.mutateAsync(newTicket);
-    setNewTicket({ eventId: 0, name: '', price: 0, totalStock: 0, description: '' });
+    const payload = { ...newTicket, accesoSlug: newTicket.accesoSlug || undefined };
+    if (editingTicketId) {
+      const { eventId, ...data } = payload;
+      await updateTicketType.mutateAsync({ id: editingTicketId, ...data });
+      setEditingTicketId(null);
+    } else {
+      await createTicketType.mutateAsync(payload);
+    }
+    setNewTicket({ eventId: 0, name: '', accesoSlug: '', price: 0, totalStock: 0, description: '' });
     setShowTicketForm(false);
+  };
+
+  const handleEditTicketType = (tt: any) => {
+    setEditingTicketId(tt.id);
+    setNewTicket({ eventId: tt.eventId, name: tt.name, accesoSlug: tt.accesoSlug || '', price: Number(tt.price), totalStock: tt.totalStock, description: tt.description || '' });
+    setShowTicketForm(true);
   };
 
   return (
@@ -138,7 +199,7 @@ function EventsManager() {
                   }}>
                     <Edit className="w-3 h-3" />
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => { setNewTicket({ ...newTicket, eventId: event.id }); setShowTicketForm(true); }}>
+                  <Button variant="outline" size="sm" onClick={() => { setEditingTicketId(null); setNewTicket({ eventId: event.id, name: '', accesoSlug: '', price: 0, totalStock: 0, description: '' }); setShowTicketForm(true); }}>
                     <Plus className="w-3 h-3 mr-1" /> Entrada
                   </Button>
                   <Button variant="outline" size="sm" className="text-destructive" onClick={() => deleteEvent.mutateAsync({ id: event.id })}>
@@ -146,28 +207,40 @@ function EventsManager() {
                   </Button>
                 </div>
               </div>
+              <TicketTypesList eventId={event.id} onEdit={handleEditTicketType} />
+              {showTicketForm && newTicket.eventId === event.id && (
+                <div className="mt-4 border-t border-border/50 pt-4 space-y-4">
+                  <h4 className="font-semibold text-sm">{editingTicketId ? 'Editar Tipo de Entrada' : 'Nuevo Tipo de Entrada'}</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div><Label>Nombre</Label><Input value={newTicket.name} onChange={(e) => setNewTicket({ ...newTicket, name: e.target.value })} className="mt-1" placeholder="VIP, General..." /></div>
+                    <div><Label>Precio (CLP)</Label><Input type="number" value={newTicket.price} onChange={(e) => setNewTicket({ ...newTicket, price: Number(e.target.value) })} className="mt-1" /></div>
+                    <div><Label>Stock Total</Label><Input type="number" value={newTicket.totalStock} onChange={(e) => setNewTicket({ ...newTicket, totalStock: Number(e.target.value) })} className="mt-1" /></div>
+                  </div>
+                  <div>
+                    <Label>Tipo de acceso (conecta con la pregunta del checkout)</Label>
+                    <Select value={newTicket.accesoSlug} onValueChange={(v) => setNewTicket({ ...newTicket, accesoSlug: v as AccesoSlug })}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Elegir…" /></SelectTrigger>
+                      <SelectContent>
+                        {ACCESO_SLUG_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground mt-1">Sin esto, la gente no va a poder comprar esta entrada desde el checkout.</p>
+                  </div>
+                  <div><Label>Descripción</Label><Input value={newTicket.description} onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })} className="mt-1" /></div>
+                  <div className="flex gap-2">
+                    <Button onClick={handleCreateTicketType} disabled={createTicketType.isPending || updateTicketType.isPending}>
+                      {editingTicketId ? 'Guardar Cambios' : 'Crear Entrada'}
+                    </Button>
+                    <Button variant="outline" onClick={() => { setShowTicketForm(false); setEditingTicketId(null); setNewTicket({ eventId: 0, name: '', accesoSlug: '', price: 0, totalStock: 0, description: '' }); }}>Cancelar</Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         ))}
       </div>
-
-      {showTicketForm && (
-        <Card>
-          <CardHeader><CardTitle>Nuevo Tipo de Entrada</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div><Label>Nombre</Label><Input value={newTicket.name} onChange={(e) => setNewTicket({ ...newTicket, name: e.target.value })} className="mt-1" placeholder="VIP, General..." /></div>
-              <div><Label>Precio (CLP)</Label><Input type="number" value={newTicket.price} onChange={(e) => setNewTicket({ ...newTicket, price: Number(e.target.value) })} className="mt-1" /></div>
-              <div><Label>Stock Total</Label><Input type="number" value={newTicket.totalStock} onChange={(e) => setNewTicket({ ...newTicket, totalStock: Number(e.target.value) })} className="mt-1" /></div>
-            </div>
-            <div><Label>Descripción</Label><Input value={newTicket.description} onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })} className="mt-1" /></div>
-            <div className="flex gap-2">
-              <Button onClick={handleCreateTicketType}>Crear Entrada</Button>
-              <Button variant="outline" onClick={() => setShowTicketForm(false)}>Cancelar</Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

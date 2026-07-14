@@ -1,0 +1,1 @@
+ALTER TABLE `ticketTypes` ADD `accesoSlug` varchar(50);

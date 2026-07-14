@@ -96,9 +96,13 @@ export const appRouter = router({
       return db.deleteEvent(input.id);
     }),
     // Ticket types management
+    listTicketTypes: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getTicketTypesByEventId(input.eventId);
+    }),
     createTicketType: adminProcedure.input(z.object({
       eventId: z.number(),
       name: z.string(),
+      accesoSlug: z.enum(['duo', 'soltera', 'soltero', 'trio', 'grupo', 'cumpleaneros']).optional(),
       description: z.string().optional(),
       price: z.number(),
       originalPrice: z.number().optional(),
@@ -112,6 +116,7 @@ export const appRouter = router({
     updateTicketType: adminProcedure.input(z.object({
       id: z.number(),
       name: z.string().optional(),
+      accesoSlug: z.enum(['duo', 'soltera', 'soltero', 'trio', 'grupo', 'cumpleaneros']).optional(),
       description: z.string().optional(),
       price: z.number().optional(),
       originalPrice: z.number().optional(),

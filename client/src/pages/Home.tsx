@@ -408,8 +408,12 @@ function UpcomingEventsSection() {
   const { data } = trpc.events.listForHome.useQuery(undefined, { retry: false });
   const now = Date.now();
 
-  const dbEvents = (data ?? []).filter((e: any) => e.slug !== CANDYLAND.slug);
+  const dbEvents = data ?? [];
+  const hasRealCandyland = dbEvents.some((e: any) => e.slug === CANDYLAND.slug);
 
+  // Fallback solo mientras el evento no exista todavía en la base de datos
+  // (demo/config mode) — una vez que el admin lo carga, se usa el real (con
+  // su propio flyer e info) en vez de este placeholder.
   const staticEvent: HomeEventItem = {
     id: 'static-candyland',
     title: CANDYLAND.nombre,
@@ -437,7 +441,7 @@ function UpcomingEventsSection() {
     };
   });
 
-  const all = [staticEvent, ...mapped];
+  const all = hasRealCandyland ? mapped : [staticEvent, ...mapped];
   const upcoming = all.filter((e) => !e.isPast).sort((a, b) => a.date.getTime() - b.date.getTime());
   const past = all.filter((e) => e.isPast).sort((a, b) => b.date.getTime() - a.date.getTime());
 

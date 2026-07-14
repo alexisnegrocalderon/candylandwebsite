@@ -235,12 +235,21 @@ export default function Checkout() {
   const [duoComposicion, setDuoComposicion] = useState<DuoComposicion | null>(null);
   const [qty, setQty] = useState(initialQtyFromUrl);
 
+  // Busca la entrada real (DB) para un slug fijo (soltera/soltero/duo/trio/
+  // grupo/cumpleaneros): primero por accesoSlug (lo que setea el admin en el
+  // formulario de la entrada), y si no está seteado en tickets viejos, cae a
+  // comparar por nombre — pero nunca deja pasar un id inventado tipo
+  // Number("soltera") que rompía la orden en silencio.
+  const findLiveTicket = (slug: string) => {
+    const cfg = CANDYLAND.accesos.find((a) => a.id === slug);
+    return liveTickets.find((t: any) => t.accesoSlug === slug || (cfg && t.name.toLowerCase() === cfg.nombre.toLowerCase()));
+  };
+
   const accesoId = useMemo(() => {
     if (!accesoSlug) return '';
     if (useConfig) return accesoSlug;
-    const cfg = CANDYLAND.accesos.find((a) => a.id === accesoSlug);
-    const match = liveTickets.find((t: any) => cfg && t.name.toLowerCase() === cfg.nombre.toLowerCase());
-    return match ? String(match.id) : accesoSlug;
+    const match = findLiveTicket(accesoSlug);
+    return match ? String(match.id) : '';
   }, [accesoSlug, useConfig, liveTickets]);
 
   const acceso: Acceso | undefined = useMemo(() => {
@@ -248,7 +257,7 @@ export default function Checkout() {
     if (useConfig) return CANDYLAND.accesos.find((a) => a.id === accesoId);
     const tt = liveTickets.find((t: any) => String(t.id) === accesoId);
     if (!tt) return undefined;
-    const cfg = CANDYLAND.accesos.find((a) => a.nombre.toLowerCase() === (tt as any).name.toLowerCase());
+    const cfg = CANDYLAND.accesos.find((a) => a.id === (tt as any).accesoSlug) ?? CANDYLAND.accesos.find((a) => a.nombre.toLowerCase() === (tt as any).name.toLowerCase());
     return {
       id: accesoId,
       nombre: (tt as any).name,
@@ -262,17 +271,34 @@ export default function Checkout() {
     };
   }, [accesoId, useConfig, liveTickets]);
 
+  // Si ya hay entradas reales cargadas para el evento pero ninguna está
+  // conectada a este slug (el admin no le asignó el "tipo de acceso" a esa
+  // entrada), avisa en vez de dejar avanzar un wizard que después no puede
+  // completar la compra.
+  const avisarSiNoHayEntrada = (slug: string) => {
+    if (useConfig) return true;
+    if (findLiveTicket(slug)) return true;
+    alert('Este tipo de acceso todavía no está configurado para este evento. Contáctanos para completar tu compra.');
+    return false;
+  };
+
   const chooseVibe = (size: GroupSize) => {
-    setGroupSize(size);
     // Solo/a → resuelve en el paso "quien". Pareja → resuelve en "pareja-composicion".
-    if (size === 3 || size === 4) setAccesoSlug(GROUP_TO_ACCESO[size]);
+    if (size === 3 || size === 4) {
+      const slug = GROUP_TO_ACCESO[size];
+      if (!avisarSiNoHayEntrada(slug)) return;
+      setAccesoSlug(slug);
+    }
+    setGroupSize(size);
     continuar();
   };
   const chooseQuien = (slug: 'soltera' | 'soltero') => {
+    if (!avisarSiNoHayEntrada(slug)) return;
     setAccesoSlug(slug);
     continuar();
   };
   const choosePareja = (tipo: DuoComposicion) => {
+    if (!avisarSiNoHayEntrada('duo')) return;
     setDuoComposicion(tipo);
     setAccesoSlug('duo');
     continuar();

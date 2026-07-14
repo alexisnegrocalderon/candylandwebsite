@@ -50,6 +50,11 @@ export const ticketTypes = mysqlTable("ticketTypes", {
   id: int("id").autoincrement().primaryKey(),
   eventId: int("eventId").notNull(),
   name: varchar("name", { length: 100 }).notNull(),
+  // Conecta esta entrada con la pregunta "¿cómo vienes?" del checkout
+  // conversacional (duo/soltera/soltero/trio/grupo/cumpleaneros) — el wizard
+  // busca por este campo, no por el nombre, para no depender de que el admin
+  // escriba el nombre exacto con tilde y mayúscula correcta.
+  accesoSlug: varchar("accesoSlug", { length: 50 }),
   description: varchar("description", { length: 500 }),
   price: decimal("price", { precision: 10, scale: 0 }).notNull(),
   originalPrice: decimal("originalPrice", { precision: 10, scale: 0 }),
