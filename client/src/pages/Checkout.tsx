@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CANDYLAND, CAMPOS_COMPRADOR, formatCLP, coversDisponibles, whatsappComunidadLink, type Acceso, type CampoForm } from '@/config/candyland';
+import { isMissionWindowOpen, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
 
 /**
  * Checkout conversacional: una sola pregunta por pantalla, estilo "asistente"
@@ -258,16 +259,25 @@ export default function Checkout() {
     return match ? String(match.id) : '';
   }, [accesoSlug, useConfig, liveTickets]);
 
+  // Misión 300: mientras falten más de 3 días para el evento, los accesos
+  // principales se cobran al precio del abono ($10.000/persona) en vez del
+  // valor general — igual que hace createOrder en el servidor. Se calcula acá
+  // también para que el checkout MUESTRE el precio real que se va a cobrar,
+  // en vez del valor general que confundiría a la hora de pagar.
+  const missionOpen = !useConfig && !!event?.eventDate && isMissionWindowOpen(new Date(event.eventDate));
+
   const acceso: Acceso | undefined = useMemo(() => {
     if (!accesoId) return undefined;
     if (useConfig) return CANDYLAND.accesos.find((a) => a.id === accesoId);
     const tt = accesoTickets.find((t: any) => String(t.id) === accesoId);
     if (!tt) return undefined;
     const cfg = CANDYLAND.accesos.find((a) => a.id === (tt as any).accesoSlug) ?? CANDYLAND.accesos.find((a) => a.nombre.toLowerCase() === (tt as any).name.toLowerCase());
+    const generalPrice = Number((tt as any).price);
+    const precio = missionOpen ? missionDepositPrice((tt as any).accesoSlug) : generalPrice;
     return {
       id: accesoId,
       nombre: (tt as any).name,
-      precio: Number((tt as any).price),
+      precio,
       personas: cfg?.personas ?? 1,
       descripcion: cfg?.descripcion ?? '',
       beneficios: cfg?.beneficios ?? [],
@@ -275,7 +285,15 @@ export default function Checkout() {
       exclusivoComunidad: cfg?.exclusivoComunidad ?? false,
       campos: cfg?.campos,
     };
-  }, [accesoId, useConfig, liveTickets]);
+  }, [accesoId, useConfig, liveTickets, missionOpen]);
+
+  const missionGeneralPrice = useMemo(() => {
+    if (!missionOpen || !accesoId || useConfig) return null;
+    const tt = accesoTickets.find((t: any) => String(t.id) === accesoId);
+    return tt ? Number((tt as any).price) : null;
+  }, [missionOpen, accesoId, useConfig, liveTickets]);
+
+  const missionCutoffDate = useMemo(() => (event?.eventDate ? missionCutoff(new Date(event.eventDate)) : null), [event?.eventDate]);
 
   // Si ya hay entradas reales cargadas para el evento pero ninguna está
   // conectada a este slug (el admin no le asignó el "tipo de acceso" a esa
@@ -808,6 +826,16 @@ export default function Checkout() {
               {/* Paso final: resumen */}
               {pasoActual.id === 'resumen' && (
                 <div className="space-y-4">
+                  {missionOpen && missionGeneralPrice && (
+                    <div className="rounded-2xl p-4 bg-gradient-to-br from-primary/15 via-cherry/10 to-violet-electric/15 border border-primary/20">
+                      <p className="text-sm font-bold mb-1">🍬 Estás pagando el abono de Misión 300</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Hoy pagas {formatCLP(missionDepositPrice(accesoSlug))} para asegurar tu lugar (valor general {formatCLP(missionGeneralPrice)}).
+                        {missionCutoffDate && <> Si juntamos 300 personas antes del {missionCutoffDate.toLocaleDateString('es-CL', { day: 'numeric', month: 'long' })}, no pagas más.</>} Si no se junta, completas
+                        {' '}hasta el 60% del valor general (máximo {formatCLP(missionCapPrice(missionGeneralPrice))}) — te avisamos por email.
+                      </p>
+                    </div>
+                  )}
                   <div className="glass-candy rounded-2xl p-5">
                     <div className="flex justify-between text-sm mb-2">
                       <span>{EMOJIS[accesoSlug] ?? '🍬'} {qty}× {acceso?.nombre}</span>

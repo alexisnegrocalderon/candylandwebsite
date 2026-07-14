@@ -69,6 +69,51 @@ function TicketTypesList({
   );
 }
 
+function Mission300Panel({ eventId }: { eventId: number }) {
+  const { data: status, refetch } = trpc.mission300.status.useQuery({ eventId });
+  const evaluate = trpc.mission300.evaluate.useMutation({
+    onSuccess: (r) => { refetch(); toast.success(r.success ? `Meta cumplida: se generaron tickets para ${r.resolved} orden(es)` : `No se cumplió la meta: se pidió la diferencia a ${r.topupRequested} orden(es)`); },
+    onError: onMutationError,
+  });
+  const [confirming, setConfirming] = useState(false);
+
+  if (!status) return null;
+  if (status.ordersCount === 0) return null;
+
+  const cutoff = new Date(status.cutoffDate);
+  const cutoffPassed = Date.now() > cutoff.getTime();
+
+  return (
+    <div className="mt-3 border-t border-border/50 pt-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Misión 300</span>
+          <p className="text-sm mt-0.5">
+            <strong>{status.totalPersonas}</strong> / {status.goal} personas · {status.ordersCount} orden(es) con abono pendiente de resolver
+            · vence {cutoff.toLocaleDateString('es-CL')}
+          </p>
+        </div>
+        {!confirming ? (
+          <Button variant="outline" size="sm" onClick={() => setConfirming(true)} disabled={!cutoffPassed} title={!cutoffPassed ? 'Se habilita al pasar la fecha límite' : undefined}>
+            Evaluar Misión 300
+          </Button>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {status.wouldSucceed ? `Se cumple la meta: se van a generar tickets con QR para las ${status.ordersCount} órdenes.` : `No se cumple: se va a pedir la diferencia por email a las ${status.ordersCount} órdenes.`}
+            </span>
+            <Button size="sm" onClick={() => { evaluate.mutate({ eventId }); setConfirming(false); }} disabled={evaluate.isPending}>Confirmar</Button>
+            <Button variant="outline" size="sm" onClick={() => setConfirming(false)}>Cancelar</Button>
+          </div>
+        )}
+      </div>
+      {!cutoffPassed && (
+        <p className="text-xs text-muted-foreground mt-1">Todavía no llega la fecha límite — evaluar antes de tiempo cobraría de más a quien compró recién.</p>
+      )}
+    </div>
+  );
+}
+
 function EventsManager() {
   const { data: eventsData, refetch } = trpc.events.listAll.useQuery();
   const createEvent = trpc.events.create.useMutation({ onSuccess: () => { refetch(); toast.success('Evento creado'); }, onError: onMutationError });
@@ -210,6 +255,7 @@ function EventsManager() {
                 </div>
               </div>
               <TicketTypesList eventId={event.id} onEdit={handleEditTicketType} />
+              <Mission300Panel eventId={event.id} />
               {showTicketForm && newTicket.eventId === event.id && (
                 <div className="mt-4 border-t border-border/50 pt-4 space-y-4">
                   <h4 className="font-semibold text-sm">{editingTicketId ? 'Editar Tipo de Entrada' : 'Nuevo Tipo de Entrada'}</h4>

@@ -4,6 +4,7 @@ import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, di
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { createPaymentPreference } from './mercadopago';
+import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -310,15 +311,28 @@ export async function createOrder(input: {
   const event = await getEventBySlug(input.eventSlug);
   if (!event) throw new Error("Event not found");
 
+  // Misión 300: mientras la ventana esté abierta (más de 3 días antes del
+  // evento), las entradas category="acceso" se cobran al precio del abono
+  // ($10.000/persona), no al precio general — el resto (diferencia hasta el
+  // 60% si no se junta la meta, o nada si se junta) se resuelve después, ver
+  // evaluateMission300() y el webhook de Mercado Pago.
+  const missionOpen = isMissionWindowOpen(new Date(event.eventDate));
+  let missionDeposit = false;
+
   // Calculate totals
   const tts = await getTicketTypesByEventId(event.id);
   let subtotal = 0;
+  const unitPrices = new Map<number, number>();
   for (const item of input.items) {
     const tt = tts.find(t => t.id === item.ticketTypeId);
     if (!tt) throw new Error(`Ticket type ${item.ticketTypeId} not found`);
     const available = tt.totalStock - tt.soldCount;
     if (item.quantity > available) throw new Error(`Not enough stock for ${tt.name}`);
-    subtotal += Number(tt.price) * item.quantity;
+    const useDeposit = missionOpen && tt.category === 'acceso';
+    const unitPrice = useDeposit ? missionDepositPrice(tt.accesoSlug) : Number(tt.price);
+    if (useDeposit) missionDeposit = true;
+    unitPrices.set(item.ticketTypeId, unitPrice);
+    subtotal += unitPrice * item.quantity;
   }
 
   // Apply discount
@@ -363,6 +377,7 @@ export async function createOrder(input: {
     discountCodeId,
     ambassadorCode: input.ambassadorCode,
     paymentStatus: 'pending',
+    missionDeposit: missionDeposit ? 1 : 0,
   });
 
   const orderId = orderResult.insertId;
@@ -373,25 +388,29 @@ export async function createOrder(input: {
   // (ver processApprovedOrder en webhooks.ts) para que cancelar/abandonar el
   // pago no infle el contador.
   for (const item of input.items) {
-    const tt = tts.find(t => t.id === item.ticketTypeId)!;
+    const unitPrice = unitPrices.get(item.ticketTypeId)!;
     await db.insert(orderItems).values({
       orderId,
       ticketTypeId: item.ticketTypeId,
       quantity: item.quantity,
-      unitPrice: tt.price,
-      totalPrice: String(Number(tt.price) * item.quantity),
+      unitPrice: String(unitPrice),
+      totalPrice: String(unitPrice * item.quantity),
     });
   }
 
   // Create Mercado Pago preference (placeholder - will be replaced with real integration)
-  // Build items for Mercado Pago
+  // Build items for Mercado Pago — SIEMPRE con unitPrices (el precio de
+  // abono si aplica), nunca tt.price directo, o se le cobraría a la gente
+  // el valor general en vez del abono de Misión 300.
   const mpItems = [];
   for (const item of input.items) {
     const tt = tts.find(t => t.id === item.ticketTypeId)!;
+    const unitPrice = unitPrices.get(item.ticketTypeId)!;
+    const isDeposit = missionOpen && tt.category === 'acceso';
     mpItems.push({
-      title: `${tt.name} - ${event.title}`,
+      title: isDeposit ? `${tt.name} (abono Misión 300) - ${event.title}` : `${tt.name} - ${event.title}`,
       quantity: item.quantity,
-      unitPrice: Number(tt.price),
+      unitPrice,
     });
   }
 

@@ -97,6 +97,19 @@ export const orders = mysqlTable("orders", {
   paymentMethod: varchar("paymentMethod", { length: 64 }),
   mercadoPagoPreferenceId: varchar("mercadoPagoPreferenceId", { length: 255 }),
   emailSent: int("emailSent").default(0).notNull(),
+  // Misión 300: preventa donde se paga un abono de $10.000/persona hasta 3
+  // días antes del evento. Si se junta la meta, nadie paga más y se entrega
+  // el ticket con el abono. Si no se junta, cada quien completa hasta el
+  // 60% del valor general de su entrada (el abono ya cuenta como parte de
+  // ese 60%) — recién ahí se genera el ticket/QR, nunca con solo el abono.
+  missionDeposit: int("missionDeposit").default(0).notNull(),
+  missionTopupStatus: mysqlEnum("missionTopupStatus", ["none", "pending", "paid"]).default("none").notNull(),
+  missionTopupAmount: decimal("missionTopupAmount", { precision: 10, scale: 0 }),
+  missionTopupPreferenceId: varchar("missionTopupPreferenceId", { length: 255 }),
+  // Separado de emailSent (que significa "ya se mandó el ticket con QR") —
+  // el mail de "te uniste a la Misión 300" se manda antes que eso, cuando
+  // se aprueba el abono, y todavía no hay ticket ni QR.
+  depositEmailSent: int("depositEmailSent").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

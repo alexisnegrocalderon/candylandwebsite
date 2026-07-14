@@ -6,6 +6,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
+import { getMission300Status, evaluateMission300 } from "./webhooks";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
@@ -170,6 +171,15 @@ export const appRouter = router({
     }),
     getStats: adminProcedure.query(async () => {
       return db.getOrderStats();
+    }),
+  }),
+
+  mission300: router({
+    status: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return getMission300Status(input.eventId);
+    }),
+    evaluate: adminProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input }) => {
+      return evaluateMission300(input.eventId);
     }),
   }),
 

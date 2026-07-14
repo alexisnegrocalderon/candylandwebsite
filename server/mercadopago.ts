@@ -75,6 +75,50 @@ export async function createPaymentPreference(input: CreatePreferenceInput) {
   };
 }
 
+/** Preferencia para cobrar la diferencia de Misión 300 cuando no se junta la meta
+ * — reusa el mismo orderNumber como external_reference así el webhook actualiza
+ * la orden original en vez de crear una nueva. */
+export async function createTopupPreference(input: {
+  orderNumber: string;
+  eventTitle: string;
+  amount: number;
+  buyerEmail: string;
+  buyerName: string;
+}) {
+  const client = getClient();
+  if (!client) {
+    console.warn('[MercadoPago] Using mock topup URL (no access token)');
+    return { id: 'mock-preference-topup-' + input.orderNumber, initPoint: `/pago/exito?order=${input.orderNumber}&mock=true` };
+  }
+
+  const preference = new Preference(client);
+  const baseUrl = process.env.APP_URL || 'https://mansionplayroom.cl';
+
+  const result = await preference.create({
+    body: {
+      items: [{
+        id: input.orderNumber,
+        title: `Diferencia Misión 300 - ${input.eventTitle}`,
+        quantity: 1,
+        unit_price: input.amount,
+        currency_id: 'CLP',
+      }],
+      payer: { email: input.buyerEmail, name: input.buyerName },
+      back_urls: {
+        success: `${baseUrl}/pago/exito?order=${input.orderNumber}`,
+        failure: `${baseUrl}/pago/error?order=${input.orderNumber}`,
+        pending: `${baseUrl}/pago/exito?order=${input.orderNumber}&pending=true`,
+      },
+      auto_return: 'approved',
+      external_reference: input.orderNumber,
+      notification_url: `${baseUrl}/api/webhooks/mercadopago`,
+      statement_descriptor: 'MANSION PLAYROOM',
+    },
+  });
+
+  return { id: result.id, initPoint: result.init_point };
+}
+
 export async function getPaymentInfo(paymentId: string) {
   const client = getClient();
   if (!client) return null;
