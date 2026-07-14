@@ -15,6 +15,13 @@
       "when": 1783480247115,
       "tag": "0001_solid_lionheart",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1783994223271,
+      "tag": "0002_spicy_felicia_hardy",
+      "breakpoints": true
     }
   ]
 }
