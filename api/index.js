@@ -885,6 +885,9 @@ var SDKServer = class {
       }
       return buildCronUser(userInfo);
     }
+    if (session.openId === ADMIN_LOCAL_OPEN_ID) {
+      return buildAdminLocalUser();
+    }
     const sessionUserId = session.openId;
     const signedInAt = /* @__PURE__ */ new Date();
     let user = await getUserByOpenId(sessionUserId);
@@ -915,6 +918,24 @@ var SDKServer = class {
   }
 };
 var CRON_OPEN_ID_PREFIX = "cron_";
+var ADMIN_LOCAL_OPEN_ID = "admin-local";
+function buildAdminLocalUser() {
+  const now = /* @__PURE__ */ new Date();
+  return {
+    id: -1,
+    openId: ADMIN_LOCAL_OPEN_ID,
+    name: "Admin",
+    email: null,
+    loginMethod: "password",
+    role: "admin",
+    ambassadorCode: null,
+    referredBy: null,
+    totalReferrals: 0,
+    createdAt: now,
+    updatedAt: now,
+    lastSignedIn: now
+  };
+}
 function buildCronUser(userInfo) {
   const now = /* @__PURE__ */ new Date();
   return {
@@ -1191,7 +1212,6 @@ var adminProcedure2 = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError3({ code: "FORBIDDEN", message: "Admin access required" });
   return next({ ctx });
 });
-var ADMIN_LOCAL_OPEN_ID = "admin-local";
 var appRouter = router({
   system: systemRouter,
   auth: router({

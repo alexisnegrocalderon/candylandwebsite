@@ -285,6 +285,13 @@ class SDKServer {
       return buildCronUser(userInfo);
     }
 
+    // Admin local (login por contraseña, sin OAuth externo): usuario sintético
+    // fijo — no depende de que la base de datos esté configurada, ni cae en el
+    // flujo de sincronización con el OAuth externo (que no existe acá).
+    if (session.openId === ADMIN_LOCAL_OPEN_ID) {
+      return buildAdminLocalUser();
+    }
+
     const sessionUserId = session.openId;
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
@@ -321,6 +328,27 @@ class SDKServer {
 }
 
 const CRON_OPEN_ID_PREFIX = "cron_";
+
+/** openId sintético para el login de admin por contraseña (ver routers.ts auth.adminLogin). */
+export const ADMIN_LOCAL_OPEN_ID = "admin-local";
+
+function buildAdminLocalUser(): AuthenticatedUser {
+  const now = new Date();
+  return {
+    id: -1,
+    openId: ADMIN_LOCAL_OPEN_ID,
+    name: "Admin",
+    email: null,
+    loginMethod: "password",
+    role: "admin",
+    ambassadorCode: null,
+    referredBy: null,
+    totalReferrals: 0,
+    createdAt: now,
+    updatedAt: now,
+    lastSignedIn: now,
+  } as AuthenticatedUser;
+}
 
 /** Result of `sdk.authenticateRequest`. Cron callbacks set `isCron=true` and `taskUid`; see `references/periodic-updates.md`. */
 export type AuthenticatedUser = User & {
