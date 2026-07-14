@@ -218,6 +218,12 @@ export default function Checkout() {
   const { data: liveTicketsData } = trpc.events.getTicketTypes.useQuery({ slug: eventSlug }, { retry: false });
   const liveTickets = liveTicketsData ?? [];
   const useConfig = liveTickets.length === 0; // sin DB → modo demo con config
+  // Los "extras" (category='extra': estacionamiento, covers, lo que sea que
+  // el admin agregue) se ofrecen solos en el paso de extras — no hace falta
+  // tocar código para agregar uno nuevo a futuro.
+  const accesoTickets = useMemo(() => liveTickets.filter((t: any) => t.category !== 'extra'), [liveTickets]);
+  const extraTickets = useMemo(() => liveTickets.filter((t: any) => t.category === 'extra'), [liveTickets]);
+  const useDbExtras = !useConfig && extraTickets.length > 0;
 
   const validateDiscount = trpc.orders.validateDiscount.useMutation();
   const validateCommunityCode = trpc.communityCodes.validate.useMutation();
@@ -242,7 +248,7 @@ export default function Checkout() {
   // Number("soltera") que rompía la orden en silencio.
   const findLiveTicket = (slug: string) => {
     const cfg = CANDYLAND.accesos.find((a) => a.id === slug);
-    return liveTickets.find((t: any) => t.accesoSlug === slug || (cfg && t.name.toLowerCase() === cfg.nombre.toLowerCase()));
+    return accesoTickets.find((t: any) => t.accesoSlug === slug || (cfg && t.name.toLowerCase() === cfg.nombre.toLowerCase()));
   };
 
   const accesoId = useMemo(() => {
@@ -255,7 +261,7 @@ export default function Checkout() {
   const acceso: Acceso | undefined = useMemo(() => {
     if (!accesoId) return undefined;
     if (useConfig) return CANDYLAND.accesos.find((a) => a.id === accesoId);
-    const tt = liveTickets.find((t: any) => String(t.id) === accesoId);
+    const tt = accesoTickets.find((t: any) => String(t.id) === accesoId);
     if (!tt) return undefined;
     const cfg = CANDYLAND.accesos.find((a) => a.id === (tt as any).accesoSlug) ?? CANDYLAND.accesos.find((a) => a.nombre.toLowerCase() === (tt as any).name.toLowerCase());
     return {
@@ -310,6 +316,7 @@ export default function Checkout() {
   /* ── Extras / códigos ────────────────────────────────────── */
   const [estacionamiento, setEstacionamiento] = useState(false);
   const [coverQty, setCoverQty] = useState<Record<string, number>>({});
+  const [dbExtraQty, setDbExtraQty] = useState<Record<number, number>>({});
   const [discountCode, setDiscountCode] = useState('');
   const [ambassadorCode, setAmbassadorCode] = useState('');
   const [discountApplied, setDiscountApplied] = useState<any>(null);
@@ -357,14 +364,18 @@ export default function Checkout() {
     if (requiresCommunityCode) {
       p.push({ id: 'codigo-comunidad', titulo: 'Tu código de comunidad', sub: 'Lo necesitas para completar esta compra.', keys: ['acceso__codigo_acceso'] });
     }
-    p.push({ id: 'extras-estacionamiento', titulo: '🚗 ¿Aseguramos tu estacionamiento?', sub: addonEstac.descripcion, keys: [] });
-    if (coversOn && covers.productos.length > 0) {
-      p.push({ id: 'extras-covers', titulo: '🍹 ¿Compras tus covers anticipados?', sub: covers.descripcion, keys: [] });
+    if (useDbExtras) {
+      p.push({ id: 'extras-db', titulo: '✨ ¿Agregamos algo más?', sub: 'Estacionamiento, covers y otros extras — todo opcional.', keys: [] });
+    } else {
+      p.push({ id: 'extras-estacionamiento', titulo: '🚗 ¿Aseguramos tu estacionamiento?', sub: addonEstac.descripcion, keys: [] });
+      if (coversOn && covers.productos.length > 0) {
+        p.push({ id: 'extras-covers', titulo: '🍹 ¿Compras tus covers anticipados?', sub: covers.descripcion, keys: [] });
+      }
     }
     p.push({ id: 'codigos', titulo: '🎟️ ¿Tienes un código?', sub: 'De descuento o de quien te invitó — o sáltalo no más.', keys: [] });
     p.push({ id: 'resumen', titulo: '✨ Tu experiencia', sub: 'Revisa todo antes de continuar.', keys: [] });
     return p;
-  }, [camposAcceso, skipVibe, groupSize, requiresCommunityCode, coversOn, covers.productos.length, addonEstac.descripcion, covers.descripcion]);
+  }, [camposAcceso, skipVibe, groupSize, requiresCommunityCode, coversOn, covers.productos.length, addonEstac.descripcion, covers.descripcion, useDbExtras]);
 
   const [paso, setPaso] = useState(0);
   const total_pasos = pasos.length;
@@ -412,7 +423,8 @@ export default function Checkout() {
       : Number(discountApplied.discountValue)
     : 0;
   const coversTotal = covers.productos.reduce((s, p) => s + (coverQty[p.id] || 0) * p.precio, 0);
-  const total = Math.max(0, subtotal - discountAmount) + (estacionamiento ? addonEstac.precio : 0) + coversTotal;
+  const dbExtrasTotal = extraTickets.reduce((s: number, t: any) => s + (dbExtraQty[t.id] || 0) * Number(t.price), 0);
+  const total = Math.max(0, subtotal - discountAmount) + (useDbExtras ? dbExtrasTotal : (estacionamiento ? addonEstac.precio : 0) + coversTotal);
 
   const handleApplyDiscount = async () => {
     if (!discountCode.trim() || !event?.id) return;
@@ -467,9 +479,15 @@ export default function Checkout() {
   };
 
   const onSubmit = async (values: Record<string, any>) => {
+    const extrasElegidos = useDbExtras
+      ? extraTickets.filter((t: any) => (dbExtraQty[t.id] || 0) > 0).map((t: any) => ({ nombre: t.name, cantidad: dbExtraQty[t.id] }))
+      : [
+          ...(estacionamiento ? [{ nombre: addonEstac.nombre, cantidad: 1 }] : []),
+          ...covers.productos.filter((p) => (coverQty[p.id] || 0) > 0).map((p) => ({ nombre: p.nombre, cantidad: coverQty[p.id] })),
+        ];
     const attendeeData = JSON.stringify({
       acceso: acceso?.nombre, cantidad: qty, grupoTipo: accesoSlug,
-      extras: { estacionamiento, covers: covers.productos.filter((p) => (coverQty[p.id] || 0) > 0).map((p) => ({ nombre: p.nombre, cantidad: coverQty[p.id] })) },
+      extras: extrasElegidos,
       campos: values,
     });
 
@@ -478,6 +496,10 @@ export default function Checkout() {
       return;
     }
 
+    const extraItems = useDbExtras
+      ? extraTickets.filter((t: any) => (dbExtraQty[t.id] || 0) > 0).map((t: any) => ({ ticketTypeId: t.id, quantity: dbExtraQty[t.id] }))
+      : [];
+
     setIsProcessing(true);
     try {
       const result = await createOrder.mutateAsync({
@@ -485,7 +507,7 @@ export default function Checkout() {
         buyerName: values['buyer__nombre'],
         buyerEmail: values['buyer__email'],
         buyerPhone: values['buyer__whatsapp'],
-        items: [{ ticketTypeId: Number(accesoId), quantity: qty }],
+        items: [{ ticketTypeId: Number(accesoId), quantity: qty }, ...extraItems],
         discountCode: discountCode || undefined,
         ambassadorCode: ambassadorCode || undefined,
         communityCode: requiresCommunityCode ? values['acceso__codigo_acceso'] : undefined,
@@ -691,6 +713,27 @@ export default function Checkout() {
                 </div>
               )}
 
+              {/* Paso: extras reales del evento (category="extra" en el admin) */}
+              {pasoActual.id === 'extras-db' && (
+                <div className="space-y-3">
+                  {extraTickets.map((t: any) => {
+                    const q = dbExtraQty[t.id] || 0;
+                    const max = Math.min(t.maxPerOrder ?? 10, t.totalStock - (t.soldCount ?? 0));
+                    const set = (d: number) => setDbExtraQty((prev) => ({ ...prev, [t.id]: Math.max(0, Math.min(max, (prev[t.id] || 0) + d)) }));
+                    return (
+                      <div key={t.id} className="flex items-center justify-between glass-candy rounded-2xl p-4">
+                        <span className="text-sm font-semibold">{t.name} <span className="text-muted-foreground font-normal">· {formatCLP(Number(t.price))}</span></span>
+                        <div className="flex items-center gap-4">
+                          <button type="button" onClick={() => set(-1)} aria-label={`Quitar ${t.name}`} className="w-11 h-11 rounded-full border border-primary/40 flex items-center justify-center hover:bg-primary/10 interactive"><Minus className="w-4 h-4" /></button>
+                          <span className="w-6 text-center font-bold text-lg tabular-nums">{q}</span>
+                          <button type="button" onClick={() => set(1)} aria-label={`Agregar ${t.name}`} className="w-11 h-11 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:scale-105 transition-transform interactive"><Plus className="w-4 h-4" /></button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               {/* Paso: códigos */}
               {pasoActual.id === 'codigos' && (
                 <div className="space-y-4">
@@ -723,17 +766,32 @@ export default function Checkout() {
                     {discountAmount > 0 && (
                       <div className="flex justify-between text-sm text-green-400 mb-2"><span>Descuento</span><span>-{formatCLP(discountAmount)}</span></div>
                     )}
-                    {(estacionamiento || covers.productos.some((p) => (coverQty[p.id] || 0) > 0)) && (
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-3 mb-1.5">Extras</p>
+                    {useDbExtras ? (
+                      <>
+                        {extraTickets.some((t: any) => (dbExtraQty[t.id] || 0) > 0) && (
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-3 mb-1.5">Extras</p>
+                        )}
+                        {extraTickets.map((t: any) => {
+                          const q = dbExtraQty[t.id] || 0;
+                          if (q <= 0) return null;
+                          return <div key={t.id} className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {q}× {t.name}</span><span>+{formatCLP(q * Number(t.price))}</span></div>;
+                        })}
+                      </>
+                    ) : (
+                      <>
+                        {(estacionamiento || covers.productos.some((p) => (coverQty[p.id] || 0) > 0)) && (
+                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-3 mb-1.5">Extras</p>
+                        )}
+                        {estacionamiento && (
+                          <div className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {addonEstac.nombre}</span><span>+{formatCLP(addonEstac.precio)}</span></div>
+                        )}
+                        {covers.productos.map((p) => {
+                          const q = coverQty[p.id] || 0;
+                          if (q <= 0) return null;
+                          return <div key={p.id} className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {q}× {p.nombre}</span><span>+{formatCLP(q * p.precio)}</span></div>;
+                        })}
+                      </>
                     )}
-                    {estacionamiento && (
-                      <div className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {addonEstac.nombre}</span><span>+{formatCLP(addonEstac.precio)}</span></div>
-                    )}
-                    {covers.productos.map((p) => {
-                      const q = coverQty[p.id] || 0;
-                      if (q <= 0) return null;
-                      return <div key={p.id} className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {q}× {p.nombre}</span><span>+{formatCLP(q * p.precio)}</span></div>;
-                    })}
                     <div className="flex justify-between font-heading text-2xl pt-3 border-t border-border/40">
                       <span>Total</span>
                       <span className="text-gradient-candy">{formatCLP(total)}</span>

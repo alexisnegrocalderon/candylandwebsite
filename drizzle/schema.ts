@@ -53,8 +53,14 @@ export const ticketTypes = mysqlTable("ticketTypes", {
   // Conecta esta entrada con la pregunta "¿cómo vienes?" del checkout
   // conversacional (duo/soltera/soltero/trio/grupo/cumpleaneros) — el wizard
   // busca por este campo, no por el nombre, para no depender de que el admin
-  // escriba el nombre exacto con tilde y mayúscula correcta.
+  // escriba el nombre exacto con tilde y mayúscula correcta. Solo aplica a
+  // category="acceso".
   accesoSlug: varchar("accesoSlug", { length: 50 }),
+  // "acceso" = una de las opciones de "¿cómo vienes?" (Dúo/Soltera/etc, una
+  // por persona/grupo). "extra" = addon opcional que se ofrece después
+  // (estacionamiento, cover, etc.) — el checkout los lista automáticamente
+  // en el paso de extras, con su propio stock y precio.
+  category: mysqlEnum("category", ["acceso", "extra"]).default("acceso").notNull(),
   description: varchar("description", { length: 500 }),
   price: decimal("price", { precision: 10, scale: 0 }).notNull(),
   originalPrice: decimal("originalPrice", { precision: 10, scale: 0 }),

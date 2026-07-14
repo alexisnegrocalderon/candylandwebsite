@@ -1,0 +1,1 @@
+ALTER TABLE `ticketTypes` ADD `category` enum('acceso','extra') DEFAULT 'acceso' NOT NULL;
