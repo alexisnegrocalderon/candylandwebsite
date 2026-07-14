@@ -148,7 +148,11 @@ const ACCESOS: Acceso[] = [
 ];
 
 export const CANDYLAND = {
-  slug: 'candyland',
+  // Debe coincidir con el slug real del evento en la base de datos (lo que
+  // el admin le puso al crearlo en /admin) — si no coincide, todos los CTA
+  // del sitio apuntan a un evento que no existe y el checkout cae en modo
+  // demo silenciosamente, fallando recién al intentar pagar.
+  slug: 'candyland-agosto-2026',
   nombre: 'CANDYLAND',
   tagline: 'Donde la libertad sabe más dulce',
   heroTitulo: 'Una noche demasiado dulce para olvidar.',
