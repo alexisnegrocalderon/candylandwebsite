@@ -232,7 +232,7 @@ function Hero() {
           className="absolute inset-0 w-full h-full object-cover opacity-30 blur-3xl scale-125"
         />
         <video
-          className="absolute inset-0 w-full h-full object-cover opacity-60 motion-reduce:hidden"
+          className="absolute inset-0 w-full h-full object-cover opacity-90 saturate-[1.15] motion-reduce:hidden"
           src="/candyland/hero-video.mp4"
           poster="/candyland/poster-hero.webp"
           autoPlay
@@ -242,7 +242,11 @@ function Hero() {
           preload="auto"
         />
       </motion.div>
-      <div className="absolute inset-0 bg-gradient-to-b from-background/55 via-background/30 to-background" />
+      {/* Viñeta oscura centrada en el texto (contraste) + degradé claro solo
+       * en el borde inferior (transición a la sección siguiente) — el resto
+       * del video queda a color fuerte en vez de lavado con el fondo claro. */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_65%_55%_at_50%_42%,oklch(0.18_0.04_330/0.45),transparent_70%)]" />
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background" />
 
       {/* Brillos de club */}
       <div aria-hidden className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-primary/25 blur-[120px] candy-float-slow" />

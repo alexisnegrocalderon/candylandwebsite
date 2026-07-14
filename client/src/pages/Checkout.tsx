@@ -325,6 +325,12 @@ export default function Checkout() {
   const [communityCodeStatus, setCommunityCodeStatus] = useState<'idle' | 'valid' | 'invalid'>('idle');
   const [communityCodeError, setCommunityCodeError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  // Mercado Pago (modo modal embebido) no avisa por callback cuando la
+  // persona cierra el checkout sin pagar — así que en vez de depender de eso,
+  // mostramos nuestra propia pantalla de "esperando pago" apenas se abre el
+  // modal. Si vuelve sin haber pagado, la ve y puede reintentar o cancelar
+  // en vez de quedar con el wizard congelado sin ninguna señal.
+  const [pagoPendiente, setPagoPendiente] = useState<{ preferenceId: string; publicKey: string } | null>(null);
   const addonEstac = CANDYLAND.addons.estacionamiento;
   const covers = CANDYLAND.addons.covers;
   const coversOn = coversDisponibles();
@@ -521,9 +527,7 @@ export default function Checkout() {
       if (publicKey && result.preferenceId && !isMock) {
         // Checkout Pro embebido: se abre como modal sobre el sitio, sin redirigir la pestaña.
         await loadMercadoPagoSdk();
-        const mp = new (window as any).MercadoPago(publicKey, { locale: 'es-CL' });
-        mp.checkout({ preference: { id: result.preferenceId }, autoOpen: true });
-        setIsProcessing(false);
+        abrirCheckoutMp(result.preferenceId, publicKey);
       } else if (result.checkoutUrl) {
         window.location.href = result.checkoutUrl;
       }
@@ -533,6 +537,27 @@ export default function Checkout() {
     }
   };
 
+  const abrirCheckoutMp = (preferenceId: string, publicKey: string) => {
+    const mp = new (window as any).MercadoPago(publicKey, { locale: 'es-CL' });
+    mp.checkout({ preference: { id: preferenceId }, autoOpen: true });
+    setIsProcessing(false);
+    // El SDK de Mercado Pago no avisa cuando cierran el modal sin pagar —
+    // mostramos nuestra propia pantalla de espera con reintentar/cancelar
+    // para cuando vuelvan sin haber completado el pago.
+    setPagoPendiente({ preferenceId, publicKey });
+  };
+
+  const reintentarPago = async () => {
+    if (!pagoPendiente) return;
+    await loadMercadoPagoSdk();
+    const mp = new (window as any).MercadoPago(pagoPendiente.publicKey, { locale: 'es-CL' });
+    mp.checkout({ preference: { id: pagoPendiente.preferenceId }, autoOpen: true });
+  };
+
+  const cancelarCompra = () => {
+    setPagoPendiente(null);
+  };
+
 
   const err = (key: string) => (errors as any)[key]?.message as string | undefined;
 
@@ -540,6 +565,28 @@ export default function Checkout() {
   const soloFieldKey = pasoActual.keys[0];
   const soloField = soloFieldKey ? allFields.find((x) => x.key === soloFieldKey)?.field : undefined;
   const isAutoAdvance = pasoActual.id === 'vibe' || pasoActual.id === 'quien' || pasoActual.id === 'pareja-composicion' || pasoActual.id === 'extras-estacionamiento' || soloField?.type === 'checkbox';
+
+  if (pagoPendiente) {
+    return (
+      <div className="min-h-dvh pt-24 pb-16 flex items-center justify-center">
+        <div className="container max-w-md text-center">
+          <div className="w-16 h-16 rounded-full glass-candy flex items-center justify-center mx-auto mb-5 text-3xl">⏳</div>
+          <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-2">¿Tuviste un problema con el pago?</h1>
+          <p className="text-muted-foreground text-sm mb-8">
+            Si cerraste la ventana de Mercado Pago sin terminar, tu compra todavía no se completó. Podés reintentar el pago o cancelar la compra.
+          </p>
+          <div className="flex flex-col gap-3">
+            <button type="button" onClick={reintentarPago} className="btn-jelly h-13 py-3.5 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm interactive">
+              Reintentar pago
+            </button>
+            <button type="button" onClick={cancelarCompra} className="h-13 py-3.5 rounded-full border border-border text-sm font-semibold hover:border-primary/50 interactive">
+              Cancelar compra
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh pt-20 pb-32 md:pb-16 flex flex-col">
@@ -561,18 +608,21 @@ export default function Checkout() {
           />
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} id="checkout-form" className="relative">
-          {/* Sin mode="wait": con "wait" el paso nuevo no se monta hasta que la
-           * animación de salida del anterior termine — si esa animación no
-           * llega a completarse (pestaña en segundo plano, doble tap rápido,
-           * frame dropeado en el celular), la pantalla queda congelada en el
-           * paso viejo aunque el contador/botón "Volver" ya avanzaron. */}
-          <AnimatePresence initial={false}>
+        <form onSubmit={handleSubmit(onSubmit)} id="checkout-form">
+          {/* mode="popLayout" (no "wait"): el paso nuevo se monta de inmediato
+           * — con "wait" bloqueaba hasta que la animación de salida del
+           * anterior terminara, y si esa animación no llegaba a completarse
+           * (pestaña en 2do plano, doble tap rápido, frame dropeado en el
+           * celular) la pantalla quedaba congelada en el paso viejo. popLayout
+           * además saca el paso saliente del flujo normal apenas empieza a
+           * desvanecerse, así no queda duplicado visualmente más abajo al
+           * hacer scroll mientras dura la transición. */}
+          <AnimatePresence mode="popLayout" initial={false}>
             <motion.div
               key={pasoActual.id}
               initial={{ opacity: 0, x: 24 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -18, position: 'absolute', top: 0, left: 0, right: 0, pointerEvents: 'none' }}
+              exit={{ opacity: 0, x: -18 }}
               transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
             >
               <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-1">{pasoActual.titulo}</h1>

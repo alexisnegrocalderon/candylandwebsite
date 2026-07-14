@@ -63,17 +63,19 @@ webhooksRouter.post('/api/webhooks/mercadopago', async (req: Request, res: Respo
         paymentMethod: paymentInfo.payment_method_id || undefined,
       }).where(eq(orders.id, order.id));
 
+      // Recién acá, con el pago confirmado, se suma al stock vendido (y por
+      // lo tanto al contador de Misión 300) — createOrder no lo toca porque
+      // en ese momento la orden todavía puede cancelarse o quedar abandonada.
+      if (status === 'approved') {
+        const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+        for (const item of items) {
+          await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
+        }
+      }
+
       // If approved, generate tickets and send email (idempotent check)
       if (status === 'approved' && !order.emailSent) {
         await processApprovedOrder(order);
-      }
-
-      // If rejected, release stock
-      if (status === 'rejected') {
-        const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
-        for (const item of items) {
-          await db.update(ticketTypes).set({ soldCount: sql`GREATEST(0, soldCount - ${item.quantity})` }).where(eq(ticketTypes.id, item.ticketTypeId));
-        }
       }
     }
 

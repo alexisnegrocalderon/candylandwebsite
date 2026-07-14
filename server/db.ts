@@ -367,7 +367,11 @@ export async function createOrder(input: {
 
   const orderId = orderResult.insertId;
 
-  // Create order items
+  // Create order items. soldCount (y con él, el contador de Misión 300) NO se
+  // toca acá — la orden todavía está "pending", nadie pagó nada. Se
+  // incrementa recién cuando el webhook de Mercado Pago confirma el pago
+  // (ver processApprovedOrder en webhooks.ts) para que cancelar/abandonar el
+  // pago no infle el contador.
   for (const item of input.items) {
     const tt = tts.find(t => t.id === item.ticketTypeId)!;
     await db.insert(orderItems).values({
@@ -377,8 +381,6 @@ export async function createOrder(input: {
       unitPrice: tt.price,
       totalPrice: String(Number(tt.price) * item.quantity),
     });
-    // Reserve stock (released if payment is rejected via webhook)
-    await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
   }
 
   // Create Mercado Pago preference (placeholder - will be replaced with real integration)

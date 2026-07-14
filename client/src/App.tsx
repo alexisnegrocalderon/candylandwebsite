@@ -34,19 +34,20 @@ function Router() {
   return (
     <Suspense fallback={<PageLoader />}>
       {/* Transición inmersiva entre rutas: fade+rise corto, sin salto de página.
-       * Sin mode="wait": con "wait" la página nueva no se monta hasta que la
-       * animación de salida de la anterior termine — si el celular pierde
-       * frames (pestaña en 2do plano, GPU lenta), esa animación no llega a
-       * completarse y el usuario queda pegado en la página vieja sin poder
-       * hacer nada, con la única salida siendo recargar. */}
-      <AnimatePresence initial={false}>
+       * mode="popLayout" (no "wait"): la página nueva se monta de inmediato
+       * — con "wait" bloqueaba el montaje hasta que la animación de salida
+       * terminara, y si el celular perdía frames (pestaña en 2do plano, GPU
+       * lenta) esa animación no llegaba a completarse nunca, dejando al
+       * usuario pegado. popLayout además saca la página saliente del flujo
+       * normal apenas empieza a salir (measure+position:absolute internos),
+       * así no se duplica visualmente con la entrante mientras se desvanece. */}
+      <AnimatePresence mode="popLayout" initial={false}>
         <motion.div
           key={location}
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10, position: 'absolute', top: 0, left: 0, right: 0, pointerEvents: 'none' }}
+          exit={{ opacity: 0, y: -10 }}
           transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
-          className="relative"
         >
           <Switch>
             <Route path="/" component={Home} />
