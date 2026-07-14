@@ -513,13 +513,18 @@ export default function Checkout() {
           />
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} id="checkout-form">
-          <AnimatePresence mode="wait">
+        <form onSubmit={handleSubmit(onSubmit)} id="checkout-form" className="relative">
+          {/* Sin mode="wait": con "wait" el paso nuevo no se monta hasta que la
+           * animación de salida del anterior termine — si esa animación no
+           * llega a completarse (pestaña en segundo plano, doble tap rápido,
+           * frame dropeado en el celular), la pantalla queda congelada en el
+           * paso viejo aunque el contador/botón "Volver" ya avanzaron. */}
+          <AnimatePresence initial={false}>
             <motion.div
               key={pasoActual.id}
               initial={{ opacity: 0, x: 24 }}
               animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -18 }}
+              exit={{ opacity: 0, x: -18, position: 'absolute', top: 0, left: 0, right: 0, pointerEvents: 'none' }}
               transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
             >
               <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-1">{pasoActual.titulo}</h1>

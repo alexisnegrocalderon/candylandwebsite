@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { toast } from 'sonner';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
@@ -11,14 +12,22 @@ import { Calendar, DollarSign, Ticket, Users, Plus, Trash2, Edit } from 'lucide-
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
+/* Toda escritura del admin pasa por acá: sin esto, un error del servidor
+ * (típicamente "Database not available" si falta DATABASE_URL) fallaba en
+ * silencio — el botón volvía a su estado normal sin avisar que no se guardó nada. */
+const onMutationError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : 'No se pudo guardar. Intenta de nuevo.';
+  toast.error(message === 'Database not available' ? 'Base de datos no configurada — nada se guardó. Revisa DATABASE_URL en Vercel.' : message);
+};
+
 function EventsManager() {
   const { data: eventsData, refetch } = trpc.events.listAll.useQuery();
-  const createEvent = trpc.events.create.useMutation({ onSuccess: () => refetch() });
-  const deleteEvent = trpc.events.delete.useMutation({ onSuccess: () => refetch() });
-  const updateEvent = trpc.events.update.useMutation({ onSuccess: () => refetch() });
-  const createTicketType = trpc.events.createTicketType.useMutation({ onSuccess: () => refetch() });
-  const updateTicketType = trpc.events.updateTicketType.useMutation({ onSuccess: () => refetch() });
-  const deleteTicketType = trpc.events.deleteTicketType.useMutation({ onSuccess: () => refetch() });
+  const createEvent = trpc.events.create.useMutation({ onSuccess: () => { refetch(); toast.success('Evento creado'); }, onError: onMutationError });
+  const deleteEvent = trpc.events.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const updateEvent = trpc.events.update.useMutation({ onSuccess: () => { refetch(); toast.success('Evento actualizado'); }, onError: onMutationError });
+  const createTicketType = trpc.events.createTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const updateTicketType = trpc.events.updateTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const deleteTicketType = trpc.events.deleteTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
 
   const [newEvent, setNewEvent] = useState({
     title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', eventDate: '', doorsOpen: '',
@@ -165,8 +174,8 @@ function EventsManager() {
 
 function DiscountsManager() {
   const { data: discountsData, refetch } = trpc.discounts.listAll.useQuery();
-  const createDiscount = trpc.discounts.create.useMutation({ onSuccess: () => refetch() });
-  const deleteDiscount = trpc.discounts.delete.useMutation({ onSuccess: () => refetch() });
+  const createDiscount = trpc.discounts.create.useMutation({ onSuccess: () => { refetch(); toast.success('Código de descuento creado'); }, onError: onMutationError });
+  const deleteDiscount = trpc.discounts.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
 
   const [newDiscount, setNewDiscount] = useState({
     code: '', description: '', discountType: 'percentage' as 'percentage' | 'fixed', discountValue: 0, maxUses: 0, validUntil: '',
@@ -177,13 +186,17 @@ function DiscountsManager() {
 
   const handleCreate = async () => {
     if (!newDiscount.code || !newDiscount.discountValue) return;
-    await createDiscount.mutateAsync({
-      ...newDiscount,
-      maxUses: newDiscount.maxUses || undefined,
-      validUntil: newDiscount.validUntil || undefined,
-    });
-    setNewDiscount({ code: '', description: '', discountType: 'percentage', discountValue: 0, maxUses: 0, validUntil: '' });
-    setShowForm(false);
+    try {
+      await createDiscount.mutateAsync({
+        ...newDiscount,
+        maxUses: newDiscount.maxUses || undefined,
+        validUntil: newDiscount.validUntil || undefined,
+      });
+      setNewDiscount({ code: '', description: '', discountType: 'percentage', discountValue: 0, maxUses: 0, validUntil: '' });
+      setShowForm(false);
+    } catch {
+      // el toast de error ya lo muestra onMutationError; dejamos el formulario abierto para reintentar
+    }
   };
 
   return (
@@ -246,9 +259,9 @@ function DiscountsManager() {
 
 function CommunityCodesManager() {
   const { data: codesData, refetch } = trpc.communityCodes.listAll.useQuery();
-  const createCode = trpc.communityCodes.create.useMutation({ onSuccess: () => refetch() });
-  const deleteCode = trpc.communityCodes.delete.useMutation({ onSuccess: () => refetch() });
-  const updateCode = trpc.communityCodes.update.useMutation({ onSuccess: () => refetch() });
+  const createCode = trpc.communityCodes.create.useMutation({ onSuccess: () => { refetch(); toast.success('Código creado'); }, onError: onMutationError });
+  const deleteCode = trpc.communityCodes.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const updateCode = trpc.communityCodes.update.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
 
   const [newCode, setNewCode] = useState({ code: '', label: '', maxUses: 0 });
   const [showForm, setShowForm] = useState(false);
@@ -257,9 +270,13 @@ function CommunityCodesManager() {
 
   const handleCreate = async () => {
     if (!newCode.code) return;
-    await createCode.mutateAsync({ ...newCode, maxUses: newCode.maxUses || undefined });
-    setNewCode({ code: '', label: '', maxUses: 0 });
-    setShowForm(false);
+    try {
+      await createCode.mutateAsync({ ...newCode, maxUses: newCode.maxUses || undefined });
+      setNewCode({ code: '', label: '', maxUses: 0 });
+      setShowForm(false);
+    } catch {
+      // el toast de error ya lo muestra onMutationError; dejamos el formulario abierto para reintentar
+    }
   };
 
   return (
@@ -473,7 +490,7 @@ function ReferralsView() {
 
 function SettingsManager() {
   const { data: settings, refetch } = trpc.settings.get.useQuery();
-  const updateSettings = trpc.settings.update.useMutation({ onSuccess: () => refetch() });
+  const updateSettings = trpc.settings.update.useMutation({ onSuccess: () => { refetch(); toast.success('Ajustes guardados'); }, onError: onMutationError });
   const [followers, setFollowers] = useState('');
   const [posts, setPosts] = useState('');
 
