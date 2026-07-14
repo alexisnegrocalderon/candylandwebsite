@@ -32,7 +32,10 @@ export const appRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Contraseña incorrecta' });
       }
       await db.upsertUser({ openId: ADMIN_LOCAL_OPEN_ID, name: 'Admin', role: 'admin', lastSignedIn: new Date() });
-      const sessionToken = await sdk.createSessionToken(ADMIN_LOCAL_OPEN_ID, { name: 'Admin' });
+      // sdk.createSessionToken() mete ENV.appId (VITE_APP_ID) en el JWT, que no
+      // está configurado en este deploy standalone — firmamos directo con un
+      // appId fijo para no depender de esa variable de la plataforma original.
+      const sessionToken = await sdk.signSession({ openId: ADMIN_LOCAL_OPEN_ID, appId: 'candyland-admin', name: 'Admin' }, { expiresInMs: ONE_YEAR_MS });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
       return { success: true } as const;
