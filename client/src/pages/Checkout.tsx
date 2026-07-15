@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useRoute, useSearch, Link } from 'wouter';
 import { ArrowLeft, ArrowRight, Tag, Loader2, Check, ShieldCheck, Minus, Plus, MessageCircle } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
@@ -698,7 +698,7 @@ export default function Checkout() {
   }
 
   return (
-    <div className="min-h-dvh pt-20 pb-32 md:pb-16 flex flex-col">
+    <div className="min-h-dvh pt-20 pb-40 md:pb-16 flex flex-col">
       <div className="container max-w-lg flex-1">
         {/* Encabezado + progreso */}
         <div className="flex items-center justify-between mb-2 pt-4">
@@ -717,23 +717,22 @@ export default function Checkout() {
           />
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} id="checkout-form">
-          {/* mode="popLayout" (no "wait"): el paso nuevo se monta de inmediato
-           * — con "wait" bloqueaba hasta que la animación de salida del
-           * anterior terminara, y si esa animación no llegaba a completarse
-           * (pestaña en 2do plano, doble tap rápido, frame dropeado en el
-           * celular) la pantalla quedaba congelada en el paso viejo. popLayout
-           * además saca el paso saliente del flujo normal apenas empieza a
-           * desvanecerse, así no queda duplicado visualmente más abajo al
-           * hacer scroll mientras dura la transición. */}
-          <AnimatePresence mode="popLayout" initial={false}>
-            <motion.div
-              key={pasoActual.id}
-              initial={{ opacity: 0, x: 24 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -18 }}
-              transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
-            >
+        <form onSubmit={handleSubmit(onSubmit)} id="checkout-form" className="relative">
+          {/* Antes esto usaba AnimatePresence con mode="popLayout" para animar
+           * también la salida del paso anterior — pero eso es un bug
+           * reproducible de Framer Motion en páginas/pasos sin `layout`: a
+           * veces quedan DOS instancias del paso nuevo montadas a la vez
+           * (una visible, otra congelada invisible ocupando espacio real),
+           * lo que se veía como el cuestionario duplicado al hacer scroll.
+           * Sin AnimatePresence, React desmonta el paso viejo al instante y
+           * solo el nuevo anima su entrada — se pierde el slide de salida
+           * pero es imposible que queden dos pasos mostrándose a la vez. */}
+          <motion.div
+            key={pasoActual.id}
+            initial={{ opacity: 0, x: 24 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.22, ease: [0.23, 1, 0.32, 1] }}
+          >
               <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-1">{pasoActual.titulo}</h1>
               {pasoActual.sub && <p className="text-muted-foreground text-sm mb-5">{pasoActual.sub}</p>}
 
@@ -835,12 +834,24 @@ export default function Checkout() {
                 <SingleFieldInput fieldKey={soloFieldKey} field={soloField} register={register} error={err(soloFieldKey)} onEnter={continuar} />
               )}
 
-              {/* Paso de confirmación (checkbox) como botón grande */}
+              {/* Paso de confirmación (checkbox): antes era una card sutil
+               * (mismo estilo que las opciones de elección) y en pruebas con
+               * gente real nadie la identificaba como un botón que había que
+               * tocar — ahora usa el mismo estilo sólido que el CTA principal
+               * ("Continuar al pago") para que se lea como una acción, no
+               * como una tarjeta informativa. */}
               {pasoActual.keys.length > 0 && soloFieldKey && soloField?.type === 'checkbox' && (
                 <div className="space-y-3">
-                  <BigOption emoji="✅" titulo="Sí, confirmo" activo={!!watch(soloFieldKey)} onClick={() => chooseCheckbox(soloFieldKey)} />
+                  <button
+                    type="button"
+                    onClick={() => chooseCheckbox(soloFieldKey)}
+                    aria-pressed={!!watch(soloFieldKey)}
+                    className="btn-jelly w-full h-14 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 interactive"
+                  >
+                    ✅ Sí, confirmo
+                  </button>
                   {err(soloFieldKey) && <p className="text-sm text-destructive" role="alert">{err(soloFieldKey)}</p>}
-                  <p className="text-xs text-muted-foreground">Si no cumples con la edad mínima, no puedes ingresar a este evento.</p>
+                  <p className="text-xs text-center text-muted-foreground">Toca el botón para continuar · si no cumples con la edad mínima, no puedes ingresar a este evento.</p>
                 </div>
               )}
 
@@ -972,13 +983,18 @@ export default function Checkout() {
                   </p>
                 </div>
               )}
-            </motion.div>
-          </AnimatePresence>
+          </motion.div>
         </form>
       </div>
 
-      {/* Barra de acciones fija (thumb-reach en móvil) */}
-      <div className="fixed bottom-0 inset-x-0 z-40 p-3 bg-gradient-to-t from-background via-background/95 to-transparent pt-6">
+      {/* Barra de acciones fija (thumb-reach en móvil). padding-bottom suma el
+       * safe-area del celular (home indicator/gesture bar) para que el botón
+       * nunca quede tapado por la barra del sistema. */}
+      <div
+        className="fixed bottom-0 inset-x-0 z-40 p-3 bg-gradient-to-t from-background via-background/95 to-transparent pt-6"
+        style={{ paddingBottom: 'max(0.75rem, calc(0.75rem + env(safe-area-inset-bottom)))' }}
+      >
+
         <div className="container max-w-lg flex items-center gap-3">
           {paso > 0 && (
             <button type="button" onClick={volver} className="px-6 h-13 py-3.5 rounded-full border border-border text-sm font-semibold hover:border-primary/50 interactive shrink-0">
