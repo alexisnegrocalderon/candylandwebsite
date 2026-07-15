@@ -656,7 +656,7 @@ export default function Checkout() {
       brickControllerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ordenPago?.orderNumber]);
+  }, [ordenPago?.orderNumber, showResumenFinal]);
 
   const err = (key: string) => (errors as any)[key]?.message as string | undefined;
 
