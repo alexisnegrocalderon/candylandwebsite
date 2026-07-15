@@ -119,6 +119,62 @@ export async function createTopupPreference(input: {
   return { id: result.id, initPoint: result.init_point };
 }
 
+/** Cobra directamente con el token de tarjeta que entrega el Payment Brick
+ * (checkout embebido, sin modal ni redirect de Mercado Pago). El monto
+ * SIEMPRE viene de nuestro cálculo de servidor (`amount`), nunca de lo que
+ * mande el cliente — el Brick ya cobra con el monto correcto porque se
+ * inicializa con este mismo valor, pero no hay que confiar en el cliente
+ * para el monto real cobrado. */
+export async function createCardPayment(input: {
+  orderNumber: string;
+  amount: number;
+  description: string;
+  token: string;
+  paymentMethodId: string;
+  issuerId?: string | number;
+  installments?: number;
+  payerEmail: string;
+  identificationType?: string;
+  identificationNumber?: string;
+}) {
+  const client = getClient();
+  if (!client) {
+    console.warn('[MercadoPago] No hay access token — no se puede cobrar');
+    return { status: 'rejected' as const, statusDetail: 'no_access_token', paymentId: 'mock-' + input.orderNumber, paymentMethodId: input.paymentMethodId };
+  }
+
+  const baseUrl = process.env.APP_URL || 'https://mansionplayroom.cl';
+  const payment = new Payment(client);
+
+  const result = await payment.create({
+    body: {
+      transaction_amount: input.amount,
+      token: input.token,
+      description: input.description,
+      installments: input.installments ?? 1,
+      payment_method_id: input.paymentMethodId,
+      issuer_id: input.issuerId ? Number(input.issuerId) : undefined,
+      external_reference: input.orderNumber,
+      notification_url: `${baseUrl}/api/webhooks/mercadopago`,
+      statement_descriptor: 'MANSION PLAYROOM',
+      payer: {
+        email: input.payerEmail,
+        identification: input.identificationType && input.identificationNumber
+          ? { type: input.identificationType, number: input.identificationNumber }
+          : undefined,
+      },
+    },
+    requestOptions: { idempotencyKey: `${input.orderNumber}-${Date.now()}` },
+  });
+
+  return {
+    status: (result.status as 'approved' | 'rejected' | 'in_process' | 'pending') ?? 'pending',
+    statusDetail: result.status_detail ?? undefined,
+    paymentId: String(result.id ?? ''),
+    paymentMethodId: result.payment_method_id ?? input.paymentMethodId,
+  };
+}
+
 export async function getPaymentInfo(paymentId: string) {
   const client = getClient();
   if (!client) return null;

@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getPaymentInfo, createTopupPreference } from './mercadopago';
+import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
 import { getDb } from './db';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
 import { eq, and, sql } from 'drizzle-orm';
@@ -9,6 +9,125 @@ import { sendEmail, buildConfirmationEmail, buildMissionDepositEmail, buildMissi
 import { missionCutoff, missionCapPrice, personasForAccesoSlug, MISSION_300_GOAL } from '../shared/mission300';
 
 export const webhooksRouter = Router();
+
+/** Mapea el estado crudo de Mercado Pago a nuestro enum de 3 estados. */
+export function mapPaymentStatus(mpStatus: string | undefined): 'approved' | 'rejected' | 'pending' {
+  if (mpStatus === 'approved') return 'approved';
+  if (mpStatus === 'rejected' || mpStatus === 'cancelled') return 'rejected';
+  return 'pending';
+}
+
+/** Aplica el resultado de un pago (via webhook o via respuesta directa del
+ * Payment Brick) a la orden correspondiente: actualiza el estado, suma stock
+ * si corresponde, y dispara el email/generación de ticket que toque según si
+ * es una compra normal, un abono de Misión 300, o el pago de la diferencia.
+ * Idempotente — se puede llamar más de una vez para el mismo pago sin
+ * duplicar nada (tanto el webhook como el endpoint directo del Brick pueden
+ * terminar llamándola para el mismo pago). */
+export async function applyPaymentResult(input: {
+  orderNumber: string;
+  paymentId: string;
+  status: 'approved' | 'rejected' | 'pending';
+  paymentMethodId?: string;
+}): Promise<{ ok: boolean; alreadyProcessed?: boolean; reason?: string }> {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: 'Database not available' };
+
+  const [order] = await db.select().from(orders).where(eq(orders.orderNumber, input.orderNumber)).limit(1);
+  if (!order) return { ok: false, reason: 'Order not found' };
+
+  // Idempotencia: si ya se proceso este mismo pago, no repetir nada.
+  if (order.paymentId === input.paymentId && order.paymentStatus !== 'pending') {
+    return { ok: true, alreadyProcessed: true };
+  }
+
+  await db.update(orders).set({
+    paymentStatus: input.status,
+    paymentId: input.paymentId,
+    paymentMethod: input.paymentMethodId || undefined,
+  }).where(eq(orders.id, order.id));
+
+  if (input.status === 'approved') {
+    // El pago del abono de Misión 300 y el pago de la diferencia (topup)
+    // son DOS pagos separados sobre la MISMA orden (mismo orderNumber
+    // como external_reference). Si ya hay un topup pendiente, este pago
+    // aprobado es la diferencia, no una compra nueva.
+    const isTopupPayment = order.missionTopupStatus === 'pending';
+    const isMissionDeposit = order.missionDeposit === 1 && order.missionTopupStatus === 'none';
+
+    // Recién acá, con el pago confirmado, se suma al stock vendido (y por lo
+    // tanto al contador de Misión 300) — createOrder no lo toca porque en ese
+    // momento la orden todavía puede cancelarse o quedar abandonada. El pago
+    // del topup NO vuelve a sumar: las entradas ya se contaron cuando se
+    // aprobó el abono original.
+    if (!isTopupPayment) {
+      const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+      for (const item of items) {
+        await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
+      }
+    }
+
+    if (isMissionDeposit) {
+      // Abono aprobado: todavía no se sabe si se junta la meta, así que no se
+      // genera ticket/QR — solo se avisa que ya está participando.
+      if (!order.depositEmailSent) await sendMissionDepositEmail(order);
+    } else if (isTopupPayment) {
+      // Diferencia pagada: ahora sí se genera el ticket con QR.
+      await db.update(orders).set({ missionTopupStatus: 'paid' }).where(eq(orders.id, order.id));
+      if (!order.emailSent) await processApprovedOrder(order);
+    } else if (!order.emailSent) {
+      // Compra normal a precio general (fuera de la ventana de Misión 300).
+      await processApprovedOrder(order);
+    }
+  }
+
+  return { ok: true };
+}
+
+/** Cobra una orden ya creada (pending) directamente con el Payment Brick —
+ * sin modal ni redirect de Mercado Pago. El monto SIEMPRE sale de la orden
+ * guardada en nuestra base (nunca de lo que mande el cliente), así que aunque
+ * alguien manipule el formData del navegador, se cobra el monto correcto. */
+export async function processCardPaymentForOrder(input: {
+  orderNumber: string;
+  token: string;
+  paymentMethodId: string;
+  issuerId?: string | number;
+  installments?: number;
+  identificationType?: string;
+  identificationNumber?: string;
+}): Promise<{ status: 'approved' | 'rejected' | 'in_process' | 'pending'; statusDetail?: string }> {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+
+  const [order] = await db.select().from(orders).where(eq(orders.orderNumber, input.orderNumber)).limit(1);
+  if (!order) throw new Error('Order not found');
+  if (order.paymentStatus === 'approved') throw new Error('Order already paid');
+
+  const [event] = await db.select().from(events).where(eq(events.id, order.eventId)).limit(1);
+
+  const result = await createCardPayment({
+    orderNumber: order.orderNumber,
+    amount: Number(order.total),
+    description: `Candyland - ${event?.title ?? 'Mansion Playroom'}`,
+    token: input.token,
+    paymentMethodId: input.paymentMethodId,
+    issuerId: input.issuerId,
+    installments: input.installments,
+    payerEmail: order.buyerEmail,
+    identificationType: input.identificationType,
+    identificationNumber: input.identificationNumber,
+  });
+
+  await applyPaymentResult({
+    orderNumber: order.orderNumber,
+    paymentId: result.paymentId,
+    status: result.status === 'in_process' ? 'pending' : result.status,
+    paymentMethodId: result.paymentMethodId,
+  });
+
+  return { status: result.status, statusDetail: result.statusDetail };
+}
 
 webhooksRouter.post('/api/webhooks/mercadopago', async (req: Request, res: Response) => {
   try {
@@ -27,78 +146,18 @@ webhooksRouter.post('/api/webhooks/mercadopago', async (req: Request, res: Respo
         return;
       }
 
-      const db = await getDb();
-      if (!db) {
-        res.status(500).json({ error: 'DB unavailable' });
-        return;
-      }
-
       const orderNumber = paymentInfo.external_reference;
       if (!orderNumber) {
         res.status(200).json({ ok: true });
         return;
       }
 
-      // Get order
-      const [order] = await db.select().from(orders).where(eq(orders.orderNumber, orderNumber)).limit(1);
-      if (!order) {
-        res.status(200).json({ ok: true });
-        return;
-      }
-
-      // Idempotency: skip if already processed with same status
-      if (order.paymentId === String(paymentId) && order.paymentStatus !== 'pending') {
-        res.status(200).json({ ok: true, message: 'Already processed' });
-        return;
-      }
-
-      // Map payment status
-      let status: 'approved' | 'rejected' | 'pending' = 'pending';
-      if (paymentInfo.status === 'approved') status = 'approved';
-      else if (paymentInfo.status === 'rejected' || paymentInfo.status === 'cancelled') status = 'rejected';
-
-      // Update order
-      await db.update(orders).set({
-        paymentStatus: status,
+      await applyPaymentResult({
+        orderNumber,
         paymentId: String(paymentId),
-        paymentMethod: paymentInfo.payment_method_id || undefined,
-      }).where(eq(orders.id, order.id));
-
-      if (status === 'approved') {
-        // El pago del abono de Misión 300 y el pago de la diferencia (topup)
-        // son DOS pagos separados sobre la MISMA orden (mismo orderNumber
-        // como external_reference). Si ya hay un topup pendiente, este pago
-        // aprobado es la diferencia, no una compra nueva.
-        const isTopupPayment = order.missionTopupStatus === 'pending';
-        const isMissionDeposit = order.missionDeposit === 1 && order.missionTopupStatus === 'none';
-
-        // Recién acá, con el pago confirmado, se suma al stock vendido (y por
-        // lo tanto al contador de Misión 300) — createOrder no lo toca porque
-        // en ese momento la orden todavía puede cancelarse o quedar
-        // abandonada. El pago del topup NO vuelve a sumar: las entradas ya
-        // se contaron cuando se aprobó el abono original.
-        if (!isTopupPayment) {
-          const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
-          for (const item of items) {
-            await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
-          }
-        }
-
-        if (isMissionDeposit) {
-          // Abono aprobado: todavía no se sabe si se junta la meta, así que
-          // no se genera ticket/QR — solo se avisa que ya está participando.
-          if (!order.depositEmailSent) {
-            await sendMissionDepositEmail(order);
-          }
-        } else if (isTopupPayment) {
-          // Diferencia pagada: ahora sí se genera el ticket con QR.
-          await db.update(orders).set({ missionTopupStatus: 'paid' }).where(eq(orders.id, order.id));
-          if (!order.emailSent) await processApprovedOrder(order);
-        } else if (!order.emailSent) {
-          // Compra normal a precio general (fuera de la ventana de Misión 300).
-          await processApprovedOrder(order);
-        }
-      }
+        status: mapPaymentStatus(paymentInfo.status),
+        paymentMethodId: paymentInfo.payment_method_id,
+      });
     }
 
     res.status(200).json({ ok: true });

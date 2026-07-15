@@ -117,6 +117,25 @@ function friendlyPregunta(rawKey: string, field: CampoForm): { titulo: string; s
   }
 }
 
+/* Traduce los status_detail más comunes que devuelve Mercado Pago al
+ * rechazar un pago — para no mostrarle a la persona un código críptico. */
+function motivoRechazo(detail?: string): string {
+  const mapa: Record<string, string> = {
+    cc_rejected_insufficient_amount: 'Tu tarjeta no tiene fondos suficientes.',
+    cc_rejected_bad_filled_card_number: 'Revisa el número de tarjeta, parece incorrecto.',
+    cc_rejected_bad_filled_date: 'Revisa la fecha de vencimiento de la tarjeta.',
+    cc_rejected_bad_filled_security_code: 'Revisa el código de seguridad (CVV).',
+    cc_rejected_bad_filled_other: 'Revisa los datos de la tarjeta e intenta de nuevo.',
+    cc_rejected_call_for_authorize: 'Tu banco pide que autorices el pago — llámalo o intenta con otra tarjeta.',
+    cc_rejected_card_disabled: 'Tu tarjeta está deshabilitada para pagos online — contacta a tu banco.',
+    cc_rejected_duplicated_payment: 'Ya hiciste un pago por este mismo monto — revisa si ya se procesó.',
+    cc_rejected_high_risk: 'El pago fue rechazado por seguridad. Intenta con otra tarjeta.',
+    cc_rejected_max_attempts: 'Llegaste al máximo de intentos con esta tarjeta. Prueba con otra.',
+    cc_rejected_other_reason: 'Tu banco rechazó el pago. Intenta con otra tarjeta.',
+  };
+  return (detail && mapa[detail]) || 'No pudimos procesar el pago con esa tarjeta. Intenta de nuevo o usa otra tarjeta.';
+}
+
 function loadMercadoPagoSdk(): Promise<void> {
   return new Promise((resolve, reject) => {
     if ((window as any).MercadoPago) return resolve();
@@ -229,6 +248,7 @@ export default function Checkout() {
   const validateDiscount = trpc.orders.validateDiscount.useMutation();
   const validateCommunityCode = trpc.communityCodes.validate.useMutation();
   const createOrder = trpc.orders.create.useMutation();
+  const processCardPayment = trpc.orders.processCardPayment.useMutation();
 
   /* ── "¿Cómo vienes?" (Paso 1) + acceso resuelto a partir de la respuesta ── */
   const [groupSize, setGroupSize] = useState<GroupSize | null>(() => {
@@ -343,14 +363,14 @@ export default function Checkout() {
   const [communityCodeStatus, setCommunityCodeStatus] = useState<'idle' | 'valid' | 'invalid'>('idle');
   const [communityCodeError, setCommunityCodeError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  // Mercado Pago (modo modal embebido) no avisa por callback cuando la
-  // persona cierra el checkout sin pagar — así que en vez de depender de eso,
-  // mostramos nuestra propia pantalla de "esperando pago" apenas se abre el
-  // modal. Si vuelve sin haber pagado, la ve y puede reintentar o cancelar
-  // en vez de quedar con el wizard congelado sin ninguna señal.
-  const [pagoPendiente, setPagoPendiente] = useState<{ preferenceId: string; publicKey: string } | null>(null);
-  const pagoPendienteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (pagoPendienteTimer.current) clearTimeout(pagoPendienteTimer.current); }, []);
+  // Formulario de tarjeta integrado (Payment Brick de Mercado Pago): la orden
+  // se crea al llegar acá, y el pago se cobra directo con el token de
+  // tarjeta — sin modal ni redirect a Mercado Pago.
+  const [ordenPago, setOrdenPago] = useState<{ orderNumber: string; total: number } | null>(null);
+  const [pagoResultado, setPagoResultado] = useState<'approved' | 'rejected' | 'pending' | null>(null);
+  const [pagoErrorMsg, setPagoErrorMsg] = useState('');
+  const brickControllerRef = useRef<any>(null);
+  useEffect(() => () => { brickControllerRef.current?.unmount?.(); }, []);
   const addonEstac = CANDYLAND.addons.estacionamiento;
   const covers = CANDYLAND.addons.covers;
   const coversOn = coversDisponibles();
@@ -540,50 +560,81 @@ export default function Checkout() {
         attendeeData,
       });
       sessionStorage.removeItem(STORAGE_KEY);
-
-      const publicKey = import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY as string | undefined;
-      const isMock = String(result.preferenceId ?? '').startsWith('mock-preference');
-
-      if (publicKey && result.preferenceId && !isMock) {
-        // Checkout Pro embebido: se abre como modal sobre el sitio, sin redirigir la pestaña.
-        await loadMercadoPagoSdk();
-        abrirCheckoutMp(result.preferenceId, publicKey);
-      } else if (result.checkoutUrl) {
-        window.location.href = result.checkoutUrl;
-      }
+      setIsProcessing(false);
+      // El formulario de tarjeta (Payment Brick) se monta en el próximo
+      // render, con este orderNumber/total ya guardados en el servidor.
+      setOrdenPago({ orderNumber: result.orderNumber, total: result.total });
     } catch (err: any) {
       setIsProcessing(false);
       alert(err.message || 'Error al procesar la orden');
     }
   };
 
-  const abrirCheckoutMp = (preferenceId: string, publicKey: string) => {
-    const mp = new (window as any).MercadoPago(publicKey, { locale: 'es-CL' });
-    mp.checkout({ preference: { id: preferenceId }, autoOpen: true });
-    setIsProcessing(false);
-    // El SDK de Mercado Pago no avisa cuando cierran el modal sin pagar, así
-    // que mostramos nuestra propia pantalla de reintentar/cancelar para
-    // cuando vuelvan sin haber pagado. Con delay: si aparece de inmediato se
-    // ve encima/detrás del modal recién abriéndose y confunde como si algo
-    // hubiera fallado — le damos unos segundos para que el modal cargue
-    // primero.
-    if (pagoPendienteTimer.current) clearTimeout(pagoPendienteTimer.current);
-    pagoPendienteTimer.current = setTimeout(() => {
-      setPagoPendiente({ preferenceId, publicKey });
-    }, 4000);
-  };
+  // Monta el Payment Brick (formulario de tarjeta embebido, sin modal ni
+  // redirect de Mercado Pago) apenas la orden queda creada.
+  useEffect(() => {
+    if (!ordenPago) return;
+    const publicKey = import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY as string | undefined;
+    if (!publicKey) return;
+    let cancelled = false;
 
-  const reintentarPago = async () => {
-    if (!pagoPendiente) return;
-    await loadMercadoPagoSdk();
-    const mp = new (window as any).MercadoPago(pagoPendiente.publicKey, { locale: 'es-CL' });
-    mp.checkout({ preference: { id: pagoPendiente.preferenceId }, autoOpen: true });
-  };
+    (async () => {
+      await loadMercadoPagoSdk();
+      if (cancelled) return;
+      const mp = new (window as any).MercadoPago(publicKey, { locale: 'es-CL' });
+      const controller = await mp.bricks().create('payment', 'mp-payment-brick', {
+        initialization: { amount: ordenPago.total },
+        customization: {
+          // No incluir `mercadoPago`/`ticket` acá: la Brick los oculta si no
+          // aparecen en el objeto (pasar 'none' no es un valor válido de la API).
+          paymentMethods: { creditCard: 'all', debitCard: 'all', prepaidCard: 'all' },
+        },
+        callbacks: {
+          onReady: () => {},
+          onSubmit: ({ formData }: any) => new Promise<void>((resolve, reject) => {
+            processCardPayment.mutate(
+              {
+                orderNumber: ordenPago.orderNumber,
+                token: formData.token,
+                paymentMethodId: formData.payment_method_id,
+                issuerId: formData.issuer_id,
+                installments: formData.installments,
+                identificationType: formData.payer?.identification?.type,
+                identificationNumber: formData.payer?.identification?.number,
+              },
+              {
+                onSuccess: (res) => {
+                  setPagoResultado(res.status === 'in_process' ? 'pending' : res.status as any);
+                  if (res.status === 'rejected') {
+                    setPagoErrorMsg(motivoRechazo(res.statusDetail));
+                    reject();
+                  } else {
+                    resolve();
+                  }
+                },
+                onError: (e: any) => {
+                  setPagoErrorMsg(e.message || 'No pudimos procesar el pago. Intenta de nuevo.');
+                  reject();
+                },
+              }
+            );
+          }),
+          onError: (error: any) => {
+            console.error('[MP Brick]', error);
+          },
+        },
+      });
+      if (cancelled) { controller.unmount?.(); return; }
+      brickControllerRef.current = controller;
+    })();
 
-  const cancelarCompra = () => {
-    setPagoPendiente(null);
-  };
-
+    return () => {
+      cancelled = true;
+      brickControllerRef.current?.unmount?.();
+      brickControllerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ordenPago?.orderNumber]);
 
   const err = (key: string) => (errors as any)[key]?.message as string | undefined;
 
@@ -592,24 +643,55 @@ export default function Checkout() {
   const soloField = soloFieldKey ? allFields.find((x) => x.key === soloFieldKey)?.field : undefined;
   const isAutoAdvance = pasoActual.id === 'vibe' || pasoActual.id === 'quien' || pasoActual.id === 'pareja-composicion' || pasoActual.id === 'extras-estacionamiento' || soloField?.type === 'checkbox';
 
-  if (pagoPendiente) {
+  if (ordenPago && pagoResultado === 'approved') {
+    return (
+      <div className="min-h-dvh pt-24 pb-16 flex items-center justify-center">
+        <div className="container max-w-md text-center">
+          <div className="w-16 h-16 rounded-full glass-candy flex items-center justify-center mx-auto mb-5 text-3xl">🍭</div>
+          <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-2">¡Bienvenidx a Candyland!</h1>
+          <p className="text-muted-foreground text-sm mb-8">Tu pago se confirmó. En breve te llega el email con tu entrada y código QR.</p>
+          <Link href="/" className="btn-jelly inline-flex h-13 items-center justify-center px-8 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm interactive">
+            Volver al inicio
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (ordenPago && pagoResultado === 'pending') {
     return (
       <div className="min-h-dvh pt-24 pb-16 flex items-center justify-center">
         <div className="container max-w-md text-center">
           <div className="w-16 h-16 rounded-full glass-candy flex items-center justify-center mx-auto mb-5 text-3xl">⏳</div>
-          <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-2">Esperando tu pago</h1>
-          <p className="text-muted-foreground text-sm mb-8">
-            Si ya pagaste, en unos segundos te llega el mail de confirmación — podés cerrar esta pantalla. Si cerraste
-            la ventana de Mercado Pago sin terminar, todavía podés reintentar o cancelar la compra.
-          </p>
-          <div className="flex flex-col gap-3">
-            <button type="button" onClick={reintentarPago} className="btn-jelly h-13 py-3.5 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm interactive">
-              Reintentar pago
-            </button>
-            <button type="button" onClick={cancelarCompra} className="h-13 py-3.5 rounded-full border border-border text-sm font-semibold hover:border-primary/50 interactive">
-              Cancelar compra
-            </button>
+          <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-2">Tu pago está en revisión</h1>
+          <p className="text-muted-foreground text-sm mb-8">Algunos medios de pago tardan unos minutos en confirmarse. Te avisamos por email apenas se apruebe.</p>
+          <Link href="/" className="inline-flex h-13 items-center justify-center px-8 rounded-full border border-border text-sm font-semibold hover:border-primary/50 interactive">
+            Volver al inicio
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (ordenPago) {
+    return (
+      <div className="min-h-dvh pt-20 pb-16">
+        <div className="container max-w-lg">
+          <div className="flex items-center justify-between mb-4 pt-4">
+            <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Pago seguro</span>
+            <span className="font-heading text-xl text-gradient-candy">{formatCLP(ordenPago.total)}</span>
           </div>
+          <h1 className="font-heading font-extrabold text-2xl tracking-tight mb-1">Completa el pago</h1>
+          <p className="text-muted-foreground text-sm mb-5">Ingresa los datos de tu tarjeta — el pago se procesa acá mismo, sin salir de la página.</p>
+          {pagoErrorMsg && (
+            <div className="mb-4 p-3.5 rounded-xl bg-destructive/10 border border-destructive/30 text-sm text-destructive" role="alert">
+              {pagoErrorMsg}
+            </div>
+          )}
+          <div id="mp-payment-brick" />
+          <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground mt-5">
+            <ShieldCheck className="w-3.5 h-3.5" /> Pago procesado de forma segura por Mercado Pago
+          </p>
         </div>
       </div>
     );
