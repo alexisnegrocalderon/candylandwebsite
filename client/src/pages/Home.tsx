@@ -28,9 +28,12 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { trpc } from '@/lib/trpc';
-import { CANDYLAND } from '@/config/candyland';
+import { CANDYLAND, formatCLP } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
 import { scrollToId, prefersReducedMotion } from '@/lib/smoothScroll';
+import { isMissionWindowOpen, missionDepositPrice } from '@shared/mission300';
+
+type MissionPricing = { generalPrice: number; depositPrice: number } | null;
 
 /* ─── Utilidades ───────────────────────────────────────────── */
 
@@ -213,7 +216,7 @@ function DraggableCandies({ boundsRef }: { boundsRef: React.RefObject<HTMLElemen
 
 /* ─── Hero ─────────────────────────────────────────────────── */
 
-function Hero() {
+function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
   const sectionRef = useRef<HTMLElement>(null);
   const { scrollYProgress } = useScroll({ target: sectionRef, offset: ['start start', 'end start'] });
   const bgY = useTransform(scrollYProgress, [0, 1], ['0%', '30%']);
@@ -315,6 +318,22 @@ function Hero() {
             <MapPin className="w-4 h-4 text-primary" /> {CANDYLAND.ciudad}
           </span>
         </motion.div>
+
+        {missionPricing && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.78 }}
+            className="mt-6 flex justify-center"
+          >
+            <span className="inline-flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 px-5 py-2.5 rounded-full glass-candy border border-cherry/40 shadow-[0_0_24px_oklch(0.76_0.13_35_/_0.2)]">
+              <span className="text-[10px] md:text-xs uppercase tracking-[0.15em] font-bold text-cherry">🔥 Misión 300</span>
+              <span className="line-through text-muted-foreground text-sm">{formatCLP(missionPricing.generalPrice)}</span>
+              <span className="font-heading font-extrabold text-lg md:text-xl text-gradient-candy">{formatCLP(missionPricing.depositPrice)}</span>
+              <span className="text-xs md:text-sm text-foreground/80">reserva tu lugar hoy</span>
+            </span>
+          </motion.div>
+        )}
 
         <motion.div
           initial={{ opacity: 0, y: 24 }}
@@ -510,7 +529,7 @@ function CountdownUnit({ value, label }: { value: number; label: string }) {
   );
 }
 
-function UrgencySection({ vendidos }: { vendidos: number }) {
+function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missionPricing: MissionPricing }) {
   const { dias, horas, minutos, segundos, esHoy } = useCountdown(CANDYLAND.eventDate);
   const { meta, titulo, copy } = CANDYLAND.mision;
   const progreso = Math.min(100, Math.round((vendidos / meta) * 100));
@@ -566,6 +585,16 @@ function UrgencySection({ vendidos }: { vendidos: number }) {
                 <span className="text-sm md:text-base font-semibold text-foreground/85">ya entraron</span>
               </div>
               <p className="text-xs md:text-sm text-muted-foreground mt-1">{copy}</p>
+
+              {missionPricing && (
+                <p className="mt-2.5 inline-flex flex-wrap items-baseline justify-center md:justify-start gap-x-2 gap-y-0.5 text-sm md:text-base">
+                  <span className="text-muted-foreground">Hoy pagas</span>
+                  <span className="font-heading font-extrabold text-gradient-candy text-lg md:text-xl">{formatCLP(missionPricing.depositPrice)}</span>
+                  <span className="text-muted-foreground">por tu lugar ·</span>
+                  <span className="line-through text-muted-foreground">{formatCLP(missionPricing.generalPrice)}</span>
+                  <span className="text-muted-foreground">valor general</span>
+                </p>
+              )}
 
               <AnimatePresence>
                 {burstId > 0 && (
@@ -952,14 +981,30 @@ export default function Home() {
     return CANDYLAND.mision.confirmadosFallback;
   }, [liveTickets]);
 
+  // Precio "gancho" para publicitar la preventa Misión 300 en el Hero y en su
+  // propia sección: prioriza el acceso Dúo (el que se usa en toda la
+  // comunicación de la preventa) y si no existe usa el acceso más barato.
+  const missionPricing: MissionPricing = useMemo(() => {
+    if (!liveTickets || liveTickets.length === 0) return null;
+    if (!isMissionWindowOpen(new Date(CANDYLAND.eventDate))) return null;
+    const accesos = liveTickets.filter((t: any) => t.category === 'acceso' && t.status === 'active');
+    if (accesos.length === 0) return null;
+    const destacado = accesos.find((t: any) => t.accesoSlug === 'duo')
+      ?? [...accesos].sort((a: any, b: any) => Number(a.price) - Number(b.price))[0];
+    const generalPrice = Number((destacado as any).price);
+    const depositPrice = missionDepositPrice((destacado as any).accesoSlug);
+    if (!(depositPrice < generalPrice)) return null;
+    return { generalPrice, depositPrice };
+  }, [liveTickets]);
+
   return (
     <MotionConfig reducedMotion="user">
       <CandyIntro />
       <ScrollCandies />
       <div className="noise-overlay" />
-      <Hero />
+      <Hero missionPricing={missionPricing} />
       <UpcomingEventsSection />
-      <UrgencySection vendidos={vendidos} />
+      <UrgencySection vendidos={vendidos} missionPricing={missionPricing} />
       <LineupSection />
       <ExperienceSection />
       <InfoSection />
