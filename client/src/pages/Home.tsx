@@ -498,11 +498,14 @@ function UpcomingEventsSection() {
 
 function CountdownUnit({ value, label }: { value: number; label: string }) {
   return (
-    <div className="flex items-baseline gap-1.5">
-      <span className="font-heading font-bold text-xl md:text-3xl tabular-nums text-foreground">
-        {String(value).padStart(2, '0')}
-      </span>
-      <span className="text-[9px] md:text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{label}</span>
+    <div className="flex flex-col items-center gap-1">
+      <div className="relative w-12 h-12 md:w-16 md:h-16 rounded-2xl bg-gradient-to-br from-primary via-cherry to-violet-electric shadow-[0_4px_16px_oklch(0.68_0.16_340_/_0.35)] flex items-center justify-center overflow-hidden">
+        <div aria-hidden className="absolute inset-0 bg-white/10 mix-blend-overlay" />
+        <span className="font-heading font-extrabold text-xl md:text-3xl tabular-nums text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.25)]">
+          {String(value).padStart(2, '0')}
+        </span>
+      </div>
+      <span className="text-[9px] md:text-[10px] uppercase tracking-[0.15em] text-muted-foreground font-semibold">{label}</span>
     </div>
   );
 }
@@ -521,22 +524,26 @@ function UrgencySection({ vendidos }: { vendidos: number }) {
       <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/15 blur-[110px] candy-float" />
 
       <div className="container relative space-y-6 md:space-y-8">
-        {/* Countdown — tira delgada, poco alto */}
+        {/* Countdown — más presencia: pastillas con degradé candy en vez de texto plano */}
         <motion.div
           {...reveal}
-          className="glass-candy rounded-2xl px-5 py-3.5 md:px-8 md:py-4 flex flex-wrap items-center justify-center gap-x-6 gap-y-2"
+          className="relative glass-candy rounded-2xl px-5 py-4 md:px-8 md:py-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 overflow-hidden"
         >
-          <p className="text-[10px] md:text-xs uppercase tracking-[0.25em] text-cherry font-semibold inline-flex items-center gap-1.5 shrink-0">
+          <div aria-hidden className="absolute -top-10 left-1/4 w-48 h-48 rounded-full bg-primary/20 blur-[80px]" />
+          <p className="relative text-[10px] md:text-xs uppercase tracking-[0.25em] text-cherry font-bold inline-flex items-center gap-1.5 shrink-0">
             <span className="w-1.5 h-1.5 rounded-full bg-cherry candy-pulse inline-block" />
-            {esHoy ? '¡Es hoy!' : 'Cuenta regresiva'}
+            {esHoy ? '¡Es hoy! 🍭' : 'Cuenta regresiva'}
           </p>
-          <div className="flex items-center gap-3 md:gap-5">
+          <div className="relative flex items-center gap-2 md:gap-3">
             <CountdownUnit value={dias} label="Días" />
+            <span className="text-lg md:text-2xl font-heading font-bold text-primary/40 -mt-3">:</span>
             <CountdownUnit value={horas} label="Hrs" />
+            <span className="text-lg md:text-2xl font-heading font-bold text-primary/40 -mt-3">:</span>
             <CountdownUnit value={minutos} label="Min" />
+            <span className="text-lg md:text-2xl font-heading font-bold text-primary/40 -mt-3">:</span>
             <CountdownUnit value={segundos} label="Seg" />
           </div>
-          <p className="text-muted-foreground text-xs md:text-sm shrink-0">
+          <p className="relative text-muted-foreground text-xs md:text-sm shrink-0">
             {CANDYLAND.fechaTexto} · {CANDYLAND.horarioTexto}
           </p>
         </motion.div>

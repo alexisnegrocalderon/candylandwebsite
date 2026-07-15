@@ -399,20 +399,30 @@ export async function createOrder(input: {
   }
 
   // Create Mercado Pago preference (placeholder - will be replaced with real integration)
-  // Build items for Mercado Pago — SIEMPRE con unitPrices (el precio de
-  // abono si aplica), nunca tt.price directo, o se le cobraría a la gente
-  // el valor general en vez del abono de Misión 300.
-  const mpItems = [];
-  for (const item of input.items) {
-    const tt = tts.find(t => t.id === item.ticketTypeId)!;
-    const unitPrice = unitPrices.get(item.ticketTypeId)!;
-    const isDeposit = missionOpen && tt.category === 'acceso';
-    mpItems.push({
-      title: isDeposit ? `${tt.name} (abono Misión 300) - ${event.title}` : `${tt.name} - ${event.title}`,
-      quantity: item.quantity,
-      unitPrice,
-    });
-  }
+  // Mercado Pago cobra la SUMA de item.unit_price * quantity — el campo
+  // "total" que le pasamos aparte NO se usa para cobrar, solo queda de
+  // referencia. Si había un código de descuento, se estaba mandando el
+  // subtotal completo sin descuento y Mercado Pago cobraba de más.
+  //
+  // Sin descuento, se manda un item por cada tipo de entrada (con su
+  // unitPrice real, abono de Misión 300 incluido si aplica) para que la
+  // persona vea el detalle en la pasarela. Con descuento, se manda un único
+  // item por el total ya descontado — repartir el descuento proporcionalmente
+  // entre items con distinta cantidad puede no dar un unit_price entero que
+  // reconstruya el total exacto, así que se prioriza que SIEMPRE se cobre
+  // el monto correcto antes que el detalle línea por línea.
+  const mpItems = discountAmount > 0
+    ? [{ title: `Candyland - ${event.title}`, quantity: 1, unitPrice: total }]
+    : input.items.map((item) => {
+        const tt = tts.find(t => t.id === item.ticketTypeId)!;
+        const unitPrice = unitPrices.get(item.ticketTypeId)!;
+        const isDeposit = missionOpen && tt.category === 'acceso';
+        return {
+          title: isDeposit ? `${tt.name} (abono Misión 300) - ${event.title}` : `${tt.name} - ${event.title}`,
+          quantity: item.quantity,
+          unitPrice,
+        };
+      });
 
   const preference = await createPaymentPreference({
     orderNumber,

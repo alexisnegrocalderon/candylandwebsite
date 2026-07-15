@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, Instagram } from 'lucide-react';
 import { CANDYLAND } from '@/config/candyland';
 
 const navLinks = [
@@ -54,6 +54,16 @@ export default function Navbar() {
               </Link>
             ))}
 
+            <a
+              href={CANDYLAND.redes.instagram}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Instagram de Mansion Playroom"
+              className="text-muted-foreground hover:text-primary transition-colors duration-300 interactive"
+            >
+              <Instagram size={20} strokeWidth={1.75} />
+            </a>
+
             <Link
               href={`/checkout/${CANDYLAND.slug}`}
               className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-semibold tracking-wide uppercase transition-transform duration-200 hover:scale-105 active:scale-95 interactive"
@@ -62,13 +72,24 @@ export default function Navbar() {
             </Link>
           </div>
 
-          {/* Mobile menu button */}
-          <button
-            onClick={() => setMobileOpen(!mobileOpen)}
-            className="md:hidden p-2 text-foreground interactive"
-          >
-            {mobileOpen ? <X size={24} /> : <Menu size={24} />}
-          </button>
+          {/* Mobile: Instagram + menú */}
+          <div className="flex items-center gap-3 md:hidden">
+            <a
+              href={CANDYLAND.redes.instagram}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Instagram de Mansion Playroom"
+              className="text-muted-foreground hover:text-primary transition-colors interactive"
+            >
+              <Instagram size={20} strokeWidth={1.75} />
+            </a>
+            <button
+              onClick={() => setMobileOpen(!mobileOpen)}
+              className="p-2 text-foreground interactive"
+            >
+              {mobileOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+          </div>
         </div>
       </motion.nav>
 

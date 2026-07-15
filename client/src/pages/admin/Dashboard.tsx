@@ -78,10 +78,10 @@ function Mission300Panel({ eventId }: { eventId: number }) {
   const [confirming, setConfirming] = useState(false);
 
   if (!status) return null;
-  if (status.ordersCount === 0) return null;
 
   const cutoff = new Date(status.cutoffDate);
   const cutoffPassed = Date.now() > cutoff.getTime();
+  const canEvaluate = cutoffPassed && status.ordersCount > 0;
 
   return (
     <div className="mt-3 border-t border-border/50 pt-3">
@@ -94,7 +94,13 @@ function Mission300Panel({ eventId }: { eventId: number }) {
           </p>
         </div>
         {!confirming ? (
-          <Button variant="outline" size="sm" onClick={() => setConfirming(true)} disabled={!cutoffPassed} title={!cutoffPassed ? 'Se habilita al pasar la fecha límite' : undefined}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setConfirming(true)}
+            disabled={!canEvaluate}
+            title={!cutoffPassed ? 'Se habilita al pasar la fecha límite' : status.ordersCount === 0 ? 'Todavía no hay órdenes con abono aprobado' : undefined}
+          >
             Evaluar Misión 300
           </Button>
         ) : (

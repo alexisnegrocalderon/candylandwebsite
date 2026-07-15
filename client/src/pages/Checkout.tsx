@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -349,6 +349,8 @@ export default function Checkout() {
   // modal. Si vuelve sin haber pagado, la ve y puede reintentar o cancelar
   // en vez de quedar con el wizard congelado sin ninguna señal.
   const [pagoPendiente, setPagoPendiente] = useState<{ preferenceId: string; publicKey: string } | null>(null);
+  const pagoPendienteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (pagoPendienteTimer.current) clearTimeout(pagoPendienteTimer.current); }, []);
   const addonEstac = CANDYLAND.addons.estacionamiento;
   const covers = CANDYLAND.addons.covers;
   const coversOn = coversDisponibles();
@@ -559,10 +561,16 @@ export default function Checkout() {
     const mp = new (window as any).MercadoPago(publicKey, { locale: 'es-CL' });
     mp.checkout({ preference: { id: preferenceId }, autoOpen: true });
     setIsProcessing(false);
-    // El SDK de Mercado Pago no avisa cuando cierran el modal sin pagar —
-    // mostramos nuestra propia pantalla de espera con reintentar/cancelar
-    // para cuando vuelvan sin haber completado el pago.
-    setPagoPendiente({ preferenceId, publicKey });
+    // El SDK de Mercado Pago no avisa cuando cierran el modal sin pagar, así
+    // que mostramos nuestra propia pantalla de reintentar/cancelar para
+    // cuando vuelvan sin haber pagado. Con delay: si aparece de inmediato se
+    // ve encima/detrás del modal recién abriéndose y confunde como si algo
+    // hubiera fallado — le damos unos segundos para que el modal cargue
+    // primero.
+    if (pagoPendienteTimer.current) clearTimeout(pagoPendienteTimer.current);
+    pagoPendienteTimer.current = setTimeout(() => {
+      setPagoPendiente({ preferenceId, publicKey });
+    }, 4000);
   };
 
   const reintentarPago = async () => {
@@ -589,9 +597,10 @@ export default function Checkout() {
       <div className="min-h-dvh pt-24 pb-16 flex items-center justify-center">
         <div className="container max-w-md text-center">
           <div className="w-16 h-16 rounded-full glass-candy flex items-center justify-center mx-auto mb-5 text-3xl">⏳</div>
-          <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-2">¿Tuviste un problema con el pago?</h1>
+          <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-2">Esperando tu pago</h1>
           <p className="text-muted-foreground text-sm mb-8">
-            Si cerraste la ventana de Mercado Pago sin terminar, tu compra todavía no se completó. Podés reintentar el pago o cancelar la compra.
+            Si ya pagaste, en unos segundos te llega el mail de confirmación — podés cerrar esta pantalla. Si cerraste
+            la ventana de Mercado Pago sin terminar, todavía podés reintentar o cancelar la compra.
           </p>
           <div className="flex flex-col gap-3">
             <button type="button" onClick={reintentarPago} className="btn-jelly h-13 py-3.5 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm interactive">
