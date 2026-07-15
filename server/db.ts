@@ -3,7 +3,6 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
-import { createPaymentPreference } from './mercadopago';
 import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -319,9 +318,12 @@ export async function createOrder(input: {
   const missionOpen = isMissionWindowOpen(new Date(event.eventDate));
   let missionDeposit = false;
 
-  // Calculate totals
+  // Calculate totals — separa el subtotal de accesos (a lo que aplica el
+  // descuento) del de extras (parking/covers/etc, category="extra"), que
+  // siempre se cobran completos.
   const tts = await getTicketTypesByEventId(event.id);
   let subtotal = 0;
+  let accesoSubtotal = 0;
   const unitPrices = new Map<number, number>();
   for (const item of input.items) {
     const tt = tts.find(t => t.id === item.ticketTypeId);
@@ -332,10 +334,12 @@ export async function createOrder(input: {
     const unitPrice = useDeposit ? missionDepositPrice(tt.accesoSlug) : Number(tt.price);
     if (useDeposit) missionDeposit = true;
     unitPrices.set(item.ticketTypeId, unitPrice);
-    subtotal += unitPrice * item.quantity;
+    const lineTotal = unitPrice * item.quantity;
+    subtotal += lineTotal;
+    if (tt.category === 'acceso') accesoSubtotal += lineTotal;
   }
 
-  // Apply discount
+  // Apply discount — solo sobre el subtotal de accesos, nunca sobre extras.
   let discountAmount = 0;
   let discountCodeId: number | undefined;
   if (input.discountCode) {
@@ -344,9 +348,9 @@ export async function createOrder(input: {
       const disc = validation.discount;
       discountCodeId = disc.id;
       if (disc.discountType === 'percentage') {
-        discountAmount = Math.round(subtotal * Number(disc.discountValue) / 100);
+        discountAmount = Math.round(accesoSubtotal * Number(disc.discountValue) / 100);
       } else {
-        discountAmount = Number(disc.discountValue);
+        discountAmount = Math.min(Number(disc.discountValue), accesoSubtotal);
       }
       // Increment used count
       await db.update(discountCodes).set({ usedCount: sql`usedCount + 1` }).where(eq(discountCodes.id, disc.id));
@@ -398,49 +402,27 @@ export async function createOrder(input: {
     });
   }
 
-  // Create Mercado Pago preference (placeholder - will be replaced with real integration)
-  // Mercado Pago cobra la SUMA de item.unit_price * quantity — el campo
-  // "total" que le pasamos aparte NO se usa para cobrar, solo queda de
-  // referencia. Si había un código de descuento, se estaba mandando el
-  // subtotal completo sin descuento y Mercado Pago cobraba de más.
-  //
-  // Sin descuento, se manda un item por cada tipo de entrada (con su
-  // unitPrice real, abono de Misión 300 incluido si aplica) para que la
-  // persona vea el detalle en la pasarela. Con descuento, se manda un único
-  // item por el total ya descontado — repartir el descuento proporcionalmente
-  // entre items con distinta cantidad puede no dar un unit_price entero que
-  // reconstruya el total exacto, así que se prioriza que SIEMPRE se cobre
-  // el monto correcto antes que el detalle línea por línea.
-  const mpItems = discountAmount > 0
-    ? [{ title: `Candyland - ${event.title}`, quantity: 1, unitPrice: total }]
-    : input.items.map((item) => {
-        const tt = tts.find(t => t.id === item.ticketTypeId)!;
-        const unitPrice = unitPrices.get(item.ticketTypeId)!;
-        const isDeposit = missionOpen && tt.category === 'acceso';
-        return {
-          title: isDeposit ? `${tt.name} (abono Misión 300) - ${event.title}` : `${tt.name} - ${event.title}`,
-          quantity: item.quantity,
-          unitPrice,
-        };
-      });
+  // Si el descuento cubre el 100% del total (solo pasa cuando no hay extras
+  // sin descontar — ver el cálculo de discountAmount arriba), no hay nada
+  // que cobrar: la orden queda confirmada al instante, sin pasar por
+  // Mercado Pago. Se suma el stock acá mismo (normalmente eso lo hace el
+  // pago aprobado) y el router dispara el email de bienvenida con el QR.
+  const isFree = total === 0;
+  if (isFree) {
+    await db.update(orders).set({
+      paymentStatus: 'approved',
+      paymentId: `FREE-${orderNumber}`,
+      // Si esta orden usaba precio de abono Misión 300, no queda diferencia
+      // por cobrar después — se resuelve de una, no entra a evaluateMission300.
+      ...(missionDeposit ? { missionTopupStatus: 'paid', missionTopupAmount: '0' } : {}),
+    }).where(eq(orders.id, orderId));
 
-  const preference = await createPaymentPreference({
-    orderNumber,
-    items: mpItems,
-    buyerEmail: input.buyerEmail,
-    buyerName: input.buyerName,
-    total,
-    attendeeData: input.attendeeData,
-  });
-
-  // Update order with preference ID
-  if (preference.id) {
-    await db.update(orders).set({ mercadoPagoPreferenceId: preference.id }).where(eq(orders.orderNumber, orderNumber));
+    for (const item of input.items) {
+      await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
+    }
   }
 
-  const checkoutUrl = preference.initPoint || `/pago/exito?order=${orderNumber}`;
-
-  return { orderId, orderNumber, checkoutUrl, total, preferenceId: preference.id };
+  return { orderId, orderNumber, total, isFree };
 }
 
 export async function getAllOrders(page: number = 1, limit: number = 50, status?: string) {

@@ -6,7 +6,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
-import { getMission300Status, evaluateMission300, processCardPaymentForOrder } from "./webhooks";
+import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder } from "./webhooks";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
@@ -159,7 +159,11 @@ export const appRouter = router({
       // preferencia de Mercado Pago como metadata; no requiere migración de schema.
       attendeeData: z.string().optional(),
     })).mutation(async ({ input }) => {
-      return db.createOrder(input);
+      const result = await db.createOrder(input);
+      // Descuento del 100%: la orden ya quedó aprobada en createOrder (sin
+      // pasar por Mercado Pago) — acá solo falta el email de bienvenida+QR.
+      if (result.isFree) await confirmFreeOrder(result.orderNumber);
+      return result;
     }),
     // Cobra una orden ya creada con el Payment Brick (tarjeta embebida, sin
     // modal/redirect de Mercado Pago). El monto se calcula server-side a

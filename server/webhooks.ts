@@ -129,6 +129,21 @@ export async function processCardPaymentForOrder(input: {
   return { status: result.status, statusDetail: result.statusDetail };
 }
 
+/** Envía el email de bienvenida + QR para una orden que quedó confirmada al
+ * instante por cubrir el 100% con un código de descuento (ver `createOrder`
+ * en db.ts, que ya la marcó paymentStatus="approved" y sumó el stock). Reusa
+ * el mismo email de ticket que una compra pagada normal — no hay diferencia
+ * pendiente que cobrar, así que nunca pasa por el flujo de abono/topup. */
+export async function confirmFreeOrder(orderNumber: string) {
+  const db = await getDb();
+  if (!db) return;
+
+  const [order] = await db.select().from(orders).where(eq(orders.orderNumber, orderNumber)).limit(1);
+  if (!order || order.paymentStatus !== 'approved' || order.emailSent) return;
+
+  await processApprovedOrder(order);
+}
+
 webhooksRouter.post('/api/webhooks/mercadopago', async (req: Request, res: Response) => {
   try {
     const { type, data } = req.body;

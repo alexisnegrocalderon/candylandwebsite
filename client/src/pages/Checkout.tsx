@@ -561,9 +561,15 @@ export default function Checkout() {
       });
       sessionStorage.removeItem(STORAGE_KEY);
       setIsProcessing(false);
-      // El formulario de tarjeta (Payment Brick) se monta en el próximo
-      // render, con este orderNumber/total ya guardados en el servidor.
       setOrdenPago({ orderNumber: result.orderNumber, total: result.total });
+      if (result.isFree) {
+        // Descuento del 100%: el servidor ya aprobó la orden y mandó el
+        // email de bienvenida con el QR — no hay nada que cobrar, así que
+        // saltamos directo a la pantalla de éxito sin montar el Payment Brick.
+        setPagoResultado('approved');
+      }
+      // Si no es gratis, el formulario de tarjeta (Payment Brick) se monta
+      // en el próximo render, con este orderNumber/total ya guardados.
     } catch (err: any) {
       setIsProcessing(false);
       alert(err.message || 'Error al procesar la orden');
@@ -573,7 +579,7 @@ export default function Checkout() {
   // Monta el Payment Brick (formulario de tarjeta embebido, sin modal ni
   // redirect de Mercado Pago) apenas la orden queda creada.
   useEffect(() => {
-    if (!ordenPago) return;
+    if (!ordenPago || pagoResultado === 'approved') return;
     const publicKey = import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY as string | undefined;
     if (!publicKey) return;
     let cancelled = false;
