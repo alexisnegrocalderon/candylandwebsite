@@ -31,7 +31,7 @@ import { trpc } from '@/lib/trpc';
 import { CANDYLAND, formatCLP } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
 import { scrollToId, prefersReducedMotion } from '@/lib/smoothScroll';
-import { isMissionWindowOpen, missionDepositPrice } from '@shared/mission300';
+import { isMissionWindowOpen, missionDepositPrice, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 
 type MissionPricing = { generalPrice: number; depositPrice: number } | null;
 
@@ -321,17 +321,22 @@ function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
 
         {missionPricing && (
           <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.78 }}
+            initial={{ opacity: 0, y: 16, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.7, delay: 0.78, ease: [0.23, 1, 0.32, 1] }}
             className="mt-6 flex justify-center"
           >
-            <span className="inline-flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 px-5 py-2.5 rounded-full glass-candy border border-cherry/40 shadow-[0_0_24px_oklch(0.76_0.13_35_/_0.2)]">
-              <span className="text-[10px] md:text-xs uppercase tracking-[0.15em] font-bold text-cherry">🔥 Misión 300</span>
-              <span className="line-through text-muted-foreground text-sm">{formatCLP(missionPricing.generalPrice)}</span>
-              <span className="font-heading font-extrabold text-lg md:text-xl text-gradient-candy">{formatCLP(missionPricing.depositPrice)}</span>
-              <span className="text-xs md:text-sm text-foreground/80">reserva tu lugar hoy</span>
-            </span>
+            <Link
+              href={`/checkout/${CANDYLAND.slug}`}
+              className="btn-mission300 interactive flex flex-col items-center gap-0.5 px-10 py-5 sm:px-12 sm:py-6 rounded-[2rem] text-white"
+            >
+              <span className="text-xs sm:text-sm uppercase tracking-[0.25em] font-extrabold drop-shadow-sm">🔥 Misión 300</span>
+              <span className="font-heading font-black text-4xl sm:text-5xl leading-none drop-shadow-sm">
+                {formatCLP(MISSION_300_DEPOSIT_PER_PERSON)}
+              </span>
+              <span className="text-[10px] sm:text-xs uppercase tracking-wide font-semibold text-white/85">por persona</span>
+              <span className="mt-1.5 text-sm sm:text-base font-bold">Reserva tu lugar hoy</span>
+            </Link>
           </motion.div>
         )}
 

@@ -160,6 +160,59 @@ html {
   to { transform: translateX(120%); }
 }
 
+/* Botón 3D "gominola" para el gancho de Misión 300: canto grueso inferior
+ * (como un caramelo apretable), se hunde al tocarlo y respira con un pulso
+ * de brillo — busca ser el elemento más llamativo de la pantalla, distinto
+ * a cualquier otro botón del sitio. */
+.btn-mission300 {
+  position: relative;
+  background: linear-gradient(135deg, var(--color-cherry), var(--color-primary) 55%, var(--color-violet-electric));
+  box-shadow:
+    0 6px 0 oklch(0.42 0.15 340 / 0.95),
+    0 10px 26px oklch(0.68 0.16 340 / 0.45),
+    0 0 42px oklch(0.76 0.13 35 / 0.4);
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s ease;
+  animation: mission300-breathe 2.6s ease-in-out infinite;
+}
+.btn-mission300:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow:
+    0 9px 0 oklch(0.42 0.15 340 / 0.95),
+    0 16px 34px oklch(0.68 0.16 340 / 0.5),
+    0 0 54px oklch(0.76 0.13 35 / 0.5);
+}
+.btn-mission300:active {
+  transform: translateY(4px) scale(0.98);
+  box-shadow:
+    0 2px 0 oklch(0.42 0.15 340 / 0.95),
+    0 4px 14px oklch(0.68 0.16 340 / 0.4);
+}
+.btn-mission300::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(105deg, transparent 35%, oklch(1 0 0 / 0.45) 50%, transparent 65%);
+  transform: translateX(-120%);
+}
+.btn-mission300:hover::after {
+  animation: shine-sweep 0.9s ease forwards;
+}
+@keyframes mission300-breathe {
+  0%, 100% {
+    box-shadow:
+      0 6px 0 oklch(0.42 0.15 340 / 0.95),
+      0 10px 26px oklch(0.68 0.16 340 / 0.45),
+      0 0 42px oklch(0.76 0.13 35 / 0.4);
+  }
+  50% {
+    box-shadow:
+      0 6px 0 oklch(0.42 0.15 340 / 0.95),
+      0 10px 26px oklch(0.68 0.16 340 / 0.45),
+      0 0 58px oklch(0.76 0.13 35 / 0.6);
+  }
+}
+
 /* Caramelos flotantes decorativos */
 @keyframes candy-float {
   0%, 100% { transform: translateY(0) rotate(0deg); }
@@ -228,7 +281,9 @@ html {
     animation: none;
   }
   .btn-jelly,
-  .btn-jelly::after {
+  .btn-jelly::after,
+  .btn-mission300,
+  .btn-mission300::after {
     transition: none;
     animation: none;
   }
