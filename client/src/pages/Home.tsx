@@ -234,6 +234,11 @@ function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
           aria-hidden
           className="absolute inset-0 w-full h-full object-cover opacity-30 blur-3xl scale-125"
         />
+        {/* preload="metadata" (no "auto"): en móvil con conexión lenta, pedir
+         * todo el video de una empezaba a competir por ancho de banda con el
+         * resto de la carga inicial de la página — con "metadata" el navegador
+         * solo trae lo justo para arrancar y el poster de arriba cubre el
+         * salto mientras el video termina de bajar. */}
         <video
           className="absolute inset-0 w-full h-full object-cover opacity-90 saturate-[1.15] motion-reduce:hidden"
           src="/candyland/hero-video.mp4"
@@ -242,7 +247,7 @@ function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
           muted
           loop
           playsInline
-          preload="auto"
+          preload="metadata"
         />
       </motion.div>
       {/* Viñeta oscura centrada en el texto (contraste) + degradé claro solo

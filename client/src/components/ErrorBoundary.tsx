@@ -21,6 +21,14 @@ class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
+  componentDidCatch(error: Error, info: { componentStack: string }) {
+    // Antes esto no se registraba en ningún lado — un crash de render (ej.
+    // "pantalla en blanco" reportada en móvil) quedaba sin rastro. Al menos
+    // queda en la consola del navegador de quien lo sufre, para poder pedirle
+    // que la revise si vuelve a pasar.
+    console.error('[ErrorBoundary]', error, info.componentStack);
+  }
+
   render() {
     if (this.state.hasError) {
       return (
