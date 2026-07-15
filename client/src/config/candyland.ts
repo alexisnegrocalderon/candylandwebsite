@@ -172,8 +172,13 @@ export const CANDYLAND = {
   // ── Misión 300 ─────────────────────────────────────────────
   mision: {
     meta: 300,
+    // Personas que ya estaban confirmadas ANTES de esta web (vendidas por la
+    // ticketera anterior, no existen como orden en esta base de datos). Se
+    // suma siempre por encima del conteo real de la DB, así el contador no
+    // "retrocede" al migrar y sigue creciendo normal con cada venta nueva.
+    baseline: 52,
     // Fallback manual mientras no hay base de datos conectada.
-    // Con DB, se usa la suma real de PERSONAS vendidas (dúo=2, trío=3, etc.).
+    // Con DB, se usa baseline + la suma real de PERSONAS vendidas (dúo=2, trío=3, etc.).
     confirmadosFallback: 48,
     titulo: 'Misión 300',
     copy: 'Cada dulce representa una entrada confirmada.',

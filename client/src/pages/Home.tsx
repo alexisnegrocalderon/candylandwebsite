@@ -31,7 +31,7 @@ import { trpc } from '@/lib/trpc';
 import { CANDYLAND, formatCLP } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
 import { scrollToId, prefersReducedMotion } from '@/lib/smoothScroll';
-import { isMissionWindowOpen, missionDepositPrice, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
+import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 
 type MissionPricing = { generalPrice: number; depositPrice: number } | null;
 
@@ -522,14 +522,14 @@ function UpcomingEventsSection() {
 
 function CountdownUnit({ value, label }: { value: number; label: string }) {
   return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="relative w-12 h-12 md:w-16 md:h-16 rounded-2xl bg-gradient-to-br from-primary via-cherry to-violet-electric shadow-[0_4px_16px_oklch(0.68_0.16_340_/_0.35)] flex items-center justify-center overflow-hidden">
+    <div className="flex flex-col items-center gap-1.5">
+      <div className="relative w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-2xl md:rounded-3xl bg-gradient-to-br from-cherry via-primary to-violet-electric shadow-[0_6px_22px_oklch(0.68_0.16_340_/_0.4)] flex items-center justify-center overflow-hidden ring-2 ring-white/30">
         <div aria-hidden className="absolute inset-0 bg-white/10 mix-blend-overlay" />
-        <span className="font-heading font-extrabold text-xl md:text-3xl tabular-nums text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.25)]">
+        <span className="font-heading font-black text-3xl sm:text-4xl md:text-5xl tabular-nums text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)]">
           {String(value).padStart(2, '0')}
         </span>
       </div>
-      <span className="text-[9px] md:text-[10px] uppercase tracking-[0.15em] text-muted-foreground font-semibold">{label}</span>
+      <span className="text-[10px] md:text-xs uppercase tracking-[0.2em] text-foreground/80 font-bold">{label}</span>
     </div>
   );
 }
@@ -548,26 +548,28 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
       <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/15 blur-[110px] candy-float" />
 
       <div className="container relative space-y-6 md:space-y-8">
-        {/* Countdown — más presencia: pastillas con degradé candy en vez de texto plano */}
+        {/* Countdown — tarjeta propia, grande y con urgencia visual: borde
+         * pulsante tipo alerta, tiles grandes con degradé candy. */}
         <motion.div
           {...reveal}
-          className="relative glass-candy rounded-2xl px-5 py-4 md:px-8 md:py-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 overflow-hidden"
+          className="candy-pulse relative glass-candy rounded-3xl px-5 py-6 md:px-10 md:py-8 flex flex-col items-center gap-4 md:gap-5 overflow-hidden border-2 border-cherry/50"
         >
-          <div aria-hidden className="absolute -top-10 left-1/4 w-48 h-48 rounded-full bg-primary/20 blur-[80px]" />
-          <p className="relative text-[10px] md:text-xs uppercase tracking-[0.25em] text-cherry font-bold inline-flex items-center gap-1.5 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-cherry candy-pulse inline-block" />
-            {esHoy ? '¡Es hoy! 🍭' : 'Cuenta regresiva'}
+          <div aria-hidden className="absolute -top-16 left-1/4 w-64 h-64 rounded-full bg-cherry/25 blur-[90px]" />
+          <div aria-hidden className="absolute -bottom-16 right-1/4 w-64 h-64 rounded-full bg-primary/20 blur-[90px]" />
+          <p className="relative text-xs md:text-sm uppercase tracking-[0.3em] text-cherry font-extrabold inline-flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-cherry candy-pulse inline-block" />
+            {esHoy ? '¡Es hoy! 🍭' : '🔥 La fiesta empieza en'}
           </p>
-          <div className="relative flex items-center gap-2 md:gap-3">
+          <div className="relative flex items-center gap-2 sm:gap-3 md:gap-4">
             <CountdownUnit value={dias} label="Días" />
-            <span className="text-lg md:text-2xl font-heading font-bold text-primary/40 -mt-3">:</span>
+            <span className="text-2xl md:text-4xl font-heading font-black text-cherry/50 -mt-4 md:-mt-6">:</span>
             <CountdownUnit value={horas} label="Hrs" />
-            <span className="text-lg md:text-2xl font-heading font-bold text-primary/40 -mt-3">:</span>
+            <span className="text-2xl md:text-4xl font-heading font-black text-cherry/50 -mt-4 md:-mt-6">:</span>
             <CountdownUnit value={minutos} label="Min" />
-            <span className="text-lg md:text-2xl font-heading font-bold text-primary/40 -mt-3">:</span>
+            <span className="text-2xl md:text-4xl font-heading font-black text-cherry/50 -mt-4 md:-mt-6">:</span>
             <CountdownUnit value={segundos} label="Seg" />
           </div>
-          <p className="relative text-muted-foreground text-xs md:text-sm shrink-0">
+          <p className="relative text-muted-foreground text-xs md:text-base font-medium">
             {CANDYLAND.fechaTexto} · {CANDYLAND.horarioTexto}
           </p>
         </motion.div>
@@ -593,11 +595,9 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
 
               {missionPricing && (
                 <p className="mt-2.5 inline-flex flex-wrap items-baseline justify-center md:justify-start gap-x-2 gap-y-0.5 text-sm md:text-base">
-                  <span className="text-muted-foreground">Hoy pagas</span>
-                  <span className="font-heading font-extrabold text-gradient-candy text-lg md:text-xl">{formatCLP(missionPricing.depositPrice)}</span>
-                  <span className="text-muted-foreground">por tu lugar ·</span>
-                  <span className="line-through text-muted-foreground">{formatCLP(missionPricing.generalPrice)}</span>
-                  <span className="text-muted-foreground">valor general</span>
+                  <span className="font-heading font-extrabold text-gradient-candy text-lg md:text-xl">{formatCLP(MISSION_300_DEPOSIT_PER_PERSON)}</span>
+                  <span className="text-muted-foreground">por persona ·</span>
+                  <span className="font-bold text-cherry">Reserva tu lugar hoy</span>
                 </p>
               )}
 
@@ -976,12 +976,15 @@ export default function Home() {
 
   const vendidos = useMemo(() => {
     if (liveTickets && liveTickets.length > 0) {
-      // Cuenta PERSONAS: cada entrada vendida suma según el acceso (dúo=2, trío=3…)
-      return liveTickets.reduce((s, t) => {
-        const acc = CANDYLAND.accesos.find((a) => a.nombre.toLowerCase() === (t as any).name?.toLowerCase());
-        const personas = acc?.personas ?? 1;
-        return s + (t.soldCount ?? 0) * personas;
+      // Cuenta PERSONAS solo de accesos (nunca extras como estacionamiento/piscolón):
+      // cada entrada vendida suma según su acceso (dúo=2, trío=3…), usando el
+      // accesoSlug real del ticket type en vez de matchear por nombre (frágil ante
+      // mayúsculas/tildes) — más el baseline de la ticketera anterior.
+      const vendidasDb = liveTickets.reduce((s, t: any) => {
+        if (t.category !== 'acceso') return s;
+        return s + (t.soldCount ?? 0) * personasForAccesoSlug(t.accesoSlug);
       }, 0);
+      return CANDYLAND.mision.baseline + vendidasDb;
     }
     return CANDYLAND.mision.confirmadosFallback;
   }, [liveTickets]);
