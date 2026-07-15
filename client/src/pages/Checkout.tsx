@@ -369,6 +369,18 @@ export default function Checkout() {
   const [ordenPago, setOrdenPago] = useState<{ orderNumber: string; total: number } | null>(null);
   const [pagoResultado, setPagoResultado] = useState<'approved' | 'rejected' | 'pending' | null>(null);
   const [pagoErrorMsg, setPagoErrorMsg] = useState('');
+  // Pantalla de "revisa tu compra" entre crear la orden y montar el Payment
+  // Brick — antes se saltaba directo del resumen a la pasarela sin mostrar
+  // de nuevo el detalle (tipo de entrada, extras, descuento, total).
+  const [showResumenFinal, setShowResumenFinal] = useState(false);
+  const [resumenCountdown, setResumenCountdown] = useState(5);
+  useEffect(() => {
+    if (!showResumenFinal) return;
+    setResumenCountdown(5);
+    const interval = window.setInterval(() => setResumenCountdown((c) => Math.max(0, c - 1)), 1000);
+    const advance = window.setTimeout(() => setShowResumenFinal(false), 5000);
+    return () => { window.clearInterval(interval); window.clearTimeout(advance); };
+  }, [showResumenFinal]);
   const brickControllerRef = useRef<any>(null);
   useEffect(() => () => { brickControllerRef.current?.unmount?.(); }, []);
   const addonEstac = CANDYLAND.addons.estacionamiento;
@@ -567,6 +579,10 @@ export default function Checkout() {
         // email de bienvenida con el QR — no hay nada que cobrar, así que
         // saltamos directo a la pantalla de éxito sin montar el Payment Brick.
         setPagoResultado('approved');
+      } else {
+        // Antes de la pasarela: pantalla de "revisa tu compra" con el
+        // detalle completo (avanza sola en unos segundos o con el botón).
+        setShowResumenFinal(true);
       }
       // Si no es gratis, el formulario de tarjeta (Payment Brick) se monta
       // en el próximo render, con este orderNumber/total ya guardados.
@@ -577,9 +593,9 @@ export default function Checkout() {
   };
 
   // Monta el Payment Brick (formulario de tarjeta embebido, sin modal ni
-  // redirect de Mercado Pago) apenas la orden queda creada.
+  // redirect de Mercado Pago) recién cuando se pasa la pantalla de resumen final.
   useEffect(() => {
-    if (!ordenPago || pagoResultado === 'approved') return;
+    if (!ordenPago || pagoResultado === 'approved' || showResumenFinal) return;
     const publicKey = import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY as string | undefined;
     if (!publicKey) return;
     let cancelled = false;
@@ -674,6 +690,66 @@ export default function Checkout() {
           <Link href="/" className="inline-flex h-13 items-center justify-center px-8 rounded-full border border-border text-sm font-semibold hover:border-primary/50 interactive">
             Volver al inicio
           </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (ordenPago && showResumenFinal) {
+    return (
+      <div className="min-h-dvh pt-20 pb-16">
+        <div className="container max-w-lg">
+          <div className="flex items-center justify-between mb-4 pt-4">
+            <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Revisa tu compra</span>
+          </div>
+          <h1 className="font-heading font-extrabold text-2xl tracking-tight mb-1">Esto es lo que vas a pagar</h1>
+          <p className="text-muted-foreground text-sm mb-5">Confirma el detalle antes de ir a la pasarela de pago segura.</p>
+          <div className="glass-candy rounded-2xl p-5 mb-5">
+            <div className="flex justify-between text-sm mb-2">
+              <span>{EMOJIS[accesoSlug] ?? '🍬'} {qty}× {acceso?.nombre}</span>
+              <span>{formatCLP(subtotal)}</span>
+            </div>
+            {discountAmount > 0 && (
+              <div className="flex justify-between text-sm text-green-400 mb-2"><span>Descuento</span><span>-{formatCLP(discountAmount)}</span></div>
+            )}
+            {useDbExtras ? (
+              <>
+                {extraTickets.some((t: any) => (dbExtraQty[t.id] || 0) > 0) && (
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-3 mb-1.5">Extras</p>
+                )}
+                {extraTickets.map((t: any) => {
+                  const q = dbExtraQty[t.id] || 0;
+                  if (q <= 0) return null;
+                  return <div key={t.id} className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {q}× {t.name}</span><span>+{formatCLP(q * Number(t.price))}</span></div>;
+                })}
+              </>
+            ) : (
+              <>
+                {(estacionamiento || covers.productos.some((p) => (coverQty[p.id] || 0) > 0)) && (
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-3 mb-1.5">Extras</p>
+                )}
+                {estacionamiento && (
+                  <div className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {addonEstac.nombre}</span><span>+{formatCLP(addonEstac.precio)}</span></div>
+                )}
+                {covers.productos.map((p) => {
+                  const q = coverQty[p.id] || 0;
+                  if (q <= 0) return null;
+                  return <div key={p.id} className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {q}× {p.nombre}</span><span>+{formatCLP(q * p.precio)}</span></div>;
+                })}
+              </>
+            )}
+            <div className="flex justify-between font-heading text-2xl pt-3 border-t border-border/40">
+              <span>Total</span>
+              <span className="text-gradient-candy">{formatCLP(ordenPago.total)}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowResumenFinal(false)}
+            className="btn-jelly w-full h-13 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 interactive"
+          >
+            Continuar a pago seguro {resumenCountdown > 0 && `(${resumenCountdown})`}
+          </button>
         </div>
       </div>
     );
