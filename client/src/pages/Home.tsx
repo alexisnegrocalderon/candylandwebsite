@@ -429,7 +429,7 @@ function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'f
         )}
         {isFeatured && !event.isPast && (
           <span className="btn-jelly inline-flex items-center gap-2 mt-4 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide">
-            <Ticket className="w-4 h-4" /> Comprar entrada
+            <Ticket className="w-4 h-4" /> Ver evento
           </span>
         )}
       </div>
@@ -456,7 +456,7 @@ function UpcomingEventsSection() {
     imageUrl: '/candyland/poster-hero.webp',
     isPast: CANDYLAND.eventDate.getTime() < now,
     featured: true,
-    href: `/checkout/${CANDYLAND.slug}`,
+    href: `/eventos/${CANDYLAND.slug}`,
   };
 
   const mapped: HomeEventItem[] = dbEvents.map((e: any) => {
@@ -470,7 +470,7 @@ function UpcomingEventsSection() {
       imageUrl: e.imageUrl || '/candyland/poster-hero.webp',
       isPast: e.status === 'past' || date.getTime() < now,
       featured: !!e.featured,
-      href: `/checkout/${e.slug}`,
+      href: `/eventos/${e.slug}`,
     };
   });
 
