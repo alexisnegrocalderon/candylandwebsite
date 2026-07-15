@@ -295,13 +295,16 @@ async function processApprovedOrder(order: any) {
     buyerName: order.buyerName,
     eventTitle: event.title,
     eventDate: new Date(event.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
+    doorsOpenText: event.doorsOpen ? new Date(event.doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : undefined,
     venue: event.venue || '',
+    address: event.address || undefined,
     orderNumber: order.orderNumber,
     items: emailItems,
     total: Number(order.total),
     qrImageUrl: firstQrUrl,
     ambassadorCode,
     ticketCodes,
+    isMissionDeposit: order.missionDeposit === 1,
   });
 
   await sendEmail({

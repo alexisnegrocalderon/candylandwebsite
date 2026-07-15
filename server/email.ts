@@ -43,18 +43,33 @@ export async function sendEmail(input: SendEmailInput) {
   }
 }
 
+/** Copia estática de reglas/valores del evento — se mantiene alineada a mano
+ * con `client/src/config/candyland.ts` (no se importa directo porque ese
+ * archivo vive del lado del cliente). Si cambian ahí, actualizar acá también. */
+const EVENT_RULES = {
+  valores: ['Respeto', 'Consentimiento', 'Libertad'],
+  edadMinima: 18,
+  dressCode: 'Candy sensual: brillos, rosa, látex, lo que te haga sentir así de rico. Nada de tenida deportiva.',
+  estacionamiento: 'Contamos con estacionamiento privado dentro del recinto. También puedes llegar en app de transporte directo a la entrada.',
+  devoluciones: 'Las entradas no tienen devolución, pero sí puedes transferirla a otra persona escribiéndonos por Instagram antes del evento.',
+};
+
 export function buildConfirmationEmail(data: {
   buyerName: string;
   eventTitle: string;
   eventDate: string;
+  doorsOpenText?: string;
   venue: string;
+  address?: string;
   orderNumber: string;
   items: { name: string; quantity: number; price: number }[];
   total: number;
   qrImageUrl: string;
   ambassadorCode: string;
   ticketCodes: string[];
+  isMissionDeposit?: boolean;
 }) {
+  const ticketNames = data.items.map(i => i.name).join(', ');
   return `
 <!DOCTYPE html>
 <html>
@@ -73,15 +88,25 @@ export function buildConfirmationEmail(data: {
     <!-- Main Card -->
     <div style="background-color:#FFFFFF;border-radius:20px;padding:32px;border:1px solid #F2D9E4;">
       <h2 style="color:#3D2A35;font-size:22px;margin:0 0 8px;">¡Hola ${data.buyerName}! 🍭</h2>
-      <p style="color:#7A6670;font-size:15px;margin:0 0 24px;">Tu compra ha sido confirmada exitosamente.</p>
+      <p style="color:#7A6670;font-size:15px;margin:0 0 24px;">
+        Bienvenidx a Candyland con tu acceso <strong>${ticketNames}</strong>. Tu compra quedó confirmada — esto es lo
+        que necesitas saber antes de la fiesta.
+      </p>
 
       <!-- Event Info -->
       <div style="background-color:#FBF0F3;border-radius:14px;padding:20px;margin-bottom:24px;">
         <h3 style="color:#D9538F;font-size:18px;margin:0 0 12px;">${data.eventTitle}</h3>
         <p style="color:#5C4A54;font-size:14px;margin:4px 0;">📅 ${data.eventDate}</p>
-        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">📍 ${data.venue}</p>
+        ${data.doorsOpenText ? `<p style="color:#5C4A54;font-size:14px;margin:4px 0;">🕘 Apertura de puertas: ${data.doorsOpenText}</p>` : ''}
+        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">📍 ${data.venue}${data.address ? ` — ${data.address}` : ''}</p>
         <p style="color:#9A8A92;font-size:12px;margin:8px 0 0;">Orden: ${data.orderNumber}</p>
       </div>
+
+      ${data.isMissionDeposit ? `
+      <div style="background:linear-gradient(135deg,#E8A0C4,#C4A8E0);border-radius:14px;padding:18px;margin-bottom:24px;text-align:center;">
+        <p style="color:#fff;font-size:14px;font-weight:bold;margin:0;">🍬 Formaste parte de la Misión 300</p>
+        <p style="color:rgba(255,255,255,0.9);font-size:12px;margin:6px 0 0;">Gracias a ti y a todos los que se sumaron, tu entrada quedó saldada al valor del abono.</p>
+      </div>` : ''}
 
       <!-- Items -->
       <div style="margin-bottom:24px;">
@@ -106,11 +131,42 @@ export function buildConfirmationEmail(data: {
         ${data.ticketCodes.map(code => `<p style="color:#9A8A92;font-size:11px;font-family:monospace;margin:4px 0;">${code}</p>`).join('')}
       </div>
 
+      <!-- Ingreso al evento -->
+      <div style="margin-bottom:24px;">
+        <h4 style="color:#3D2A35;font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:0 0 12px;">Cómo ingresar</h4>
+        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">🎫 Presenta tu código QR (de este correo) en la entrada.</p>
+        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">🪪 <strong>Carnet de identidad obligatorio</strong> — sin excepciones, evento estrictamente +${EVENT_RULES.edadMinima}.</p>
+        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">🚗 ${EVENT_RULES.estacionamiento}</p>
+        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">✨ Dress code: ${EVENT_RULES.dressCode}</p>
+      </div>
+
+      <!-- Reglas y valores -->
+      <div style="background-color:#FBF0F3;border-radius:14px;padding:20px;margin-bottom:24px;">
+        <h4 style="color:#3D2A35;font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px;">Nuestros valores</h4>
+        <p style="color:#5C4A54;font-size:14px;margin:0 0 12px;">${EVENT_RULES.valores.join(' · ')} — la base de cada fiesta que hacemos.</p>
+        <p style="color:#5C4A54;font-size:13px;margin:0 0 8px;"><strong>Derecho de admisión y permanencia:</strong> Mansion Playroom se reserva el derecho de admisión y de solicitar el retiro de cualquier persona cuya conducta no respete estos valores o las normas del espacio, en cualquier momento del evento.</p>
+        <p style="color:#5C4A54;font-size:13px;margin:0;">${EVENT_RULES.devoluciones}</p>
+      </div>
+
       <!-- Ambassador Code -->
       <div style="background:linear-gradient(135deg,#E8A0C4,#C4A8E0);border-radius:14px;padding:20px;text-align:center;">
         <h4 style="color:#fff;font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Tu Código de Embajador</h4>
         <p style="color:#fff;font-size:28px;font-weight:bold;font-family:monospace;margin:0;">${data.ambassadorCode}</p>
-        <p style="color:rgba(255,255,255,0.85);font-size:12px;margin-top:8px;">Comparte este código con tus amigos. Por cada compra con tu código, acumulas premios.</p>
+        <p style="color:rgba(255,255,255,0.85);font-size:12px;margin-top:8px;">Comparte tu código con amigos — por cada compra con tu código, sumas hacia estos premios:</p>
+        <div style="display:flex;justify-content:center;gap:14px;margin-top:14px;flex-wrap:wrap;">
+          <div style="background:rgba(255,255,255,0.15);border-radius:10px;padding:10px 14px;">
+            <p style="color:#fff;font-size:12px;font-weight:bold;margin:0;">🥉 Bronce (3)</p>
+            <p style="color:rgba(255,255,255,0.85);font-size:11px;margin:2px 0 0;">Entrada gratis</p>
+          </div>
+          <div style="background:rgba(255,255,255,0.15);border-radius:10px;padding:10px 14px;">
+            <p style="color:#fff;font-size:12px;font-weight:bold;margin:0;">🥈 Plata (10)</p>
+            <p style="color:rgba(255,255,255,0.85);font-size:11px;margin:2px 0 0;">Entrada VIP + consumo</p>
+          </div>
+          <div style="background:rgba(255,255,255,0.15);border-radius:10px;padding:10px 14px;">
+            <p style="color:#fff;font-size:12px;font-weight:bold;margin:0;">🥇 Oro (25)</p>
+            <p style="color:rgba(255,255,255,0.85);font-size:11px;margin:2px 0 0;">Backstage + meet & greet</p>
+          </div>
+        </div>
       </div>
     </div>
 
