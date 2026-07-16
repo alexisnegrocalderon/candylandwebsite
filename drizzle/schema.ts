@@ -92,6 +92,10 @@ export const orders = mysqlTable("orders", {
   eventId: int("eventId").notNull(),
   subtotal: decimal("subtotal", { precision: 10, scale: 0 }).notNull(),
   discount: decimal("discount", { precision: 10, scale: 0 }).default("0").notNull(),
+  // Recargo por servicio ya calculado (monto, no %) al momento de la compra
+  // -- se guarda el monto para poder mostrarlo tal cual en el admin/recibo
+  // sin depender de que el % de siteSettings no haya cambiado después.
+  serviceFee: decimal("serviceFee", { precision: 10, scale: 0 }).default("0").notNull(),
   total: decimal("total", { precision: 10, scale: 0 }).notNull(),
   discountCodeId: int("discountCodeId"),
   ambassadorCode: varchar("ambassadorCode", { length: 32 }),
@@ -195,12 +199,14 @@ export const communityCodes = mysqlTable("communityCodes", {
 export type CommunityCode = typeof communityCodes.$inferSelect;
 export type InsertCommunityCode = typeof communityCodes.$inferInsert;
 
-// Config general del sitio (fila única) — hoy solo guarda los números de
-// Instagram que se muestran en el footer, editables desde el admin.
+// Config general del sitio (fila única) — números de Instagram del footer y
+// el recargo por servicio (%) que se suma a toda venta nueva (entradas +
+// extras), editables desde el admin.
 export const siteSettings = mysqlTable("siteSettings", {
   id: int("id").autoincrement().primaryKey(),
   instagramFollowers: int("instagramFollowers").default(0).notNull(),
   instagramPosts: int("instagramPosts").default(0).notNull(),
+  serviceFeePercent: decimal("serviceFeePercent", { precision: 5, scale: 2 }).default("0").notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 

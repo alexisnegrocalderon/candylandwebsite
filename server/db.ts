@@ -331,23 +331,26 @@ export async function deleteCommunityCode(id: number) {
   return { success: true };
 }
 
-// Site settings (fila única — Instagram followers/posts para el footer)
+// Site settings (fila única — Instagram followers/posts para el footer, y el
+// recargo por servicio (%) que se suma a toda venta nueva)
 export async function getSiteSettings() {
   const db = await getDb();
-  if (!db) return { instagramFollowers: 0, instagramPosts: 0 };
+  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0" };
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) return row;
-  return { instagramFollowers: 0, instagramPosts: 0 };
+  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0" };
 }
 
-export async function updateSiteSettings(data: { instagramFollowers?: number; instagramPosts?: number }) {
+export async function updateSiteSettings(data: { instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const updateData: any = { ...data };
+  if (data.serviceFeePercent !== undefined) updateData.serviceFeePercent = String(data.serviceFeePercent);
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) {
-    await db.update(siteSettings).set(data).where(eq(siteSettings.id, row.id));
+    await db.update(siteSettings).set(updateData).where(eq(siteSettings.id, row.id));
   } else {
-    await db.insert(siteSettings).values({ instagramFollowers: 0, instagramPosts: 0, ...data });
+    await db.insert(siteSettings).values({ instagramFollowers: 0, instagramPosts: 0, ...updateData });
   }
   return { success: true };
 }
@@ -447,7 +450,15 @@ export async function createOrder(input: {
     if (validation.communityCode) await markCommunityCodeUsed(validation.communityCode.id);
   }
 
-  const total = Math.max(0, subtotal - discountAmount);
+  // Recargo por servicio: % configurable en Ajustes, se calcula sobre el
+  // total YA con el descuento aplicado (entradas + extras) y se suma encima
+  // -- se guarda el monto ya calculado en orders.serviceFee, no el %, para
+  // que quede fijo aunque el % de siteSettings cambie después.
+  const preTotal = Math.max(0, subtotal - discountAmount);
+  const settings = await getSiteSettings();
+  const serviceFeePercent = Number(settings.serviceFeePercent ?? 0);
+  const serviceFee = serviceFeePercent > 0 ? Math.round(preTotal * serviceFeePercent / 100) : 0;
+  const total = preTotal + serviceFee;
   const orderNumber = `MP-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`;
 
   // Create order
@@ -459,6 +470,7 @@ export async function createOrder(input: {
     eventId: event.id,
     subtotal: String(subtotal),
     discount: String(discountAmount),
+    serviceFee: String(serviceFee),
     total: String(total),
     discountCodeId,
     ambassadorCode: input.ambassadorCode,

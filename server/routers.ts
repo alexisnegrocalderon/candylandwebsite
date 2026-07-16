@@ -259,6 +259,7 @@ export const appRouter = router({
     update: adminProcedure.input(z.object({
       instagramFollowers: z.number().optional(),
       instagramPosts: z.number().optional(),
+      serviceFeePercent: z.number().min(0).max(100).optional(),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings(input);
     }),
