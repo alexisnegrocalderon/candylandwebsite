@@ -8,9 +8,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Calendar, DollarSign, Ticket, Users, Plus, Trash2, Edit } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 
 /* Toda escritura del admin pasa por acá: sin esto, un error del servidor
  * (típicamente "Database not available" si falta DATABASE_URL) fallaba en
@@ -80,7 +81,7 @@ function TicketTypesList({
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => onEdit(tt)}><Edit className="w-3 h-3" /></Button>
-            <Button variant="outline" size="sm" className="text-destructive" onClick={() => deleteTicketType.mutateAsync({ id: tt.id })}><Trash2 className="w-3 h-3" /></Button>
+            <ConfirmDeleteButton description={`Vas a eliminar el tipo de entrada "${tt.name}".`} onConfirm={() => deleteTicketType.mutateAsync({ id: tt.id })} />
           </div>
         </div>
       ))}
@@ -281,9 +282,7 @@ function EventsManager() {
                   <Button variant="outline" size="sm" onClick={() => { setEditingTicketId(null); setNewTicket({ eventId: event.id, name: '', category: 'acceso', accesoSlug: '', price: 0, totalStock: 0, description: '' }); setShowTicketForm(true); }}>
                     <Plus className="w-3 h-3 mr-1" /> Entrada
                   </Button>
-                  <Button variant="outline" size="sm" className="text-destructive" onClick={() => deleteEvent.mutateAsync({ id: event.id })}>
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
+                  <ConfirmDeleteButton description={`Vas a eliminar el evento "${event.title}" completo, con todas sus entradas.`} onConfirm={() => deleteEvent.mutateAsync({ id: event.id })} />
                 </div>
               </div>
               <TicketTypesList eventId={event.id} onEdit={handleEditTicketType} />
@@ -412,9 +411,7 @@ function DiscountsManager() {
                 </span>
                 <span className="text-muted-foreground text-sm ml-3">Usos: {d.usedCount}/{d.maxUses || '∞'}</span>
               </div>
-              <Button variant="outline" size="sm" className="text-destructive" onClick={() => deleteDiscount.mutateAsync({ id: d.id })}>
-                <Trash2 className="w-3 h-3" />
-              </Button>
+              <ConfirmDeleteButton description={`Vas a eliminar el código de descuento "${d.code}".`} onConfirm={() => deleteDiscount.mutateAsync({ id: d.id })} />
             </CardContent>
           </Card>
         ))}
@@ -485,9 +482,7 @@ function CommunityCodesManager() {
                 <Button variant="outline" size="sm" onClick={() => updateCode.mutateAsync({ id: c.id, isActive: c.isActive ? 0 : 1 })}>
                   {c.isActive ? 'Desactivar' : 'Activar'}
                 </Button>
-                <Button variant="outline" size="sm" className="text-destructive" onClick={() => deleteCode.mutateAsync({ id: c.id })}>
-                  <Trash2 className="w-3 h-3" />
-                </Button>
+                <ConfirmDeleteButton description={`Vas a eliminar el código de comunidad "${c.code}".`} onConfirm={() => deleteCode.mutateAsync({ id: c.id })} />
               </div>
             </CardContent>
           </Card>
@@ -707,16 +702,22 @@ function SettingsManager() {
   const updateSettings = trpc.settings.update.useMutation({ onSuccess: () => { refetch(); toast.success('Ajustes guardados'); }, onError: onMutationError });
   const [followers, setFollowers] = useState('');
   const [posts, setPosts] = useState('');
+  const [feePercent, setFeePercent] = useState('');
 
   useEffect(() => {
     if (settings) {
       setFollowers(String(settings.instagramFollowers ?? 0));
       setPosts(String(settings.instagramPosts ?? 0));
+      setFeePercent(String(settings.serviceFeePercent ?? 0));
     }
   }, [settings]);
 
   const handleSave = () => {
     updateSettings.mutate({ instagramFollowers: Number(followers) || 0, instagramPosts: Number(posts) || 0 });
+  };
+
+  const handleSaveFee = () => {
+    updateSettings.mutate({ serviceFeePercent: Number(feePercent) || 0 });
   };
 
   return (
@@ -731,6 +732,23 @@ function SettingsManager() {
             <div><Label>Publicaciones</Label><Input type="number" value={posts} onChange={(e) => setPosts(e.target.value)} className="mt-1" /></div>
           </div>
           <Button onClick={handleSave} disabled={updateSettings.isPending} className="interactive">
+            {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
+          </Button>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>Recargo por servicio</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Porcentaje que se suma al total de cada venta nueva (entradas + extras), calculado sobre el monto ya con
+            descuento aplicado. Aparece en el checkout y en el correo como "Cargo por servicio" con el monto — sin
+            mostrar el porcentaje. No afecta órdenes ya creadas.
+          </p>
+          <div className="max-w-xs">
+            <Label>Recargo (%)</Label>
+            <Input type="number" step="0.01" min="0" max="100" value={feePercent} onChange={(e) => setFeePercent(e.target.value)} className="mt-1" />
+          </div>
+          <Button onClick={handleSaveFee} disabled={updateSettings.isPending} className="interactive">
             {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
           </Button>
         </CardContent>

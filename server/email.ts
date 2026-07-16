@@ -147,6 +147,7 @@ export function buildOrderEmail(data: {
   orderNumber: string;
   items: { name: string; quantity: number; price: number }[];
   total: number;
+  serviceFee?: number;
   ambassadorCode: string;
   isMissionDeposit?: boolean;
   /** true = ya hay QR (compra normal, o Misión 300 ya resuelta); false = todavía no hay QR (abono Misión 300 en curso). */
@@ -239,6 +240,12 @@ export function buildOrderEmail(data: {
             <span style="color:${INK};font-size:14px;font-weight:600;">$${item.price.toLocaleString('es-CL')}</span>
           </div>
         `).join('')}
+        ${data.serviceFee && data.serviceFee > 0 ? `
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid ${BORDER};">
+          <span style="color:${MUTED};font-size:14px;">Cargo por servicio</span>
+          <span style="color:${INK};font-size:14px;font-weight:600;">$${data.serviceFee.toLocaleString('es-CL')}</span>
+        </div>
+        ` : ''}
         <div style="display:flex;justify-content:space-between;padding-top:14px;margin-top:6px;">
           <span style="color:${INK};font-size:16px;font-weight:800;">Total pagado</span>
           <span style="color:${ACCENT.pink.text};font-size:18px;font-weight:800;">$${data.total.toLocaleString('es-CL')}</span>
@@ -253,7 +260,13 @@ export function buildOrderEmail(data: {
         <p style="color:${INK};font-size:14px;line-height:1.6;margin:0;">📩 Apenas finalice la misión, lo recibirás automáticamente por este mismo medio. No necesitas hacer nada más.</p>
       `, { bg: ACCENT.yellow.bg, border: false }) : card(`
         <div style="text-align:center;">
-          <img src="${qrUrl}" alt="Código QR de tu entrada" style="width:220px;height:220px;border-radius:12px;background:#fff;padding:10px;border:1px solid ${BORDER};" />
+          <!-- Marco temático: borde grueso color marca + etiqueta arriba del QR --
+               sin degradé CSS (Outlook desktop no lo soporta), un borde sólido
+               grueso es el tratamiento más seguro entre clientes de correo. -->
+          <div style="display:inline-block;background:${ACCENT.pink.bg};border:3px solid ${ACCENT.pink.solid};border-radius:20px;padding:16px;">
+            <p style="color:${ACCENT.pink.text};font-size:11px;font-weight:800;letter-spacing:2px;margin:0 0 10px;">🍭 CANDYLAND</p>
+            <img src="${qrUrl}" alt="Código QR de tu entrada" style="width:200px;height:200px;border-radius:12px;background:#fff;padding:8px;display:block;" />
+          </div>
           <p style="color:${MUTED};font-size:12px;margin:14px 0 20px;">Presenta este código QR y tu carnet en la entrada</p>
         </div>
         <div style="margin-bottom:18px;">

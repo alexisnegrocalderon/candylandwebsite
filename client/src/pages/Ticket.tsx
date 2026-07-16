@@ -57,7 +57,14 @@ export default function Ticket() {
 
           <div className="glass-candy rounded-3xl p-6 text-center mb-5">
             {ticket.qrImageUrl && (
-              <img src={ticket.qrImageUrl} alt="Código QR de tu entrada" className="w-56 h-56 mx-auto rounded-xl bg-white p-2.5" />
+              <div className="relative w-60 mx-auto">
+                <div className="rounded-[28px] p-[3px] bg-gradient-to-br from-primary via-cherry to-violet-electric">
+                  <div className="rounded-[25px] bg-white px-4 pt-4 pb-3">
+                    <p className="text-[10px] font-heading font-extrabold tracking-[0.2em] text-primary mb-2">🍭 CANDYLAND</p>
+                    <img src={ticket.qrImageUrl} alt="Código QR de tu entrada" className="w-full aspect-square rounded-xl" />
+                  </div>
+                </div>
+              </div>
             )}
             <p className="text-xs text-muted-foreground mt-4">Presenta este código QR y tu carnet en la entrada</p>
           </div>
