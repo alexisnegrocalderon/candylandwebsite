@@ -33,6 +33,9 @@ export const events = mysqlTable("events", {
   galleryUrls: text("galleryUrls"),
   venue: varchar("venue", { length: 255 }),
   address: varchar("address", { length: 500 }),
+  // Link de Google Maps (ej. https://maps.app.goo.gl/xxxx) — se muestra como
+  // botón "Ver en Google Maps" en el email final, junto a la dirección.
+  mapsUrl: varchar("mapsUrl", { length: 500 }),
   eventDate: timestamp("eventDate").notNull(),
   doorsOpen: timestamp("doorsOpen"),
   eventEnd: timestamp("eventEnd"),

@@ -130,7 +130,7 @@ function EventsManager() {
   const updateTicketType = trpc.events.updateTicketType.useMutation({ onSuccess: () => { utils.events.listTicketTypes.invalidate(); toast.success('Entrada actualizada'); }, onError: onMutationError });
 
   const [newEvent, setNewEvent] = useState({
-    title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', eventDate: '', doorsOpen: '',
+    title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '',
     status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false,
   });
   const [newTicket, setNewTicket] = useState({ eventId: 0, name: '', category: 'acceso' as 'acceso' | 'extra', accesoSlug: '' as '' | AccesoSlug, price: 0, totalStock: 0, description: '' });
@@ -150,7 +150,7 @@ function EventsManager() {
     } else {
       await createEvent.mutateAsync(payload);
     }
-    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', eventDate: '', doorsOpen: '', status: 'draft', imageUrl: '', featured: false });
+    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', status: 'draft', imageUrl: '', featured: false });
     setShowEventForm(false);
   };
 
@@ -191,6 +191,7 @@ function EventsManager() {
               <div><Label>Slug (URL)</Label><Input value={newEvent.slug} onChange={(e) => setNewEvent({ ...newEvent, slug: e.target.value })} className="mt-1" /></div>
               <div><Label>Venue</Label><Input value={newEvent.venue} onChange={(e) => setNewEvent({ ...newEvent, venue: e.target.value })} className="mt-1" /></div>
               <div><Label>Dirección</Label><Input value={newEvent.address} onChange={(e) => setNewEvent({ ...newEvent, address: e.target.value })} className="mt-1" /></div>
+              <div><Label>Link de Google Maps</Label><Input value={newEvent.mapsUrl} onChange={(e) => setNewEvent({ ...newEvent, mapsUrl: e.target.value })} className="mt-1" placeholder="https://maps.app.goo.gl/..." /></div>
               <div><Label>Fecha del evento</Label><Input type="datetime-local" value={newEvent.eventDate} onChange={(e) => setNewEvent({ ...newEvent, eventDate: e.target.value })} className="mt-1" /></div>
               <div><Label>Apertura de puertas</Label><Input type="datetime-local" value={newEvent.doorsOpen} onChange={(e) => setNewEvent({ ...newEvent, doorsOpen: e.target.value })} className="mt-1" /></div>
             </div>
@@ -242,6 +243,7 @@ function EventsManager() {
                       title: event.title, slug: event.slug, description: event.description || '',
                       shortDescription: event.shortDescription || '', venue: event.venue || '',
                       address: event.address || '',
+                      mapsUrl: event.mapsUrl || '',
                       eventDate: event.eventDate ? new Date(event.eventDate).toISOString().slice(0, 16) : '',
                       doorsOpen: event.doorsOpen ? new Date(event.doorsOpen).toISOString().slice(0, 16) : '',
                       status: event.status || 'draft',

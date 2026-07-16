@@ -50,6 +50,13 @@
       "when": 1784164686184,
       "tag": "0006_brown_rattler",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1784169131961,
+      "tag": "0007_narrow_living_tribunal",
+      "breakpoints": true
     }
   ]
 }

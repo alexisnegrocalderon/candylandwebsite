@@ -314,6 +314,7 @@ async function processApprovedOrder(order: any) {
     doorsOpenText: event.doorsOpen ? new Date(event.doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : undefined,
     venue: event.venue || '',
     address: event.address || undefined,
+    mapsUrl: event.mapsUrl || undefined,
     orderNumber: order.orderNumber,
     items: emailItems,
     total: Number(order.total),
