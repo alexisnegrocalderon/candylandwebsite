@@ -3,15 +3,79 @@ import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Users, Gift, Copy, Check, Trophy, Share2, Ticket, KeyRound } from 'lucide-react';
+import { Users, Gift, Copy, Check, Trophy, Share2, Ticket, KeyRound, Flame, Crown } from 'lucide-react';
 import { useState } from 'react';
+import { CANDYLAND } from '@/config/candyland';
+import { AMBASSADOR_TIERS as TIERS } from '@shared/ambassadorTiers';
+import { missionCutoff } from '@shared/mission300';
 
-// Tiers de premios — mismos umbrales/premios que se muestran en el email de confirmación (server/email.ts)
-const TIERS = [
-  { name: 'Bronce', min: 3, reward: '1 consumo' },
-  { name: 'Plata', min: 5, reward: '2 consumos + acceso al próximo evento' },
-  { name: 'Oro', min: 10, reward: 'Mesa VIP + 2 botellas de espumante (o 1 de pisco) + acceso al próximo evento' },
-];
+const MEDALS = ['🥇', '🥈', '🥉'];
+
+/** Ranking público del Hall de la Fama -- solo primer nombre, código y
+ * cantidad de ventas (nunca montos ni apellido, ver db.getReferralLeaderboard
+ * en el servidor). Visible para cualquiera, sin necesidad de código propio. */
+function LeaderboardSection() {
+  const { data: event } = trpc.events.getBySlug.useQuery({ slug: CANDYLAND.slug }, { retry: false });
+  const { data: leaderboard } = trpc.referrals.getLeaderboard.useQuery(
+    { eventId: event?.id ?? 0 },
+    { enabled: !!event?.id }
+  );
+
+  const daysLeft = event?.eventDate
+    ? Math.max(0, Math.ceil((missionCutoff(new Date(event.eventDate)).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : null;
+
+  return (
+    <div className="mb-10">
+      <div className="text-center mb-6">
+        <h1 className="font-heading text-4xl md:text-5xl mb-2">Hall de la <span className="text-gradient">Fama</span></h1>
+        <p className="text-muted-foreground">Los embajadores que más entradas venden con su código</p>
+        {daysLeft !== null && (
+          <p className="inline-flex items-center gap-1.5 mt-3 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold uppercase tracking-wide">
+            ⏳ Quedan {daysLeft} día{daysLeft === 1 ? '' : 's'} para cerrar el ranking
+          </p>
+        )}
+      </div>
+
+      <Card className="mb-4 border-primary/30 bg-gradient-to-br from-primary/10 via-card to-secondary/10">
+        <CardContent className="pt-6 pb-6 text-center">
+          <Crown className="w-8 h-8 text-primary mx-auto mb-2" />
+          <p className="font-heading text-lg">🏆 Premio Top 3 de esta fiesta</p>
+          <p className="text-sm text-muted-foreground mt-1">Además de tu nivel individual, el top 3 del ranking al cierre gana un premio extra — escríbenos por Instagram para conocer los detalles.</p>
+        </CardContent>
+      </Card>
+
+      {leaderboard && leaderboard.length > 0 ? (
+        <Card className="border-border/50">
+          <CardContent className="pt-6">
+            <div className="space-y-2">
+              {leaderboard.map((row: any, i: number) => (
+                <div key={row.ambassadorCode} className={`flex items-center justify-between px-4 py-3 rounded-xl ${i < 3 ? 'bg-primary/5 border border-primary/20' : 'bg-muted/30'}`}>
+                  <div className="flex items-center gap-3">
+                    <span className="font-heading text-lg w-8 text-center">{MEDALS[i] ?? `#${i + 1}`}</span>
+                    <span className="font-semibold">{row.firstName}</span>
+                    {row.recentStreak && (
+                      <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-500 font-medium">
+                        <Flame className="w-3 h-3" /> en racha
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-heading text-xl text-primary">{row.totalReferrals}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-border/50">
+          <CardContent className="pt-6 pb-6 text-center text-muted-foreground text-sm">
+            Todavía nadie vendió con su código — sé el primero en aparecer acá.
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
 
 /** Antes esta página requería iniciar sesión (OAuth) — pero el sitio ya no
  * tiene ningún login de comprador visible (se sacó del Navbar en un rediseño
@@ -39,32 +103,36 @@ export default function MyReferrals() {
   if (!submittedCode || !data) {
     return (
       <div className="min-h-screen pt-28 pb-16">
-        <div className="container max-w-lg text-center">
+        <div className="container max-w-5xl">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
-            <div className="w-20 h-20 mx-auto mb-6 border border-primary/30 rounded-2xl flex items-center justify-center bg-primary/5">
-              <Users className="w-10 h-10 text-primary" />
+            <LeaderboardSection />
+
+            <div className="max-w-lg mx-auto text-center border-t border-border/40 pt-10">
+              <div className="w-16 h-16 mx-auto mb-5 border border-primary/30 rounded-2xl flex items-center justify-center bg-primary/5">
+                <Users className="w-8 h-8 text-primary" />
+              </div>
+              <h2 className="font-heading text-2xl mb-3">¿Tienes tu código?</h2>
+              <p className="text-muted-foreground mb-6">
+                Ingresa tu código de embajador (el mismo que te llegó por email) para ver tus estadísticas y premios.
+              </p>
+              <form onSubmit={handleSubmit} className="flex gap-2 max-w-sm mx-auto">
+                <Input
+                  value={codeInput}
+                  onChange={(e) => setCodeInput(e.target.value)}
+                  placeholder="TU-CODIGO"
+                  className="h-12 text-center font-mono uppercase"
+                />
+                <Button type="submit" size="lg" className="interactive glow-pink shrink-0" disabled={!codeInput.trim() || isLoading}>
+                  <KeyRound className="w-4 h-4" />
+                </Button>
+              </form>
+              {submittedCode && isLoading && (
+                <div className="w-6 h-6 mx-auto mt-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              )}
+              {isFetched && !data && (
+                <p className="text-destructive text-sm mt-4">No encontramos ese código — revisa que esté bien escrito.</p>
+              )}
             </div>
-            <h1 className="font-heading text-4xl mb-4">Panel de <span className="text-gradient">Embajador</span></h1>
-            <p className="text-muted-foreground text-lg mb-8">
-              Ingresa tu código de embajador (el mismo que te llegó por email) para ver tus estadísticas y premios.
-            </p>
-            <form onSubmit={handleSubmit} className="flex gap-2 max-w-sm mx-auto">
-              <Input
-                value={codeInput}
-                onChange={(e) => setCodeInput(e.target.value)}
-                placeholder="TU-CODIGO"
-                className="h-12 text-center font-mono uppercase"
-              />
-              <Button type="submit" size="lg" className="interactive glow-pink shrink-0" disabled={!codeInput.trim() || isLoading}>
-                <KeyRound className="w-4 h-4" />
-              </Button>
-            </form>
-            {submittedCode && isLoading && (
-              <div className="w-6 h-6 mx-auto mt-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            )}
-            {isFetched && !data && (
-              <p className="text-destructive text-sm mt-4">No encontramos ese código — revisa que esté bien escrito.</p>
-            )}
           </motion.div>
         </div>
       </div>
@@ -101,10 +169,12 @@ export default function MyReferrals() {
     <div className="min-h-screen pt-28 pb-16">
       <div className="container max-w-5xl">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
+          <LeaderboardSection />
+
           {/* Header */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8 border-t border-border/40 pt-10">
             <div>
-              <h1 className="font-heading text-4xl md:text-5xl">Panel de <span className="text-gradient">Embajador</span></h1>
+              <h2 className="font-heading text-3xl md:text-4xl">Tu Panel de <span className="text-gradient">Embajador</span></h2>
               <p className="text-muted-foreground mt-2">Hola, {data.buyerName}</p>
             </div>
             <Button onClick={handleShare} variant="outline" className="interactive gap-2">

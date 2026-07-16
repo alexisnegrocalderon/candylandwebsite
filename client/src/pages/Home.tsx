@@ -933,7 +933,7 @@ function Footer() {
           <div className="flex items-center gap-6">
             <span className="px-3 py-1 rounded-full border border-cherry/40 text-cherry font-bold text-xs">+{CANDYLAND.edadMinima}</span>
             <Link href="/politica-de-reembolso" className="hover:text-foreground transition-colors">Política de reembolso</Link>
-            <Link href="/mis-referidos" className="hover:text-foreground transition-colors">Mis Referidos</Link>
+            <Link href="/mis-referidos" className="hover:text-foreground transition-colors">Hall de la Fama</Link>
           </div>
         </div>
       </div>

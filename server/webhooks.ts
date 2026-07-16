@@ -5,8 +5,9 @@ import { orders, orderItems, tickets, ticketTypes, events, referrals, users } fr
 import { eq, and, sql, isNotNull, ne } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { generateTicketQR } from './qr';
-import { sendEmail, buildOrderEmail, buildMissionTopupEmail } from './email';
+import { sendEmail, buildOrderEmail, buildMissionTopupEmail, buildTierUpEmail, buildAlmostTierEmail } from './email';
 import { missionCutoff, missionCapPrice, personasForAccesoSlug, MISSION_300_GOAL } from '../shared/mission300';
+import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
 
 export const webhooksRouter = Router();
 
@@ -409,6 +410,26 @@ async function processApprovedOrder(order: any) {
         ticketCount: totalTickets,
         orderTotal: order.total,
       });
+
+      // Correos de nivel: se cuenta cuántas ventas lleva ese código justo
+      // después de insertar esta -- si el conteo cae EXACTO en un umbral (o
+      // uno antes de un umbral), significa que recién lo cruzó (o está a 1
+      // de cruzarlo), porque los referidos solo se insertan, nunca se
+      // borran -- la igualdad exacta garantiza que cada correo se manda una
+      // sola vez, sin necesitar una columna de "ya avisado".
+      const [{ count: referralCount }] = await db.select({ count: sql<number>`COUNT(*)` })
+        .from(referrals).where(eq(referrals.ambassadorCode, order.ambassadorCode));
+      const count = Number(referralCount);
+      if (AMBASSADOR_TIERS.some(t => t.min === count)) {
+        const html = buildTierUpEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: order.ambassadorCode, referralCount: count });
+        await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `${tierForCount(count)!.emoji} ¡Llegaste a nivel ${tierForCount(count)!.name}!`, html });
+      } else {
+        const next = nextTierForCount(count);
+        if (next && next.min - count === 1) {
+          const html = buildAlmostTierEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: order.ambassadorCode, referralCount: count });
+          await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `🔥 ¡Estás a 1 venta de nivel ${next.name}!`, html });
+        }
+      }
     }
   }
 
