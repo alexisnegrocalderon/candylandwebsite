@@ -1,3 +1,5 @@
+import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
+
 interface SendEmailInput {
   to: string;
   subject: string;
@@ -118,11 +120,6 @@ const CONTENT = {
     { q: '¿Puedo ir solo/a?', a: 'Claro. Muchas personas vienen solas y nuestro ambiente está pensado para conocer gente.' },
     { q: '¿Puedo salir y volver a entrar?', a: 'No. Una vez validado el ingreso, las salidas son definitivas.' },
     { q: '¿Tengo que entrar al Playground o al Kink Room?', a: 'No. Todos los espacios son completamente opcionales.' },
-  ],
-  embajadorTiers: [
-    { emoji: '🥉', umbral: '3 compras', premio: '🍹 1 consumo' },
-    { emoji: '🥈', umbral: '5 compras', premio: '🍹 2 consumos + acceso al próximo evento' },
-    { emoji: '🥇', umbral: '10 compras', premio: '🥂 Mesa VIP + 2 botellas de espumante (o 1 de pisco) + acceso al próximo evento' },
   ],
 };
 
@@ -331,10 +328,10 @@ export function buildOrderEmail(data: {
           <p style="color:${INK};font-size:30px;font-weight:800;font-family:monospace;margin:0;">${data.ambassadorCode}</p>
           <p style="color:${MUTED};font-size:13px;margin:8px 0 0;">Compártelo con tus amigos — cada compra realizada con tu código suma recompensas.</p>
         </div>
-        ${CONTENT.embajadorTiers.map(t => `
+        ${AMBASSADOR_TIERS.map(t => `
           <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid ${BORDER};">
-            <span style="color:${INK};font-size:13px;font-weight:700;">${t.emoji} ${t.umbral}</span>
-            <span style="color:${MUTED};font-size:13px;text-align:right;">${t.premio}</span>
+            <span style="color:${INK};font-size:13px;font-weight:700;">${t.emoji} ${t.min} compras</span>
+            <span style="color:${MUTED};font-size:13px;text-align:right;">${t.reward}</span>
           </div>
         `).join('')}
         <div style="text-align:center;margin-top:18px;">
@@ -515,6 +512,142 @@ export function buildMigrationAnnouncementEmail(data: {
 
     <!-- FOOTER -->
     <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:8px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
+      <p style="margin:0 0 8px;">
+        <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>
+        <a href="https://www.mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Web</a>
+      </p>
+      <p style="color:${FAINT};font-size:11px;margin:0;">© ${new Date().getFullYear()} Mansion Playroom · Valparaíso, Chile</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+/** Se manda cuando el conteo de referidos de un embajador cruza EXACTO un
+ * umbral de nivel (3/5/10) -- la igualdad exacta garantiza que se dispara
+ * una sola vez, sin necesitar una columna de "ya avisado" (ver el llamado
+ * en processApprovedOrder, server/webhooks.ts). */
+export function buildTierUpEmail(data: {
+  buyerName: string;
+  ambassadorCode: string;
+  referralCount: number;
+}) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+  const tier = tierForCount(data.referralCount)!;
+  const next = nextTierForCount(data.referralCount);
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <!-- HERO -->
+    <div style="background:linear-gradient(160deg,${ACCENT.yellow.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:52px;margin:0 0 12px;">${tier.emoji}</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Llegaste a nivel ${tier.name}, ${data.buyerName}!</h1>
+      <p style="color:${MUTED};font-size:15px;margin:0;">Ya vendiste ${data.referralCount} entradas con tu código — te lo ganaste.</p>
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${sectionTitle('🎁', 'Tu premio')}
+      ${card(`
+        <p style="color:${INK};font-size:18px;font-weight:800;margin:0 0 6px;">${tier.reward}</p>
+        <p style="color:${MUTED};font-size:13px;margin:0;">Escríbenos por Instagram para coordinar cómo lo recibes.</p>
+      `, { bg: ACCENT.yellow.bg, border: false })}
+
+      ${next ? `
+      ${sectionTitle('🚀', 'Sigue subiendo')}
+      ${card(`
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 10px;">
+          Te faltan <strong style="color:${ACCENT.pink.text};">${next.min - data.referralCount}</strong> ventas más para nivel
+          <strong style="color:${INK};">${next.emoji} ${next.name}</strong>:
+        </p>
+        <p style="color:${INK};font-size:15px;font-weight:700;margin:0;">${next.reward}</p>
+      `)}
+      ` : `
+      ${sectionTitle('👑', 'Llegaste al tope')}
+      ${card(`<p style="color:${INK};font-size:14px;line-height:1.6;margin:0;">Eres nivel Oro, el más alto del programa. Sigue vendiendo para mantenerte arriba en el Hall de la Fama.</p>`)}
+      `}
+
+      <div style="text-align:center;margin-top:24px;">
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Tu código</p>
+        <p style="color:${INK};font-size:26px;font-weight:800;font-family:monospace;margin:0 0 20px;">${data.ambassadorCode}</p>
+        <a href="${EMAIL_BASE_URL}/mis-referidos" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;">Ver Hall de la Fama</a>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:24px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
+      <p style="margin:0 0 8px;">
+        <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>
+        <a href="https://www.mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Web</a>
+      </p>
+      <p style="color:${FAINT};font-size:11px;margin:0;">© ${new Date().getFullYear()} Mansion Playroom · Valparaíso, Chile</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+/** Se manda cuando al embajador le falta EXACTAMENTE 1 venta para el
+ * siguiente nivel -- empuje final, distinto del correo de "ya llegaste"
+ * (buildTierUpEmail). Misma lógica de disparo único por igualdad exacta. */
+export function buildAlmostTierEmail(data: {
+  buyerName: string;
+  ambassadorCode: string;
+  referralCount: number;
+}) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+  const next = nextTierForCount(data.referralCount)!;
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <!-- HERO -->
+    <div style="background:linear-gradient(160deg,${ACCENT.lilac.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:52px;margin:0 0 12px;">🔥</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Estás a 1 venta, ${data.buyerName}!</h1>
+      <p style="color:${MUTED};font-size:15px;margin:0;">Una entrada más y desbloqueas nivel ${next.name}.</p>
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${sectionTitle(next.emoji, `Te espera nivel ${next.name}`)}
+      ${card(`
+        <p style="color:${INK};font-size:18px;font-weight:800;margin:0 0 10px;">${next.reward}</p>
+        <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0;">
+          Ya vendiste ${data.referralCount} entradas con tu código — comparte tu código una vez más y lo tienes asegurado.
+        </p>
+      `, { bg: ACCENT.pink.bg, border: false })}
+
+      <div style="text-align:center;margin-top:24px;">
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Tu código</p>
+        <p style="color:${INK};font-size:26px;font-weight:800;font-family:monospace;margin:0 0 20px;">${data.ambassadorCode}</p>
+        <a href="https://wa.me/?text=${encodeURIComponent(`Usa mi código ${data.ambassadorCode} para comprar tu entrada a Candyland en Mansion Playroom 🍭 ${EMAIL_BASE_URL}`)}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;">Compartir por WhatsApp</a>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:24px;">
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
       <p style="margin:0 0 8px;">
         <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>

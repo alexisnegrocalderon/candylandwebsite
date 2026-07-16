@@ -620,6 +620,46 @@ export async function getUserReferrals(userId: number) {
   return db.select().from(referrals).where(eq(referrals.ambassadorUserId, userId)).orderBy(desc(referrals.createdAt));
 }
 
+/** Ranking público para el Hall de la Fama -- a diferencia de getReferralStats
+ * (admin, incluye montos $), esto solo expone lo necesario para una
+ * competencia pública: código, primer nombre (nunca apellido) y cantidad de
+ * ventas. Se escala por evento (vía referrals.orderId -> orders.eventId) a
+ * propósito -- no se suma todo junto -- para que el mismo query sirva más
+ * adelante para "últimas 3 fiestas" (pasando varios eventId) o el acumulado
+ * anual (sin filtro), sin tener que tocar el schema. Solo incluye códigos
+ * con al menos 1 venta (incluidos vía el propio GROUP BY). */
+export async function getReferralLeaderboard(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const rows = await db
+    .select({
+      ambassadorCode: referrals.ambassadorCode,
+      totalReferrals: sql<number>`COUNT(*)`,
+      lastReferralAt: sql<Date>`MAX(${referrals.createdAt})`,
+    })
+    .from(referrals)
+    .innerJoin(orders, eq(orders.id, referrals.orderId))
+    .where(eq(orders.eventId, eventId))
+    .groupBy(referrals.ambassadorCode)
+    .orderBy(desc(sql`COUNT(*)`));
+
+  const leaderboard = [];
+  for (const row of rows) {
+    const [owner] = await db.select().from(orders)
+      .where(and(eq(orders.ambassadorCode, row.ambassadorCode), eq(orders.paymentStatus, 'approved')))
+      .limit(1);
+    if (!owner) continue;
+    leaderboard.push({
+      ambassadorCode: row.ambassadorCode,
+      firstName: owner.buyerName.trim().split(/\s+/)[0],
+      totalReferrals: Number(row.totalReferrals),
+      recentStreak: Date.now() - new Date(row.lastReferralAt).getTime() <= 48 * 60 * 60 * 1000,
+    });
+  }
+  return leaderboard;
+}
+
 /** Estadísticas + historial de un embajador buscando directo por su código
  * (sin login) — el mismo código que le llega en su email de confirmación. */
 export async function getReferralsByCode(ambassadorCode: string) {

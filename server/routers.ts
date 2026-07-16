@@ -309,6 +309,11 @@ export const appRouter = router({
     getByCode: publicProcedure.input(z.object({ code: z.string() })).query(async ({ input }) => {
       return db.getReferralsByCode(input.code);
     }),
+    // Público, para el Hall de la Fama -- solo primer nombre + código +
+    // cantidad de ventas, nunca montos ni apellido (ver db.getReferralLeaderboard).
+    getLeaderboard: publicProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getReferralLeaderboard(input.eventId);
+    }),
   }),
 });
 
