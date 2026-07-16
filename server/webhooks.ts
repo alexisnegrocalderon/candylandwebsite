@@ -10,6 +10,20 @@ import { missionCutoff, missionCapPrice, personasForAccesoSlug, MISSION_300_GOAL
 
 export const webhooksRouter = Router();
 
+/** `toLocaleDateString`/`toLocaleTimeString` con locale "es-CL" solo define el
+ * IDIOMA del formato -- la ZONA HORARIA sigue siendo la del runtime, que en
+ * Vercel es UTC. Sin `timeZone` explícito, un evento guardado como 21:00
+ * hora de Chile (01:00 UTC del día siguiente) se mostraba en los emails
+ * como "01:00" (y a veces con la fecha corrida un día) -- de ahí que el
+ * correo dijera "1am" en vez de "21:00". */
+const CHILE_TZ = 'America/Santiago';
+function formatEventDate(date: Date): string {
+  return date.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: CHILE_TZ });
+}
+function formatEventTime(date: Date): string {
+  return date.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: CHILE_TZ });
+}
+
 /** Mapea el estado crudo de Mercado Pago a nuestro enum de 3 estados. */
 export function mapPaymentStatus(mpStatus: string | undefined): 'approved' | 'rejected' | 'pending' {
   if (mpStatus === 'approved') return 'approved';
@@ -213,8 +227,8 @@ async function sendMissionDepositEmail(order: any): Promise<{ success: boolean }
   const html = buildOrderEmail({
     buyerName: order.buyerName,
     eventTitle: event.title,
-    eventDate: new Date(event.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
-    doorsOpenText: event.doorsOpen ? new Date(event.doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : undefined,
+    eventDate: formatEventDate(new Date(event.eventDate)),
+    doorsOpenText: event.doorsOpen ? formatEventTime(new Date(event.doorsOpen)) : undefined,
     venue: event.venue || '',
     address: event.address || undefined,
     orderNumber: order.orderNumber,
@@ -274,8 +288,8 @@ async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boo
   const html = buildOrderEmail({
     buyerName: order.buyerName,
     eventTitle: event.title,
-    eventDate: new Date(event.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
-    doorsOpenText: event.doorsOpen ? new Date(event.doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : undefined,
+    eventDate: formatEventDate(new Date(event.eventDate)),
+    doorsOpenText: event.doorsOpen ? formatEventTime(new Date(event.doorsOpen)) : undefined,
     venue: event.venue || '',
     address: event.address || undefined,
     mapsUrl: event.mapsUrl || undefined,
@@ -507,7 +521,7 @@ export async function evaluateMission300(eventId: number) {
     const html = buildMissionTopupEmail({
       buyerName: order.buyerName,
       eventTitle: event.title,
-      eventDate: new Date(event.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
+      eventDate: formatEventDate(new Date(event.eventDate)),
       orderNumber: order.orderNumber,
       topupAmount,
       paymentUrl: pref.initPoint || '',

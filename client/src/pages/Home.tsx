@@ -465,7 +465,7 @@ function UpcomingEventsSection() {
       id: String(e.id),
       title: e.title,
       date,
-      dateLabel: date.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' }),
+      dateLabel: date.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Santiago' }),
       venue: e.venue,
       imageUrl: e.imageUrl || '/candyland/poster-hero.webp',
       isPast: e.status === 'past' || date.getTime() < now,

@@ -49,7 +49,7 @@ export default function Events() {
                     <div className="absolute bottom-0 left-0 right-0 p-6">
                       <div className="flex items-center gap-2 text-primary text-sm mb-3">
                         <Calendar className="w-4 h-4" />
-                        <span>{new Date(event.eventDate).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                        <span>{new Date(event.eventDate).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Santiago' })}</span>
                       </div>
                       <h3 className="font-heading text-2xl md:text-3xl mb-2">{event.title}</h3>
                       {event.shortDescription && (

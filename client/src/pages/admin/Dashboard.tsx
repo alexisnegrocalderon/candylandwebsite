@@ -258,7 +258,7 @@ function EventsManager() {
               <div className="flex justify-between items-start">
                 <div>
                   <h3 className="font-semibold text-lg">{event.title}</h3>
-                  <p className="text-muted-foreground text-sm">/{event.slug} | {event.status} | {new Date(event.eventDate).toLocaleDateString('es-CL')}</p>
+                  <p className="text-muted-foreground text-sm">/{event.slug} | {event.status} | {new Date(event.eventDate).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => {

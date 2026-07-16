@@ -1015,7 +1015,7 @@ export default function Checkout() {
                       <p className="text-sm font-bold mb-1">🍬 Estás pagando el abono de Misión 300</p>
                       <p className="text-xs text-muted-foreground leading-relaxed">
                         Hoy pagas {formatCLP(missionDepositPrice(accesoSlug))} para asegurar tu lugar (valor general {formatCLP(missionGeneralPrice)}).
-                        {missionCutoffDate && <> Si juntamos 300 personas antes del {missionCutoffDate.toLocaleDateString('es-CL', { day: 'numeric', month: 'long' })}, no pagas más.</>} Si no se junta, completas
+                        {missionCutoffDate && <> Si juntamos 300 personas antes del {missionCutoffDate.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', timeZone: 'America/Santiago' })}, no pagas más.</>} Si no se junta, completas
                         {' '}hasta el 60% del valor general (máximo {formatCLP(missionCapPrice(missionGeneralPrice))}) — te avisamos por email.
                       </p>
                     </div>

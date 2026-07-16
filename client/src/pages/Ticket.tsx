@@ -36,10 +36,10 @@ export default function Ticket() {
   }
 
   const eventDateText = ticket.eventDate
-    ? new Date(ticket.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    ? new Date(ticket.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Santiago' })
     : '';
   const doorsOpenText = ticket.doorsOpen
-    ? new Date(ticket.doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+    ? new Date(ticket.doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' })
     : '';
 
   return (
