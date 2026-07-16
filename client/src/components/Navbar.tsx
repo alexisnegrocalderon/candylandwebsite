@@ -7,6 +7,7 @@ import { CANDYLAND } from '@/config/candyland';
 const navLinks = [
   { href: '/', label: 'Inicio' },
   { href: '/eventos', label: 'Eventos' },
+  { href: '/entradas', label: 'Entradas' },
   { href: '/nosotros', label: 'Nosotros' },
 ];
 
