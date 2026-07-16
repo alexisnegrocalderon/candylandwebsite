@@ -1,14 +1,20 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X, Instagram } from 'lucide-react';
+import { Menu, X, Instagram, ChevronDown } from 'lucide-react';
 import { CANDYLAND } from '@/config/candyland';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 const navLinks = [
   { href: '/', label: 'Inicio' },
   { href: '/eventos', label: 'Eventos' },
   { href: '/entradas', label: 'Entradas' },
   { href: '/nosotros', label: 'Nosotros' },
+];
+
+const secondaryNavLinks = [
+  { href: '/mis-referidos', label: 'Mis Referidos' },
+  { href: '/politica-de-reembolso', label: 'Política de reembolso' },
 ];
 
 export default function Navbar() {
@@ -54,6 +60,19 @@ export default function Navbar() {
                 {link.label}
               </Link>
             ))}
+
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex items-center gap-1 text-sm font-medium tracking-wide uppercase text-muted-foreground hover:text-foreground transition-colors duration-300 interactive outline-none">
+                Más <ChevronDown size={14} strokeWidth={2} />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {secondaryNavLinks.map((link) => (
+                  <DropdownMenuItem key={link.href} asChild>
+                    <Link href={link.href}>{link.label}</Link>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <a
               href={CANDYLAND.redes.instagram}
@@ -119,10 +138,23 @@ export default function Navbar() {
               <Link
                 href={`/checkout/${CANDYLAND.slug}`}
                 onClick={() => setMobileOpen(false)}
-                className="mt-4 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center"
+                className="mt-2 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center"
               >
                 Comprar Entradas
               </Link>
+
+              <div className="mt-4 pt-4 border-t border-border/40 flex flex-col gap-3">
+                {secondaryNavLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setMobileOpen(false)}
+                    className="text-sm text-muted-foreground"
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+              </div>
             </div>
           </motion.div>
         )}

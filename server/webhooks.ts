@@ -194,12 +194,12 @@ async function ensureOwnAmbassadorCode(db: any, order: any): Promise<string> {
   return code;
 }
 
-async function sendMissionDepositEmail(order: any) {
+async function sendMissionDepositEmail(order: any): Promise<{ success: boolean }> {
   const db = await getDb();
-  if (!db) return;
+  if (!db) return { success: false };
 
   const [event] = await db.select().from(events).where(eq(events.id, order.eventId)).limit(1);
-  if (!event) return;
+  if (!event) return { success: false };
 
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
   const emailItems = [];
@@ -225,25 +225,31 @@ async function sendMissionDepositEmail(order: any) {
     ticketReady: false,
   });
 
-  await sendEmail({
+  const result = await sendEmail({
     to: order.buyerEmail,
     subject: `🍬 Ya estás en la Misión 300 - ${event.title}`,
     html,
   });
 
-  await db.update(orders).set({ depositEmailSent: 1 }).where(eq(orders.id, order.id));
+  // Solo se marca como enviado si Resend realmente lo aceptó -- si no, el
+  // flag se queda en 0 y se puede reintentar (antes se marcaba igual aunque
+  // Resend rechazara el envío, dejando el correo perdido para siempre).
+  if (result.success) {
+    await db.update(orders).set({ depositEmailSent: 1 }).where(eq(orders.id, order.id));
+  }
+  return result;
 }
 
 /** Arma y manda el email final (con QR) de una orden ya aprobada, usando los
  * tickets que YA existen — no genera tickets nuevos. Se usa tanto la primera
  * vez (justo después de generarlos en processApprovedOrder) como para
  * reenviar manualmente desde el admin (resendConfirmationEmail, más abajo). */
-async function sendConfirmationEmailForOrder(order: any) {
+async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boolean }> {
   const db = await getDb();
-  if (!db) return;
+  if (!db) return { success: false };
 
   const [event] = await db.select().from(events).where(eq(events.id, order.eventId)).limit(1);
-  if (!event) return;
+  if (!event) return { success: false };
 
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
   const emailItems = [];
@@ -284,16 +290,19 @@ async function sendConfirmationEmailForOrder(order: any) {
     extras,
   });
 
-  await sendEmail({
+  return sendEmail({
     to: order.buyerEmail,
     subject: `🎉 Tu entrada para ${event.title} - Mansion Playroom`,
     html,
   });
 }
 
-/** Reenvía manualmente el email final de una orden ya aprobada — para el
- * botón "Reenviar email" del panel admin. No genera tickets nuevos ni
- * vuelve a acreditar referidos, solo re-manda el mismo correo. */
+/** Reenvía manualmente el email de una orden ya aprobada — para el botón
+ * "Reenviar email" del panel admin. Si la orden es un abono de Misión 300
+ * que todavía no generó tickets (ver processApprovedOrder), reenvía el
+ * correo de bienvenida al abono en vez del correo final con QR -- antes esto
+ * siempre mandaba el correo final, que para un abono sin tickets aún no
+ * corresponde. No genera tickets nuevos ni vuelve a acreditar referidos. */
 export async function resendConfirmationEmail(orderNumber: string) {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
@@ -302,7 +311,14 @@ export async function resendConfirmationEmail(orderNumber: string) {
   if (!order) throw new Error('Orden no encontrada');
   if (order.paymentStatus !== 'approved') throw new Error('La orden todavía no está aprobada');
 
-  await sendConfirmationEmailForOrder(order);
+  const existingTickets = await db.select().from(tickets).where(eq(tickets.orderId, order.id)).limit(1);
+  const isUnresolvedDeposit = existingTickets.length === 0 && order.missionDeposit === 1;
+
+  const result = isUnresolvedDeposit
+    ? await sendMissionDepositEmail(order)
+    : await sendConfirmationEmailForOrder(order);
+
+  if (!result.success) throw new Error('Resend rechazó el envío -- revisa la configuración de RESEND_API_KEY/RESEND_FROM_EMAIL en Vercel.');
   return { success: true };
 }
 
@@ -365,10 +381,13 @@ async function processApprovedOrder(order: any) {
   await ensureOwnAmbassadorCode(db, order);
   const [refreshedOrder] = await db.select().from(orders).where(eq(orders.id, order.id)).limit(1);
 
-  await sendConfirmationEmailForOrder(refreshedOrder ?? order);
+  const result = await sendConfirmationEmailForOrder(refreshedOrder ?? order);
 
-  // Mark email as sent
-  await db.update(orders).set({ emailSent: 1 }).where(eq(orders.id, order.id));
+  // Solo se marca como enviado si Resend realmente lo aceptó (mismo criterio
+  // que sendMissionDepositEmail) -- si no, queda en 0 para poder reintentar.
+  if (result.success) {
+    await db.update(orders).set({ emailSent: 1 }).where(eq(orders.id, order.id));
+  }
 }
 
 /** Cuántas personas lleva juntadas la Misión 300 de un evento (solo abonos aprobados, sin resolver todavía). */

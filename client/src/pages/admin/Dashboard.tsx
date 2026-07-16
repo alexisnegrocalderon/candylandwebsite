@@ -605,14 +605,12 @@ function OrdersView() {
                       </td>
                       <td className="py-2 px-3 text-muted-foreground">{new Date(order.createdAt).toLocaleDateString('es-CL')}</td>
                       <td className="py-2 px-3">
-                        {order.paymentStatus !== 'approved' && (
-                          <div className="flex gap-2">
-                            <a href={`mailto:${order.buyerEmail}`} className="text-primary text-xs underline">Email</a>
-                            {order.buyerPhone && (
-                              <a href={`https://wa.me/${String(order.buyerPhone).replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-primary text-xs underline">WhatsApp</a>
-                            )}
-                          </div>
-                        )}
+                        <div className="flex gap-2">
+                          <a href={`mailto:${order.buyerEmail}`} className="text-primary text-xs underline">Email</a>
+                          {order.buyerPhone && (
+                            <a href={`https://wa.me/${String(order.buyerPhone).replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-primary text-xs underline">WhatsApp</a>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2 px-3">
                         {order.paymentStatus === 'approved' && (
