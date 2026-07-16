@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
 import { getDb, parseAttendeeNames, getOrderExtras } from './db';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, isNotNull, ne } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { generateTicketQR } from './qr';
 import { sendEmail, buildOrderEmail, buildMissionTopupEmail } from './email';
@@ -200,10 +200,28 @@ webhooksRouter.post('/api/webhooks/mercadopago', async (req: Request, res: Respo
  * comprador y lo guarda en la orden. Se llama tanto desde el email de abono
  * como desde el email final, así el código ya sale desde el primer correo
  * que recibe. No acredita referidos (eso solo pasa una vez, en
- * processApprovedOrder, usando el código que el comprador ingresó al pagar). */
+ * processApprovedOrder, usando el código que el comprador ingresó al pagar,
+ * ANTES de que esta función pise ese mismo campo con el código propio).
+ *
+ * `orders.ambassadorCode` cumple DOS roles distintos según el momento: al
+ * crear la orden guarda el código que el comprador ingresó (de quién lo
+ * refirió, para poder acreditarle el referido); acá se pisa con el código
+ * PROPIO del comprador, para mostrarlo en el correo y que lo pueda compartir.
+ * El código debe ser SIEMPRE el mismo para la misma persona entre compras
+ * distintas -- antes acá se buscaba en `users`, tabla que solo usa el login
+ * de administrador y nunca tiene compradores reales, así que en la práctica
+ * cada compra generaba un código nuevo sin relación con el anterior. Ahora
+ * se busca en una orden APROBADA anterior de ese mismo email: como esta
+ * misma función ya corrió sobre cualquier orden aprobada (se llama siempre
+ * antes de mandar el email de abono o el final), su `ambassadorCode` ya es
+ * el código propio, no el que ingresaron para comprar. */
 async function ensureOwnAmbassadorCode(db: any, order: any): Promise<string> {
-  const existingUsers = await db.select().from(users).where(eq(users.email, order.buyerEmail)).limit(1);
-  const code = existingUsers[0]?.ambassadorCode || nanoid(8).toUpperCase();
+  const [previousOrder] = await db.select().from(orders)
+    .where(and(eq(orders.buyerEmail, order.buyerEmail), eq(orders.paymentStatus, 'approved'), isNotNull(orders.ambassadorCode), ne(orders.id, order.id)))
+    .orderBy(orders.createdAt)
+    .limit(1);
+  const existingUsers = previousOrder ? null : await db.select().from(users).where(eq(users.email, order.buyerEmail)).limit(1);
+  const code = previousOrder?.ambassadorCode || existingUsers?.[0]?.ambassadorCode || nanoid(8).toUpperCase();
   await db.update(orders).set({ ambassadorCode: code }).where(eq(orders.id, order.id));
   return code;
 }
