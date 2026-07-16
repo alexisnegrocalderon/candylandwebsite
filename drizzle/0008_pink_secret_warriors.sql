@@ -1,0 +1,1 @@
+ALTER TABLE `referrals` MODIFY COLUMN `ambassadorUserId` int;

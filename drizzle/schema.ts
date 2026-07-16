@@ -209,7 +209,11 @@ export type SiteSettings = typeof siteSettings.$inferSelect;
 // Ambassador referrals tracking
 export const referrals = mysqlTable("referrals", {
   id: int("id").autoincrement().primaryKey(),
-  ambassadorUserId: int("ambassadorUserId").notNull(),
+  // Nullable: los compradores normales nunca tienen fila en `users` (esa
+  // tabla solo la usa el login OAuth/admin, que los compradores no usan) —
+  // el identificador confiable de "quién es el embajador" es siempre
+  // ambassadorCode, no este FK. Se deja por compatibilidad con filas viejas.
+  ambassadorUserId: int("ambassadorUserId"),
   ambassadorCode: varchar("ambassadorCode", { length: 32 }).notNull(),
   orderId: int("orderId").notNull(),
   buyerEmail: varchar("buyerEmail", { length: 320 }).notNull(),
