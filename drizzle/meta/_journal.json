@@ -43,6 +43,13 @@
       "when": 1784009914435,
       "tag": "0005_left_argent",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1784164686184,
+      "tag": "0006_brown_rattler",
+      "breakpoints": true
     }
   ]
 }

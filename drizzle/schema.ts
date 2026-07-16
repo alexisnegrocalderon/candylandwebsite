@@ -110,6 +110,12 @@ export const orders = mysqlTable("orders", {
   // el mail de "te uniste a la Misión 300" se manda antes que eso, cuando
   // se aprueba el abono, y todavía no hay ticket ni QR.
   depositEmailSent: int("depositEmailSent").default(0).notNull(),
+  // JSON con los datos por asistente capturados en el checkout (nombre del
+  // titular + acompañantes) — antes solo se mandaba como metadata a la
+  // Preferencia de Mercado Pago (que ya no se crea), nunca se guardaba acá,
+  // así que se perdía. Se usa para mostrar los nombres en el ticket público
+  // y en el email de confirmación.
+  attendeeData: text("attendeeData"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

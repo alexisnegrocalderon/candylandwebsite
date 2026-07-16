@@ -169,6 +169,39 @@ export async function deleteTicketType(id: number) {
   return { success: true };
 }
 
+/** Datos públicos de un ticket para la página "Mi entrada" (/verificar/:ticketCode)
+ * — de solo lectura, no marca nada como usado (eso queda para la futura
+ * pantalla de staff). El ticketCode funciona como token portador: quien
+ * tenga el link (del QR o del email) puede verlo, igual que una entrada física. */
+export async function getTicketByCode(ticketCode: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [ticket] = await db.select().from(tickets).where(eq(tickets.ticketCode, ticketCode)).limit(1);
+  if (!ticket) return null;
+
+  const [order] = await db.select().from(orders).where(eq(orders.id, ticket.orderId)).limit(1);
+  const [event] = await db.select().from(events).where(eq(events.id, ticket.eventId)).limit(1);
+  const [ticketType] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, ticket.ticketTypeId)).limit(1);
+
+  const attendeeNames = parseAttendeeNames(order?.attendeeData);
+
+  return {
+    ticketCode: ticket.ticketCode,
+    status: ticket.status,
+    qrImageUrl: ticket.qrImageUrl,
+    holderName: ticket.holderName,
+    attendeeNames: attendeeNames.length > 0 ? attendeeNames : (ticket.holderName ? [ticket.holderName] : []),
+    ticketTypeName: ticketType?.name ?? 'Entrada',
+    eventTitle: event?.title ?? '',
+    eventDate: event?.eventDate ?? null,
+    doorsOpen: event?.doorsOpen ?? null,
+    eventEnd: event?.eventEnd ?? null,
+    venue: event?.venue ?? '',
+    address: event?.address ?? '',
+  };
+}
+
 // Discount Codes
 export async function validateDiscountCode(code: string, eventId: number) {
   const db = await getDb();
@@ -292,6 +325,28 @@ export async function updateSiteSettings(data: { instagramFollowers?: number; in
   return { success: true };
 }
 
+/** Extrae los nombres de todas las personas asociadas a una orden (titular +
+ * acompañantes) desde el `attendeeData` guardado en el checkout — busca
+ * cualquier campo cuya clave contenga "nombre" (`buyer__nombre`,
+ * `acceso__acomp1_nombre`, `acceso__acomp2_nombre`, etc.), sin asumir una
+ * lista fija de claves ya que cada tipo de acceso define las suyas. */
+export function parseAttendeeNames(attendeeDataJson: string | null | undefined): string[] {
+  if (!attendeeDataJson) return [];
+  try {
+    const parsed = JSON.parse(attendeeDataJson);
+    const campos = parsed?.campos ?? {};
+    const names: string[] = [];
+    for (const [key, value] of Object.entries(campos)) {
+      if (typeof value === 'string' && value.trim() && /nombre/i.test(key)) {
+        names.push(value.trim());
+      }
+    }
+    return names;
+  } catch {
+    return [];
+  }
+}
+
 // Orders
 export async function createOrder(input: {
   eventSlug: string;
@@ -382,6 +437,7 @@ export async function createOrder(input: {
     ambassadorCode: input.ambassadorCode,
     paymentStatus: 'pending',
     missionDeposit: missionDeposit ? 1 : 0,
+    attendeeData: input.attendeeData,
   });
 
   const orderId = orderResult.insertId;
