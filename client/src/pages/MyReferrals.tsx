@@ -32,7 +32,11 @@ export default function MyReferrals() {
     if (codeInput.trim()) setSubmittedCode(codeInput.trim().toUpperCase());
   };
 
-  if (!submittedCode || (isFetched && !data)) {
+  // Guarda directo sobre `data` (no sobre isFetched/isLoading) -- justo
+  // después de un submit, isFetched todavía es false y data es undefined,
+  // así que una condición basada en isFetched dejaba pasar ese instante
+  // hacia el bloque de abajo y crasheaba en `data!.ambassadorCode`.
+  if (!submittedCode || !data) {
     return (
       <div className="min-h-screen pt-28 pb-16">
         <div className="container max-w-lg text-center">
@@ -55,6 +59,9 @@ export default function MyReferrals() {
                 <KeyRound className="w-4 h-4" />
               </Button>
             </form>
+            {submittedCode && isLoading && (
+              <div className="w-6 h-6 mx-auto mt-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            )}
             {isFetched && !data && (
               <p className="text-destructive text-sm mt-4">No encontramos ese código — revisa que esté bien escrito.</p>
             )}
@@ -64,8 +71,8 @@ export default function MyReferrals() {
     );
   }
 
-  const ambassadorCode = data!.ambassadorCode;
-  const referrals = data!.referrals;
+  const ambassadorCode = data.ambassadorCode;
+  const referrals = data.referrals;
   const totalReferrals = referrals.length;
   const totalTickets = referrals.reduce((sum: number, r: any) => sum + (r.ticketCount || 0), 0);
   const totalRevenue = referrals.reduce((sum: number, r: any) => sum + Number(r.orderTotal || 0), 0);
@@ -98,7 +105,7 @@ export default function MyReferrals() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
             <div>
               <h1 className="font-heading text-4xl md:text-5xl">Panel de <span className="text-gradient">Embajador</span></h1>
-              <p className="text-muted-foreground mt-2">Hola, {data!.buyerName}</p>
+              <p className="text-muted-foreground mt-2">Hola, {data.buyerName}</p>
             </div>
             <Button onClick={handleShare} variant="outline" className="interactive gap-2">
               <Share2 className="w-4 h-4" /> Compartir Código
