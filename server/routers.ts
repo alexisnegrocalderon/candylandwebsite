@@ -201,6 +201,14 @@ export const appRouter = router({
     }),
   }),
 
+  tickets: router({
+    // Página pública "Mi entrada" (/verificar/:ticketCode) — de solo lectura,
+    // el ticketCode ya funciona como token portador (viene del QR/email).
+    getByCode: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      return db.getTicketByCode(input.ticketCode);
+    }),
+  }),
+
   discounts: router({
     listAll: adminProcedure.query(async () => {
       return db.getAllDiscountCodes();

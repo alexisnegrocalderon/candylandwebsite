@@ -20,6 +20,7 @@ const PaymentFailure = lazy(() => import("./pages/PaymentFailure"));
 const About = lazy(() => import("./pages/About"));
 const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
 const MyReferrals = lazy(() => import("./pages/MyReferrals"));
+const Ticket = lazy(() => import("./pages/Ticket"));
 
 function PageLoader() {
   return (
@@ -62,6 +63,7 @@ function Router() {
           <Route path="/pago/error" component={PaymentFailure} />
           <Route path="/nosotros" component={About} />
           <Route path="/mis-referidos" component={MyReferrals} />
+          <Route path="/verificar/:ticketCode" component={Ticket} />
           <Route path="/admin" component={AdminDashboard} />
           <Route path="/404" component={NotFound} />
           <Route component={NotFound} />
