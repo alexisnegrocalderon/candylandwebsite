@@ -74,7 +74,7 @@ export default function CandyIntro() {
     img.onload = img.onerror = () => { imgLoaded = true; checkReady(); };
     img.src = '/candyland/poster-hero.webp';
 
-    const minTimer = window.setTimeout(() => { minElapsed = true; checkReady(); }, 1200);
+    const minTimer = window.setTimeout(() => { minElapsed = true; checkReady(); }, 2000);
     const maxTimer = window.setTimeout(() => setReady(true), 6000);
 
     return () => {
