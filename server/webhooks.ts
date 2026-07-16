@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
-import { getDb } from './db';
+import { getDb, parseAttendeeNames } from './db';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
 import { eq, and, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { generateTicketQR } from './qr';
-import { sendEmail, buildConfirmationEmail, buildMissionDepositEmail, buildMissionTopupEmail } from './email';
+import { sendEmail, buildOrderEmail, buildMissionTopupEmail } from './email';
 import { missionCutoff, missionCapPrice, personasForAccesoSlug, MISSION_300_GOAL } from '../shared/mission300';
 
 export const webhooksRouter = Router();
@@ -182,6 +182,18 @@ webhooksRouter.post('/api/webhooks/mercadopago', async (req: Request, res: Respo
   }
 });
 
+/** Resuelve (o genera si no existe) el código de embajador propio del
+ * comprador y lo guarda en la orden. Se llama tanto desde el email de abono
+ * como desde el email final, así el código ya sale desde el primer correo
+ * que recibe. No acredita referidos (eso solo pasa una vez, en
+ * processApprovedOrder, usando el código que el comprador ingresó al pagar). */
+async function ensureOwnAmbassadorCode(db: any, order: any): Promise<string> {
+  const existingUsers = await db.select().from(users).where(eq(users.email, order.buyerEmail)).limit(1);
+  const code = existingUsers[0]?.ambassadorCode || nanoid(8).toUpperCase();
+  await db.update(orders).set({ ambassadorCode: code }).where(eq(orders.id, order.id));
+  return code;
+}
+
 async function sendMissionDepositEmail(order: any) {
   const db = await getDb();
   if (!db) return;
@@ -189,13 +201,28 @@ async function sendMissionDepositEmail(order: any) {
   const [event] = await db.select().from(events).where(eq(events.id, order.eventId)).limit(1);
   if (!event) return;
 
-  const html = buildMissionDepositEmail({
+  const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+  const emailItems = [];
+  for (const item of items) {
+    const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, item.ticketTypeId)).limit(1);
+    emailItems.push({ name: tt?.name || 'Entrada', quantity: item.quantity, price: Number(item.totalPrice) });
+  }
+
+  const ambassadorCode = await ensureOwnAmbassadorCode(db, order);
+
+  const html = buildOrderEmail({
     buyerName: order.buyerName,
     eventTitle: event.title,
     eventDate: new Date(event.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
+    doorsOpenText: event.doorsOpen ? new Date(event.doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : undefined,
+    venue: event.venue || '',
+    address: event.address || undefined,
     orderNumber: order.orderNumber,
-    depositTotal: Number(order.total),
-    cutoffDateText: missionCutoff(new Date(event.eventDate)).toLocaleDateString('es-CL', { day: 'numeric', month: 'long' }),
+    items: emailItems,
+    total: Number(order.total),
+    ambassadorCode,
+    isMissionDeposit: true,
+    ticketReady: false,
   });
 
   await sendEmail({
@@ -248,10 +275,8 @@ async function processApprovedOrder(order: any) {
     }
   }
 
-  // Handle ambassador referral
-  let ambassadorCode = '';
+  // Handle ambassador referral (con el código que el comprador ingresó al pagar, si corresponde)
   if (order.ambassadorCode) {
-    // Find ambassador user
     const [ambassador] = await db.select().from(users).where(eq(users.ambassadorCode, order.ambassadorCode)).limit(1);
     if (ambassador) {
       const totalTickets = items.reduce((sum: number, item: any) => sum + item.quantity, 0);
@@ -268,16 +293,7 @@ async function processApprovedOrder(order: any) {
     }
   }
 
-  // Generate ambassador code for buyer (find or create)
-  // Always generate a stable ambassador code based on the buyer email
-  ambassadorCode = nanoid(8).toUpperCase();
-  // Try to find existing user by email
-  const existingUsers = await db.select().from(users).where(eq(users.email, order.buyerEmail)).limit(1);
-  if (existingUsers.length > 0 && existingUsers[0].ambassadorCode) {
-    ambassadorCode = existingUsers[0].ambassadorCode;
-  }
-  // Store the ambassador code in the order for reference
-  await db.update(orders).set({ ambassadorCode }).where(eq(orders.id, order.id));
+  const ambassadorCode = await ensureOwnAmbassadorCode(db, order);
 
   // Get ticket type names for email
   const emailItems = [];
@@ -291,7 +307,7 @@ async function processApprovedOrder(order: any) {
   }
 
   // Send confirmation email
-  const emailHtml = buildConfirmationEmail({
+  const emailHtml = buildOrderEmail({
     buyerName: order.buyerName,
     eventTitle: event.title,
     eventDate: new Date(event.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
@@ -301,10 +317,12 @@ async function processApprovedOrder(order: any) {
     orderNumber: order.orderNumber,
     items: emailItems,
     total: Number(order.total),
-    qrImageUrl: firstQrUrl,
     ambassadorCode,
-    ticketCodes,
     isMissionDeposit: order.missionDeposit === 1,
+    ticketReady: true,
+    qrImageUrl: firstQrUrl,
+    ticketCode: ticketCodes[0],
+    attendeeNames: parseAttendeeNames(order.attendeeData),
   });
 
   await sendEmail({

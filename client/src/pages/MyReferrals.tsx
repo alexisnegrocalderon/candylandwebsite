@@ -46,11 +46,11 @@ export default function MyReferrals() {
   const totalTickets = referrals?.reduce((sum: number, r: any) => sum + (r.ticketCount || 0), 0) ?? 0;
   const totalRevenue = referrals?.reduce((sum: number, r: any) => sum + Number(r.orderTotal || 0), 0) ?? 0;
 
-  // Tiers de premios
+  // Tiers de premios — mismos umbrales/premios que se muestran en el email de confirmación (server/email.ts)
   const tiers = [
-    { name: 'Bronce', min: 3, reward: 'Entrada gratis a próximo evento' },
-    { name: 'Plata', min: 10, reward: 'Entrada VIP + consumo' },
-    { name: 'Oro', min: 25, reward: 'Acceso backstage + meet & greet' },
+    { name: 'Bronce', min: 3, reward: '1 consumo' },
+    { name: 'Plata', min: 5, reward: '2 consumos + acceso al próximo evento' },
+    { name: 'Oro', min: 10, reward: 'Mesa VIP + 2 botellas de espumante (o 1 de pisco) + acceso al próximo evento' },
   ];
   const currentTier = tiers.filter(t => totalReferrals >= t.min).pop();
   const nextTier = tiers.find(t => totalReferrals < t.min);

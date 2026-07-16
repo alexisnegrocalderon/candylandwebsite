@@ -43,18 +43,100 @@ export async function sendEmail(input: SendEmailInput) {
   }
 }
 
-/** Copia estática de reglas/valores del evento — se mantiene alineada a mano
- * con `client/src/config/candyland.ts` (no se importa directo porque ese
- * archivo vive del lado del cliente). Si cambian ahí, actualizar acá también. */
-const EVENT_RULES = {
-  valores: ['Respeto', 'Consentimiento', 'Libertad'],
+/** Base para links/imágenes del email. `mansionplayroom.cl` (el valor por
+ * defecto de APP_URL en el resto del server, ver server/qr.ts) todavía no
+ * está conectado a este proyecto de Vercel — devuelve 404 — así que se usa
+ * el dominio de Vercel que sí sirve los assets, hasta que se conecte el
+ * dominio propio (ahí alcanza con setear APP_URL en Vercel). */
+const EMAIL_BASE_URL = process.env.APP_URL && process.env.APP_URL !== 'https://mansionplayroom.cl'
+  ? process.env.APP_URL
+  : 'https://candylandwebsite.vercel.app';
+
+/** Paleta pastel para los acentos de cada sección (rosa/celeste/amarillo/lila). */
+const ACCENT = {
+  pink: { bg: '#FCEEF4', text: '#D9538F', solid: '#EC5FA3' },
+  blue: { bg: '#EAF6FA', text: '#3AA0BE', solid: '#5FC2DE' },
+  yellow: { bg: '#FEF8E4', text: '#C89A2E', solid: '#F0C24B' },
+  lilac: { bg: '#F3EDFB', text: '#8B6FC9', solid: '#A98CE0' },
+} as const;
+
+const INK = '#3D2A35';
+const MUTED = '#7A6670';
+const FAINT = '#9A8A92';
+const BORDER = '#F2D9E4';
+
+function card(inner: string, opts?: { bg?: string; border?: boolean; padding?: string }) {
+  return `<div style="background:${opts?.bg ?? '#FFFFFF'};border-radius:20px;padding:${opts?.padding ?? '24px'};${opts?.border === false ? '' : `border:1px solid ${BORDER};`}margin-bottom:20px;">${inner}</div>`;
+}
+
+function sectionTitle(emoji: string, text: string) {
+  return `<h3 style="color:${INK};font-size:19px;font-weight:800;margin:0 0 14px;">${emoji} ${text}</h3>`;
+}
+
+/** Grilla de N columnas usando <table> (no flex/grid) — mucho más confiable
+ * en Outlook/clientes de correo viejos que no soportan CSS moderno. */
+function grid(cells: string[], cols: number) {
+  const rows: string[][] = [];
+  for (let i = 0; i < cells.length; i += cols) rows.push(cells.slice(i, i + cols));
+  const width = Math.floor(100 / cols);
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:8px 8px;margin:0 -8px 8px;">
+    ${rows.map(row => `<tr>${row.map(c => `<td width="${width}%" valign="top" style="padding:0;">${c}</td>`).join('')}${row.length < cols ? `<td width="${(cols - row.length) * width}%"></td>` : ''}</tr>`).join('')}
+  </table>`;
+}
+
+/** Copia estática de reglas/valores/contenido del evento — se mantiene
+ * alineada a mano con `client/src/config/candyland.ts` (no se importa
+ * directo porque ese archivo vive del lado del cliente). */
+const CONTENT = {
+  valores: ['❤️ Respeto', '🤝 Consentimiento', '🕊️ Libertad'],
   edadMinima: 18,
-  dressCode: 'Candy sensual: brillos, rosa, látex, lo que te haga sentir así de rico. Nada de tenida deportiva.',
-  estacionamiento: 'Contamos con estacionamiento privado dentro del recinto. También puedes llegar en app de transporte directo a la entrada.',
-  devoluciones: 'Las entradas no tienen devolución, pero sí puedes transferirla a otra persona escribiéndonos por Instagram antes del evento.',
+  quienesSomos: [
+    { emoji: '✨', label: 'Conocer gente' },
+    { emoji: '🎶', label: 'Bailar' },
+    { emoji: '🍸', label: 'Disfrutar del ambiente' },
+    { emoji: '💬', label: 'Conectar' },
+    { emoji: '🛝', label: 'Explorar si así lo deseas' },
+  ],
+  encontraras: [
+    { emoji: '🚗', label: 'Estacionamiento privado' },
+    { emoji: '🧥', label: 'Guardarropía' },
+    { emoji: '🍸', label: 'Terraza Bar Lounge' },
+    { emoji: '🍔', label: 'PlayBites para recargar energía' },
+    { emoji: '🎧', label: 'Dos pistas de baile (Tech + Reggaetón)' },
+    { emoji: '🛝', label: 'Playground XXL' },
+    { emoji: '⛓️', label: 'Kink Room' },
+    { emoji: '🚬', label: 'Zona de fumadores' },
+  ],
+  antesDeVenir: [
+    { emoji: '🪪', titulo: 'Documento', texto: 'Carnet o pasaporte vigente. Evento exclusivo para mayores de 18 años.' },
+    { emoji: '👗', titulo: 'Dress Code', texto: 'Candy Sensual: brillos, colores pastel, rosa, accesorios, lencería, vinilo o lo que te haga sentir increíble. Deja la ropa deportiva para otro día. 🍭✨' },
+    { emoji: '🚗', titulo: 'Estacionamiento', texto: 'Contamos con estacionamiento privado dentro del recinto.' },
+    { emoji: '🚕', titulo: 'Cómo llegar', texto: 'En tu vehículo, o fácil en Uber, Didi o taxi.' },
+  ],
+  faq: [
+    { q: '¿Puedo llegar más tarde?', a: 'Sí.' },
+    { q: '¿Puedo ir solo/a?', a: 'Claro. Muchas personas vienen solas y nuestro ambiente está pensado para conocer gente.' },
+    { q: '¿Puedo salir y volver a entrar?', a: 'No. Una vez validado el ingreso, las salidas son definitivas.' },
+    { q: '¿Tengo que entrar al Playground o al Kink Room?', a: 'No. Todos los espacios son completamente opcionales.' },
+  ],
+  embajadorTiers: [
+    { emoji: '🥉', umbral: '3 compras', premio: '🍹 1 consumo' },
+    { emoji: '🥈', umbral: '5 compras', premio: '🍹 2 consumos + acceso al próximo evento' },
+    { emoji: '🥇', umbral: '10 compras', premio: '🥂 Mesa VIP + 2 botellas de espumante (o 1 de pisco) + acceso al próximo evento' },
+  ],
 };
 
-export function buildConfirmationEmail(data: {
+/** Extrae los nombres de todas las personas asociadas a una orden (titular +
+ * acompañantes) desde el `attendeeData` guardado en el checkout. Duplicado
+ * intencional del mismo parseo en server/db.ts (evita import cruzado
+ * cliente/servidor innecesario) — mismo criterio: cualquier campo cuya clave
+ * contenga "nombre". */
+function attendeeNamesList(names: string[]): string {
+  if (names.length === 0) return '';
+  return names.map(n => `<p style="color:${INK};font-size:15px;font-weight:600;margin:2px 0;">👤 ${n}</p>`).join('');
+}
+
+export function buildOrderEmail(data: {
   buyerName: string;
   eventTitle: string;
   eventDate: string;
@@ -64,12 +146,20 @@ export function buildConfirmationEmail(data: {
   orderNumber: string;
   items: { name: string; quantity: number; price: number }[];
   total: number;
-  qrImageUrl: string;
   ambassadorCode: string;
-  ticketCodes: string[];
   isMissionDeposit?: boolean;
+  /** true = ya hay QR (compra normal, o Misión 300 ya resuelta); false = todavía no hay QR (abono Misión 300 en curso). */
+  ticketReady: boolean;
+  qrImageUrl?: string;
+  ticketCode?: string;
+  attendeeNames?: string[];
 }) {
   const ticketNames = data.items.map(i => i.name).join(', ');
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark.webp`;
+  const ticketUrl = data.ticketCode ? `${EMAIL_BASE_URL}/verificar/${data.ticketCode}` : '';
+  const calendarUrl = data.ticketCode ? `${EMAIL_BASE_URL}/api/calendar/${data.ticketCode}.ics` : '';
+  const whatsappShareUrl = `https://wa.me/?text=${encodeURIComponent(`Usa mi código ${data.ambassadorCode} para comprar tu entrada a Candyland en Mansion Playroom 🍭 ${EMAIL_BASE_URL}`)}`;
+
   return `
 <!DOCTYPE html>
 <html>
@@ -77,158 +167,185 @@ export function buildConfirmationEmail(data: {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
-<body style="margin:0;padding:0;background-color:#FBF0F3;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:40px 20px;">
-    <!-- Header -->
-    <div style="text-align:center;margin-bottom:32px;">
-      <h1 style="color:#D9538F;font-size:28px;margin:0;letter-spacing:1px;">CANDYLAND</h1>
-      <p style="color:#8A7580;font-size:14px;margin-top:8px;">Confirmación de Compra</p>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;">
+
+    <!-- HERO -->
+    <div style="background:linear-gradient(160deg,${ACCENT.pink.bg},${ACCENT.lilac.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:36px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:52px;margin:0 0 12px;">🍭</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Tu compra fue confirmada!</h1>
+      <p style="color:${MUTED};font-size:15px;margin:0 0 24px;">La cuenta regresiva para Candyland ya comenzó.</p>
+      <a href="${EMAIL_BASE_URL}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;letter-spacing:0.3px;box-shadow:0 8px 20px rgba(236,95,163,0.35);">Ver Candyland</a>
     </div>
 
-    <!-- Main Card -->
-    <div style="background-color:#FFFFFF;border-radius:20px;padding:32px;border:1px solid #F2D9E4;">
-      <h2 style="color:#3D2A35;font-size:22px;margin:0 0 8px;">¡Hola ${data.buyerName}! 🍭</h2>
-      <p style="color:#7A6670;font-size:15px;margin:0 0 24px;">
-        Bienvenidx a Candyland con tu acceso <strong>${ticketNames}</strong>. Tu compra quedó confirmada — esto es lo
-        que necesitas saber antes de la fiesta.
+    <div style="padding:32px 24px 0;">
+
+      <!-- SALUDO -->
+      <h2 style="color:${INK};font-size:22px;font-weight:800;margin:0 0 6px;">👋 Hola ${data.buyerName}</h2>
+      <p style="color:${MUTED};font-size:15px;margin:0 0 28px;">
+        Tu <strong style="color:${INK};">${ticketNames}</strong> ya está reservado para Candyland en Mansion Playroom. 🎉
+        Prepárate para vivir una noche llena de música, conexión y una experiencia completamente distinta.
       </p>
 
-      <!-- Event Info -->
-      <div style="background-color:#FBF0F3;border-radius:14px;padding:20px;margin-bottom:24px;">
-        <h3 style="color:#D9538F;font-size:18px;margin:0 0 12px;">${data.eventTitle}</h3>
-        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">📅 ${data.eventDate}</p>
-        ${data.doorsOpenText ? `<p style="color:#5C4A54;font-size:14px;margin:4px 0;">🕘 Apertura de puertas: ${data.doorsOpenText}</p>` : ''}
-        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">📍 ${data.venue}${data.address ? ` — ${data.address}` : ''}</p>
-        <p style="color:#9A8A92;font-size:12px;margin:8px 0 0;">Orden: ${data.orderNumber}</p>
-      </div>
+      <!-- TU EVENTO -->
+      ${sectionTitle('📅', 'Tu evento')}
+      ${card(`
+        <h3 style="color:${ACCENT.pink.text};font-size:20px;font-weight:800;margin:0 0 14px;">${data.eventTitle}</h3>
+        <p style="color:${INK};font-size:15px;margin:6px 0;">📅 ${data.eventDate}</p>
+        ${data.doorsOpenText ? `<p style="color:${INK};font-size:15px;margin:6px 0;">🕘 ${data.doorsOpenText} hrs</p>` : ''}
+        <p style="color:${INK};font-size:15px;margin:6px 0;">📍 ${data.venue}${data.address ? ` — ${data.address}` : ''}</p>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid ${BORDER};">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px;">Código de reserva</p>
+          <p style="color:${INK};font-size:15px;font-weight:700;font-family:monospace;margin:0;">${data.orderNumber}</p>
+        </div>
+        <p style="color:${FAINT};font-size:12px;margin:14px 0 0;">La dirección exacta será enviada unos días antes del evento.</p>
+      `)}
 
+      <!-- MISIÓN 300 -->
       ${data.isMissionDeposit ? `
-      <div style="background:linear-gradient(135deg,#E8A0C4,#C4A8E0);border-radius:14px;padding:18px;margin-bottom:24px;text-align:center;">
-        <p style="color:#fff;font-size:14px;font-weight:bold;margin:0;">🍬 Formaste parte de la Misión 300</p>
-        <p style="color:rgba(255,255,255,0.9);font-size:12px;margin:6px 0 0;">Gracias a ti y a todos los que se sumaron, tu entrada quedó saldada al valor del abono.</p>
-      </div>` : ''}
+      ${sectionTitle('🍬', 'Misión 300')}
+      ${card(`
+        <p style="color:${INK};font-size:16px;font-weight:800;margin:0 0 10px;">¡Eres parte de la Misión 300!</p>
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 10px;">
+          Compraste tu acceso antes de que se agotaran los primeros 300 asistentes, por lo que obtuviste el valor
+          especial de lanzamiento.
+        </p>
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0;">
+          Cuando la misión finalice, recibirás automáticamente un nuevo correo con tu código QR definitivo.
+        </p>
+      `, { bg: ACCENT.pink.bg, border: false })}
+      ` : ''}
 
-      <!-- Items -->
-      <div style="margin-bottom:24px;">
-        <h4 style="color:#3D2A35;font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:0 0 12px;">Detalle de compra</h4>
+      <!-- RESUMEN DE COMPRA -->
+      ${sectionTitle('🧾', 'Tu compra')}
+      ${card(`
         ${data.items.map(item => `
-          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #F2D9E4;">
-            <span style="color:#5C4A54;font-size:14px;">${item.quantity}x ${item.name}</span>
-            <span style="color:#3D2A35;font-size:14px;">$${item.price.toLocaleString('es-CL')}</span>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid ${BORDER};">
+            <span style="color:${INK};font-size:14px;">${item.quantity}x ${item.name}</span>
+            <span style="color:${INK};font-size:14px;font-weight:600;">$${item.price.toLocaleString('es-CL')}</span>
           </div>
         `).join('')}
-        <div style="display:flex;justify-content:space-between;padding:12px 0;margin-top:8px;">
-          <span style="color:#3D2A35;font-size:16px;font-weight:bold;">Total</span>
-          <span style="color:#D9538F;font-size:18px;font-weight:bold;">$${data.total.toLocaleString('es-CL')}</span>
+        <div style="display:flex;justify-content:space-between;padding-top:14px;margin-top:6px;">
+          <span style="color:${INK};font-size:16px;font-weight:800;">Total pagado</span>
+          <span style="color:${ACCENT.pink.text};font-size:18px;font-weight:800;">$${data.total.toLocaleString('es-CL')}</span>
         </div>
-      </div>
+      `)}
 
-      <!-- QR Code -->
-      <div style="text-align:center;margin-bottom:24px;background-color:#FBF0F3;border-radius:14px;padding:24px;">
-        <h4 style="color:#3D2A35;font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:0 0 16px;">Tu Entrada</h4>
-        <img src="${data.qrImageUrl}" alt="QR Code" style="width:200px;height:200px;border-radius:8px;background:#fff;padding:8px;" />
-        <p style="color:#8A7580;font-size:12px;margin-top:12px;">Presenta este código QR en la entrada del evento</p>
-        ${data.ticketCodes.map(code => `<p style="color:#9A8A92;font-size:11px;font-family:monospace;margin:4px 0;">${code}</p>`).join('')}
-      </div>
-
-      <!-- Ingreso al evento -->
-      <div style="margin-bottom:24px;">
-        <h4 style="color:#3D2A35;font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:0 0 12px;">Cómo ingresar</h4>
-        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">🎫 Presenta tu código QR (de este correo) en la entrada.</p>
-        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">🪪 <strong>Carnet de identidad obligatorio</strong> — sin excepciones, evento estrictamente +${EVENT_RULES.edadMinima}.</p>
-        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">🚗 ${EVENT_RULES.estacionamiento}</p>
-        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">✨ Dress code: ${EVENT_RULES.dressCode}</p>
-      </div>
-
-      <!-- Reglas y valores -->
-      <div style="background-color:#FBF0F3;border-radius:14px;padding:20px;margin-bottom:24px;">
-        <h4 style="color:#3D2A35;font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px;">Nuestros valores</h4>
-        <p style="color:#5C4A54;font-size:14px;margin:0 0 12px;">${EVENT_RULES.valores.join(' · ')} — la base de cada fiesta que hacemos.</p>
-        <p style="color:#5C4A54;font-size:13px;margin:0 0 8px;"><strong>Derecho de admisión y permanencia:</strong> Mansion Playroom se reserva el derecho de admisión y de solicitar el retiro de cualquier persona cuya conducta no respete estos valores o las normas del espacio, en cualquier momento del evento.</p>
-        <p style="color:#5C4A54;font-size:13px;margin:0;">${EVENT_RULES.devoluciones}</p>
-      </div>
-
-      <!-- Ambassador Code -->
-      <div style="background:linear-gradient(135deg,#E8A0C4,#C4A8E0);border-radius:14px;padding:20px;text-align:center;">
-        <h4 style="color:#fff;font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Tu Código de Embajador</h4>
-        <p style="color:#fff;font-size:28px;font-weight:bold;font-family:monospace;margin:0;">${data.ambassadorCode}</p>
-        <p style="color:rgba(255,255,255,0.85);font-size:12px;margin-top:8px;">Comparte tu código con amigos — por cada compra con tu código, sumas hacia estos premios:</p>
-        <div style="display:flex;justify-content:center;gap:14px;margin-top:14px;flex-wrap:wrap;">
-          <div style="background:rgba(255,255,255,0.15);border-radius:10px;padding:10px 14px;">
-            <p style="color:#fff;font-size:12px;font-weight:bold;margin:0;">🥉 Bronce (3)</p>
-            <p style="color:rgba(255,255,255,0.85);font-size:11px;margin:2px 0 0;">Entrada gratis</p>
-          </div>
-          <div style="background:rgba(255,255,255,0.15);border-radius:10px;padding:10px 14px;">
-            <p style="color:#fff;font-size:12px;font-weight:bold;margin:0;">🥈 Plata (10)</p>
-            <p style="color:rgba(255,255,255,0.85);font-size:11px;margin:2px 0 0;">Entrada VIP + consumo</p>
-          </div>
-          <div style="background:rgba(255,255,255,0.15);border-radius:10px;padding:10px 14px;">
-            <p style="color:#fff;font-size:12px;font-weight:bold;margin:0;">🥇 Oro (25)</p>
-            <p style="color:rgba(255,255,255,0.85);font-size:11px;margin:2px 0 0;">Backstage + meet & greet</p>
-          </div>
+      <!-- TU ENTRADA -->
+      ${sectionTitle('🎟', 'Tu entrada')}
+      ${!data.ticketReady ? card(`
+        <p style="color:${INK};font-size:15px;font-weight:700;margin:0 0 8px;">Mientras la Misión 300 siga activa...</p>
+        <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 10px;">Tu QR aún no ha sido emitido.</p>
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0;">📩 Apenas finalice la misión, lo recibirás automáticamente por este mismo medio. No necesitas hacer nada más.</p>
+      `, { bg: ACCENT.yellow.bg, border: false }) : card(`
+        <div style="text-align:center;">
+          <img src="${data.qrImageUrl}" alt="Código QR de tu entrada" style="width:220px;height:220px;border-radius:12px;background:#fff;padding:10px;border:1px solid ${BORDER};" />
+          <p style="color:${MUTED};font-size:12px;margin:14px 0 20px;">Presenta este código QR y tu carnet en la entrada</p>
         </div>
-      </div>
-    </div>
+        <div style="margin-bottom:18px;">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Asistentes</p>
+          ${attendeeNamesList(data.attendeeNames ?? [])}
+        </div>
+        <div style="text-align:center;">
+          <a href="${ticketUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:800;font-size:14px;margin:0 6px 10px;">Ver mi entrada</a>
+          <a href="${calendarUrl}" style="display:inline-block;background:#fff;color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};margin:0 6px 10px;">📅 Agregar al calendario</a>
+        </div>
+      `)}
 
-    <!-- Footer -->
-    <div style="text-align:center;margin-top:32px;">
-      <p style="color:#9A8A92;font-size:12px;">© ${new Date().getFullYear()} Mansion Playroom. Todos los derechos reservados.</p>
-      <p style="color:#9A8A92;font-size:12px;">Valparaíso, Chile</p>
-    </div>
-  </div>
-</body>
-</html>`;
-}
+      <!-- QUÉ ES MANSION PLAYROOM -->
+      ${sectionTitle('✨', '¿Qué es Mansion Playroom?')}
+      <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 16px;">
+        Más que una fiesta, somos un venue y una comunidad para adultos donde cada persona vive la experiencia a su manera.
+      </p>
+      ${grid(CONTENT.quienesSomos.map(x => `
+        <div style="background:${ACCENT.blue.bg};border-radius:16px;padding:16px;text-align:center;">
+          <p style="font-size:26px;margin:0 0 6px;">${x.emoji}</p>
+          <p style="color:${INK};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
+        </div>
+      `), 3)}
+      <p style="color:${MUTED};font-size:13px;margin:6px 0 24px;">Todo ocurre siempre bajo nuestros tres pilares: ${CONTENT.valores.join(' · ')}</p>
 
-/** Confirmación del abono de Misión 300 — todavía no hay ticket ni QR, eso llega recién cuando se resuelve la meta. */
-export function buildMissionDepositEmail(data: {
-  buyerName: string;
-  eventTitle: string;
-  eventDate: string;
-  orderNumber: string;
-  depositTotal: number;
-  cutoffDateText: string;
-}) {
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin:0;padding:0;background-color:#FBF0F3;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:40px 20px;">
-    <div style="text-align:center;margin-bottom:32px;">
-      <h1 style="color:#D9538F;font-size:28px;margin:0;letter-spacing:1px;">CANDYLAND</h1>
-      <p style="color:#8A7580;font-size:14px;margin-top:8px;">Misión 300</p>
-    </div>
+      <!-- QUÉ ENCONTRARÁS -->
+      ${sectionTitle('🛝', '¿Qué encontrarás?')}
+      ${grid(CONTENT.encontraras.map(x => `
+        <div style="background:${ACCENT.lilac.bg};border-radius:16px;padding:14px;">
+          <p style="font-size:22px;margin:0 0 4px;">${x.emoji}</p>
+          <p style="color:${INK};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
+        </div>
+      `), 2)}
+      <div style="margin-bottom:8px;"></div>
 
-    <div style="background-color:#FFFFFF;border-radius:20px;padding:32px;border:1px solid #F2D9E4;">
-      <h2 style="color:#3D2A35;font-size:22px;margin:0 0 8px;">¡Ya estás dentro, ${data.buyerName}! 🍬</h2>
-      <p style="color:#7A6670;font-size:15px;margin:0 0 24px;">
-        Tu abono para <strong>${data.eventTitle}</strong> (${data.eventDate}) quedó confirmado. Formas parte de la
-        Misión 300: si entre todos juntamos 300 personas antes del <strong>${data.cutoffDateText}</strong>, tu entrada
-        queda saldada y no pagas nada más.
+      <!-- ANTES DE VENIR -->
+      ${sectionTitle('🎒', 'Antes de venir')}
+      ${grid(CONTENT.antesDeVenir.map(x => `
+        <div style="background:${ACCENT.yellow.bg};border-radius:16px;padding:16px;">
+          <p style="font-size:24px;margin:0 0 6px;">${x.emoji}</p>
+          <p style="color:${INK};font-size:13px;font-weight:800;margin:0 0 4px;">${x.titulo}</p>
+          <p style="color:${MUTED};font-size:12px;line-height:1.5;margin:0;">${x.texto}</p>
+        </div>
+      `), 2)}
+
+      <!-- NUESTROS VALORES -->
+      ${sectionTitle('❤️', 'Nuestros valores')}
+      ${card(`
+        <p style="color:${INK};font-size:16px;font-weight:700;margin:0;">${CONTENT.valores.join('&nbsp;&nbsp;·&nbsp;&nbsp;')}</p>
+      `, { bg: ACCENT.pink.bg, border: false })}
+
+      <!-- EMBAJADOR -->
+      ${sectionTitle('🏆', 'Tu Código de Embajador')}
+      ${card(`
+        <div style="text-align:center;margin-bottom:16px;">
+          <p style="color:${INK};font-size:30px;font-weight:800;font-family:monospace;margin:0;">${data.ambassadorCode}</p>
+          <p style="color:${MUTED};font-size:13px;margin:8px 0 0;">Compártelo con tus amigos — cada compra realizada con tu código suma recompensas.</p>
+        </div>
+        ${CONTENT.embajadorTiers.map(t => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid ${BORDER};">
+            <span style="color:${INK};font-size:13px;font-weight:700;">${t.emoji} ${t.umbral}</span>
+            <span style="color:${MUTED};font-size:13px;text-align:right;">${t.premio}</span>
+          </div>
+        `).join('')}
+        <div style="text-align:center;margin-top:18px;">
+          <a href="${whatsappShareUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:12px 28px;border-radius:999px;font-weight:800;font-size:13px;">Compartir por WhatsApp</a>
+        </div>
+      `)}
+
+      <!-- FAQ -->
+      ${sectionTitle('❓', 'Preguntas rápidas')}
+      ${card(CONTENT.faq.map((f, i) => `
+        <div style="${i > 0 ? `border-top:1px solid ${BORDER};padding-top:12px;margin-top:12px;` : ''}">
+          <p style="color:${INK};font-size:14px;font-weight:700;margin:0 0 4px;">${f.q}</p>
+          <p style="color:${MUTED};font-size:13px;margin:0;">${f.a}</p>
+        </div>
+      `).join(''))}
+
+      <!-- INFO IMPORTANTE -->
+      <p style="color:${FAINT};font-size:12px;line-height:1.6;margin:0 0 24px;">
+        📌 Consulta nuestras políticas de devolución y condiciones de compra en
+        <a href="https://www.mansionplayroom.cl" style="color:${ACCENT.pink.text};">www.mansionplayroom.cl</a>.
+        Si no puedes asistir, puedes transferir tu acceso a otra persona escribiéndonos por Instagram antes del evento.
       </p>
 
-      <div style="background-color:#FBF0F3;border-radius:14px;padding:20px;margin-bottom:24px;">
-        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">Orden: ${data.orderNumber}</p>
-        <p style="color:#5C4A54;font-size:14px;margin:4px 0;">Abono pagado: <strong>$${data.depositTotal.toLocaleString('es-CL')}</strong></p>
-      </div>
-
-      <div style="background:linear-gradient(135deg,#E8A0C4,#C4A8E0);border-radius:14px;padding:20px;">
-        <h4 style="color:#fff;font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">¿Cómo sigue esto?</h4>
-        <p style="color:rgba(255,255,255,0.9);font-size:14px;margin:0;">
-          El ${data.cutoffDateText} sabremos si se cumplió la meta. Si se cumple, no pagas nada más y te llega tu
-          entrada con código QR. Si no se cumple, te escribimos con el link para completar la diferencia (nunca más
-          del 60% del valor general de tu entrada) — recién ahí llega tu QR.
+      <!-- DESPEDIDA -->
+      <div style="text-align:center;padding:24px 0;">
+        <p style="font-size:32px;margin:0 0 8px;">🍭</p>
+        <p style="color:${INK};font-size:16px;font-weight:800;margin:0 0 6px;">Nos vemos en Candyland</p>
+        <p style="color:${MUTED};font-size:13px;line-height:1.6;margin:0;">
+          Ya eres parte de esta edición. Nosotros ponemos la música, el ambiente y la experiencia.<br/>
+          Tú solo preocúpate de llegar con ganas de disfrutar.<br/>
+          <strong>Equipo Mansion Playroom</strong>
         </p>
       </div>
     </div>
 
-    <div style="text-align:center;margin-top:32px;">
-      <p style="color:#9A8A92;font-size:12px;">© ${new Date().getFullYear()} Mansion Playroom. Todos los derechos reservados.</p>
-      <p style="color:#9A8A92;font-size:12px;">Valparaíso, Chile</p>
+    <!-- FOOTER -->
+    <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:8px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
+      <p style="margin:0 0 8px;">
+        <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>
+        <a href="https://www.mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Web</a>
+      </p>
+      <p style="color:${FAINT};font-size:11px;margin:0;">© ${new Date().getFullYear()} Mansion Playroom · Valparaíso, Chile</p>
     </div>
   </div>
 </body>
