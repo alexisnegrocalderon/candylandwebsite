@@ -434,3 +434,82 @@ export function buildMissionTopupEmail(data: {
 </body>
 </html>`;
 }
+
+/** Se manda una sola vez a quienes compraron por la ticketera anterior (antes
+ * de tener sitio propio) -- junto con el correo final normal (buildOrderEmail),
+ * para avisarles que la venta ahora es por este sitio y que su entrada ya
+ * quedó migrada sin que tengan que hacer nada. */
+export function buildMigrationAnnouncementEmail(data: {
+  buyerName: string;
+  eventTitle: string;
+  eventDate: string;
+  ticketCode: string;
+  total: number;
+}) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+  const ticketUrl = `${EMAIL_BASE_URL}/verificar/${data.ticketCode}`;
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <!-- HERO -->
+    <div style="background:linear-gradient(160deg,${ACCENT.lilac.bg},${ACCENT.blue.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:52px;margin:0 0 12px;">✨</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Tenemos novedades, ${data.buyerName}!</h1>
+      <p style="color:${MUTED};font-size:15px;margin:0;">Tu entrada a ${data.eventTitle} sigue 100% asegurada.</p>
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Compraste tu entrada cuando todavía vendíamos por la plataforma anterior — y queremos contarte que
+        <strong style="color:${INK};">ya tenemos nuestro propio sitio de venta de entradas</strong>. Tu compra ya está
+        migrada acá, al mismo valor que pagaste (<strong style="color:${INK};">$${data.total.toLocaleString('es-CL')}</strong>),
+        sin que tengas que hacer nada ni pagar diferencia. La fecha del evento sigue exactamente igual.
+      </p>
+
+      ${sectionTitle('🎟', 'Tu entrada ya está lista')}
+      ${card(`
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 16px;">
+          Junto a este correo te llegó otro con tu código QR definitivo — guárdalo, es lo único que necesitas
+          presentar en la puerta.
+        </p>
+        <div style="text-align:center;">
+          <a href="${ticketUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:800;font-size:14px;">Ver mi entrada</a>
+        </div>
+      `, { bg: ACCENT.pink.bg, border: false })}
+
+      ${sectionTitle('🌐', 'Nuestro nuevo sitio')}
+      ${card(`
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 16px;">
+          Desde ahora, todas las próximas fiestas de Mansion Playroom se venden directo desde nuestra propia web —
+          entradas, código de embajador y tu QR, todo en un solo lugar.
+        </p>
+        <div style="text-align:center;">
+          <a href="${EMAIL_BASE_URL}" style="display:inline-block;background:#fff;color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};">Conocer el sitio</a>
+        </div>
+      `)}
+    </div>
+
+    <!-- FOOTER -->
+    <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:8px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
+      <p style="margin:0 0 8px;">
+        <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>
+        <a href="https://www.mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Web</a>
+      </p>
+      <p style="color:${FAINT};font-size:11px;margin:0;">© ${new Date().getFullYear()} Mansion Playroom · Valparaíso, Chile</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
