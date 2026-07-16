@@ -1,26 +1,38 @@
-import { useAuth } from '@/_core/hooks/useAuth';
 import { trpc } from '@/lib/trpc';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Users, Gift, Copy, Check, Trophy, Share2, Ticket } from 'lucide-react';
-import { startLogin } from '@/const';
+import { Users, Gift, Copy, Check, Trophy, Share2, Ticket, KeyRound } from 'lucide-react';
 import { useState } from 'react';
 
+// Tiers de premios — mismos umbrales/premios que se muestran en el email de confirmación (server/email.ts)
+const TIERS = [
+  { name: 'Bronce', min: 3, reward: '1 consumo' },
+  { name: 'Plata', min: 5, reward: '2 consumos + acceso al próximo evento' },
+  { name: 'Oro', min: 10, reward: 'Mesa VIP + 2 botellas de espumante (o 1 de pisco) + acceso al próximo evento' },
+];
+
+/** Antes esta página requería iniciar sesión (OAuth) — pero el sitio ya no
+ * tiene ningún login de comprador visible (se sacó del Navbar en un rediseño
+ * anterior), así que quedó inalcanzable. Ahora funciona con el mismo código
+ * de embajador que llega por email, sin cuenta ni contraseña. */
 export default function MyReferrals() {
-  const { user, loading, isAuthenticated } = useAuth();
-  const { data: referrals } = trpc.referrals.getByUser.useQuery(undefined, { enabled: isAuthenticated });
+  const [codeInput, setCodeInput] = useState('');
+  const [submittedCode, setSubmittedCode] = useState('');
   const [copied, setCopied] = useState(false);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
+  const { data, isLoading, isFetched } = trpc.referrals.getByCode.useQuery(
+    { code: submittedCode },
+    { enabled: !!submittedCode, retry: false }
+  );
 
-  if (!isAuthenticated) {
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (codeInput.trim()) setSubmittedCode(codeInput.trim().toUpperCase());
+  };
+
+  if (!submittedCode || (isFetched && !data)) {
     return (
       <div className="min-h-screen pt-28 pb-16">
         <div className="container max-w-lg text-center">
@@ -30,30 +42,36 @@ export default function MyReferrals() {
             </div>
             <h1 className="font-heading text-4xl mb-4">Panel de <span className="text-gradient">Embajador</span></h1>
             <p className="text-muted-foreground text-lg mb-8">
-              Inicia sesión para acceder a tu código de embajador, ver cuántas entradas se han vendido con tu código y acumular premios.
+              Ingresa tu código de embajador (el mismo que te llegó por email) para ver tus estadísticas y premios.
             </p>
-            <Button onClick={() => startLogin()} size="lg" className="interactive glow-pink px-8 py-4 text-lg">
-              Iniciar Sesión
-            </Button>
+            <form onSubmit={handleSubmit} className="flex gap-2 max-w-sm mx-auto">
+              <Input
+                value={codeInput}
+                onChange={(e) => setCodeInput(e.target.value)}
+                placeholder="TU-CODIGO"
+                className="h-12 text-center font-mono uppercase"
+              />
+              <Button type="submit" size="lg" className="interactive glow-pink shrink-0" disabled={!codeInput.trim() || isLoading}>
+                <KeyRound className="w-4 h-4" />
+              </Button>
+            </form>
+            {isFetched && !data && (
+              <p className="text-destructive text-sm mt-4">No encontramos ese código — revisa que esté bien escrito.</p>
+            )}
           </motion.div>
         </div>
       </div>
     );
   }
 
-  const ambassadorCode = (user as any)?.ambassadorCode || 'GENERANDO...';
-  const totalReferrals = referrals?.length ?? 0;
-  const totalTickets = referrals?.reduce((sum: number, r: any) => sum + (r.ticketCount || 0), 0) ?? 0;
-  const totalRevenue = referrals?.reduce((sum: number, r: any) => sum + Number(r.orderTotal || 0), 0) ?? 0;
+  const ambassadorCode = data!.ambassadorCode;
+  const referrals = data!.referrals;
+  const totalReferrals = referrals.length;
+  const totalTickets = referrals.reduce((sum: number, r: any) => sum + (r.ticketCount || 0), 0);
+  const totalRevenue = referrals.reduce((sum: number, r: any) => sum + Number(r.orderTotal || 0), 0);
 
-  // Tiers de premios — mismos umbrales/premios que se muestran en el email de confirmación (server/email.ts)
-  const tiers = [
-    { name: 'Bronce', min: 3, reward: '1 consumo' },
-    { name: 'Plata', min: 5, reward: '2 consumos + acceso al próximo evento' },
-    { name: 'Oro', min: 10, reward: 'Mesa VIP + 2 botellas de espumante (o 1 de pisco) + acceso al próximo evento' },
-  ];
-  const currentTier = tiers.filter(t => totalReferrals >= t.min).pop();
-  const nextTier = tiers.find(t => totalReferrals < t.min);
+  const currentTier = TIERS.filter(t => totalReferrals >= t.min).pop();
+  const nextTier = TIERS.find(t => totalReferrals < t.min);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(ambassadorCode);
@@ -80,7 +98,7 @@ export default function MyReferrals() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
             <div>
               <h1 className="font-heading text-4xl md:text-5xl">Panel de <span className="text-gradient">Embajador</span></h1>
-              <p className="text-muted-foreground mt-2">Bienvenido, {user?.name || 'Embajador'}</p>
+              <p className="text-muted-foreground mt-2">Hola, {data!.buyerName}</p>
             </div>
             <Button onClick={handleShare} variant="outline" className="interactive gap-2">
               <Share2 className="w-4 h-4" /> Compartir Código
@@ -165,7 +183,7 @@ export default function MyReferrals() {
           )}
 
           {/* Referrals History */}
-          {referrals && referrals.length > 0 && (
+          {referrals.length > 0 && (
             <Card className="border-border/50">
               <CardContent className="pt-6">
                 <h3 className="font-heading text-xl mb-4">Historial de Ventas con tu Código</h3>

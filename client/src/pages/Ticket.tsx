@@ -1,6 +1,6 @@
 import { useRoute, Link } from 'wouter';
 import { motion } from 'framer-motion';
-import { CalendarPlus, MapPin, Calendar, User, ShieldCheck, TicketX } from 'lucide-react';
+import { CalendarPlus, MapPin, Calendar, User, ShieldCheck, TicketX, CheckCircle2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 
 /** Página pública "Mi entrada" — a donde apunta el QR de cada ticket
@@ -80,6 +80,19 @@ export default function Ticket() {
                 {ticket.attendeeNames.map((name, i) => (
                   <p key={i} className="flex items-center gap-2 text-sm font-semibold"><User className="w-3.5 h-3.5 text-primary shrink-0" /> {name}</p>
                 ))}
+              </div>
+            )}
+
+            {ticket.extras.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-border/40">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Incluye</p>
+                <div className="space-y-1.5">
+                  {ticket.extras.map((extra) => (
+                    <p key={extra.name} className="flex items-center gap-2 text-sm font-semibold text-primary">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> {extra.quantity > 1 ? `${extra.quantity}× ` : ''}{extra.name}
+                    </p>
+                  ))}
+                </div>
               </div>
             )}
           </div>

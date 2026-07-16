@@ -6,7 +6,7 @@ import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
-import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder } from "./webhooks";
+import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail } from "./webhooks";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
@@ -192,6 +192,12 @@ export const appRouter = router({
     getStats: adminProcedure.query(async () => {
       return db.getOrderStats();
     }),
+    getTickets: adminProcedure.input(z.object({ orderId: z.number() })).query(async ({ input }) => {
+      return db.getOrderTickets(input.orderId);
+    }),
+    resendConfirmation: adminProcedure.input(z.object({ orderNumber: z.string() })).mutation(async ({ input }) => {
+      return resendConfirmationEmail(input.orderNumber);
+    }),
   }),
 
   mission300: router({
@@ -296,6 +302,11 @@ export const appRouter = router({
     }),
     getByUser: protectedProcedure.query(async ({ ctx }) => {
       return db.getUserReferrals(ctx.user.id);
+    }),
+    // Público, sin login: el mismo código de embajador que llega por email
+    // es lo que valida el acceso a las propias estadísticas.
+    getByCode: publicProcedure.input(z.object({ code: z.string() })).query(async ({ input }) => {
+      return db.getReferralsByCode(input.code);
     }),
   }),
 });

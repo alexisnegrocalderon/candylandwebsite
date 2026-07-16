@@ -154,6 +154,7 @@ export function buildOrderEmail(data: {
   qrImageUrl?: string;
   ticketCode?: string;
   attendeeNames?: string[];
+  extras?: { name: string; quantity: number; codes: string[] }[];
 }) {
   const ticketNames = data.items.map(i => i.name).join(', ');
   const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
@@ -259,6 +260,12 @@ export function buildOrderEmail(data: {
           <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Asistentes</p>
           ${attendeeNamesList(data.attendeeNames ?? [])}
         </div>
+        ${data.extras && data.extras.length > 0 ? `
+        <div style="margin-bottom:18px;padding-top:14px;border-top:1px solid ${BORDER};">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Incluye</p>
+          ${data.extras.map(e => `<p style="color:${ACCENT.pink.text};font-size:14px;font-weight:700;margin:2px 0;">✅ ${e.quantity > 1 ? `${e.quantity}× ` : ''}${e.name}</p>`).join('')}
+        </div>
+        ` : ''}
         <div style="text-align:center;">
           <a href="${ticketUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:800;font-size:14px;margin:0 6px 10px;">Ver mi entrada</a>
           <a href="${calendarUrl}" style="display:inline-block;background:#fff;color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};margin:0 6px 10px;">📅 Agregar al calendario</a>
@@ -333,8 +340,8 @@ export function buildOrderEmail(data: {
 
       <!-- INFO IMPORTANTE -->
       <p style="color:${FAINT};font-size:12px;line-height:1.6;margin:0 0 24px;">
-        📌 Consulta nuestras políticas de devolución y condiciones de compra en
-        <a href="https://www.mansionplayroom.cl" style="color:${ACCENT.pink.text};">www.mansionplayroom.cl</a>.
+        📌 Consulta nuestra
+        <a href="${EMAIL_BASE_URL}/politica-de-reembolso" style="color:${ACCENT.pink.text};">política de reembolso y condiciones de compra</a>.
         Si no puedes asistir, puedes transferir tu acceso a otra persona escribiéndonos por Instagram antes del evento.
       </p>
 

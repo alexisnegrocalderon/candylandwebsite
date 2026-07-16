@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { useAuth } from '@/_core/hooks/useAuth';
@@ -19,6 +19,25 @@ const onMutationError = (error: unknown) => {
   const message = error instanceof Error ? error.message : 'No se pudo guardar. Intenta de nuevo.';
   toast.error(message === 'Database not available' ? 'Base de datos no configurada — nada se guardó. Revisa DATABASE_URL en Vercel.' : message);
 };
+
+// Los inputs datetime-local no llevan zona horaria — si se manda tal cual al
+// servidor (que corre en UTC), "21:00" se guarda como 21:00 UTC, que son las
+// 17:00 en Chile. Mismo criterio de hora fija (UTC-4, continental sin cambio
+// de horario) ya usado en CANDYLAND.eventDate (client/src/config/candyland.ts).
+const CHILE_OFFSET_MS = 4 * 60 * 60 * 1000;
+
+/** DB (UTC) → valor para un <input type="datetime-local"> mostrando hora de Chile. */
+function toChileInputValue(dateInput: string | Date | null | undefined): string {
+  if (!dateInput) return '';
+  const chileTime = new Date(new Date(dateInput).getTime() - CHILE_OFFSET_MS);
+  return chileTime.toISOString().slice(0, 16);
+}
+
+/** Valor de un <input type="datetime-local"> (hora de Chile, sin zona) → ISO con offset, para mandar al servidor. */
+function fromChileInputValue(value: string): string {
+  if (!value) return '';
+  return `${value}:00-04:00`;
+}
 
 /* Debe coincidir con los ids de CANDYLAND.accesos (client/src/config/candyland.ts)
  * y con el enum accesoSlug del router — es lo que conecta cada entrada con la
@@ -143,7 +162,12 @@ function EventsManager() {
 
   const handleCreateEvent = async () => {
     if (!newEvent.title || !newEvent.slug || !newEvent.eventDate) return;
-    const payload = { ...newEvent, featured: newEvent.featured ? 1 : 0 };
+    const payload = {
+      ...newEvent,
+      featured: newEvent.featured ? 1 : 0,
+      eventDate: fromChileInputValue(newEvent.eventDate),
+      doorsOpen: fromChileInputValue(newEvent.doorsOpen),
+    };
     if (editingEventId) {
       await updateEvent.mutateAsync({ id: editingEventId, ...payload });
       setEditingEventId(null);
@@ -244,8 +268,8 @@ function EventsManager() {
                       shortDescription: event.shortDescription || '', venue: event.venue || '',
                       address: event.address || '',
                       mapsUrl: event.mapsUrl || '',
-                      eventDate: event.eventDate ? new Date(event.eventDate).toISOString().slice(0, 16) : '',
-                      doorsOpen: event.doorsOpen ? new Date(event.doorsOpen).toISOString().slice(0, 16) : '',
+                      eventDate: toChileInputValue(event.eventDate),
+                      doorsOpen: toChileInputValue(event.doorsOpen),
                       status: event.status || 'draft',
                       imageUrl: event.imageUrl || '',
                       featured: !!event.featured,
@@ -477,9 +501,18 @@ function OrdersView() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
 
   const { data: ordersData } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter });
   const { data: stats } = trpc.orders.getStats.useQuery();
+  const { data: orderTickets, isFetching: loadingTickets } = trpc.orders.getTickets.useQuery(
+    { orderId: expandedOrderId ?? 0 },
+    { enabled: expandedOrderId !== null }
+  );
+  const resendConfirmation = trpc.orders.resendConfirmation.useMutation({
+    onSuccess: () => toast.success('Email reenviado'),
+    onError: onMutationError,
+  });
 
   const ordersList = ordersData?.orders ?? [];
   const pendingCount = ordersList.filter((o: any) => o.paymentStatus === 'pending').length;
@@ -555,31 +588,72 @@ function OrdersView() {
                   <th className="text-left py-2 px-3">Estado</th>
                   <th className="text-left py-2 px-3">Fecha</th>
                   <th className="text-left py-2 px-3">Contacto</th>
+                  <th className="text-left py-2 px-3">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {ordersList.map((order: any) => (
-                  <tr key={order.id} className="border-b border-border/50">
-                    <td className="py-2 px-3 font-mono text-xs">{order.orderNumber}</td>
-                    <td className="py-2 px-3">{order.buyerName}<br/><span className="text-muted-foreground text-xs">{order.buyerEmail}</span></td>
-                    <td className="py-2 px-3">${Number(order.total).toLocaleString('es-CL')}</td>
-                    <td className="py-2 px-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs ${order.paymentStatus === 'approved' ? 'bg-green-500/20 text-green-400' : order.paymentStatus === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
-                        {order.paymentStatus}
-                      </span>
-                    </td>
-                    <td className="py-2 px-3 text-muted-foreground">{new Date(order.createdAt).toLocaleDateString('es-CL')}</td>
-                    <td className="py-2 px-3">
-                      {order.paymentStatus !== 'approved' && (
-                        <div className="flex gap-2">
-                          <a href={`mailto:${order.buyerEmail}`} className="text-primary text-xs underline">Email</a>
-                          {order.buyerPhone && (
-                            <a href={`https://wa.me/${String(order.buyerPhone).replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-primary text-xs underline">WhatsApp</a>
+                  <Fragment key={order.id}>
+                    <tr className="border-b border-border/50">
+                      <td className="py-2 px-3 font-mono text-xs">{order.orderNumber}</td>
+                      <td className="py-2 px-3">{order.buyerName}<br/><span className="text-muted-foreground text-xs">{order.buyerEmail}</span></td>
+                      <td className="py-2 px-3">${Number(order.total).toLocaleString('es-CL')}</td>
+                      <td className="py-2 px-3">
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${order.paymentStatus === 'approved' ? 'bg-green-500/20 text-green-400' : order.paymentStatus === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
+                          {order.paymentStatus}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 text-muted-foreground">{new Date(order.createdAt).toLocaleDateString('es-CL')}</td>
+                      <td className="py-2 px-3">
+                        {order.paymentStatus !== 'approved' && (
+                          <div className="flex gap-2">
+                            <a href={`mailto:${order.buyerEmail}`} className="text-primary text-xs underline">Email</a>
+                            {order.buyerPhone && (
+                              <a href={`https://wa.me/${String(order.buyerPhone).replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-primary text-xs underline">WhatsApp</a>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2 px-3">
+                        {order.paymentStatus === 'approved' && (
+                          <div className="flex gap-2">
+                            <button
+                              className="text-primary text-xs underline"
+                              onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                            >
+                              {expandedOrderId === order.id ? 'Ocultar' : 'Ver tickets'}
+                            </button>
+                            <button
+                              className="text-primary text-xs underline disabled:opacity-50"
+                              disabled={resendConfirmation.isPending}
+                              onClick={() => resendConfirmation.mutate({ orderNumber: order.orderNumber })}
+                            >
+                              Reenviar email
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                    {expandedOrderId === order.id && (
+                      <tr className="border-b border-border/50 bg-muted/10">
+                        <td colSpan={7} className="py-3 px-3">
+                          {loadingTickets ? (
+                            <p className="text-xs text-muted-foreground">Cargando tickets...</p>
+                          ) : orderTickets && orderTickets.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {orderTickets.map((t: any) => (
+                                <span key={t.ticketCode} className="px-2 py-1 rounded-lg bg-background border border-border text-xs font-mono">
+                                  {t.ticketTypeName} · {t.ticketCode} · <span className="text-muted-foreground">{t.status}</span>
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">Sin tickets generados.</p>
                           )}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

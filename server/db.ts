@@ -186,6 +186,11 @@ export async function getTicketByCode(ticketCode: string) {
 
   const attendeeNames = parseAttendeeNames(order?.attendeeData);
 
+  // Extras de la misma orden (estacionamiento, piscolón, etc.) — cada uno ya
+  // tiene su propio ticket/código generado (mismo loop que genera el acceso
+  // principal), solo faltaba mostrarlo. Se agrupan por tipo con su cantidad.
+  const extras = order ? await getOrderExtras(order.id) : [];
+
   return {
     ticketCode: ticket.ticketCode,
     status: ticket.status,
@@ -199,7 +204,29 @@ export async function getTicketByCode(ticketCode: string) {
     eventEnd: event?.eventEnd ?? null,
     venue: event?.venue ?? '',
     address: event?.address ?? '',
+    extras,
   };
+}
+
+/** Extras (category="extra") de una orden, agrupados por tipo con su cantidad
+ * y los códigos de ticket individuales generados para cada unidad. */
+export async function getOrderExtras(orderId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const orderTickets = await db.select().from(tickets).where(eq(tickets.orderId, orderId));
+  const grouped = new Map<number, { name: string; quantity: number; codes: string[] }>();
+
+  for (const t of orderTickets) {
+    const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, t.ticketTypeId)).limit(1);
+    if (tt?.category !== 'extra') continue;
+    const entry = grouped.get(t.ticketTypeId) ?? { name: tt.name, quantity: 0, codes: [] };
+    entry.quantity += 1;
+    entry.codes.push(t.ticketCode);
+    grouped.set(t.ticketTypeId, entry);
+  }
+
+  return Array.from(grouped.values());
 }
 
 // Discount Codes
@@ -495,6 +522,28 @@ export async function getAllOrders(page: number = 1, limit: number = 50, status?
   return { orders: allOrders, total: allOrders.length };
 }
 
+/** Todos los tickets (entrada principal + extras) de una orden, para el
+ * panel admin — poder ver/reenviar los códigos generados sin tener que
+ * buscar en la base a mano. */
+export async function getOrderTickets(orderId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const orderTickets = await db.select().from(tickets).where(eq(tickets.orderId, orderId));
+  const result = [];
+  for (const t of orderTickets) {
+    const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, t.ticketTypeId)).limit(1);
+    result.push({
+      ticketCode: t.ticketCode,
+      status: t.status,
+      holderName: t.holderName,
+      ticketTypeName: tt?.name ?? 'Entrada',
+      category: tt?.category ?? 'acceso',
+    });
+  }
+  return result;
+}
+
 // Export completo (sin paginar) para CSV — filtra por evento/rango de fechas/estado.
 export async function getOrdersForExport(filters: { eventId?: number; dateFrom?: string; dateTo?: string; status?: string }) {
   const db = await getDb();
@@ -557,4 +606,22 @@ export async function getUserReferrals(userId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(referrals).where(eq(referrals.ambassadorUserId, userId)).orderBy(desc(referrals.createdAt));
+}
+
+/** Estadísticas + historial de un embajador buscando directo por su código
+ * (sin login) — el mismo código que le llega en su email de confirmación. */
+export async function getReferralsByCode(ambassadorCode: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const code = ambassadorCode.trim().toUpperCase();
+  if (!code) return null;
+
+  // Confirma que el código realmente existe (le pertenece a alguna orden
+  // aprobada) antes de devolver "0 referidos" para un código inventado.
+  const [owner] = await db.select().from(orders).where(and(eq(orders.ambassadorCode, code), eq(orders.paymentStatus, 'approved'))).limit(1);
+  if (!owner) return null;
+
+  const rows = await db.select().from(referrals).where(eq(referrals.ambassadorCode, code)).orderBy(desc(referrals.createdAt));
+  return { ambassadorCode: code, buyerName: owner.buyerName, referrals: rows };
 }

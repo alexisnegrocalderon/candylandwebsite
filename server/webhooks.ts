@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
-import { getDb, parseAttendeeNames } from './db';
+import { getDb, parseAttendeeNames, getOrderExtras } from './db';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
 import { eq, and, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
@@ -234,6 +234,78 @@ async function sendMissionDepositEmail(order: any) {
   await db.update(orders).set({ depositEmailSent: 1 }).where(eq(orders.id, order.id));
 }
 
+/** Arma y manda el email final (con QR) de una orden ya aprobada, usando los
+ * tickets que YA existen — no genera tickets nuevos. Se usa tanto la primera
+ * vez (justo después de generarlos en processApprovedOrder) como para
+ * reenviar manualmente desde el admin (resendConfirmationEmail, más abajo). */
+async function sendConfirmationEmailForOrder(order: any) {
+  const db = await getDb();
+  if (!db) return;
+
+  const [event] = await db.select().from(events).where(eq(events.id, order.eventId)).limit(1);
+  if (!event) return;
+
+  const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+  const emailItems = [];
+  for (const item of items) {
+    const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, item.ticketTypeId)).limit(1);
+    emailItems.push({ name: tt?.name || 'Entrada', quantity: item.quantity, price: Number(item.totalPrice) });
+  }
+
+  // Ticket principal para el QR del email: el primero de category="acceso"
+  // (nunca un extra) — antes se asumía que era el primero insertado, ahora
+  // se filtra explícito para que no dependa del orden de inserción.
+  const orderTickets = await db.select().from(tickets).where(eq(tickets.orderId, order.id));
+  let mainTicket = null;
+  for (const t of orderTickets) {
+    const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, t.ticketTypeId)).limit(1);
+    if (tt?.category === 'acceso') { mainTicket = t; break; }
+  }
+  if (!mainTicket) mainTicket = orderTickets[0];
+
+  const extras = await getOrderExtras(order.id);
+
+  const html = buildOrderEmail({
+    buyerName: order.buyerName,
+    eventTitle: event.title,
+    eventDate: new Date(event.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
+    doorsOpenText: event.doorsOpen ? new Date(event.doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : undefined,
+    venue: event.venue || '',
+    address: event.address || undefined,
+    mapsUrl: event.mapsUrl || undefined,
+    orderNumber: order.orderNumber,
+    items: emailItems,
+    total: Number(order.total),
+    ambassadorCode: order.ambassadorCode || '',
+    isMissionDeposit: order.missionDeposit === 1,
+    ticketReady: true,
+    ticketCode: mainTicket?.ticketCode,
+    attendeeNames: parseAttendeeNames(order.attendeeData),
+    extras,
+  });
+
+  await sendEmail({
+    to: order.buyerEmail,
+    subject: `🎉 Tu entrada para ${event.title} - Mansion Playroom`,
+    html,
+  });
+}
+
+/** Reenvía manualmente el email final de una orden ya aprobada — para el
+ * botón "Reenviar email" del panel admin. No genera tickets nuevos ni
+ * vuelve a acreditar referidos, solo re-manda el mismo correo. */
+export async function resendConfirmationEmail(orderNumber: string) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+
+  const [order] = await db.select().from(orders).where(eq(orders.orderNumber, orderNumber)).limit(1);
+  if (!order) throw new Error('Orden no encontrada');
+  if (order.paymentStatus !== 'approved') throw new Error('La orden todavía no está aprobada');
+
+  await sendConfirmationEmailForOrder(order);
+  return { success: true };
+}
+
 async function processApprovedOrder(order: any) {
   const db = await getDb();
   if (!db) return;
@@ -245,22 +317,14 @@ async function processApprovedOrder(order: any) {
   const [event] = await db.select().from(events).where(eq(events.id, order.eventId)).limit(1);
   if (!event) return;
 
-  // Generate tickets
-  const ticketCodes: string[] = [];
-  let firstQrUrl = '';
-
+  // Generate tickets — uno por cada UNIDAD comprada, sea acceso o extra
+  // (estacionamiento, piscolón, etc.): cada extra ya queda con su propio
+  // código/QR individual, solo faltaba mostrarlo (ver getOrderExtras en db.ts).
   for (const item of items) {
-    const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, item.ticketTypeId)).limit(1);
-
     for (let i = 0; i < item.quantity; i++) {
       const ticketCode = `MP-${nanoid(12).toUpperCase()}`;
-      ticketCodes.push(ticketCode);
-
-      // Generate QR
       const { qrData, qrImageUrl } = await generateTicketQR(ticketCode, event.title);
-      if (!firstQrUrl) firstQrUrl = qrImageUrl;
 
-      // Save ticket
       await db.insert(tickets).values({
         ticketCode,
         orderId: order.id,
@@ -275,62 +339,33 @@ async function processApprovedOrder(order: any) {
     }
   }
 
-  // Handle ambassador referral (con el código que el comprador ingresó al pagar, si corresponde)
+  // Handle ambassador referral (con el código que el comprador ingresó al pagar, si corresponde).
+  // El "dueño" del código casi nunca tiene fila en `users` -esa tabla solo la
+  // usa el login OAuth/admin, que los compradores normales no usan- así que
+  // se busca directo en sus propias órdenes aprobadas, donde
+  // ensureOwnAmbassadorCode ya le dejó su código estampado. (Antes esto
+  // buscaba en `users`, que para compradores reales nunca tenía match -el
+  // acreditado de referidos nunca se estaba registrando en la práctica.)
   if (order.ambassadorCode) {
-    const [ambassador] = await db.select().from(users).where(eq(users.ambassadorCode, order.ambassadorCode)).limit(1);
-    if (ambassador) {
+    const [ambassadorOrder] = await db.select().from(orders)
+      .where(and(eq(orders.ambassadorCode, order.ambassadorCode), eq(orders.paymentStatus, 'approved')))
+      .limit(1);
+    if (ambassadorOrder && ambassadorOrder.id !== order.id) {
       const totalTickets = items.reduce((sum: number, item: any) => sum + item.quantity, 0);
       await db.insert(referrals).values({
-        ambassadorUserId: ambassador.id,
         ambassadorCode: order.ambassadorCode,
         orderId: order.id,
         buyerEmail: order.buyerEmail,
         ticketCount: totalTickets,
         orderTotal: order.total,
       });
-      // Increment referral count
-      await db.update(users).set({ totalReferrals: sql`totalReferrals + 1` }).where(eq(users.id, ambassador.id));
     }
   }
 
-  const ambassadorCode = await ensureOwnAmbassadorCode(db, order);
+  await ensureOwnAmbassadorCode(db, order);
+  const [refreshedOrder] = await db.select().from(orders).where(eq(orders.id, order.id)).limit(1);
 
-  // Get ticket type names for email
-  const emailItems = [];
-  for (const item of items) {
-    const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, item.ticketTypeId)).limit(1);
-    emailItems.push({
-      name: tt?.name || 'Entrada',
-      quantity: item.quantity,
-      price: Number(item.totalPrice),
-    });
-  }
-
-  // Send confirmation email
-  const emailHtml = buildOrderEmail({
-    buyerName: order.buyerName,
-    eventTitle: event.title,
-    eventDate: new Date(event.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }),
-    doorsOpenText: event.doorsOpen ? new Date(event.doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : undefined,
-    venue: event.venue || '',
-    address: event.address || undefined,
-    mapsUrl: event.mapsUrl || undefined,
-    orderNumber: order.orderNumber,
-    items: emailItems,
-    total: Number(order.total),
-    ambassadorCode,
-    isMissionDeposit: order.missionDeposit === 1,
-    ticketReady: true,
-    qrImageUrl: firstQrUrl,
-    ticketCode: ticketCodes[0],
-    attendeeNames: parseAttendeeNames(order.attendeeData),
-  });
-
-  await sendEmail({
-    to: order.buyerEmail,
-    subject: `🎉 Tu entrada para ${event.title} - Mansion Playroom`,
-    html: emailHtml,
-  });
+  await sendConfirmationEmailForOrder(refreshedOrder ?? order);
 
   // Mark email as sent
   await db.update(orders).set({ emailSent: 1 }).where(eq(orders.id, order.id));
