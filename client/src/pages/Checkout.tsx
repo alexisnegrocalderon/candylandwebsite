@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CANDYLAND, CAMPOS_COMPRADOR, formatCLP, coversDisponibles, whatsappComunidadLink, type Acceso, type CampoForm } from '@/config/candyland';
 import { isMissionWindowOpen, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
+import { isValidRut, isValidChileanPhone } from '@shared/rut';
 
 /**
  * Checkout conversacional: una sola pregunta por pantalla, estilo "asistente"
@@ -75,6 +76,14 @@ function buildSchema(fields: { key: string; field: CampoForm }[]) {
       shape[key] = field.required
         ? z.string().min(1, 'Este dato es necesario').email('Revisa el formato del email')
         : z.string().email('Revisa el formato del email').or(z.literal('')).optional();
+    } else if (field.name === 'rut' || field.name.endsWith('_rut')) {
+      shape[key] = field.required
+        ? z.string().min(1, 'Este dato es necesario').refine(isValidRut, 'RUT inválido')
+        : z.string().refine((v) => !v || isValidRut(v), 'RUT inválido').or(z.literal('')).optional();
+    } else if (field.type === 'tel') {
+      shape[key] = field.required
+        ? z.string().min(1, 'Este dato es necesario').refine(isValidChileanPhone, 'Revisa el formato del teléfono (+56 9 XXXXXXXX)')
+        : z.string().refine((v) => !v || isValidChileanPhone(v), 'Revisa el formato del teléfono').or(z.literal('')).optional();
     } else if (field.required) {
       shape[key] = z.string().min(1, 'Este dato es necesario');
     } else {
@@ -236,6 +245,8 @@ export default function Checkout() {
 
   const { data: event } = trpc.events.getBySlug.useQuery({ slug: eventSlug }, { retry: false });
   const { data: liveTicketsData } = trpc.events.getTicketTypes.useQuery({ slug: eventSlug }, { retry: false });
+  const { data: siteSettings } = trpc.settings.get.useQuery();
+  const serviceFeePercent = Number(siteSettings?.serviceFeePercent ?? 0);
   const liveTickets = liveTicketsData ?? [];
   const useConfig = liveTickets.length === 0; // sin DB → modo demo con config
   // Los "extras" (category='extra': estacionamiento, covers, lo que sea que
@@ -482,7 +493,9 @@ export default function Checkout() {
     : 0;
   const coversTotal = covers.productos.reduce((s, p) => s + (coverQty[p.id] || 0) * p.precio, 0);
   const dbExtrasTotal = extraTickets.reduce((s: number, t: any) => s + (dbExtraQty[t.id] || 0) * Number(t.price), 0);
-  const total = Math.max(0, subtotal - discountAmount) + (useDbExtras ? dbExtrasTotal : (estacionamiento ? addonEstac.precio : 0) + coversTotal);
+  const preServiceFeeTotal = Math.max(0, subtotal - discountAmount) + (useDbExtras ? dbExtrasTotal : (estacionamiento ? addonEstac.precio : 0) + coversTotal);
+  const serviceFee = serviceFeePercent > 0 ? Math.round(preServiceFeeTotal * serviceFeePercent / 100) : 0;
+  const total = preServiceFeeTotal + serviceFee;
 
   const handleApplyDiscount = async () => {
     if (!discountCode.trim() || !event?.id) return;
@@ -1053,6 +1066,9 @@ export default function Checkout() {
                           return <div key={p.id} className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {q}× {p.nombre}</span><span>+{formatCLP(q * p.precio)}</span></div>;
                         })}
                       </>
+                    )}
+                    {serviceFee > 0 && (
+                      <div className="flex justify-between text-sm text-muted-foreground mb-2"><span>Cargo por servicio</span><span>+{formatCLP(serviceFee)}</span></div>
                     )}
                     <div className="flex justify-between font-heading text-2xl pt-3 border-t border-border/40">
                       <span>Total</span>
