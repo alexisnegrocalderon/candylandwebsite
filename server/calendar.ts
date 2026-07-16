@@ -9,10 +9,31 @@ function icsEscape(text: string): string {
   return text.replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\n/g, '\\n');
 }
 
-/** Genera un .ics básico para agregar el evento al calendario del celular —
- * no depende de ninguna cuenta externa (a diferencia de Apple/Google
- * Wallet), así que no hace falta ninguna configuración previa. */
-export function registerCalendarRoutes(app: Express) {
+/** Rutas de archivos descargables asociados a un ticket: el .ics para
+ * agregar al calendario, y el QR como imagen real (ver abajo). */
+export function registerTicketAssetRoutes(app: Express) {
+  // QR como PNG real servido por URL — el QR se genera como data: URI
+  // (server/qr.ts) para guardarlo en la base y mostrarlo en la web (los
+  // navegadores lo soportan sin problema), pero muchos clientes de correo
+  // (Gmail entre ellos) NO renderizan de forma confiable imágenes data: URI
+  // embebidas en el HTML recibido — por eso el QR no se veía en el email.
+  // Acá se decodifica ese mismo data URI ya guardado y se sirve como una
+  // imagen real, algo que cualquier cliente de correo sabe cargar.
+  app.get("/api/qr/:ticketCode.png", async (req: Request, res: Response) => {
+    const { ticketCode } = req.params;
+    const ticket = await db.getTicketByCode(ticketCode);
+    if (!ticket?.qrImageUrl?.startsWith('data:image/png;base64,')) {
+      res.status(404).send("QR not found");
+      return;
+    }
+
+    const base64 = ticket.qrImageUrl.slice('data:image/png;base64,'.length);
+    const buffer = Buffer.from(base64, 'base64');
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.send(buffer);
+  });
+
   app.get("/api/calendar/:ticketCode.ics", async (req: Request, res: Response) => {
     const { ticketCode } = req.params;
     const ticket = await db.getTicketByCode(ticketCode);

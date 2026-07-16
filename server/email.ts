@@ -143,6 +143,7 @@ export function buildOrderEmail(data: {
   doorsOpenText?: string;
   venue: string;
   address?: string;
+  mapsUrl?: string;
   orderNumber: string;
   items: { name: string; quantity: number; price: number }[];
   total: number;
@@ -155,9 +156,13 @@ export function buildOrderEmail(data: {
   attendeeNames?: string[];
 }) {
   const ticketNames = data.items.map(i => i.name).join(', ');
-  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark.webp`;
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
   const ticketUrl = data.ticketCode ? `${EMAIL_BASE_URL}/verificar/${data.ticketCode}` : '';
   const calendarUrl = data.ticketCode ? `${EMAIL_BASE_URL}/api/calendar/${data.ticketCode}.ics` : '';
+  // El QR se guarda como data: URI (server/qr.ts) para la web, pero muchos
+  // clientes de correo no renderizan data: URIs de forma confiable — se usa
+  // en cambio la URL real servida por /api/qr/:ticketCode.png (server/calendar.ts).
+  const qrUrl = data.ticketCode ? `${EMAIL_BASE_URL}/api/qr/${data.ticketCode}.png` : data.qrImageUrl;
   const whatsappShareUrl = `https://wa.me/?text=${encodeURIComponent(`Usa mi código ${data.ambassadorCode} para comprar tu entrada a Candyland en Mansion Playroom 🍭 ${EMAIL_BASE_URL}`)}`;
 
   return `
@@ -166,13 +171,19 @@ export function buildOrderEmail(data: {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Le dice a los clientes de correo compatibles (Apple Mail, Outlook) que
+       este email está diseñado para verse en claro y que NO lo reprocesen en
+       modo oscuro automático — sin esto, algunos clientes invierten fondos
+       pero no ajustan bien el texto, dejando texto oscuro sobre fondo oscuro. -->
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
 
     <!-- HERO -->
     <div style="background:linear-gradient(160deg,${ACCENT.pink.bg},${ACCENT.lilac.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:36px;width:auto;margin-bottom:24px;" />
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="font-size:52px;margin:0 0 12px;">🍭</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Tu compra fue confirmada!</h1>
       <p style="color:${MUTED};font-size:15px;margin:0 0 24px;">La cuenta regresiva para Candyland ya comenzó.</p>
@@ -195,11 +206,12 @@ export function buildOrderEmail(data: {
         <p style="color:${INK};font-size:15px;margin:6px 0;">📅 ${data.eventDate}</p>
         ${data.doorsOpenText ? `<p style="color:${INK};font-size:15px;margin:6px 0;">🕘 ${data.doorsOpenText} hrs</p>` : ''}
         <p style="color:${INK};font-size:15px;margin:6px 0;">📍 ${data.venue}${data.address ? ` — ${data.address}` : ''}</p>
+        ${data.ticketReady && data.mapsUrl ? `<a href="${data.mapsUrl}" style="display:inline-block;color:${ACCENT.pink.text};font-size:13px;font-weight:700;text-decoration:none;margin:4px 0 0;">📍 Ver en Google Maps →</a>` : ''}
         <div style="margin-top:16px;padding-top:16px;border-top:1px solid ${BORDER};">
           <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px;">Código de reserva</p>
           <p style="color:${INK};font-size:15px;font-weight:700;font-family:monospace;margin:0;">${data.orderNumber}</p>
         </div>
-        <p style="color:${FAINT};font-size:12px;margin:14px 0 0;">La dirección exacta será enviada unos días antes del evento.</p>
+        ${!data.ticketReady ? `<p style="color:${FAINT};font-size:12px;margin:14px 0 0;">La dirección exacta será enviada unos días antes del evento.</p>` : ''}
       `)}
 
       <!-- MISIÓN 300 -->
@@ -240,7 +252,7 @@ export function buildOrderEmail(data: {
         <p style="color:${INK};font-size:14px;line-height:1.6;margin:0;">📩 Apenas finalice la misión, lo recibirás automáticamente por este mismo medio. No necesitas hacer nada más.</p>
       `, { bg: ACCENT.yellow.bg, border: false }) : card(`
         <div style="text-align:center;">
-          <img src="${data.qrImageUrl}" alt="Código QR de tu entrada" style="width:220px;height:220px;border-radius:12px;background:#fff;padding:10px;border:1px solid ${BORDER};" />
+          <img src="${qrUrl}" alt="Código QR de tu entrada" style="width:220px;height:220px;border-radius:12px;background:#fff;padding:10px;border:1px solid ${BORDER};" />
           <p style="color:${MUTED};font-size:12px;margin:14px 0 20px;">Presenta este código QR y tu carnet en la entrada</p>
         </div>
         <div style="margin-bottom:18px;">
@@ -361,43 +373,55 @@ export function buildMissionTopupEmail(data: {
   topupAmount: number;
   paymentUrl: string;
 }) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+
   return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
 </head>
-<body style="margin:0;padding:0;background-color:#FBF0F3;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:40px 20px;">
-    <div style="text-align:center;margin-bottom:32px;">
-      <h1 style="color:#D9538F;font-size:28px;margin:0;letter-spacing:1px;">CANDYLAND</h1>
-      <p style="color:#8A7580;font-size:14px;margin-top:8px;">Misión 300 — resultado</p>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <!-- HERO -->
+    <div style="background:linear-gradient(160deg,${ACCENT.yellow.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:52px;margin:0 0 12px;">🍭</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Casi, ${data.buyerName}!</h1>
+      <p style="color:${MUTED};font-size:15px;margin:0;">No juntamos las 300 personas para ${data.eventTitle} — falta completar tu diferencia.</p>
     </div>
 
-    <div style="background-color:#FFFFFF;border-radius:20px;padding:32px;border:1px solid #F2D9E4;">
-      <h2 style="color:#3D2A35;font-size:22px;margin:0 0 8px;">¡Casi, ${data.buyerName}! 🍭</h2>
-      <p style="color:#7A6670;font-size:15px;margin:0 0 24px;">
-        No juntamos las 300 personas de la Misión para <strong>${data.eventTitle}</strong> (${data.eventDate}), así
-        que para asegurar tu entrada falta completar la diferencia — igual pagaste como máximo el 60% del valor
-        general gracias al abono.
+    <div style="padding:32px 24px 0;">
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Para <strong style="color:${INK};">${data.eventTitle}</strong> (${data.eventDate}) no llegamos a las 300 personas de la Misión,
+        así que para asegurar tu entrada falta completar la diferencia — igual pagaste como máximo el 60% del valor
+        general gracias a tu abono.
       </p>
 
-      <div style="background-color:#FBF0F3;border-radius:14px;padding:20px;margin-bottom:24px;text-align:center;">
-        <p style="color:#5C4A54;font-size:14px;margin:0 0 4px;">Orden: ${data.orderNumber}</p>
-        <p style="color:#3D2A35;font-size:24px;font-weight:bold;margin:8px 0;">$${data.topupAmount.toLocaleString('es-CL')}</p>
-        <p style="color:#8A7580;font-size:12px;margin:0;">Diferencia a pagar para completar tu entrada</p>
-      </div>
-
-      <div style="text-align:center;">
-        <a href="${data.paymentUrl}" style="display:inline-block;background-color:#D9538F;color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:bold;font-size:15px;">Pagar diferencia</a>
-        <p style="color:#8A7580;font-size:12px;margin-top:16px;">Tu ticket con código QR llega apenas se confirme este pago.</p>
-      </div>
+      ${sectionTitle('🧾', 'Diferencia a pagar')}
+      ${card(`
+        <div style="text-align:center;">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Orden ${data.orderNumber}</p>
+          <p style="color:${ACCENT.pink.text};font-size:32px;font-weight:800;margin:0 0 6px;">$${data.topupAmount.toLocaleString('es-CL')}</p>
+          <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">Máximo el 60% del valor general — tu abono ya cuenta como parte de este monto.</p>
+          <a href="${data.paymentUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(236,95,163,0.35);">Pagar diferencia</a>
+          <p style="color:${FAINT};font-size:12px;margin:16px 0 0;">Tu entrada con código QR llega automáticamente apenas se confirme este pago.</p>
+        </div>
+      `)}
     </div>
 
-    <div style="text-align:center;margin-top:32px;">
-      <p style="color:#9A8A92;font-size:12px;">© ${new Date().getFullYear()} Mansion Playroom. Todos los derechos reservados.</p>
-      <p style="color:#9A8A92;font-size:12px;">Valparaíso, Chile</p>
+    <!-- FOOTER -->
+    <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:8px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
+      <p style="margin:0 0 8px;">
+        <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>
+        <a href="https://www.mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Web</a>
+      </p>
+      <p style="color:${FAINT};font-size:11px;margin:0;">© ${new Date().getFullYear()} Mansion Playroom · Valparaíso, Chile</p>
     </div>
   </div>
 </body>
