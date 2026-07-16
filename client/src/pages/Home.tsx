@@ -932,8 +932,8 @@ function Footer() {
           <p>© {new Date().getFullYear()} Mansion Playroom · La Evolución del Carrete</p>
           <div className="flex items-center gap-6">
             <span className="px-3 py-1 rounded-full border border-cherry/40 text-cherry font-bold text-xs">+{CANDYLAND.edadMinima}</span>
-            <a href="#" className="hover:text-foreground transition-colors">Términos</a>
-            <a href="#" className="hover:text-foreground transition-colors">Privacidad</a>
+            <Link href="/politica-de-reembolso" className="hover:text-foreground transition-colors">Política de reembolso</Link>
+            <Link href="/mis-referidos" className="hover:text-foreground transition-colors">Mis Referidos</Link>
           </div>
         </div>
       </div>

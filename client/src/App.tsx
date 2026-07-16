@@ -22,6 +22,7 @@ const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
 const MyReferrals = lazy(() => import("./pages/MyReferrals"));
 const Ticket = lazy(() => import("./pages/Ticket"));
 const Prices = lazy(() => import("./pages/Prices"));
+const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
 
 function PageLoader() {
   return (
@@ -66,6 +67,7 @@ function Router() {
           <Route path="/mis-referidos" component={MyReferrals} />
           <Route path="/verificar/:ticketCode" component={Ticket} />
           <Route path="/entradas" component={Prices} />
+          <Route path="/politica-de-reembolso" component={RefundPolicy} />
           <Route path="/admin" component={AdminDashboard} />
           <Route path="/404" component={NotFound} />
           <Route component={NotFound} />
