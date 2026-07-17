@@ -22,7 +22,7 @@ function newOpId() {
   return crypto.randomUUID();
 }
 
-type View = 'menu' | 'sheet' | 'sale' | 'dashboard';
+type View = 'menu' | 'sheet' | 'sale' | 'dashboard' | 'conflicts';
 
 export default function CajaApp() {
   const { data: operator, isLoading } = trpc.caja.me.useQuery();
@@ -215,6 +215,16 @@ function CajaHome({ operator }: { operator: { operatorId: number; name: string; 
     setManualCode('');
   };
 
+  const isSupervisor = operator.role === 'supervisor' || operator.role === 'admin';
+
+  const voidCode = trpc.caja.voidCode.useMutation({
+    onError: (e) => toast.error(e.message),
+    onSuccess: (res) => {
+      if (res.result === 'applied') { toast.success('Código anulado'); setSheetVersion((v) => v + 1); }
+      else toast.error(res.conflictNote || 'No se pudo anular');
+    },
+  });
+
   if (!localEvent) {
     return (
       <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center p-6 text-center">
@@ -287,13 +297,27 @@ function CajaHome({ operator }: { operator: { operatorId: number; name: string; 
               <button onClick={() => setView('dashboard')} className="h-24 rounded-2xl bg-neutral-900 border border-neutral-800 font-semibold active:scale-95 transition-transform">
                 📊 Dashboard
               </button>
+              {isSupervisor && (
+                <button onClick={() => setView('conflicts')} className="h-24 rounded-2xl bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 font-semibold active:scale-95 transition-transform col-span-2">
+                  ⚠ Cola de conflictos
+                </button>
+              )}
             </div>
           </div>
         )}
 
         {view === 'sheet' && selectedOrderId && (
-          <CustomerSheet key={sheetVersion} orderId={selectedOrderId} onRedeem={doRedeem} />
+          <CustomerSheet
+            key={sheetVersion}
+            orderId={selectedOrderId}
+            onRedeem={doRedeem}
+            canVoid={isSupervisor}
+            onVoid={(displayCode, reason) => voidCode.mutate({ opId: newOpId(), eventId: localEvent.id, displayCode, reason, clientAt: new Date().toISOString() })}
+            voiding={voidCode.isPending}
+          />
         )}
+
+        {view === 'conflicts' && <ConflictQueue eventId={localEvent.id} />}
 
         {view === 'sale' && (
           <NewSale
@@ -319,13 +343,28 @@ function statusBadge(status: string) {
   return <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-300">Pendiente</span>;
 }
 
-function CustomerSheet({ orderId, onRedeem }: { orderId: number; onRedeem: (code: string) => void }) {
+function CustomerSheet({ orderId, onRedeem, canVoid, onVoid, voiding }: {
+  orderId: number;
+  onRedeem: (code: string) => void;
+  canVoid: boolean;
+  onVoid: (displayCode: string, reason: string) => void;
+  voiding: boolean;
+}) {
   const [sheet, setSheet] = useState<CajaAttendee | null | undefined>(undefined);
+  const [voidingCode, setVoidingCode] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
 
   useEffect(() => { getLocalAttendee(orderId).then((a) => setSheet(a ?? null)); }, [orderId]);
 
   if (sheet === undefined) return <p className="text-neutral-500">Cargando…</p>;
   if (sheet === null) return <p className="text-neutral-500">No se encontró la orden.</p>;
+
+  const confirmVoid = () => {
+    if (!voidingCode || reason.trim().length < 3) return;
+    onVoid(voidingCode, reason.trim());
+    setVoidingCode(null);
+    setReason('');
+  };
 
   return (
     <div className="space-y-5">
@@ -353,14 +392,36 @@ function CustomerSheet({ orderId, onRedeem }: { orderId: number; onRedeem: (code
           <p className="text-xs uppercase tracking-wide text-neutral-500 mb-2">Extras</p>
           <div className="space-y-2">
             {sheet.extras.map((e, i) => (
-              <div key={i} className="p-3 rounded-xl bg-neutral-900 border border-neutral-800 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{e.typeName}</p>
-                  {e.displayCode && <p className="text-xs text-neutral-500 font-mono">{e.displayCode}</p>}
+              <div key={i} className="p-3 rounded-xl bg-neutral-900 border border-neutral-800">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">{e.typeName}</p>
+                    {e.displayCode && <p className="text-xs text-neutral-500 font-mono">{e.displayCode}</p>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {e.status === 'valid' && (
+                      <Button size="sm" className="bg-pink-500 hover:bg-pink-600 h-8" onClick={() => e.displayCode && onRedeem(e.displayCode)}>Canjear</Button>
+                    )}
+                    {statusBadge(e.status)}
+                    {canVoid && e.status !== 'cancelled' && e.displayCode && (
+                      <button className="text-xs text-red-400 underline" onClick={() => setVoidingCode(e.displayCode)}>Anular</button>
+                    )}
+                  </div>
                 </div>
-                {e.status === 'valid' ? (
-                  <Button size="sm" className="bg-pink-500 hover:bg-pink-600 h-8" onClick={() => e.displayCode && onRedeem(e.displayCode)}>Canjear</Button>
-                ) : statusBadge(e.status)}
+                {voidingCode === e.displayCode && (
+                  <div className="mt-3 pt-3 border-t border-neutral-800 space-y-2">
+                    <Input
+                      value={reason}
+                      onChange={(ev) => setReason(ev.target.value)}
+                      placeholder="Motivo de la anulación (obligatorio)"
+                      className="h-9 text-sm bg-neutral-800 border-neutral-700 text-white"
+                    />
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="destructive" disabled={reason.trim().length < 3 || voiding} onClick={confirmVoid}>Confirmar anulación</Button>
+                      <Button size="sm" variant="outline" className="border-neutral-700 text-white" onClick={() => { setVoidingCode(null); setReason(''); }}>Cancelar</Button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -489,6 +550,41 @@ function CajaDashboard({ eventId }: { eventId: number }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ConflictQueue({ eventId }: { eventId: number }) {
+  const utils = trpc.useUtils();
+  const { data: conflicts, isLoading } = trpc.caja.conflictQueue.useQuery({ eventId });
+  const resolve = trpc.caja.resolveConflict.useMutation({
+    onSuccess: () => { toast.success('Marcado como revisado'); utils.caja.conflictQueue.invalidate({ eventId }); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-xl font-bold">Cola de conflictos</h2>
+      <p className="text-sm text-neutral-500">Códigos canjeados dos veces antes de sincronizar (§8) -- revisa con el equipo y marca como resuelto.</p>
+      {isLoading && <p className="text-neutral-500">Cargando…</p>}
+      {!isLoading && (conflicts ?? []).length === 0 && <p className="text-neutral-500 text-sm">Sin conflictos pendientes ✅</p>}
+      <div className="space-y-2">
+        {(conflicts ?? []).map((c: any) => (
+          <div key={c.opId} className="p-4 rounded-xl bg-neutral-900 border border-yellow-500/30">
+            <p className="font-mono text-sm">{c.displayCode}</p>
+            <p className="text-xs text-neutral-500 mt-1">{c.operatorName} · {new Date(c.serverAt).toLocaleString('es-CL')}</p>
+            <p className="text-xs text-yellow-300 mt-1">{c.conflictNote}</p>
+            <Button
+              size="sm"
+              className="mt-2 h-8 bg-neutral-800 hover:bg-neutral-700"
+              disabled={resolve.isPending}
+              onClick={() => resolve.mutate({ opId: crypto.randomUUID(), eventId, conflictOpId: c.opId, clientAt: new Date().toISOString() })}
+            >
+              Marcar revisado
+            </Button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
@@ -898,4 +898,175 @@ export async function getCajaDashboard(eventId: number) {
     topProducts,
     recentSales,
   };
+}
+
+// --- Módulo /caja: supervisor (docs/ARQUITECTURA-CAJA.md §8, Fase 4) ---
+
+/** Canjes dobles todavía sin revisar por un supervisor (§8). "Resuelto" =
+ * existe un op `manual_adjust` posterior cuyo payload lo referencia --
+ * evita una columna nueva de "revisado" en `ops` (que es append-only). */
+export async function getConflictQueue(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conflicts = await db.select().from(ops).where(and(eq(ops.eventId, eventId), eq(ops.type, 'redeem'), eq(ops.result, 'conflict')));
+  if (conflicts.length === 0) return [];
+
+  const resolutions = await db.select().from(ops).where(and(eq(ops.eventId, eventId), eq(ops.type, 'manual_adjust')));
+  const resolvedIds = new Set(resolutions.map((r: any) => (r.payload as any)?.resolvedConflictOpId).filter(Boolean));
+  const pending = conflicts.filter((c: any) => !resolvedIds.has(c.id));
+  if (pending.length === 0) return [];
+
+  const operatorIds = Array.from(new Set(pending.map((c: any) => c.operatorId)));
+  const opRows = await db.select().from(operators).where(inArray(operators.id, operatorIds));
+  const opById = new Map<number, any>(opRows.map((o: any) => [o.id, o]));
+
+  return pending.map((c: any) => ({
+    opId: c.id,
+    displayCode: (c.payload as any)?.displayCode ?? c.targetId,
+    operatorName: opById.get(c.operatorId)?.name ?? 'Operador eliminado',
+    registerId: c.registerId,
+    serverAt: c.serverAt,
+    conflictNote: c.conflictNote,
+  }));
+}
+
+export async function resolveConflict(rawDb: any, params: { opId: string; eventId: number; operatorId: number; conflictOpId: string; note?: string; clientAt: Date }) {
+  const { applyOp } = await import('./caja/ops');
+  return applyOp(
+    rawDb,
+    {
+      id: params.opId,
+      type: 'manual_adjust',
+      eventId: params.eventId,
+      operatorId: params.operatorId,
+      targetType: 'op',
+      targetId: params.conflictOpId,
+      payload: { resolvedConflictOpId: params.conflictOpId, note: params.note ?? null },
+      clientAt: params.clientAt,
+    },
+    async () => ({ result: 'applied' as const })
+  );
+}
+
+// --- Módulo /caja: reportes de utilidad/margen/comparativas/horas punta (§12, Fase 4) ---
+
+/** Utilidad/margen por producto de un evento -- unitCost queda congelado al
+ * momento de la venta (§12), así que si el costo cambia después esto sigue
+ * reflejando la utilidad real de ESE evento, no la de hoy. */
+export async function getProfitReport(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const rows = await db.select({
+    ticketTypeId: orderItems.ticketTypeId,
+    quantity: orderItems.quantity,
+    unitPrice: orderItems.unitPrice,
+    unitCost: orderItems.unitCost,
+  }).from(orderItems)
+    .innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved')));
+
+  const allTicketTypes = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
+  const ttById = new Map<number, any>(allTicketTypes.map((t: any) => [t.id, t]));
+
+  const byType = new Map<number, { name: string; unitsSold: number; revenue: number; cost: number; hasCost: boolean }>();
+  for (const r of rows) {
+    const tt = ttById.get(r.ticketTypeId);
+    const entry = byType.get(r.ticketTypeId) ?? { name: tt?.name ?? `#${r.ticketTypeId}`, unitsSold: 0, revenue: 0, cost: 0, hasCost: false };
+    entry.unitsSold += r.quantity;
+    entry.revenue += Number(r.unitPrice) * r.quantity;
+    if (r.unitCost != null) { entry.cost += Number(r.unitCost) * r.quantity; entry.hasCost = true; }
+    byType.set(r.ticketTypeId, entry);
+  }
+
+  return Array.from(byType.values())
+    .map((e) => ({
+      name: e.name,
+      unitsSold: e.unitsSold,
+      revenue: e.revenue,
+      cost: e.hasCost ? e.cost : null,
+      profit: e.hasCost ? e.revenue - e.cost : null,
+      marginPercent: e.hasCost && e.revenue > 0 ? Math.round(((e.revenue - e.cost) / e.revenue) * 1000) / 10 : null,
+    }))
+    .sort((a, b) => b.revenue - a.revenue);
+}
+
+/** Comparativa simple entre eventos: ingresos, utilidad (donde haya costo
+ * cargado) y entradas vendidas por evento, más reciente primero. */
+export async function getEventComparison() {
+  const db = await getDb();
+  if (!db) return [];
+
+  const allEvents = await db.select().from(events).orderBy(desc(events.eventDate));
+  const rows = await db.select({
+    eventId: orders.eventId,
+    quantity: orderItems.quantity,
+    unitPrice: orderItems.unitPrice,
+    unitCost: orderItems.unitCost,
+  }).from(orderItems)
+    .innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .where(eq(orders.paymentStatus, 'approved'));
+
+  const byEvent = new Map<number, { revenue: number; cost: number; hasCost: boolean; unitsSold: number }>();
+  for (const r of rows) {
+    const entry = byEvent.get(r.eventId) ?? { revenue: 0, cost: 0, hasCost: false, unitsSold: 0 };
+    entry.revenue += Number(r.unitPrice) * r.quantity;
+    entry.unitsSold += r.quantity;
+    if (r.unitCost != null) { entry.cost += Number(r.unitCost) * r.quantity; entry.hasCost = true; }
+    byEvent.set(r.eventId, entry);
+  }
+
+  return allEvents.map((e: any) => {
+    const agg = byEvent.get(e.id);
+    return {
+      eventId: e.id,
+      title: e.title,
+      eventDate: e.eventDate,
+      revenue: agg?.revenue ?? 0,
+      unitsSold: agg?.unitsSold ?? 0,
+      profit: agg?.hasCost ? agg.revenue - agg.cost : null,
+    };
+  });
+}
+
+/** Histograma de operaciones por hora del día (0-23), del ledger completo
+ * del evento -- "horas punta" sale gratis de `ops`, sin tabla nueva. */
+export async function getPeakHours(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ serverAt: ops.serverAt }).from(ops).where(eq(ops.eventId, eventId));
+  const counts = new Array(24).fill(0);
+  for (const r of rows) counts[new Date(r.serverAt).getHours()]++;
+  return counts.map((count, hour) => ({ hour, count }));
+}
+
+/** Auditoría: el ledger completo de un evento, filtrable, con nombre de
+ * operador ya resuelto (§11). */
+export async function getLedger(eventId: number, filters: { operatorId?: number; type?: string; dateFrom?: string; dateTo?: string } = {}) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conditions = [eq(ops.eventId, eventId)];
+  if (filters.operatorId) conditions.push(eq(ops.operatorId, filters.operatorId));
+  if (filters.type) conditions.push(eq(ops.type, filters.type as any));
+  if (filters.dateFrom) conditions.push(gte(ops.serverAt, new Date(filters.dateFrom)));
+  if (filters.dateTo) conditions.push(lte(ops.serverAt, new Date(filters.dateTo)));
+
+  const rows = await db.select().from(ops).where(and(...conditions)).orderBy(desc(ops.serverAt)).limit(500);
+  const operatorIds = Array.from(new Set(rows.map((r: any) => r.operatorId)));
+  const opRows = operatorIds.length ? await db.select().from(operators).where(inArray(operators.id, operatorIds)) : [];
+  const opById = new Map<number, any>(opRows.map((o: any) => [o.id, o]));
+
+  return rows.map((r: any) => ({
+    id: r.id,
+    type: r.type,
+    operatorName: opById.get(r.operatorId)?.name ?? 'Operador eliminado',
+    registerId: r.registerId,
+    targetType: r.targetType,
+    targetId: r.targetId,
+    result: r.result,
+    conflictNote: r.conflictNote,
+    serverAt: r.serverAt,
+  }));
 }

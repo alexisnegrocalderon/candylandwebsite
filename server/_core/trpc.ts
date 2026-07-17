@@ -61,3 +61,22 @@ export const operatorProcedure = t.procedure.use(
     });
   }),
 );
+
+// Como operatorProcedure, pero solo para supervisor/admin -- anulaciones y
+// resolución de conflictos (docs/ARQUITECTURA-CAJA.md §3.2).
+export const supervisorProcedure = operatorProcedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+
+    if (!ctx.operator || (ctx.operator.role !== 'supervisor' && ctx.operator.role !== 'admin')) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Se requiere rol de supervisor" });
+    }
+
+    return next({
+      ctx: {
+        ...ctx,
+        operator: ctx.operator,
+      },
+    });
+  }),
+);

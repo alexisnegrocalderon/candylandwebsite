@@ -730,6 +730,201 @@ function ReferralsView() {
   );
 }
 
+function CajaAdminView() {
+  const { data: eventsData } = trpc.events.listAll.useQuery();
+  const events = eventsData ?? [];
+  const [eventId, setEventId] = useState<number | null>(null);
+  const activeEventId = eventId ?? events[0]?.id ?? null;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="font-heading text-2xl">Caja</h2>
+        {events.length > 0 && (
+          <Select value={String(activeEventId)} onValueChange={(v) => setEventId(Number(v))}>
+            <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      <OperatorsManager />
+      {activeEventId && <ProfitReport eventId={activeEventId} />}
+      <EventComparisonReport />
+      {activeEventId && <PeakHoursReport eventId={activeEventId} />}
+      {activeEventId && <LedgerView eventId={activeEventId} />}
+    </div>
+  );
+}
+
+function OperatorsManager() {
+  const { data: operators, refetch } = trpc.operators.listAll.useQuery();
+  const create = trpc.operators.create.useMutation({ onSuccess: () => { refetch(); toast.success('Operador creado'); setForm({ name: '', pin: '', role: 'caja' }); }, onError: onMutationError });
+  const update = trpc.operators.update.useMutation({ onSuccess: () => { refetch(); toast.success('Actualizado'); }, onError: onMutationError });
+  const [form, setForm] = useState({ name: '', pin: '', role: 'caja' as 'admin' | 'supervisor' | 'caja' | 'barra' | 'acceso' });
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Operadores</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+          <div><Label>Nombre</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" /></div>
+          <div><Label>PIN (4-8 dígitos)</Label><Input value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} className="mt-1" maxLength={8} /></div>
+          <div>
+            <Label>Rol</Label>
+            <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v as any })}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="caja">Caja</SelectItem>
+                <SelectItem value="supervisor">Supervisor</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="barra">Barra</SelectItem>
+                <SelectItem value="acceso">Control acceso</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button disabled={!form.name || form.pin.length < 4 || create.isPending} onClick={() => create.mutate(form)}>Crear operador</Button>
+        </div>
+        <div className="space-y-2">
+          {(operators ?? []).map((op: any) => (
+            <div key={op.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/50">
+              <div>
+                <p className="font-medium">{op.name}</p>
+                <p className="text-xs text-muted-foreground capitalize">{op.role} · {op.active ? 'activo' : 'inactivo'}</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => update.mutate({ id: op.id, active: op.active ? 0 : 1 })}>
+                {op.active ? 'Desactivar' : 'Activar'}
+              </Button>
+            </div>
+          ))}
+          {operators && operators.length === 0 && <p className="text-sm text-muted-foreground">Sin operadores todavía.</p>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProfitReport({ eventId }: { eventId: number }) {
+  const { data } = trpc.cajaReports.profit.useQuery({ eventId });
+  const rows = data ?? [];
+  const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
+  const totalProfit = rows.reduce((s, r) => s + (r.profit ?? 0), 0);
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Utilidad y margen por producto</CardTitle></CardHeader>
+      <CardContent>
+        <p className="text-sm text-muted-foreground mb-3">Ingresos totales: ${totalRevenue.toLocaleString('es-CL')} · Utilidad total: ${totalProfit.toLocaleString('es-CL')} <span className="text-xs">(solo productos con costo cargado)</span></p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-muted-foreground border-b border-border/50">
+              <th className="py-2">Producto</th><th>Unidades</th><th>Ingresos</th><th>Costo</th><th>Utilidad</th><th>Margen</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className="border-b border-border/30">
+                  <td className="py-2">{r.name}</td>
+                  <td>{r.unitsSold}</td>
+                  <td>${r.revenue.toLocaleString('es-CL')}</td>
+                  <td>{r.cost != null ? `$${r.cost.toLocaleString('es-CL')}` : '—'}</td>
+                  <td>{r.profit != null ? `$${r.profit.toLocaleString('es-CL')}` : '—'}</td>
+                  <td>{r.marginPercent != null ? `${r.marginPercent}%` : '—'}</td>
+                </tr>
+              ))}
+              {rows.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-muted-foreground">Sin ventas todavía.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EventComparisonReport() {
+  const { data } = trpc.cajaReports.eventComparison.useQuery();
+  const rows = data ?? [];
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Comparativa entre eventos</CardTitle></CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="text-left text-muted-foreground border-b border-border/50">
+            <th className="py-2">Evento</th><th>Fecha</th><th>Entradas vendidas</th><th>Ingresos</th><th>Utilidad</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r: any) => (
+              <tr key={r.eventId} className="border-b border-border/30">
+                <td className="py-2">{r.title}</td>
+                <td>{new Date(r.eventDate).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</td>
+                <td>{r.unitsSold}</td>
+                <td>${r.revenue.toLocaleString('es-CL')}</td>
+                <td>{r.profit != null ? `$${r.profit.toLocaleString('es-CL')}` : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PeakHoursReport({ eventId }: { eventId: number }) {
+  const { data } = trpc.cajaReports.peakHours.useQuery({ eventId });
+  const rows = data ?? [];
+  const max = Math.max(1, ...rows.map((r) => r.count));
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Horas punta</CardTitle></CardHeader>
+      <CardContent>
+        <div className="flex items-end gap-1 h-32">
+          {rows.map((r) => (
+            <div key={r.hour} className="flex-1 flex flex-col items-center justify-end gap-1">
+              <div className="w-full bg-primary/60 rounded-t" style={{ height: `${(r.count / max) * 100}%`, minHeight: r.count > 0 ? 4 : 0 }} />
+              <span className="text-[10px] text-muted-foreground">{r.hour}</span>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">Operaciones de caja (canjes + ventas) por hora del día.</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LedgerView({ eventId }: { eventId: number }) {
+  const { data } = trpc.cajaReports.ledger.useQuery({ eventId });
+  const rows = data ?? [];
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Auditoría (ledger)</CardTitle></CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="text-left text-muted-foreground border-b border-border/50">
+            <th className="py-2">Fecha</th><th>Tipo</th><th>Operador</th><th>Objetivo</th><th>Resultado</th>
+          </tr></thead>
+          <tbody>
+            {rows.slice(0, 100).map((r: any) => (
+              <tr key={r.id} className="border-b border-border/30">
+                <td className="py-2">{new Date(r.serverAt).toLocaleString('es-CL')}</td>
+                <td className="capitalize">{r.type}</td>
+                <td>{r.operatorName}</td>
+                <td className="font-mono text-xs">{r.targetId}</td>
+                <td className={r.result === 'applied' ? 'text-green-500' : r.result === 'conflict' ? 'text-yellow-500' : 'text-red-500'}>{r.result}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">Sin operaciones todavía.</td></tr>}
+          </tbody>
+        </table>
+        {rows.length >= 500 && <p className="text-xs text-muted-foreground mt-2">Mostrando las 500 más recientes.</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
 function SettingsManager() {
   const { data: settings, refetch } = trpc.settings.get.useQuery();
   const updateSettings = trpc.settings.update.useMutation({ onSuccess: () => { refetch(); toast.success('Ajustes guardados'); }, onError: onMutationError });
@@ -873,6 +1068,7 @@ export default function AdminDashboard() {
               <TabsTrigger value="discounts">Descuentos</TabsTrigger>
               <TabsTrigger value="community">Códigos Comunidad</TabsTrigger>
               <TabsTrigger value="referrals">Referidos</TabsTrigger>
+              <TabsTrigger value="caja">Caja</TabsTrigger>
               <TabsTrigger value="settings">Ajustes</TabsTrigger>
             </TabsList>
 
@@ -881,6 +1077,7 @@ export default function AdminDashboard() {
             <TabsContent value="discounts"><DiscountsManager /></TabsContent>
             <TabsContent value="community"><CommunityCodesManager /></TabsContent>
             <TabsContent value="referrals"><ReferralsView /></TabsContent>
+            <TabsContent value="caja"><CajaAdminView /></TabsContent>
             <TabsContent value="settings"><SettingsManager /></TabsContent>
           </Tabs>
         </motion.div>

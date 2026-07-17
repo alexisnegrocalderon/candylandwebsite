@@ -2,7 +2,7 @@ import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS } from "@sh
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk, ADMIN_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, operatorProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, operatorProcedure, supervisorProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
@@ -10,6 +10,7 @@ import { getMission300Status, evaluateMission300, processCardPaymentForOrder, co
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { redeemDisplayCode } from "./caja/redeem";
 import { createCajaSale } from "./caja/sale";
+import { voidTicketCode } from "./caja/void";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
@@ -405,6 +406,46 @@ export const appRouter = router({
       }
       return results;
     }),
+
+    // Anulación con motivo -- solo supervisor/admin (docs/ARQUITECTURA-CAJA.md §3.2).
+    voidCode: supervisorProcedure.input(z.object({
+      opId: z.string(),
+      eventId: z.number(),
+      displayCode: z.string().min(1),
+      reason: z.string().min(3, 'El motivo es obligatorio'),
+      registerId: z.number().optional(),
+      clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      if (!ctx.operator) throw new TRPCError({ code: 'UNAUTHORIZED' });
+      return voidTicketCode(rawDb, {
+        opId: input.opId, displayCode: input.displayCode, eventId: input.eventId,
+        operatorId: ctx.operator.operatorId, registerId: input.registerId, reason: input.reason,
+        clientAt: new Date(input.clientAt),
+      });
+    }),
+
+    // Cola de conflictos para el supervisor (§8): canjes dobles todavía sin
+    // revisar. "Resuelto" = existe un op manual_adjust posterior que lo referencia.
+    conflictQueue: supervisorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getConflictQueue(input.eventId);
+    }),
+    resolveConflict: supervisorProcedure.input(z.object({
+      opId: z.string(),
+      eventId: z.number(),
+      conflictOpId: z.string(),
+      note: z.string().optional(),
+      clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      if (!ctx.operator) throw new TRPCError({ code: 'UNAUTHORIZED' });
+      return db.resolveConflict(rawDb, {
+        opId: input.opId, eventId: input.eventId, operatorId: ctx.operator.operatorId,
+        conflictOpId: input.conflictOpId, note: input.note, clientAt: new Date(input.clientAt),
+      });
+    }),
     redeem: operatorProcedure.input(z.object({
       opId: z.string(),
       eventId: z.number(),
@@ -472,6 +513,29 @@ export const appRouter = router({
       const { id, pin, ...rest } = input;
       await db.updateOperator(id, { ...rest, ...(pin ? { pinHash: hashPin(pin) } : {}) });
       return { success: true } as const;
+    }),
+  }),
+
+  // Reportes y auditoría de /caja desde /admin (docs/ARQUITECTURA-CAJA.md §11, Fase 4).
+  cajaReports: router({
+    profit: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getProfitReport(input.eventId);
+    }),
+    eventComparison: adminProcedure.query(async () => {
+      return db.getEventComparison();
+    }),
+    peakHours: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getPeakHours(input.eventId);
+    }),
+    ledger: adminProcedure.input(z.object({
+      eventId: z.number(),
+      operatorId: z.number().optional(),
+      type: z.string().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+    })).query(async ({ input }) => {
+      const { eventId, ...filters } = input;
+      return db.getLedger(eventId, filters);
     }),
   }),
 });
