@@ -1,4 +1,4 @@
-import { eq, desc, and, sql, or, gte, lte } from "drizzle-orm";
+import { eq, desc, and, sql, or, gte, lte, like, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -725,4 +725,129 @@ export async function updateOperator(id: number, input: Partial<InsertOperator>)
   const db = await getDb();
   if (!db) return;
   await db.update(operators).set(input).where(eq(operators.id, id));
+}
+
+// --- Módulo /caja: pantallas de solo lectura (docs/ARQUITECTURA-CAJA.md §10.2, Fase 2) ---
+
+/** Evento "en curso" para la tablet de caja: el publicado/agotado con fecha
+ * más cercana a ahora (antes o después) -- funciona bien el mismo día del
+ * evento sin necesitar que alguien lo seleccione a mano. */
+export async function getActiveEventForCaja() {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(events).where(or(eq(events.status, 'published'), eq(events.status, 'soldout')));
+  if (rows.length === 0) return undefined;
+  const now = Date.now();
+  return rows.reduce((best: any, r: any) =>
+    Math.abs(new Date(r.eventDate).getTime() - now) < Math.abs(new Date(best.eventDate).getTime() - now) ? r : best
+  , rows[0]);
+}
+
+/** Búsqueda de la pantalla principal de caja: primero intenta match exacto
+ * por código (QR de acceso o displayCode de un extra); si no hay, busca por
+ * nombre/email/teléfono. Solo dentro del evento activo, solo órdenes aprobadas. */
+export async function searchCajaCustomers(eventId: number, query: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const q = query.trim();
+  if (!q) return [];
+  const qUpper = q.toUpperCase();
+
+  const [byCode] = await db.select().from(tickets).where(and(eq(tickets.eventId, eventId), or(eq(tickets.ticketCode, qUpper), eq(tickets.displayCode, qUpper)))).limit(1);
+  let orderIds: number[];
+  if (byCode) {
+    orderIds = [byCode.orderId];
+  } else {
+    const pattern = `%${q}%`;
+    const rows = await db.select({ id: orders.id }).from(orders).where(and(
+      eq(orders.eventId, eventId),
+      eq(orders.paymentStatus, 'approved'),
+      or(like(orders.buyerName, pattern), like(orders.buyerEmail, pattern), like(orders.buyerPhone, pattern))
+    )).limit(20);
+    orderIds = rows.map((r: any) => r.id);
+  }
+  if (orderIds.length === 0) return [];
+
+  const rows = await db.select().from(orders).where(inArray(orders.id, orderIds));
+  return rows.map((o: any) => ({ orderId: o.id, orderNumber: o.orderNumber, buyerName: o.buyerName, buyerEmail: o.buyerEmail, buyerPhone: o.buyerPhone }));
+}
+
+/** Ficha del cliente (§10.2.3): accesos con su estado y extras con su código
+ * de canje + estado, para una orden puntual. */
+export async function getCajaCustomerSheet(orderId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  if (!order) return null;
+
+  const orderTickets = await db.select().from(tickets).where(eq(tickets.orderId, orderId));
+  const ticketTypeIds = Array.from(new Set(orderTickets.map((t: any) => t.ticketTypeId)));
+  const tts = ticketTypeIds.length ? await db.select().from(ticketTypes).where(inArray(ticketTypes.id, ticketTypeIds)) : [];
+  const ttById = new Map<number, any>(tts.map((t: any) => [t.id, t]));
+
+  const access = orderTickets
+    .filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'acceso')
+    .map((t: any) => ({ ticketCode: t.ticketCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name }));
+
+  const extras = orderTickets
+    .filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'extra')
+    .map((t: any) => ({ displayCode: t.displayCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name, usedAt: t.usedAt }));
+
+  return {
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+    buyerName: order.buyerName,
+    buyerEmail: order.buyerEmail,
+    buyerPhone: order.buyerPhone,
+    paymentStatus: order.paymentStatus,
+    channel: order.channel,
+    createdAt: order.createdAt,
+    access,
+    extras,
+  };
+}
+
+/** Catálogo de "Nueva venta" (§10.2.4): solo extras activos del evento. */
+export async function getCajaCatalog(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(ticketTypes).where(and(eq(ticketTypes.eventId, eventId), eq(ticketTypes.category, 'extra'), eq(ticketTypes.status, 'active')));
+}
+
+/** Dashboard de caja (§10.2.5): ventas del día, top productos, últimas ventas, canjes. */
+export async function getCajaDashboard(eventId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const cajaOrders = await db.select().from(orders).where(and(eq(orders.eventId, eventId), eq(orders.channel, 'caja'), eq(orders.paymentStatus, 'approved')));
+  const totalSales = cajaOrders.reduce((s: number, o: any) => s + Number(o.total), 0);
+
+  const [{ count: redeemedCount }] = await db.select({ count: sql<number>`COUNT(*)` }).from(tickets).where(and(eq(tickets.eventId, eventId), eq(tickets.status, 'used')));
+
+  const items = await db.select({ ticketTypeId: orderItems.ticketTypeId, quantity: orderItems.quantity })
+    .from(orderItems)
+    .innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .where(and(eq(orders.eventId, eventId), eq(orders.channel, 'caja'), eq(orders.paymentStatus, 'approved')));
+  const qtyByType = new Map<number, number>();
+  for (const i of items) qtyByType.set(i.ticketTypeId, (qtyByType.get(i.ticketTypeId) || 0) + i.quantity);
+  const ttIds = Array.from(qtyByType.keys());
+  const tts = ttIds.length ? await db.select().from(ticketTypes).where(inArray(ticketTypes.id, ttIds)) : [];
+  const topProducts = tts
+    .map((t: any) => ({ name: t.name, quantity: qtyByType.get(t.id) || 0 }))
+    .sort((a: any, b: any) => b.quantity - a.quantity)
+    .slice(0, 5);
+
+  const recentSales = [...cajaOrders]
+    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 10)
+    .map((o: any) => ({ orderNumber: o.orderNumber, total: Number(o.total), createdAt: o.createdAt, paymentMethod: o.paymentMethod }));
+
+  return {
+    totalSales,
+    salesCount: cajaOrders.length,
+    redeemedCount: Number(redeemedCount),
+    topProducts,
+    recentSales,
+  };
 }

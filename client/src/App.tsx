@@ -19,6 +19,7 @@ const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess"));
 const PaymentFailure = lazy(() => import("./pages/PaymentFailure"));
 const About = lazy(() => import("./pages/About"));
 const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
+const CajaApp = lazy(() => import("./pages/caja"));
 const MyReferrals = lazy(() => import("./pages/MyReferrals"));
 const Ticket = lazy(() => import("./pages/Ticket"));
 const Prices = lazy(() => import("./pages/Prices"));
@@ -69,6 +70,7 @@ function Router() {
           <Route path="/entradas" component={Prices} />
           <Route path="/politica-de-reembolso" component={RefundPolicy} />
           <Route path="/admin" component={AdminDashboard} />
+          <Route path="/caja" component={CajaApp} />
           <Route path="/404" component={NotFound} />
           <Route component={NotFound} />
         </Switch>
@@ -78,13 +80,19 @@ function Router() {
 }
 
 function App() {
+  // /caja es una pantalla táctil de operación, no una página del sitio: sin
+  // navbar público ni las animaciones decorativas del resto del sitio
+  // (docs/ARQUITECTURA-CAJA.md §10.1).
+  const [location] = useLocation();
+  const isCaja = location.startsWith('/caja');
+
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
-          <SmoothScroll />
-          <CustomCursor />
-          <Navbar />
+          {!isCaja && <SmoothScroll />}
+          {!isCaja && <CustomCursor />}
+          {!isCaja && <Navbar />}
           <Toaster />
           <Router />
         </TooltipProvider>

@@ -2,12 +2,14 @@ import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS } from "@sh
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk, ADMIN_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, operatorProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
 import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail } from "./webhooks";
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
+import { redeemDisplayCode } from "./caja/redeem";
+import { createCajaSale } from "./caja/sale";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
@@ -346,6 +348,66 @@ export const appRouter = router({
       return { success: true } as const;
     }),
     me: publicProcedure.query(({ ctx }) => ctx.operator),
+
+    // Pantallas de /caja (docs/ARQUITECTURA-CAJA.md Fase 2) — todas requieren
+    // sesión de operador vigente.
+    activeEvent: operatorProcedure.query(async () => {
+      return db.getActiveEventForCaja();
+    }),
+    search: operatorProcedure.input(z.object({ eventId: z.number(), query: z.string() })).query(async ({ input }) => {
+      return db.searchCajaCustomers(input.eventId, input.query);
+    }),
+    customerSheet: operatorProcedure.input(z.object({ orderId: z.number() })).query(async ({ input }) => {
+      return db.getCajaCustomerSheet(input.orderId);
+    }),
+    catalog: operatorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getCajaCatalog(input.eventId);
+    }),
+    dashboard: operatorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getCajaDashboard(input.eventId);
+    }),
+    redeem: operatorProcedure.input(z.object({
+      opId: z.string(),
+      eventId: z.number(),
+      displayCode: z.string().min(1),
+      registerId: z.number().optional(),
+      clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      return redeemDisplayCode(rawDb, {
+        opId: input.opId,
+        displayCode: input.displayCode,
+        eventId: input.eventId,
+        operatorId: ctx.operator.operatorId,
+        registerId: input.registerId,
+        clientAt: new Date(input.clientAt),
+      });
+    }),
+    sale: operatorProcedure.input(z.object({
+      opId: z.string(),
+      eventId: z.number(),
+      items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1),
+      paymentMethod: z.enum(['efectivo', 'debito', 'credito']),
+      registerId: z.number().optional(),
+      clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      try {
+        return await createCajaSale(rawDb, {
+          opId: input.opId,
+          eventId: input.eventId,
+          operatorId: ctx.operator.operatorId,
+          registerId: input.registerId,
+          items: input.items,
+          paymentMethod: input.paymentMethod,
+          clientAt: new Date(input.clientAt),
+        });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo registrar la venta' });
+      }
+    }),
   }),
 
   // Gestión de operadores desde /admin (docs/ARQUITECTURA-CAJA.md §11).
