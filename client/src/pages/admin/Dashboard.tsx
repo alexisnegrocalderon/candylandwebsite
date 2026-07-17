@@ -43,11 +43,12 @@ function fromChileInputValue(value: string): string {
 /* Debe coincidir con los ids de CANDYLAND.accesos (client/src/config/candyland.ts)
  * y con el enum accesoSlug del router — es lo que conecta cada entrada con la
  * pregunta correspondiente del checkout conversacional. */
-type AccesoSlug = 'duo' | 'soltera' | 'soltero' | 'trio' | 'grupo' | 'cumpleaneros';
+type AccesoSlug = 'duo' | 'duo_mujeres' | 'soltera' | 'soltero' | 'trio' | 'grupo' | 'cumpleaneros';
 const ACCESO_SLUG_OPTIONS: { value: AccesoSlug; label: string }[] = [
   { value: 'soltera', label: 'Soltera (ella sola)' },
   { value: 'soltero', label: 'Soltero (él solo)' },
   { value: 'duo', label: 'Dúo (pareja)' },
+  { value: 'duo_mujeres', label: 'Dúo Mujeres (2x1, mismo valor que Soltera)' },
   { value: 'trio', label: 'Trío' },
   { value: 'grupo', label: 'Grupo' },
   { value: 'cumpleaneros', label: 'Cumpleañeros' },

@@ -105,7 +105,7 @@ export const appRouter = router({
     createTicketType: adminProcedure.input(z.object({
       eventId: z.number(),
       name: z.string(),
-      accesoSlug: z.enum(['duo', 'soltera', 'soltero', 'trio', 'grupo', 'cumpleaneros']).optional(),
+      accesoSlug: z.enum(['duo', 'duo_mujeres', 'soltera', 'soltero', 'trio', 'grupo', 'cumpleaneros']).optional(),
       category: z.enum(['acceso', 'extra']).optional(),
       description: z.string().optional(),
       price: z.number(),
@@ -120,7 +120,7 @@ export const appRouter = router({
     updateTicketType: adminProcedure.input(z.object({
       id: z.number(),
       name: z.string().optional(),
-      accesoSlug: z.enum(['duo', 'soltera', 'soltero', 'trio', 'grupo', 'cumpleaneros']).optional(),
+      accesoSlug: z.enum(['duo', 'duo_mujeres', 'soltera', 'soltero', 'trio', 'grupo', 'cumpleaneros']).optional(),
       category: z.enum(['acceso', 'extra']).optional(),
       description: z.string().optional(),
       price: z.number().optional(),

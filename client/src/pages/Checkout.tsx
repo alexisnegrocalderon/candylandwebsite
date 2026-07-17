@@ -23,7 +23,7 @@ const STORAGE_KEY = 'candyland_checkout_draft';
 
 /* Emoji por acceso (usado en el resumen final) */
 const EMOJIS: Record<string, string> = {
-  duo: '🍒', soltera: '🍭', soltero: '🔑', trio: '🍬', grupo: '🌈', cumpleaneros: '🎂',
+  duo: '🍒', duo_mujeres: '👭', soltera: '🍭', soltero: '🔑', trio: '🍬', grupo: '🌈', cumpleaneros: '🎂',
 };
 
 type GroupSize = 1 | 2 | 3 | 4;
@@ -41,10 +41,10 @@ const QUIEN_OPTIONS: { slug: 'soltera' | 'soltero'; image: string; label: string
   { slug: 'soltero', image: '/candyland/checkout/quien-el.webp', label: 'Vengo como él', sub: 'Acceso Soltero — código de comunidad', emoji: '🔑' },
 ];
 
-const PAREJA_OPTIONS: { tipo: DuoComposicion; image: string; label: string; emoji: string }[] = [
-  { tipo: 'mixta', image: '/candyland/checkout/pareja-mixta.webp', label: 'Hombre y Mujer', emoji: '💑' },
-  { tipo: 'dos_mujeres', image: '/candyland/checkout/pareja-dos-mujeres.webp', label: 'Dos Mujeres', emoji: '👭' },
-  { tipo: 'dos_hombres', image: '/candyland/checkout/pareja-dos-hombres.webp', label: 'Dos Hombres', emoji: '👬' },
+const PAREJA_OPTIONS: { tipo: DuoComposicion; image: string; label: string; sub: string; emoji: string }[] = [
+  { tipo: 'mixta', image: '/candyland/checkout/pareja-mixta.webp', label: 'Mujer y Hombre', sub: 'Acceso Dúo', emoji: '💑' },
+  { tipo: 'dos_mujeres', image: '/candyland/checkout/pareja-dos-mujeres.webp', label: 'Mujer y Mujer', sub: '2x1 — mismo valor que Soltera', emoji: '👭' },
+  { tipo: 'dos_hombres', image: '/candyland/checkout/pareja-dos-hombres.webp', label: 'Hombre y Hombre', sub: 'Exclusivo — necesitas código de comunidad', emoji: '👬' },
 ];
 
 const GROUP_TO_ACCESO: Record<3 | 4, string> = { 3: 'trio', 4: 'grupo' };
@@ -353,9 +353,13 @@ export default function Checkout() {
     continuar();
   };
   const choosePareja = (tipo: DuoComposicion) => {
-    if (!avisarSiNoHayEntrada('duo')) return;
+    // Mujer y Mujer es su propio acceso ("duo_mujeres" -- 2x1, mismo valor
+    // que Soltera pero cuenta 2 personas hacia Misión 300, ver
+    // shared/mission300.ts). Las otras dos composiciones siguen siendo "duo".
+    const slug = tipo === 'dos_mujeres' ? 'duo_mujeres' : 'duo';
+    if (!avisarSiNoHayEntrada(slug)) return;
     setDuoComposicion(tipo);
-    setAccesoSlug('duo');
+    setAccesoSlug(slug);
     continuar();
   };
 
@@ -416,7 +420,7 @@ export default function Checkout() {
         p.push({ id: 'quien', titulo: 'Perfecto.', sub: 'Cuéntanos cómo vienes.', keys: [] });
       }
       if (groupSize === 2) {
-        p.push({ id: 'pareja-composicion', titulo: '¿Cómo es la pareja?', sub: 'Cuéntanos quiénes vienen.', keys: [] });
+        p.push({ id: 'pareja-composicion', titulo: 'Elige tu tipo de acceso', sub: 'Cuéntanos quiénes vienen.', keys: [] });
       }
     }
     for (const f of CAMPOS_COMPRADOR) {
@@ -872,6 +876,7 @@ export default function Checkout() {
                       key={op.tipo}
                       image={op.image}
                       titulo={op.label}
+                      sub={op.sub}
                       fallbackEmoji={op.emoji}
                       activo={duoComposicion === op.tipo}
                       onClick={() => choosePareja(op.tipo)}
