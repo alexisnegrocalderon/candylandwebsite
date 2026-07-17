@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
@@ -529,12 +529,18 @@ export async function createOrder(input: {
   return { orderId, orderNumber, total, isFree };
 }
 
-export async function getAllOrders(page: number = 1, limit: number = 50, status?: string) {
+/** `channel`: 'web' = ventas del sitio (incluye 'import', la migración de la
+ * ticketera anterior -- nunca fueron ventas de caja); 'caja' = solo ventas
+ * presenciales. Nunca se mezclan en pantalla (pedido explícito del usuario). */
+export async function getAllOrders(page: number = 1, limit: number = 50, status?: string, channel?: 'web' | 'caja') {
   const db = await getDb();
   if (!db) return { orders: [], total: 0 };
 
   const offset = (page - 1) * limit;
-  const conditions = status ? [eq(orders.paymentStatus, status as any)] : [];
+  const conditions = [];
+  if (status) conditions.push(eq(orders.paymentStatus, status as any));
+  if (channel === 'caja') conditions.push(eq(orders.channel, 'caja'));
+  else if (channel === 'web') conditions.push(sql`${orders.channel} != 'caja'`);
   const query = db.select().from(orders)
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(orders.createdAt)).limit(limit).offset(offset);
@@ -566,7 +572,7 @@ export async function getOrderTickets(orderId: number) {
 }
 
 // Export completo (sin paginar) para CSV — filtra por evento/rango de fechas/estado.
-export async function getOrdersForExport(filters: { eventId?: number; dateFrom?: string; dateTo?: string; status?: string }) {
+export async function getOrdersForExport(filters: { eventId?: number; dateFrom?: string; dateTo?: string; status?: string; channel?: 'web' | 'caja' }) {
   const db = await getDb();
   if (!db) return [];
 
@@ -575,6 +581,8 @@ export async function getOrdersForExport(filters: { eventId?: number; dateFrom?:
   if (filters.status) conditions.push(eq(orders.paymentStatus, filters.status as any));
   if (filters.dateFrom) conditions.push(gte(orders.createdAt, new Date(filters.dateFrom)));
   if (filters.dateTo) conditions.push(lte(orders.createdAt, new Date(filters.dateTo)));
+  if (filters.channel === 'caja') conditions.push(eq(orders.channel, 'caja'));
+  else if (filters.channel === 'web') conditions.push(sql`${orders.channel} != 'caja'`);
 
   const rows = await db.select({
     orderNumber: orders.orderNumber,
@@ -597,15 +605,16 @@ export async function getOrdersForExport(filters: { eventId?: number; dateFrom?:
   return rows;
 }
 
-export async function getOrderStats() {
+export async function getOrderStats(channel?: 'web' | 'caja') {
   const db = await getDb();
   if (!db) return { totalOrders: 0, totalRevenue: 0, approvedOrders: 0 };
 
+  const where = channel === 'caja' ? eq(orders.channel, 'caja') : channel === 'web' ? sql`${orders.channel} != 'caja'` : undefined;
   const [stats] = await db.select({
     totalOrders: sql<number>`COUNT(*)`,
     totalRevenue: sql<number>`COALESCE(SUM(CASE WHEN paymentStatus = 'approved' THEN total ELSE 0 END), 0)`,
     approvedOrders: sql<number>`SUM(CASE WHEN paymentStatus = 'approved' THEN 1 ELSE 0 END)`,
-  }).from(orders);
+  }).from(orders).where(where);
 
   return stats;
 }
@@ -774,6 +783,48 @@ export async function recordIpFailedAttempt(key: string) {
   const lockedUntil = attempts >= IP_RATE_LIMIT_MAX_ATTEMPTS ? new Date(Date.now() + IP_RATE_LIMIT_LOCKOUT_MS) : (row?.lockedUntil ?? null);
   await db.insert(rateLimits).values({ key, attempts, lockedUntil })
     .onDuplicateKeyUpdate({ set: { attempts, lockedUntil } });
+}
+
+// --- Enrolamiento de dispositivos (pedido explícito del usuario) ---
+
+export async function createDeviceEnrollment(name: string, enrollCode: string, enrollCodeExpiresAt: Date) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [result] = await db.insert(devices).values({ name, enrollCode, enrollCodeExpiresAt });
+  return (result as unknown as { insertId: number }).insertId;
+}
+
+export async function getDeviceByEnrollCode(code: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [device] = await db.select().from(devices).where(eq(devices.enrollCode, code)).limit(1);
+  return device;
+}
+
+export async function completeDeviceEnrollment(deviceId: number, deviceTokenHash: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(devices).set({ enrolled: 1, deviceTokenHash, enrollCode: null, enrollCodeExpiresAt: null, lastSeenAt: new Date() }).where(eq(devices.id, deviceId));
+}
+
+export async function getDeviceById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [device] = await db.select().from(devices).where(eq(devices.id, id)).limit(1);
+  return device;
+}
+
+export async function listAllDevices() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ id: devices.id, name: devices.name, enrolled: devices.enrolled, active: devices.active, createdAt: devices.createdAt, lastSeenAt: devices.lastSeenAt })
+    .from(devices).orderBy(desc(devices.createdAt));
+}
+
+export async function updateDeviceActive(id: number, active: 0 | 1) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(devices).set({ active }).where(eq(devices.id, id));
 }
 
 // --- Módulo /caja: pantallas de solo lectura (docs/ARQUITECTURA-CAJA.md §10.2, Fase 2) ---

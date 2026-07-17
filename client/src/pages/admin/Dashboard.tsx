@@ -525,14 +525,14 @@ function CommunityCodesManager() {
   );
 }
 
-function OrdersView() {
+function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
 
-  const { data: ordersData } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter });
-  const { data: stats } = trpc.orders.getStats.useQuery();
+  const { data: ordersData } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter, channel });
+  const { data: stats } = trpc.orders.getStats.useQuery({ channel });
   const { data: orderTickets, isFetching: loadingTickets } = trpc.orders.getTickets.useQuery(
     { orderId: expandedOrderId ?? 0 },
     { enabled: expandedOrderId !== null }
@@ -550,13 +550,14 @@ function OrdersView() {
     if (statusFilter !== 'all') params.set('status', statusFilter);
     if (dateFrom) params.set('dateFrom', dateFrom);
     if (dateTo) params.set('dateTo', dateTo);
+    params.set('channel', channel);
     return `/api/admin/orders/export.csv?${params.toString()}`;
   };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-heading text-2xl">Ventas</h2>
+        <h2 className="font-heading text-2xl">{channel === 'caja' ? 'Ventas en Caja' : 'Ventas Web'}</h2>
         <div className="flex flex-wrap items-center gap-2">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
@@ -752,6 +753,7 @@ function CajaAdminView() {
 
       <OperatorsManager />
       <RegistersManager />
+      <DevicesManager />
       {activeEventId && <ProfitReport eventId={activeEventId} />}
       <EventComparisonReport />
       {activeEventId && <PeakHoursReport eventId={activeEventId} />}
@@ -825,6 +827,47 @@ function RegistersManager() {
             <span key={r.id} className="text-sm px-3 py-1 rounded-full bg-muted/30 border border-border/50">{r.name}{!r.active ? ' (inactiva)' : ''}</span>
           ))}
           {registersList && registersList.length === 0 && <p className="text-sm text-muted-foreground">Sin cajas creadas todavía -- los operadores podrán entrar "sin caja asignada".</p>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DevicesManager() {
+  const { data: devicesList, refetch } = trpc.devices.listAll.useQuery();
+  const create = trpc.devices.create.useMutation({ onSuccess: (res) => { refetch(); setName(''); setLastCode(res.enrollCode); }, onError: onMutationError });
+  const setActive = trpc.devices.setActive.useMutation({ onSuccess: () => { refetch(); toast.success('Actualizado'); }, onError: onMutationError });
+  const [name, setName] = useState('');
+  const [lastCode, setLastCode] = useState<string | null>(null);
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Dispositivos enrolados</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">Solo las tablets/navegadores enrolados acá pueden llegar a la pantalla de PIN de /caja. Genera un código, dáselo a quien configura el dispositivo -- lo canjea una sola vez y vence a las 24h.</p>
+        <div className="flex gap-2">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tablet Caja 1" className="max-w-xs" />
+          <Button disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ name: name.trim() })}>Generar código</Button>
+        </div>
+        {lastCode && (
+          <div className="p-4 rounded-lg bg-primary/10 border border-primary/30">
+            <p className="text-xs text-muted-foreground mb-1">Código de enrolamiento (cópialo ahora, no se vuelve a mostrar):</p>
+            <p className="text-2xl font-mono font-bold tracking-wider">{lastCode}</p>
+          </div>
+        )}
+        <div className="space-y-2">
+          {(devicesList ?? []).map((d: any) => (
+            <div key={d.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/50">
+              <div>
+                <p className="font-medium">{d.name}</p>
+                <p className="text-xs text-muted-foreground">{d.enrolled ? 'Enrolado' : 'Código sin canjear'} · {d.active ? 'activo' : 'revocado'}</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setActive.mutate({ id: d.id, active: d.active ? 0 : 1 })}>
+                {d.active ? 'Revocar' : 'Reactivar'}
+              </Button>
+            </div>
+          ))}
+          {devicesList && devicesList.length === 0 && <p className="text-sm text-muted-foreground">Sin dispositivos enrolados todavía.</p>}
         </div>
       </CardContent>
     </Card>
@@ -1089,7 +1132,8 @@ export default function AdminDashboard() {
           <Tabs defaultValue="events" className="space-y-6">
             <TabsList className="bg-card border border-border/50">
               <TabsTrigger value="events">Eventos</TabsTrigger>
-              <TabsTrigger value="orders">Ventas</TabsTrigger>
+              <TabsTrigger value="orders-web">Ventas Web</TabsTrigger>
+              <TabsTrigger value="orders-caja">Ventas Caja</TabsTrigger>
               <TabsTrigger value="discounts">Descuentos</TabsTrigger>
               <TabsTrigger value="community">Códigos Comunidad</TabsTrigger>
               <TabsTrigger value="referrals">Referidos</TabsTrigger>
@@ -1098,7 +1142,8 @@ export default function AdminDashboard() {
             </TabsList>
 
             <TabsContent value="events"><EventsManager /></TabsContent>
-            <TabsContent value="orders"><OrdersView /></TabsContent>
+            <TabsContent value="orders-web"><OrdersView channel="web" /></TabsContent>
+            <TabsContent value="orders-caja"><OrdersView channel="caja" /></TabsContent>
             <TabsContent value="discounts"><DiscountsManager /></TabsContent>
             <TabsContent value="community"><CommunityCodesManager /></TabsContent>
             <TabsContent value="referrals"><ReferralsView /></TabsContent>

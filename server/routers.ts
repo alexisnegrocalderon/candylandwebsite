@@ -1,13 +1,14 @@
-import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS, CAJA_DEVICE_COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk, ADMIN_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, operatorProcedure, supervisorProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
 import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail } from "./webhooks";
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
+import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
 import { redeemDisplayCode } from "./caja/redeem";
 import { createCajaSale } from "./caja/sale";
 import { voidTicketCode } from "./caja/void";
@@ -196,11 +197,12 @@ export const appRouter = router({
       page: z.number().optional(),
       limit: z.number().optional(),
       status: z.string().optional(),
+      channel: z.enum(['web', 'caja']).optional(),
     }).optional()).query(async ({ input }) => {
-      return db.getAllOrders(input?.page ?? 1, input?.limit ?? 50, input?.status);
+      return db.getAllOrders(input?.page ?? 1, input?.limit ?? 50, input?.status, input?.channel);
     }),
-    getStats: adminProcedure.query(async () => {
-      return db.getOrderStats();
+    getStats: adminProcedure.input(z.object({ channel: z.enum(['web', 'caja']).optional() }).optional()).query(async ({ input }) => {
+      return db.getOrderStats(input?.channel);
     }),
     getTickets: adminProcedure.input(z.object({ orderId: z.number() })).query(async ({ input }) => {
       return db.getOrderTickets(input.orderId);
@@ -329,11 +331,32 @@ export const appRouter = router({
   // Módulo /caja — login por PIN de operadores (docs/ARQUITECTURA-CAJA.md
   // Fase 0). Sesión separada de auth.adminLogin: no toca `users` ni COOKIE_NAME.
   caja: router({
-    // Pantalla "toca tu nombre" (§10.2) — nunca expone pinHash.
-    listOperators: publicProcedure.query(async () => {
+    // Enrolamiento de dispositivo (pedido explícito del usuario) -- sin
+    // esto, ni siquiera se llega a la pantalla de PIN. publicProcedure a
+    // propósito: todavía no hay ni operador ni dispositivo.
+    deviceStatus: publicProcedure.query(({ ctx }) => {
+      return ctx.device ? { enrolled: true as const, deviceName: ctx.device.name } : { enrolled: false as const };
+    }),
+    enrollDevice: publicProcedure.input(z.object({ code: z.string().min(1) })).mutation(async ({ input, ctx }) => {
+      const code = input.code.trim().toUpperCase();
+      const device = await db.getDeviceByEnrollCode(code);
+      if (!device || device.enrolled || !device.enrollCodeExpiresAt || new Date(device.enrollCodeExpiresAt).getTime() < Date.now()) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Código de enrolamiento inválido o vencido' });
+      }
+      const token = generateDeviceToken();
+      await db.completeDeviceEnrollment(device.id, hashDeviceToken(token));
+      const sessionToken = await signDeviceSession(device.id);
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(CAJA_DEVICE_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: DEVICE_SESSION_MS });
+      return { success: true, deviceName: device.name } as const;
+    }),
+
+    // Pantalla "toca tu nombre" (§10.2) — nunca expone pinHash. Requiere
+    // dispositivo enrolado (deviceProcedure).
+    listOperators: deviceProcedure.query(async () => {
       return db.listActiveOperatorsPublic();
     }),
-    login: publicProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
+    login: deviceProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
       // Rate limiting por IP (docs/ARQUITECTURA-CAJA.md §13, riesgo 7):
       // complementa el límite por operador -- sin esto, alguien podría
       // enumerar operadores (listOperators es público) y probar pocos
@@ -573,6 +596,25 @@ export const appRouter = router({
     })).mutation(async ({ input }) => {
       const { id, pin, ...rest } = input;
       await db.updateOperator(id, { ...rest, ...(pin ? { pinHash: hashPin(pin) } : {}) });
+      return { success: true } as const;
+    }),
+  }),
+
+  // Enrolamiento de dispositivos desde /admin (pedido explícito del usuario).
+  devices: router({
+    listAll: adminProcedure.query(async () => {
+      return db.listAllDevices();
+    }),
+    // Genera un código de un solo uso (vence a las 24h) para enrolar una
+    // tablet nueva -- se muestra una sola vez en el admin, no se puede
+    // recuperar después (mismo criterio que un PIN).
+    create: adminProcedure.input(z.object({ name: z.string().min(1) })).mutation(async ({ input }) => {
+      const code = generateEnrollCode();
+      const id = await db.createDeviceEnrollment(input.name, code, enrollCodeExpiry());
+      return { id, enrollCode: code };
+    }),
+    setActive: adminProcedure.input(z.object({ id: z.number(), active: z.number().min(0).max(1) })).mutation(async ({ input }) => {
+      await db.updateDeviceActive(input.id, input.active as 0 | 1);
       return { success: true } as const;
     }),
   }),

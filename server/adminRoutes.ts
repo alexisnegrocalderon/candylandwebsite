@@ -33,12 +33,13 @@ export function registerAdminRoutes(app: Express) {
   app.get("/api/admin/orders/export.csv", async (req: Request, res: Response) => {
     if (!(await requireAdmin(req, res))) return;
 
-    const { eventId, dateFrom, dateTo, status } = req.query as Record<string, string | undefined>;
+    const { eventId, dateFrom, dateTo, status, channel } = req.query as Record<string, string | undefined>;
     const rows = await db.getOrdersForExport({
       eventId: eventId ? Number(eventId) : undefined,
       dateFrom,
       dateTo,
       status,
+      channel: channel === 'web' || channel === 'caja' ? channel : undefined,
     });
 
     const csv = toCsv(

@@ -283,6 +283,27 @@ export const registers = mysqlTable("registers", {
 export type Register = typeof registers.$inferSelect;
 export type InsertRegister = typeof registers.$inferInsert;
 
+// Enrolamiento de dispositivos: solo tablets/navegadores enrolados por un
+// admin pueden siquiera intentar el login por PIN de /caja (docs pedido
+// explícito del usuario, más estricto que el blueprint original). Un
+// `enrollCode` de un solo uso (generado en /admin, expira a las 24h) se
+// canjea una vez por un `deviceTokenHash` de larga duración -- el mismo
+// patrón que operators.pinHash, pero para el dispositivo en vez del humano.
+export const devices = mysqlTable("devices", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  enrollCode: varchar("enrollCode", { length: 16 }).unique(),
+  enrollCodeExpiresAt: timestamp("enrollCodeExpiresAt"),
+  deviceTokenHash: varchar("deviceTokenHash", { length: 255 }),
+  enrolled: int("enrolled").default(0).notNull(),
+  active: int("active").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  lastSeenAt: timestamp("lastSeenAt"),
+});
+
+export type Device = typeof devices.$inferSelect;
+export type InsertDevice = typeof devices.$inferInsert;
+
 // Ledger append-only de todas las operaciones de caja (§0.3). Nunca se
 // actualiza ni se borra una fila — las correcciones son operaciones nuevas.
 export const ops = mysqlTable("ops", {

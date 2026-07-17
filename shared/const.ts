@@ -4,6 +4,11 @@ export const COOKIE_NAME = "app_session_id";
 // operador y, en el celular del admin, en una sesión de /admin; no deben
 // pisarse ni depender de la tabla `users`.
 export const CAJA_COOKIE_NAME = "caja_session_id";
+// Sesión de DISPOSITIVO enrolado (distinta de la de operador) -- de larga
+// duración, sobrevive a que distintos operadores inicien/cierren sesión en
+// la misma tablet. Solo se emite una vez, al canjear el código de
+// enrolamiento que genera un admin desde /admin.
+export const CAJA_DEVICE_COOKIE_NAME = "caja_device_id";
 export const ONE_YEAR_MS = 1000 * 60 * 60 * 24 * 365;
 // Turno de caja: sesión corta (12h), no un año como el admin — el PIN es
 // mucho más débil que una contraseña y la tablet es compartida.

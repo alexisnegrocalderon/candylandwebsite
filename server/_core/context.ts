@@ -1,10 +1,13 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import { parse as parseCookieHeader } from "cookie";
-import { CAJA_COOKIE_NAME } from "@shared/const";
+import { CAJA_COOKIE_NAME, CAJA_DEVICE_COOKIE_NAME } from "@shared/const";
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
 import { verifyOperatorSession, type OperatorSessionPayload } from "../caja/auth";
-import { getOperatorById } from "../db";
+import { verifyDeviceSession } from "../caja/deviceAuth";
+import { getOperatorById, getDeviceById } from "../db";
+
+export type DeviceContext = { deviceId: number; name: string };
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -13,6 +16,9 @@ export type TrpcContext = {
   // Sesión de operador de /caja (login por PIN) — independiente de `user`
   // (login admin/OAuth). Ver docs/ARQUITECTURA-CAJA.md §0.2.
   operator: OperatorSessionPayload | null;
+  // Dispositivo enrolado (pedido explícito del usuario) -- ver server/caja/deviceAuth.ts.
+  // Solo dispositivos enrolados por un admin pueden llegar a la pantalla de PIN de /caja.
+  device: DeviceContext | null;
 };
 
 export async function createContext(
@@ -44,10 +50,23 @@ export async function createContext(
     }
   }
 
+  // Igual que con el operador: se revisa contra la base de datos en cada
+  // request para que revocar un dispositivo desde /admin corte el acceso
+  // al instante, no cuando expire el JWT (~13 meses).
+  const deviceSessionPayload = await verifyDeviceSession(cookies[CAJA_DEVICE_COOKIE_NAME]);
+  let device: DeviceContext | null = null;
+  if (deviceSessionPayload) {
+    const dbDevice = await getDeviceById(deviceSessionPayload.deviceId);
+    if (dbDevice && dbDevice.enrolled && dbDevice.active) {
+      device = { deviceId: dbDevice.id, name: dbDevice.name };
+    }
+  }
+
   return {
     req: opts.req,
     res: opts.res,
     user,
     operator,
+    device,
   };
 }

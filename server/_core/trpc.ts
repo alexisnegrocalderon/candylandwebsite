@@ -44,8 +44,30 @@ export const adminProcedure = t.procedure.use(
   }),
 );
 
-// Requiere una sesión de operador de /caja válida (login por PIN, no admin).
-export const operatorProcedure = t.procedure.use(
+// Requiere un dispositivo enrolado (pedido explícito del usuario) -- antes
+// de siquiera ver la pantalla de PIN, la tablet debe haber canjeado un
+// código de enrolamiento generado por un admin. Ver server/caja/deviceAuth.ts.
+export const deviceProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+
+    if (!ctx.device) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Este dispositivo no está enrolado" });
+    }
+
+    return next({
+      ctx: {
+        ...ctx,
+        device: ctx.device,
+      },
+    });
+  }),
+);
+
+// Requiere una sesión de operador de /caja válida (login por PIN, no admin)
+// EN un dispositivo enrolado -- ambos, no solo uno. Una sesión de operador
+// robada no sirve de nada sin también tener el dispositivo enrolado.
+export const operatorProcedure = deviceProcedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 

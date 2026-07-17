@@ -25,8 +25,6 @@ function newOpId() {
 type View = 'menu' | 'sheet' | 'sale' | 'dashboard' | 'conflicts';
 
 export default function CajaApp() {
-  const { data: operator, isLoading } = trpc.caja.me.useQuery();
-
   // Registro manual del service worker (solo en build de producción -- en
   // dev vite-plugin-pwa no genera un SW real). Scope acotado a /caja/ para
   // no tocar el resto del sitio (checkout con Mercado Pago, admin).
@@ -36,6 +34,51 @@ export default function CajaApp() {
       .then(({ registerSW }) => registerSW({ immediate: true }))
       .catch(() => {});
   }, []);
+
+  const { data: deviceStatus, isLoading: loadingDevice } = trpc.caja.deviceStatus.useQuery();
+
+  if (loadingDevice) {
+    return (
+      <div className="min-h-screen bg-neutral-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-pink-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!deviceStatus?.enrolled) return <DeviceEnroll />;
+  return <OperatorGate />;
+}
+
+/** Enrolamiento de dispositivo (pedido explícito del usuario): sin esto ni
+ * siquiera se llega a la pantalla de PIN. El código lo genera un admin
+ * desde /admin → Caja → Dispositivos, una vez por tablet. */
+function DeviceEnroll() {
+  const utils = trpc.useUtils();
+  const [code, setCode] = useState('');
+  const enroll = trpc.caja.enrollDevice.useMutation({
+    onSuccess: () => { toast.success('Dispositivo enrolado ✅'); utils.caja.deviceStatus.invalidate(); },
+    onError: (e) => toast.error(e.message),
+  });
+
+  return (
+    <div className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center gap-6 p-6">
+      <h1 className="text-xl font-bold">Enrolar este dispositivo</h1>
+      <p className="text-neutral-400 text-sm text-center max-w-xs">Pide el código de enrolamiento a un administrador (Panel Admin → Caja → Dispositivos).</p>
+      <Input
+        value={code}
+        onChange={(e) => setCode(e.target.value.toUpperCase())}
+        placeholder="XXXX-XXXX"
+        className="h-14 text-center text-lg font-mono bg-neutral-900 border-neutral-800 text-white placeholder:text-neutral-600 max-w-xs"
+      />
+      <Button className="w-full max-w-xs h-12 bg-pink-500 hover:bg-pink-600" disabled={!code.trim() || enroll.isPending} onClick={() => enroll.mutate({ code: code.trim() })}>
+        {enroll.isPending ? 'Enrolando…' : 'Enrolar dispositivo'}
+      </Button>
+    </div>
+  );
+}
+
+function OperatorGate() {
+  const { data: operator, isLoading } = trpc.caja.me.useQuery();
 
   if (isLoading) {
     return (
