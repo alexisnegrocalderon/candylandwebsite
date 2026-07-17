@@ -1,19 +1,22 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  saveSnapshot, getLocalEvent, searchLocal, getLocalAttendee, getLocalCatalog,
+  enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, clearSyncedOps,
+  type CajaAttendee, type CajaCatalogItem, type QueuedOp,
+} from './db';
 
-/* Módulo /caja (docs/ARQUITECTURA-CAJA.md Fase 2) -- MVP online-only, sin
- * offline aún (Fase 3). Pantalla táctil oscura, dedicada, sin el navbar
- * público (ver App.tsx). Todo en un solo archivo a propósito: son 4
- * pantallas chicas (buscar/ficha/venta/dashboard) que comparten un único
- * estado de navegación local -- separarlas en rutas anidadas sería más
- * ceremonia que valor para este tamaño. */
-
-const onError = (error: unknown) => {
-  toast.error(error instanceof Error ? error.message : 'Algo salió mal. Intenta de nuevo.');
-};
+/* Módulo /caja (docs/ARQUITECTURA-CAJA.md Fase 3) -- offline-first: la
+ * búsqueda, la ficha y el catálogo se leen siempre de IndexedDB (Dexie), no
+ * de la red; los canjes/ventas se encolan localmente y se sincronizan en
+ * segundo plano (§6-§7). El servidor sigue siendo la fuente de verdad --
+ * esto es solo una caché operativa con cola de escritura. Pantalla táctil
+ * oscura, sin el navbar público (ver App.tsx). Todo en un solo archivo a
+ * propósito: son 4 pantallas chicas que comparten un único estado de
+ * navegación local. */
 
 function newOpId() {
   return crypto.randomUUID();
@@ -23,6 +26,16 @@ type View = 'menu' | 'sheet' | 'sale' | 'dashboard';
 
 export default function CajaApp() {
   const { data: operator, isLoading } = trpc.caja.me.useQuery();
+
+  // Registro manual del service worker (solo en build de producción -- en
+  // dev vite-plugin-pwa no genera un SW real). Scope acotado a /caja/ para
+  // no tocar el resto del sitio (checkout con Mercado Pago, admin).
+  useEffect(() => {
+    if (!import.meta.env.PROD) return;
+    import('virtual:pwa-register')
+      .then(({ registerSW }) => registerSW({ immediate: true }))
+      .catch(() => {});
+  }, []);
 
   if (isLoading) {
     return (
@@ -107,41 +120,105 @@ function PinLogin() {
   );
 }
 
+/** "✓ sincronizado" / "⏳ N pendientes" / "⚠ sin conexión" (§6.3). */
+function SyncBadge({ online, pending }: { online: boolean; pending: number }) {
+  if (!online) return <span className="text-xs px-2 py-1 rounded-full bg-red-500/20 text-red-300">⚠ sin conexión</span>;
+  if (pending > 0) return <span className="text-xs px-2 py-1 rounded-full bg-yellow-500/20 text-yellow-300">⏳ {pending} pendiente{pending > 1 ? 's' : ''}</span>;
+  return <span className="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-300">✓ sincronizado</span>;
+}
+
 function CajaHome({ operator }: { operator: { operatorId: number; name: string; role: string } }) {
   const utils = trpc.useUtils();
-  const { data: event } = trpc.caja.activeEvent.useQuery();
+  const { data: remoteEvent } = trpc.caja.activeEvent.useQuery();
   const logout = trpc.caja.logout.useMutation({ onSuccess: () => utils.caja.me.invalidate() });
+  const snapshotQuery = trpc.caja.snapshot.useQuery({ eventId: remoteEvent?.id ?? 0 }, { enabled: !!remoteEvent, refetchInterval: 60_000 });
+  const syncMutation = trpc.caja.sync.useMutation();
 
+  const [localEvent, setLocalEvent] = useState<{ id: number; title: string; slug: string } | null>(null);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pending, setPending] = useState(0);
   const [view, setView] = useState<View>('menu');
   const [query, setQuery] = useState('');
   const [manualCode, setManualCode] = useState('');
+  const [results, setResults] = useState<CajaAttendee[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
+  const [sheetVersion, setSheetVersion] = useState(0); // fuerza refresco de la ficha tras un canje local
 
-  const { data: results, isFetching: searching } = trpc.caja.search.useQuery(
-    { eventId: event?.id ?? 0, query },
-    { enabled: !!event && query.trim().length >= 2 }
-  );
+  const refreshPending = useCallback(() => { pendingOpsCount().then(setPending); }, []);
 
-  const redeem = trpc.caja.redeem.useMutation({
-    onError,
-    onSuccess: (res) => {
-      if (res.result === 'applied') toast.success('Código canjeado ✅');
-      else if (res.result === 'conflict') toast.warning(res.conflictNote || 'Ese código ya fue canjeado');
-      else toast.error(res.conflictNote || 'Código inválido');
-      if (selectedOrderId) utils.caja.customerSheet.invalidate({ orderId: selectedOrderId });
-    },
-  });
+  // Al cargar: usa el evento guardado localmente (offline-first) mientras
+  // llega la respuesta de red, que también refresca el snapshot completo.
+  useEffect(() => { getLocalEvent().then((e) => e && setLocalEvent(e)); refreshPending(); }, [refreshPending]);
+
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => { window.removeEventListener('online', goOnline); window.removeEventListener('offline', goOffline); };
+  }, []);
+
+  useEffect(() => {
+    if (snapshotQuery.data) {
+      saveSnapshot(snapshotQuery.data).then(() => setLocalEvent(snapshotQuery.data!.event));
+    }
+  }, [snapshotQuery.data]);
+
+  // Cola de sincronización: cada 5s, si hay conexión y ops pendientes,
+  // manda un lote al servidor (§7) -- idempotente, reintentable sin límite.
+  const syncingRef = useRef(false);
+  const runSync = useCallback(async () => {
+    if (syncingRef.current || !isOnline || !localEvent) return;
+    const opsToSync = await getPendingOps();
+    if (opsToSync.length === 0) return;
+    syncingRef.current = true;
+    try {
+      const results = await syncMutation.mutateAsync({ eventId: localEvent.id, ops: opsToSync.slice(0, 50).map((o) => o.op) as QueuedOp[] });
+      for (const [opId, res] of Object.entries(results)) {
+        await markOpSynced(opId, res.result, res.conflictNote);
+        if (res.result === 'conflict') toast.warning(`Conflicto al sincronizar: ${res.conflictNote || 'revisar con supervisor'}`);
+      }
+      await clearSyncedOps();
+      refreshPending();
+      setSheetVersion((v) => v + 1);
+    } catch {
+      // Sin red real (aunque navigator.onLine diga que sí) o error del servidor -- se reintenta en el próximo tick.
+    } finally {
+      syncingRef.current = false;
+    }
+  }, [isOnline, localEvent, syncMutation, refreshPending]);
+
+  useEffect(() => {
+    const interval = setInterval(runSync, 5000);
+    if (isOnline) runSync();
+    return () => clearInterval(interval);
+  }, [runSync, isOnline]);
+
+  // Búsqueda 100% local (funciona offline, <50ms).
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setResults([]); return; }
+    searchLocal(q).then(setResults);
+  }, [query, sheetVersion]);
+
+  const doRedeem = async (displayCode: string) => {
+    await enqueueOp({ opId: newOpId(), type: 'redeem', displayCode, clientAt: new Date().toISOString() });
+    toast.success('Código canjeado ✅');
+    refreshPending();
+    setSheetVersion((v) => v + 1);
+    runSync();
+  };
 
   const redeemManual = () => {
-    if (!event || !manualCode.trim()) return;
-    redeem.mutate({ opId: newOpId(), eventId: event.id, displayCode: manualCode.trim(), clientAt: new Date().toISOString() });
+    if (!manualCode.trim()) return;
+    doRedeem(manualCode.trim());
     setManualCode('');
   };
 
-  if (!event) {
+  if (!localEvent) {
     return (
       <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center p-6 text-center">
-        <p className="text-neutral-400">No hay ningún evento publicado en este momento.</p>
+        <p className="text-neutral-400">{isOnline ? 'Cargando evento…' : 'Sin conexión y sin datos guardados todavía. Conéctate una vez para descargar el evento.'}</p>
       </div>
     );
   }
@@ -150,10 +227,11 @@ function CajaHome({ operator }: { operator: { operatorId: number; name: string; 
     <div className="min-h-screen bg-neutral-950 text-white">
       <header className="sticky top-0 z-10 bg-neutral-950/95 backdrop-blur border-b border-neutral-800 px-4 py-3 flex items-center justify-between">
         <div>
-          <p className="font-bold leading-tight">{event.title}</p>
+          <p className="font-bold leading-tight">{localEvent.title}</p>
           <p className="text-xs text-neutral-500">{operator.name} · {operator.role}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <SyncBadge online={isOnline} pending={pending} />
           {view !== 'menu' && (
             <Button variant="outline" size="sm" className="border-neutral-700 text-white" onClick={() => { setView('menu'); setSelectedOrderId(null); }}>
               ← Volver
@@ -175,9 +253,8 @@ function CajaHome({ operator }: { operator: { operatorId: number; name: string; 
               />
               {query.trim().length >= 2 && (
                 <div className="mt-2 space-y-2">
-                  {searching && <p className="text-neutral-500 text-sm px-1">Buscando…</p>}
-                  {!searching && (results ?? []).length === 0 && <p className="text-neutral-500 text-sm px-1">Sin resultados.</p>}
-                  {(results ?? []).map((r) => (
+                  {results.length === 0 && <p className="text-neutral-500 text-sm px-1">Sin resultados.</p>}
+                  {results.map((r) => (
                     <button
                       key={r.orderId}
                       onClick={() => { setSelectedOrderId(r.orderId); setView('sheet'); }}
@@ -198,7 +275,7 @@ function CajaHome({ operator }: { operator: { operatorId: number; name: string; 
                 placeholder="Código de canje (PIS-XXXX-XXXX)"
                 className="h-12 bg-neutral-900 border-neutral-800 text-white placeholder:text-neutral-500 font-mono"
               />
-              <Button className="h-12 bg-pink-500 hover:bg-pink-600" disabled={!manualCode.trim() || redeem.isPending} onClick={redeemManual}>
+              <Button className="h-12 bg-pink-500 hover:bg-pink-600" disabled={!manualCode.trim()} onClick={redeemManual}>
                 Canjear
               </Button>
             </div>
@@ -215,12 +292,22 @@ function CajaHome({ operator }: { operator: { operatorId: number; name: string; 
         )}
 
         {view === 'sheet' && selectedOrderId && (
-          <CustomerSheet orderId={selectedOrderId} eventId={event.id} onRedeem={(code) => redeem.mutate({ opId: newOpId(), eventId: event.id, displayCode: code, clientAt: new Date().toISOString() })} redeeming={redeem.isPending} />
+          <CustomerSheet key={sheetVersion} orderId={selectedOrderId} onRedeem={doRedeem} />
         )}
 
-        {view === 'sale' && <NewSale eventId={event.id} operatorId={operator.operatorId} onDone={() => setView('menu')} />}
+        {view === 'sale' && (
+          <NewSale
+            onSale={async (items, paymentMethod) => {
+              await enqueueOp({ opId: newOpId(), type: 'sale', items, paymentMethod, clientAt: new Date().toISOString() });
+              toast.success('Venta registrada ✅');
+              refreshPending();
+              runSync();
+              setView('menu');
+            }}
+          />
+        )}
 
-        {view === 'dashboard' && <CajaDashboard eventId={event.id} />}
+        {view === 'dashboard' && <CajaDashboard eventId={localEvent.id} />}
       </main>
     </div>
   );
@@ -232,11 +319,13 @@ function statusBadge(status: string) {
   return <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-300">Pendiente</span>;
 }
 
-function CustomerSheet({ orderId, onRedeem, redeeming }: { orderId: number; eventId: number; onRedeem: (code: string) => void; redeeming: boolean }) {
-  const { data: sheet, isLoading } = trpc.caja.customerSheet.useQuery({ orderId });
+function CustomerSheet({ orderId, onRedeem }: { orderId: number; onRedeem: (code: string) => void }) {
+  const [sheet, setSheet] = useState<CajaAttendee | null | undefined>(undefined);
 
-  if (isLoading) return <p className="text-neutral-500">Cargando…</p>;
-  if (!sheet) return <p className="text-neutral-500">No se encontró la orden.</p>;
+  useEffect(() => { getLocalAttendee(orderId).then((a) => setSheet(a ?? null)); }, [orderId]);
+
+  if (sheet === undefined) return <p className="text-neutral-500">Cargando…</p>;
+  if (sheet === null) return <p className="text-neutral-500">No se encontró la orden.</p>;
 
   return (
     <div className="space-y-5">
@@ -250,7 +339,7 @@ function CustomerSheet({ orderId, onRedeem, redeeming }: { orderId: number; even
         <p className="text-xs uppercase tracking-wide text-neutral-500 mb-2">Acceso</p>
         <div className="space-y-2">
           {sheet.access.length === 0 && <p className="text-sm text-neutral-600">Sin accesos en esta orden.</p>}
-          {sheet.access.map((a: any, i: number) => (
+          {sheet.access.map((a, i) => (
             <div key={i} className="p-3 rounded-xl bg-neutral-900 border border-neutral-800 flex items-center justify-between">
               <span className="text-sm font-medium">{a.typeName}</span>
               {statusBadge(a.status)}
@@ -263,14 +352,14 @@ function CustomerSheet({ orderId, onRedeem, redeeming }: { orderId: number; even
         <div>
           <p className="text-xs uppercase tracking-wide text-neutral-500 mb-2">Extras</p>
           <div className="space-y-2">
-            {sheet.extras.map((e: any, i: number) => (
+            {sheet.extras.map((e, i) => (
               <div key={i} className="p-3 rounded-xl bg-neutral-900 border border-neutral-800 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium">{e.typeName}</p>
                   {e.displayCode && <p className="text-xs text-neutral-500 font-mono">{e.displayCode}</p>}
                 </div>
                 {e.status === 'valid' ? (
-                  <Button size="sm" className="bg-pink-500 hover:bg-pink-600 h-8" disabled={redeeming} onClick={() => onRedeem(e.displayCode)}>Canjear</Button>
+                  <Button size="sm" className="bg-pink-500 hover:bg-pink-600 h-8" onClick={() => e.displayCode && onRedeem(e.displayCode)}>Canjear</Button>
                 ) : statusBadge(e.status)}
               </div>
             ))}
@@ -281,17 +370,14 @@ function CustomerSheet({ orderId, onRedeem, redeeming }: { orderId: number; even
   );
 }
 
-function NewSale({ eventId, operatorId, onDone }: { eventId: number; operatorId: number; onDone: () => void }) {
-  const { data: catalog } = trpc.caja.catalog.useQuery({ eventId });
+function NewSale({ onSale }: { onSale: (items: { ticketTypeId: number; quantity: number }[], paymentMethod: 'efectivo' | 'debito' | 'credito') => void }) {
+  const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito'>('debito');
-  const sale = trpc.caja.sale.useMutation({
-    onError,
-    onSuccess: () => { toast.success('Venta registrada ✅'); setCart({}); onDone(); },
-  });
 
-  const items = catalog ?? [];
-  const total = items.reduce((sum, p: any) => sum + Number(p.price) * (cart[p.id] || 0), 0);
+  useEffect(() => { getLocalCatalog().then(setCatalog); }, []);
+
+  const total = catalog.reduce((sum, p) => sum + p.price * (cart[p.id] || 0), 0);
   const hasItems = Object.values(cart).some((q) => q > 0);
 
   const add = (id: number) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
@@ -299,14 +385,15 @@ function NewSale({ eventId, operatorId, onDone }: { eventId: number; operatorId:
 
   const confirm = () => {
     const cartItems = Object.entries(cart).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId: Number(ticketTypeId), quantity }));
-    sale.mutate({ opId: newOpId(), eventId, items: cartItems, paymentMethod, clientAt: new Date().toISOString() });
+    onSale(cartItems, paymentMethod);
+    setCart({});
   };
 
   return (
     <div className="space-y-5">
       <h2 className="text-xl font-bold">Nueva venta</h2>
       <div className="grid grid-cols-2 gap-3">
-        {items.map((p: any) => (
+        {catalog.map((p) => (
           <button
             key={p.id}
             onClick={() => add(p.id)}
@@ -314,7 +401,7 @@ function NewSale({ eventId, operatorId, onDone }: { eventId: number; operatorId:
             style={{ backgroundColor: (p.color || '#f472b6') + '22', borderColor: (p.color || '#f472b6') + '55' }}
           >
             <p className="font-semibold">{p.name}</p>
-            <p className="text-sm text-neutral-400">${Number(p.price).toLocaleString('es-CL')}</p>
+            <p className="text-sm text-neutral-400">${p.price.toLocaleString('es-CL')}</p>
             {cart[p.id] > 0 && (
               <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                 <button onClick={() => remove(p.id)} className="w-7 h-7 rounded-full bg-neutral-800 text-white">−</button>
@@ -324,7 +411,7 @@ function NewSale({ eventId, operatorId, onDone }: { eventId: number; operatorId:
             )}
           </button>
         ))}
-        {items.length === 0 && <p className="col-span-2 text-neutral-500 text-sm">No hay productos "extra" activos para este evento.</p>}
+        {catalog.length === 0 && <p className="col-span-2 text-neutral-500 text-sm">No hay productos "extra" activos para este evento.</p>}
       </div>
 
       {hasItems && (
@@ -344,8 +431,8 @@ function NewSale({ eventId, operatorId, onDone }: { eventId: number; operatorId:
               </button>
             ))}
           </div>
-          <Button className="w-full h-12 bg-pink-500 hover:bg-pink-600" disabled={sale.isPending} onClick={confirm}>
-            {sale.isPending ? 'Registrando…' : 'Cobrado en terminal — Confirmar'}
+          <Button className="w-full h-12 bg-pink-500 hover:bg-pink-600" onClick={confirm}>
+            Cobrado en terminal — Confirmar
           </Button>
         </div>
       )}
@@ -355,7 +442,7 @@ function NewSale({ eventId, operatorId, onDone }: { eventId: number; operatorId:
 
 function CajaDashboard({ eventId }: { eventId: number }) {
   const { data } = trpc.caja.dashboard.useQuery({ eventId });
-  if (!data) return <p className="text-neutral-500">Cargando…</p>;
+  if (!data) return <p className="text-neutral-500">Cargando… (requiere conexión)</p>;
 
   return (
     <div className="space-y-5">

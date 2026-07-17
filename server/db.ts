@@ -808,6 +808,54 @@ export async function getCajaCustomerSheet(orderId: number) {
   };
 }
 
+/** Snapshot completo para el modo offline de /caja (§6.2): todo lo que la
+ * tablet necesita para buscar/ver fichas/vender sin red, en una sola
+ * descarga -- se guarda en IndexedDB (Dexie) del lado del cliente. */
+export async function getCajaSnapshot(eventId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) return null;
+
+  const approvedOrders = await db.select().from(orders).where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved')));
+  const orderIds = approvedOrders.map((o: any) => o.id);
+  const allTickets = orderIds.length ? await db.select().from(tickets).where(inArray(tickets.orderId, orderIds)) : [];
+  const allTicketTypes = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
+  const ttById = new Map<number, any>(allTicketTypes.map((t: any) => [t.id, t]));
+
+  const ticketsByOrder = new Map<number, any[]>();
+  for (const t of allTickets) {
+    const list = ticketsByOrder.get(t.orderId) ?? [];
+    list.push(t);
+    ticketsByOrder.set(t.orderId, list);
+  }
+
+  const attendees = approvedOrders.map((o: any) => {
+    const ts = ticketsByOrder.get(o.id) ?? [];
+    return {
+      orderId: o.id,
+      orderNumber: o.orderNumber,
+      buyerName: o.buyerName,
+      buyerEmail: o.buyerEmail,
+      buyerPhone: o.buyerPhone,
+      access: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'acceso').map((t: any) => ({ ticketCode: t.ticketCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name })),
+      extras: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'extra').map((t: any) => ({ displayCode: t.displayCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name })),
+    };
+  });
+
+  const catalog = allTicketTypes
+    .filter((t: any) => t.category === 'extra' && t.status === 'active')
+    .map((t: any) => ({ id: t.id, name: t.name, price: Number(t.price), color: t.color as string | null, internalCode: t.internalCode as string | null }));
+
+  return {
+    event: { id: event.id, title: event.title, slug: event.slug },
+    attendees,
+    catalog,
+    serverTime: new Date().toISOString(),
+  };
+}
+
 /** Catálogo de "Nueva venta" (§10.2.4): solo extras activos del evento. */
 export async function getCajaCatalog(eventId: number) {
   const db = await getDb();

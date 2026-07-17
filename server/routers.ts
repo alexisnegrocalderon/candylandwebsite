@@ -366,6 +366,45 @@ export const appRouter = router({
     dashboard: operatorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getCajaDashboard(input.eventId);
     }),
+    // Descarga completa para el modo offline (docs/ARQUITECTURA-CAJA.md
+    // §6.2) -- la tablet la guarda en IndexedDB al abrir turno y la
+    // refresca cada 60s cuando hay conexión.
+    snapshot: operatorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getCajaSnapshot(input.eventId);
+    }),
+    // Procesa un lote de operaciones encoladas offline (§7) -- reutiliza
+    // exactamente la misma lógica idempotente (applyOp) que los endpoints
+    // online `redeem`/`sale`, así que reenviar el mismo opId nunca duplica nada.
+    sync: operatorProcedure.input(z.object({
+      eventId: z.number(),
+      ops: z.array(z.discriminatedUnion('type', [
+        z.object({ type: z.literal('redeem'), opId: z.string(), displayCode: z.string(), clientAt: z.string() }),
+        z.object({ type: z.literal('sale'), opId: z.string(), items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1), paymentMethod: z.enum(['efectivo', 'debito', 'credito']), clientAt: z.string() }),
+      ])).max(50),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+
+      const results: Record<string, { result: string; conflictNote?: string }> = {};
+      for (const op of input.ops) {
+        try {
+          if (op.type === 'redeem') {
+            results[op.opId] = await redeemDisplayCode(rawDb, {
+              opId: op.opId, displayCode: op.displayCode, eventId: input.eventId,
+              operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
+            });
+          } else {
+            results[op.opId] = await createCajaSale(rawDb, {
+              opId: op.opId, eventId: input.eventId, operatorId: ctx.operator.operatorId,
+              items: op.items, paymentMethod: op.paymentMethod, clientAt: new Date(op.clientAt),
+            });
+          }
+        } catch (err) {
+          results[op.opId] = { result: 'rejected', conflictNote: err instanceof Error ? err.message : 'Error al sincronizar' };
+        }
+      }
+      return results;
+    }),
     redeem: operatorProcedure.input(z.object({
       opId: z.string(),
       eventId: z.number(),

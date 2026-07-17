@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
+import { VitePWA } from "vite-plugin-pwa";
 
 // =============================================================================
 // Manus Debug Collector - Vite Plugin
@@ -164,6 +165,35 @@ export default defineConfig(({ command }) => {
     tailwindcss(),
     jsxLocPlugin(),
     ...(isDev ? [vitePluginManusRuntime(), vitePluginManusDebugCollector()] : []),
+    // PWA solo para /caja (docs/ARQUITECTURA-CAJA.md §6.1) -- el resto del
+    // sitio (checkout con Mercado Pago, admin) NO debe quedar bajo un
+    // service worker. `injectRegister: null` evita que el plugin inyecte un
+    // registro automático en <head> (que registraría con scope '/', o sea
+    // todo el sitio); el registro real ocurre a mano, scoped a '/caja/',
+    // dentro de client/src/pages/caja/index.tsx.
+    VitePWA({
+      injectRegister: null,
+      registerType: "prompt",
+      manifest: {
+        name: "Mansion Playroom · Caja",
+        short_name: "Caja",
+        start_url: "/caja",
+        scope: "/caja/",
+        display: "standalone",
+        background_color: "#0a0a0a",
+        theme_color: "#0a0a0a",
+        icons: [
+          { src: "/candyland/logo-isotipo.webp", sizes: "512x512", type: "image/webp" },
+        ],
+      },
+      workbox: {
+        // Solo el shell de la app (JS/CSS/HTML) -- los datos (snapshot del
+        // evento) viven en IndexedDB vía Dexie, no en la cache de Workbox.
+        globPatterns: ["**/*.{js,css,html}"],
+        navigateFallback: "/caja",
+        navigateFallbackDenylist: [/^\/api\//, /^\/(?!caja)/],
+      },
+    }),
   ];
 
   return {
