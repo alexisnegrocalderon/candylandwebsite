@@ -659,3 +659,61 @@ export function buildAlmostTierEmail(data: {
 </body>
 </html>`;
 }
+
+/** Copia interna de cada venta a contacto@mansionplayroom.cl -- distinto de
+ * los correos al comprador (sin branding/QR/FAQ), pensado para copiar/pegar
+ * rápido a la caja de Shopify POS: cada ítem con su código individual si
+ * corresponde (entradas y cada extra ya tienen su propio ticketCode).
+ * `isFinal` distingue el abono de Misión 300 (sin códigos de extras aún,
+ * porque los tickets no existen hasta que se resuelve) del correo final. */
+export function buildSalesRecordEmail(data: {
+  eventTitle: string;
+  orderNumber: string;
+  buyerName: string;
+  buyerEmail: string;
+  buyerPhone?: string;
+  items: { name: string; quantity: number; price: number; codes?: string[] }[];
+  total: number;
+  isFinal: boolean;
+}) {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">${data.isFinal ? '🎟' : '🍬'} ${data.eventTitle} — Orden ${data.orderNumber}</h1>
+    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.isFinal ? 'Ticket final generado' : 'Abono Misión 300 aprobado -- todavía sin códigos de extras'}</p>
+
+    ${card(`
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px;">Comprador</p>
+      <p style="color:${INK};font-size:15px;font-weight:700;margin:0 0 2px;">${data.buyerName}</p>
+      <p style="color:${MUTED};font-size:13px;margin:0 0 2px;">${data.buyerEmail}</p>
+      ${data.buyerPhone ? `<p style="color:${MUTED};font-size:13px;margin:0;">${data.buyerPhone}</p>` : ''}
+    `)}
+
+    ${card(`
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Ítems</p>
+      ${data.items.map(item => `
+        <div style="padding:8px 0;border-bottom:1px solid ${BORDER};">
+          <div style="display:flex;justify-content:space-between;">
+            <span style="color:${INK};font-size:14px;">${item.quantity}x ${item.name}</span>
+            <span style="color:${INK};font-size:14px;font-weight:600;">$${item.price.toLocaleString('es-CL')}</span>
+          </div>
+          ${item.codes && item.codes.length > 0 ? `<p style="color:${ACCENT.pink.text};font-size:12px;font-family:monospace;margin:4px 0 0;">${item.codes.join(' · ')}</p>` : ''}
+        </div>
+      `).join('')}
+      <div style="display:flex;justify-content:space-between;padding-top:12px;margin-top:4px;">
+        <span style="color:${INK};font-size:15px;font-weight:800;">Total</span>
+        <span style="color:${ACCENT.pink.text};font-size:16px;font-weight:800;">$${data.total.toLocaleString('es-CL')}</span>
+      </div>
+    `)}
+  </div>
+</body>
+</html>`;
+}

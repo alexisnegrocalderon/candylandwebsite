@@ -5,7 +5,7 @@ import { orders, orderItems, tickets, ticketTypes, events, referrals, users } fr
 import { eq, and, sql, isNotNull, ne } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { generateTicketQR } from './qr';
-import { sendEmail, buildOrderEmail, buildMissionTopupEmail, buildTierUpEmail, buildAlmostTierEmail } from './email';
+import { sendEmail, buildOrderEmail, buildMissionTopupEmail, buildTierUpEmail, buildAlmostTierEmail, buildSalesRecordEmail } from './email';
 import { missionCutoff, missionCapPrice, personasForAccesoSlug, MISSION_300_GOAL } from '../shared/mission300';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
 
@@ -227,6 +227,31 @@ async function ensureOwnAmbassadorCode(db: any, order: any): Promise<string> {
   return code;
 }
 
+const SALES_RECORD_EMAIL = 'contacto@mansionplayroom.cl';
+
+/** Manda una copia interna de la venta a contacto@ -- asunto fijo y
+ * reconocible para que se pueda armar un filtro de Gmail una sola vez y
+ * quede todo organizado solo (ver server/email.ts buildSalesRecordEmail).
+ * No se llama desde resendConfirmationEmail (reenvíos del admin) para no
+ * duplicar el registro -- la copia original ya llegó. */
+async function sendSalesRecordCopy(order: any, event: any, salesItems: { name: string; quantity: number; price: number; codes?: string[] }[], isFinal: boolean) {
+  const html = buildSalesRecordEmail({
+    eventTitle: event.title,
+    orderNumber: order.orderNumber,
+    buyerName: order.buyerName,
+    buyerEmail: order.buyerEmail,
+    buyerPhone: order.buyerPhone || undefined,
+    items: salesItems,
+    total: Number(order.total),
+    isFinal,
+  });
+  await sendEmail({
+    to: SALES_RECORD_EMAIL,
+    subject: `[Ventas Candyland] Orden ${order.orderNumber} — ${order.buyerName}`,
+    html,
+  });
+}
+
 async function sendMissionDepositEmail(order: any): Promise<{ success: boolean }> {
   const db = await getDb();
   if (!db) return { success: false };
@@ -270,6 +295,7 @@ async function sendMissionDepositEmail(order: any): Promise<{ success: boolean }
   // Resend rechazara el envío, dejando el correo perdido para siempre).
   if (result.success) {
     await db.update(orders).set({ depositEmailSent: 1 }).where(eq(orders.id, order.id));
+    await sendSalesRecordCopy(order, event, emailItems, false);
   }
   return result;
 }
@@ -277,8 +303,10 @@ async function sendMissionDepositEmail(order: any): Promise<{ success: boolean }
 /** Arma y manda el email final (con QR) de una orden ya aprobada, usando los
  * tickets que YA existen — no genera tickets nuevos. Se usa tanto la primera
  * vez (justo después de generarlos en processApprovedOrder) como para
- * reenviar manualmente desde el admin (resendConfirmationEmail, más abajo). */
-async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boolean }> {
+ * reenviar manualmente desde el admin (resendConfirmationEmail, más abajo).
+ * `sendSalesCopy` solo se prende en el primer envío -- un reenvío manual no
+ * debe duplicar el registro que ya le llegó a contacto@. */
+async function sendConfirmationEmailForOrder(order: any, sendSalesCopy = false): Promise<{ success: boolean }> {
   const db = await getDb();
   if (!db) return { success: false };
 
@@ -286,7 +314,7 @@ async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boo
   if (!event) return { success: false };
 
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
-  const emailItems = [];
+  const emailItems: { name: string; quantity: number; price: number }[] = [];
   for (const item of items) {
     const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, item.ticketTypeId)).limit(1);
     emailItems.push({ name: tt?.name || 'Entrada', quantity: item.quantity, price: Number(item.totalPrice) });
@@ -304,6 +332,17 @@ async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boo
   if (!mainTicket) mainTicket = orderTickets[0];
 
   const extras = await getOrderExtras(order.id);
+
+  // Mismo emailItems pero con los códigos de cada ticket individual (para la
+  // copia interna a contacto@ -- ver sendSalesRecordCopy) -- agrupa
+  // orderTickets por ticketTypeId, ya cargados arriba, sin queries extra.
+  const codesByTicketTypeId = new Map<number, string[]>();
+  for (const t of orderTickets) {
+    const list = codesByTicketTypeId.get(t.ticketTypeId) ?? [];
+    list.push(t.ticketCode);
+    codesByTicketTypeId.set(t.ticketTypeId, list);
+  }
+  const salesItems = items.map((item: any, i: number) => ({ ...emailItems[i], codes: codesByTicketTypeId.get(item.ticketTypeId) }));
 
   const html = buildOrderEmail({
     buyerName: order.buyerName,
@@ -325,11 +364,16 @@ async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boo
     extras,
   });
 
-  return sendEmail({
+  const result = await sendEmail({
     to: order.buyerEmail,
     subject: `🎉 Tu entrada para ${event.title} - Mansion Playroom`,
     html,
   });
+
+  if (result.success && sendSalesCopy) {
+    await sendSalesRecordCopy(order, event, salesItems, true);
+  }
+  return result;
 }
 
 /** Reenvía manualmente el email de una orden ya aprobada — para el botón
@@ -436,7 +480,7 @@ async function processApprovedOrder(order: any) {
   await ensureOwnAmbassadorCode(db, order);
   const [refreshedOrder] = await db.select().from(orders).where(eq(orders.id, order.id)).limit(1);
 
-  const result = await sendConfirmationEmailForOrder(refreshedOrder ?? order);
+  const result = await sendConfirmationEmailForOrder(refreshedOrder ?? order, true);
 
   // Solo se marca como enviado si Resend realmente lo aceptó (mismo criterio
   // que sendMissionDepositEmail) -- si no, queda en 0 para poder reintentar.
