@@ -87,6 +87,10 @@ export async function saveSnapshot(snapshot: {
     await cajaDB.codes.bulkAdd(codes);
     await cajaDB.catalog.bulkAdd(snapshot.catalog);
     await cajaDB.meta.put({ key: 'event', value: snapshot.event });
+    // Reloj del dispositivo desviado (docs/ARQUITECTURA-CAJA.md §13, riesgo 5)
+    // -- se guarda cuánto se adelanta/atrasa el reloj local respecto al
+    // servidor para corregir clientAt en cada operación (ver correctedNow()).
+    await cajaDB.meta.put({ key: 'serverTimeOffsetMs', value: new Date(snapshot.serverTime).getTime() - Date.now() });
     await cajaDB.meta.put({ key: 'lastSnapshotAt', value: Date.now() });
   });
 }
@@ -94,6 +98,15 @@ export async function saveSnapshot(snapshot: {
 export async function getLocalEvent(): Promise<{ id: number; title: string; slug: string } | null> {
   const row = await cajaDB.meta.get('event');
   return (row?.value as any) ?? null;
+}
+
+/** Hora corregida con el offset del último snapshot (§13, riesgo 5) -- usar
+ * siempre esto para `clientAt`, nunca `new Date()` directo, para que el
+ * reloj desviado de una tablet no distorsione el orden real del ledger. */
+export async function correctedNow(): Promise<Date> {
+  const row = await cajaDB.meta.get('serverTimeOffsetMs');
+  const offset = (row?.value as number) ?? 0;
+  return new Date(Date.now() + offset);
 }
 
 /** Búsqueda 100% local (<50ms, funciona offline): primero match exacto por

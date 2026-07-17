@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -261,6 +261,10 @@ export const operators = mysqlTable("operators", {
   pinHash: varchar("pinHash", { length: 255 }).notNull(),
   role: mysqlEnum("role", ["admin", "supervisor", "caja", "barra", "acceso"]).notNull(),
   active: int("active").default(1).notNull(),
+  // Rate limiting del login por PIN (docs/ARQUITECTURA-CAJA.md §13, riesgo 7)
+  // -- el PIN es mucho más débil que una contraseña y la tablet es compartida.
+  failedPinAttempts: int("failedPinAttempts").default(0).notNull(),
+  lockedUntil: timestamp("lockedUntil"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -294,7 +298,13 @@ export const ops = mysqlTable("ops", {
   serverAt: timestamp("serverAt").defaultNow().notNull(), // hora del servidor al aplicar
   result: mysqlEnum("result", ["applied", "conflict", "rejected"]).notNull(),
   conflictNote: varchar("conflictNote", { length: 500 }),
-});
+}, (table) => ({
+  // docs/ARQUITECTURA-CAJA.md §13 riesgo 9: el ledger crece sin límite --
+  // estos son los dos patrones de consulta reales (snapshot/reportes por
+  // evento+fecha, auditoría por operador).
+  eventServerAtIdx: index("ops_event_server_at_idx").on(table.eventId, table.serverAt),
+  operatorIdx: index("ops_operator_idx").on(table.operatorId),
+}));
 
 export type Op = typeof ops.$inferSelect;
 export type InsertOp = typeof ops.$inferInsert;

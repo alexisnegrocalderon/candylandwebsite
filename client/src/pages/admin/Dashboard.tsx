@@ -751,6 +751,7 @@ function CajaAdminView() {
       </div>
 
       <OperatorsManager />
+      <RegistersManager />
       {activeEventId && <ProfitReport eventId={activeEventId} />}
       <EventComparisonReport />
       {activeEventId && <PeakHoursReport eventId={activeEventId} />}
@@ -800,6 +801,30 @@ function OperatorsManager() {
             </div>
           ))}
           {operators && operators.length === 0 && <p className="text-sm text-muted-foreground">Sin operadores todavía.</p>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RegistersManager() {
+  const { data: registersList, refetch } = trpc.registers.listAll.useQuery();
+  const create = trpc.registers.create.useMutation({ onSuccess: () => { refetch(); toast.success('Caja creada'); setName(''); }, onError: onMutationError });
+  const [name, setName] = useState('');
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Cajas físicas</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex gap-2">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Caja 1" className="max-w-xs" />
+          <Button disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ name: name.trim() })}>Crear caja</Button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(registersList ?? []).map((r: any) => (
+            <span key={r.id} className="text-sm px-3 py-1 rounded-full bg-muted/30 border border-border/50">{r.name}{!r.active ? ' (inactiva)' : ''}</span>
+          ))}
+          {registersList && registersList.length === 0 && <p className="text-sm text-muted-foreground">Sin cajas creadas todavía -- los operadores podrán entrar "sin caja asignada".</p>}
         </div>
       </CardContent>
     </Card>

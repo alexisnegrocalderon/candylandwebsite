@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
@@ -727,6 +727,28 @@ export async function updateOperator(id: number, input: Partial<InsertOperator>)
   await db.update(operators).set(input).where(eq(operators.id, id));
 }
 
+const PIN_MAX_ATTEMPTS = 5;
+const PIN_LOCKOUT_MS = 5 * 60 * 1000;
+
+/** Rate limiting del login por PIN (docs/ARQUITECTURA-CAJA.md §13, riesgo 7). */
+export async function recordFailedPinAttempt(operatorId: number) {
+  const db = await getDb();
+  if (!db) return;
+  const [operator] = await db.select().from(operators).where(eq(operators.id, operatorId)).limit(1);
+  if (!operator) return;
+  const attempts = operator.failedPinAttempts + 1;
+  await db.update(operators).set({
+    failedPinAttempts: attempts,
+    lockedUntil: attempts >= PIN_MAX_ATTEMPTS ? new Date(Date.now() + PIN_LOCKOUT_MS) : operator.lockedUntil,
+  }).where(eq(operators.id, operatorId));
+}
+
+export async function resetPinAttempts(operatorId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(operators).set({ failedPinAttempts: 0, lockedUntil: null }).where(eq(operators.id, operatorId));
+}
+
 // --- Módulo /caja: pantallas de solo lectura (docs/ARQUITECTURA-CAJA.md §10.2, Fase 2) ---
 
 /** Evento "en curso" para la tablet de caja: el publicado/agotado con fecha
@@ -1069,4 +1091,52 @@ export async function getLedger(eventId: number, filters: { operatorId?: number;
     conflictNote: r.conflictNote,
     serverAt: r.serverAt,
   }));
+}
+
+// --- Módulo /caja: cajas físicas + apertura/cierre de turno (§13, Fase 5) ---
+
+export async function listActiveRegisters() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ id: registers.id, name: registers.name }).from(registers).where(eq(registers.active, 1));
+}
+
+export async function listAllRegisters() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(registers).orderBy(registers.name);
+}
+
+export async function createRegister(name: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [result] = await db.insert(registers).values({ name });
+  return (result as unknown as { insertId: number }).insertId;
+}
+
+/** Resumen del turno (§14 Fase 5): ventas y canjes hechos por este operador
+ * desde su último `shift_open` (en esta caja, si se especifica). */
+export async function getShiftSummary(eventId: number, operatorId: number, registerId?: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const openConditions = [eq(ops.eventId, eventId), eq(ops.operatorId, operatorId), eq(ops.type, 'shift_open')];
+  if (registerId) openConditions.push(eq(ops.registerId, registerId));
+  const opens = await db.select().from(ops).where(and(...openConditions)).orderBy(desc(ops.serverAt)).limit(1);
+  const since = opens[0]?.serverAt ?? new Date(0);
+
+  const activityConditions = [eq(ops.eventId, eventId), eq(ops.operatorId, operatorId), gte(ops.serverAt, since)];
+  if (registerId) activityConditions.push(eq(ops.registerId, registerId));
+  const activity = await db.select().from(ops).where(and(...activityConditions));
+
+  const sales = activity.filter((o: any) => o.type === 'sale' && o.result === 'applied');
+  const redeems = activity.filter((o: any) => o.type === 'redeem' && o.result === 'applied');
+  const salesTotal = sales.reduce((s: number, o: any) => s + Number((o.payload as any)?.total ?? 0), 0);
+
+  return {
+    since,
+    salesCount: sales.length,
+    salesTotal,
+    redeemsCount: redeems.length,
+  };
 }

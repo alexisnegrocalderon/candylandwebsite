@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   saveSnapshot, getLocalEvent, searchLocal, getLocalAttendee, getLocalCatalog,
-  enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, clearSyncedOps,
+  enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, clearSyncedOps, correctedNow,
   type CajaAttendee, type CajaCatalogItem, type QueuedOp,
 } from './db';
 
@@ -46,7 +46,46 @@ export default function CajaApp() {
   }
 
   if (!operator) return <PinLogin />;
-  return <CajaHome operator={operator} />;
+  return <ShiftGate operator={operator} />;
+}
+
+/** Apertura de turno (§10.2.1, §14 Fase 5): elegir la caja física antes de
+ * entrar -- opcional (se puede seguir sin caja asignada si todavía no hay
+ * ninguna creada en /admin, o si no hay red para cargarlas). */
+function ShiftGate({ operator }: { operator: { operatorId: number; name: string; role: string } }) {
+  const { data: registersList } = trpc.caja.listRegisters.useQuery();
+  const { data: event } = trpc.caja.activeEvent.useQuery();
+  const shiftOpen = trpc.caja.shiftOpen.useMutation();
+  const [registerId, setRegisterId] = useState<number | null | undefined>(() => {
+    const saved = sessionStorage.getItem('caja_register_id');
+    return saved ? Number(saved) : undefined;
+  });
+
+  const choose = async (id: number | null) => {
+    setRegisterId(id);
+    if (id !== null) sessionStorage.setItem('caja_register_id', String(id));
+    else sessionStorage.removeItem('caja_register_id');
+    if (event) shiftOpen.mutate({ opId: newOpId(), eventId: event.id, registerId: id ?? undefined, clientAt: (await correctedNow()).toISOString() });
+  };
+
+  if (registerId !== undefined) {
+    return <CajaHome operator={operator} registerId={registerId} onCloseShift={() => setRegisterId(undefined)} />;
+  }
+
+  return (
+    <div className="min-h-screen bg-neutral-950 text-white flex flex-col items-center justify-center gap-6 p-6">
+      <h1 className="text-xl font-bold">Hola, {operator.name} 👋</h1>
+      <p className="text-neutral-400 text-sm">Elige tu caja para este turno</p>
+      <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
+        {(registersList ?? []).map((r: any) => (
+          <button key={r.id} onClick={() => choose(r.id)} className="h-20 rounded-2xl bg-neutral-900 border border-neutral-800 text-lg font-semibold active:scale-95 transition-transform">
+            {r.name}
+          </button>
+        ))}
+      </div>
+      <button onClick={() => choose(null)} className="text-neutral-500 text-sm underline">Continuar sin caja asignada</button>
+    </div>
+  );
 }
 
 function PinLogin() {
@@ -127,12 +166,13 @@ function SyncBadge({ online, pending }: { online: boolean; pending: number }) {
   return <span className="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-300">✓ sincronizado</span>;
 }
 
-function CajaHome({ operator }: { operator: { operatorId: number; name: string; role: string } }) {
+function CajaHome({ operator, registerId, onCloseShift }: { operator: { operatorId: number; name: string; role: string }; registerId: number | null; onCloseShift: () => void }) {
   const utils = trpc.useUtils();
   const { data: remoteEvent } = trpc.caja.activeEvent.useQuery();
   const logout = trpc.caja.logout.useMutation({ onSuccess: () => utils.caja.me.invalidate() });
   const snapshotQuery = trpc.caja.snapshot.useQuery({ eventId: remoteEvent?.id ?? 0 }, { enabled: !!remoteEvent, refetchInterval: 60_000 });
   const syncMutation = trpc.caja.sync.useMutation();
+  const shiftClose = trpc.caja.shiftClose.useMutation();
 
   const [localEvent, setLocalEvent] = useState<{ id: number; title: string; slug: string } | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -173,7 +213,7 @@ function CajaHome({ operator }: { operator: { operatorId: number; name: string; 
     if (opsToSync.length === 0) return;
     syncingRef.current = true;
     try {
-      const results = await syncMutation.mutateAsync({ eventId: localEvent.id, ops: opsToSync.slice(0, 50).map((o) => o.op) as QueuedOp[] });
+      const results = await syncMutation.mutateAsync({ eventId: localEvent.id, registerId: registerId ?? undefined, ops: opsToSync.slice(0, 50).map((o) => o.op) as QueuedOp[] });
       for (const [opId, res] of Object.entries(results)) {
         await markOpSynced(opId, res.result, res.conflictNote);
         if (res.result === 'conflict') toast.warning(`Conflicto al sincronizar: ${res.conflictNote || 'revisar con supervisor'}`);
@@ -186,7 +226,7 @@ function CajaHome({ operator }: { operator: { operatorId: number; name: string; 
     } finally {
       syncingRef.current = false;
     }
-  }, [isOnline, localEvent, syncMutation, refreshPending]);
+  }, [isOnline, localEvent, syncMutation, refreshPending, registerId]);
 
   useEffect(() => {
     const interval = setInterval(runSync, 5000);
@@ -202,7 +242,7 @@ function CajaHome({ operator }: { operator: { operatorId: number; name: string; 
   }, [query, sheetVersion]);
 
   const doRedeem = async (displayCode: string) => {
-    await enqueueOp({ opId: newOpId(), type: 'redeem', displayCode, clientAt: new Date().toISOString() });
+    await enqueueOp({ opId: newOpId(), type: 'redeem', displayCode, clientAt: (await correctedNow()).toISOString() });
     toast.success('Código canjeado ✅');
     refreshPending();
     setSheetVersion((v) => v + 1);
@@ -247,7 +287,22 @@ function CajaHome({ operator }: { operator: { operatorId: number; name: string; 
               ← Volver
             </Button>
           )}
-          <Button variant="outline" size="sm" className="border-neutral-700 text-white" onClick={() => logout.mutate()}>Salir</Button>
+          <Button
+            variant="outline" size="sm" className="border-neutral-700 text-white"
+            disabled={shiftClose.isPending}
+            onClick={async () => {
+              // Protocolo de pendientes (§13, riesgo 2): no cerrar turno con
+              // ops sin sincronizar -- se resuelve en la UI, no en el servidor.
+              const stillPending = await pendingOpsCount();
+              if (stillPending > 0) { toast.error(`Todavía hay ${stillPending} operación${stillPending > 1 ? 'es' : ''} sin sincronizar. Espera a que termine.`); return; }
+              const summary = await shiftClose.mutateAsync({ opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined, clientAt: (await correctedNow()).toISOString() });
+              toast.success(`Turno cerrado: ${summary?.salesCount ?? 0} ventas ($${(summary?.salesTotal ?? 0).toLocaleString('es-CL')}), ${summary?.redeemsCount ?? 0} canjes.`);
+              onCloseShift();
+              logout.mutate();
+            }}
+          >
+            Cerrar turno
+          </Button>
         </div>
       </header>
 
@@ -312,7 +367,7 @@ function CajaHome({ operator }: { operator: { operatorId: number; name: string; 
             orderId={selectedOrderId}
             onRedeem={doRedeem}
             canVoid={isSupervisor}
-            onVoid={(displayCode, reason) => voidCode.mutate({ opId: newOpId(), eventId: localEvent.id, displayCode, reason, clientAt: new Date().toISOString() })}
+            onVoid={async (displayCode, reason) => voidCode.mutate({ opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined, displayCode, reason, clientAt: (await correctedNow()).toISOString() })}
             voiding={voidCode.isPending}
           />
         )}
@@ -322,7 +377,7 @@ function CajaHome({ operator }: { operator: { operatorId: number; name: string; 
         {view === 'sale' && (
           <NewSale
             onSale={async (items, paymentMethod) => {
-              await enqueueOp({ opId: newOpId(), type: 'sale', items, paymentMethod, clientAt: new Date().toISOString() });
+              await enqueueOp({ opId: newOpId(), type: 'sale', items, paymentMethod, clientAt: (await correctedNow()).toISOString() });
               toast.success('Venta registrada ✅');
               refreshPending();
               runSync();
@@ -578,7 +633,7 @@ function ConflictQueue({ eventId }: { eventId: number }) {
               size="sm"
               className="mt-2 h-8 bg-neutral-800 hover:bg-neutral-700"
               disabled={resolve.isPending}
-              onClick={() => resolve.mutate({ opId: crypto.randomUUID(), eventId, conflictOpId: c.opId, clientAt: new Date().toISOString() })}
+              onClick={async () => resolve.mutate({ opId: crypto.randomUUID(), eventId, conflictOpId: c.opId, clientAt: (await correctedNow()).toISOString() })}
             >
               Marcar revisado
             </Button>

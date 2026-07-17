@@ -335,9 +335,24 @@ export const appRouter = router({
     }),
     login: publicProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
       const operator = await db.getOperatorById(input.operatorId);
-      if (!operator || !operator.active || !verifyPin(input.pin, operator.pinHash)) {
+      if (!operator || !operator.active) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'PIN incorrecto' });
       }
+
+      // Rate limiting (docs/ARQUITECTURA-CAJA.md §13, riesgo 7): 5 intentos
+      // fallidos bloquean el operador por 5 minutos -- el PIN es mucho más
+      // débil que una contraseña y la tablet es compartida.
+      if (operator.lockedUntil && new Date(operator.lockedUntil).getTime() > Date.now()) {
+        const minutesLeft = Math.ceil((new Date(operator.lockedUntil).getTime() - Date.now()) / 60_000);
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: `Demasiados intentos. Intenta de nuevo en ${minutesLeft} min.` });
+      }
+
+      if (!verifyPin(input.pin, operator.pinHash)) {
+        await db.recordFailedPinAttempt(operator.id);
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'PIN incorrecto' });
+      }
+
+      await db.resetPinAttempts(operator.id);
       const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
@@ -378,6 +393,7 @@ export const appRouter = router({
     // online `redeem`/`sale`, así que reenviar el mismo opId nunca duplica nada.
     sync: operatorProcedure.input(z.object({
       eventId: z.number(),
+      registerId: z.number().optional(),
       ops: z.array(z.discriminatedUnion('type', [
         z.object({ type: z.literal('redeem'), opId: z.string(), displayCode: z.string(), clientAt: z.string() }),
         z.object({ type: z.literal('sale'), opId: z.string(), items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1), paymentMethod: z.enum(['efectivo', 'debito', 'credito']), clientAt: z.string() }),
@@ -392,11 +408,11 @@ export const appRouter = router({
           if (op.type === 'redeem') {
             results[op.opId] = await redeemDisplayCode(rawDb, {
               opId: op.opId, displayCode: op.displayCode, eventId: input.eventId,
-              operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
+              operatorId: ctx.operator.operatorId, registerId: input.registerId, clientAt: new Date(op.clientAt),
             });
           } else {
             results[op.opId] = await createCajaSale(rawDb, {
-              opId: op.opId, eventId: input.eventId, operatorId: ctx.operator.operatorId,
+              opId: op.opId, eventId: input.eventId, operatorId: ctx.operator.operatorId, registerId: input.registerId,
               items: op.items, paymentMethod: op.paymentMethod, clientAt: new Date(op.clientAt),
             });
           }
@@ -405,6 +421,38 @@ export const appRouter = router({
         }
       }
       return results;
+    }),
+
+    // Selección de caja física al abrir turno (§10.2.1).
+    listRegisters: operatorProcedure.query(async () => {
+      return db.listActiveRegisters();
+    }),
+    shiftOpen: operatorProcedure.input(z.object({ opId: z.string(), eventId: z.number(), registerId: z.number().optional(), clientAt: z.string() })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      if (!ctx.operator) throw new TRPCError({ code: 'UNAUTHORIZED' });
+      const { applyOp } = await import('./caja/ops');
+      return applyOp(rawDb, {
+        id: input.opId, type: 'shift_open', eventId: input.eventId, operatorId: ctx.operator.operatorId,
+        registerId: input.registerId, targetType: 'operator', targetId: String(ctx.operator.operatorId),
+        payload: null, clientAt: new Date(input.clientAt),
+      }, async () => ({ result: 'applied' as const }));
+    }),
+    // Protocolo de pendientes (§13, riesgo 2): el cliente NO debe llamar esto
+    // con ops sin sincronizar -- se bloquea en la UI, no acá, porque cerrar
+    // el turno es una decisión operativa, no algo que el servidor pueda ver.
+    shiftClose: operatorProcedure.input(z.object({ opId: z.string(), eventId: z.number(), registerId: z.number().optional(), clientAt: z.string() })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      if (!ctx.operator) throw new TRPCError({ code: 'UNAUTHORIZED' });
+      const summary = await db.getShiftSummary(input.eventId, ctx.operator.operatorId, input.registerId);
+      const { applyOp } = await import('./caja/ops');
+      await applyOp(rawDb, {
+        id: input.opId, type: 'shift_close', eventId: input.eventId, operatorId: ctx.operator.operatorId,
+        registerId: input.registerId, targetType: 'operator', targetId: String(ctx.operator.operatorId),
+        payload: summary, clientAt: new Date(input.clientAt),
+      }, async () => ({ result: 'applied' as const }));
+      return summary;
     }),
 
     // Anulación con motivo -- solo supervisor/admin (docs/ARQUITECTURA-CAJA.md §3.2).
@@ -513,6 +561,17 @@ export const appRouter = router({
       const { id, pin, ...rest } = input;
       await db.updateOperator(id, { ...rest, ...(pin ? { pinHash: hashPin(pin) } : {}) });
       return { success: true } as const;
+    }),
+  }),
+
+  // Cajas físicas ("Caja 1", "Caja 2"...) desde /admin.
+  registers: router({
+    listAll: adminProcedure.query(async () => {
+      return db.listAllRegisters();
+    }),
+    create: adminProcedure.input(z.object({ name: z.string().min(1) })).mutation(async ({ input }) => {
+      const id = await db.createRegister(input.name);
+      return { id };
     }),
   }),
 
