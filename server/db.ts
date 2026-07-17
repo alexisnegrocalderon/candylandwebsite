@@ -148,6 +148,7 @@ export async function createTicketType(data: any) {
     ...data,
     price: String(data.price),
     originalPrice: data.originalPrice ? String(data.originalPrice) : undefined,
+    costPrice: data.costPrice !== undefined ? String(data.costPrice) : undefined,
   });
   return { success: true };
 }
@@ -158,6 +159,7 @@ export async function updateTicketType(id: number, data: any) {
   const updateData: any = { ...data };
   if (data.price !== undefined) updateData.price = String(data.price);
   if (data.originalPrice !== undefined) updateData.originalPrice = String(data.originalPrice);
+  if (data.costPrice !== undefined) updateData.costPrice = String(data.costPrice);
   await db.update(ticketTypes).set(updateData).where(eq(ticketTypes.id, id));
   return { success: true };
 }
@@ -222,7 +224,10 @@ export async function getOrderExtras(orderId: number) {
     if (tt?.category !== 'extra') continue;
     const entry = grouped.get(t.ticketTypeId) ?? { name: tt.name, quantity: 0, codes: [] };
     entry.quantity += 1;
-    entry.codes.push(t.ticketCode);
+    // displayCode legible (PIS-XXXX-XXXX) es lo que se presenta en caja para
+    // canjear (docs/ARQUITECTURA-CAJA.md §9); ticketCode queda como respaldo
+    // para extras generados antes de la Fase 1, que no tienen displayCode.
+    entry.codes.push(t.displayCode || t.ticketCode);
     grouped.set(t.ticketTypeId, entry);
   }
 
@@ -488,12 +493,16 @@ export async function createOrder(input: {
   // pago no infle el contador.
   for (const item of input.items) {
     const unitPrice = unitPrices.get(item.ticketTypeId)!;
+    const tt = tts.find(t => t.id === item.ticketTypeId);
     await db.insert(orderItems).values({
       orderId,
       ticketTypeId: item.ticketTypeId,
       quantity: item.quantity,
       unitPrice: String(unitPrice),
       totalPrice: String(unitPrice * item.quantity),
+      // Copia el costo del producto al momento de la venta (docs/ARQUITECTURA-CAJA.md
+      // §12) -- si el costo se edita después, la utilidad histórica no cambia.
+      unitCost: tt?.costPrice != null ? String(tt.costPrice) : null,
     });
   }
 

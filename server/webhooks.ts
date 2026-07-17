@@ -2,12 +2,13 @@ import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
 import { getDb, parseAttendeeNames, getOrderExtras } from './db';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
-import { eq, and, sql, isNotNull, ne } from 'drizzle-orm';
+import { eq, and, sql, isNotNull, ne, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { generateTicketQR } from './qr';
 import { sendEmail, buildOrderEmail, buildMissionTopupEmail, buildTierUpEmail, buildAlmostTierEmail, buildSalesRecordEmail } from './email';
 import { missionCutoff, missionCapPrice, personasForAccesoSlug, MISSION_300_GOAL } from '../shared/mission300';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
+import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 
 export const webhooksRouter = Router();
 
@@ -412,10 +413,24 @@ async function processApprovedOrder(order: any) {
   const [event] = await db.select().from(events).where(eq(events.id, order.eventId)).limit(1);
   if (!event) return;
 
+  // Ticket types de la orden, para saber category/internalCode al generar
+  // displayCode (docs/ARQUITECTURA-CAJA.md §9) — evita una query por item.
+  const orderTicketTypeIds = Array.from(new Set(items.map(i => i.ticketTypeId)));
+  const orderTicketTypes = orderTicketTypeIds.length
+    ? await db.select().from(ticketTypes).where(inArray(ticketTypes.id, orderTicketTypeIds))
+    : [];
+  const ticketTypeById = new Map(orderTicketTypes.map(tt => [tt.id, tt]));
+
   // Generate tickets — uno por cada UNIDAD comprada, sea acceso o extra
   // (estacionamiento, piscolón, etc.): cada extra ya queda con su propio
   // código/QR individual, solo faltaba mostrarlo (ver getOrderExtras en db.ts).
   for (const item of items) {
+    const tt = ticketTypeById.get(item.ticketTypeId);
+    // Solo los extras (piscolas, lockers, etc.) se canjean en caja -- los
+    // accesos ya se validan con su QR, no necesitan un código legible aparte.
+    const isRedeemable = tt?.category === 'extra';
+    const prefix = tt ? (tt.internalCode || fallbackInternalCode(tt.name)) : 'EXT';
+
     for (let i = 0; i < item.quantity; i++) {
       const ticketCode = `MP-${nanoid(12).toUpperCase()}`;
       const { qrData, qrImageUrl } = await generateTicketQR(ticketCode, event.title);
@@ -430,6 +445,7 @@ async function processApprovedOrder(order: any) {
         qrData,
         qrImageUrl,
         status: 'valid',
+        displayCode: isRedeemable ? generateDisplayCode(prefix) : null,
       });
     }
   }

@@ -273,7 +273,11 @@ export function buildOrderEmail(data: {
         ${data.extras && data.extras.length > 0 ? `
         <div style="margin-bottom:18px;padding-top:14px;border-top:1px solid ${BORDER};">
           <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Incluye</p>
-          ${data.extras.map(e => `<p style="color:${ACCENT.pink.text};font-size:14px;font-weight:700;margin:2px 0;">✅ ${e.quantity > 1 ? `${e.quantity}× ` : ''}${e.name}</p>`).join('')}
+          ${data.extras.map(e => `
+            <p style="color:${ACCENT.pink.text};font-size:14px;font-weight:700;margin:2px 0;">✅ ${e.quantity > 1 ? `${e.quantity}× ` : ''}${e.name}</p>
+            ${e.codes.map(code => `<p style="color:${MUTED};font-size:12px;font-family:monospace;letter-spacing:0.5px;margin:0 0 4px 20px;">${code}</p>`).join('')}
+          `).join('')}
+          <p style="color:${FAINT};font-size:11px;margin:8px 0 0;">Presenta estos códigos en caja el día del evento para canjearlos.</p>
         </div>
         ` : ''}
         <div style="text-align:center;">

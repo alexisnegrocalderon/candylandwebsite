@@ -115,6 +115,9 @@ export const appRouter = router({
       maxPerOrder: z.number().optional(),
       sortOrder: z.number().optional(),
       status: z.enum(['active', 'soldout', 'hidden']).optional(),
+      costPrice: z.number().optional(),
+      color: z.string().optional(),
+      internalCode: z.string().optional(),
     })).mutation(async ({ input }) => {
       return db.createTicketType(input);
     }),
@@ -130,6 +133,9 @@ export const appRouter = router({
       maxPerOrder: z.number().optional(),
       sortOrder: z.number().optional(),
       status: z.enum(['active', 'soldout', 'hidden']).optional(),
+      costPrice: z.number().optional(),
+      color: z.string().optional(),
+      internalCode: z.string().optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return db.updateTicketType(id, data);

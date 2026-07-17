@@ -151,6 +151,9 @@ export const orderItems = mysqlTable("orderItems", {
   quantity: int("quantity").notNull(),
   unitPrice: decimal("unitPrice", { precision: 10, scale: 0 }).notNull(),
   totalPrice: decimal("totalPrice", { precision: 10, scale: 0 }).notNull(),
+  // Copia de ticketTypes.costPrice al momento de la venta (docs/ARQUITECTURA-CAJA.md
+  // §12) — así un cambio de costo futuro no reescribe la utilidad de eventos pasados.
+  unitCost: decimal("unitCost", { precision: 10, scale: 0 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
