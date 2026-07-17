@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
@@ -676,4 +676,44 @@ export async function getReferralsByCode(ambassadorCode: string) {
 
   const rows = await db.select().from(referrals).where(eq(referrals.ambassadorCode, code)).orderBy(desc(referrals.createdAt));
   return { ambassadorCode: code, buyerName: owner.buyerName, referrals: rows };
+}
+
+// --- Módulo /caja: operadores (docs/ARQUITECTURA-CAJA.md §4.2, Fase 0) ---
+
+export async function createOperator(input: InsertOperator) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [result] = await db.insert(operators).values(input);
+  return (result as unknown as { insertId: number }).insertId;
+}
+
+export async function getOperatorById(id: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(operators).where(eq(operators.id, id)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+/** Lista solo lo necesario para la pantalla de "toca tu nombre" del login por PIN (§10.2) — nunca el pinHash. */
+export async function listActiveOperatorsPublic() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ id: operators.id, name: operators.name, role: operators.role })
+    .from(operators)
+    .where(eq(operators.active, 1))
+    .orderBy(operators.name);
+}
+
+export async function listAllOperators() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ id: operators.id, name: operators.name, role: operators.role, active: operators.active, createdAt: operators.createdAt })
+    .from(operators)
+    .orderBy(desc(operators.createdAt));
+}
+
+export async function updateOperator(id: number, input: Partial<InsertOperator>) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(operators).set(input).where(eq(operators.id, id));
 }

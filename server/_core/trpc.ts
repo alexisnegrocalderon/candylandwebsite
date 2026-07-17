@@ -43,3 +43,21 @@ export const adminProcedure = t.procedure.use(
     });
   }),
 );
+
+// Requiere una sesión de operador de /caja válida (login por PIN, no admin).
+export const operatorProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+
+    if (!ctx.operator) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: "Sesión de caja requerida" });
+    }
+
+    return next({
+      ctx: {
+        ...ctx,
+        operator: ctx.operator,
+      },
+    });
+  }),
+);

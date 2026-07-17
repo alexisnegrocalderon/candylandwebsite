@@ -1,4 +1,4 @@
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk, ADMIN_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
@@ -7,6 +7,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
 import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail } from "./webhooks";
+import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
@@ -313,6 +314,57 @@ export const appRouter = router({
     // cantidad de ventas, nunca montos ni apellido (ver db.getReferralLeaderboard).
     getLeaderboard: publicProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getReferralLeaderboard(input.eventId);
+    }),
+  }),
+
+  // Módulo /caja — login por PIN de operadores (docs/ARQUITECTURA-CAJA.md
+  // Fase 0). Sesión separada de auth.adminLogin: no toca `users` ni COOKIE_NAME.
+  caja: router({
+    // Pantalla "toca tu nombre" (§10.2) — nunca expone pinHash.
+    listOperators: publicProcedure.query(async () => {
+      return db.listActiveOperatorsPublic();
+    }),
+    login: publicProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
+      const operator = await db.getOperatorById(input.operatorId);
+      if (!operator || !operator.active || !verifyPin(input.pin, operator.pinHash)) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'PIN incorrecto' });
+      }
+      const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
+      return { id: operator.id, name: operator.name, role: operator.role };
+    }),
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(CAJA_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+    me: publicProcedure.query(({ ctx }) => ctx.operator),
+  }),
+
+  // Gestión de operadores desde /admin (docs/ARQUITECTURA-CAJA.md §11).
+  operators: router({
+    listAll: adminProcedure.query(async () => {
+      return db.listAllOperators();
+    }),
+    create: adminProcedure.input(z.object({
+      name: z.string().min(1),
+      pin: z.string().min(4).max(8),
+      role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso']),
+    })).mutation(async ({ input }) => {
+      const id = await db.createOperator({ name: input.name, pinHash: hashPin(input.pin), role: input.role });
+      return { id };
+    }),
+    update: adminProcedure.input(z.object({
+      id: z.number(),
+      name: z.string().min(1).optional(),
+      pin: z.string().min(4).max(8).optional(),
+      role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso']).optional(),
+      active: z.number().min(0).max(1).optional(),
+    })).mutation(async ({ input }) => {
+      const { id, pin, ...rest } = input;
+      await db.updateOperator(id, { ...rest, ...(pin ? { pinHash: hashPin(pin) } : {}) });
+      return { success: true } as const;
     }),
   }),
 });

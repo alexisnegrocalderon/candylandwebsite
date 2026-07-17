@@ -1,5 +1,13 @@
 export const COOKIE_NAME = "app_session_id";
+// Sesión de operador de /caja — separada de COOKIE_NAME (login admin/OAuth)
+// porque una tablet de caja puede estar simultáneamente en una sesión de
+// operador y, en el celular del admin, en una sesión de /admin; no deben
+// pisarse ni depender de la tabla `users`.
+export const CAJA_COOKIE_NAME = "caja_session_id";
 export const ONE_YEAR_MS = 1000 * 60 * 60 * 24 * 365;
+// Turno de caja: sesión corta (12h), no un año como el admin — el PIN es
+// mucho más débil que una contraseña y la tablet es compartida.
+export const CAJA_SESSION_MS = 1000 * 60 * 60 * 12;
 export const AXIOS_TIMEOUT_MS = 30_000;
 export const UNAUTHED_ERR_MSG = 'Please login (10001)';
 export const NOT_ADMIN_ERR_MSG = 'You do not have required permission (10002)';

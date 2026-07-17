@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -74,6 +74,12 @@ export const ticketTypes = mysqlTable("ticketTypes", {
   status: mysqlEnum("status", ["active", "soldout", "hidden"]).default("active").notNull(),
   salesStart: timestamp("salesStart"),
   salesEnd: timestamp("salesEnd"),
+  // --- Módulo /caja (docs/ARQUITECTURA-CAJA.md §4.3) ---
+  costPrice: decimal("costPrice", { precision: 10, scale: 0 }), // para cálculo de margen (§12)
+  color: varchar("color", { length: 20 }), // color del botón en la grilla de caja
+  internalCode: varchar("internalCode", { length: 10 }), // prefijo del código de canje, ej. 'PIS'
+  barcode: varchar("barcode", { length: 64 }), // preparado para lector de código de barras futuro
+  metadata: json("metadata"), // atributos extensibles sin migración (talla, duración, etc.)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -123,6 +129,13 @@ export const orders = mysqlTable("orders", {
   // así que se perdía. Se usa para mostrar los nombres en el ticket público
   // y en el email de confirmación.
   attendeeData: text("attendeeData"),
+  // --- Módulo /caja (docs/ARQUITECTURA-CAJA.md §0.4, §4.3) ---
+  // Canal de la venta: web = checkout normal, caja = venta presencial en el
+  // evento, import = migración de la ticketera anterior (ya usado por
+  // paymentMethod='Importado - ticketera anterior' antes de esta columna).
+  channel: mysqlEnum("channel", ["web", "caja", "import"]).default("web").notNull(),
+  operatorId: int("operatorId"), // quién registró la venta (solo canal caja)
+  registerId: int("registerId"), // caja física donde se registró
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -157,6 +170,10 @@ export const tickets = mysqlTable("tickets", {
   qrImageUrl: text("qrImageUrl"),
   status: mysqlEnum("status", ["valid", "used", "cancelled"]).default("valid").notNull(),
   usedAt: timestamp("usedAt"),
+  // --- Módulo /caja (docs/ARQUITECTURA-CAJA.md §9) ---
+  usedByOperatorId: int("usedByOperatorId"), // auditoría de canje
+  usedAtRegisterId: int("usedAtRegisterId"),
+  displayCode: varchar("displayCode", { length: 20 }).unique(), // código legible PIS-XXXX-XXXX
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -230,3 +247,51 @@ export const referrals = mysqlTable("referrals", {
 
 export type Referral = typeof referrals.$inferSelect;
 export type InsertReferral = typeof referrals.$inferInsert;
+
+// --- Módulo /caja (docs/ARQUITECTURA-CAJA.md §4.2) ---
+
+// Operadores de caja: cajera, supervisor, admin (más barra/acceso a futuro).
+// Login por PIN, independiente del login admin por password (users.role).
+export const operators = mysqlTable("operators", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  pinHash: varchar("pinHash", { length: 255 }).notNull(),
+  role: mysqlEnum("role", ["admin", "supervisor", "caja", "barra", "acceso"]).notNull(),
+  active: int("active").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Operator = typeof operators.$inferSelect;
+export type InsertOperator = typeof operators.$inferInsert;
+
+// Cajas físicas (ej. "Caja 1", "Caja 2") usadas en el evento.
+export const registers = mysqlTable("registers", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull(),
+  active: int("active").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Register = typeof registers.$inferSelect;
+export type InsertRegister = typeof registers.$inferInsert;
+
+// Ledger append-only de todas las operaciones de caja (§0.3). Nunca se
+// actualiza ni se borra una fila — las correcciones son operaciones nuevas.
+export const ops = mysqlTable("ops", {
+  id: varchar("id", { length: 36 }).primaryKey(), // UUID generado en el cliente (idempotencia)
+  type: mysqlEnum("type", ["redeem", "sale", "void_code", "note", "shift_open", "shift_close", "manual_adjust"]).notNull(),
+  eventId: int("eventId").notNull(),
+  operatorId: int("operatorId").notNull(),
+  registerId: int("registerId"),
+  targetType: varchar("targetType", { length: 32 }).notNull(), // 'ticket' | 'order' | 'customer' | ...
+  targetId: varchar("targetId", { length: 64 }).notNull(),
+  payload: json("payload"), // detalle completo de la operación
+  clientAt: timestamp("clientAt").notNull(), // hora del dispositivo al ejecutar
+  serverAt: timestamp("serverAt").defaultNow().notNull(), // hora del servidor al aplicar
+  result: mysqlEnum("result", ["applied", "conflict", "rejected"]).notNull(),
+  conflictNote: varchar("conflictNote", { length: 500 }),
+});
+
+export type Op = typeof ops.$inferSelect;
+export type InsertOp = typeof ops.$inferInsert;
