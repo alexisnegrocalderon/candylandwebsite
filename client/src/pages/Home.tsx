@@ -30,7 +30,7 @@ import {
 import { trpc } from '@/lib/trpc';
 import { CANDYLAND, formatCLP } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
-import { scrollToId, prefersReducedMotion } from '@/lib/smoothScroll';
+import { scrollToId, prefersReducedMotion, isFinePointer } from '@/lib/smoothScroll';
 import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 
 type MissionPricing = { generalPrice: number; depositPrice: number } | null;
@@ -171,7 +171,13 @@ function ScrollCandies() {
   const y2 = useTransform(scrollYProgress, [0, 1], ['10vh', '-45vh']);
   const y3 = useTransform(scrollYProgress, [0, 1], ['0vh', '70vh']);
   const rot = useTransform(scrollYProgress, [0, 1], [0, 260]);
-  if (prefersReducedMotion()) return null;
+  // Además de "reduce motion", se apaga en touch (celular/tablet) -- es una
+  // capa puramente decorativa con su propio useScroll de documento completo
+  // corriendo todo el tiempo; en iOS Safari, sumada al parallax del hero y
+  // los blobs con blur, satura la composición por GPU y el hero se traba o
+  // no llega a pintar (mismo criterio ya usado para apagar Lenis/cursor
+  // personalizado en touch, ver isFinePointer() en lib/smoothScroll.ts).
+  if (prefersReducedMotion() || !isFinePointer()) return null;
   return (
     <div aria-hidden className="fixed inset-0 z-[5] pointer-events-none overflow-hidden">
       <motion.span style={{ y: y1, rotate: rot }} className="absolute left-[4%] top-[20%] text-6xl md:text-8xl opacity-[0.12] blur-[1px]">🍬</motion.span>
@@ -223,11 +229,30 @@ function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
   const contentY = useTransform(scrollYProgress, [0, 1], ['0%', '-15%']);
   const contentOpacity = useTransform(scrollYProgress, [0, 0.8], [1, 0]);
 
+  // En touch (celular/tablet) se apaga el parallax con JS del fondo y no se
+  // montan los caramelos arrastrables -- en iOS Safari, sumado a los blobs
+  // con blur pesado, todo eso composita en simultáneo con el video y lo
+  // satura (el hero se traba o no llega a pintar). El parallax igual "no se
+  // nota" en pantallas chicas, así que no se pierde nada quitándolo ahí.
+  const [pointerFine] = useState(() => isFinePointer());
+
+  // Si el video no arranca a reproducirse después de unos segundos (conexión
+  // mala, o Safari que se quedó pegado tratando de decodificarlo), se deja
+  // de esperar y se muestra fijo el poster -- así nunca queda una pantalla
+  // pegada esperando algo que puede no llegar a cargar nunca.
+  const [videoTimedOut, setVideoTimedOut] = useState(false);
+  const [videoPlaying, setVideoPlaying] = useState(false);
+  useEffect(() => {
+    if (videoPlaying) return;
+    const timer = setTimeout(() => setVideoTimedOut(true), 4000);
+    return () => clearTimeout(timer);
+  }, [videoPlaying]);
+
   return (
     <section ref={sectionRef} className="relative min-h-[100svh] flex items-center justify-center overflow-hidden">
       {/* Fondo: el video candy define la paleta del sitio, con un velo claro
           suficiente para que el texto se lea sin taparle el color. */}
-      <motion.div className="absolute inset-0" style={{ y: bgY }}>
+      <motion.div className="absolute inset-0" style={pointerFine ? { y: bgY } : undefined}>
         <img
           src="/candyland/poster-hero.webp"
           alt=""
@@ -239,16 +264,19 @@ function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
          * resto de la carga inicial de la página — con "metadata" el navegador
          * solo trae lo justo para arrancar y el poster de arriba cubre el
          * salto mientras el video termina de bajar. */}
-        <video
-          className="absolute inset-0 w-full h-full object-cover opacity-90 saturate-[1.15] motion-reduce:hidden"
-          src="/candyland/hero-video.mp4"
-          poster="/candyland/poster-hero.webp"
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="metadata"
-        />
+        {!videoTimedOut && (
+          <video
+            className="absolute inset-0 w-full h-full object-cover opacity-90 saturate-[1.15] motion-reduce:hidden"
+            src="/candyland/hero-video.mp4"
+            poster="/candyland/poster-hero.webp"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            onPlaying={() => setVideoPlaying(true)}
+          />
+        )}
       </motion.div>
       {/* Viñeta oscura centrada en el texto (contraste) + degradé claro solo
        * en el borde inferior (transición a la sección siguiente) — el resto
@@ -256,13 +284,14 @@ function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_65%_55%_at_50%_42%,oklch(0.18_0.04_330/0.45),transparent_70%)]" />
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background" />
 
-      {/* Brillos de club */}
-      <div aria-hidden className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-primary/25 blur-[120px] candy-float-slow" />
-      <div aria-hidden className="absolute top-1/3 -right-32 w-[28rem] h-[28rem] rounded-full bg-violet-electric/20 blur-[140px] candy-float" />
-      <div aria-hidden className="absolute bottom-0 left-1/4 w-80 h-80 rounded-full bg-candy-blue/20 blur-[110px] candy-float-slow" />
+      {/* Brillos de club -- blur más liviano en mobile (menos costo de
+       * composición para Safari), completo en desktop */}
+      <div aria-hidden className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-primary/25 blur-2xl md:blur-[120px] candy-float-slow" />
+      <div aria-hidden className="absolute top-1/3 -right-32 w-[28rem] h-[28rem] rounded-full bg-violet-electric/20 blur-2xl md:blur-[140px] candy-float" />
+      <div aria-hidden className="absolute bottom-0 left-1/4 w-80 h-80 rounded-full bg-candy-blue/20 blur-2xl md:blur-[110px] candy-float-slow" />
 
-      {/* Caramelos arrastrables (juego) */}
-      <DraggableCandies boundsRef={sectionRef} />
+      {/* Caramelos arrastrables (juego) -- solo desktop/mouse, ver comentario arriba */}
+      {pointerFine && <DraggableCandies boundsRef={sectionRef} />}
 
       <motion.div style={{ y: contentY, opacity: contentOpacity }} className="relative z-10 text-center px-4 max-w-5xl mx-auto pt-24 pb-20">
         <motion.img
