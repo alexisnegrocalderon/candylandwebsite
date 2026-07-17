@@ -99,6 +99,13 @@
       "when": 1784320912998,
       "tag": "0013_yellow_the_phantom",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "5",
+      "when": 1784321529929,
+      "tag": "0014_red_moonstone",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
@@ -747,6 +747,33 @@ export async function resetPinAttempts(operatorId: number) {
   const db = await getDb();
   if (!db) return;
   await db.update(operators).set({ failedPinAttempts: 0, lockedUntil: null }).where(eq(operators.id, operatorId));
+}
+
+const IP_RATE_LIMIT_MAX_ATTEMPTS = 15;
+const IP_RATE_LIMIT_LOCKOUT_MS = 15 * 60 * 1000;
+
+/** Rate limiting por IP para el login por PIN (docs/ARQUITECTURA-CAJA.md §13,
+ * riesgo 7) -- complementa el límite por operador: sin esto, alguien podría
+ * probar pocos intentos por cada operador (listOperators es público) y
+ * rotar entre todos sin nunca disparar el bloqueo individual. Límite más
+ * generoso (15/15min) porque una tablet compartida legítima puede fallar
+ * varias veces entre distintos operadores en un rato. */
+export async function checkIpRateLimit(key: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return true;
+  const [row] = await db.select().from(rateLimits).where(eq(rateLimits.key, key)).limit(1);
+  if (!row?.lockedUntil) return true;
+  return new Date(row.lockedUntil).getTime() <= Date.now();
+}
+
+export async function recordIpFailedAttempt(key: string) {
+  const db = await getDb();
+  if (!db) return;
+  const [row] = await db.select().from(rateLimits).where(eq(rateLimits.key, key)).limit(1);
+  const attempts = (row?.attempts ?? 0) + 1;
+  const lockedUntil = attempts >= IP_RATE_LIMIT_MAX_ATTEMPTS ? new Date(Date.now() + IP_RATE_LIMIT_LOCKOUT_MS) : (row?.lockedUntil ?? null);
+  await db.insert(rateLimits).values({ key, attempts, lockedUntil })
+    .onDuplicateKeyUpdate({ set: { attempts, lockedUntil } });
 }
 
 // --- Módulo /caja: pantallas de solo lectura (docs/ARQUITECTURA-CAJA.md §10.2, Fase 2) ---

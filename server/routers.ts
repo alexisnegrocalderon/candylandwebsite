@@ -334,14 +334,26 @@ export const appRouter = router({
       return db.listActiveOperatorsPublic();
     }),
     login: publicProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
+      // Rate limiting por IP (docs/ARQUITECTURA-CAJA.md §13, riesgo 7):
+      // complementa el límite por operador -- sin esto, alguien podría
+      // enumerar operadores (listOperators es público) y probar pocos
+      // intentos en cada uno sin disparar nunca el bloqueo individual.
+      const forwardedFor = ctx.req.headers['x-forwarded-for'];
+      const clientIp = (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || 'unknown';
+      const ipKey = `pin-login:${clientIp}`;
+      if (!(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos desde este dispositivo. Intenta de nuevo más tarde.' });
+      }
+
       const operator = await db.getOperatorById(input.operatorId);
       if (!operator || !operator.active) {
+        await db.recordIpFailedAttempt(ipKey);
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'PIN incorrecto' });
       }
 
-      // Rate limiting (docs/ARQUITECTURA-CAJA.md §13, riesgo 7): 5 intentos
-      // fallidos bloquean el operador por 5 minutos -- el PIN es mucho más
-      // débil que una contraseña y la tablet es compartida.
+      // Rate limiting por operador: 5 intentos fallidos lo bloquean 5
+      // minutos -- el PIN es mucho más débil que una contraseña y la
+      // tablet es compartida.
       if (operator.lockedUntil && new Date(operator.lockedUntil).getTime() > Date.now()) {
         const minutesLeft = Math.ceil((new Date(operator.lockedUntil).getTime() - Date.now()) / 60_000);
         throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: `Demasiados intentos. Intenta de nuevo en ${minutesLeft} min.` });
@@ -349,6 +361,7 @@ export const appRouter = router({
 
       if (!verifyPin(input.pin, operator.pinHash)) {
         await db.recordFailedPinAttempt(operator.id);
+        await db.recordIpFailedAttempt(ipKey);
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'PIN incorrecto' });
       }
 

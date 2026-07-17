@@ -306,5 +306,19 @@ export const ops = mysqlTable("ops", {
   operatorIdx: index("ops_operator_idx").on(table.operatorId),
 }));
 
+// Rate limiting genérico por clave arbitraria (hoy: login por PIN, keyed por
+// IP -- docs/ARQUITECTURA-CAJA.md §13 riesgo 7). El límite por operador ya
+// vive en operators.failedPinAttempts/lockedUntil; esto cubre el caso de un
+// atacante que prueba pocos intentos por operador pero rota entre muchos
+// operadores (listOperators es público, necesario para la pantalla de PIN).
+export const rateLimits = mysqlTable("rateLimits", {
+  key: varchar("key", { length: 128 }).primaryKey(),
+  attempts: int("attempts").default(0).notNull(),
+  lockedUntil: timestamp("lockedUntil"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type RateLimit = typeof rateLimits.$inferSelect;
+
 export type Op = typeof ops.$inferSelect;
 export type InsertOp = typeof ops.$inferInsert;
