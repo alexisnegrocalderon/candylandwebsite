@@ -32,6 +32,7 @@ import { CANDYLAND, formatCLP } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
 import { scrollToId, prefersReducedMotion, isFinePointer } from '@/lib/smoothScroll';
 import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
+import { useSeo } from '@/hooks/useSeo';
 
 type MissionPricing = { generalPrice: number; depositPrice: number } | null;
 
@@ -698,6 +699,11 @@ function ExperienceSection() {
             {CANDYLAND.tagline}. Dos pistas, luces de club, caramelos translúcidos y una mansión
             entera para perderte. Esto no es una fiesta más: es un universo donde el juego es la regla.
           </p>
+          <p className="mt-4 text-base md:text-lg text-muted-foreground/80 leading-relaxed">
+            Si buscas salir a bailar en Viña del Mar o salir a bailar en Valparaíso, esta es la fiesta
+            liberal más grande de la V Región — una experiencia premium pensada para quienes quieren
+            vivir la vida nocturna de la zona sin límites.
+          </p>
         </motion.div>
 
         <motion.div
@@ -1001,6 +1007,12 @@ function StickyMobileCTA() {
 /* ─── Página ───────────────────────────────────────────────── */
 
 export default function Home() {
+  useSeo({
+    title: 'Candyland — Fiesta Liberal en Viña del Mar y Valparaíso | Mansion Playroom',
+    description: 'La fiesta liberal más grande de la V Región. Salir a bailar en Viña del Mar y Valparaíso nunca fue tan intenso: 2 pistas, Playground XXL, Kink Room. Sábado 08 de Agosto. Evento +18.',
+    path: '/',
+  });
+
   const { data: liveTickets } = trpc.events.getTicketTypes.useQuery(
     { slug: CANDYLAND.slug },
     // Polling suave: con DB conectada, el contador Misión 300 se actualiza solo

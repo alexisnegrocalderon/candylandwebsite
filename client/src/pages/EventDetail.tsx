@@ -3,11 +3,19 @@ import { useRoute, Link } from 'wouter';
 import { Calendar, MapPin, Clock, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
+import { useSeo } from '@/hooks/useSeo';
 
 export default function EventDetail() {
   const [, params] = useRoute('/eventos/:slug');
   const slug = params?.slug ?? '';
   const { data: event, isLoading } = trpc.events.getBySlug.useQuery({ slug });
+
+  useSeo({
+    title: event ? `${event.title} — Fiesta Liberal en Viña del Mar y Valparaíso` : 'Cargando evento… | Mansion Playroom',
+    description: event?.shortDescription || 'Fiesta liberal en la V Región: salir a bailar en Viña del Mar y Valparaíso con Mansion Playroom.',
+    path: `/eventos/${slug}`,
+    image: event?.imageUrl || undefined,
+  });
 
   if (isLoading) {
     return (

@@ -1,8 +1,15 @@
 import { motion } from 'framer-motion';
 import { Link } from 'wouter';
 import { ArrowRight } from 'lucide-react';
+import { useSeo } from '@/hooks/useSeo';
 
 export default function About() {
+  useSeo({
+    title: 'Sobre Nosotros — Mansion Playroom, Fiestas Liberales en la V Región',
+    description: 'Mansion Playroom transforma la vida nocturna de Viña del Mar y Valparaíso con fiestas liberales premium. Conoce nuestra visión y misión.',
+    path: '/nosotros',
+  });
+
   return (
     <div className="min-h-screen pt-24 pb-16">
       <div className="container">
@@ -17,8 +24,9 @@ export default function About() {
             Creamos <span className="text-gradient">experiencias</span> inolvidables
           </h1>
           <p className="text-muted-foreground text-xl leading-relaxed mb-12">
-            Mansion Playroom nació con la misión de transformar la vida nocturna en Chile.
-            Creemos que cada evento debe ser una experiencia sensorial completa, donde la música,
+            Mansion Playroom nació con la misión de transformar la vida nocturna de la V Región.
+            Somos la fiesta liberal de referencia para salir a bailar en Viña del Mar y Valparaíso:
+            creemos que cada evento debe ser una experiencia sensorial completa, donde la música,
             el arte visual y la energía de las personas se fusionan para crear momentos únicos e irrepetibles.
           </p>
         </motion.div>

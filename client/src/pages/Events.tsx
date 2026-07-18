@@ -2,8 +2,15 @@ import { motion } from 'framer-motion';
 import { Link } from 'wouter';
 import { Calendar, MapPin, Ticket, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { useSeo } from '@/hooks/useSeo';
 
 export default function Events() {
+  useSeo({
+    title: 'Próximos Eventos — Fiestas Liberales en Viña del Mar y Valparaíso | Mansion Playroom',
+    description: 'Calendario de fiestas liberales de Mansion Playroom en la V Región. Encuentra tu próxima salida para bailar en Viña del Mar y Valparaíso.',
+    path: '/eventos',
+  });
+
   const { data: events, isLoading } = trpc.events.listPublished.useQuery();
 
   return (

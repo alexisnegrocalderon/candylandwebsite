@@ -4,12 +4,19 @@ import { Ticket, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { CANDYLAND, formatCLP } from '@/config/candyland';
 import { isMissionWindowOpen, missionDepositPrice } from '@shared/mission300';
+import { useSeo } from '@/hooks/useSeo';
 
 /** Página "Entradas": lista todos los accesos con su precio general y, si la
  * ventana de Misión 300 sigue abierta, el precio de abono al lado tachando
  * el general — mismo gancho de urgencia que ya está en el Hero, pero acá con
  * el detalle completo de cada tipo de acceso. */
 export default function Prices() {
+  useSeo({
+    title: 'Entradas Candyland — Fiesta Liberal en Viña del Mar y Valparaíso',
+    description: 'Precios y tipos de acceso para Candyland, la fiesta liberal de la V Región. Compra tu entrada para salir a bailar en Viña del Mar y Valparaíso.',
+    path: '/entradas',
+  });
+
   const { data: event } = trpc.events.getBySlug.useQuery({ slug: CANDYLAND.slug }, { retry: false });
   const { data: liveTickets } = trpc.events.getTicketTypes.useQuery({ slug: CANDYLAND.slug }, { retry: false });
 
