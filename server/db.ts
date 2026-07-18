@@ -1332,6 +1332,8 @@ export async function importCustomers(rows: {
   accessTypes?: string[];
   tags?: string[];
   notes?: string;
+  totalOrders?: number;
+  totalSpent?: number;
 }[]) {
   const db = await getDb();
   if (!db) return { imported: 0, updated: 0 };
@@ -1346,6 +1348,11 @@ export async function importCustomers(rows: {
     if (existing) {
       const existingAccessTypes: string[] = Array.isArray(existing.accessTypes) ? existing.accessTypes as string[] : [];
       const existingTags: string[] = Array.isArray(existing.tags) ? existing.tags as string[] : [];
+      // totalOrders/totalSpent importados son un baseline histórico (ej. export de
+      // Shopify) -- se toma el máximo contra lo ya acumulado por compras web reales
+      // en vez de sobreescribir, para no perder conteo si el cliente ya compró acá.
+      const importedOrders = row.totalOrders !== undefined && !Number.isNaN(row.totalOrders) ? row.totalOrders : undefined;
+      const importedSpent = row.totalSpent !== undefined && !Number.isNaN(row.totalSpent) ? row.totalSpent : undefined;
       await db.update(customers).set({
         fullName: row.fullName || existing.fullName,
         phone: row.phone || existing.phone,
@@ -1354,6 +1361,8 @@ export async function importCustomers(rows: {
         accessTypes: Array.from(new Set([...existingAccessTypes, ...(row.accessTypes ?? [])])),
         tags: Array.from(new Set([...existingTags, ...(row.tags ?? [])])),
         notes: row.notes || existing.notes,
+        totalOrders: importedOrders !== undefined ? Math.max(existing.totalOrders, importedOrders) : existing.totalOrders,
+        totalSpent: importedSpent !== undefined ? String(Math.max(Number(existing.totalSpent), importedSpent)) : existing.totalSpent,
       }).where(eq(customers.id, existing.id));
       updated++;
     } else {
@@ -1366,6 +1375,8 @@ export async function importCustomers(rows: {
         accessTypes: row.accessTypes ?? [],
         tags: row.tags ?? [],
         notes: row.notes || null,
+        totalOrders: row.totalOrders ?? 0,
+        totalSpent: row.totalSpent !== undefined ? String(row.totalSpent) : "0",
       });
       imported++;
     }

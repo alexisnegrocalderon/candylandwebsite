@@ -1420,6 +1420,8 @@ async function importCustomers(rows) {
     if (existing) {
       const existingAccessTypes = Array.isArray(existing.accessTypes) ? existing.accessTypes : [];
       const existingTags = Array.isArray(existing.tags) ? existing.tags : [];
+      const importedOrders = row.totalOrders !== void 0 && !Number.isNaN(row.totalOrders) ? row.totalOrders : void 0;
+      const importedSpent = row.totalSpent !== void 0 && !Number.isNaN(row.totalSpent) ? row.totalSpent : void 0;
       await db.update(customers).set({
         fullName: row.fullName || existing.fullName,
         phone: row.phone || existing.phone,
@@ -1427,7 +1429,9 @@ async function importCustomers(rows) {
         instagram: row.instagram || existing.instagram,
         accessTypes: Array.from(/* @__PURE__ */ new Set([...existingAccessTypes, ...row.accessTypes ?? []])),
         tags: Array.from(/* @__PURE__ */ new Set([...existingTags, ...row.tags ?? []])),
-        notes: row.notes || existing.notes
+        notes: row.notes || existing.notes,
+        totalOrders: importedOrders !== void 0 ? Math.max(existing.totalOrders, importedOrders) : existing.totalOrders,
+        totalSpent: importedSpent !== void 0 ? String(Math.max(Number(existing.totalSpent), importedSpent)) : existing.totalSpent
       }).where(eq2(customers.id, existing.id));
       updated++;
     } else {
@@ -1439,7 +1443,9 @@ async function importCustomers(rows) {
         instagram: row.instagram || null,
         accessTypes: row.accessTypes ?? [],
         tags: row.tags ?? [],
-        notes: row.notes || null
+        notes: row.notes || null,
+        totalOrders: row.totalOrders ?? 0,
+        totalSpent: row.totalSpent !== void 0 ? String(row.totalSpent) : "0"
       });
       imported++;
     }
@@ -1938,24 +1944,38 @@ function registerAdminRoutes(app) {
       res.status(400).json({ error: 'Falta la columna "Email"' });
       return;
     }
-    const idxName = col("nombre", "fullname");
+    const idxFirstName = col("first name");
+    const idxLastName = col("last name");
+    const isShopifyExport = idxFirstName !== -1 || idxLastName !== -1 || col("customer id") !== -1;
+    const idxName = isShopifyExport ? -1 : col("nombre", "fullname");
     const idxPhone = col("tel\xE9fono", "telefono", "phone");
+    const idxDefaultPhone = col("default address phone");
     const idxRut = col("rut");
     const idxInstagram = col("instagram");
     const idxAccessTypes = col("tipos de acceso", "accesstypes");
-    const idxTags = col("etiquetas", "tags");
+    const idxTags = isShopifyExport ? -1 : col("etiquetas", "tags");
     const idxNotes = col("notas", "notes");
+    const idxTotalOrders = col("total orders");
+    const idxTotalSpent = col("total spent");
     const splitList = (value) => value ? value.split(";").map((s) => s.trim()).filter(Boolean) : void 0;
-    const rows = parsedRows.slice(1).map((r) => ({
-      email: r[idxEmail]?.trim() ?? "",
-      fullName: idxName !== -1 ? r[idxName]?.trim() || void 0 : void 0,
-      phone: idxPhone !== -1 ? r[idxPhone]?.trim() || void 0 : void 0,
-      rut: idxRut !== -1 ? r[idxRut]?.trim() || void 0 : void 0,
-      instagram: idxInstagram !== -1 ? r[idxInstagram]?.trim() || void 0 : void 0,
-      accessTypes: idxAccessTypes !== -1 ? splitList(r[idxAccessTypes]) : void 0,
-      tags: idxTags !== -1 ? splitList(r[idxTags]) : void 0,
-      notes: idxNotes !== -1 ? r[idxNotes]?.trim() || void 0 : void 0
-    })).filter((r) => r.email);
+    const rows = parsedRows.slice(1).map((r) => {
+      const fullName = isShopifyExport ? [idxFirstName !== -1 ? r[idxFirstName]?.trim() : "", idxLastName !== -1 ? r[idxLastName]?.trim() : ""].filter(Boolean).join(" ") || void 0 : idxName !== -1 ? r[idxName]?.trim() || void 0 : void 0;
+      const phone = idxPhone !== -1 && r[idxPhone]?.trim() || idxDefaultPhone !== -1 && r[idxDefaultPhone]?.trim() || void 0;
+      const totalOrders = idxTotalOrders !== -1 ? Number(r[idxTotalOrders]) : void 0;
+      const totalSpent = idxTotalSpent !== -1 ? Number(r[idxTotalSpent]) : void 0;
+      return {
+        email: r[idxEmail]?.trim() ?? "",
+        fullName,
+        phone,
+        rut: idxRut !== -1 ? r[idxRut]?.trim() || void 0 : void 0,
+        instagram: idxInstagram !== -1 ? r[idxInstagram]?.trim() || void 0 : void 0,
+        accessTypes: idxAccessTypes !== -1 ? splitList(r[idxAccessTypes]) : void 0,
+        tags: idxTags !== -1 ? splitList(r[idxTags]) : void 0,
+        notes: idxNotes !== -1 ? r[idxNotes]?.trim() || void 0 : void 0,
+        totalOrders: Number.isFinite(totalOrders) ? totalOrders : void 0,
+        totalSpent: Number.isFinite(totalSpent) ? totalSpent : void 0
+      };
+    }).filter((r) => r.email);
     const result = await importCustomers(rows);
     res.json(result);
   });

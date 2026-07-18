@@ -172,29 +172,58 @@ export function registerAdminRoutes(app: Express) {
       res.status(400).json({ error: 'Falta la columna "Email"' });
       return;
     }
-    const idxName = col("nombre", "fullname");
+
+    // Export de Shopify (Customer ID, First Name, Last Name, Total Spent...): nombre
+    // viene separado en 2 columnas y "Tags" es ruido interno de Shopify (Login with
+    // Shop, STAFF, etc.) -- nunca se mapea a nuestras etiquetas libres.
+    const idxFirstName = col("first name");
+    const idxLastName = col("last name");
+    const isShopifyExport = idxFirstName !== -1 || idxLastName !== -1 || col("customer id") !== -1;
+
+    const idxName = isShopifyExport ? -1 : col("nombre", "fullname");
     const idxPhone = col("teléfono", "telefono", "phone");
+    const idxDefaultPhone = col("default address phone");
     const idxRut = col("rut");
     const idxInstagram = col("instagram");
     const idxAccessTypes = col("tipos de acceso", "accesstypes");
-    const idxTags = col("etiquetas", "tags");
+    const idxTags = isShopifyExport ? -1 : col("etiquetas", "tags");
     const idxNotes = col("notas", "notes");
+    const idxTotalOrders = col("total orders");
+    const idxTotalSpent = col("total spent");
 
     const splitList = (value: string | undefined) =>
       value ? value.split(";").map((s) => s.trim()).filter(Boolean) : undefined;
 
     const rows = parsedRows
       .slice(1)
-      .map((r) => ({
-        email: r[idxEmail]?.trim() ?? "",
-        fullName: idxName !== -1 ? r[idxName]?.trim() || undefined : undefined,
-        phone: idxPhone !== -1 ? r[idxPhone]?.trim() || undefined : undefined,
-        rut: idxRut !== -1 ? r[idxRut]?.trim() || undefined : undefined,
-        instagram: idxInstagram !== -1 ? r[idxInstagram]?.trim() || undefined : undefined,
-        accessTypes: idxAccessTypes !== -1 ? splitList(r[idxAccessTypes]) : undefined,
-        tags: idxTags !== -1 ? splitList(r[idxTags]) : undefined,
-        notes: idxNotes !== -1 ? r[idxNotes]?.trim() || undefined : undefined,
-      }))
+      .map((r) => {
+        const fullName = isShopifyExport
+          ? [idxFirstName !== -1 ? r[idxFirstName]?.trim() : "", idxLastName !== -1 ? r[idxLastName]?.trim() : ""]
+              .filter(Boolean)
+              .join(" ") || undefined
+          : idxName !== -1
+            ? r[idxName]?.trim() || undefined
+            : undefined;
+        const phone =
+          (idxPhone !== -1 && r[idxPhone]?.trim()) ||
+          (idxDefaultPhone !== -1 && r[idxDefaultPhone]?.trim()) ||
+          undefined;
+        const totalOrders = idxTotalOrders !== -1 ? Number(r[idxTotalOrders]) : undefined;
+        const totalSpent = idxTotalSpent !== -1 ? Number(r[idxTotalSpent]) : undefined;
+
+        return {
+          email: r[idxEmail]?.trim() ?? "",
+          fullName,
+          phone,
+          rut: idxRut !== -1 ? r[idxRut]?.trim() || undefined : undefined,
+          instagram: idxInstagram !== -1 ? r[idxInstagram]?.trim() || undefined : undefined,
+          accessTypes: idxAccessTypes !== -1 ? splitList(r[idxAccessTypes]) : undefined,
+          tags: idxTags !== -1 ? splitList(r[idxTags]) : undefined,
+          notes: idxNotes !== -1 ? r[idxNotes]?.trim() || undefined : undefined,
+          totalOrders: Number.isFinite(totalOrders) ? totalOrders : undefined,
+          totalSpent: Number.isFinite(totalSpent) ? totalSpent : undefined,
+        };
+      })
       .filter((r) => r.email);
 
     const result = await db.importCustomers(rows);
