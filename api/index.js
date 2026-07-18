@@ -10,7 +10,7 @@ var __export = (target, all) => {
 
 // drizzle/schema.ts
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index } from "drizzle-orm/mysql-core";
-var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, operators, registers, devices, ops, rateLimits;
+var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, operators, registers, devices, customers, ops, rateLimits;
 var init_schema = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -250,6 +250,25 @@ var init_schema = __esm({
       active: int("active").default(1).notNull(),
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       lastSeenAt: timestamp("lastSeenAt")
+    });
+    customers = mysqlTable("customers", {
+      id: int("id").autoincrement().primaryKey(),
+      email: varchar("email", { length: 320 }).notNull().unique(),
+      fullName: varchar("fullName", { length: 255 }),
+      phone: varchar("phone", { length: 20 }),
+      rut: varchar("rut", { length: 20 }),
+      instagram: varchar("instagram", { length: 100 }),
+      accessTypes: json("accessTypes"),
+      // string[] de accesoSlug
+      tags: json("tags"),
+      // string[] libres
+      totalOrders: int("totalOrders").default(0).notNull(),
+      totalSpent: decimal("totalSpent", { precision: 10, scale: 0 }).default("0").notNull(),
+      notes: text("notes"),
+      firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
+      lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     });
     ops = mysqlTable("ops", {
       id: varchar("id", { length: 36 }).primaryKey(),
@@ -1306,6 +1325,127 @@ async function getShiftSummary(eventId, operatorId, registerId) {
     redeemsCount: redeems.length
   };
 }
+async function upsertCustomerFromOrder(order, accesoSlugs) {
+  const db = await getDb();
+  if (!db) return;
+  if (!order.buyerEmail) return;
+  let rut = null;
+  let instagram = null;
+  try {
+    const parsed = order.attendeeData ? JSON.parse(order.attendeeData) : null;
+    const campos = parsed?.campos ?? {};
+    if (typeof campos.rut === "string" && campos.rut.trim()) rut = campos.rut.trim();
+    if (typeof campos.instagram === "string" && campos.instagram.trim()) instagram = campos.instagram.trim();
+  } catch {
+  }
+  const email = order.buyerEmail.trim().toLowerCase();
+  const [existing] = await db.select().from(customers).where(eq2(customers.email, email)).limit(1);
+  const existingAccessTypes = Array.isArray(existing?.accessTypes) ? existing.accessTypes : [];
+  const mergedAccessTypes = Array.from(/* @__PURE__ */ new Set([...existingAccessTypes, ...accesoSlugs]));
+  if (existing) {
+    await db.update(customers).set({
+      fullName: order.buyerName || existing.fullName,
+      phone: order.buyerPhone || existing.phone,
+      rut: rut ?? existing.rut,
+      instagram: instagram ?? existing.instagram,
+      accessTypes: mergedAccessTypes,
+      totalOrders: existing.totalOrders + 1,
+      totalSpent: String(Number(existing.totalSpent) + Number(order.total)),
+      lastSeenAt: /* @__PURE__ */ new Date()
+    }).where(eq2(customers.id, existing.id));
+  } else {
+    await db.insert(customers).values({
+      email,
+      fullName: order.buyerName,
+      phone: order.buyerPhone,
+      rut,
+      instagram,
+      accessTypes: mergedAccessTypes,
+      tags: [],
+      totalOrders: 1,
+      totalSpent: String(Number(order.total))
+    });
+  }
+}
+async function listCustomers(filters = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  let rows = await db.select().from(customers).orderBy(desc(customers.lastSeenAt));
+  if (filters.search) {
+    const needle = filters.search.toLowerCase();
+    rows = rows.filter(
+      (c) => c.email.toLowerCase().includes(needle) || c.fullName && c.fullName.toLowerCase().includes(needle) || c.phone && c.phone.includes(filters.search)
+    );
+  }
+  if (filters.accessType) {
+    rows = rows.filter((c) => Array.isArray(c.accessTypes) && c.accessTypes.includes(filters.accessType));
+  }
+  if (filters.tag) {
+    rows = rows.filter((c) => Array.isArray(c.tags) && c.tags.includes(filters.tag));
+  }
+  return rows;
+}
+async function addCustomerTag(customerId, tag) {
+  const db = await getDb();
+  if (!db) return;
+  const [customer] = await db.select().from(customers).where(eq2(customers.id, customerId)).limit(1);
+  if (!customer) return;
+  const tags = Array.isArray(customer.tags) ? customer.tags : [];
+  const clean = tag.trim();
+  if (!clean || tags.includes(clean)) return;
+  await db.update(customers).set({ tags: [...tags, clean] }).where(eq2(customers.id, customerId));
+}
+async function removeCustomerTag(customerId, tag) {
+  const db = await getDb();
+  if (!db) return;
+  const [customer] = await db.select().from(customers).where(eq2(customers.id, customerId)).limit(1);
+  if (!customer) return;
+  const tags = Array.isArray(customer.tags) ? customer.tags : [];
+  await db.update(customers).set({ tags: tags.filter((t2) => t2 !== tag) }).where(eq2(customers.id, customerId));
+}
+async function updateCustomerNotes(customerId, notes) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(customers).set({ notes }).where(eq2(customers.id, customerId));
+}
+async function importCustomers(rows) {
+  const db = await getDb();
+  if (!db) return { imported: 0, updated: 0 };
+  let imported = 0;
+  let updated = 0;
+  for (const row of rows) {
+    const email = row.email.trim().toLowerCase();
+    if (!email) continue;
+    const [existing] = await db.select().from(customers).where(eq2(customers.email, email)).limit(1);
+    if (existing) {
+      const existingAccessTypes = Array.isArray(existing.accessTypes) ? existing.accessTypes : [];
+      const existingTags = Array.isArray(existing.tags) ? existing.tags : [];
+      await db.update(customers).set({
+        fullName: row.fullName || existing.fullName,
+        phone: row.phone || existing.phone,
+        rut: row.rut || existing.rut,
+        instagram: row.instagram || existing.instagram,
+        accessTypes: Array.from(/* @__PURE__ */ new Set([...existingAccessTypes, ...row.accessTypes ?? []])),
+        tags: Array.from(/* @__PURE__ */ new Set([...existingTags, ...row.tags ?? []])),
+        notes: row.notes || existing.notes
+      }).where(eq2(customers.id, existing.id));
+      updated++;
+    } else {
+      await db.insert(customers).values({
+        email,
+        fullName: row.fullName || null,
+        phone: row.phone || null,
+        rut: row.rut || null,
+        instagram: row.instagram || null,
+        accessTypes: row.accessTypes ?? [],
+        tags: row.tags ?? [],
+        notes: row.notes || null
+      });
+      imported++;
+    }
+  }
+  return { imported, updated };
+}
 
 // server/_core/cookies.ts
 function isSecureRequest(req) {
@@ -1674,6 +1814,45 @@ function toCsv(rows, columns) {
   const lines = rows.map((row) => columns.map((c) => csvEscape(row[c.key])).join(","));
   return [header, ...lines].join("\r\n");
 }
+function parseCsv(text2) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text2.length; i++) {
+    const c = text2[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text2[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field);
+      field = "";
+    } else if (c === "\r") {
+    } else if (c === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += c;
+    }
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows.filter((r) => r.some((f) => f.trim() !== ""));
+}
 function registerAdminRoutes(app) {
   app.get("/api/admin/orders/export.csv", async (req, res) => {
     if (!await requireAdmin(req, res)) return;
@@ -1708,6 +1887,77 @@ function registerAdminRoutes(app) {
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="ordenes-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.csv"`);
     res.send("\uFEFF" + csv);
+  });
+  app.get("/api/admin/customers/export.csv", async (req, res) => {
+    if (!await requireAdmin(req, res)) return;
+    const { search, accessType, tag } = req.query;
+    const rows = await listCustomers({ search, accessType, tag });
+    const csv = toCsv(
+      rows.map((c) => ({
+        ...c,
+        accessTypes: Array.isArray(c.accessTypes) ? c.accessTypes.join(";") : "",
+        tags: Array.isArray(c.tags) ? c.tags.join(";") : "",
+        firstSeenAt: c.firstSeenAt ? new Date(c.firstSeenAt).toLocaleString("es-CL") : "",
+        lastSeenAt: c.lastSeenAt ? new Date(c.lastSeenAt).toLocaleString("es-CL") : ""
+      })),
+      [
+        { key: "email", label: "Email" },
+        { key: "fullName", label: "Nombre" },
+        { key: "phone", label: "Tel\xE9fono" },
+        { key: "rut", label: "RUT" },
+        { key: "instagram", label: "Instagram" },
+        { key: "accessTypes", label: "Tipos de acceso" },
+        { key: "tags", label: "Etiquetas" },
+        { key: "totalOrders", label: "Compras" },
+        { key: "totalSpent", label: "Total gastado" },
+        { key: "notes", label: "Notas" },
+        { key: "firstSeenAt", label: "Primera compra" },
+        { key: "lastSeenAt", label: "\xDAltima compra" }
+      ]
+    );
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="clientes-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.csv"`);
+    res.send("\uFEFF" + csv);
+  });
+  app.post("/api/admin/customers/import.csv", async (req, res) => {
+    if (!await requireAdmin(req, res)) return;
+    const csvText = typeof req.body?.csv === "string" ? req.body.csv : "";
+    if (!csvText.trim()) {
+      res.status(400).json({ error: "CSV vac\xEDo" });
+      return;
+    }
+    const parsedRows = parseCsv(csvText);
+    if (parsedRows.length < 2) {
+      res.status(400).json({ error: "El CSV no tiene filas de datos" });
+      return;
+    }
+    const header = parsedRows[0].map((h) => h.trim().toLowerCase());
+    const col = (...names) => names.map((n) => header.indexOf(n)).find((idx) => idx !== -1) ?? -1;
+    const idxEmail = col("email");
+    if (idxEmail === -1) {
+      res.status(400).json({ error: 'Falta la columna "Email"' });
+      return;
+    }
+    const idxName = col("nombre", "fullname");
+    const idxPhone = col("tel\xE9fono", "telefono", "phone");
+    const idxRut = col("rut");
+    const idxInstagram = col("instagram");
+    const idxAccessTypes = col("tipos de acceso", "accesstypes");
+    const idxTags = col("etiquetas", "tags");
+    const idxNotes = col("notas", "notes");
+    const splitList = (value) => value ? value.split(";").map((s) => s.trim()).filter(Boolean) : void 0;
+    const rows = parsedRows.slice(1).map((r) => ({
+      email: r[idxEmail]?.trim() ?? "",
+      fullName: idxName !== -1 ? r[idxName]?.trim() || void 0 : void 0,
+      phone: idxPhone !== -1 ? r[idxPhone]?.trim() || void 0 : void 0,
+      rut: idxRut !== -1 ? r[idxRut]?.trim() || void 0 : void 0,
+      instagram: idxInstagram !== -1 ? r[idxInstagram]?.trim() || void 0 : void 0,
+      accessTypes: idxAccessTypes !== -1 ? splitList(r[idxAccessTypes]) : void 0,
+      tags: idxTags !== -1 ? splitList(r[idxTags]) : void 0,
+      notes: idxNotes !== -1 ? r[idxNotes]?.trim() || void 0 : void 0
+    })).filter((r) => r.email);
+    const result = await importCustomers(rows);
+    res.json(result);
   });
 }
 
@@ -2907,6 +3157,8 @@ async function processApprovedOrder(order) {
       });
     }
   }
+  const orderAccesoSlugs = Array.from(orderTicketTypes).filter((tt) => tt.category === "acceso" && tt.accesoSlug).map((tt) => tt.accesoSlug);
+  await upsertCustomerFromOrder(order, orderAccesoSlugs);
   if (order.ambassadorCode) {
     const [ambassadorOrder] = await db.select().from(orders).where(and2(eq3(orders.ambassadorCode, order.ambassadorCode), eq3(orders.paymentStatus, "approved"))).limit(1);
     if (ambassadorOrder && ambassadorOrder.id !== order.id) {
@@ -3160,7 +3412,6 @@ async function redeemDisplayCode(db, params) {
 init_schema();
 init_ops();
 import { eq as eq5, sql as sql3, inArray as inArray3 } from "drizzle-orm";
-var SALES_RECORD_EMAIL2 = "contacto@mansionplayroom.cl";
 async function createCajaSale(db, params) {
   if (params.items.length === 0) throw new Error("La venta necesita al menos un producto");
   const ticketTypeIds = params.items.map((i) => i.ticketTypeId);
@@ -3220,24 +3471,6 @@ async function createCajaSale(db, params) {
           unitCost: item.unitCost != null ? String(item.unitCost) : null
         });
         await db.update(ticketTypes).set({ soldCount: sql3`soldCount + ${item.quantity}` }).where(eq5(ticketTypes.id, item.ticketTypeId));
-      }
-      try {
-        const [event] = await db.select().from(events).where(eq5(events.id, params.eventId)).limit(1);
-        await sendEmail({
-          to: SALES_RECORD_EMAIL2,
-          subject: `[Ventas Candyland] Orden ${orderNumber} \u2014 Venta en caja`,
-          html: buildSalesRecordEmail({
-            eventTitle: event?.title ?? "",
-            orderNumber,
-            buyerName: "Venta en caja",
-            buyerEmail: "-",
-            items: lineItems.map((i) => ({ name: i.name, quantity: i.quantity, price: i.unitPrice * i.quantity })),
-            total,
-            isFinal: true
-          })
-        });
-      } catch (err) {
-        console.error("[Caja] Error enviando copia de venta a contacto@:", err);
       }
       return { result: "applied" };
     }
@@ -3856,6 +4089,28 @@ var appRouter = router({
     })).mutation(async ({ input }) => {
       const { id, pin, ...rest } = input;
       await updateOperator(id, { ...rest, ...pin ? { pinHash: hashPin(pin) } : {} });
+      return { success: true };
+    })
+  }),
+  // Base de datos de clientes desde /admin (pedido explícito del usuario).
+  customers: router({
+    listAll: adminProcedure2.input(z2.object({
+      search: z2.string().optional(),
+      accessType: z2.string().optional(),
+      tag: z2.string().optional()
+    }).optional()).query(async ({ input }) => {
+      return listCustomers(input ?? {});
+    }),
+    addTag: adminProcedure2.input(z2.object({ customerId: z2.number(), tag: z2.string().min(1) })).mutation(async ({ input }) => {
+      await addCustomerTag(input.customerId, input.tag);
+      return { success: true };
+    }),
+    removeTag: adminProcedure2.input(z2.object({ customerId: z2.number(), tag: z2.string() })).mutation(async ({ input }) => {
+      await removeCustomerTag(input.customerId, input.tag);
+      return { success: true };
+    }),
+    updateNotes: adminProcedure2.input(z2.object({ customerId: z2.number(), notes: z2.string() })).mutation(async ({ input }) => {
+      await updateCustomerNotes(input.customerId, input.notes);
       return { success: true };
     })
   }),

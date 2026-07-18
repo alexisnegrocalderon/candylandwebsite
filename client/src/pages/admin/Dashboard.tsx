@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { useAuth } from '@/_core/hooks/useAuth';
@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
@@ -699,6 +699,8 @@ function CustomersView() {
   const [accessType, setAccessType] = useState<string>('all');
   const [tagFilter, setTagFilter] = useState('');
   const [newTagByCustomer, setNewTagByCustomer] = useState<Record<number, string>>({});
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: customersData, refetch } = trpc.customers.listAll.useQuery({
     search: search || undefined,
@@ -710,6 +712,35 @@ function CustomersView() {
 
   const customersList = customersData ?? [];
 
+  const exportUrl = () => {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (accessType !== 'all') params.set('accessType', accessType);
+    if (tagFilter) params.set('tag', tagFilter);
+    return `/api/admin/customers/export.csv?${params.toString()}`;
+  };
+
+  const handleImportFile = async (file: File) => {
+    setImporting(true);
+    try {
+      const csv = await file.text();
+      const res = await fetch('/api/admin/customers/import.csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ csv }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Error al importar el CSV');
+      toast.success(`Importación lista: ${data.imported} cliente${data.imported !== 1 ? 's' : ''} nuevo${data.imported !== 1 ? 's' : ''}, ${data.updated} actualizado${data.updated !== 1 ? 's' : ''}`);
+      refetch();
+    } catch (err) {
+      onMutationError(err);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -717,7 +748,7 @@ function CustomersView() {
         <p className="text-sm text-muted-foreground">{customersList.length} cliente{customersList.length !== 1 ? 's' : ''}</p>
       </div>
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, email o teléfono…" className="max-w-xs" />
         <Select value={accessType} onValueChange={setAccessType}>
           <SelectTrigger className="w-56"><SelectValue placeholder="Tipo de acceso" /></SelectTrigger>
@@ -729,6 +760,30 @@ function CustomersView() {
           </SelectContent>
         </Select>
         <Input value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} placeholder="Filtrar por etiqueta…" className="max-w-xs" />
+
+        <div className="ml-auto flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleImportFile(file);
+              e.target.value = '';
+            }}
+          />
+          <Button variant="outline" className="interactive" disabled={importing} onClick={() => fileInputRef.current?.click()}>
+            <Upload className="w-4 h-4 mr-2" />
+            {importing ? 'Importando…' : 'Importar CSV'}
+          </Button>
+          <a href={exportUrl()} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" className="interactive">
+              <Download className="w-4 h-4 mr-2" />
+              Exportar CSV
+            </Button>
+          </a>
+        </div>
       </div>
 
       <div className="space-y-3">

@@ -1319,3 +1319,57 @@ export async function updateCustomerNotes(customerId: number, notes: string) {
   if (!db) return;
   await db.update(customers).set({ notes }).where(eq(customers.id, customerId));
 }
+
+/** Importación manual desde CSV (server/adminRoutes.ts): mismo criterio de
+ * merge que upsertCustomerFromOrder -- por email, acumulando accessTypes/tags
+ * en vez de sobreescribir, para no perder segmentación ya hecha a mano. */
+export async function importCustomers(rows: {
+  email: string;
+  fullName?: string;
+  phone?: string;
+  rut?: string;
+  instagram?: string;
+  accessTypes?: string[];
+  tags?: string[];
+  notes?: string;
+}[]) {
+  const db = await getDb();
+  if (!db) return { imported: 0, updated: 0 };
+  let imported = 0;
+  let updated = 0;
+
+  for (const row of rows) {
+    const email = row.email.trim().toLowerCase();
+    if (!email) continue;
+
+    const [existing] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+    if (existing) {
+      const existingAccessTypes: string[] = Array.isArray(existing.accessTypes) ? existing.accessTypes as string[] : [];
+      const existingTags: string[] = Array.isArray(existing.tags) ? existing.tags as string[] : [];
+      await db.update(customers).set({
+        fullName: row.fullName || existing.fullName,
+        phone: row.phone || existing.phone,
+        rut: row.rut || existing.rut,
+        instagram: row.instagram || existing.instagram,
+        accessTypes: Array.from(new Set([...existingAccessTypes, ...(row.accessTypes ?? [])])),
+        tags: Array.from(new Set([...existingTags, ...(row.tags ?? [])])),
+        notes: row.notes || existing.notes,
+      }).where(eq(customers.id, existing.id));
+      updated++;
+    } else {
+      await db.insert(customers).values({
+        email,
+        fullName: row.fullName || null,
+        phone: row.phone || null,
+        rut: row.rut || null,
+        instagram: row.instagram || null,
+        accessTypes: row.accessTypes ?? [],
+        tags: row.tags ?? [],
+        notes: row.notes || null,
+      });
+      imported++;
+    }
+  }
+
+  return { imported, updated };
+}
