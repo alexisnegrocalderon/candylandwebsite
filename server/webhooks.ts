@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
-import { getDb, parseAttendeeNames, getOrderExtras } from './db';
+import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder } from './db';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
 import { eq, and, sql, isNotNull, ne, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
@@ -449,6 +449,15 @@ async function processApprovedOrder(order: any) {
       });
     }
   }
+
+  // Base de datos de clientes (pedido explícito del usuario): se registra
+  // acá, una sola vez por orden, con los tipos de acceso comprados en esta
+  // orden -- solo ventas web, nunca las de caja (channel='caja' nunca pasa
+  // por acá, usa createCajaSale, que no tiene identidad real de comprador).
+  const orderAccesoSlugs = Array.from(orderTicketTypes)
+    .filter((tt: any) => tt.category === 'acceso' && tt.accesoSlug)
+    .map((tt: any) => tt.accesoSlug as string);
+  await upsertCustomerFromOrder(order, orderAccesoSlugs);
 
   // Handle ambassador referral (con el código que el comprador ingresó al pagar, si corresponde).
   // El "dueño" del código casi nunca tiene fila en `users` -esa tabla solo la

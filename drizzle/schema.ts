@@ -304,6 +304,35 @@ export const devices = mysqlTable("devices", {
 export type Device = typeof devices.$inferSelect;
 export type InsertDevice = typeof devices.$inferInsert;
 
+// Base de datos de clientes (pedido explícito del usuario): proyección
+// materializada mantenida automáticamente en cada orden WEB aprobada (nunca
+// las ventas de caja, que no tienen identidad real de comprador) -- la
+// fuente de verdad sigue siendo `orders`, esto solo evita tener que
+// recalcular desde cero cada vez que se quiere ver/filtrar/etiquetar
+// clientes. `accessTypes` acumula todos los accesoSlug distintos que esa
+// persona compró alguna vez (para segmentar mailing por tipo de acceso);
+// `tags` son etiquetas libres del admin (cumpleaños, VIP, etc.).
+export const customers = mysqlTable("customers", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull().unique(),
+  fullName: varchar("fullName", { length: 255 }),
+  phone: varchar("phone", { length: 20 }),
+  rut: varchar("rut", { length: 20 }),
+  instagram: varchar("instagram", { length: 100 }),
+  accessTypes: json("accessTypes"), // string[] de accesoSlug
+  tags: json("tags"), // string[] libres
+  totalOrders: int("totalOrders").default(0).notNull(),
+  totalSpent: decimal("totalSpent", { precision: 10, scale: 0 }).default("0").notNull(),
+  notes: text("notes"),
+  firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
+  lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Customer = typeof customers.$inferSelect;
+export type InsertCustomer = typeof customers.$inferInsert;
+
 // Ledger append-only de todas las operaciones de caja (§0.3). Nunca se
 // actualiza ni se borra una fila — las correcciones son operaciones nuevas.
 export const ops = mysqlTable("ops", {

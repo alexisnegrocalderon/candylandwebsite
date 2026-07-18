@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
@@ -1217,4 +1217,105 @@ export async function getShiftSummary(eventId: number, operatorId: number, regis
     salesTotal,
     redeemsCount: redeems.length,
   };
+}
+
+// --- Base de datos de clientes (pedido explícito del usuario) ---
+
+/** Se llama una sola vez por orden, desde processApprovedOrder (solo ventas
+ * web -- las de caja no tienen identidad real de comprador). Acumula
+ * accessTypes en vez de sobreescribir, para poder segmentar mailing por
+ * "alguna vez compró Dúo" aunque la compra más reciente haya sido Soltera. */
+export async function upsertCustomerFromOrder(order: any, accesoSlugs: string[]) {
+  const db = await getDb();
+  if (!db) return;
+  if (!order.buyerEmail) return;
+
+  let rut: string | null = null;
+  let instagram: string | null = null;
+  try {
+    const parsed = order.attendeeData ? JSON.parse(order.attendeeData) : null;
+    const campos = parsed?.campos ?? {};
+    if (typeof campos.rut === 'string' && campos.rut.trim()) rut = campos.rut.trim();
+    if (typeof campos.instagram === 'string' && campos.instagram.trim()) instagram = campos.instagram.trim();
+  } catch {
+    // attendeeData mal formado -- no bloquea el registro del cliente.
+  }
+
+  const email = order.buyerEmail.trim().toLowerCase();
+  const [existing] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+  const existingAccessTypes: string[] = Array.isArray(existing?.accessTypes) ? existing!.accessTypes as string[] : [];
+  const mergedAccessTypes = Array.from(new Set([...existingAccessTypes, ...accesoSlugs]));
+
+  if (existing) {
+    await db.update(customers).set({
+      fullName: order.buyerName || existing.fullName,
+      phone: order.buyerPhone || existing.phone,
+      rut: rut ?? existing.rut,
+      instagram: instagram ?? existing.instagram,
+      accessTypes: mergedAccessTypes,
+      totalOrders: existing.totalOrders + 1,
+      totalSpent: String(Number(existing.totalSpent) + Number(order.total)),
+      lastSeenAt: new Date(),
+    }).where(eq(customers.id, existing.id));
+  } else {
+    await db.insert(customers).values({
+      email,
+      fullName: order.buyerName,
+      phone: order.buyerPhone,
+      rut,
+      instagram,
+      accessTypes: mergedAccessTypes,
+      tags: [],
+      totalOrders: 1,
+      totalSpent: String(Number(order.total)),
+    });
+  }
+}
+
+export async function listCustomers(filters: { search?: string; accessType?: string; tag?: string } = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  let rows = await db.select().from(customers).orderBy(desc(customers.lastSeenAt));
+
+  if (filters.search) {
+    const needle = filters.search.toLowerCase();
+    rows = rows.filter((c: any) =>
+      c.email.toLowerCase().includes(needle) ||
+      (c.fullName && c.fullName.toLowerCase().includes(needle)) ||
+      (c.phone && c.phone.includes(filters.search!))
+    );
+  }
+  if (filters.accessType) {
+    rows = rows.filter((c: any) => Array.isArray(c.accessTypes) && c.accessTypes.includes(filters.accessType));
+  }
+  if (filters.tag) {
+    rows = rows.filter((c: any) => Array.isArray(c.tags) && c.tags.includes(filters.tag));
+  }
+  return rows;
+}
+
+export async function addCustomerTag(customerId: number, tag: string) {
+  const db = await getDb();
+  if (!db) return;
+  const [customer] = await db.select().from(customers).where(eq(customers.id, customerId)).limit(1);
+  if (!customer) return;
+  const tags: string[] = Array.isArray(customer.tags) ? customer.tags as string[] : [];
+  const clean = tag.trim();
+  if (!clean || tags.includes(clean)) return;
+  await db.update(customers).set({ tags: [...tags, clean] }).where(eq(customers.id, customerId));
+}
+
+export async function removeCustomerTag(customerId: number, tag: string) {
+  const db = await getDb();
+  if (!db) return;
+  const [customer] = await db.select().from(customers).where(eq(customers.id, customerId)).limit(1);
+  if (!customer) return;
+  const tags: string[] = Array.isArray(customer.tags) ? customer.tags as string[] : [];
+  await db.update(customers).set({ tags: tags.filter((t) => t !== tag) }).where(eq(customers.id, customerId));
+}
+
+export async function updateCustomerNotes(customerId: number, notes: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(customers).set({ notes }).where(eq(customers.id, customerId));
 }

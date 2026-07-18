@@ -1,16 +1,16 @@
 import { eq, sql, inArray } from "drizzle-orm";
-import { orders, orderItems, ticketTypes, events } from "../../drizzle/schema";
+import { orders, orderItems, ticketTypes } from "../../drizzle/schema";
 import { applyOp } from "./ops";
-import { sendEmail, buildSalesRecordEmail } from "../email";
-
-const SALES_RECORD_EMAIL = "contacto@mansionplayroom.cl";
 
 /** Venta presencial en caja (docs/ARQUITECTURA-CAJA.md §0.4, §3.1.5): se
  * cobra en el terminal externo (fuera del sistema) y acá solo se registra --
  * `orders` con `channel='caja'`, aprobada al instante, sin email al cliente
- * (no hay a quién mandárselo: recibe el ticket físico en el momento). Se
- * reutiliza `orders`/`orderItems` en vez de una tabla `sales` aparte para
- * que el reporting/CSV/stats del admin ya existentes la vean sola. */
+ * (no hay a quién mandárselo: recibe el ticket físico en el momento) ni copia
+ * a contacto@ (a pedido explícito: en la noche del evento pasan muchas
+ * ventas por minuto, saturaría el correo -- esa copia queda solo para las
+ * ventas web, ver processApprovedOrder en webhooks.ts). Se reutiliza
+ * `orders`/`orderItems` en vez de una tabla `sales` aparte para que el
+ * reporting/CSV/stats del admin ya existentes la vean sola. */
 export async function createCajaSale(
   db: any,
   params: {
@@ -83,26 +83,6 @@ export async function createCajaSale(
           unitCost: item.unitCost != null ? String(item.unitCost) : null,
         });
         await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
-      }
-
-      try {
-        const [event] = await db.select().from(events).where(eq(events.id, params.eventId)).limit(1);
-        await sendEmail({
-          to: SALES_RECORD_EMAIL,
-          subject: `[Ventas Candyland] Orden ${orderNumber} — Venta en caja`,
-          html: buildSalesRecordEmail({
-            eventTitle: event?.title ?? "",
-            orderNumber,
-            buyerName: "Venta en caja",
-            buyerEmail: "-",
-            items: lineItems.map(i => ({ name: i.name, quantity: i.quantity, price: i.unitPrice * i.quantity })),
-            total,
-            isFinal: true,
-          }),
-        });
-      } catch (err) {
-        // No bloquea la venta si el correo falla -- ya quedó registrada en `orders`/`ops`.
-        console.error("[Caja] Error enviando copia de venta a contacto@:", err);
       }
 
       return { result: "applied" as const };

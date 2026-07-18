@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
@@ -694,6 +694,103 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   );
 }
 
+function CustomersView() {
+  const [search, setSearch] = useState('');
+  const [accessType, setAccessType] = useState<string>('all');
+  const [tagFilter, setTagFilter] = useState('');
+  const [newTagByCustomer, setNewTagByCustomer] = useState<Record<number, string>>({});
+
+  const { data: customersData, refetch } = trpc.customers.listAll.useQuery({
+    search: search || undefined,
+    accessType: accessType === 'all' ? undefined : accessType,
+    tag: tagFilter || undefined,
+  });
+  const addTag = trpc.customers.addTag.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const removeTag = trpc.customers.removeTag.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+
+  const customersList = customersData ?? [];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="font-heading text-2xl">Clientes</h2>
+        <p className="text-sm text-muted-foreground">{customersList.length} cliente{customersList.length !== 1 ? 's' : ''}</p>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, email o teléfono…" className="max-w-xs" />
+        <Select value={accessType} onValueChange={setAccessType}>
+          <SelectTrigger className="w-56"><SelectValue placeholder="Tipo de acceso" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los tipos de acceso</SelectItem>
+            {ACCESO_SLUG_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Input value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} placeholder="Filtrar por etiqueta…" className="max-w-xs" />
+      </div>
+
+      <div className="space-y-3">
+        {customersList.map((c: any) => {
+          const accessTypes: string[] = Array.isArray(c.accessTypes) ? c.accessTypes : [];
+          const tags: string[] = Array.isArray(c.tags) ? c.tags : [];
+          return (
+            <Card key={c.id} className="rounded-2xl border-0 shadow-md shadow-black/5">
+              <CardContent className="pt-6 space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{c.fullName || '(sin nombre)'}</p>
+                    <p className="text-sm text-muted-foreground">{c.email}{c.phone ? ` · ${c.phone}` : ''}{c.rut ? ` · ${c.rut}` : ''}</p>
+                  </div>
+                  <div className="text-right text-sm text-muted-foreground">
+                    <p>{c.totalOrders} compra{c.totalOrders !== 1 ? 's' : ''} · ${Number(c.totalSpent).toLocaleString('es-CL')}</p>
+                    <p className="text-xs">Última: {new Date(c.lastSeenAt).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
+                  </div>
+                </div>
+
+                {accessTypes.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {accessTypes.map((slug) => (
+                      <span key={slug} className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                        {ACCESO_SLUG_OPTIONS.find((o) => o.value === slug)?.label ?? slug}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {tags.map((tag) => (
+                    <span key={tag} className="text-xs pl-2 pr-1 py-0.5 rounded-full bg-secondary/20 text-secondary-foreground flex items-center gap-1">
+                      {tag}
+                      <button onClick={() => removeTag.mutate({ customerId: c.id, tag })} className="hover:text-destructive">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                  <Input
+                    value={newTagByCustomer[c.id] ?? ''}
+                    onChange={(e) => setNewTagByCustomer((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newTagByCustomer[c.id]?.trim()) {
+                        addTag.mutate({ customerId: c.id, tag: newTagByCustomer[c.id].trim() });
+                        setNewTagByCustomer((prev) => ({ ...prev, [c.id]: '' }));
+                      }
+                    }}
+                    placeholder="+ etiqueta (Enter)"
+                    className="h-7 w-36 text-xs"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+        {customersList.length === 0 && <p className="text-sm text-muted-foreground">Sin clientes todavía -- se registran solos con cada compra web aprobada.</p>}
+      </div>
+    </div>
+  );
+}
+
 function ReferralsView() {
   const { data: referralStats } = trpc.referrals.getStats.useQuery();
   const stats = referralStats ?? [];
@@ -1102,6 +1199,7 @@ const ADMIN_SECTIONS = [
   { id: 'orders-caja', label: 'Ventas Caja', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
   { id: 'discounts', label: 'Descuentos', icon: Percent, render: () => <DiscountsManager /> },
   { id: 'community', label: 'Códigos Comunidad', icon: Users, render: () => <CommunityCodesManager /> },
+  { id: 'customers', label: 'Clientes', icon: Contact, render: () => <CustomersView /> },
   { id: 'referrals', label: 'Referidos', icon: Trophy, render: () => <ReferralsView /> },
   { id: 'caja', label: 'Caja', icon: Store, render: () => <CajaAdminView /> },
   { id: 'settings', label: 'Ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },

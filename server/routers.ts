@@ -600,6 +600,29 @@ export const appRouter = router({
     }),
   }),
 
+  // Base de datos de clientes desde /admin (pedido explícito del usuario).
+  customers: router({
+    listAll: adminProcedure.input(z.object({
+      search: z.string().optional(),
+      accessType: z.string().optional(),
+      tag: z.string().optional(),
+    }).optional()).query(async ({ input }) => {
+      return db.listCustomers(input ?? {});
+    }),
+    addTag: adminProcedure.input(z.object({ customerId: z.number(), tag: z.string().min(1) })).mutation(async ({ input }) => {
+      await db.addCustomerTag(input.customerId, input.tag);
+      return { success: true } as const;
+    }),
+    removeTag: adminProcedure.input(z.object({ customerId: z.number(), tag: z.string() })).mutation(async ({ input }) => {
+      await db.removeCustomerTag(input.customerId, input.tag);
+      return { success: true } as const;
+    }),
+    updateNotes: adminProcedure.input(z.object({ customerId: z.number(), notes: z.string() })).mutation(async ({ input }) => {
+      await db.updateCustomerNotes(input.customerId, input.notes);
+      return { success: true } as const;
+    }),
+  }),
+
   // Enrolamiento de dispositivos desde /admin (pedido explícito del usuario).
   devices: router({
     listAll: adminProcedure.query(async () => {
