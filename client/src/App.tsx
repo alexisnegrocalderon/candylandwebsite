@@ -82,17 +82,21 @@ function Router() {
 function App() {
   // /caja es una pantalla táctil de operación, no una página del sitio: sin
   // navbar público ni las animaciones decorativas del resto del sitio
-  // (docs/ARQUITECTURA-CAJA.md §10.1).
+  // (docs/ARQUITECTURA-CAJA.md §10.1). /admin ahora usa un sidebar propio
+  // (fixed, inset-y-0) que chocaría con la navbar pública fija arriba, así
+  // que tampoco la lleva -- es un panel interno, no una página del sitio.
   const [location] = useLocation();
   const isCaja = location.startsWith('/caja');
+  const isAdmin = location.startsWith('/admin');
+  const hideChrome = isCaja || isAdmin;
 
   return (
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
-          {!isCaja && <SmoothScroll />}
-          {!isCaja && <CustomCursor />}
-          {!isCaja && <Navbar />}
+          {!hideChrome && <SmoothScroll />}
+          {!hideChrome && <CustomCursor />}
+          {!hideChrome && <Navbar />}
           <Toaster />
           <Router />
         </TooltipProvider>

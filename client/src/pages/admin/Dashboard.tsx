@@ -7,11 +7,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
+import {
+  SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
+  SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarTrigger,
+} from '@/components/ui/sidebar';
 
 /* Toda escritura del admin pasa por acá: sin esto, un error del servidor
  * (típicamente "Database not available" si falta DATABASE_URL) fallaba en
@@ -221,7 +224,7 @@ function EventsManager() {
       </div>
 
       {showEventForm && (
-        <Card>
+        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
           <CardContent className="pt-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div><Label>Título</Label><Input value={newEvent.title} onChange={(e) => setNewEvent({ ...newEvent, title: e.target.value })} className="mt-1" /></div>
@@ -405,7 +408,7 @@ function DiscountsManager() {
       </div>
 
       {showForm && (
-        <Card>
+        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
           <CardContent className="pt-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div><Label>Código</Label><Input value={newDiscount.code} onChange={(e) => setNewDiscount({ ...newDiscount, code: e.target.value.toUpperCase() })} className="mt-1" /></div>
@@ -486,7 +489,7 @@ function CommunityCodesManager() {
       </div>
 
       {showForm && (
-        <Card>
+        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
           <CardContent className="pt-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div><Label>Código</Label><Input value={newCode.code} onChange={(e) => setNewCode({ ...newCode, code: e.target.value.toUpperCase() })} className="mt-1" /></div>
@@ -522,6 +525,24 @@ function CommunityCodesManager() {
         ))}
       </div>
     </div>
+  );
+}
+
+/** Tarjeta de estadística con ícono en badge circular de color (estilo de
+ * las referencias mandadas: número grande + badge de color, sin borde duro). */
+function StatCard({ icon: Icon, colorClass, value, label }: { icon: typeof DollarSign; colorClass: string; value: string | number; label: string }) {
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardContent className="pt-6 flex items-center gap-4">
+        <div className={`w-12 h-12 rounded-2xl ${colorClass} flex items-center justify-center shrink-0`}>
+          <Icon className="w-6 h-6 text-white" />
+        </div>
+        <div>
+          <p className="font-heading text-3xl leading-none">{value}</p>
+          <p className="text-muted-foreground text-sm mt-1">{label}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -582,30 +603,12 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <DollarSign className="w-8 h-8 text-primary mx-auto mb-2" />
-            <p className="font-heading text-3xl">${Number(stats?.totalRevenue ?? 0).toLocaleString('es-CL')}</p>
-            <p className="text-muted-foreground text-sm">Ingresos Totales</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <Ticket className="w-8 h-8 text-primary mx-auto mb-2" />
-            <p className="font-heading text-3xl">{stats?.totalOrders ?? 0}</p>
-            <p className="text-muted-foreground text-sm">Órdenes Totales</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <Users className="w-8 h-8 text-primary mx-auto mb-2" />
-            <p className="font-heading text-3xl">{stats?.approvedOrders ?? 0}</p>
-            <p className="text-muted-foreground text-sm">Pagos Aprobados</p>
-          </CardContent>
-        </Card>
+        <StatCard icon={DollarSign} colorClass="bg-[oklch(0.68_0.16_340)]" value={`$${Number(stats?.totalRevenue ?? 0).toLocaleString('es-CL')}`} label="Ingresos Totales" />
+        <StatCard icon={Ticket} colorClass="bg-[oklch(0.72_0.1_300)]" value={stats?.totalOrders ?? 0} label="Órdenes Totales" />
+        <StatCard icon={Users} colorClass="bg-[oklch(0.75_0.15_230)]" value={stats?.approvedOrders ?? 0} label="Pagos Aprobados" />
       </div>
 
-      <Card>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardContent className="pt-6">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -698,7 +701,7 @@ function ReferralsView() {
   return (
     <div className="space-y-6">
       <h2 className="font-heading text-2xl">Embajadores y Referidos</h2>
-      <Card>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardContent className="pt-6">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -769,7 +772,7 @@ function OperatorsManager() {
   const [form, setForm] = useState({ name: '', pin: '', role: 'caja' as 'admin' | 'supervisor' | 'caja' | 'barra' | 'acceso' });
 
   return (
-    <Card>
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader><CardTitle>Operadores</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
@@ -815,7 +818,7 @@ function RegistersManager() {
   const [name, setName] = useState('');
 
   return (
-    <Card>
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader><CardTitle>Cajas físicas</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <div className="flex gap-2">
@@ -841,7 +844,7 @@ function DevicesManager() {
   const [lastCode, setLastCode] = useState<string | null>(null);
 
   return (
-    <Card>
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader><CardTitle>Dispositivos enrolados</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">Solo las tablets/navegadores enrolados acá pueden llegar a la pantalla de PIN de /caja. Genera un código, dáselo a quien configura el dispositivo -- lo canjea una sola vez y vence a las 24h.</p>
@@ -881,7 +884,7 @@ function ProfitReport({ eventId }: { eventId: number }) {
   const totalProfit = rows.reduce((s, r) => s + (r.profit ?? 0), 0);
 
   return (
-    <Card>
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader><CardTitle>Utilidad y margen por producto</CardTitle></CardHeader>
       <CardContent>
         <p className="text-sm text-muted-foreground mb-3">Ingresos totales: ${totalRevenue.toLocaleString('es-CL')} · Utilidad total: ${totalProfit.toLocaleString('es-CL')} <span className="text-xs">(solo productos con costo cargado)</span></p>
@@ -915,7 +918,7 @@ function EventComparisonReport() {
   const rows = data ?? [];
 
   return (
-    <Card>
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader><CardTitle>Comparativa entre eventos</CardTitle></CardHeader>
       <CardContent className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -945,7 +948,7 @@ function PeakHoursReport({ eventId }: { eventId: number }) {
   const max = Math.max(1, ...rows.map((r) => r.count));
 
   return (
-    <Card>
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader><CardTitle>Horas punta</CardTitle></CardHeader>
       <CardContent>
         <div className="flex items-end gap-1 h-32">
@@ -967,7 +970,7 @@ function LedgerView({ eventId }: { eventId: number }) {
   const rows = data ?? [];
 
   return (
-    <Card>
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader><CardTitle>Auditoría (ledger)</CardTitle></CardHeader>
       <CardContent className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -1019,7 +1022,7 @@ function SettingsManager() {
   return (
     <div className="space-y-6">
       <h2 className="font-heading text-2xl">Ajustes</h2>
-      <Card>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardHeader><CardTitle>Instagram</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <p className="text-muted-foreground text-sm">Números que se muestran junto al ícono de Instagram en el footer. Actualízalos cuando quieras — no se auto-sincronizan.</p>
@@ -1032,7 +1035,7 @@ function SettingsManager() {
           </Button>
         </CardContent>
       </Card>
-      <Card>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardHeader><CardTitle>Recargo por servicio</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <p className="text-muted-foreground text-sm">
@@ -1093,12 +1096,24 @@ function AdminLoginForm() {
   );
 }
 
+const ADMIN_SECTIONS = [
+  { id: 'events', label: 'Eventos', icon: Calendar, render: () => <EventsManager /> },
+  { id: 'orders-web', label: 'Ventas Web', icon: Ticket, render: () => <OrdersView channel="web" /> },
+  { id: 'orders-caja', label: 'Ventas Caja', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
+  { id: 'discounts', label: 'Descuentos', icon: Percent, render: () => <DiscountsManager /> },
+  { id: 'community', label: 'Códigos Comunidad', icon: Users, render: () => <CommunityCodesManager /> },
+  { id: 'referrals', label: 'Referidos', icon: Trophy, render: () => <ReferralsView /> },
+  { id: 'caja', label: 'Caja', icon: Store, render: () => <CajaAdminView /> },
+  { id: 'settings', label: 'Ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },
+] as const;
+
 export default function AdminDashboard() {
-  const { user, loading, isAuthenticated } = useAuth();
+  const { user, loading, isAuthenticated, logout } = useAuth();
+  const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>('events');
 
   if (loading) {
     return (
-      <div className="min-h-screen pt-24 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/10 to-background">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -1110,7 +1125,7 @@ export default function AdminDashboard() {
 
   if (user?.role !== 'admin') {
     return (
-      <div className="min-h-screen pt-24 flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/10 to-background">
         <div className="text-center">
           <h2 className="font-heading text-3xl mb-4">Sin Permisos</h2>
           <p className="text-muted-foreground">No tienes permisos de administrador.</p>
@@ -1119,39 +1134,63 @@ export default function AdminDashboard() {
     );
   }
 
+  const active = ADMIN_SECTIONS.find((s) => s.id === activeSection) ?? ADMIN_SECTIONS[0];
+
   return (
-    <div className="min-h-screen pt-24 pb-16">
-      <div className="container">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-        >
-          <h1 className="font-heading text-4xl md:text-5xl mb-8">Panel de <span className="text-gradient">Administración</span></h1>
+    <SidebarProvider>
+      <Sidebar collapsible="icon" className="border-r-0">
+        <SidebarHeader className="h-16 justify-center px-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shrink-0">
+              <LayoutDashboard className="w-4 h-4 text-primary-foreground" />
+            </div>
+            <span className="font-heading text-lg tracking-tight group-data-[collapsible=icon]:hidden">Mansion Playroom</span>
+          </div>
+        </SidebarHeader>
+        <SidebarContent className="px-2 py-2">
+          <SidebarMenu>
+            {ADMIN_SECTIONS.map((section) => (
+              <SidebarMenuItem key={section.id}>
+                <SidebarMenuButton
+                  isActive={activeSection === section.id}
+                  onClick={() => setActiveSection(section.id)}
+                  tooltip={section.label}
+                  className="h-10 rounded-xl data-[active=true]:bg-gradient-to-r data-[active=true]:from-primary/15 data-[active=true]:to-secondary/15 data-[active=true]:text-primary data-[active=true]:font-semibold"
+                >
+                  <section.icon className="h-4 w-4" />
+                  <span>{section.label}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarContent>
+        <SidebarFooter className="p-3">
+          <button
+            onClick={() => logout()}
+            className="flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-destructive/10 hover:text-destructive transition-colors w-full text-left text-sm text-muted-foreground"
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            <span className="group-data-[collapsible=icon]:hidden">Cerrar sesión</span>
+          </button>
+        </SidebarFooter>
+      </Sidebar>
 
-          <Tabs defaultValue="events" className="space-y-6">
-            <TabsList className="bg-card border border-border/50">
-              <TabsTrigger value="events">Eventos</TabsTrigger>
-              <TabsTrigger value="orders-web">Ventas Web</TabsTrigger>
-              <TabsTrigger value="orders-caja">Ventas Caja</TabsTrigger>
-              <TabsTrigger value="discounts">Descuentos</TabsTrigger>
-              <TabsTrigger value="community">Códigos Comunidad</TabsTrigger>
-              <TabsTrigger value="referrals">Referidos</TabsTrigger>
-              <TabsTrigger value="caja">Caja</TabsTrigger>
-              <TabsTrigger value="settings">Ajustes</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="events"><EventsManager /></TabsContent>
-            <TabsContent value="orders-web"><OrdersView channel="web" /></TabsContent>
-            <TabsContent value="orders-caja"><OrdersView channel="caja" /></TabsContent>
-            <TabsContent value="discounts"><DiscountsManager /></TabsContent>
-            <TabsContent value="community"><CommunityCodesManager /></TabsContent>
-            <TabsContent value="referrals"><ReferralsView /></TabsContent>
-            <TabsContent value="caja"><CajaAdminView /></TabsContent>
-            <TabsContent value="settings"><SettingsManager /></TabsContent>
-          </Tabs>
-        </motion.div>
-      </div>
-    </div>
+      <SidebarInset className="bg-gradient-to-br from-background via-secondary/5 to-background">
+        <header className="flex items-center gap-3 h-16 px-6 border-b border-border/40">
+          <SidebarTrigger className="rounded-lg" />
+          <h1 className="font-heading text-2xl">{active.label}</h1>
+        </header>
+        <main className="p-6">
+          <motion.div
+            key={activeSection}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35 }}
+          >
+            {active.render()}
+          </motion.div>
+        </main>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
