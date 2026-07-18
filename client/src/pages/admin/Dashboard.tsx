@@ -68,27 +68,43 @@ function TicketTypesList({
     return <p className="text-muted-foreground text-xs mt-3">Todavía no hay entradas para este evento.</p>;
   }
 
+  const accesos = ticketTypes.filter((tt: any) => tt.category !== 'extra');
+  const extras = ticketTypes.filter((tt: any) => tt.category === 'extra');
+
+  const row = (tt: any) => (
+    <div key={tt.id} className="flex items-center justify-between text-sm bg-muted/30 rounded-lg px-3 py-2">
+      <div>
+        <span className="font-semibold">{tt.name}</span>
+        <span className="text-muted-foreground ml-2">${Number(tt.price).toLocaleString('es-CL')} · stock {tt.totalStock} · vendidas {tt.soldCount ?? 0} · {tt.status}</span>
+        {tt.category === 'extra' ? (
+          <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-violet-electric/15 text-violet-electric">Extra — aparece en el paso de extras del checkout</span>
+        ) : tt.accesoSlug ? (
+          <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary">{ACCESO_SLUG_OPTIONS.find((o) => o.value === tt.accesoSlug)?.label ?? tt.accesoSlug}</span>
+        ) : (
+          <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-destructive/15 text-destructive">Sin tipo de acceso — no se puede comprar</span>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" onClick={() => onEdit(tt)}><Edit className="w-3 h-3" /></Button>
+        <ConfirmDeleteButton description={`Vas a eliminar el tipo de entrada "${tt.name}".`} onConfirm={() => deleteTicketType.mutateAsync({ id: tt.id })} />
+      </div>
+    </div>
+  );
+
   return (
-    <div className="mt-3 space-y-2 border-t border-border/50 pt-3">
-      {ticketTypes.map((tt: any) => (
-        <div key={tt.id} className="flex items-center justify-between text-sm bg-muted/30 rounded-lg px-3 py-2">
-          <div>
-            <span className="font-semibold">{tt.name}</span>
-            <span className="text-muted-foreground ml-2">${Number(tt.price).toLocaleString('es-CL')} · stock {tt.totalStock} · vendidas {tt.soldCount ?? 0} · {tt.status}</span>
-            {tt.category === 'extra' ? (
-              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-violet-electric/15 text-violet-electric">Extra — aparece en el paso de extras del checkout</span>
-            ) : tt.accesoSlug ? (
-              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary">{ACCESO_SLUG_OPTIONS.find((o) => o.value === tt.accesoSlug)?.label ?? tt.accesoSlug}</span>
-            ) : (
-              <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-destructive/15 text-destructive">Sin tipo de acceso — no se puede comprar</span>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => onEdit(tt)}><Edit className="w-3 h-3" /></Button>
-            <ConfirmDeleteButton description={`Vas a eliminar el tipo de entrada "${tt.name}".`} onConfirm={() => deleteTicketType.mutateAsync({ id: tt.id })} />
-          </div>
+    <div className="mt-3 space-y-4 border-t border-border/50 pt-3">
+      {accesos.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Accesos</p>
+          {accesos.map(row)}
         </div>
-      ))}
+      )}
+      {extras.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Extras</p>
+          {extras.map(row)}
+        </div>
+      )}
     </div>
   );
 }

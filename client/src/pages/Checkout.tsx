@@ -30,10 +30,10 @@ type GroupSize = 1 | 2 | 3 | 4;
 type DuoComposicion = 'mixta' | 'dos_mujeres' | 'dos_hombres';
 
 const VIBE_OPTIONS: { size: GroupSize; image: string; label: string; emoji: string }[] = [
-  { size: 1, image: '/candyland/checkout/vibe-solo.webp', label: 'Voy solo/a', emoji: '👤' },
-  { size: 2, image: '/candyland/checkout/vibe-pareja.webp', label: 'Venimos en pareja', emoji: '💕' },
-  { size: 3, image: '/candyland/checkout/vibe-triada.webp', label: 'Somos una tríada', emoji: '🎭' },
-  { size: 4, image: '/candyland/checkout/vibe-grupo.webp', label: 'Venimos en grupo', emoji: '🌈' },
+  { size: 1, image: '/candyland/checkout/vibe-solo.webp', label: 'VOY SOLx', emoji: '👤' },
+  { size: 2, image: '/candyland/checkout/vibe-pareja.webp', label: 'Somos Dos', emoji: '💕' },
+  { size: 3, image: '/candyland/checkout/vibe-triada.webp', label: 'Somos Tres', emoji: '🎭' },
+  { size: 4, image: '/candyland/checkout/vibe-grupo.webp', label: 'Somos Cuatro', emoji: '🌈' },
 ];
 
 const QUIEN_OPTIONS: { slug: 'soltera' | 'soltero'; image: string; label: string; sub: string; emoji: string }[] = [
@@ -754,6 +754,9 @@ export default function Checkout() {
                   return <div key={p.id} className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {q}× {p.nombre}</span><span>+{formatCLP(q * p.precio)}</span></div>;
                 })}
               </>
+            )}
+            {serviceFee > 0 && (
+              <div className="flex justify-between text-sm text-muted-foreground mb-2"><span>Cargo por servicio</span><span>+{formatCLP(serviceFee)}</span></div>
             )}
             <div className="flex justify-between font-heading text-2xl pt-3 border-t border-border/40">
               <span>Total</span>
