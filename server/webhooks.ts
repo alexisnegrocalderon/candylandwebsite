@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
-import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder } from './db';
+import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins } from './db';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
 import { eq, and, sql, isNotNull, ne, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
@@ -458,6 +458,9 @@ async function processApprovedOrder(order: any) {
     .filter((tt: any) => tt.category === 'acceso' && tt.accesoSlug)
     .map((tt: any) => tt.accesoSlug as string);
   await upsertCustomerFromOrder(order, orderAccesoSlugs);
+  // Playcoins (pedido explícito del usuario): 25 por cada $1.000 CLP
+  // gastados, misma regla para web y caja -- ver shared/playcoins.ts.
+  await awardPlaycoins({ email: order.buyerEmail, totalClp: Number(order.total), reason: 'earn_web', orderId: order.id });
 
   // Handle ambassador referral (con el código que el comprador ingresó al pagar, si corresponde).
   // El "dueño" del código casi nunca tiene fila en `users` -esa tabla solo la

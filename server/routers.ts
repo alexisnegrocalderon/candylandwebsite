@@ -435,7 +435,14 @@ export const appRouter = router({
       registerId: z.number().optional(),
       ops: z.array(z.discriminatedUnion('type', [
         z.object({ type: z.literal('redeem'), opId: z.string(), displayCode: z.string(), clientAt: z.string() }),
-        z.object({ type: z.literal('sale'), opId: z.string(), items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1), paymentMethod: z.enum(['efectivo', 'debito', 'credito']), clientAt: z.string() }),
+        z.object({
+          type: z.literal('sale'), opId: z.string(),
+          items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1),
+          paymentMethod: z.enum(['efectivo', 'debito', 'credito']),
+          buyerEmail: z.string().email().optional(),
+          redeemPlaycoins: z.number().int().min(0).optional(),
+          clientAt: z.string(),
+        }),
       ])).max(50),
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await db.getDb();
@@ -453,6 +460,7 @@ export const appRouter = router({
             results[op.opId] = await createCajaSale(rawDb, {
               opId: op.opId, eventId: input.eventId, operatorId: ctx.operator.operatorId, registerId: input.registerId,
               items: op.items, paymentMethod: op.paymentMethod, clientAt: new Date(op.clientAt),
+              buyerEmail: op.buyerEmail, redeemPlaycoins: op.redeemPlaycoins,
             });
           }
         } catch (err) {
@@ -662,6 +670,21 @@ export const appRouter = router({
     updateNotes: adminProcedure.input(z.object({ customerId: z.number(), notes: z.string() })).mutation(async ({ input }) => {
       await db.updateCustomerNotes(input.customerId, input.notes);
       return { success: true } as const;
+    }),
+    // Ajuste manual de Playcoins (pedido explícito del usuario) -- para
+    // migrar saldos de Shopify a mano o corregir.
+    adjustPlaycoins: adminProcedure.input(z.object({ customerId: z.number(), delta: z.number().int(), note: z.string().optional() })).mutation(async ({ input }) => {
+      await db.adjustPlaycoinsManually(input.customerId, input.delta, input.note ?? '');
+      return { success: true } as const;
+    }),
+  }),
+
+  // Consulta pública de saldo de Playcoins (pedido explícito del usuario) --
+  // sin login, igual que referrals.getByCode: el sitio no tiene cuentas de
+  // comprador, el email es lo único necesario.
+  playcoins: router({
+    getBalanceByEmail: publicProcedure.input(z.object({ email: z.string().email() })).query(async ({ input }) => {
+      return db.getPlaycoinsBalance(input.email);
     }),
   }),
 

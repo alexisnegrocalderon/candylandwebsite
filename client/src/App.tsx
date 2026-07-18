@@ -21,6 +21,7 @@ const About = lazy(() => import("./pages/About"));
 const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
 const CajaApp = lazy(() => import("./pages/caja"));
 const MyReferrals = lazy(() => import("./pages/MyReferrals"));
+const MisPuntos = lazy(() => import("./pages/MisPuntos"));
 const Ticket = lazy(() => import("./pages/Ticket"));
 const Prices = lazy(() => import("./pages/Prices"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
@@ -66,6 +67,7 @@ function Router() {
           <Route path="/pago/error" component={PaymentFailure} />
           <Route path="/nosotros" component={About} />
           <Route path="/mis-referidos" component={MyReferrals} />
+          <Route path="/mis-puntos" component={MisPuntos} />
           <Route path="/verificar/:ticketCode" component={Ticket} />
           <Route path="/entradas" component={Prices} />
           <Route path="/politica-de-reembolso" component={RefundPolicy} />

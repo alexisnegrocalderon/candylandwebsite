@@ -699,6 +699,7 @@ function CustomersView() {
   const [accessType, setAccessType] = useState<string>('all');
   const [tagFilter, setTagFilter] = useState('');
   const [newTagByCustomer, setNewTagByCustomer] = useState<Record<number, string>>({});
+  const [adjustByCustomer, setAdjustByCustomer] = useState<Record<number, string>>({});
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -709,6 +710,7 @@ function CustomersView() {
   });
   const addTag = trpc.customers.addTag.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
   const removeTag = trpc.customers.removeTag.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const adjustPlaycoins = trpc.customers.adjustPlaycoins.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
 
   const customersList = customersData ?? [];
 
@@ -835,6 +837,30 @@ function CustomersView() {
                     placeholder="+ etiqueta (Enter)"
                     className="h-7 w-36 text-xs"
                   />
+                </div>
+
+                <div className="flex items-center gap-2 pt-2 border-t border-border/40">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium">
+                    🪙 {c.playcoins ?? 0} Playcoins (${Number(c.playcoins ?? 0).toLocaleString('es-CL')})
+                  </span>
+                  <Input
+                    type="number"
+                    value={adjustByCustomer[c.id] ?? ''}
+                    onChange={(e) => setAdjustByCustomer((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                    placeholder="+/- ajuste"
+                    className="h-7 w-28 text-xs"
+                  />
+                  <Button
+                    size="sm" variant="outline" className="h-7 text-xs"
+                    onClick={() => {
+                      const delta = Number(adjustByCustomer[c.id]);
+                      if (!Number.isFinite(delta) || delta === 0) return;
+                      adjustPlaycoins.mutate({ customerId: c.id, delta, note: 'Ajuste manual desde admin' });
+                      setAdjustByCustomer((prev) => ({ ...prev, [c.id]: '' }));
+                    }}
+                  >
+                    Ajustar
+                  </Button>
                 </div>
               </CardContent>
             </Card>

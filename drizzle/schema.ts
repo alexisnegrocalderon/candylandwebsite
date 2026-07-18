@@ -323,6 +323,11 @@ export const customers = mysqlTable("customers", {
   tags: json("tags"), // string[] libres
   totalOrders: int("totalOrders").default(0).notNull(),
   totalSpent: decimal("totalSpent", { precision: 10, scale: 0 }).default("0").notNull(),
+  // Playcoins (pedido explícito del usuario, reemplaza el sistema de puntos
+  // que la tienda tenía en Shopify): saldo cacheado, siempre = suma de
+  // `playcoinsLedger` para este cliente -- evita sumar todo el historial en
+  // cada lectura de saldo.
+  playcoins: int("playcoins").default(0).notNull(),
   notes: text("notes"),
   firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
   lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
@@ -407,3 +412,23 @@ export const shifts = mysqlTable("shifts", {
 
 export type Shift = typeof shifts.$inferSelect;
 export type InsertShift = typeof shifts.$inferInsert;
+
+// Ledger append-only de Playcoins (pedido explícito del usuario), mismo
+// patrón que `ops`: nunca se actualiza ni se borra una fila -- toda
+// ganancia/canje/ajuste manual es una fila nueva. `customers.playcoins` es
+// una proyección cacheada de la suma de este ledger, mantenida en la misma
+// transacción que cada inserción.
+export const playcoinsLedger = mysqlTable("playcoinsLedger", {
+  id: int("id").autoincrement().primaryKey(),
+  customerId: int("customerId").notNull(),
+  delta: int("delta").notNull(), // + gana, - canjea/ajusta
+  reason: mysqlEnum("reason", ["earn_web", "earn_caja", "redeem_caja", "manual_adjust"]).notNull(),
+  orderId: int("orderId"), // orden web o venta de caja que originó el movimiento (si aplica)
+  opId: varchar("opId", { length: 36 }), // id del op de caja (idempotencia); null para web
+  balanceAfter: int("balanceAfter").notNull(),
+  note: text("note"), // motivo libre en ajustes manuales del admin
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PlaycoinsLedgerEntry = typeof playcoinsLedger.$inferSelect;
+export type InsertPlaycoinsLedgerEntry = typeof playcoinsLedger.$inferInsert;

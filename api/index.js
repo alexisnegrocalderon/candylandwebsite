@@ -10,7 +10,7 @@ var __export = (target, all) => {
 
 // drizzle/schema.ts
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index } from "drizzle-orm/mysql-core";
-var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, operators, registers, devices, customers, ops, rateLimits, shifts;
+var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, operators, registers, devices, customers, ops, rateLimits, shifts, playcoinsLedger;
 var init_schema = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -264,6 +264,11 @@ var init_schema = __esm({
       // string[] libres
       totalOrders: int("totalOrders").default(0).notNull(),
       totalSpent: decimal("totalSpent", { precision: 10, scale: 0 }).default("0").notNull(),
+      // Playcoins (pedido explícito del usuario, reemplaza el sistema de puntos
+      // que la tienda tenía en Shopify): saldo cacheado, siempre = suma de
+      // `playcoinsLedger` para este cliente -- evita sumar todo el historial en
+      // cada lectura de saldo.
+      playcoins: int("playcoins").default(0).notNull(),
       notes: text("notes"),
       firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
       lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
@@ -324,6 +329,21 @@ var init_schema = __esm({
       topProducts: json("topProducts"),
       // [{ name, quantity, revenue }]
       status: mysqlEnum("status", ["open", "closed"]).default("open").notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    });
+    playcoinsLedger = mysqlTable("playcoinsLedger", {
+      id: int("id").autoincrement().primaryKey(),
+      customerId: int("customerId").notNull(),
+      delta: int("delta").notNull(),
+      // + gana, - canjea/ajusta
+      reason: mysqlEnum("reason", ["earn_web", "earn_caja", "redeem_caja", "manual_adjust"]).notNull(),
+      orderId: int("orderId"),
+      // orden web o venta de caja que originó el movimiento (si aplica)
+      opId: varchar("opId", { length: 36 }),
+      // id del op de caja (idempotencia); null para web
+      balanceAfter: int("balanceAfter").notNull(),
+      note: text("note"),
+      // motivo libre en ajustes manuales del admin
       createdAt: timestamp("createdAt").defaultNow().notNull()
     });
   }
@@ -450,6 +470,21 @@ function missionDepositPrice(accesoSlug) {
 }
 function missionCapPrice(generalPrice) {
   return Math.round(generalPrice * MISSION_300_TOPUP_CAP_PCT);
+}
+
+// shared/playcoins.ts
+var PLAYCOINS_PER_1000_CLP = 25;
+var PLAYCOINS_MIN_REDEEM_BALANCE = 5e3;
+function playcoinsEarnedForPurchase(totalClp) {
+  if (!Number.isFinite(totalClp) || totalClp <= 0) return 0;
+  return Math.floor(totalClp / 1e3) * PLAYCOINS_PER_1000_CLP;
+}
+function canRedeem(balance) {
+  return balance >= PLAYCOINS_MIN_REDEEM_BALANCE;
+}
+function clampRedeemAmount(requested, balance) {
+  if (!canRedeem(balance)) return 0;
+  return Math.max(0, Math.min(requested, balance));
 }
 
 // server/db.ts
@@ -1525,6 +1560,76 @@ async function upsertCustomerFromOrder(order, accesoSlugs) {
     });
   }
 }
+async function awardPlaycoins(params) {
+  const db = await getDb();
+  if (!db) return;
+  const email = params.email.trim().toLowerCase();
+  if (!email) return;
+  const points = playcoinsEarnedForPurchase(params.totalClp);
+  if (points <= 0) return;
+  const dupConditions = params.opId ? and(eq2(playcoinsLedger.opId, params.opId), eq2(playcoinsLedger.reason, params.reason)) : params.orderId ? and(eq2(playcoinsLedger.orderId, params.orderId), eq2(playcoinsLedger.reason, params.reason)) : void 0;
+  if (dupConditions) {
+    const [dup] = await db.select().from(playcoinsLedger).where(dupConditions).limit(1);
+    if (dup) return;
+  }
+  let [customer] = await db.select().from(customers).where(eq2(customers.email, email)).limit(1);
+  if (!customer) {
+    const [ins] = await db.insert(customers).values({ email, accessTypes: [], tags: [] });
+    const insertId = ins.insertId;
+    [customer] = await db.select().from(customers).where(eq2(customers.id, insertId)).limit(1);
+  }
+  const balanceAfter = customer.playcoins + points;
+  await db.update(customers).set({ playcoins: balanceAfter }).where(eq2(customers.id, customer.id));
+  await db.insert(playcoinsLedger).values({
+    customerId: customer.id,
+    delta: points,
+    reason: params.reason,
+    orderId: params.orderId ?? null,
+    opId: params.opId ?? null,
+    balanceAfter
+  });
+}
+async function redeemPlaycoinsAuthoritative(params) {
+  const db = await getDb();
+  if (!db) return { ok: false, conflictNote: "Base de datos no disponible" };
+  const email = params.email.trim().toLowerCase();
+  const [customer] = await db.select().from(customers).where(eq2(customers.email, email)).limit(1);
+  if (!customer) return { ok: false, conflictNote: "Cliente no encontrado para canjear Playcoins" };
+  const redeemed = clampRedeemAmount(params.requestedAmount, customer.playcoins);
+  if (redeemed <= 0) {
+    return { ok: false, conflictNote: `Saldo insuficiente para canjear Playcoins (saldo actual: ${customer.playcoins})` };
+  }
+  if (redeemed < params.requestedAmount) {
+    return { ok: false, conflictNote: `Saldo insuficiente: se pidieron ${params.requestedAmount} Playcoins pero solo hay ${customer.playcoins} disponibles` };
+  }
+  const balanceAfter = customer.playcoins - redeemed;
+  await db.update(customers).set({ playcoins: balanceAfter }).where(eq2(customers.id, customer.id));
+  await db.insert(playcoinsLedger).values({
+    customerId: customer.id,
+    delta: -redeemed,
+    reason: "redeem_caja",
+    opId: params.opId,
+    balanceAfter
+  });
+  return { ok: true, redeemed, balanceAfter };
+}
+async function getPlaycoinsBalance(email) {
+  const db = await getDb();
+  if (!db) return null;
+  const [customer] = await db.select().from(customers).where(eq2(customers.email, email.trim().toLowerCase())).limit(1);
+  if (!customer) return null;
+  return { email: customer.email, playcoins: customer.playcoins };
+}
+async function adjustPlaycoinsManually(customerId, delta, note) {
+  const db = await getDb();
+  if (!db) return;
+  const [customer] = await db.select().from(customers).where(eq2(customers.id, customerId)).limit(1);
+  if (!customer) return;
+  const balanceAfter = Math.max(0, customer.playcoins + delta);
+  const appliedDelta = balanceAfter - customer.playcoins;
+  await db.update(customers).set({ playcoins: balanceAfter }).where(eq2(customers.id, customerId));
+  await db.insert(playcoinsLedger).values({ customerId, delta: appliedDelta, reason: "manual_adjust", balanceAfter, note });
+}
 async function listCustomers(filters = {}) {
   const db = await getDb();
   if (!db) return [];
@@ -2074,6 +2179,7 @@ function registerAdminRoutes(app) {
         { key: "tags", label: "Etiquetas" },
         { key: "totalOrders", label: "Compras" },
         { key: "totalSpent", label: "Total gastado" },
+        { key: "playcoins", label: "Playcoins" },
         { key: "notes", label: "Notas" },
         { key: "firstSeenAt", label: "Primera compra" },
         { key: "lastSeenAt", label: "\xDAltima compra" }
@@ -3434,6 +3540,7 @@ async function processApprovedOrder(order) {
   }
   const orderAccesoSlugs = Array.from(orderTicketTypes).filter((tt) => tt.category === "acceso" && tt.accesoSlug).map((tt) => tt.accesoSlug);
   await upsertCustomerFromOrder(order, orderAccesoSlugs);
+  await awardPlaycoins({ email: order.buyerEmail, totalClp: Number(order.total), reason: "earn_web", orderId: order.id });
   if (order.ambassadorCode) {
     const [ambassadorOrder] = await db.select().from(orders).where(and2(eq3(orders.ambassadorCode, order.ambassadorCode), eq3(orders.paymentStatus, "approved"))).limit(1);
     if (ambassadorOrder && ambassadorOrder.id !== order.id) {
@@ -3714,18 +3821,31 @@ async function createCajaSale(db, params) {
       targetType: "order",
       targetId: params.opId,
       // la orden todavía no existe al momento de armar el op -- se referencia por el mismo opId
-      payload: { items: lineItems, paymentMethod: params.paymentMethod, total },
+      payload: { items: lineItems, paymentMethod: params.paymentMethod, total, buyerEmail: params.buyerEmail ?? null, redeemRequested: params.redeemPlaycoins ?? 0 },
       clientAt: params.clientAt
     },
     async () => {
+      let redeemedAmount = 0;
+      let redeemConflictNote;
+      if (params.redeemPlaycoins && params.redeemPlaycoins > 0 && params.buyerEmail) {
+        const redemption = await redeemPlaycoinsAuthoritative({
+          email: params.buyerEmail,
+          requestedAmount: params.redeemPlaycoins,
+          opId: params.opId
+        });
+        if (redemption.ok) redeemedAmount = redemption.redeemed;
+        else redeemConflictNote = redemption.conflictNote;
+      }
+      const finalTotal = total - redeemedAmount;
       const orderNumber = `CAJA-${Date.now().toString(36).toUpperCase()}`;
       const [orderResult] = await db.insert(orders).values({
         orderNumber,
         buyerName: "Venta en caja",
-        buyerEmail: "caja@mansionplayroom.cl",
+        buyerEmail: params.buyerEmail?.trim().toLowerCase() || "caja@mansionplayroom.cl",
         eventId: params.eventId,
         subtotal: String(total),
-        total: String(total),
+        discount: String(redeemedAmount),
+        total: String(finalTotal),
         paymentStatus: "approved",
         paymentId: `CAJA-${params.opId}`,
         paymentMethod: params.paymentMethod,
@@ -3747,7 +3867,10 @@ async function createCajaSale(db, params) {
         });
         await db.update(ticketTypes).set({ soldCount: sql3`soldCount + ${item.quantity}` }).where(eq5(ticketTypes.id, item.ticketTypeId));
       }
-      return { result: "applied" };
+      if (params.buyerEmail) {
+        await awardPlaycoins({ email: params.buyerEmail, totalClp: finalTotal, reason: "earn_caja", opId: params.opId });
+      }
+      return { result: "applied", conflictNote: redeemConflictNote };
     }
   );
   return { result, conflictNote };
@@ -4177,7 +4300,15 @@ var appRouter = router({
       registerId: z2.number().optional(),
       ops: z2.array(z2.discriminatedUnion("type", [
         z2.object({ type: z2.literal("redeem"), opId: z2.string(), displayCode: z2.string(), clientAt: z2.string() }),
-        z2.object({ type: z2.literal("sale"), opId: z2.string(), items: z2.array(z2.object({ ticketTypeId: z2.number(), quantity: z2.number().min(1) })).min(1), paymentMethod: z2.enum(["efectivo", "debito", "credito"]), clientAt: z2.string() })
+        z2.object({
+          type: z2.literal("sale"),
+          opId: z2.string(),
+          items: z2.array(z2.object({ ticketTypeId: z2.number(), quantity: z2.number().min(1) })).min(1),
+          paymentMethod: z2.enum(["efectivo", "debito", "credito"]),
+          buyerEmail: z2.string().email().optional(),
+          redeemPlaycoins: z2.number().int().min(0).optional(),
+          clientAt: z2.string()
+        })
       ])).max(50)
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
@@ -4202,7 +4333,9 @@ var appRouter = router({
               registerId: input.registerId,
               items: op.items,
               paymentMethod: op.paymentMethod,
-              clientAt: new Date(op.clientAt)
+              clientAt: new Date(op.clientAt),
+              buyerEmail: op.buyerEmail,
+              redeemPlaycoins: op.redeemPlaycoins
             });
           }
         } catch (err) {
@@ -4432,6 +4565,20 @@ var appRouter = router({
     updateNotes: adminProcedure2.input(z2.object({ customerId: z2.number(), notes: z2.string() })).mutation(async ({ input }) => {
       await updateCustomerNotes(input.customerId, input.notes);
       return { success: true };
+    }),
+    // Ajuste manual de Playcoins (pedido explícito del usuario) -- para
+    // migrar saldos de Shopify a mano o corregir.
+    adjustPlaycoins: adminProcedure2.input(z2.object({ customerId: z2.number(), delta: z2.number().int(), note: z2.string().optional() })).mutation(async ({ input }) => {
+      await adjustPlaycoinsManually(input.customerId, input.delta, input.note ?? "");
+      return { success: true };
+    })
+  }),
+  // Consulta pública de saldo de Playcoins (pedido explícito del usuario) --
+  // sin login, igual que referrals.getByCode: el sitio no tiene cuentas de
+  // comprador, el email es lo único necesario.
+  playcoins: router({
+    getBalanceByEmail: publicProcedure.input(z2.object({ email: z2.string().email() })).query(async ({ input }) => {
+      return getPlaycoinsBalance(input.email);
     })
   }),
   // Enrolamiento de dispositivos desde /admin (pedido explícito del usuario).

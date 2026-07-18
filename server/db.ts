@@ -1,9 +1,10 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
+import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1443,6 +1444,106 @@ export async function upsertCustomerFromOrder(order: any, accesoSlugs: string[])
       totalSpent: String(Number(order.total)),
     });
   }
+}
+
+// --- Playcoins (pedido explícito del usuario, reemplaza el sistema de
+// puntos de Shopify): 25 Playcoins por cada $1.000 CLP gastados, 1 Playcoin
+// = $1 CLP al canjear, mínimo 5.000 de saldo para poder canjear (parcial
+// permitido). Se gana en compras web Y en caja (ver shared/playcoins.ts). ---
+
+/** Otorga Playcoins por una compra -- crea el cliente si no existe (una
+ * venta de caja con email puede ser la primera vez que se ve ese comprador).
+ * Idempotente por (reason, orderId) u (reason, opId): un reintento de
+ * webhook o de `caja.sync` nunca duplica el otorgamiento. */
+export async function awardPlaycoins(params: {
+  email: string;
+  totalClp: number;
+  reason: 'earn_web' | 'earn_caja';
+  orderId?: number;
+  opId?: string;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  const email = params.email.trim().toLowerCase();
+  if (!email) return;
+
+  const points = playcoinsEarnedForPurchase(params.totalClp);
+  if (points <= 0) return;
+
+  const dupConditions = params.opId
+    ? and(eq(playcoinsLedger.opId, params.opId), eq(playcoinsLedger.reason, params.reason))
+    : params.orderId
+    ? and(eq(playcoinsLedger.orderId, params.orderId), eq(playcoinsLedger.reason, params.reason))
+    : undefined;
+  if (dupConditions) {
+    const [dup] = await db.select().from(playcoinsLedger).where(dupConditions).limit(1);
+    if (dup) return;
+  }
+
+  let [customer] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+  if (!customer) {
+    const [ins] = await db.insert(customers).values({ email, accessTypes: [], tags: [] });
+    const insertId = (ins as unknown as { insertId: number }).insertId;
+    [customer] = await db.select().from(customers).where(eq(customers.id, insertId)).limit(1);
+  }
+
+  const balanceAfter = customer.playcoins + points;
+  await db.update(customers).set({ playcoins: balanceAfter }).where(eq(customers.id, customer.id));
+  await db.insert(playcoinsLedger).values({
+    customerId: customer.id, delta: points, reason: params.reason,
+    orderId: params.orderId ?? null, opId: params.opId ?? null, balanceAfter,
+  });
+}
+
+/** Canje SERVER-AUTHORITATIVE: relee el saldo real en la BD en el instante
+ * en que esta operación finalmente se aplica (no confía en lo que el
+ * dispositivo offline mostraba al encolarla) -- mismo principio que
+ * `redeemDisplayCode` usa para códigos de ticket. Si el saldo no alcanza
+ * para el monto exacto pedido, devuelve un conflicto en vez de canjear un
+ * monto distinto en silencio. */
+export async function redeemPlaycoinsAuthoritative(params: { email: string; requestedAmount: number; opId: string }): Promise<
+  { ok: true; redeemed: number; balanceAfter: number } | { ok: false; conflictNote: string }
+> {
+  const db = await getDb();
+  if (!db) return { ok: false, conflictNote: "Base de datos no disponible" };
+  const email = params.email.trim().toLowerCase();
+  const [customer] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+  if (!customer) return { ok: false, conflictNote: "Cliente no encontrado para canjear Playcoins" };
+
+  const redeemed = clampRedeemAmount(params.requestedAmount, customer.playcoins);
+  if (redeemed <= 0) {
+    return { ok: false, conflictNote: `Saldo insuficiente para canjear Playcoins (saldo actual: ${customer.playcoins})` };
+  }
+  if (redeemed < params.requestedAmount) {
+    return { ok: false, conflictNote: `Saldo insuficiente: se pidieron ${params.requestedAmount} Playcoins pero solo hay ${customer.playcoins} disponibles` };
+  }
+
+  const balanceAfter = customer.playcoins - redeemed;
+  await db.update(customers).set({ playcoins: balanceAfter }).where(eq(customers.id, customer.id));
+  await db.insert(playcoinsLedger).values({
+    customerId: customer.id, delta: -redeemed, reason: 'redeem_caja', opId: params.opId, balanceAfter,
+  });
+  return { ok: true, redeemed, balanceAfter };
+}
+
+export async function getPlaycoinsBalance(email: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const [customer] = await db.select().from(customers).where(eq(customers.email, email.trim().toLowerCase())).limit(1);
+  if (!customer) return null;
+  return { email: customer.email, playcoins: customer.playcoins };
+}
+
+/** Ajuste manual desde /admin (migrar saldo de Shopify a mano, corregir). */
+export async function adjustPlaycoinsManually(customerId: number, delta: number, note: string) {
+  const db = await getDb();
+  if (!db) return;
+  const [customer] = await db.select().from(customers).where(eq(customers.id, customerId)).limit(1);
+  if (!customer) return;
+  const balanceAfter = Math.max(0, customer.playcoins + delta);
+  const appliedDelta = balanceAfter - customer.playcoins;
+  await db.update(customers).set({ playcoins: balanceAfter }).where(eq(customers.id, customerId));
+  await db.insert(playcoinsLedger).values({ customerId, delta: appliedDelta, reason: 'manual_adjust', balanceAfter, note });
 }
 
 export async function listCustomers(filters: { search?: string; accessType?: string; tag?: string } = {}) {

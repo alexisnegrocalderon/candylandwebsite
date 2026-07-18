@@ -138,6 +138,7 @@ export function registerAdminRoutes(app: Express) {
         { key: "tags", label: "Etiquetas" },
         { key: "totalOrders", label: "Compras" },
         { key: "totalSpent", label: "Total gastado" },
+        { key: "playcoins", label: "Playcoins" },
         { key: "notes", label: "Notas" },
         { key: "firstSeenAt", label: "Primera compra" },
         { key: "lastSeenAt", label: "Última compra" },

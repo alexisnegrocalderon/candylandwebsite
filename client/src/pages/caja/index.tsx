@@ -8,6 +8,7 @@ import {
   enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, clearSyncedOps, correctedNow,
   type CajaAttendee, type CajaCatalogItem, type QueuedOp,
 } from './db';
+import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 
 /* Módulo /caja (docs/ARQUITECTURA-CAJA.md Fase 3) -- offline-first: la
  * búsqueda, la ficha y el catálogo se leen siempre de IndexedDB (Dexie), no
@@ -166,75 +167,144 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
 
 /** Efectivo inicial del turno (cuadre de caja): se pide antes de vender
  * nada, para poder restarlo automáticamente del conteo final al cerrar. */
-function OpeningCashPrompt({ onSubmit, loading, onBack }: { onSubmit: (cash: number) => void; loading: boolean; onBack: () => void }) {
-  const [value, setValue] = useState('');
-  const parsed = Number(value);
-  const valid = value.trim() !== '' && Number.isFinite(parsed) && parsed >= 0;
+/** Denominaciones de efectivo chileno para el conteo paso a paso (pedido
+ * explícito del usuario: contar de a una denominación es mucho más rápido y
+ * confiable que estimar un monto total a ojo). */
+const DENOMINATIONS = [
+  { value: 10, label: 'Moneda de $10' },
+  { value: 50, label: 'Moneda de $50' },
+  { value: 100, label: 'Moneda de $100' },
+  { value: 500, label: 'Moneda de $500' },
+  { value: 1000, label: 'Billete de $1.000' },
+  { value: 2000, label: 'Billete de $2.000' },
+  { value: 5000, label: 'Billete de $5.000' },
+  { value: 10000, label: 'Billete de $10.000' },
+  { value: 20000, label: 'Billete de $20.000' },
+] as const;
+
+/** Contador de efectivo por denominación (pedido explícito del usuario): un
+ * paso por denominación en vez de un solo campo de "monto total", con
+ * "Volver" en cada paso para corregir sin perder la cuenta ya hecha.
+ * `initialQuantities` permite reingresar sin perder lo ya contado (usado por
+ * ShiftCloseForm al volver desde la pantalla de débito/crédito). */
+function DenominationCounter({ initialQuantities, onComplete, onExit, finalLabel = 'Siguiente', finalLoading = false }: {
+  initialQuantities?: Record<number, number>;
+  onComplete: (total: number, breakdown: Record<number, number>) => void;
+  onExit: () => void;
+  finalLabel?: string;
+  finalLoading?: boolean;
+}) {
+  const [step, setStep] = useState(0);
+  const [quantities, setQuantities] = useState<Record<number, number>>(initialQuantities ?? {});
+  const denom = DENOMINATIONS[step];
+  const isLast = step === DENOMINATIONS.length - 1;
+  const total = DENOMINATIONS.reduce((sum, d) => sum + d.value * (quantities[d.value] ?? 0), 0);
+
+  const setQty = (v: string) => {
+    const n = v.trim() === '' ? 0 : Number(v);
+    setQuantities((q) => ({ ...q, [denom.value]: Number.isFinite(n) && n >= 0 ? n : 0 }));
+  };
+
+  const next = () => {
+    if (isLast) onComplete(total, quantities);
+    else setStep((s) => s + 1);
+  };
+  const back = () => {
+    if (step === 0) onExit();
+    else setStep((s) => s - 1);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
-      <button onClick={onBack} className="text-white/50 text-sm self-start">← Cambiar de caja</button>
-      <h1 className="text-xl font-bold text-center">Efectivo inicial</h1>
-      <p className="text-white/60 text-sm text-center max-w-xs">Cuenta el dinero con el que empiezas el turno, antes de vender nada. Al cerrar se resta solo.</p>
+      <button onClick={back} className="text-white/50 text-sm self-start">← Volver</button>
+      <p className="text-white/40 text-xs uppercase tracking-wide">Paso {step + 1} de {DENOMINATIONS.length}</p>
+      <h1 className="text-xl font-bold text-center">{denom.label}</h1>
+      <p className="text-white/60 text-sm">¿Cuántas hay?</p>
       <input
+        key={denom.value}
         type="number"
         inputMode="numeric"
         min={0}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="$0"
+        value={quantities[denom.value] ?? ''}
+        onChange={(e) => setQty(e.target.value)}
+        placeholder="0"
         autoFocus
         className="w-full max-w-xs h-16 text-center text-2xl font-bold rounded-3xl bg-white/[0.04] backdrop-blur-sm border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
       />
+      <div className="w-full max-w-xs p-3 rounded-2xl bg-white/[0.04] border border-white/10 flex justify-between text-sm">
+        <span className="text-white/50">Total acumulado</span>
+        <span className="font-bold">${total.toLocaleString('es-CL')}</span>
+      </div>
       <Button
         className="w-full max-w-xs h-14 text-base bg-primary hover:bg-primary/90"
-        disabled={!valid || loading}
-        onClick={() => onSubmit(parsed)}
+        disabled={finalLoading}
+        onClick={next}
       >
-        {loading ? 'Abriendo turno…' : 'Abrir turno'}
+        {isLast ? (finalLoading ? 'Procesando…' : finalLabel) : 'Siguiente'}
       </Button>
     </div>
   );
 }
 
+function OpeningCashPrompt({ onSubmit, loading, onBack }: { onSubmit: (cash: number) => void; loading: boolean; onBack: () => void }) {
+  return (
+    <DenominationCounter
+      onExit={onBack}
+      onComplete={(total) => onSubmit(total)}
+      finalLabel="Abrir turno"
+      finalLoading={loading}
+    />
+  );
+}
+
 /** Cuadre de caja al cerrar turno (pedido explícito del usuario): pide el
  * efectivo TOTAL contado (no la diferencia -- el servidor resta el efectivo
- * inicial solo) más los totales de débito y crédito de los vouchers de las
- * máquinas. El servidor compara contra las ventas registradas y manda el
- * informe final por correo. */
+ * inicial solo), contado de a una denominación, más los totales de débito y
+ * crédito de los vouchers de las máquinas. El servidor compara contra las
+ * ventas registradas y manda el informe final por correo. */
 function ShiftCloseForm({ onSubmit, onCancel, loading }: {
   onSubmit: (counts: { countedCash: number; countedDebit: number; countedCredit: number }) => void;
   onCancel: () => void;
   loading: boolean;
 }) {
-  const [cash, setCash] = useState('');
+  const [phase, setPhase] = useState<'cash' | 'review'>('cash');
+  const [cashQuantities, setCashQuantities] = useState<Record<number, number>>({});
+  const [countedCash, setCountedCash] = useState(0);
   const [debit, setDebit] = useState('');
   const [credit, setCredit] = useState('');
+
+  if (phase === 'cash') {
+    return (
+      <DenominationCounter
+        initialQuantities={cashQuantities}
+        onExit={onCancel}
+        onComplete={(total, breakdown) => {
+          setCountedCash(total);
+          setCashQuantities(breakdown);
+          setPhase('review');
+        }}
+        finalLabel="Siguiente"
+      />
+    );
+  }
+
   const parse = (v: string) => (v.trim() === '' ? 0 : Number(v));
-  const valid = [cash, debit, credit].every((v) => v.trim() === '' || Number.isFinite(Number(v)));
+  const valid = [debit, credit].every((v) => v.trim() === '' || Number.isFinite(Number(v)));
 
   return (
     <div className="fixed inset-0 z-20 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 space-y-5">
         <div>
           <h2 className="text-lg font-bold">Cuadre de caja</h2>
-          <p className="text-white/60 text-sm mt-1">Cuenta TODO el efectivo del cajón (sin separar el inicial) y anota los totales de los vouchers de las máquinas.</p>
+          <p className="text-white/60 text-sm mt-1">Efectivo contado: <b>${countedCash.toLocaleString('es-CL')}</b>. Ahora anota los totales de los vouchers de las máquinas.</p>
         </div>
 
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-white/50 uppercase tracking-wide">💵 Efectivo total contado</label>
-            <input
-              type="number" inputMode="numeric" min={0} value={cash} onChange={(e) => setCash(e.target.value)}
-              placeholder="$0" autoFocus
-              className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
-            />
-          </div>
-          <div>
             <label className="text-xs text-white/50 uppercase tracking-wide">💳 Total débito (voucher máquina)</label>
             <input
               type="number" inputMode="numeric" min={0} value={debit} onChange={(e) => setDebit(e.target.value)}
-              placeholder="$0"
+              placeholder="$0" autoFocus
               className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
             />
           </div>
@@ -249,13 +319,13 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
         </div>
 
         <div className="flex gap-3">
-          <Button variant="outline" className="flex-1 border-white/15 text-white" disabled={loading} onClick={onCancel}>
-            Cancelar
+          <Button variant="outline" className="flex-1 border-white/15 text-white" disabled={loading} onClick={() => setPhase('cash')}>
+            ← Volver a contar efectivo
           </Button>
           <Button
             className="flex-1 bg-primary hover:bg-primary/90"
             disabled={!valid || loading}
-            onClick={() => onSubmit({ countedCash: parse(cash), countedDebit: parse(debit), countedCredit: parse(credit) })}
+            onClick={() => onSubmit({ countedCash, countedDebit: parse(debit), countedCredit: parse(credit) })}
           >
             {loading ? 'Cerrando…' : 'Cerrar turno'}
           </Button>
@@ -568,8 +638,8 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
 
         {view === 'sale' && (
           <NewSale
-            onSale={async (items, paymentMethod) => {
-              await enqueueOp({ opId: newOpId(), type: 'sale', items, paymentMethod, clientAt: (await correctedNow()).toISOString() });
+            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins) => {
+              await enqueueOp({ opId: newOpId(), type: 'sale', items, paymentMethod, buyerEmail, redeemPlaycoins, clientAt: (await correctedNow()).toISOString() });
               toast.success('Venta registrada ✅');
               refreshPending();
               runSync();
@@ -678,10 +748,26 @@ function CustomerSheet({ orderId, onRedeem, canVoid, onVoid, voiding }: {
   );
 }
 
-function NewSale({ onSale }: { onSale: (items: { ticketTypeId: number; quantity: number }[], paymentMethod: 'efectivo' | 'debito' | 'credito') => void }) {
+function NewSale({ onSale }: {
+  onSale: (
+    items: { ticketTypeId: number; quantity: number }[],
+    paymentMethod: 'efectivo' | 'debito' | 'credito',
+    buyerEmail?: string,
+    redeemPlaycoins?: number,
+  ) => void;
+}) {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito'>('debito');
+
+  // Playcoins (pedido explícito del usuario): paso opcional/omisible para
+  // que la venta también gane puntos, y para canjear puntos ya ganados.
+  const [showEmailStep, setShowEmailStep] = useState(false);
+  const [buyerEmail, setBuyerEmail] = useState('');
+  const [balance, setBalance] = useState<number | null>(null);
+  const [checkingBalance, setCheckingBalance] = useState(false);
+  const [redeemInput, setRedeemInput] = useState('');
+  const utils = trpc.useUtils();
 
   useEffect(() => { getLocalCatalog().then(setCatalog); }, []);
 
@@ -691,10 +777,28 @@ function NewSale({ onSale }: { onSale: (items: { ticketTypeId: number; quantity:
   const add = (id: number) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
   const remove = (id: number) => setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] || 0) - 1) }));
 
+  const checkBalance = async () => {
+    if (!buyerEmail.trim()) return;
+    setCheckingBalance(true);
+    try {
+      const r = await utils.playcoins.getBalanceByEmail.fetch({ email: buyerEmail.trim() });
+      setBalance(r?.playcoins ?? 0);
+    } catch {
+      toast.error('No se pudo consultar el saldo (¿sin conexión?)');
+    } finally {
+      setCheckingBalance(false);
+    }
+  };
+
   const confirm = () => {
     const cartItems = Object.entries(cart).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId: Number(ticketTypeId), quantity }));
-    onSale(cartItems, paymentMethod);
+    const redeemAmount = balance != null ? clampRedeemAmount(Number(redeemInput || 0), Math.min(balance, total)) : 0;
+    onSale(cartItems, paymentMethod, buyerEmail.trim() || undefined, redeemAmount || undefined);
     setCart({});
+    setBuyerEmail('');
+    setBalance(null);
+    setRedeemInput('');
+    setShowEmailStep(false);
   };
 
   return (
@@ -728,6 +832,48 @@ function NewSale({ onSale }: { onSale: (items: { ticketTypeId: number; quantity:
             <span>Total</span>
             <span>${total.toLocaleString('es-CL')}</span>
           </div>
+
+          {!showEmailStep ? (
+            <button onClick={() => setShowEmailStep(true)} className="text-sm text-white/50 underline">
+              + Registrar email del cliente (gana Playcoins) — opcional
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <Input
+                value={buyerEmail}
+                onChange={(e) => { setBuyerEmail(e.target.value); setBalance(null); setRedeemInput(''); }}
+                placeholder="email@cliente.cl"
+                className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+              />
+              <div className="flex items-center gap-3">
+                <Button size="sm" variant="outline" className="border-white/15 text-white" disabled={!buyerEmail.trim() || checkingBalance} onClick={checkBalance}>
+                  {checkingBalance ? 'Consultando…' : 'Consultar saldo'}
+                </Button>
+                <button
+                  onClick={() => { setShowEmailStep(false); setBuyerEmail(''); setBalance(null); setRedeemInput(''); }}
+                  className="text-xs text-white/40 underline"
+                >
+                  Omitir
+                </button>
+              </div>
+              {balance != null && (
+                canRedeem(balance) ? (
+                  <div>
+                    <p className="text-xs text-white/50">Saldo: {balance} Playcoins (${balance.toLocaleString('es-CL')})</p>
+                    <Input
+                      type="number" inputMode="numeric" min={0} max={Math.min(balance, total)}
+                      value={redeemInput} onChange={(e) => setRedeemInput(e.target.value)}
+                      placeholder="Canjear cuántos Playcoins"
+                      className="h-9 mt-1 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                    />
+                  </div>
+                ) : (
+                  <p className="text-xs text-white/40">Saldo: {balance} Playcoins (mínimo {PLAYCOINS_MIN_REDEEM_BALANCE} para canjear)</p>
+                )
+              )}
+            </div>
+          )}
+
           <div className="flex gap-2">
             {(['efectivo', 'debito', 'credito'] as const).map((m) => (
               <button

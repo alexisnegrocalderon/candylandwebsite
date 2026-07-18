@@ -30,7 +30,14 @@ interface CajaCodeIndex {
 
 export type QueuedOp =
   | { opId: string; type: 'redeem'; displayCode: string; clientAt: string }
-  | { opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number }[]; paymentMethod: 'efectivo' | 'debito' | 'credito'; clientAt: string };
+  | {
+      opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number }[];
+      paymentMethod: 'efectivo' | 'debito' | 'credito'; clientAt: string;
+      // Playcoins (pedido explícito del usuario): captura opcional del email
+      // del cliente para que la venta también gane puntos, y canje opcional
+      // de puntos ya ganados como descuento.
+      buyerEmail?: string; redeemPlaycoins?: number;
+    };
 
 export interface CajaOpRecord {
   opId: string;
