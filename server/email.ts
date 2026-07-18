@@ -721,3 +721,87 @@ export function buildSalesRecordEmail(data: {
 </body>
 </html>`;
 }
+
+/** Cuadre de caja al cerrar un turno (pedido explícito del usuario): muestra
+ * lo declarado por la cajera vs. lo esperado según las ventas registradas en
+ * el sistema (solo canal caja, dentro de la ventana del turno), y "cómo
+ * terminó la fiesta" (top clientes/productos del evento completo). */
+export function buildShiftCloseEmail(data: {
+  eventTitle: string;
+  registerName: string;
+  operatorName: string;
+  openedAt: Date;
+  closedAt: Date;
+  openingCash: number;
+  countedCash: number;
+  countedDebit: number;
+  countedCredit: number;
+  expectedCash: number;
+  expectedDebit: number;
+  expectedCredit: number;
+  cashDiff: number;
+  debitDiff: number;
+  creditDiff: number;
+  salesCount: number;
+  redeemsCount: number;
+  topCustomers: { name: string; email: string; total: number }[];
+  topProducts: { name: string; quantity: number; revenue: number }[];
+}) {
+  const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+  const diffRow = (label: string, counted: number, expected: number, diff: number) => `
+    <div style="padding:8px 0;border-bottom:1px solid ${BORDER};">
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:${INK};font-size:14px;">${label}</span>
+        <span style="color:${INK};font-size:14px;font-weight:600;">${money(counted)} contado / ${money(expected)} esperado</span>
+      </div>
+      <p style="color:${Math.abs(diff) < 1 ? ACCENT.blue.text : diff > 0 ? ACCENT.yellow.text : '#D9538F'};font-size:12px;font-weight:700;margin:4px 0 0;">
+        ${Math.abs(diff) < 1 ? '✓ Cuadra' : diff > 0 ? `▲ Sobran ${money(diff)}` : `▼ Faltan ${money(Math.abs(diff))}`}
+      </p>
+    </div>
+  `;
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">🔒 Turno cerrado — ${data.eventTitle}</h1>
+    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.registerName} · ${data.operatorName} · ${data.closedAt.toLocaleString('es-CL', { timeZone: 'America/Santiago' })}</p>
+
+    ${card(`
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Cuadre de caja</p>
+      <p style="color:${MUTED};font-size:12px;margin:0 0 10px;">Efectivo inicial: ${money(data.openingCash)} · ${data.salesCount} ventas · ${data.redeemsCount} canjes</p>
+      ${diffRow('💵 Efectivo', data.countedCash, data.expectedCash + data.openingCash, data.cashDiff)}
+      ${diffRow('💳 Débito', data.countedDebit, data.expectedDebit, data.debitDiff)}
+      ${diffRow('💳 Crédito', data.countedCredit, data.expectedCredit, data.creditDiff)}
+    `)}
+
+    ${card(`
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">🏆 Top 3 clientes (todo el evento)</p>
+      ${data.topCustomers.length === 0 ? `<p style="color:${MUTED};font-size:13px;margin:0;">Sin ventas web registradas.</p>` : data.topCustomers.map((c, i) => `
+        <div style="display:flex;justify-content:space-between;padding:6px 0;">
+          <span style="color:${INK};font-size:14px;">${i + 1}. ${c.name} <span style="color:${FAINT};font-size:12px;">(${c.email})</span></span>
+          <span style="color:${INK};font-size:14px;font-weight:600;">${money(c.total)}</span>
+        </div>
+      `).join('')}
+    `)}
+
+    ${card(`
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">🥇 Top 3 productos más vendidos</p>
+      ${data.topProducts.length === 0 ? `<p style="color:${MUTED};font-size:13px;margin:0;">Sin ventas registradas.</p>` : data.topProducts.map((p, i) => `
+        <div style="display:flex;justify-content:space-between;padding:6px 0;">
+          <span style="color:${INK};font-size:14px;">${i + 1}. ${p.name}</span>
+          <span style="color:${INK};font-size:14px;font-weight:600;">${p.quantity}x · ${money(p.revenue)}</span>
+        </div>
+      `).join('')}
+    `)}
+  </div>
+</body>
+</html>`;
+}

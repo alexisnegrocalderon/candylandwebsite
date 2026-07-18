@@ -12,6 +12,9 @@ import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceTo
 import { redeemDisplayCode } from "./caja/redeem";
 import { createCajaSale } from "./caja/sale";
 import { voidTicketCode } from "./caja/void";
+import { sendEmail, buildShiftCloseEmail } from "./email";
+
+const SHIFT_CLOSE_REPORT_EMAIL = 'contacto@mansionplayroom.cl';
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
@@ -463,32 +466,71 @@ export const appRouter = router({
     listRegisters: operatorProcedure.query(async () => {
       return db.listActiveRegisters();
     }),
-    shiftOpen: operatorProcedure.input(z.object({ opId: z.string(), eventId: z.number(), registerId: z.number().optional(), clientAt: z.string() })).mutation(async ({ input, ctx }) => {
+    // Apertura de turno con cuadre de caja (pedido explícito del usuario):
+    // pide el efectivo inicial declarado por la cajera. Idempotente por
+    // evento+caja (un refresh de página no duplica el turno abierto).
+    shiftOpen: operatorProcedure.input(z.object({
+      opId: z.string(), eventId: z.number(), registerId: z.number().optional(),
+      openingCash: z.number().min(0), clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
       const rawDb = await db.getDb();
       if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
       if (!ctx.operator) throw new TRPCError({ code: 'UNAUTHORIZED' });
+      const shiftId = await db.openShift({
+        eventId: input.eventId, operatorId: ctx.operator.operatorId,
+        registerId: input.registerId, openingCash: input.openingCash,
+      });
       const { applyOp } = await import('./caja/ops');
-      return applyOp(rawDb, {
+      await applyOp(rawDb, {
         id: input.opId, type: 'shift_open', eventId: input.eventId, operatorId: ctx.operator.operatorId,
         registerId: input.registerId, targetType: 'operator', targetId: String(ctx.operator.operatorId),
-        payload: null, clientAt: new Date(input.clientAt),
+        payload: { openingCash: input.openingCash, shiftId }, clientAt: new Date(input.clientAt),
       }, async () => ({ result: 'applied' as const }));
+      return { shiftId };
     }),
     // Protocolo de pendientes (§13, riesgo 2): el cliente NO debe llamar esto
     // con ops sin sincronizar -- se bloquea en la UI, no acá, porque cerrar
     // el turno es una decisión operativa, no algo que el servidor pueda ver.
-    shiftClose: operatorProcedure.input(z.object({ opId: z.string(), eventId: z.number(), registerId: z.number().optional(), clientAt: z.string() })).mutation(async ({ input, ctx }) => {
+    // Pide efectivo TOTAL contado (no la diferencia) + totales de débito y
+    // crédito de las máquinas, hace el cuadre contra las ventas registradas
+    // (solo canal caja, nunca web) y manda el informe final por correo.
+    shiftClose: operatorProcedure.input(z.object({
+      opId: z.string(), eventId: z.number(), registerId: z.number().optional(),
+      countedCash: z.number().min(0), countedDebit: z.number().min(0), countedCredit: z.number().min(0),
+      clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
       const rawDb = await db.getDb();
       if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
       if (!ctx.operator) throw new TRPCError({ code: 'UNAUTHORIZED' });
-      const summary = await db.getShiftSummary(input.eventId, ctx.operator.operatorId, input.registerId);
+
+      const openShift = await db.getOpenShift(input.eventId, input.registerId);
+      if (!openShift) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No hay un turno abierto para cerrar' });
+
+      const report = await db.closeShift({
+        shiftId: openShift.id, closedByOperatorId: ctx.operator.operatorId,
+        countedCash: input.countedCash, countedDebit: input.countedDebit, countedCredit: input.countedCredit,
+      });
+
       const { applyOp } = await import('./caja/ops');
       await applyOp(rawDb, {
         id: input.opId, type: 'shift_close', eventId: input.eventId, operatorId: ctx.operator.operatorId,
         registerId: input.registerId, targetType: 'operator', targetId: String(ctx.operator.operatorId),
-        payload: summary, clientAt: new Date(input.clientAt),
+        payload: report, clientAt: new Date(input.clientAt),
       }, async () => ({ result: 'applied' as const }));
-      return summary;
+
+      // No debe tumbar el cierre de turno si Resend falla -- el reporte ya
+      // quedó guardado y disponible en /admin de todas formas.
+      try {
+        await sendEmail({
+          to: SHIFT_CLOSE_REPORT_EMAIL,
+          subject: `[Cierre de turno] ${report.eventTitle} — ${report.registerName}`,
+          html: buildShiftCloseEmail(report),
+        });
+      } catch (err) {
+        console.error('[shiftClose] Error al enviar el correo de cierre:', err);
+      }
+
+      return report;
     }),
 
     // Anulación con motivo -- solo supervisor/admin (docs/ARQUITECTURA-CAJA.md §3.2).
@@ -673,6 +715,11 @@ export const appRouter = router({
     })).query(async ({ input }) => {
       const { eventId, ...filters } = input;
       return db.getLedger(eventId, filters);
+    }),
+    // Cuadres de caja guardados (pedido explícito del usuario) -- sin
+    // eventId trae los de todos los eventos, para comparar entre fiestas.
+    shiftClosings: adminProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
+      return db.listShiftClosings(input?.eventId);
     }),
   }),
 });

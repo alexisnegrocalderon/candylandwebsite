@@ -372,3 +372,38 @@ export type RateLimit = typeof rateLimits.$inferSelect;
 
 export type Op = typeof ops.$inferSelect;
 export type InsertOp = typeof ops.$inferInsert;
+
+// Cuadre de caja (pedido explícito del usuario): entidad persistida del
+// turno, separada del ledger `ops` (que es solo auditoría append-only, sin
+// ID estable para comparar entre eventos). `openingCash` se pide al abrir;
+// al cerrar se pide el efectivo TOTAL contado (no la diferencia -- se resta
+// `openingCash` automáticamente) más los totales de débito/crédito de los
+// vouchers de las máquinas. `expected*` se calcula solo de las ventas de
+// canal 'caja' dentro de la ventana del turno (nunca ventas web). `top*` es
+// un snapshot (no un cálculo en vivo) para que el reporte de un evento
+// pasado no cambie si se generan más ventas después.
+export const shifts = mysqlTable("shifts", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  operatorId: int("operatorId").notNull(), // quién abrió el turno
+  registerId: int("registerId"),
+  openingCash: decimal("openingCash", { precision: 10, scale: 0 }).notNull(),
+  openedAt: timestamp("openedAt").defaultNow().notNull(),
+  closedAt: timestamp("closedAt"),
+  closedByOperatorId: int("closedByOperatorId"),
+  countedCash: decimal("countedCash", { precision: 10, scale: 0 }),
+  countedDebit: decimal("countedDebit", { precision: 10, scale: 0 }),
+  countedCredit: decimal("countedCredit", { precision: 10, scale: 0 }),
+  expectedCash: decimal("expectedCash", { precision: 10, scale: 0 }),
+  expectedDebit: decimal("expectedDebit", { precision: 10, scale: 0 }),
+  expectedCredit: decimal("expectedCredit", { precision: 10, scale: 0 }),
+  salesCount: int("salesCount"),
+  redeemsCount: int("redeemsCount"),
+  topCustomers: json("topCustomers"), // [{ name, email, total }]
+  topProducts: json("topProducts"), // [{ name, quantity, revenue }]
+  status: mysqlEnum("status", ["open", "closed"]).default("open").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Shift = typeof shifts.$inferSelect;
+export type InsertShift = typeof shifts.$inferInsert;

@@ -1,6 +1,6 @@
-import { eq, desc, and, sql, or, gte, lte, like, inArray } from "drizzle-orm";
+import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
@@ -1192,31 +1192,204 @@ export async function createRegister(name: string) {
   return (result as unknown as { insertId: number }).insertId;
 }
 
-/** Resumen del turno (§14 Fase 5): ventas y canjes hechos por este operador
- * desde su último `shift_open` (en esta caja, si se especifica). */
-export async function getShiftSummary(eventId: number, operatorId: number, registerId?: number) {
+/** Cuadre de caja (pedido explícito del usuario): abre un turno persistido
+ * con el efectivo inicial declarado por la cajera. Si ya hay un turno
+ * abierto para el mismo evento+caja (p. ej. refresh de página), se reusa en
+ * vez de crear uno nuevo -- así "abrir turno" es idempotente por sesión. */
+export async function openShift(params: { eventId: number; operatorId: number; registerId?: number; openingCash: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await getOpenShift(params.eventId, params.registerId);
+  if (existing) return existing.id;
+
+  const [result] = await db.insert(shifts).values({
+    eventId: params.eventId,
+    operatorId: params.operatorId,
+    registerId: params.registerId ?? null,
+    openingCash: String(params.openingCash),
+  });
+  return (result as unknown as { insertId: number }).insertId;
+}
+
+/** Turno abierto para un evento+caja (o "sin caja asignada" si registerId es
+ * undefined) -- es lo que le da identidad estable a un turno en vez de tener
+ * que reconstruirlo cada vez a partir del ledger `ops`. */
+export async function getOpenShift(eventId: number, registerId?: number) {
   const db = await getDb();
   if (!db) return null;
+  const conditions = [eq(shifts.eventId, eventId), eq(shifts.status, 'open')];
+  conditions.push(registerId ? eq(shifts.registerId, registerId) : isNull(shifts.registerId));
+  const [row] = await db.select().from(shifts).where(and(...conditions)).orderBy(desc(shifts.openedAt)).limit(1);
+  return row ?? null;
+}
 
-  const openConditions = [eq(ops.eventId, eventId), eq(ops.operatorId, operatorId), eq(ops.type, 'shift_open')];
-  if (registerId) openConditions.push(eq(ops.registerId, registerId));
-  const opens = await db.select().from(ops).where(and(...openConditions)).orderBy(desc(ops.serverAt)).limit(1);
-  const since = opens[0]?.serverAt ?? new Date(0);
+/** Cierre de turno con cuadre de caja (pedido explícito del usuario):
+ * - `countedCash` es el efectivo TOTAL contado en el cajón (no la diferencia
+ *   -- se resta `openingCash` automáticamente vía `expectedCash`).
+ * - `expected*` sale solo de ventas canal='caja' dentro de la ventana del
+ *   turno (openedAt → ahora), nunca de ventas web.
+ * - `topCustomers`/`topProducts` son del EVENTO completo (todas las
+ *   ventas aprobadas, cualquier canal) -- es "cómo terminó la fiesta", no
+ *   solo este turno -- y quedan grabados como snapshot para que el reporte
+ *   de un evento pasado no cambie si se generan más ventas después. */
+export async function closeShift(params: {
+  shiftId: number;
+  closedByOperatorId: number;
+  countedCash: number;
+  countedDebit: number;
+  countedCredit: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
 
-  const activityConditions = [eq(ops.eventId, eventId), eq(ops.operatorId, operatorId), gte(ops.serverAt, since)];
-  if (registerId) activityConditions.push(eq(ops.registerId, registerId));
-  const activity = await db.select().from(ops).where(and(...activityConditions));
+  const [shift] = await db.select().from(shifts).where(eq(shifts.id, params.shiftId)).limit(1);
+  if (!shift) throw new Error("Turno no encontrado");
+  if (shift.status === 'closed') throw new Error("Este turno ya fue cerrado");
 
-  const sales = activity.filter((o: any) => o.type === 'sale' && o.result === 'applied');
-  const redeems = activity.filter((o: any) => o.type === 'redeem' && o.result === 'applied');
-  const salesTotal = sales.reduce((s: number, o: any) => s + Number((o.payload as any)?.total ?? 0), 0);
+  const closedAt = new Date();
+
+  const shiftSalesConditions = [
+    eq(orders.eventId, shift.eventId),
+    eq(orders.channel, 'caja'),
+    eq(orders.paymentStatus, 'approved'),
+    gte(orders.createdAt, shift.openedAt),
+  ];
+  if (shift.registerId) shiftSalesConditions.push(eq(orders.registerId, shift.registerId));
+  const shiftSales = await db.select({ total: orders.total, paymentMethod: orders.paymentMethod })
+    .from(orders).where(and(...shiftSalesConditions));
+
+  let expectedCash = 0, expectedDebit = 0, expectedCredit = 0;
+  for (const s of shiftSales) {
+    const amount = Number(s.total);
+    if (s.paymentMethod === 'efectivo') expectedCash += amount;
+    else if (s.paymentMethod === 'debito') expectedDebit += amount;
+    else if (s.paymentMethod === 'credito') expectedCredit += amount;
+  }
+
+  const redeemsCount = await db.select({ count: sql<number>`count(*)` }).from(ops).where(and(
+    eq(ops.eventId, shift.eventId), eq(ops.type, 'redeem'), eq(ops.result, 'applied'), gte(ops.serverAt, shift.openedAt),
+    ...(shift.registerId ? [eq(ops.registerId, shift.registerId)] : []),
+  ));
+
+  // "Cómo terminó la fiesta": top 3 clientes/productos del evento completo,
+  // excluyendo el comprador placeholder de caja (no es un cliente real).
+  const eventOrders = await db.select({ buyerName: orders.buyerName, buyerEmail: orders.buyerEmail, total: orders.total })
+    .from(orders).where(and(eq(orders.eventId, shift.eventId), eq(orders.paymentStatus, 'approved'), sql`${orders.channel} != 'caja'`));
+  const byCustomer = new Map<string, { name: string; email: string; total: number }>();
+  for (const o of eventOrders) {
+    const entry = byCustomer.get(o.buyerEmail) ?? { name: o.buyerName, email: o.buyerEmail, total: 0 };
+    entry.total += Number(o.total);
+    byCustomer.set(o.buyerEmail, entry);
+  }
+  const topCustomers = Array.from(byCustomer.values()).sort((a, b) => b.total - a.total).slice(0, 3);
+
+  const eventItems = await db.select({ ticketTypeId: orderItems.ticketTypeId, quantity: orderItems.quantity, totalPrice: orderItems.totalPrice })
+    .from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .where(and(eq(orders.eventId, shift.eventId), eq(orders.paymentStatus, 'approved')));
+  const allTicketTypes = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, shift.eventId));
+  const ttById = new Map<number, any>(allTicketTypes.map((t: any) => [t.id, t]));
+  const byProduct = new Map<number, { name: string; quantity: number; revenue: number }>();
+  for (const item of eventItems) {
+    const entry = byProduct.get(item.ticketTypeId) ?? { name: ttById.get(item.ticketTypeId)?.name ?? `#${item.ticketTypeId}`, quantity: 0, revenue: 0 };
+    entry.quantity += item.quantity;
+    entry.revenue += Number(item.totalPrice);
+    byProduct.set(item.ticketTypeId, entry);
+  }
+  const topProducts = Array.from(byProduct.values()).sort((a, b) => b.quantity - a.quantity).slice(0, 3);
+
+  await db.update(shifts).set({
+    closedAt,
+    closedByOperatorId: params.closedByOperatorId,
+    countedCash: String(params.countedCash),
+    countedDebit: String(params.countedDebit),
+    countedCredit: String(params.countedCredit),
+    expectedCash: String(expectedCash),
+    expectedDebit: String(expectedDebit),
+    expectedCredit: String(expectedCredit),
+    salesCount: shiftSales.length,
+    redeemsCount: Number(redeemsCount[0]?.count ?? 0),
+    topCustomers,
+    topProducts,
+    status: 'closed',
+  }).where(eq(shifts.id, shift.id));
+
+  const [event] = await db.select({ title: events.title }).from(events).where(eq(events.id, shift.eventId)).limit(1);
+  const [register] = shift.registerId ? await db.select({ name: registers.name }).from(registers).where(eq(registers.id, shift.registerId)).limit(1) : [null];
+  const [operator] = await db.select({ name: operators.name }).from(operators).where(eq(operators.id, shift.operatorId)).limit(1);
 
   return {
-    since,
-    salesCount: sales.length,
-    salesTotal,
-    redeemsCount: redeems.length,
+    id: shift.id,
+    eventTitle: event?.title ?? `Evento #${shift.eventId}`,
+    registerName: register?.name ?? 'Sin caja asignada',
+    operatorName: operator?.name ?? 'Operador eliminado',
+    openedAt: shift.openedAt,
+    closedAt,
+    openingCash: Number(shift.openingCash),
+    countedCash: params.countedCash,
+    countedDebit: params.countedDebit,
+    countedCredit: params.countedCredit,
+    expectedCash,
+    expectedDebit,
+    expectedCredit,
+    cashDiff: params.countedCash - expectedCash - Number(shift.openingCash),
+    debitDiff: params.countedDebit - expectedDebit,
+    creditDiff: params.countedCredit - expectedCredit,
+    salesCount: shiftSales.length,
+    redeemsCount: Number(redeemsCount[0]?.count ?? 0),
+    topCustomers,
+    topProducts,
   };
+}
+
+/** Cierres de turno guardados, para comparar entre eventos y exportar a CSV
+ * (pedido explícito del usuario). */
+export async function listShiftClosings(eventId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(shifts.status, 'closed')];
+  if (eventId) conditions.push(eq(shifts.eventId, eventId));
+  const rows = await db.select().from(shifts).where(and(...conditions)).orderBy(desc(shifts.closedAt));
+
+  const eventIds = Array.from(new Set(rows.map((r: any) => r.eventId)));
+  const registerIds = Array.from(new Set(rows.map((r: any) => r.registerId).filter((id: any) => id != null)));
+  const operatorIds = Array.from(new Set([...rows.map((r: any) => r.operatorId), ...rows.map((r: any) => r.closedByOperatorId)].filter((id: any) => id != null)));
+
+  const eventRows = eventIds.length ? await db.select({ id: events.id, title: events.title }).from(events).where(inArray(events.id, eventIds)) : [];
+  const registerRows = registerIds.length ? await db.select({ id: registers.id, name: registers.name }).from(registers).where(inArray(registers.id, registerIds)) : [];
+  const operatorRows = operatorIds.length ? await db.select({ id: operators.id, name: operators.name }).from(operators).where(inArray(operators.id, operatorIds)) : [];
+  const eventById = new Map(eventRows.map((e: any) => [e.id, e.title]));
+  const registerById = new Map(registerRows.map((r: any) => [r.id, r.name]));
+  const operatorById = new Map(operatorRows.map((o: any) => [o.id, o.name]));
+
+  return rows.map((r: any) => ({
+    id: r.id,
+    eventId: r.eventId,
+    eventTitle: eventById.get(r.eventId) ?? `Evento #${r.eventId}`,
+    registerName: r.registerId ? (registerById.get(r.registerId) ?? 'Caja eliminada') : 'Sin caja asignada',
+    operatorName: operatorById.get(r.operatorId) ?? 'Operador eliminado',
+    closedByName: r.closedByOperatorId ? (operatorById.get(r.closedByOperatorId) ?? 'Operador eliminado') : null,
+    openedAt: r.openedAt,
+    closedAt: r.closedAt,
+    openingCash: Number(r.openingCash),
+    countedCash: Number(r.countedCash ?? 0),
+    countedDebit: Number(r.countedDebit ?? 0),
+    countedCredit: Number(r.countedCredit ?? 0),
+    expectedCash: Number(r.expectedCash ?? 0),
+    expectedDebit: Number(r.expectedDebit ?? 0),
+    expectedCredit: Number(r.expectedCredit ?? 0),
+    cashDiff: Number(r.countedCash ?? 0) - Number(r.expectedCash ?? 0) - Number(r.openingCash),
+    debitDiff: Number(r.countedDebit ?? 0) - Number(r.expectedDebit ?? 0),
+    creditDiff: Number(r.countedCredit ?? 0) - Number(r.expectedCredit ?? 0),
+    salesCount: r.salesCount ?? 0,
+    redeemsCount: r.redeemsCount ?? 0,
+    topCustomers: r.topCustomers ?? [],
+    topProducts: r.topProducts ?? [],
+  }));
+}
+
+export async function getShiftClosingsForExport(eventId?: number) {
+  return listShiftClosings(eventId);
 }
 
 // --- Base de datos de clientes (pedido explícito del usuario) ---

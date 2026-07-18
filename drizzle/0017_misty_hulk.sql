@@ -1,0 +1,23 @@
+CREATE TABLE `shifts` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`eventId` int NOT NULL,
+	`operatorId` int NOT NULL,
+	`registerId` int,
+	`openingCash` decimal NOT NULL,
+	`openedAt` timestamp NOT NULL DEFAULT (now()),
+	`closedAt` timestamp,
+	`closedByOperatorId` int,
+	`countedCash` decimal,
+	`countedDebit` decimal,
+	`countedCredit` decimal,
+	`expectedCash` decimal,
+	`expectedDebit` decimal,
+	`expectedCredit` decimal,
+	`salesCount` int,
+	`redeemsCount` int,
+	`topCustomers` json,
+	`topProducts` json,
+	`status` enum('open','closed') NOT NULL DEFAULT 'open',
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	CONSTRAINT `shifts_id` PRIMARY KEY(`id`)
+);

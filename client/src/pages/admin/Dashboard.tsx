@@ -912,6 +912,7 @@ function CajaAdminView() {
       {activeEventId && <ProfitReport eventId={activeEventId} />}
       <EventComparisonReport />
       {activeEventId && <PeakHoursReport eventId={activeEventId} />}
+      <ShiftClosingsReport events={events} />
       {activeEventId && <LedgerView eventId={activeEventId} />}
     </div>
   );
@@ -1143,6 +1144,109 @@ function LedgerView({ eventId }: { eventId: number }) {
           </tbody>
         </table>
         {rows.length >= 500 && <p className="text-xs text-muted-foreground mt-2">Mostrando las 500 más recientes.</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Cuadres de caja guardados por turno (pedido explícito del usuario) --
+ * comparables entre eventos porque quedan persistidos, no reconstruidos del
+ * ledger. "Todos los eventos" por defecto para poder comparar fiestas. */
+function ShiftClosingsReport({ events }: { events: { id: number; title: string }[] }) {
+  const [filterEventId, setFilterEventId] = useState<string>('all');
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const eventIdFilter = filterEventId === 'all' ? undefined : Number(filterEventId);
+  const { data } = trpc.cajaReports.shiftClosings.useQuery({ eventId: eventIdFilter });
+  const rows = data ?? [];
+
+  const exportUrl = () => {
+    const params = new URLSearchParams();
+    if (eventIdFilter) params.set('eventId', String(eventIdFilter));
+    return `/api/admin/shifts/export.csv?${params.toString()}`;
+  };
+
+  const diffLabel = (diff: number) => {
+    if (Math.abs(diff) < 1) return <span className="text-green-500 font-semibold">✓ Cuadra</span>;
+    if (diff > 0) return <span className="text-amber-500 font-semibold">▲ Sobran ${diff.toLocaleString('es-CL')}</span>;
+    return <span className="text-red-500 font-semibold">▼ Faltan ${Math.abs(diff).toLocaleString('es-CL')}</span>;
+  };
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader className="flex-row items-center justify-between space-y-0">
+        <CardTitle>Cierres de turno (cuadre de caja)</CardTitle>
+        <div className="flex items-center gap-2">
+          <Select value={filterEventId} onValueChange={setFilterEventId}>
+            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los eventos</SelectItem>
+              {events.map((e) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <a href={exportUrl()} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" size="sm" className="interactive">Exportar CSV</Button>
+          </a>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {rows.length === 0 && <p className="text-sm text-muted-foreground">Sin turnos cerrados todavía.</p>}
+        {rows.map((r: any) => (
+          <div key={r.id} className="rounded-xl border border-border/50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="font-semibold">{r.eventTitle} · {r.registerName}</p>
+                <p className="text-xs text-muted-foreground">
+                  {r.operatorName}{r.closedByName && r.closedByName !== r.operatorName ? ` (cerró ${r.closedByName})` : ''} ·{' '}
+                  {new Date(r.openedAt).toLocaleString('es-CL')} → {r.closedAt ? new Date(r.closedAt).toLocaleString('es-CL') : '—'}
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}>
+                {expandedId === r.id ? 'Ocultar detalle' : 'Ver detalle'}
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 mt-3 text-sm">
+              <div className="rounded-lg bg-muted/50 p-3">
+                <p className="text-xs text-muted-foreground mb-1">💵 Efectivo</p>
+                <p>${r.countedCash.toLocaleString('es-CL')} contado</p>
+                <p className="text-xs text-muted-foreground">${(r.expectedCash + r.openingCash).toLocaleString('es-CL')} esperado</p>
+                {diffLabel(r.cashDiff)}
+              </div>
+              <div className="rounded-lg bg-muted/50 p-3">
+                <p className="text-xs text-muted-foreground mb-1">💳 Débito</p>
+                <p>${r.countedDebit.toLocaleString('es-CL')} contado</p>
+                <p className="text-xs text-muted-foreground">${r.expectedDebit.toLocaleString('es-CL')} esperado</p>
+                {diffLabel(r.debitDiff)}
+              </div>
+              <div className="rounded-lg bg-muted/50 p-3">
+                <p className="text-xs text-muted-foreground mb-1">💳 Crédito</p>
+                <p>${r.countedCredit.toLocaleString('es-CL')} contado</p>
+                <p className="text-xs text-muted-foreground">${r.expectedCredit.toLocaleString('es-CL')} esperado</p>
+                {diffLabel(r.creditDiff)}
+              </div>
+            </div>
+
+            {expandedId === r.id && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-border/50">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Efectivo inicial: ${r.openingCash.toLocaleString('es-CL')} · {r.salesCount} ventas · {r.redeemsCount} canjes</p>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">🏆 Top clientes (evento completo)</p>
+                  {r.topCustomers.length === 0 && <p className="text-xs text-muted-foreground">Sin ventas web.</p>}
+                  {r.topCustomers.map((c: any, i: number) => (
+                    <p key={i} className="text-sm">{i + 1}. {c.name} — ${c.total.toLocaleString('es-CL')}</p>
+                  ))}
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">🥇 Top productos (evento completo)</p>
+                  {r.topProducts.length === 0 && <p className="text-xs text-muted-foreground">Sin ventas.</p>}
+                  {r.topProducts.map((p: any, i: number) => (
+                    <p key={i} className="text-sm">{i + 1}. {p.name} — {p.quantity}x (${p.revenue.toLocaleString('es-CL')})</p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
       </CardContent>
     </Card>
   );

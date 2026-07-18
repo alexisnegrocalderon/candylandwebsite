@@ -229,4 +229,49 @@ export function registerAdminRoutes(app: Express) {
     const result = await db.importCustomers(rows);
     res.json(result);
   });
+
+  // Export de cierres de turno (cuadre de caja) a CSV -- pedido explícito
+  // del usuario, para comparar entre eventos fuera del admin.
+  app.get("/api/admin/shifts/export.csv", async (req: Request, res: Response) => {
+    if (!(await requireAdmin(req, res))) return;
+
+    const { eventId } = req.query as Record<string, string | undefined>;
+    const rows = await db.getShiftClosingsForExport(eventId ? Number(eventId) : undefined);
+
+    const csv = toCsv(
+      rows.map((r: any) => ({
+        ...r,
+        openedAt: r.openedAt ? new Date(r.openedAt).toLocaleString("es-CL") : "",
+        closedAt: r.closedAt ? new Date(r.closedAt).toLocaleString("es-CL") : "",
+        topCustomers: (r.topCustomers ?? []).map((c: any) => `${c.name} ($${c.total})`).join(" · "),
+        topProducts: (r.topProducts ?? []).map((p: any) => `${p.name} (${p.quantity}x)`).join(" · "),
+      })),
+      [
+        { key: "eventTitle", label: "Evento" },
+        { key: "registerName", label: "Caja" },
+        { key: "operatorName", label: "Abrió" },
+        { key: "closedByName", label: "Cerró" },
+        { key: "openedAt", label: "Apertura" },
+        { key: "closedAt", label: "Cierre" },
+        { key: "openingCash", label: "Efectivo inicial" },
+        { key: "countedCash", label: "Efectivo contado" },
+        { key: "expectedCash", label: "Efectivo esperado" },
+        { key: "cashDiff", label: "Diferencia efectivo" },
+        { key: "countedDebit", label: "Débito contado" },
+        { key: "expectedDebit", label: "Débito esperado" },
+        { key: "debitDiff", label: "Diferencia débito" },
+        { key: "countedCredit", label: "Crédito contado" },
+        { key: "expectedCredit", label: "Crédito esperado" },
+        { key: "creditDiff", label: "Diferencia crédito" },
+        { key: "salesCount", label: "N° ventas" },
+        { key: "redeemsCount", label: "N° canjes" },
+        { key: "topCustomers", label: "Top clientes (evento)" },
+        { key: "topProducts", label: "Top productos (evento)" },
+      ],
+    );
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="cierres-turno-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send("﻿" + csv);
+  });
 }

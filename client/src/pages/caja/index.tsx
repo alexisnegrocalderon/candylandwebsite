@@ -92,9 +92,12 @@ function OperatorGate() {
   return <ShiftGate operator={operator} />;
 }
 
-/** Apertura de turno (§10.2.1, §14 Fase 5): elegir la caja física antes de
- * entrar -- opcional (se puede seguir sin caja asignada si todavía no hay
- * ninguna creada en /admin, o si no hay red para cargarlas). */
+/** Apertura de turno (§10.2.1, §14 Fase 5): elegir la caja física, declarar
+ * el efectivo inicial (cuadre de caja, pedido explícito del usuario) y
+ * recién ahí abrir el turno. `caja_shift_opened` distingue "recién elegí
+ * caja, todavía no declaré el efectivo" de "esto es un refresh de página en
+ * medio de un turno que ya se abrió" -- en ese segundo caso no hay que
+ * volver a pedir el efectivo inicial. */
 function ShiftGate({ operator }: { operator: { operatorId: number; name: string; role: string } }) {
   const { data: registersList } = trpc.caja.listRegisters.useQuery();
   const { data: event } = trpc.caja.activeEvent.useQuery();
@@ -103,16 +106,46 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
     const saved = sessionStorage.getItem('caja_register_id');
     return saved ? Number(saved) : undefined;
   });
+  const [shiftStarted, setShiftStarted] = useState(() => sessionStorage.getItem('caja_shift_opened') === '1');
 
-  const choose = async (id: number | null) => {
+  const chooseRegister = (id: number | null) => {
     setRegisterId(id);
     if (id !== null) sessionStorage.setItem('caja_register_id', String(id));
     else sessionStorage.removeItem('caja_register_id');
-    if (event) shiftOpen.mutate({ opId: newOpId(), eventId: event.id, registerId: id ?? undefined, clientAt: (await correctedNow()).toISOString() });
   };
 
+  const openWithCash = async (openingCash: number) => {
+    if (!event) return;
+    await shiftOpen.mutateAsync({
+      opId: newOpId(), eventId: event.id, registerId: registerId ?? undefined,
+      openingCash, clientAt: (await correctedNow()).toISOString(),
+    });
+    sessionStorage.setItem('caja_shift_opened', '1');
+    setShiftStarted(true);
+  };
+
+  if (registerId !== undefined && shiftStarted) {
+    return (
+      <CajaHome
+        operator={operator}
+        registerId={registerId}
+        onCloseShift={() => {
+          sessionStorage.removeItem('caja_shift_opened');
+          setShiftStarted(false);
+          setRegisterId(undefined);
+        }}
+      />
+    );
+  }
+
   if (registerId !== undefined) {
-    return <CajaHome operator={operator} registerId={registerId} onCloseShift={() => setRegisterId(undefined)} />;
+    return (
+      <OpeningCashPrompt
+        loading={shiftOpen.isPending}
+        onSubmit={openWithCash}
+        onBack={() => { sessionStorage.removeItem('caja_register_id'); setRegisterId(undefined); }}
+      />
+    );
   }
 
   return (
@@ -121,12 +154,113 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
       <p className="text-white/60 text-sm">Elige tu caja para este turno</p>
       <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
         {(registersList ?? []).map((r: any) => (
-          <button key={r.id} onClick={() => choose(r.id)} className="h-20 rounded-3xl bg-white/[0.04] backdrop-blur-sm border border-white/10 text-lg font-semibold active:scale-95 transition-transform hover:border-primary/40">
+          <button key={r.id} onClick={() => chooseRegister(r.id)} className="h-20 rounded-3xl bg-white/[0.04] backdrop-blur-sm border border-white/10 text-lg font-semibold active:scale-95 transition-transform hover:border-primary/40">
             {r.name}
           </button>
         ))}
       </div>
-      <button onClick={() => choose(null)} className="text-white/50 text-sm underline">Continuar sin caja asignada</button>
+      <button onClick={() => chooseRegister(null)} className="text-white/50 text-sm underline">Continuar sin caja asignada</button>
+    </div>
+  );
+}
+
+/** Efectivo inicial del turno (cuadre de caja): se pide antes de vender
+ * nada, para poder restarlo automáticamente del conteo final al cerrar. */
+function OpeningCashPrompt({ onSubmit, loading, onBack }: { onSubmit: (cash: number) => void; loading: boolean; onBack: () => void }) {
+  const [value, setValue] = useState('');
+  const parsed = Number(value);
+  const valid = value.trim() !== '' && Number.isFinite(parsed) && parsed >= 0;
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
+      <button onClick={onBack} className="text-white/50 text-sm self-start">← Cambiar de caja</button>
+      <h1 className="text-xl font-bold text-center">Efectivo inicial</h1>
+      <p className="text-white/60 text-sm text-center max-w-xs">Cuenta el dinero con el que empiezas el turno, antes de vender nada. Al cerrar se resta solo.</p>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={0}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="$0"
+        autoFocus
+        className="w-full max-w-xs h-16 text-center text-2xl font-bold rounded-3xl bg-white/[0.04] backdrop-blur-sm border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
+      />
+      <Button
+        className="w-full max-w-xs h-14 text-base bg-primary hover:bg-primary/90"
+        disabled={!valid || loading}
+        onClick={() => onSubmit(parsed)}
+      >
+        {loading ? 'Abriendo turno…' : 'Abrir turno'}
+      </Button>
+    </div>
+  );
+}
+
+/** Cuadre de caja al cerrar turno (pedido explícito del usuario): pide el
+ * efectivo TOTAL contado (no la diferencia -- el servidor resta el efectivo
+ * inicial solo) más los totales de débito y crédito de los vouchers de las
+ * máquinas. El servidor compara contra las ventas registradas y manda el
+ * informe final por correo. */
+function ShiftCloseForm({ onSubmit, onCancel, loading }: {
+  onSubmit: (counts: { countedCash: number; countedDebit: number; countedCredit: number }) => void;
+  onCancel: () => void;
+  loading: boolean;
+}) {
+  const [cash, setCash] = useState('');
+  const [debit, setDebit] = useState('');
+  const [credit, setCredit] = useState('');
+  const parse = (v: string) => (v.trim() === '' ? 0 : Number(v));
+  const valid = [cash, debit, credit].every((v) => v.trim() === '' || Number.isFinite(Number(v)));
+
+  return (
+    <div className="fixed inset-0 z-20 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 space-y-5">
+        <div>
+          <h2 className="text-lg font-bold">Cuadre de caja</h2>
+          <p className="text-white/60 text-sm mt-1">Cuenta TODO el efectivo del cajón (sin separar el inicial) y anota los totales de los vouchers de las máquinas.</p>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-white/50 uppercase tracking-wide">💵 Efectivo total contado</label>
+            <input
+              type="number" inputMode="numeric" min={0} value={cash} onChange={(e) => setCash(e.target.value)}
+              placeholder="$0" autoFocus
+              className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-white/50 uppercase tracking-wide">💳 Total débito (voucher máquina)</label>
+            <input
+              type="number" inputMode="numeric" min={0} value={debit} onChange={(e) => setDebit(e.target.value)}
+              placeholder="$0"
+              className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-white/50 uppercase tracking-wide">💳 Total crédito (voucher máquina)</label>
+            <input
+              type="number" inputMode="numeric" min={0} value={credit} onChange={(e) => setCredit(e.target.value)}
+              placeholder="$0"
+              className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <Button variant="outline" className="flex-1 border-white/15 text-white" disabled={loading} onClick={onCancel}>
+            Cancelar
+          </Button>
+          <Button
+            className="flex-1 bg-primary hover:bg-primary/90"
+            disabled={!valid || loading}
+            onClick={() => onSubmit({ countedCash: parse(cash), countedDebit: parse(debit), countedCredit: parse(credit) })}
+          >
+            {loading ? 'Cerrando…' : 'Cerrar turno'}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -226,6 +360,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const [results, setResults] = useState<CajaAttendee[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [sheetVersion, setSheetVersion] = useState(0); // fuerza refresco de la ficha tras un canje local
+  const [showCloseForm, setShowCloseForm] = useState(false);
 
   const refreshPending = useCallback(() => { pendingOpsCount().then(setPending); }, []);
 
@@ -338,16 +473,30 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
               // ops sin sincronizar -- se resuelve en la UI, no en el servidor.
               const stillPending = await pendingOpsCount();
               if (stillPending > 0) { toast.error(`Todavía hay ${stillPending} operación${stillPending > 1 ? 'es' : ''} sin sincronizar. Espera a que termine.`); return; }
-              const summary = await shiftClose.mutateAsync({ opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined, clientAt: (await correctedNow()).toISOString() });
-              toast.success(`Turno cerrado: ${summary?.salesCount ?? 0} ventas ($${(summary?.salesTotal ?? 0).toLocaleString('es-CL')}), ${summary?.redeemsCount ?? 0} canjes.`);
-              onCloseShift();
-              logout.mutate();
+              setShowCloseForm(true);
             }}
           >
             Cerrar turno
           </Button>
         </div>
       </header>
+
+      {showCloseForm && (
+        <ShiftCloseForm
+          loading={shiftClose.isPending}
+          onCancel={() => setShowCloseForm(false)}
+          onSubmit={async (counts) => {
+            const report = await shiftClose.mutateAsync({
+              opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined,
+              ...counts, clientAt: (await correctedNow()).toISOString(),
+            });
+            const cuadra = Math.abs(report.cashDiff) < 1 && Math.abs(report.debitDiff) < 1 && Math.abs(report.creditDiff) < 1;
+            toast.success(cuadra ? '✅ Turno cerrado — la caja cuadra perfecto' : '⚠️ Turno cerrado — revisa el correo, hay diferencias en el cuadre');
+            onCloseShift();
+            logout.mutate();
+          }}
+        />
+      )}
 
       <main className="p-4 max-w-lg mx-auto">
         {view === 'menu' && (

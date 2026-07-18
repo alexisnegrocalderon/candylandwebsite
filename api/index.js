@@ -10,7 +10,7 @@ var __export = (target, all) => {
 
 // drizzle/schema.ts
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index } from "drizzle-orm/mysql-core";
-var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, operators, registers, devices, customers, ops, rateLimits;
+var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, operators, registers, devices, customers, ops, rateLimits, shifts;
 var init_schema = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -301,6 +301,31 @@ var init_schema = __esm({
       lockedUntil: timestamp("lockedUntil"),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     });
+    shifts = mysqlTable("shifts", {
+      id: int("id").autoincrement().primaryKey(),
+      eventId: int("eventId").notNull(),
+      operatorId: int("operatorId").notNull(),
+      // quién abrió el turno
+      registerId: int("registerId"),
+      openingCash: decimal("openingCash", { precision: 10, scale: 0 }).notNull(),
+      openedAt: timestamp("openedAt").defaultNow().notNull(),
+      closedAt: timestamp("closedAt"),
+      closedByOperatorId: int("closedByOperatorId"),
+      countedCash: decimal("countedCash", { precision: 10, scale: 0 }),
+      countedDebit: decimal("countedDebit", { precision: 10, scale: 0 }),
+      countedCredit: decimal("countedCredit", { precision: 10, scale: 0 }),
+      expectedCash: decimal("expectedCash", { precision: 10, scale: 0 }),
+      expectedDebit: decimal("expectedDebit", { precision: 10, scale: 0 }),
+      expectedCredit: decimal("expectedCredit", { precision: 10, scale: 0 }),
+      salesCount: int("salesCount"),
+      redeemsCount: int("redeemsCount"),
+      topCustomers: json("topCustomers"),
+      // [{ name, email, total }]
+      topProducts: json("topProducts"),
+      // [{ name, quantity, revenue }]
+      status: mysqlEnum("status", ["open", "closed"]).default("open").notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    });
   }
 });
 
@@ -370,7 +395,7 @@ import { parse as parseCookieHeader2 } from "cookie";
 
 // server/db.ts
 init_schema();
-import { eq as eq2, desc, and, sql, or, gte, lte, like, inArray } from "drizzle-orm";
+import { eq as eq2, desc, and, sql, or, gte, lte, like, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 
 // server/_core/env.ts
@@ -1305,25 +1330,158 @@ async function createRegister(name) {
   const [result] = await db.insert(registers).values({ name });
   return result.insertId;
 }
-async function getShiftSummary(eventId, operatorId, registerId) {
+async function openShift(params) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await getOpenShift(params.eventId, params.registerId);
+  if (existing) return existing.id;
+  const [result] = await db.insert(shifts).values({
+    eventId: params.eventId,
+    operatorId: params.operatorId,
+    registerId: params.registerId ?? null,
+    openingCash: String(params.openingCash)
+  });
+  return result.insertId;
+}
+async function getOpenShift(eventId, registerId) {
   const db = await getDb();
   if (!db) return null;
-  const openConditions = [eq2(ops.eventId, eventId), eq2(ops.operatorId, operatorId), eq2(ops.type, "shift_open")];
-  if (registerId) openConditions.push(eq2(ops.registerId, registerId));
-  const opens = await db.select().from(ops).where(and(...openConditions)).orderBy(desc(ops.serverAt)).limit(1);
-  const since = opens[0]?.serverAt ?? /* @__PURE__ */ new Date(0);
-  const activityConditions = [eq2(ops.eventId, eventId), eq2(ops.operatorId, operatorId), gte(ops.serverAt, since)];
-  if (registerId) activityConditions.push(eq2(ops.registerId, registerId));
-  const activity = await db.select().from(ops).where(and(...activityConditions));
-  const sales = activity.filter((o) => o.type === "sale" && o.result === "applied");
-  const redeems = activity.filter((o) => o.type === "redeem" && o.result === "applied");
-  const salesTotal = sales.reduce((s, o) => s + Number(o.payload?.total ?? 0), 0);
+  const conditions = [eq2(shifts.eventId, eventId), eq2(shifts.status, "open")];
+  conditions.push(registerId ? eq2(shifts.registerId, registerId) : isNull(shifts.registerId));
+  const [row] = await db.select().from(shifts).where(and(...conditions)).orderBy(desc(shifts.openedAt)).limit(1);
+  return row ?? null;
+}
+async function closeShift(params) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [shift] = await db.select().from(shifts).where(eq2(shifts.id, params.shiftId)).limit(1);
+  if (!shift) throw new Error("Turno no encontrado");
+  if (shift.status === "closed") throw new Error("Este turno ya fue cerrado");
+  const closedAt = /* @__PURE__ */ new Date();
+  const shiftSalesConditions = [
+    eq2(orders.eventId, shift.eventId),
+    eq2(orders.channel, "caja"),
+    eq2(orders.paymentStatus, "approved"),
+    gte(orders.createdAt, shift.openedAt)
+  ];
+  if (shift.registerId) shiftSalesConditions.push(eq2(orders.registerId, shift.registerId));
+  const shiftSales = await db.select({ total: orders.total, paymentMethod: orders.paymentMethod }).from(orders).where(and(...shiftSalesConditions));
+  let expectedCash = 0, expectedDebit = 0, expectedCredit = 0;
+  for (const s of shiftSales) {
+    const amount = Number(s.total);
+    if (s.paymentMethod === "efectivo") expectedCash += amount;
+    else if (s.paymentMethod === "debito") expectedDebit += amount;
+    else if (s.paymentMethod === "credito") expectedCredit += amount;
+  }
+  const redeemsCount = await db.select({ count: sql`count(*)` }).from(ops).where(and(
+    eq2(ops.eventId, shift.eventId),
+    eq2(ops.type, "redeem"),
+    eq2(ops.result, "applied"),
+    gte(ops.serverAt, shift.openedAt),
+    ...shift.registerId ? [eq2(ops.registerId, shift.registerId)] : []
+  ));
+  const eventOrders = await db.select({ buyerName: orders.buyerName, buyerEmail: orders.buyerEmail, total: orders.total }).from(orders).where(and(eq2(orders.eventId, shift.eventId), eq2(orders.paymentStatus, "approved"), sql`${orders.channel} != 'caja'`));
+  const byCustomer = /* @__PURE__ */ new Map();
+  for (const o of eventOrders) {
+    const entry = byCustomer.get(o.buyerEmail) ?? { name: o.buyerName, email: o.buyerEmail, total: 0 };
+    entry.total += Number(o.total);
+    byCustomer.set(o.buyerEmail, entry);
+  }
+  const topCustomers = Array.from(byCustomer.values()).sort((a, b) => b.total - a.total).slice(0, 3);
+  const eventItems = await db.select({ ticketTypeId: orderItems.ticketTypeId, quantity: orderItems.quantity, totalPrice: orderItems.totalPrice }).from(orderItems).innerJoin(orders, eq2(orders.id, orderItems.orderId)).where(and(eq2(orders.eventId, shift.eventId), eq2(orders.paymentStatus, "approved")));
+  const allTicketTypes = await db.select().from(ticketTypes).where(eq2(ticketTypes.eventId, shift.eventId));
+  const ttById = new Map(allTicketTypes.map((t2) => [t2.id, t2]));
+  const byProduct = /* @__PURE__ */ new Map();
+  for (const item of eventItems) {
+    const entry = byProduct.get(item.ticketTypeId) ?? { name: ttById.get(item.ticketTypeId)?.name ?? `#${item.ticketTypeId}`, quantity: 0, revenue: 0 };
+    entry.quantity += item.quantity;
+    entry.revenue += Number(item.totalPrice);
+    byProduct.set(item.ticketTypeId, entry);
+  }
+  const topProducts = Array.from(byProduct.values()).sort((a, b) => b.quantity - a.quantity).slice(0, 3);
+  await db.update(shifts).set({
+    closedAt,
+    closedByOperatorId: params.closedByOperatorId,
+    countedCash: String(params.countedCash),
+    countedDebit: String(params.countedDebit),
+    countedCredit: String(params.countedCredit),
+    expectedCash: String(expectedCash),
+    expectedDebit: String(expectedDebit),
+    expectedCredit: String(expectedCredit),
+    salesCount: shiftSales.length,
+    redeemsCount: Number(redeemsCount[0]?.count ?? 0),
+    topCustomers,
+    topProducts,
+    status: "closed"
+  }).where(eq2(shifts.id, shift.id));
+  const [event] = await db.select({ title: events.title }).from(events).where(eq2(events.id, shift.eventId)).limit(1);
+  const [register] = shift.registerId ? await db.select({ name: registers.name }).from(registers).where(eq2(registers.id, shift.registerId)).limit(1) : [null];
+  const [operator] = await db.select({ name: operators.name }).from(operators).where(eq2(operators.id, shift.operatorId)).limit(1);
   return {
-    since,
-    salesCount: sales.length,
-    salesTotal,
-    redeemsCount: redeems.length
+    id: shift.id,
+    eventTitle: event?.title ?? `Evento #${shift.eventId}`,
+    registerName: register?.name ?? "Sin caja asignada",
+    operatorName: operator?.name ?? "Operador eliminado",
+    openedAt: shift.openedAt,
+    closedAt,
+    openingCash: Number(shift.openingCash),
+    countedCash: params.countedCash,
+    countedDebit: params.countedDebit,
+    countedCredit: params.countedCredit,
+    expectedCash,
+    expectedDebit,
+    expectedCredit,
+    cashDiff: params.countedCash - expectedCash - Number(shift.openingCash),
+    debitDiff: params.countedDebit - expectedDebit,
+    creditDiff: params.countedCredit - expectedCredit,
+    salesCount: shiftSales.length,
+    redeemsCount: Number(redeemsCount[0]?.count ?? 0),
+    topCustomers,
+    topProducts
   };
+}
+async function listShiftClosings(eventId) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq2(shifts.status, "closed")];
+  if (eventId) conditions.push(eq2(shifts.eventId, eventId));
+  const rows = await db.select().from(shifts).where(and(...conditions)).orderBy(desc(shifts.closedAt));
+  const eventIds = Array.from(new Set(rows.map((r) => r.eventId)));
+  const registerIds = Array.from(new Set(rows.map((r) => r.registerId).filter((id) => id != null)));
+  const operatorIds = Array.from(new Set([...rows.map((r) => r.operatorId), ...rows.map((r) => r.closedByOperatorId)].filter((id) => id != null)));
+  const eventRows = eventIds.length ? await db.select({ id: events.id, title: events.title }).from(events).where(inArray(events.id, eventIds)) : [];
+  const registerRows = registerIds.length ? await db.select({ id: registers.id, name: registers.name }).from(registers).where(inArray(registers.id, registerIds)) : [];
+  const operatorRows = operatorIds.length ? await db.select({ id: operators.id, name: operators.name }).from(operators).where(inArray(operators.id, operatorIds)) : [];
+  const eventById = new Map(eventRows.map((e) => [e.id, e.title]));
+  const registerById = new Map(registerRows.map((r) => [r.id, r.name]));
+  const operatorById = new Map(operatorRows.map((o) => [o.id, o.name]));
+  return rows.map((r) => ({
+    id: r.id,
+    eventId: r.eventId,
+    eventTitle: eventById.get(r.eventId) ?? `Evento #${r.eventId}`,
+    registerName: r.registerId ? registerById.get(r.registerId) ?? "Caja eliminada" : "Sin caja asignada",
+    operatorName: operatorById.get(r.operatorId) ?? "Operador eliminado",
+    closedByName: r.closedByOperatorId ? operatorById.get(r.closedByOperatorId) ?? "Operador eliminado" : null,
+    openedAt: r.openedAt,
+    closedAt: r.closedAt,
+    openingCash: Number(r.openingCash),
+    countedCash: Number(r.countedCash ?? 0),
+    countedDebit: Number(r.countedDebit ?? 0),
+    countedCredit: Number(r.countedCredit ?? 0),
+    expectedCash: Number(r.expectedCash ?? 0),
+    expectedDebit: Number(r.expectedDebit ?? 0),
+    expectedCredit: Number(r.expectedCredit ?? 0),
+    cashDiff: Number(r.countedCash ?? 0) - Number(r.expectedCash ?? 0) - Number(r.openingCash),
+    debitDiff: Number(r.countedDebit ?? 0) - Number(r.expectedDebit ?? 0),
+    creditDiff: Number(r.countedCredit ?? 0) - Number(r.expectedCredit ?? 0),
+    salesCount: r.salesCount ?? 0,
+    redeemsCount: r.redeemsCount ?? 0,
+    topCustomers: r.topCustomers ?? [],
+    topProducts: r.topProducts ?? []
+  }));
+}
+async function getShiftClosingsForExport(eventId) {
+  return listShiftClosings(eventId);
 }
 async function upsertCustomerFromOrder(order, accesoSlugs) {
   const db = await getDb();
@@ -1978,6 +2136,45 @@ function registerAdminRoutes(app) {
     }).filter((r) => r.email);
     const result = await importCustomers(rows);
     res.json(result);
+  });
+  app.get("/api/admin/shifts/export.csv", async (req, res) => {
+    if (!await requireAdmin(req, res)) return;
+    const { eventId } = req.query;
+    const rows = await getShiftClosingsForExport(eventId ? Number(eventId) : void 0);
+    const csv = toCsv(
+      rows.map((r) => ({
+        ...r,
+        openedAt: r.openedAt ? new Date(r.openedAt).toLocaleString("es-CL") : "",
+        closedAt: r.closedAt ? new Date(r.closedAt).toLocaleString("es-CL") : "",
+        topCustomers: (r.topCustomers ?? []).map((c) => `${c.name} ($${c.total})`).join(" \xB7 "),
+        topProducts: (r.topProducts ?? []).map((p) => `${p.name} (${p.quantity}x)`).join(" \xB7 ")
+      })),
+      [
+        { key: "eventTitle", label: "Evento" },
+        { key: "registerName", label: "Caja" },
+        { key: "operatorName", label: "Abri\xF3" },
+        { key: "closedByName", label: "Cerr\xF3" },
+        { key: "openedAt", label: "Apertura" },
+        { key: "closedAt", label: "Cierre" },
+        { key: "openingCash", label: "Efectivo inicial" },
+        { key: "countedCash", label: "Efectivo contado" },
+        { key: "expectedCash", label: "Efectivo esperado" },
+        { key: "cashDiff", label: "Diferencia efectivo" },
+        { key: "countedDebit", label: "D\xE9bito contado" },
+        { key: "expectedDebit", label: "D\xE9bito esperado" },
+        { key: "debitDiff", label: "Diferencia d\xE9bito" },
+        { key: "countedCredit", label: "Cr\xE9dito contado" },
+        { key: "expectedCredit", label: "Cr\xE9dito esperado" },
+        { key: "creditDiff", label: "Diferencia cr\xE9dito" },
+        { key: "salesCount", label: "N\xB0 ventas" },
+        { key: "redeemsCount", label: "N\xB0 canjes" },
+        { key: "topCustomers", label: "Top clientes (evento)" },
+        { key: "topProducts", label: "Top productos (evento)" }
+      ]
+    );
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="cierres-turno-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.csv"`);
+    res.send("\uFEFF" + csv);
   });
 }
 
@@ -2883,6 +3080,64 @@ function buildSalesRecordEmail(data) {
 </body>
 </html>`;
 }
+function buildShiftCloseEmail(data) {
+  const money = (n) => `$${Math.round(n).toLocaleString("es-CL")}`;
+  const diffRow = (label, counted, expected, diff) => `
+    <div style="padding:8px 0;border-bottom:1px solid ${BORDER};">
+      <div style="display:flex;justify-content:space-between;">
+        <span style="color:${INK};font-size:14px;">${label}</span>
+        <span style="color:${INK};font-size:14px;font-weight:600;">${money(counted)} contado / ${money(expected)} esperado</span>
+      </div>
+      <p style="color:${Math.abs(diff) < 1 ? ACCENT.blue.text : diff > 0 ? ACCENT.yellow.text : "#D9538F"};font-size:12px;font-weight:700;margin:4px 0 0;">
+        ${Math.abs(diff) < 1 ? "\u2713 Cuadra" : diff > 0 ? `\u25B2 Sobran ${money(diff)}` : `\u25BC Faltan ${money(Math.abs(diff))}`}
+      </p>
+    </div>
+  `;
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">\u{1F512} Turno cerrado \u2014 ${data.eventTitle}</h1>
+    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.registerName} \xB7 ${data.operatorName} \xB7 ${data.closedAt.toLocaleString("es-CL", { timeZone: "America/Santiago" })}</p>
+
+    ${card(`
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Cuadre de caja</p>
+      <p style="color:${MUTED};font-size:12px;margin:0 0 10px;">Efectivo inicial: ${money(data.openingCash)} \xB7 ${data.salesCount} ventas \xB7 ${data.redeemsCount} canjes</p>
+      ${diffRow("\u{1F4B5} Efectivo", data.countedCash, data.expectedCash + data.openingCash, data.cashDiff)}
+      ${diffRow("\u{1F4B3} D\xE9bito", data.countedDebit, data.expectedDebit, data.debitDiff)}
+      ${diffRow("\u{1F4B3} Cr\xE9dito", data.countedCredit, data.expectedCredit, data.creditDiff)}
+    `)}
+
+    ${card(`
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">\u{1F3C6} Top 3 clientes (todo el evento)</p>
+      ${data.topCustomers.length === 0 ? `<p style="color:${MUTED};font-size:13px;margin:0;">Sin ventas web registradas.</p>` : data.topCustomers.map((c, i) => `
+        <div style="display:flex;justify-content:space-between;padding:6px 0;">
+          <span style="color:${INK};font-size:14px;">${i + 1}. ${c.name} <span style="color:${FAINT};font-size:12px;">(${c.email})</span></span>
+          <span style="color:${INK};font-size:14px;font-weight:600;">${money(c.total)}</span>
+        </div>
+      `).join("")}
+    `)}
+
+    ${card(`
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">\u{1F947} Top 3 productos m\xE1s vendidos</p>
+      ${data.topProducts.length === 0 ? `<p style="color:${MUTED};font-size:13px;margin:0;">Sin ventas registradas.</p>` : data.topProducts.map((p, i) => `
+        <div style="display:flex;justify-content:space-between;padding:6px 0;">
+          <span style="color:${INK};font-size:14px;">${i + 1}. ${p.name}</span>
+          <span style="color:${INK};font-size:14px;font-weight:600;">${p.quantity}x \xB7 ${money(p.revenue)}</span>
+        </div>
+      `).join("")}
+    `)}
+  </div>
+</body>
+</html>`;
+}
 
 // server/caja/displayCode.ts
 import { randomInt } from "crypto";
@@ -3530,6 +3785,7 @@ async function voidTicketCode(db, params) {
 }
 
 // server/routers.ts
+var SHIFT_CLOSE_REPORT_EMAIL = "contacto@mansionplayroom.cl";
 var adminProcedure2 = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError3({ code: "FORBIDDEN", message: "Admin access required" });
   return next({ ctx });
@@ -3959,12 +4215,27 @@ var appRouter = router({
     listRegisters: operatorProcedure.query(async () => {
       return listActiveRegisters();
     }),
-    shiftOpen: operatorProcedure.input(z2.object({ opId: z2.string(), eventId: z2.number(), registerId: z2.number().optional(), clientAt: z2.string() })).mutation(async ({ input, ctx }) => {
+    // Apertura de turno con cuadre de caja (pedido explícito del usuario):
+    // pide el efectivo inicial declarado por la cajera. Idempotente por
+    // evento+caja (un refresh de página no duplica el turno abierto).
+    shiftOpen: operatorProcedure.input(z2.object({
+      opId: z2.string(),
+      eventId: z2.number(),
+      registerId: z2.number().optional(),
+      openingCash: z2.number().min(0),
+      clientAt: z2.string()
+    })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
       if (!ctx.operator) throw new TRPCError3({ code: "UNAUTHORIZED" });
+      const shiftId = await openShift({
+        eventId: input.eventId,
+        operatorId: ctx.operator.operatorId,
+        registerId: input.registerId,
+        openingCash: input.openingCash
+      });
       const { applyOp: applyOp2 } = await Promise.resolve().then(() => (init_ops(), ops_exports));
-      return applyOp2(rawDb, {
+      await applyOp2(rawDb, {
         id: input.opId,
         type: "shift_open",
         eventId: input.eventId,
@@ -3972,18 +4243,38 @@ var appRouter = router({
         registerId: input.registerId,
         targetType: "operator",
         targetId: String(ctx.operator.operatorId),
-        payload: null,
+        payload: { openingCash: input.openingCash, shiftId },
         clientAt: new Date(input.clientAt)
       }, async () => ({ result: "applied" }));
+      return { shiftId };
     }),
     // Protocolo de pendientes (§13, riesgo 2): el cliente NO debe llamar esto
     // con ops sin sincronizar -- se bloquea en la UI, no acá, porque cerrar
     // el turno es una decisión operativa, no algo que el servidor pueda ver.
-    shiftClose: operatorProcedure.input(z2.object({ opId: z2.string(), eventId: z2.number(), registerId: z2.number().optional(), clientAt: z2.string() })).mutation(async ({ input, ctx }) => {
+    // Pide efectivo TOTAL contado (no la diferencia) + totales de débito y
+    // crédito de las máquinas, hace el cuadre contra las ventas registradas
+    // (solo canal caja, nunca web) y manda el informe final por correo.
+    shiftClose: operatorProcedure.input(z2.object({
+      opId: z2.string(),
+      eventId: z2.number(),
+      registerId: z2.number().optional(),
+      countedCash: z2.number().min(0),
+      countedDebit: z2.number().min(0),
+      countedCredit: z2.number().min(0),
+      clientAt: z2.string()
+    })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
       if (!ctx.operator) throw new TRPCError3({ code: "UNAUTHORIZED" });
-      const summary = await getShiftSummary(input.eventId, ctx.operator.operatorId, input.registerId);
+      const openShift2 = await getOpenShift(input.eventId, input.registerId);
+      if (!openShift2) throw new TRPCError3({ code: "BAD_REQUEST", message: "No hay un turno abierto para cerrar" });
+      const report = await closeShift({
+        shiftId: openShift2.id,
+        closedByOperatorId: ctx.operator.operatorId,
+        countedCash: input.countedCash,
+        countedDebit: input.countedDebit,
+        countedCredit: input.countedCredit
+      });
       const { applyOp: applyOp2 } = await Promise.resolve().then(() => (init_ops(), ops_exports));
       await applyOp2(rawDb, {
         id: input.opId,
@@ -3993,10 +4284,19 @@ var appRouter = router({
         registerId: input.registerId,
         targetType: "operator",
         targetId: String(ctx.operator.operatorId),
-        payload: summary,
+        payload: report,
         clientAt: new Date(input.clientAt)
       }, async () => ({ result: "applied" }));
-      return summary;
+      try {
+        await sendEmail({
+          to: SHIFT_CLOSE_REPORT_EMAIL,
+          subject: `[Cierre de turno] ${report.eventTitle} \u2014 ${report.registerName}`,
+          html: buildShiftCloseEmail(report)
+        });
+      } catch (err) {
+        console.error("[shiftClose] Error al enviar el correo de cierre:", err);
+      }
+      return report;
     }),
     // Anulación con motivo -- solo supervisor/admin (docs/ARQUITECTURA-CAJA.md §3.2).
     voidCode: supervisorProcedure.input(z2.object({
@@ -4182,6 +4482,11 @@ var appRouter = router({
     })).query(async ({ input }) => {
       const { eventId, ...filters } = input;
       return getLedger(eventId, filters);
+    }),
+    // Cuadres de caja guardados (pedido explícito del usuario) -- sin
+    // eventId trae los de todos los eventos, para comparar entre fiestas.
+    shiftClosings: adminProcedure2.input(z2.object({ eventId: z2.number().optional() }).optional()).query(async ({ input }) => {
+      return listShiftClosings(input?.eventId);
     })
   })
 });
