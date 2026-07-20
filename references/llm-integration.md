@@ -1,6 +1,8 @@
 ## LLM Integration
 
-Use the preconfigured LLM helpers. Credentials are injected from the platform (no manual setup required).
+Use the preconfigured LLM helpers. Credentials are injected from the platform (no manual setup required) when running inside the platform's own hosting.
+
+**Deploying outside the platform (e.g. your own Vercel project):** the platform credentials (`BUILT_IN_FORGE_API_URL`/`BUILT_IN_FORGE_API_KEY`) won't be set automatically, and `invokeLLM`/`listLLMModels` will throw. As a free fallback, set `GEMINI_API_KEY` (a free key from `aistudio.google.com/apikey`) — `resolveProvider()` in `server/_core/llm.ts` detects it automatically and routes through Gemini's OpenAI-compatible endpoint instead, no other code changes needed. This is a separate variable from `BUILT_IN_FORGE_*`, which other integrations (image generation, voice transcription, maps, etc.) keep using unchanged.
 
 ```ts
 import { invokeLLM } from "./server/_core/llm";

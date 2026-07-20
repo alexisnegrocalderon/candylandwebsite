@@ -7,4 +7,9 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  // Fallback gratuito de LLM para despliegues fuera de la plataforma Forge
+  // (ver server/_core/llm.ts, resolveProvider) -- variable propia, nunca
+  // pisa BUILT_IN_FORGE_*, que siguen usando imageGeneration/voiceTranscription/
+  // map/dataApi/notification/heartbeat/storage.
+  geminiApiKey: process.env.GEMINI_API_KEY ?? "",
 };
