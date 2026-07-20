@@ -12,7 +12,8 @@ import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceTo
 import { redeemDisplayCode } from "./caja/redeem";
 import { createCajaSale } from "./caja/sale";
 import { voidTicketCode } from "./caja/void";
-import { sendEmail, buildShiftCloseEmail } from "./email";
+import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
+import { generateMailingTemplate, sendMailingBatch, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
 
 const SHIFT_CLOSE_REPORT_EMAIL = 'contacto@mansionplayroom.cl';
 
@@ -656,6 +657,7 @@ export const appRouter = router({
       search: z.string().optional(),
       accessType: z.string().optional(),
       tag: z.string().optional(),
+      eventId: z.number().optional(),
     }).optional()).query(async ({ input }) => {
       return db.listCustomers(input ?? {});
     }),
@@ -677,6 +679,36 @@ export const appRouter = router({
       await db.adjustPlaycoinsManually(input.customerId, input.delta, input.note ?? '');
       return { success: true } as const;
     }),
+  }),
+
+  // Mailing masivo desde /admin → Clientes (pedido explícito del usuario):
+  // la IA solo genera texto estructurado (server/mailing.ts), el HTML de
+  // marca se arma siempre acá con buildMailingBlastEmail.
+  mailing: router({
+    generateTemplate: adminProcedure.input(z.object({
+      objective: z.string().min(5).max(1000),
+      audienceDescription: z.string(),
+    })).mutation(async ({ input }) => {
+      try {
+        return await generateMailingTemplate(input.objective, input.audienceDescription);
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar la plantilla.' });
+      }
+    }),
+    renderPreview: adminProcedure.input(z.object({
+      content: MailingContentSchema,
+      ctaUrl: z.string(),
+      sampleName: z.string().optional(),
+    })).mutation(({ input }) => ({
+      html: buildMailingBlastEmail({ ...input.content, buyerName: input.sampleName || 'Camila', ctaUrl: input.ctaUrl }),
+    })),
+    sendBatch: adminProcedure.input(z.object({
+      customerIds: z.array(z.number()).min(1).max(MAILING_BATCH_MAX),
+      content: MailingContentSchema,
+      ctaUrl: z.string(),
+    })).mutation(async ({ input }) => ({
+      results: await sendMailingBatch(input.customerIds, input.content, input.ctaUrl),
+    })),
   }),
 
   // Consulta pública de saldo de Playcoins (pedido explícito del usuario) --
