@@ -1546,7 +1546,7 @@ export async function adjustPlaycoinsManually(customerId: number, delta: number,
   await db.insert(playcoinsLedger).values({ customerId, delta: appliedDelta, reason: 'manual_adjust', balanceAfter, note });
 }
 
-export async function listCustomers(filters: { search?: string; accessType?: string; tag?: string } = {}) {
+export async function listCustomers(filters: { search?: string; accessType?: string; tag?: string; eventId?: number } = {}) {
   const db = await getDb();
   if (!db) return [];
   let rows = await db.select().from(customers).orderBy(desc(customers.lastSeenAt));
@@ -1565,7 +1565,26 @@ export async function listCustomers(filters: { search?: string; accessType?: str
   if (filters.tag) {
     rows = rows.filter((c: any) => Array.isArray(c.tags) && c.tags.includes(filters.tag));
   }
+  // "Clientes de este evento" no vive en `customers` (no tiene FK a events) --
+  // se resuelve cruzando por email contra las órdenes aprobadas de ese evento
+  // (mismo criterio que el resto del sistema: la fuente de verdad es `orders`,
+  // `customers` es una proyección materializada, ver comentario en el schema).
+  if (filters.eventId) {
+    const approvedOrders = await db.select({ buyerEmail: orders.buyerEmail }).from(orders).where(and(
+      eq(orders.eventId, filters.eventId),
+      eq(orders.paymentStatus, 'approved'),
+    ));
+    const emails = new Set(approvedOrders.map((o) => o.buyerEmail.toLowerCase()));
+    rows = rows.filter((c: any) => emails.has(c.email.toLowerCase()));
+  }
   return rows;
+}
+
+/** Resuelve destinatarios de un lote de mailing masivo por id (server/mailing.ts). */
+export async function listCustomersByIds(ids: number[]) {
+  const db = await getDb();
+  if (!db || ids.length === 0) return [];
+  return db.select().from(customers).where(inArray(customers.id, ids));
 }
 
 export async function addCustomerTag(customerId: number, tag: string) {

@@ -805,3 +805,73 @@ export function buildShiftCloseEmail(data: {
 </body>
 </html>`;
 }
+
+/** Mailing masivo generado desde /admin (sección Clientes → "Mailing masivo",
+ * pedido explícito del usuario): el contenido (asunto/título/párrafos) lo
+ * arma la IA a partir del objetivo que escribe el admin, pero el HTML final
+ * siempre se arma acá con los mismos helpers de marca que el resto de los
+ * emails -- así la IA nunca controla estilos/HTML crudo, solo texto. */
+export function buildMailingBlastEmail(data: {
+  buyerName: string;
+  preheader?: string;
+  headline: string;
+  paragraphs: string[];
+  ctaText?: string;
+  ctaUrl: string;
+  highlightLabel?: string;
+  highlightValue?: string;
+}) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+  const greeting = data.buyerName ? `¡Hola, ${data.buyerName}!` : '¡Hola!';
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  ${data.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${data.preheader}</div>` : ''}
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <!-- HERO -->
+    <div style="background:linear-gradient(160deg,${ACCENT.pink.bg},${ACCENT.yellow.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:52px;margin:0 0 12px;">🍬</p>
+      <p style="color:${MUTED};font-size:14px;margin:0 0 4px;">${greeting}</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0;">${data.headline}</h1>
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${data.paragraphs.map((p) => `
+        <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 20px;">${p}</p>
+      `).join('')}
+
+      ${data.highlightLabel && data.highlightValue ? card(`
+        <div style="text-align:center;">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">${data.highlightLabel}</p>
+          <p style="color:${ACCENT.pink.text};font-size:32px;font-weight:800;margin:0;">${data.highlightValue}</p>
+        </div>
+      `, { bg: ACCENT.pink.bg, border: false }) : ''}
+
+      <div style="text-align:center;padding:${data.highlightLabel && data.highlightValue ? '24px' : '8px'} 0 8px;">
+        <a href="${data.ctaUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(236,95,163,0.35);">${data.ctaText || 'Ver más'}</a>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:8px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
+      <p style="margin:0 0 8px;">
+        <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>
+        <a href="https://www.mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Web</a>
+      </p>
+      <p style="color:${FAINT};font-size:11px;margin:0;">© ${new Date().getFullYear()} Mansion Playroom · Valparaíso, Chile</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}

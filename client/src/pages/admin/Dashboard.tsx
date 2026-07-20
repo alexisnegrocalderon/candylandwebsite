@@ -7,10 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
+import { MailingDialog } from '@/components/admin/MailingDialog';
 import {
   SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
   SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarTrigger,
@@ -714,21 +716,66 @@ function CustomersView() {
   const [search, setSearch] = useState('');
   const [accessType, setAccessType] = useState<string>('all');
   const [tagFilter, setTagFilter] = useState('');
+  const [eventFilter, setEventFilter] = useState<string>('all');
   const [newTagByCustomer, setNewTagByCustomer] = useState<Record<number, string>>({});
   const [adjustByCustomer, setAdjustByCustomer] = useState<Record<number, string>>({});
   const [importing, setImporting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [mailingOpen, setMailingOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: eventsData } = trpc.events.listAll.useQuery();
+  const events = eventsData ?? [];
 
   const { data: customersData, refetch } = trpc.customers.listAll.useQuery({
     search: search || undefined,
     accessType: accessType === 'all' ? undefined : accessType,
     tag: tagFilter || undefined,
+    eventId: eventFilter === 'all' ? undefined : Number(eventFilter),
   });
   const addTag = trpc.customers.addTag.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
   const removeTag = trpc.customers.removeTag.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
   const adjustPlaycoins = trpc.customers.adjustPlaycoins.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
 
   const customersList = customersData ?? [];
+
+  const toggleSelected = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const allFilteredSelected = customersList.length > 0 && customersList.every((c: any) => selectedIds.has(c.id));
+  const toggleSelectAllFiltered = () => {
+    setSelectedIds((prev) => {
+      if (allFilteredSelected) return new Set();
+      const next = new Set(prev);
+      customersList.forEach((c: any) => next.add(c.id));
+      return next;
+    });
+  };
+
+  const audienceDescription = (() => {
+    const parts: string[] = [];
+    if (eventFilter !== 'all') {
+      const ev = events.find((e: any) => String(e.id) === eventFilter);
+      parts.push(`compraron para ${ev?.title ?? 'el evento seleccionado'}`);
+    }
+    if (accessType !== 'all') parts.push(`tipo de acceso "${ACCESO_SLUG_OPTIONS.find((o) => o.value === accessType)?.label ?? accessType}"`);
+    if (tagFilter) parts.push(`etiqueta "${tagFilter}"`);
+    if (search) parts.push(`búsqueda "${search}"`);
+    return parts.length > 0 ? parts.join(', ') : 'toda la base de clientes';
+  })();
+
+  const mailingCtaUrl = (() => {
+    const origin = window.location.origin;
+    if (eventFilter !== 'all') {
+      const ev = events.find((e: any) => String(e.id) === eventFilter);
+      if (ev?.slug) return `${origin}/eventos/${ev.slug}`;
+    }
+    return origin;
+  })();
 
   const exportUrl = () => {
     const params = new URLSearchParams();
@@ -778,6 +825,13 @@ function CustomersView() {
           </SelectContent>
         </Select>
         <Input value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} placeholder="Filtrar por etiqueta…" className="max-w-xs" />
+        <Select value={eventFilter} onValueChange={setEventFilter}>
+          <SelectTrigger className="w-56"><SelectValue placeholder="Evento" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los eventos</SelectItem>
+            {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+          </SelectContent>
+        </Select>
 
         <div className="ml-auto flex items-center gap-2">
           <input
@@ -804,6 +858,18 @@ function CustomersView() {
         </div>
       </div>
 
+      <div className="flex items-center gap-3 rounded-xl border border-border/50 px-4 py-2.5">
+        <Checkbox checked={allFilteredSelected} onCheckedChange={toggleSelectAllFiltered} />
+        <span className="text-sm text-muted-foreground">
+          {selectedIds.size > 0 ? `${selectedIds.size} seleccionado${selectedIds.size !== 1 ? 's' : ''}` : `Seleccionar los ${customersList.length} filtrados`}
+        </span>
+        {selectedIds.size > 0 && (
+          <Button size="sm" className="ml-auto interactive" onClick={() => setMailingOpen(true)}>
+            <Mail className="w-4 h-4 mr-2" /> Mailing masivo
+          </Button>
+        )}
+      </div>
+
       <div className="space-y-3">
         {customersList.map((c: any) => {
           const accessTypes: string[] = Array.isArray(c.accessTypes) ? c.accessTypes : [];
@@ -812,9 +878,12 @@ function CustomersView() {
             <Card key={c.id} className="rounded-2xl border-0 shadow-md shadow-black/5">
               <CardContent className="pt-6 space-y-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{c.fullName || '(sin nombre)'}</p>
-                    <p className="text-sm text-muted-foreground">{c.email}{c.phone ? ` · ${c.phone}` : ''}{c.rut ? ` · ${c.rut}` : ''}</p>
+                  <div className="flex items-start gap-3">
+                    <Checkbox className="mt-1" checked={selectedIds.has(c.id)} onCheckedChange={() => toggleSelected(c.id)} />
+                    <div>
+                      <p className="font-semibold">{c.fullName || '(sin nombre)'}</p>
+                      <p className="text-sm text-muted-foreground">{c.email}{c.phone ? ` · ${c.phone}` : ''}{c.rut ? ` · ${c.rut}` : ''}</p>
+                    </div>
                   </div>
                   <div className="text-right text-sm text-muted-foreground">
                     <p>{c.totalOrders} compra{c.totalOrders !== 1 ? 's' : ''} · ${Number(c.totalSpent).toLocaleString('es-CL')}</p>
@@ -884,6 +953,14 @@ function CustomersView() {
         })}
         {customersList.length === 0 && <p className="text-sm text-muted-foreground">Sin clientes todavía -- se registran solos con cada compra web aprobada.</p>}
       </div>
+
+      <MailingDialog
+        open={mailingOpen}
+        onOpenChange={setMailingOpen}
+        audience={{ ids: Array.from(selectedIds), count: selectedIds.size, description: audienceDescription }}
+        ctaUrl={mailingCtaUrl}
+        onDone={() => setSelectedIds(new Set())}
+      />
     </div>
   );
 }
