@@ -6,12 +6,26 @@ interface SendEmailInput {
   html: string;
 }
 
-/** Remitente por defecto: dominio de pruebas de Resend hasta que se verifique uno propio. */
-const DEFAULT_FROM = 'Candyland <onboarding@resend.dev>';
+const BRAND_NAME = 'Mansion Playroom';
+const DEFAULT_FROM_ADDRESS = 'onboarding@resend.dev';
+
+/** Arma el header `from` con el nombre de marca siempre fijo, sin depender de
+ * que RESEND_FROM_EMAIL esté tipeada con el formato "Nombre <email>" -- si
+ * viene así se toma solo la dirección de adentro, si viene pelada se usa tal
+ * cual. Antes, una RESEND_FROM_EMAIL sin nombre hacía que varios clientes de
+ * correo mostraran el local-part de la dirección (ej. "noreply") en vez de
+ * la marca. */
+function resolveFromHeader(): string {
+  const raw = process.env.RESEND_FROM_EMAIL?.trim();
+  if (!raw) return `${BRAND_NAME} <${DEFAULT_FROM_ADDRESS}>`;
+  const match = raw.match(/<([^>]+)>/);
+  const address = (match ? match[1] : raw).trim();
+  return `${BRAND_NAME} <${address}>`;
+}
 
 export async function sendEmail(input: SendEmailInput) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL || DEFAULT_FROM;
+  const from = resolveFromHeader();
 
   if (!apiKey) {
     console.warn('[Email] RESEND_API_KEY no configurada, no se envía el correo');
