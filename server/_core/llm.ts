@@ -212,14 +212,37 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+type Provider = {
+  baseUrl: string;
+  apiKey: string;
+  defaultModel?: string;
+};
+
+// Gemini (Google AI Studio, GEMINI_API_KEY) es un fallback gratuito para
+// despliegues fuera de la plataforma Forge -- variable propia y separada de
+// BUILT_IN_FORGE_*, que siguen siendo la fuente para imágenes/voz/maps/etc
+// (ver server/_core/env.ts). Se detecta por presencia, mismo criterio que
+// server/mercadopago.ts cayendo a modo mock sin MERCADOPAGO_ACCESS_TOKEN.
+// Gemini exige `model` en cada request (a diferencia de Forge, que no lo
+// requiere hoy) -- de ahí el defaultModel.
+export const resolveProvider = (): Provider => {
+  if (ENV.geminiApiKey) {
+    return {
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+      apiKey: ENV.geminiApiKey,
+      defaultModel: "gemini-2.5-flash",
+    };
+  }
+
+  const forgeBase = ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
+    ? ENV.forgeApiUrl.replace(/\/$/, "")
+    : "https://forge.manus.im";
+  return { baseUrl: `${forgeBase}/v1`, apiKey: ENV.forgeApiKey };
+};
 
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+  if (!resolveProvider().apiKey) {
+    throw new Error("No hay ninguna API key de IA configurada (GEMINI_API_KEY o BUILT_IN_FORGE_API_KEY)");
   }
 };
 
@@ -358,12 +381,15 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     max_tokens,
   } = params;
 
+  const provider = resolveProvider();
+
   const payload: Record<string, unknown> = {
     messages: messages.map(normalizeMessage),
   };
 
-  if (model) {
-    payload.model = model;
+  const resolvedModel = model ?? provider.defaultModel;
+  if (resolvedModel) {
+    payload.model = resolvedModel;
   }
 
   if (tools && tools.length > 0) {
@@ -401,11 +427,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetchWithBackoff(resolveApiUrl(), {
+  const response = await fetchWithBackoff(`${provider.baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${provider.apiKey}`,
     },
     body: JSON.stringify(payload),
   });
@@ -435,12 +461,9 @@ export type ModelsResponse = {
 export async function listLLMModels(): Promise<ModelsResponse> {
   assertApiKey();
 
-  const url = ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/models`
-    : "https://forge.manus.im/v1/models";
-
-  const response = await fetchWithBackoff(url, {
-    headers: { authorization: `Bearer ${ENV.forgeApiKey}` },
+  const provider = resolveProvider();
+  const response = await fetchWithBackoff(`${provider.baseUrl}/models`, {
+    headers: { authorization: `Bearer ${provider.apiKey}` },
   });
 
   if (!response.ok) {
