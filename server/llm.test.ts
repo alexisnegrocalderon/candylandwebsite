@@ -17,7 +17,7 @@ describe("resolveProvider", () => {
     const provider = resolveProvider();
     expect(provider.baseUrl).toBe("https://generativelanguage.googleapis.com/v1beta/openai");
     expect(provider.apiKey).toBe("test-gemini-key");
-    expect(provider.defaultModel).toBe("gemini-2.5-flash");
+    expect(provider.defaultModel).toBe("gemini-flash-latest");
   });
 
   it("falls back to the Forge default when GEMINI_API_KEY is not set", async () => {

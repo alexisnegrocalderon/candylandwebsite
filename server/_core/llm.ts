@@ -224,13 +224,17 @@ type Provider = {
 // (ver server/_core/env.ts). Se detecta por presencia, mismo criterio que
 // server/mercadopago.ts cayendo a modo mock sin MERCADOPAGO_ACCESS_TOKEN.
 // Gemini exige `model` en cada request (a diferencia de Forge, que no lo
-// requiere hoy) -- de ahí el defaultModel.
+// requiere hoy) -- de ahí el defaultModel. Se usa el alias "-latest" (no un
+// modelo con fecha fija como "gemini-2.5-flash") porque Google discontinúa
+// modelos dados de forma abrupta -- gemini-2.5-flash dejó de responder
+// (404 "no longer available") antes de la fecha de baja que habían
+// anunciado. El alias lo mantiene Google apuntando siempre al flash vigente.
 export const resolveProvider = (): Provider => {
   if (ENV.geminiApiKey) {
     return {
       baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
       apiKey: ENV.geminiApiKey,
-      defaultModel: "gemini-2.5-flash",
+      defaultModel: "gemini-flash-latest",
     };
   }
 
