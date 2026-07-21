@@ -151,7 +151,7 @@ export function MailingComposer({
               className="min-h-28"
               disabled={step === 'generating'}
             />
-            <p className="text-xs text-muted-foreground">Contá qué querés lograr, en tus palabras -- la IA arma el asunto y el cuerpo del mail con el estilo de marca del sitio.</p>
+            <p className="text-xs text-muted-foreground">Cuéntanos qué quieres lograr, con tus palabras -- la IA arma el asunto y el cuerpo del mail con el estilo de marca del sitio.</p>
           </div>
           <Button onClick={handleGenerate} disabled={step === 'generating'} className="w-full interactive">
             {step === 'generating' ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generando…</> : <><Sparkles className="w-4 h-4 mr-2" /> Generar con IA</>}
@@ -219,7 +219,7 @@ export function MailingComposer({
           {audience.count > RESEND_FREE_DAILY_LIMIT && (
             <p className="text-xs text-amber-600 flex items-center gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              Resend free permite ~{RESEND_FREE_DAILY_LIMIT} emails/día y estás por mandar a {audience.count}. Si se corta a mitad de camino, lo ya enviado queda tageado con "{campaignTag || '(sin nombre)'}" -- mañana podés retomar excluyendo esa etiqueta.
+              Resend free permite ~{RESEND_FREE_DAILY_LIMIT} emails/día y estás por mandar a {audience.count}. Si se corta a mitad de camino, lo ya enviado queda tageado con "{campaignTag || '(sin nombre)'}" -- mañana puedes retomar excluyendo esa etiqueta.
             </p>
           )}
 

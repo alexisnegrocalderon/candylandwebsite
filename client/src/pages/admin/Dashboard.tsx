@@ -1004,7 +1004,7 @@ function MailingSection() {
 
   const handleImportCsv = async (file: File) => {
     if (!campaignTag.trim()) {
-      toast.error('Ponele un nombre a la campaña arriba antes de importar el CSV -- es la etiqueta que se les va a aplicar.');
+      toast.error('Ponle un nombre a la campaña arriba antes de importar el CSV -- es la etiqueta que se les va a aplicar.');
       return;
     }
     setImportingCsv(true);
@@ -1078,7 +1078,7 @@ function MailingSection() {
                 <Upload className="w-4 h-4 mr-2" />
                 {importingCsv ? 'Marcando…' : `Marcar como enviados (CSV)`}
               </Button>
-              {!campaignTag.trim() && <p className="text-xs text-destructive">Poné el nombre de campaña arriba primero</p>}
+              {!campaignTag.trim() && <p className="text-xs text-destructive">Pon el nombre de campaña arriba primero</p>}
             </div>
           </div>
 
