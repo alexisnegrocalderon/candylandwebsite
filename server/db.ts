@@ -1546,7 +1546,7 @@ export async function adjustPlaycoinsManually(customerId: number, delta: number,
   await db.insert(playcoinsLedger).values({ customerId, delta: appliedDelta, reason: 'manual_adjust', balanceAfter, note });
 }
 
-export async function listCustomers(filters: { search?: string; accessType?: string; tag?: string; eventId?: number } = {}) {
+export async function listCustomers(filters: { search?: string; accessType?: string; tag?: string; excludeTag?: string; eventId?: number } = {}) {
   const db = await getDb();
   if (!db) return [];
   let rows = await db.select().from(customers).orderBy(desc(customers.lastSeenAt));
@@ -1564,6 +1564,12 @@ export async function listCustomers(filters: { search?: string; accessType?: str
   }
   if (filters.tag) {
     rows = rows.filter((c: any) => Array.isArray(c.tags) && c.tags.includes(filters.tag));
+  }
+  // Excluir por etiqueta (pedido explícito del usuario): armar audiencias de
+  // mailing tipo "todos menos los que ya recibieron la campaña X" sin tener
+  // que mantener una lista aparte -- reusa las mismas tags libres de siempre.
+  if (filters.excludeTag) {
+    rows = rows.filter((c: any) => !Array.isArray(c.tags) || !c.tags.includes(filters.excludeTag));
   }
   // "Clientes de este evento" no vive en `customers` (no tiene FK a events) --
   // se resuelve cruzando por email contra las órdenes aprobadas de ese evento
@@ -1585,6 +1591,38 @@ export async function listCustomersByIds(ids: number[]) {
   const db = await getDb();
   if (!db || ids.length === 0) return [];
   return db.select().from(customers).where(inArray(customers.id, ids));
+}
+
+/** Taguea en masa clientes existentes por email (pedido explícito del
+ * usuario: marcar como "ya enviado" a partir de un CSV externo, ej. el
+ * reporte de entregados de Resend). No crea clientes nuevos -- si un email
+ * del CSV no está en la base, se reporta en `notFound` para que quede claro
+ * (no falla silenciosamente). */
+export async function bulkAddTagByEmails(emails: string[], tag: string): Promise<{ tagged: number; alreadyTagged: number; notFound: string[] }> {
+  const db = await getDb();
+  const cleanTag = tag.trim();
+  const normalizedEmails = Array.from(new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean)));
+  if (!db || !cleanTag || normalizedEmails.length === 0) {
+    return { tagged: 0, alreadyTagged: 0, notFound: normalizedEmails };
+  }
+
+  const matches = await db.select().from(customers).where(inArray(customers.email, normalizedEmails));
+  const matchedEmails = new Set(matches.map((c) => c.email.toLowerCase()));
+  const notFound = normalizedEmails.filter((e) => !matchedEmails.has(e));
+
+  let tagged = 0;
+  let alreadyTagged = 0;
+  for (const customer of matches) {
+    const tags: string[] = Array.isArray(customer.tags) ? customer.tags as string[] : [];
+    if (tags.includes(cleanTag)) {
+      alreadyTagged++;
+      continue;
+    }
+    await db.update(customers).set({ tags: [...tags, cleanTag] }).where(eq(customers.id, customer.id));
+    tagged++;
+  }
+
+  return { tagged, alreadyTagged, notFound };
 }
 
 export async function addCustomerTag(customerId: number, tag: string) {

@@ -14,6 +14,7 @@ import { createCajaSale } from "./caja/sale";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
 import { generateMailingTemplate, sendMailingBatch, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
+import { parseCsv, extractEmailColumn } from "./csv";
 
 const SHIFT_CLOSE_REPORT_EMAIL = 'contacto@mansionplayroom.cl';
 
@@ -657,6 +658,7 @@ export const appRouter = router({
       search: z.string().optional(),
       accessType: z.string().optional(),
       tag: z.string().optional(),
+      excludeTag: z.string().optional(),
       eventId: z.number().optional(),
     }).optional()).query(async ({ input }) => {
       return db.listCustomers(input ?? {});
@@ -664,6 +666,21 @@ export const appRouter = router({
     addTag: adminProcedure.input(z.object({ customerId: z.number(), tag: z.string().min(1) })).mutation(async ({ input }) => {
       await db.addCustomerTag(input.customerId, input.tag);
       return { success: true } as const;
+    }),
+    // Marcar como "ya enviado" en masa desde un CSV externo (pedido
+    // explícito del usuario, ej. el reporte de entregados de Resend, que
+    // trae la columna "to") -- no crea clientes nuevos, solo taguea los que
+    // ya existen; los que no matchean se devuelven en notFound.
+    bulkTagFromCsv: adminProcedure.input(z.object({
+      csv: z.string().min(1),
+      tag: z.string().min(1),
+    })).mutation(async ({ input }) => {
+      const rows = parseCsv(input.csv);
+      const emails = extractEmailColumn(rows, ['to', 'email', 'correo']);
+      if (emails.length === 0) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'No se encontró una columna "to"/"email" en el CSV.' });
+      }
+      return db.bulkAddTagByEmails(emails, input.tag);
     }),
     removeTag: adminProcedure.input(z.object({ customerId: z.number(), tag: z.string() })).mutation(async ({ input }) => {
       await db.removeCustomerTag(input.customerId, input.tag);
@@ -706,8 +723,9 @@ export const appRouter = router({
       customerIds: z.array(z.number()).min(1).max(MAILING_BATCH_MAX),
       content: MailingContentSchema,
       ctaUrl: z.string(),
+      campaignTag: z.string().optional(),
     })).mutation(async ({ input }) => ({
-      results: await sendMailingBatch(input.customerIds, input.content, input.ctaUrl),
+      results: await sendMailingBatch(input.customerIds, input.content, input.ctaUrl, input.campaignTag),
     })),
   }),
 

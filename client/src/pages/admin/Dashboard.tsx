@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
-import { MailingDialog } from '@/components/admin/MailingDialog';
+import { MailingComposer } from '@/components/admin/MailingComposer';
 import {
   SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
   SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarTrigger,
@@ -712,6 +712,8 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   );
 }
 
+const CUSTOMERS_PAGE_SIZE = 25;
+
 function CustomersView() {
   const [search, setSearch] = useState('');
   const [accessType, setAccessType] = useState<string>('all');
@@ -720,8 +722,7 @@ function CustomersView() {
   const [newTagByCustomer, setNewTagByCustomer] = useState<Record<number, string>>({});
   const [adjustByCustomer, setAdjustByCustomer] = useState<Record<number, string>>({});
   const [importing, setImporting] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
-  const [mailingOpen, setMailingOpen] = useState(false);
+  const [page, setPage] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: eventsData } = trpc.events.listAll.useQuery();
@@ -738,44 +739,14 @@ function CustomersView() {
   const adjustPlaycoins = trpc.customers.adjustPlaycoins.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
 
   const customersList = customersData ?? [];
+  // La lista completa filtrada ya viene sin paginar del server (se necesita
+  // entera para armar audiencias de mailing en otra vista) -- acá se pagina
+  // solo en el cliente, para que la tabla no se haga eterna de scrollear.
+  const totalPages = Math.max(1, Math.ceil(customersList.length / CUSTOMERS_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages - 1);
+  const pageItems = customersList.slice(currentPage * CUSTOMERS_PAGE_SIZE, currentPage * CUSTOMERS_PAGE_SIZE + CUSTOMERS_PAGE_SIZE);
 
-  const toggleSelected = (id: number) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
-  const allFilteredSelected = customersList.length > 0 && customersList.every((c: any) => selectedIds.has(c.id));
-  const toggleSelectAllFiltered = () => {
-    setSelectedIds((prev) => {
-      if (allFilteredSelected) return new Set();
-      const next = new Set(prev);
-      customersList.forEach((c: any) => next.add(c.id));
-      return next;
-    });
-  };
-
-  const audienceDescription = (() => {
-    const parts: string[] = [];
-    if (eventFilter !== 'all') {
-      const ev = events.find((e: any) => String(e.id) === eventFilter);
-      parts.push(`compraron para ${ev?.title ?? 'el evento seleccionado'}`);
-    }
-    if (accessType !== 'all') parts.push(`tipo de acceso "${ACCESO_SLUG_OPTIONS.find((o) => o.value === accessType)?.label ?? accessType}"`);
-    if (tagFilter) parts.push(`etiqueta "${tagFilter}"`);
-    if (search) parts.push(`búsqueda "${search}"`);
-    return parts.length > 0 ? parts.join(', ') : 'toda la base de clientes';
-  })();
-
-  const mailingCtaUrl = (() => {
-    const origin = window.location.origin;
-    if (eventFilter !== 'all') {
-      const ev = events.find((e: any) => String(e.id) === eventFilter);
-      if (ev?.slug) return `${origin}/eventos/${ev.slug}`;
-    }
-    return origin;
-  })();
+  useEffect(() => { setPage(0); }, [search, accessType, tagFilter, eventFilter]);
 
   const exportUrl = () => {
     const params = new URLSearchParams();
@@ -858,109 +829,282 @@ function CustomersView() {
         </div>
       </div>
 
-      <div className="flex items-center gap-3 rounded-xl border border-border/50 px-4 py-2.5">
-        <Checkbox checked={allFilteredSelected} onCheckedChange={toggleSelectAllFiltered} />
-        <span className="text-sm text-muted-foreground">
-          {selectedIds.size > 0 ? `${selectedIds.size} seleccionado${selectedIds.size !== 1 ? 's' : ''}` : `Seleccionar los ${customersList.length} filtrados`}
-        </span>
-        {selectedIds.size > 0 && (
-          <Button size="sm" className="ml-auto interactive" onClick={() => setMailingOpen(true)}>
-            <Mail className="w-4 h-4 mr-2" /> Mailing masivo
-          </Button>
-        )}
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 px-3">Cliente</th>
+                  <th className="text-left py-2 px-3">Accesos</th>
+                  <th className="text-left py-2 px-3">Etiquetas</th>
+                  <th className="text-left py-2 px-3">Compras</th>
+                  <th className="text-left py-2 px-3">Playcoins</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageItems.map((c: any) => {
+                  const accessTypes: string[] = Array.isArray(c.accessTypes) ? c.accessTypes : [];
+                  const tags: string[] = Array.isArray(c.tags) ? c.tags : [];
+                  return (
+                    <tr key={c.id} className="border-b border-border/50 align-top">
+                      <td className="py-2 px-3">
+                        <p className="font-semibold">{c.fullName || '(sin nombre)'}</p>
+                        <p className="text-muted-foreground text-xs">{c.email}{c.phone ? ` · ${c.phone}` : ''}{c.rut ? ` · ${c.rut}` : ''}</p>
+                      </td>
+                      <td className="py-2 px-3">
+                        <div className="flex flex-wrap gap-1">
+                          {accessTypes.map((slug) => (
+                            <span key={slug} className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                              {ACCESO_SLUG_OPTIONS.find((o) => o.value === slug)?.label ?? slug}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="py-2 px-3 min-w-48">
+                        <div className="flex flex-wrap items-center gap-1">
+                          {tags.map((tag) => (
+                            <span key={tag} className="text-xs pl-2 pr-1 py-0.5 rounded-full bg-secondary/20 text-secondary-foreground flex items-center gap-1">
+                              {tag}
+                              <button onClick={() => removeTag.mutate({ customerId: c.id, tag })} className="hover:text-destructive">
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))}
+                          <Input
+                            value={newTagByCustomer[c.id] ?? ''}
+                            onChange={(e) => setNewTagByCustomer((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && newTagByCustomer[c.id]?.trim()) {
+                                addTag.mutate({ customerId: c.id, tag: newTagByCustomer[c.id].trim() });
+                                setNewTagByCustomer((prev) => ({ ...prev, [c.id]: '' }));
+                              }
+                            }}
+                            placeholder="+ etiqueta"
+                            className="h-7 w-28 text-xs"
+                          />
+                        </div>
+                      </td>
+                      <td className="py-2 px-3 text-muted-foreground text-xs whitespace-nowrap">
+                        {c.totalOrders} compra{c.totalOrders !== 1 ? 's' : ''} · ${Number(c.totalSpent).toLocaleString('es-CL')}
+                        <br />Última: {new Date(c.lastSeenAt).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}
+                      </td>
+                      <td className="py-2 px-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium whitespace-nowrap">
+                            🪙 {c.playcoins ?? 0}
+                          </span>
+                          <Input
+                            type="number"
+                            value={adjustByCustomer[c.id] ?? ''}
+                            onChange={(e) => setAdjustByCustomer((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                            placeholder="+/-"
+                            className="h-7 w-16 text-xs"
+                          />
+                          <Button
+                            size="sm" variant="outline" className="h-7 text-xs px-2"
+                            onClick={() => {
+                              const delta = Number(adjustByCustomer[c.id]);
+                              if (!Number.isFinite(delta) || delta === 0) return;
+                              adjustPlaycoins.mutate({ customerId: c.id, delta, note: 'Ajuste manual desde admin' });
+                              setAdjustByCustomer((prev) => ({ ...prev, [c.id]: '' }));
+                            }}
+                          >
+                            OK
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {customersList.length === 0 && <p className="text-sm text-muted-foreground py-4">Sin clientes todavía -- se registran solos con cada compra web aprobada.</p>}
+          </div>
+
+          {customersList.length > CUSTOMERS_PAGE_SIZE && (
+            <div className="flex items-center justify-between pt-4">
+              <p className="text-xs text-muted-foreground">Página {currentPage + 1} de {totalPages}</p>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" disabled={currentPage === 0} onClick={() => setPage((p) => p - 1)}>Anterior</Button>
+                <Button size="sm" variant="outline" disabled={currentPage >= totalPages - 1} onClick={() => setPage((p) => p + 1)}>Siguiente</Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function MailingSection() {
+  const [search, setSearch] = useState('');
+  const [accessType, setAccessType] = useState<string>('all');
+  const [tagFilter, setTagFilter] = useState('');
+  const [excludeTagFilter, setExcludeTagFilter] = useState('');
+  const [eventFilter, setEventFilter] = useState<string>('all');
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [campaignTag, setCampaignTag] = useState('');
+  const [importingCsv, setImportingCsv] = useState(false);
+  const csvInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: eventsData } = trpc.events.listAll.useQuery();
+  const events = eventsData ?? [];
+
+  const { data: customersData } = trpc.customers.listAll.useQuery({
+    search: search || undefined,
+    accessType: accessType === 'all' ? undefined : accessType,
+    tag: tagFilter || undefined,
+    excludeTag: excludeTagFilter || undefined,
+    eventId: eventFilter === 'all' ? undefined : Number(eventFilter),
+  });
+  const customersList = customersData ?? [];
+
+  const bulkTagFromCsv = trpc.customers.bulkTagFromCsv.useMutation();
+
+  const toggleSelected = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const allFilteredSelected = customersList.length > 0 && customersList.every((c: any) => selectedIds.has(c.id));
+  const toggleSelectAllFiltered = () => {
+    setSelectedIds((prev) => {
+      if (allFilteredSelected) return new Set();
+      const next = new Set(prev);
+      customersList.forEach((c: any) => next.add(c.id));
+      return next;
+    });
+  };
+
+  const audienceDescription = (() => {
+    const parts: string[] = [];
+    if (eventFilter !== 'all') {
+      const ev = events.find((e: any) => String(e.id) === eventFilter);
+      parts.push(`compraron para ${ev?.title ?? 'el evento seleccionado'}`);
+    }
+    if (accessType !== 'all') parts.push(`tipo de acceso "${ACCESO_SLUG_OPTIONS.find((o) => o.value === accessType)?.label ?? accessType}"`);
+    if (tagFilter) parts.push(`etiqueta "${tagFilter}"`);
+    if (excludeTagFilter) parts.push(`sin la etiqueta "${excludeTagFilter}"`);
+    if (search) parts.push(`búsqueda "${search}"`);
+    return parts.length > 0 ? parts.join(', ') : 'toda la base de clientes';
+  })();
+
+  const mailingCtaUrl = (() => {
+    const origin = window.location.origin;
+    if (eventFilter !== 'all') {
+      const ev = events.find((e: any) => String(e.id) === eventFilter);
+      if (ev?.slug) return `${origin}/eventos/${ev.slug}`;
+    }
+    return origin;
+  })();
+
+  const handleImportCsv = async (file: File) => {
+    if (!campaignTag.trim()) {
+      toast.error('Ponele un nombre a la campaña arriba antes de importar el CSV -- es la etiqueta que se les va a aplicar.');
+      return;
+    }
+    setImportingCsv(true);
+    try {
+      const csv = await file.text();
+      const result = await bulkTagFromCsv.mutateAsync({ csv, tag: campaignTag.trim() });
+      toast.success(`${result.tagged} marcados con "${campaignTag.trim()}"${result.alreadyTagged ? `, ${result.alreadyTagged} ya la tenían` : ''}${result.notFound.length ? `, ${result.notFound.length} email(s) no encontrados en la base` : ''}.`);
+    } catch (err) {
+      onMutationError(err);
+    } finally {
+      setImportingCsv(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-heading text-2xl">Mailing</h2>
+        <p className="text-sm text-muted-foreground">Armá una audiencia, generá el mail con IA, y mandalo -- cada envío exitoso queda tageado con el nombre de campaña para no repetir destinatarios.</p>
       </div>
 
-      <div className="space-y-3">
-        {customersList.map((c: any) => {
-          const accessTypes: string[] = Array.isArray(c.accessTypes) ? c.accessTypes : [];
-          const tags: string[] = Array.isArray(c.tags) ? c.tags : [];
-          return (
-            <Card key={c.id} className="rounded-2xl border-0 shadow-md shadow-black/5">
-              <CardContent className="pt-6 space-y-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <Checkbox className="mt-1" checked={selectedIds.has(c.id)} onCheckedChange={() => toggleSelected(c.id)} />
-                    <div>
-                      <p className="font-semibold">{c.fullName || '(sin nombre)'}</p>
-                      <p className="text-sm text-muted-foreground">{c.email}{c.phone ? ` · ${c.phone}` : ''}{c.rut ? ` · ${c.rut}` : ''}</p>
-                    </div>
-                  </div>
-                  <div className="text-right text-sm text-muted-foreground">
-                    <p>{c.totalOrders} compra{c.totalOrders !== 1 ? 's' : ''} · ${Number(c.totalSpent).toLocaleString('es-CL')}</p>
-                    <p className="text-xs">Última: {new Date(c.lastSeenAt).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
-                  </div>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6 space-y-4">
+          <div className="space-y-2 max-w-md">
+            <Label>Nombre de campaña (etiqueta)</Label>
+            <Input value={campaignTag} onChange={(e) => setCampaignTag(e.target.value)} placeholder="ej. masivocandyland2" />
+            <p className="text-xs text-muted-foreground">Se aplica automáticamente a cada cliente que reciba el mail con éxito, y es la etiqueta que se usa si importás un CSV de entregados.</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar…" className="max-w-xs" />
+            <Select value={accessType} onValueChange={setAccessType}>
+              <SelectTrigger className="w-52"><SelectValue placeholder="Tipo de acceso" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los tipos de acceso</SelectItem>
+                {ACCESO_SLUG_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} placeholder="Incluir etiqueta…" className="max-w-40" />
+            <Input value={excludeTagFilter} onChange={(e) => setExcludeTagFilter(e.target.value)} placeholder="Excluir etiqueta…" className="max-w-40" />
+            <Select value={eventFilter} onValueChange={setEventFilter}>
+              <SelectTrigger className="w-52"><SelectValue placeholder="Evento" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los eventos</SelectItem>
+                {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            <div className="ml-auto">
+              <input
+                ref={csvInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleImportCsv(file);
+                  e.target.value = '';
+                }}
+              />
+              <Button variant="outline" className="interactive" disabled={importingCsv} onClick={() => csvInputRef.current?.click()}>
+                <Upload className="w-4 h-4 mr-2" />
+                {importingCsv ? 'Marcando…' : 'Marcar como enviados (CSV)'}
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-xl border border-border/50 px-4 py-2.5">
+            <Checkbox checked={allFilteredSelected} onCheckedChange={toggleSelectAllFiltered} />
+            <span className="text-sm text-muted-foreground">
+              {selectedIds.size > 0 ? `${selectedIds.size} seleccionado${selectedIds.size !== 1 ? 's' : ''}` : `Seleccionar los ${customersList.length} filtrados`}
+            </span>
+          </div>
+
+          <div className="max-h-72 overflow-y-auto rounded-lg border border-border/50 divide-y">
+            {customersList.map((c: any) => (
+              <label key={c.id} className="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-muted/30">
+                <Checkbox checked={selectedIds.has(c.id)} onCheckedChange={() => toggleSelected(c.id)} />
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{c.fullName || '(sin nombre)'}</p>
+                  <p className="text-xs text-muted-foreground truncate">{c.email}</p>
                 </div>
+              </label>
+            ))}
+            {customersList.length === 0 && <p className="text-sm text-muted-foreground px-3 py-4">Nadie matchea estos filtros.</p>}
+          </div>
+        </CardContent>
+      </Card>
 
-                {accessTypes.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {accessTypes.map((slug) => (
-                      <span key={slug} className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                        {ACCESO_SLUG_OPTIONS.find((o) => o.value === slug)?.label ?? slug}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {tags.map((tag) => (
-                    <span key={tag} className="text-xs pl-2 pr-1 py-0.5 rounded-full bg-secondary/20 text-secondary-foreground flex items-center gap-1">
-                      {tag}
-                      <button onClick={() => removeTag.mutate({ customerId: c.id, tag })} className="hover:text-destructive">
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  ))}
-                  <Input
-                    value={newTagByCustomer[c.id] ?? ''}
-                    onChange={(e) => setNewTagByCustomer((prev) => ({ ...prev, [c.id]: e.target.value }))}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newTagByCustomer[c.id]?.trim()) {
-                        addTag.mutate({ customerId: c.id, tag: newTagByCustomer[c.id].trim() });
-                        setNewTagByCustomer((prev) => ({ ...prev, [c.id]: '' }));
-                      }
-                    }}
-                    placeholder="+ etiqueta (Enter)"
-                    className="h-7 w-36 text-xs"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 pt-2 border-t border-border/40">
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium">
-                    🪙 {c.playcoins ?? 0} Playcoins (${Number(c.playcoins ?? 0).toLocaleString('es-CL')})
-                  </span>
-                  <Input
-                    type="number"
-                    value={adjustByCustomer[c.id] ?? ''}
-                    onChange={(e) => setAdjustByCustomer((prev) => ({ ...prev, [c.id]: e.target.value }))}
-                    placeholder="+/- ajuste"
-                    className="h-7 w-28 text-xs"
-                  />
-                  <Button
-                    size="sm" variant="outline" className="h-7 text-xs"
-                    onClick={() => {
-                      const delta = Number(adjustByCustomer[c.id]);
-                      if (!Number.isFinite(delta) || delta === 0) return;
-                      adjustPlaycoins.mutate({ customerId: c.id, delta, note: 'Ajuste manual desde admin' });
-                      setAdjustByCustomer((prev) => ({ ...prev, [c.id]: '' }));
-                    }}
-                  >
-                    Ajustar
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-        {customersList.length === 0 && <p className="text-sm text-muted-foreground">Sin clientes todavía -- se registran solos con cada compra web aprobada.</p>}
-      </div>
-
-      <MailingDialog
-        open={mailingOpen}
-        onOpenChange={setMailingOpen}
-        audience={{ ids: Array.from(selectedIds), count: selectedIds.size, description: audienceDescription }}
-        ctaUrl={mailingCtaUrl}
-        onDone={() => setSelectedIds(new Set())}
-      />
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6">
+          <MailingComposer
+            audience={{ ids: Array.from(selectedIds), count: selectedIds.size, description: audienceDescription }}
+            ctaUrl={mailingCtaUrl}
+            campaignTag={campaignTag}
+            onDone={() => setSelectedIds(new Set())}
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -1478,6 +1622,7 @@ const ADMIN_SECTIONS = [
   { id: 'discounts', label: 'Descuentos', icon: Percent, render: () => <DiscountsManager /> },
   { id: 'community', label: 'Códigos Comunidad', icon: Users, render: () => <CommunityCodesManager /> },
   { id: 'customers', label: 'Clientes', icon: Contact, render: () => <CustomersView /> },
+  { id: 'mailing', label: 'Mailing', icon: Mail, render: () => <MailingSection /> },
   { id: 'referrals', label: 'Referidos', icon: Trophy, render: () => <ReferralsView /> },
   { id: 'caja', label: 'Caja', icon: Store, render: () => <CajaAdminView /> },
   { id: 'settings', label: 'Ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },
