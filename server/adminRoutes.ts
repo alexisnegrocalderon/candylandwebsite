@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
+import { csvEscape, toCsv, parseCsv } from "./csv";
 
 async function requireAdmin(req: Request, res: Response): Promise<boolean> {
   try {
@@ -14,62 +15,6 @@ async function requireAdmin(req: Request, res: Response): Promise<boolean> {
     res.status(401).json({ error: "Unauthorized" });
     return false;
   }
-}
-
-function csvEscape(value: unknown): string {
-  const s = value === null || value === undefined ? "" : String(value);
-  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
-
-function toCsv(rows: Record<string, unknown>[], columns: { key: string; label: string }[]): string {
-  const header = columns.map((c) => csvEscape(c.label)).join(",");
-  const lines = rows.map((row) => columns.map((c) => csvEscape(row[c.key])).join(","));
-  return [header, ...lines].join("\r\n");
-}
-
-/** Parser CSV sin dependencias: soporta campos entre comillas con comas y
- * saltos de línea adentro, y comillas escapadas (""). */
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field += c;
-      }
-    } else if (c === '"') {
-      inQuotes = true;
-    } else if (c === ",") {
-      row.push(field);
-      field = "";
-    } else if (c === "\r") {
-      // ignorado, el \n que sigue cierra la fila
-    } else if (c === "\n") {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = "";
-    } else {
-      field += c;
-    }
-  }
-  if (field.length > 0 || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-  return rows.filter((r) => r.some((f) => f.trim() !== ""));
 }
 
 export function registerAdminRoutes(app: Express) {

@@ -101,10 +101,12 @@ const THROTTLE_MS = Number(process.env.MAILING_THROTTLE_MS) || 250;
 export async function sendMailingBatch(
   customerIds: number[],
   content: MailingContent,
-  ctaUrl: string
+  ctaUrl: string,
+  campaignTag?: string
 ): Promise<MailingSendResult[]> {
   const recipients = await db.listCustomersByIds(customerIds);
   const results: MailingSendResult[] = [];
+  const cleanCampaignTag = campaignTag?.trim();
 
   for (const customer of recipients) {
     const html = buildMailingBlastEmail({
@@ -119,6 +121,19 @@ export async function sendMailingBatch(
     });
     const sent = await sendEmail({ to: customer.email, subject: content.subject, html });
     results.push({ customerId: customer.id, email: customer.email, success: sent.success, reason: sent.reason });
+
+    // Tagueo automático (pedido explícito del usuario): con el límite de
+    // ~100 emails/día del plan free de Resend, hace falta saber quién ya
+    // recibió esta campaña para retomar al día siguiente excluyendo la tag.
+    // No aborta el lote si el tag falla -- el email ya se mandó igual.
+    if (sent.success && cleanCampaignTag) {
+      try {
+        await db.addCustomerTag(customer.id, cleanCampaignTag);
+      } catch (err) {
+        console.error('[Mailing] No se pudo taguear al cliente tras el envío:', err);
+      }
+    }
+
     await sleep(THROTTLE_MS);
   }
 
