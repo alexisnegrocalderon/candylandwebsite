@@ -946,6 +946,7 @@ function MailingSection() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [campaignTag, setCampaignTag] = useState('');
   const [importingCsv, setImportingCsv] = useState(false);
+  const [csvImportResult, setCsvImportResult] = useState<{ tag: string; tagged: number; alreadyTagged: number; notFound: string[] } | null>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
 
   const { data: eventsData } = trpc.events.listAll.useQuery();
@@ -1007,10 +1008,17 @@ function MailingSection() {
       return;
     }
     setImportingCsv(true);
+    setCsvImportResult(null);
     try {
       const csv = await file.text();
-      const result = await bulkTagFromCsv.mutateAsync({ csv, tag: campaignTag.trim() });
-      toast.success(`${result.tagged} marcados con "${campaignTag.trim()}"${result.alreadyTagged ? `, ${result.alreadyTagged} ya la tenían` : ''}${result.notFound.length ? `, ${result.notFound.length} email(s) no encontrados en la base` : ''}.`);
+      const tag = campaignTag.trim();
+      const result = await bulkTagFromCsv.mutateAsync({ csv, tag });
+      setCsvImportResult({ tag, ...result });
+      if (result.tagged === 0 && result.alreadyTagged === 0) {
+        toast.error(`Ningún email del CSV matcheó con la base de clientes -- mirá el detalle abajo.`);
+      } else {
+        toast.success(`${result.tagged} marcados con "${tag}"${result.alreadyTagged ? `, ${result.alreadyTagged} ya la tenían` : ''}${result.notFound.length ? `, ${result.notFound.length} no encontrados` : ''}.`);
+      }
     } catch (err) {
       onMutationError(err);
     } finally {
@@ -1054,7 +1062,7 @@ function MailingSection() {
               </SelectContent>
             </Select>
 
-            <div className="ml-auto">
+            <div className="ml-auto flex flex-col items-end gap-1">
               <input
                 ref={csvInputRef}
                 type="file"
@@ -1066,12 +1074,32 @@ function MailingSection() {
                   e.target.value = '';
                 }}
               />
-              <Button variant="outline" className="interactive" disabled={importingCsv} onClick={() => csvInputRef.current?.click()}>
+              <Button variant="outline" className="interactive" disabled={importingCsv || !campaignTag.trim()} onClick={() => csvInputRef.current?.click()}>
                 <Upload className="w-4 h-4 mr-2" />
-                {importingCsv ? 'Marcando…' : 'Marcar como enviados (CSV)'}
+                {importingCsv ? 'Marcando…' : `Marcar como enviados (CSV)`}
               </Button>
+              {!campaignTag.trim() && <p className="text-xs text-destructive">Poné el nombre de campaña arriba primero</p>}
             </div>
           </div>
+
+          {csvImportResult && (
+            <div className="rounded-xl border border-border/50 px-4 py-3 text-sm space-y-2">
+              <p>
+                Import de CSV con etiqueta <span className="font-semibold">"{csvImportResult.tag}"</span>:{' '}
+                <span className="text-primary font-medium">{csvImportResult.tagged} marcados ahora</span>
+                {csvImportResult.alreadyTagged > 0 && <span className="text-muted-foreground">, {csvImportResult.alreadyTagged} ya la tenían</span>}
+                {csvImportResult.notFound.length > 0 && <span className="text-destructive">, {csvImportResult.notFound.length} sin match en la base</span>}
+              </p>
+              {csvImportResult.notFound.length > 0 && (
+                <details className="text-xs text-muted-foreground">
+                  <summary className="cursor-pointer text-primary">Ver los que no matchearon</summary>
+                  <div className="mt-1 max-h-32 overflow-y-auto font-mono space-y-0.5">
+                    {csvImportResult.notFound.map((email) => <div key={email}>{email}</div>)}
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
 
           <div className="flex items-center gap-3 rounded-xl border border-border/50 px-4 py-2.5">
             <Checkbox checked={allFilteredSelected} onCheckedChange={toggleSelectAllFiltered} />
