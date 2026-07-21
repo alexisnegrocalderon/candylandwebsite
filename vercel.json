@@ -9,6 +9,6 @@
   },
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api" },
-    { "source": "/((?!assets/|candyland/|api/|robots.txt|sitemap.xml).*)", "destination": "/index.html" }
+    { "source": "/((?!assets/|candyland/|api/|robots\\.txt|sitemap\\.xml|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/).*)", "destination": "/index.html" }
   ]
 }
