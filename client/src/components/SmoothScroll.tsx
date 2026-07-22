@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import Lenis from 'lenis';
 import { setLenis, prefersReducedMotion, isFinePointer } from '@/lib/smoothScroll';
-import { ensureScrollTrigger } from '@/lib/scrollFx';
 
 /**
  * Scroll suave inmersivo (estilo noth.in) con Lenis.
@@ -20,10 +19,6 @@ export default function SmoothScroll() {
     });
     setLenis(lenis);
 
-    // Sincroniza GSAP ScrollTrigger con el scroll suave de Lenis
-    const { ScrollTrigger } = ensureScrollTrigger();
-    lenis.on('scroll', ScrollTrigger.update);
-
     let rafId = 0;
     const raf = (time: number) => {
       lenis.raf(time);
@@ -31,13 +26,8 @@ export default function SmoothScroll() {
     };
     rafId = requestAnimationFrame(raf);
 
-    // Recalcula posiciones cuando cargan imágenes/fuentes
-    const refresh = () => ScrollTrigger.refresh();
-    window.addEventListener('load', refresh);
-
     return () => {
       cancelAnimationFrame(rafId);
-      window.removeEventListener('load', refresh);
       lenis.destroy();
       setLenis(null);
     };
