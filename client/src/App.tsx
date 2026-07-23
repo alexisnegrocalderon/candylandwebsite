@@ -8,10 +8,12 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import CustomCursor from "./components/CustomCursor";
 import SmoothScroll from "./components/SmoothScroll";
 import Navbar from "./components/Navbar";
-import Home from "./pages/Home";
 
-// Lazy load pages
-import { lazy, Suspense } from "react";
+// Lazy load pages -- Home incluida: antes se importaba eager y arrastraba
+// las 7 secciones + trpc/react-query al chunk de entrada, que quedaba tan
+// pesado que la página se sentía en blanco unos segundos al cargar.
+import { lazy, Suspense, useEffect } from "react";
+const Home = lazy(() => import("./pages/Home"));
 const Events = lazy(() => import("./pages/Events"));
 const EventDetail = lazy(() => import("./pages/EventDetail"));
 const Checkout = lazy(() => import("./pages/Checkout"));
@@ -91,6 +93,14 @@ function App() {
   const isCaja = location.startsWith('/caja');
   const isAdmin = location.startsWith('/admin');
   const hideChrome = isCaja || isAdmin;
+
+  // Saca el loader estático de client/index.html (pintado antes de que
+  // React exista, para que nunca haya un instante en blanco) apenas React
+  // hace su primer commit -- de ahí en más el spinner de Suspense (mismo
+  // look) toma la posta mientras carga el chunk de la página.
+  useEffect(() => {
+    document.getElementById('initial-loader')?.remove();
+  }, []);
 
   return (
     <ErrorBoundary>
