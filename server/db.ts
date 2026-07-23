@@ -104,6 +104,19 @@ export async function getEventBySlug(slug: string) {
   return result[0] ?? null;
 }
 
+/** El "próximo evento destacado" para el mailing masivo (server/mailing.ts):
+ * prioriza el marcado featured=1; si no hay ninguno, cae al próximo publicado
+ * por fecha. */
+export async function getFeaturedEvent() {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(events)
+    .where(eq(events.status, 'published'))
+    .orderBy(desc(events.featured), events.eventDate)
+    .limit(1);
+  return result[0];
+}
+
 export async function createEvent(data: any) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

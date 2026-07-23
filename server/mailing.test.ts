@@ -109,4 +109,77 @@ describe("buildMailingBlastEmail", () => {
     });
     expect(html).toContain("¡Hola!");
   });
+
+  it("omits the event card entirely when eventInfo is not passed", () => {
+    const html = buildMailingBlastEmail({
+      buyerName: "Camila",
+      headline: "Título",
+      paragraphs: ["Párrafo."],
+      ctaUrl: "https://candylandwebsite.vercel.app",
+    });
+    expect(html).not.toContain("¿Qué encontrarás?");
+    expect(html).not.toContain("Misión 300");
+    expect(html).not.toContain("Ver en Google Maps");
+  });
+
+  it("omits the event card when eventInfo is explicitly null", () => {
+    const html = buildMailingBlastEmail({
+      buyerName: "Camila",
+      headline: "Título",
+      paragraphs: ["Párrafo."],
+      ctaUrl: "https://candylandwebsite.vercel.app",
+      eventInfo: null,
+    });
+    expect(html).not.toContain("¿Qué encontrarás?");
+  });
+
+  it("renders the banner, date, venue, maps link, Misión 300 counter and venue grid when eventInfo is passed", () => {
+    const html = buildMailingBlastEmail({
+      buyerName: "Camila",
+      headline: "Título",
+      paragraphs: ["Párrafo."],
+      ctaUrl: "https://candylandwebsite.vercel.app",
+      eventInfo: {
+        title: "Candyland Agosto",
+        imageUrl: "https://candylandwebsite.vercel.app/candyland/og-candyland.jpg",
+        dateText: "sábado, 8 de agosto, 21:00 hrs",
+        venue: "La Mansión",
+        address: "Valparaíso",
+        mapsUrl: "https://maps.google.com/?q=La+Mansión",
+        mission300: { confirmed: 259, goal: 300, depositPrice: 10000 },
+      },
+    });
+
+    expect(html).toContain('<img src="https://candylandwebsite.vercel.app/candyland/og-candyland.jpg"');
+    expect(html).toContain("Candyland Agosto");
+    expect(html).toContain("sábado, 8 de agosto, 21:00 hrs");
+    expect(html).toContain("La Mansión");
+    expect(html).toContain("Valparaíso");
+    expect(html).toContain('href="https://maps.google.com/?q=La+Mansión"');
+    expect(html).toContain("259/300 ya confirmados");
+    expect(html).toContain("$10.000 por persona mientras dure la Misión 300");
+    expect(html).toContain("¿Qué encontrarás?");
+    for (const item of ["Estacionamiento privado", "Guardarropía", "Terraza Bar Lounge", "PlayBites para recargar energía", "Dos pistas de baile (Tech + Reggaetón)", "Playground XXL", "Kink Room", "Zona de fumadores"]) {
+      expect(html).toContain(item);
+    }
+  });
+
+  it("omits the Misión 300 card when eventInfo.mission300 is null but still shows the event card", () => {
+    const html = buildMailingBlastEmail({
+      buyerName: "Camila",
+      headline: "Título",
+      paragraphs: ["Párrafo."],
+      ctaUrl: "https://candylandwebsite.vercel.app",
+      eventInfo: {
+        title: "Candyland Agosto",
+        dateText: "sábado, 8 de agosto, 21:00 hrs",
+        venue: "La Mansión",
+        mission300: null,
+      },
+    });
+
+    expect(html).toContain("Candyland Agosto");
+    expect(html).not.toContain("Misión 300");
+    expect(html).toContain("¿Qué encontrarás?");
+  });
 });
