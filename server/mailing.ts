@@ -1,7 +1,44 @@
 import { z } from "zod";
 import { invokeLLM } from "./_core/llm";
-import { sendEmail, buildMailingBlastEmail } from "./email";
+import { sendEmail, buildMailingBlastEmail, type MailingEventInfo } from "./email";
 import * as db from "./db";
+import { getMission300Status } from "./webhooks";
+import { isMissionWindowOpen, MISSION_300_DEPOSIT_PER_PERSON } from "../shared/mission300";
+
+// Mismo criterio de zona horaria que server/webhooks.ts (formatEventDate) --
+// duplicado a propósito, no exportado desde ahí, para no acoplar módulos.
+const CHILE_TZ = 'America/Santiago';
+function formatEventDateTime(date: Date): string {
+  const dateText = date.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: CHILE_TZ });
+  const timeText = date.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: CHILE_TZ });
+  return `${dateText}, ${timeText} hrs`;
+}
+
+/** Arma la info del "próximo evento destacado" para la tarjeta opcional del
+ * mailing masivo (pedido explícito del usuario) -- siempre el mismo evento
+ * sin importar el filtro de audiencia de la campaña. Devuelve null si no
+ * hay ningún evento publicado. */
+export async function getMailingEventInfo(): Promise<MailingEventInfo | null> {
+  const event = await db.getFeaturedEvent();
+  if (!event) return null;
+
+  const eventDate = new Date(event.eventDate);
+  let mission300: MailingEventInfo['mission300'] = null;
+  if (isMissionWindowOpen(eventDate)) {
+    const status = await getMission300Status(event.id);
+    mission300 = { confirmed: status.totalPersonas, goal: status.goal, depositPrice: MISSION_300_DEPOSIT_PER_PERSON };
+  }
+
+  return {
+    title: event.title,
+    imageUrl: event.imageUrl ?? undefined,
+    dateText: formatEventDateTime(eventDate),
+    venue: event.venue ?? 'Valparaíso, Chile',
+    address: event.address ?? undefined,
+    mapsUrl: event.mapsUrl ?? undefined,
+    mission300,
+  };
+}
 
 /** Mailing masivo desde /admin (sección Clientes, pedido explícito del
  * usuario): la IA solo devuelve texto estructurado, nunca HTML -- el HTML
@@ -102,7 +139,8 @@ export async function sendMailingBatch(
   customerIds: number[],
   content: MailingContent,
   ctaUrl: string,
-  campaignTag?: string
+  campaignTag?: string,
+  eventInfo?: MailingEventInfo | null
 ): Promise<MailingSendResult[]> {
   const recipients = await db.listCustomersByIds(customerIds);
   const results: MailingSendResult[] = [];
@@ -118,6 +156,7 @@ export async function sendMailingBatch(
       ctaUrl,
       highlightLabel: content.highlightLabel,
       highlightValue: content.highlightValue,
+      eventInfo,
     });
     const sent = await sendEmail({ to: customer.email, subject: content.subject, html });
     results.push({ customerId: customer.id, email: customer.email, success: sent.success, reason: sent.reason });

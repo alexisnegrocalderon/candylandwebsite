@@ -820,11 +820,27 @@ export function buildShiftCloseEmail(data: {
 </html>`;
 }
 
+/** Tarjeta opcional de "próximo evento destacado" para el mailing masivo
+ * (pedido explícito del usuario) -- se arma en server/mailing.ts
+ * (getMailingEventInfo) y llega ya resuelta, buildMailingBlastEmail no
+ * consulta la base de datos. */
+export type MailingEventInfo = {
+  title: string;
+  imageUrl?: string;
+  dateText: string;
+  venue: string;
+  address?: string;
+  mapsUrl?: string;
+  mission300: { confirmed: number; goal: number; depositPrice: number } | null;
+};
+
 /** Mailing masivo generado desde /admin (sección Clientes → "Mailing masivo",
  * pedido explícito del usuario): el contenido (asunto/título/párrafos) lo
  * arma la IA a partir del objetivo que escribe el admin, pero el HTML final
  * siempre se arma acá con los mismos helpers de marca que el resto de los
- * emails -- así la IA nunca controla estilos/HTML crudo, solo texto. */
+ * emails -- así la IA nunca controla estilos/HTML crudo, solo texto. La
+ * tarjeta de evento (fecha/lugar/Misión 300/espacios) es igual de fija,
+ * reusando los mismos bloques que ya usa buildOrderEmail. */
 export function buildMailingBlastEmail(data: {
   buyerName: string;
   preheader?: string;
@@ -834,9 +850,11 @@ export function buildMailingBlastEmail(data: {
   ctaUrl: string;
   highlightLabel?: string;
   highlightValue?: string;
+  eventInfo?: MailingEventInfo | null;
 }) {
   const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
   const greeting = data.buyerName ? `¡Hola, ${data.buyerName}!` : '¡Hola!';
+  const eventInfo = data.eventInfo;
 
   return `
 <!DOCTYPE html>
@@ -851,6 +869,8 @@ export function buildMailingBlastEmail(data: {
   ${data.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${data.preheader}</div>` : ''}
   <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
 
+    ${eventInfo?.imageUrl ? `<img src="${eventInfo.imageUrl}" alt="${eventInfo.title}" style="display:block;width:100%;height:auto;" />` : ''}
+
     <!-- HERO -->
     <div style="background:linear-gradient(160deg,${ACCENT.pink.bg},${ACCENT.yellow.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
@@ -863,6 +883,31 @@ export function buildMailingBlastEmail(data: {
       ${data.paragraphs.map((p) => `
         <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 20px;">${p}</p>
       `).join('')}
+
+      ${eventInfo ? `
+      ${sectionTitle('📅', eventInfo.title)}
+      ${card(`
+        <p style="color:${INK};font-size:15px;margin:6px 0;">📅 ${eventInfo.dateText}</p>
+        <p style="color:${INK};font-size:15px;margin:6px 0;">📍 ${eventInfo.venue}${eventInfo.address ? ` — ${eventInfo.address}` : ''}</p>
+        ${eventInfo.mapsUrl ? `<a href="${eventInfo.mapsUrl}" style="display:inline-block;color:${ACCENT.pink.text};font-size:13px;font-weight:700;text-decoration:none;margin:4px 0 0;">📍 Ver en Google Maps →</a>` : ''}
+      `)}
+
+      ${eventInfo.mission300 ? card(`
+        <div style="text-align:center;">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Misión 300</p>
+          <p style="color:${ACCENT.pink.text};font-size:28px;font-weight:800;margin:0 0 10px;">${eventInfo.mission300.confirmed}/${eventInfo.mission300.goal} ya confirmados</p>
+          <p style="color:${INK};font-size:15px;font-weight:700;margin:0;">🍬 Tu entrada sigue a $${eventInfo.mission300.depositPrice.toLocaleString('es-CL')} por persona mientras dure la Misión 300</p>
+        </div>
+      `, { bg: ACCENT.pink.bg, border: false }) : ''}
+
+      ${sectionTitle('🛝', '¿Qué encontrarás?')}
+      ${grid(CONTENT.encontraras.map((x) => `
+        <div style="background:${ACCENT.lilac.bg};border-radius:16px;padding:14px;">
+          <p style="font-size:22px;margin:0 0 4px;">${x.emoji}</p>
+          <p style="color:${INK};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
+        </div>
+      `), 2)}
+      ` : ''}
 
       ${data.highlightLabel && data.highlightValue ? card(`
         <div style="text-align:center;">

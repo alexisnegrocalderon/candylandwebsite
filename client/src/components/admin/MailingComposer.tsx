@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
   AlertDialogFooter, AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
@@ -58,6 +59,7 @@ export function MailingComposer({
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [progress, setProgress] = useState({ sent: 0, total: 0 });
   const [results, setResults] = useState<SendResult[]>([]);
+  const [includeEventInfo, setIncludeEventInfo] = useState(true);
 
   const generateTemplate = trpc.mailing.generateTemplate.useMutation();
   const renderPreview = trpc.mailing.renderPreview.useMutation();
@@ -91,7 +93,7 @@ export function MailingComposer({
   const handlePreview = async () => {
     if (!content) return;
     try {
-      const { html } = await renderPreview.mutateAsync({ content, ctaUrl });
+      const { html } = await renderPreview.mutateAsync({ content, ctaUrl, includeEventInfo });
       setPreviewHtml(html);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo generar la vista previa.');
@@ -109,7 +111,7 @@ export function MailingComposer({
 
     for (const batch of batches) {
       try {
-        const { results: batchResults } = await sendBatch.mutateAsync({ customerIds: batch, content, ctaUrl, campaignTag: campaignTag || undefined });
+        const { results: batchResults } = await sendBatch.mutateAsync({ customerIds: batch, content, ctaUrl, campaignTag: campaignTag || undefined, includeEventInfo });
         newResults.push(...batchResults);
       } catch (err) {
         // Todo el lote falló (ej. error de red) -- se marca cada id como fallido y se sigue con el resto.
@@ -208,6 +210,12 @@ export function MailingComposer({
               <Label>Dato destacado -- valor (opcional)</Label>
               <Input value={content.highlightValue ?? ''} onChange={(e) => setContent({ ...content, highlightValue: e.target.value })} placeholder="41 entradas" />
             </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox id="include-event-info" checked={includeEventInfo} onCheckedChange={(checked) => setIncludeEventInfo(checked === true)} />
+            <Label htmlFor="include-event-info" className="font-normal cursor-pointer">
+              Incluir tarjeta del próximo evento destacado (fecha, lugar, Misión 300 y espacios de la Mansión)
+            </Label>
           </div>
 
           {!campaignTag.trim() && (

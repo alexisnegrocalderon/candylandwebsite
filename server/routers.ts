@@ -13,7 +13,7 @@ import { redeemDisplayCode } from "./caja/redeem";
 import { createCajaSale } from "./caja/sale";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
-import { generateMailingTemplate, sendMailingBatch, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
+import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
 import { parseCsv, extractEmailColumn } from "./csv";
 
 const SHIFT_CLOSE_REPORT_EMAIL = 'contacto@mansionplayroom.cl';
@@ -716,17 +716,25 @@ export const appRouter = router({
       content: MailingContentSchema,
       ctaUrl: z.string(),
       sampleName: z.string().optional(),
-    })).mutation(({ input }) => ({
-      html: buildMailingBlastEmail({ ...input.content, buyerName: input.sampleName || 'Camila', ctaUrl: input.ctaUrl }),
-    })),
+      includeEventInfo: z.boolean(),
+    })).mutation(async ({ input }) => {
+      const eventInfo = input.includeEventInfo ? await getMailingEventInfo() : null;
+      return {
+        html: buildMailingBlastEmail({ ...input.content, buyerName: input.sampleName || 'Camila', ctaUrl: input.ctaUrl, eventInfo }),
+      };
+    }),
     sendBatch: adminProcedure.input(z.object({
       customerIds: z.array(z.number()).min(1).max(MAILING_BATCH_MAX),
       content: MailingContentSchema,
       ctaUrl: z.string(),
       campaignTag: z.string().optional(),
-    })).mutation(async ({ input }) => ({
-      results: await sendMailingBatch(input.customerIds, input.content, input.ctaUrl, input.campaignTag),
-    })),
+      includeEventInfo: z.boolean(),
+    })).mutation(async ({ input }) => {
+      const eventInfo = input.includeEventInfo ? await getMailingEventInfo() : null;
+      return {
+        results: await sendMailingBatch(input.customerIds, input.content, input.ctaUrl, input.campaignTag, eventInfo),
+      };
+    }),
   }),
 
   // Consulta pública de saldo de Playcoins (pedido explícito del usuario) --
