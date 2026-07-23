@@ -182,4 +182,89 @@ describe("buildMailingBlastEmail", () => {
     expect(html).not.toContain("Misión 300");
     expect(html).toContain("¿Qué encontrarás?");
   });
+
+  const fullEventInfo = {
+    title: "Candyland Agosto",
+    imageUrl: "https://candylandwebsite.vercel.app/candyland/og-candyland.jpg",
+    dateText: "sábado, 8 de agosto, 21:00 hrs",
+    venue: "La Mansión",
+    address: "Valparaíso",
+    mapsUrl: "https://maps.google.com/?q=La+Mansión",
+    mission300: { confirmed: 259, goal: 300, depositPrice: 10000 },
+  };
+
+  it("hides only the banner when eventSections.banner is false", () => {
+    const html = buildMailingBlastEmail({
+      buyerName: "Camila",
+      headline: "Título",
+      paragraphs: ["Párrafo."],
+      ctaUrl: "https://candylandwebsite.vercel.app",
+      eventInfo: fullEventInfo,
+      eventSections: { banner: false, details: true, mission300: true, venueGrid: true },
+    });
+    expect(html).not.toContain('<img src="https://candylandwebsite.vercel.app/candyland/og-candyland.jpg"');
+    expect(html).toContain("sábado, 8 de agosto, 21:00 hrs");
+    expect(html).toContain("259/300 ya confirmados");
+    expect(html).toContain("¿Qué encontrarás?");
+  });
+
+  it("hides only the date/venue/maps card when eventSections.details is false", () => {
+    const html = buildMailingBlastEmail({
+      buyerName: "Camila",
+      headline: "Título",
+      paragraphs: ["Párrafo."],
+      ctaUrl: "https://candylandwebsite.vercel.app",
+      eventInfo: fullEventInfo,
+      eventSections: { banner: true, details: false, mission300: true, venueGrid: true },
+    });
+    expect(html).toContain('<img src="https://candylandwebsite.vercel.app/candyland/og-candyland.jpg"');
+    expect(html).not.toContain("sábado, 8 de agosto, 21:00 hrs");
+    expect(html).not.toContain("Ver en Google Maps");
+    expect(html).toContain("259/300 ya confirmados");
+    expect(html).toContain("¿Qué encontrarás?");
+  });
+
+  it("hides only the Misión 300 card when eventSections.mission300 is false", () => {
+    const html = buildMailingBlastEmail({
+      buyerName: "Camila",
+      headline: "Título",
+      paragraphs: ["Párrafo."],
+      ctaUrl: "https://candylandwebsite.vercel.app",
+      eventInfo: fullEventInfo,
+      eventSections: { banner: true, details: true, mission300: false, venueGrid: true },
+    });
+    expect(html).toContain("sábado, 8 de agosto, 21:00 hrs");
+    expect(html).not.toContain("Misión 300");
+    expect(html).toContain("¿Qué encontrarás?");
+  });
+
+  it("hides only the venue grid when eventSections.venueGrid is false", () => {
+    const html = buildMailingBlastEmail({
+      buyerName: "Camila",
+      headline: "Título",
+      paragraphs: ["Párrafo."],
+      ctaUrl: "https://candylandwebsite.vercel.app",
+      eventInfo: fullEventInfo,
+      eventSections: { banner: true, details: true, mission300: true, venueGrid: false },
+    });
+    expect(html).toContain("sábado, 8 de agosto, 21:00 hrs");
+    expect(html).toContain("259/300 ya confirmados");
+    expect(html).not.toContain("¿Qué encontrarás?");
+    expect(html).not.toContain("Playground XXL");
+  });
+
+  it("shows nothing from the event card when all eventSections flags are false", () => {
+    const html = buildMailingBlastEmail({
+      buyerName: "Camila",
+      headline: "Título",
+      paragraphs: ["Párrafo."],
+      ctaUrl: "https://candylandwebsite.vercel.app",
+      eventInfo: fullEventInfo,
+      eventSections: { banner: false, details: false, mission300: false, venueGrid: false },
+    });
+    expect(html).not.toContain('<img src="https://candylandwebsite.vercel.app/candyland/og-candyland.jpg"');
+    expect(html).not.toContain("sábado, 8 de agosto, 21:00 hrs");
+    expect(html).not.toContain("Misión 300");
+    expect(html).not.toContain("¿Qué encontrarás?");
+  });
 });

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
@@ -37,6 +37,10 @@ type SendResult = { customerId: number; email: string; success: boolean; reason?
 
 type Step = 'objective' | 'generating' | 'review' | 'sending' | 'done';
 
+type EventSections = { banner: boolean; details: boolean; mission300: boolean; venueGrid: boolean };
+
+const DEFAULT_EVENT_SECTIONS: EventSections = { banner: true, details: true, mission300: true, venueGrid: true };
+
 /** Flujo completo de composición y envío de una campaña -- embebido directo
  * en la sección "Mailing" del admin (ya no es un Dialog: pasó a ser su
  * propia página, pedido explícito del usuario). `campaignTag` se usa para
@@ -59,7 +63,7 @@ export function MailingComposer({
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [progress, setProgress] = useState({ sent: 0, total: 0 });
   const [results, setResults] = useState<SendResult[]>([]);
-  const [includeEventInfo, setIncludeEventInfo] = useState(true);
+  const [eventSections, setEventSections] = useState<EventSections>(DEFAULT_EVENT_SECTIONS);
 
   const generateTemplate = trpc.mailing.generateTemplate.useMutation();
   const renderPreview = trpc.mailing.renderPreview.useMutation();
@@ -93,12 +97,22 @@ export function MailingComposer({
   const handlePreview = async () => {
     if (!content) return;
     try {
-      const { html } = await renderPreview.mutateAsync({ content, ctaUrl, includeEventInfo });
+      const { html } = await renderPreview.mutateAsync({ content, ctaUrl, eventSections });
       setPreviewHtml(html);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'No se pudo generar la vista previa.');
     }
   };
+
+  // Vista previa siempre al día (pedido explícito del usuario) -- se
+  // refresca sola apenas cambia el contenido o las secciones del evento,
+  // sin depender de que se acuerden de apretar el botón cada vez.
+  useEffect(() => {
+    if (step !== 'review' || !content) return;
+    const timer = setTimeout(() => { handlePreview(); }, 600);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, content, eventSections]);
 
   const runSend = async (ids: number[]) => {
     if (!content || ids.length === 0) return;
@@ -111,7 +125,7 @@ export function MailingComposer({
 
     for (const batch of batches) {
       try {
-        const { results: batchResults } = await sendBatch.mutateAsync({ customerIds: batch, content, ctaUrl, campaignTag: campaignTag || undefined, includeEventInfo });
+        const { results: batchResults } = await sendBatch.mutateAsync({ customerIds: batch, content, ctaUrl, campaignTag: campaignTag || undefined, eventSections });
         newResults.push(...batchResults);
       } catch (err) {
         // Todo el lote falló (ej. error de red) -- se marca cada id como fallido y se sigue con el resto.
@@ -211,11 +225,26 @@ export function MailingComposer({
               <Input value={content.highlightValue ?? ''} onChange={(e) => setContent({ ...content, highlightValue: e.target.value })} placeholder="41 entradas" />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Checkbox id="include-event-info" checked={includeEventInfo} onCheckedChange={(checked) => setIncludeEventInfo(checked === true)} />
-            <Label htmlFor="include-event-info" className="font-normal cursor-pointer">
-              Incluir tarjeta del próximo evento destacado (fecha, lugar, Misión 300 y espacios de la Mansión)
-            </Label>
+          <div className="space-y-2 rounded-xl border border-border/50 p-3">
+            <Label>Secciones del próximo evento destacado (opcional)</Label>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Checkbox id="section-banner" checked={eventSections.banner} onCheckedChange={(checked) => setEventSections((s) => ({ ...s, banner: checked === true }))} />
+                <Label htmlFor="section-banner" className="font-normal cursor-pointer">Imagen del evento (banner)</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox id="section-details" checked={eventSections.details} onCheckedChange={(checked) => setEventSections((s) => ({ ...s, details: checked === true }))} />
+                <Label htmlFor="section-details" className="font-normal cursor-pointer">Fecha, lugar y botón a Google Maps</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox id="section-mission300" checked={eventSections.mission300} onCheckedChange={(checked) => setEventSections((s) => ({ ...s, mission300: checked === true }))} />
+                <Label htmlFor="section-mission300" className="font-normal cursor-pointer">Contador de Misión 300</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox id="section-venue-grid" checked={eventSections.venueGrid} onCheckedChange={(checked) => setEventSections((s) => ({ ...s, venueGrid: checked === true }))} />
+                <Label htmlFor="section-venue-grid" className="font-normal cursor-pointer">Espacios de la Mansión (cuadritos)</Label>
+              </div>
+            </div>
           </div>
 
           {!campaignTag.trim() && (
@@ -233,7 +262,7 @@ export function MailingComposer({
 
           <div className="flex flex-wrap gap-2 pt-2">
             <Button type="button" variant="outline" onClick={handlePreview} disabled={renderPreview.isPending}>
-              {renderPreview.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null} Vista previa
+              {renderPreview.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null} Actualizar vista previa
             </Button>
             <Button type="button" variant="outline" onClick={() => setStep('objective')}>Volver a escribir objetivo</Button>
             <AlertDialog>
@@ -259,7 +288,7 @@ export function MailingComposer({
 
           {previewHtml && (
             <div className="space-y-2">
-              <Label>Vista previa</Label>
+              <Label>Vista previa (se actualiza sola con cada cambio)</Label>
               <iframe srcDoc={previewHtml} className="w-full h-96 border rounded-xl bg-white" title="Vista previa del mail" />
             </div>
           )}
