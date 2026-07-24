@@ -6,11 +6,19 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Coins, Mail } from 'lucide-react';
 import { useState } from 'react';
 import { canRedeem, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
+import { useSeo } from '@/hooks/useSeo';
 
 /** Consulta pública de saldo de Playcoins (pedido explícito del usuario) --
  * sin login (el sitio no tiene cuentas de comprador), mismo patrón de
  * MyReferrals.tsx: búsqueda solo al enviar el formulario, no en cada tecla. */
 export default function MisPuntos() {
+  useSeo({
+    title: 'Mis Playcoins — Mansion Playroom',
+    description: 'Consulta tu saldo de Playcoins en Mansion Playroom.',
+    path: '/mis-puntos',
+    noindex: true,
+  });
+
   const [emailInput, setEmailInput] = useState('');
   const [submittedEmail, setSubmittedEmail] = useState('');
 

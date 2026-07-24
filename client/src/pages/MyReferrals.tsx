@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { CANDYLAND } from '@/config/candyland';
 import { AMBASSADOR_TIERS as TIERS } from '@shared/ambassadorTiers';
 import { missionCutoff } from '@shared/mission300';
+import { useSeo } from '@/hooks/useSeo';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
@@ -82,6 +83,13 @@ function LeaderboardSection() {
  * anterior), así que quedó inalcanzable. Ahora funciona con el mismo código
  * de embajador que llega por email, sin cuenta ni contraseña. */
 export default function MyReferrals() {
+  useSeo({
+    title: 'Mis Referidos — Mansion Playroom',
+    description: 'Consulta tu panel de embajador y el Hall de la Fama de Mansion Playroom.',
+    path: '/mis-referidos',
+    noindex: true,
+  });
+
   const [codeInput, setCodeInput] = useState('');
   const [submittedCode, setSubmittedCode] = useState('');
   const [copied, setCopied] = useState(false);
