@@ -714,6 +714,11 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
 
 const CUSTOMERS_PAGE_SIZE = 25;
 
+/** Valor centinela de los selectores de etiqueta del Mailing: Select de shadcn
+ * no admite un SelectItem con value="", así que "sin filtro" necesita un valor
+ * propio que se traduce a '' al leerlo. */
+const NO_TAG_FILTER = '__all__';
+
 function CustomersView() {
   const [search, setSearch] = useState('');
   const [accessType, setAccessType] = useState<string>('all');
@@ -961,6 +966,11 @@ function MailingSection() {
   });
   const customersList = customersData ?? [];
 
+  // Etiquetas reales de la base para los selectores de incluir/excluir --
+  // se refetchea al importar un CSV porque ese import crea etiquetas nuevas.
+  const { data: tagsData, refetch: refetchTags } = trpc.customers.listTags.useQuery();
+  const availableTags = tagsData ?? [];
+
   const bulkTagFromCsv = trpc.customers.bulkTagFromCsv.useMutation();
 
   const toggleSelected = (id: number) => {
@@ -979,6 +989,17 @@ function MailingSection() {
       return next;
     });
   };
+
+  // Qué etiquetas hay entre los seleccionados -- para confirmar de un vistazo
+  // a quiénes se les va a mandar antes de apretar enviar.
+  const selectedTagSummary = (() => {
+    const counts = new Map<string, number>();
+    for (const c of customersList as any[]) {
+      if (!selectedIds.has(c.id) || !Array.isArray(c.tags)) continue;
+      for (const tag of c.tags as string[]) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+    return Array.from(counts, ([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count);
+  })();
 
   const audienceDescription = (() => {
     const parts: string[] = [];
@@ -1014,6 +1035,7 @@ function MailingSection() {
       const tag = campaignTag.trim();
       const result = await bulkTagFromCsv.mutateAsync({ csv, tag });
       setCsvImportResult({ tag, ...result });
+      refetchTags();
       if (result.tagged === 0 && result.alreadyTagged === 0) {
         toast.error(`Ningún email del CSV matcheó con la base de clientes -- mirá el detalle abajo.`);
       } else {
@@ -1052,8 +1074,24 @@ function MailingSection() {
                 ))}
               </SelectContent>
             </Select>
-            <Input value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} placeholder="Incluir etiqueta…" className="max-w-40" />
-            <Input value={excludeTagFilter} onChange={(e) => setExcludeTagFilter(e.target.value)} placeholder="Excluir etiqueta…" className="max-w-40" />
+            <Select value={tagFilter || NO_TAG_FILTER} onValueChange={(v) => setTagFilter(v === NO_TAG_FILTER ? '' : v)}>
+              <SelectTrigger className="w-52"><SelectValue placeholder="Incluir etiqueta" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_TAG_FILTER}>Cualquier etiqueta</SelectItem>
+                {availableTags.map((t) => (
+                  <SelectItem key={t.tag} value={t.tag}>Con "{t.tag}" ({t.count})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={excludeTagFilter || NO_TAG_FILTER} onValueChange={(v) => setExcludeTagFilter(v === NO_TAG_FILTER ? '' : v)}>
+              <SelectTrigger className="w-52"><SelectValue placeholder="Excluir etiqueta" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_TAG_FILTER}>Sin excluir a nadie</SelectItem>
+                {availableTags.map((t) => (
+                  <SelectItem key={t.tag} value={t.tag}>Sin "{t.tag}" ({t.count})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={eventFilter} onValueChange={setEventFilter}>
               <SelectTrigger className="w-52"><SelectValue placeholder="Evento" /></SelectTrigger>
               <SelectContent>
@@ -1101,23 +1139,61 @@ function MailingSection() {
             </div>
           )}
 
-          <div className="flex items-center gap-3 rounded-xl border border-border/50 px-4 py-2.5">
-            <Checkbox checked={allFilteredSelected} onCheckedChange={toggleSelectAllFiltered} />
-            <span className="text-sm text-muted-foreground">
-              {selectedIds.size > 0 ? `${selectedIds.size} seleccionado${selectedIds.size !== 1 ? 's' : ''}` : `Seleccionar los ${customersList.length} filtrados`}
-            </span>
+          <div className="space-y-2 rounded-xl border border-border/50 px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <Checkbox checked={allFilteredSelected} onCheckedChange={toggleSelectAllFiltered} />
+              <span className="text-sm text-muted-foreground">
+                {selectedIds.size > 0 ? `${selectedIds.size} seleccionado${selectedIds.size !== 1 ? 's' : ''}` : `Seleccionar los ${customersList.length} filtrados`}
+              </span>
+            </div>
+            {selectedTagSummary.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1">
+                <span className="text-xs text-muted-foreground mr-1">Etiquetas entre los seleccionados:</span>
+                {selectedTagSummary.map(({ tag, count }) => (
+                  <span key={tag} className="text-xs px-2 py-0.5 rounded-full bg-secondary/20 text-secondary-foreground">
+                    {tag} ({count})
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
-          <div className="max-h-72 overflow-y-auto rounded-lg border border-border/50 divide-y">
-            {customersList.map((c: any) => (
-              <label key={c.id} className="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-muted/30">
-                <Checkbox checked={selectedIds.has(c.id)} onCheckedChange={() => toggleSelected(c.id)} />
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium truncate">{c.fullName || '(sin nombre)'}</p>
-                  <p className="text-xs text-muted-foreground truncate">{c.email}</p>
-                </div>
-              </label>
-            ))}
+          <div className="max-h-[28rem] overflow-y-auto rounded-lg border border-border/50 divide-y">
+            {customersList.map((c: any) => {
+              const tags: string[] = Array.isArray(c.tags) ? c.tags : [];
+              const accessTypes: string[] = Array.isArray(c.accessTypes) ? c.accessTypes : [];
+              return (
+                <label key={c.id} className="flex items-start gap-3 px-3 py-2.5 text-sm cursor-pointer hover:bg-muted/30">
+                  <Checkbox className="mt-1 shrink-0" checked={selectedIds.has(c.id)} onCheckedChange={() => toggleSelected(c.id)} />
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <p className="font-medium truncate">{c.fullName || '(sin nombre)'}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {c.email}
+                      {c.phone ? ` · ${c.phone}` : ''}
+                      {c.instagram ? ` · @${String(c.instagram).replace(/^@/, '')}` : ''}
+                    </p>
+                    {(accessTypes.length > 0 || tags.length > 0) && (
+                      <div className="flex flex-wrap gap-1">
+                        {accessTypes.map((slug) => (
+                          <span key={slug} className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                            {ACCESO_SLUG_OPTIONS.find((o) => o.value === slug)?.label ?? slug}
+                          </span>
+                        ))}
+                        {tags.map((tag) => (
+                          <span key={tag} className="text-xs px-2 py-0.5 rounded-full bg-secondary/20 text-secondary-foreground">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {c.totalOrders} compra{c.totalOrders !== 1 ? 's' : ''} · ${Number(c.totalSpent).toLocaleString('es-CL')} · 🪙 {c.playcoins ?? 0}
+                      {c.lastSeenAt ? ` · última: ${new Date(c.lastSeenAt).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}` : ''}
+                    </p>
+                  </div>
+                </label>
+              );
+            })}
             {customersList.length === 0 && <p className="text-sm text-muted-foreground px-3 py-4">Nadie matchea estos filtros.</p>}
           </div>
         </CardContent>

@@ -1599,6 +1599,41 @@ export async function listCustomers(filters: { search?: string; accessType?: str
   return rows;
 }
 
+/** Todas las etiquetas que existen hoy en la base, con cuántos clientes tiene
+ * cada una (pedido explícito del usuario: al armar una campaña hay que poder
+ * elegir la etiqueta de una lista en vez de escribirla de memoria). Se cuenta
+ * en memoria porque `tags` es un campo JSON, no una tabla relacional -- no hay
+ * GROUP BY posible sin cambiar el schema, y listCustomers() ya trae la tabla
+ * entera igual para armar audiencias. */
+export async function listCustomerTags(): Promise<{ tag: string; count: number }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ tags: customers.tags }).from(customers);
+  return tallyTags(rows.map((r) => r.tags));
+}
+
+/** Parte pura de listCustomerTags(): cuenta etiquetas sobre las listas crudas
+ * del campo JSON `tags`. Separada para poder testearla sin base de datos, y
+ * defensiva a propósito -- es un campo JSON sin validar a nivel de schema, así
+ * que puede traer null, no-arrays o strings vacíos de importaciones viejas. */
+export function tallyTags(tagLists: unknown[]): { tag: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const list of tagLists) {
+    if (!Array.isArray(list)) continue;
+    // Un mismo cliente cuenta una sola vez por etiqueta aunque venga repetida.
+    const seen = new Set<string>();
+    for (const raw of list) {
+      if (typeof raw !== 'string') continue;
+      const tag = raw.trim();
+      if (!tag || seen.has(tag)) continue;
+      seen.add(tag);
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts, ([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, 'es'));
+}
+
 /** Resuelve destinatarios de un lote de mailing masivo por id (server/mailing.ts). */
 export async function listCustomersByIds(ids: number[]) {
   const db = await getDb();

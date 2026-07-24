@@ -663,6 +663,12 @@ export const appRouter = router({
     }).optional()).query(async ({ input }) => {
       return db.listCustomers(input ?? {});
     }),
+    // Etiquetas existentes con su conteo -- alimenta los selectores de
+    // "incluir/excluir etiqueta" al armar una campaña de mailing, para no
+    // tener que escribir el nombre exacto de memoria.
+    listTags: adminProcedure.query(async () => {
+      return db.listCustomerTags();
+    }),
     addTag: adminProcedure.input(z.object({ customerId: z.number(), tag: z.string().min(1) })).mutation(async ({ input }) => {
       await db.addCustomerTag(input.customerId, input.tag);
       return { success: true } as const;
