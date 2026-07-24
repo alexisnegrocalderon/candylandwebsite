@@ -716,11 +716,16 @@ export const appRouter = router({
       content: MailingContentSchema,
       ctaUrl: z.string(),
       sampleName: z.string().optional(),
-      includeEventInfo: z.boolean(),
+      eventSections: z.object({
+        banner: z.boolean(),
+        details: z.boolean(),
+        mission300: z.boolean(),
+        venueGrid: z.boolean(),
+      }),
     })).mutation(async ({ input }) => {
-      const eventInfo = input.includeEventInfo ? await getMailingEventInfo() : null;
+      const eventInfo = Object.values(input.eventSections).some(Boolean) ? await getMailingEventInfo() : null;
       return {
-        html: buildMailingBlastEmail({ ...input.content, buyerName: input.sampleName || 'Camila', ctaUrl: input.ctaUrl, eventInfo }),
+        html: buildMailingBlastEmail({ ...input.content, buyerName: input.sampleName || 'Camila', ctaUrl: input.ctaUrl, eventInfo, eventSections: input.eventSections }),
       };
     }),
     sendBatch: adminProcedure.input(z.object({
@@ -728,11 +733,16 @@ export const appRouter = router({
       content: MailingContentSchema,
       ctaUrl: z.string(),
       campaignTag: z.string().optional(),
-      includeEventInfo: z.boolean(),
+      eventSections: z.object({
+        banner: z.boolean(),
+        details: z.boolean(),
+        mission300: z.boolean(),
+        venueGrid: z.boolean(),
+      }),
     })).mutation(async ({ input }) => {
-      const eventInfo = input.includeEventInfo ? await getMailingEventInfo() : null;
+      const eventInfo = Object.values(input.eventSections).some(Boolean) ? await getMailingEventInfo() : null;
       return {
-        results: await sendMailingBatch(input.customerIds, input.content, input.ctaUrl, input.campaignTag, eventInfo),
+        results: await sendMailingBatch(input.customerIds, input.content, input.ctaUrl, input.campaignTag, eventInfo, input.eventSections),
       };
     }),
   }),

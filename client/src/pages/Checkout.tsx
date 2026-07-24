@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { CANDYLAND, CAMPOS_COMPRADOR, formatCLP, coversDisponibles, whatsappComunidadLink, type Acceso, type CampoForm } from '@/config/candyland';
 import { isMissionWindowOpen, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
 import { isValidRut, isValidChileanPhone } from '@shared/rut';
+import { useSeo } from '@/hooks/useSeo';
 
 /**
  * Checkout conversacional: una sola pregunta por pantalla, estilo "asistente"
@@ -237,6 +238,12 @@ function SingleFieldInput({
 export default function Checkout() {
   const [, params] = useRoute('/checkout/:eventSlug');
   const eventSlug = params?.eventSlug ?? CANDYLAND.slug;
+  useSeo({
+    title: 'Completa tu compra — Mansion Playroom',
+    description: 'Checkout de entradas para eventos de Mansion Playroom.',
+    path: `/checkout/${eventSlug}`,
+    noindex: true,
+  });
   const search = useSearch();
   const itemsParam = new URLSearchParams(search).get('items') || '';
   const initialFromUrl = itemsParam.split(',')[0]?.split(':')[0] || '';

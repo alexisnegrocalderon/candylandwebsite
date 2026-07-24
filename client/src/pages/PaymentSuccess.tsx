@@ -1,12 +1,20 @@
 import { motion } from 'framer-motion';
 import { Link } from 'wouter';
 import { CheckCircle, Ticket, Mail, Sparkles } from 'lucide-react';
+import { useSeo } from '@/hooks/useSeo';
 
 /* Bienvenida post-pago: el momento en que la persona queda oficialmente
  * "adentro" de Candyland. La animación del dulce sumándose es deliberadamente
  * simple (emoji + spring) — queda pendiente reemplazarla por una pieza
  * ilustrada de Higgsfield si se quiere algo más elaborado. */
 export default function PaymentSuccess() {
+  useSeo({
+    title: 'Pago exitoso — Mansion Playroom',
+    description: 'Confirmación de compra de entradas para eventos de Mansion Playroom.',
+    path: '/pago/exito',
+    noindex: true,
+  });
+
   return (
     <div className="min-h-screen pt-24 pb-16 flex items-center justify-center overflow-hidden">
       <motion.div

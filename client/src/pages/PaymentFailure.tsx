@@ -1,8 +1,16 @@
 import { motion } from 'framer-motion';
 import { Link } from 'wouter';
 import { XCircle } from 'lucide-react';
+import { useSeo } from '@/hooks/useSeo';
 
 export default function PaymentFailure() {
+  useSeo({
+    title: 'Pago no procesado — Mansion Playroom',
+    description: 'Resultado de un intento de pago de entradas para eventos de Mansion Playroom.',
+    path: '/pago/error',
+    noindex: true,
+  });
+
   return (
     <div className="min-h-screen pt-24 pb-16 flex items-center justify-center">
       <motion.div

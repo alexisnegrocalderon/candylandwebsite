@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { ScrollText } from 'lucide-react';
+import { useSeo } from '@/hooks/useSeo';
 
 const LEGAL_CLAUSES = [
   {
@@ -68,6 +69,12 @@ const CHANGE_POLICY = [
 ];
 
 export default function RefundPolicy() {
+  useSeo({
+    title: 'Política de reembolso — Mansion Playroom',
+    description: 'Plazos, condiciones y proceso de devolución o transferencia de entradas para los eventos de Mansion Playroom.',
+    path: '/politica-de-reembolso',
+  });
+
   return (
     <div className="min-h-dvh pt-24 pb-16">
       <div className="container max-w-3xl">

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { invokeLLM } from "./_core/llm";
-import { sendEmail, buildMailingBlastEmail, type MailingEventInfo } from "./email";
+import { sendEmail, buildMailingBlastEmail, type MailingEventInfo, type MailingEventSections } from "./email";
 import * as db from "./db";
 import { getMission300Status } from "./webhooks";
 import { isMissionWindowOpen, MISSION_300_DEPOSIT_PER_PERSON } from "../shared/mission300";
@@ -140,7 +140,8 @@ export async function sendMailingBatch(
   content: MailingContent,
   ctaUrl: string,
   campaignTag?: string,
-  eventInfo?: MailingEventInfo | null
+  eventInfo?: MailingEventInfo | null,
+  eventSections?: MailingEventSections
 ): Promise<MailingSendResult[]> {
   const recipients = await db.listCustomersByIds(customerIds);
   const results: MailingSendResult[] = [];
@@ -157,6 +158,7 @@ export async function sendMailingBatch(
       highlightLabel: content.highlightLabel,
       highlightValue: content.highlightValue,
       eventInfo,
+      eventSections,
     });
     const sent = await sendEmail({ to: customer.email, subject: content.subject, html });
     results.push({ customerId: customer.id, email: customer.email, success: sent.success, reason: sent.reason });

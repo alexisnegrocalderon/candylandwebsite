@@ -2,9 +2,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AlertCircle, Home } from "lucide-react";
 import { useLocation } from "wouter";
+import { useSeo } from "@/hooks/useSeo";
 
 export default function NotFound() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
+  useSeo({
+    title: 'Página no encontrada — Mansion Playroom',
+    description: 'La página que buscas no existe o fue movida.',
+    path: location,
+    noindex: true,
+  });
 
   const handleGoHome = () => {
     setLocation("/");
