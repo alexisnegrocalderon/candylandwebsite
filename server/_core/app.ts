@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerAdminRoutes } from "../adminRoutes";
+import { registerCronRoutes } from "../cronRoutes";
 import { registerTicketAssetRoutes } from "../calendar";
 import { appRouter } from "../routers";
 import { webhooksRouter } from "../webhooks";
@@ -19,6 +20,7 @@ export function createApp(): Express {
   app.use(express.urlencoded({ limit: "10mb", extended: true }));
   registerOAuthRoutes(app);
   registerAdminRoutes(app);
+  registerCronRoutes(app);
   registerTicketAssetRoutes(app);
   // Webhooks antes de tRPC para evitar conflictos de middleware.
   app.use(webhooksRouter);

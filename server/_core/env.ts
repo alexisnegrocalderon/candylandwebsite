@@ -12,4 +12,9 @@ export const ENV = {
   // pisa BUILT_IN_FORGE_*, que siguen usando imageGeneration/voiceTranscription/
   // map/dataApi/notification/heartbeat/storage.
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+  // Autentica al cron diario de mailing (server/cronRoutes.ts) -- Vercel
+  // manda `Authorization: Bearer <CRON_SECRET>` automáticamente en cada
+  // invocación cuando esta variable está seteada en el proyecto. Sin ella
+  // configurada en producción, el endpoint queda abierto a cualquiera.
+  cronSecret: process.env.CRON_SECRET ?? "",
 };

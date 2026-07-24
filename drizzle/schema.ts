@@ -432,3 +432,53 @@ export const playcoinsLedger = mysqlTable("playcoinsLedger", {
 
 export type PlaycoinsLedgerEntry = typeof playcoinsLedger.$inferSelect;
 export type InsertPlaycoinsLedgerEntry = typeof playcoinsLedger.$inferInsert;
+
+// Cola de envío automática del mailing masivo (pedido explícito del usuario):
+// a diferencia del envío inmediato desde el navegador (que sigue igual, sin
+// pasar por acá), una campaña acá se guarda una vez con su contenido ya
+// definido y el cron diario (server/cron.ts) va drenando destinatarios
+// pendientes día a día hasta terminar -- así no hace falta que el dueño
+// vuelva a entrar cada día a retomar con el filtro de "excluir etiqueta".
+export const mailingCampaigns = mysqlTable("mailingCampaigns", {
+  id: int("id").autoincrement().primaryKey(),
+  // Mismo valor que se usa como etiqueta para taguear a cada destinatario
+  // exitoso (igual que en el envío manual) y que se muestra en el historial.
+  name: varchar("name", { length: 255 }).notNull(),
+  audienceDescription: text("audienceDescription"),
+  // MailingContent completo (subject/preheader/headline/paragraphs/ctaText/
+  // highlightLabel/highlightValue) tal como lo dejó el admin en la revisión
+  // -- fijo desde la creación, no se vuelve a generar con IA.
+  content: json("content").notNull(),
+  ctaUrl: varchar("ctaUrl", { length: 500 }).notNull(),
+  // MailingEventSections | null (null = sin tarjeta de evento). El evento
+  // destacado en sí NO se congela acá -- se resuelve de nuevo en cada tanda
+  // del cron (server/mailing.ts getMailingEventInfo), así el contador de
+  // Misión 300 sale siempre actualizado aunque la campaña tarde días en
+  // terminar de mandarse.
+  eventSections: json("eventSections"),
+  status: mysqlEnum("status", ["sending", "done"]).default("sending").notNull(),
+  totalRecipients: int("totalRecipients").notNull(),
+  sentCount: int("sentCount").default(0).notNull(),
+  failedCount: int("failedCount").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type MailingCampaign = typeof mailingCampaigns.$inferSelect;
+export type InsertMailingCampaign = typeof mailingCampaigns.$inferInsert;
+
+export const mailingRecipients = mysqlTable("mailingRecipients", {
+  id: int("id").autoincrement().primaryKey(),
+  campaignId: int("campaignId").notNull(),
+  customerId: int("customerId").notNull(),
+  status: mysqlEnum("status", ["pending", "sent", "failed"]).default("pending").notNull(),
+  reason: varchar("reason", { length: 500 }),
+  sentAt: timestamp("sentAt"),
+}, (table) => ({
+  // El cron necesita "próximos N pendientes de la campaña más vieja" -- este
+  // índice cubre ese patrón exacto.
+  campaignStatusIdx: index("mailing_recipients_campaign_status_idx").on(table.campaignId, table.status),
+}));
+
+export type MailingRecipient = typeof mailingRecipients.$inferSelect;
+export type InsertMailingRecipient = typeof mailingRecipients.$inferInsert;

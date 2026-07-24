@@ -10,7 +10,7 @@ import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
   AlertDialogFooter, AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
-import { Loader2, Sparkles, Plus, X, Send, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Loader2, Sparkles, Plus, X, Send, RotateCcw, AlertTriangle, Clock } from 'lucide-react';
 
 /** Cuánto trocea el cliente la selección antes de mandarla al server -- cada
  * request de mailing.sendBatch procesa este número de emails secuencialmente
@@ -68,6 +68,7 @@ export function MailingComposer({
   const generateTemplate = trpc.mailing.generateTemplate.useMutation();
   const renderPreview = trpc.mailing.renderPreview.useMutation();
   const sendBatch = trpc.mailing.sendBatch.useMutation();
+  const createAutoCampaign = trpc.mailing.createAutoCampaign.useMutation();
 
   const resetComposer = () => {
     setStep('objective');
@@ -140,6 +141,30 @@ export function MailingComposer({
       return Array.from(byId.values());
     });
     setStep('done');
+  };
+
+  // Cola automática (pedido explícito del usuario): en vez de mandar ya
+  // mismo desde el navegador, guarda la campaña y el cron diario la va
+  // drenando de a poco -- para audiencias grandes que no hace falta
+  // supervisar en vivo. No usa el paso 'sending'/'done' de acá: al terminar
+  // manda a la pestaña Historial, donde se sigue el progreso día a día.
+  const handleQueueAuto = async () => {
+    if (!content) return;
+    try {
+      await createAutoCampaign.mutateAsync({
+        name: campaignTag,
+        audienceDescription: audience.description,
+        customerIds: audience.ids,
+        content,
+        ctaUrl,
+        eventSections,
+      });
+      toast.success(`Campaña "${campaignTag}" guardada -- el cron diario la va a ir mandando. Seguí el progreso en Historial.`);
+      resetComposer();
+      onDone();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo guardar la campaña.');
+    }
   };
 
   const failed = results.filter((r) => !r.success);
@@ -256,7 +281,7 @@ export function MailingComposer({
           {audience.count > RESEND_FREE_DAILY_LIMIT && (
             <p className="text-xs text-amber-600 flex items-center gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              Resend free permite ~{RESEND_FREE_DAILY_LIMIT} emails/día y estás por mandar a {audience.count}. Si se corta a mitad de camino, lo ya enviado queda tageado con "{campaignTag || '(sin nombre)'}" -- mañana puedes retomar excluyendo esa etiqueta.
+              Resend free permite ~{RESEND_FREE_DAILY_LIMIT} emails/día y estás por mandar a {audience.count}. Con "Enviar" ahora, si se corta a mitad de camino, lo ya enviado queda tageado con "{campaignTag || '(sin nombre)'}" y mañana puedes retomar excluyendo esa etiqueta -- o usa "Guardar para envío automático" y no tenés que volver a entrar.
             </p>
           )}
 
@@ -267,15 +292,34 @@ export function MailingComposer({
             <Button type="button" variant="outline" onClick={() => setStep('objective')}>Volver a escribir objetivo</Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button type="button" disabled={!canSend} className="ml-auto interactive">
+                <Button type="button" variant="outline" disabled={!canSend || createAutoCampaign.isPending} className="ml-auto interactive">
+                  {createAutoCampaign.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Clock className="w-4 h-4 mr-2" />} Guardar para envío automático
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>¿Guardar esta campaña para envío automático?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Se va a guardar para {audience.count} cliente{audience.count !== 1 ? 's' : ''} ({audience.description}), tageados como "{campaignTag}" a medida que les vaya llegando. El cron diario la manda de a poco (respetando el límite de Resend) hasta terminar -- podés seguir el progreso en la pestaña Historial, sin tener que volver a entrar cada día.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleQueueAuto}>Sí, guardar</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button type="button" disabled={!canSend} className="interactive">
                   <Send className="w-4 h-4 mr-2" /> Enviar a {audience.count} cliente{audience.count !== 1 ? 's' : ''}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>¿Enviar esta campaña?</AlertDialogTitle>
+                  <AlertDialogTitle>¿Enviar esta campaña ahora?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Se va a mandar a {audience.count} cliente{audience.count !== 1 ? 's' : ''} ({audience.description}), y quedan tageados como "{campaignTag}". Esta acción no se puede deshacer.
+                    Se va a mandar ya mismo a {audience.count} cliente{audience.count !== 1 ? 's' : ''} ({audience.description}), y quedan tageados como "{campaignTag}". Esta acción no se puede deshacer.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

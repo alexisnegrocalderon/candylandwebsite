@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -1213,6 +1213,94 @@ function MailingSection() {
   );
 }
 
+/** Historial de campañas de envío automático (pedido explícito del usuario):
+ * las que se mandan con "Guardar para envío automático" en MailingComposer
+ * quedan acá con su progreso, drenadas de a poco por el cron diario -- los
+ * envíos inmediatos ("Enviar a N clientes") no pasan por acá, se quedan
+ * igual que siempre en el resultado de la propia pantalla de Mailing. */
+function MailingHistoryView() {
+  const { data: campaignsData, refetch } = trpc.mailing.listCampaigns.useQuery(undefined, {
+    refetchInterval: 30_000,
+  });
+  const campaigns = campaignsData ?? [];
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const { data: recipientsData } = trpc.mailing.getCampaignRecipients.useQuery(
+    { campaignId: expandedId ?? 0 },
+    { enabled: expandedId !== null }
+  );
+  const failedRecipients = (recipientsData ?? []).filter((r: any) => r.status === 'failed');
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-heading text-2xl">Historial de Mailing</h2>
+          <p className="text-sm text-muted-foreground">Campañas de envío automático -- el cron diario las va mandando de a poco hasta terminar.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => refetch()} className="interactive">Actualizar</Button>
+      </div>
+
+      {campaigns.length === 0 && (
+        <p className="text-sm text-muted-foreground">Todavía no hay ninguna campaña guardada para envío automático. Se arman desde la pestaña Mailing con "Guardar para envío automático".</p>
+      )}
+
+      <div className="space-y-3">
+        {campaigns.map((c: any) => {
+          const progress = c.totalRecipients > 0 ? Math.round(((c.sentCount + c.failedCount) / c.totalRecipients) * 100) : 0;
+          const isExpanded = expandedId === c.id;
+          return (
+            <Card key={c.id} className="rounded-2xl border-0 shadow-md shadow-black/5">
+              <CardContent className="pt-6 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{c.name}</p>
+                    <p className="text-xs text-muted-foreground">{c.audienceDescription} · creada el {new Date(c.createdAt).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${c.status === 'done' ? 'bg-primary/10 text-primary' : 'bg-amber-500/10 text-amber-600'}`}>
+                    {c.status === 'done' ? 'Terminada' : 'Enviando…'}
+                  </span>
+                </div>
+
+                <div className="w-full h-2 bg-secondary/20 rounded-full overflow-hidden">
+                  <div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} />
+                </div>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <span className="text-primary font-medium">{c.sentCount} enviados</span>
+                  {c.failedCount > 0 && <span className="text-destructive font-medium">{c.failedCount} fallidos</span>}
+                  <span>{c.totalRecipients} en total</span>
+                  {c.status === 'sending' && <span>· sigue mañana con lo que falte</span>}
+                </div>
+
+                {c.failedCount > 0 && (
+                  <Button
+                    type="button" variant="ghost" size="sm" className="text-xs h-7 px-2 -ml-2"
+                    onClick={() => setExpandedId(isExpanded ? null : c.id)}
+                  >
+                    {isExpanded ? <ChevronUp className="w-3.5 h-3.5 mr-1" /> : <ChevronDown className="w-3.5 h-3.5 mr-1" />}
+                    Ver fallidos
+                  </Button>
+                )}
+                {isExpanded && (
+                  <div className="max-h-40 overflow-y-auto rounded-lg border border-border/50 divide-y">
+                    {failedRecipients.map((r: any) => (
+                      <div key={r.id} className="px-3 py-2 text-xs flex justify-between gap-2">
+                        <span>{r.email}</span>
+                        <span className="text-destructive text-right">{r.reason || 'Error desconocido'}</span>
+                      </div>
+                    ))}
+                    {failedRecipients.length === 0 && <p className="text-xs text-muted-foreground px-3 py-2">Cargando…</p>}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ReferralsView() {
   const { data: referralStats } = trpc.referrals.getStats.useQuery();
   const stats = referralStats ?? [];
@@ -1727,6 +1815,7 @@ const ADMIN_SECTIONS = [
   { id: 'community', label: 'Códigos Comunidad', icon: Users, render: () => <CommunityCodesManager /> },
   { id: 'customers', label: 'Clientes', icon: Contact, render: () => <CustomersView /> },
   { id: 'mailing', label: 'Mailing', icon: Mail, render: () => <MailingSection /> },
+  { id: 'mailing-history', label: 'Historial de Mailing', icon: History, render: () => <MailingHistoryView /> },
   { id: 'referrals', label: 'Referidos', icon: Trophy, render: () => <ReferralsView /> },
   { id: 'caja', label: 'Caja', icon: Store, render: () => <CajaAdminView /> },
   { id: 'settings', label: 'Ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },

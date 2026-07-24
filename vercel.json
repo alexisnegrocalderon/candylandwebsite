@@ -4,11 +4,14 @@
   "outputDirectory": "dist/public",
   "functions": {
     "api/index.js": {
-      "maxDuration": 30
+      "maxDuration": 60
     }
   },
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api" },
     { "source": "/((?!assets/|candyland/|api/|robots\\.txt|sitemap\\.xml|favicon\\.ico|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/).*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/cron/mailing-queue", "schedule": "0 13 * * *" }
   ]
 }

@@ -13,7 +13,7 @@ import { redeemDisplayCode } from "./caja/redeem";
 import { createCajaSale } from "./caja/sale";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
-import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
+import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
 import { parseCsv, extractEmailColumn } from "./csv";
 
 const SHIFT_CLOSE_REPORT_EMAIL = 'contacto@mansionplayroom.cl';
@@ -21,6 +21,16 @@ const SHIFT_CLOSE_REPORT_EMAIL = 'contacto@mansionplayroom.cl';
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
   return next({ ctx });
+});
+
+// Qué bloques de la tarjeta de evento incluir en un mail de mailing masivo --
+// mismo shape usado por mailing.renderPreview, mailing.sendBatch y
+// mailing.createAutoCampaign (server/email.ts MailingEventSections).
+const mailingEventSectionsSchema = z.object({
+  banner: z.boolean(),
+  details: z.boolean(),
+  mission300: z.boolean(),
+  venueGrid: z.boolean(),
 });
 
 export const appRouter = router({
@@ -722,12 +732,7 @@ export const appRouter = router({
       content: MailingContentSchema,
       ctaUrl: z.string(),
       sampleName: z.string().optional(),
-      eventSections: z.object({
-        banner: z.boolean(),
-        details: z.boolean(),
-        mission300: z.boolean(),
-        venueGrid: z.boolean(),
-      }),
+      eventSections: mailingEventSectionsSchema,
     })).mutation(async ({ input }) => {
       const eventInfo = Object.values(input.eventSections).some(Boolean) ? await getMailingEventInfo() : null;
       return {
@@ -739,17 +744,35 @@ export const appRouter = router({
       content: MailingContentSchema,
       ctaUrl: z.string(),
       campaignTag: z.string().optional(),
-      eventSections: z.object({
-        banner: z.boolean(),
-        details: z.boolean(),
-        mission300: z.boolean(),
-        venueGrid: z.boolean(),
-      }),
+      eventSections: mailingEventSectionsSchema,
     })).mutation(async ({ input }) => {
       const eventInfo = Object.values(input.eventSections).some(Boolean) ? await getMailingEventInfo() : null;
       return {
         results: await sendMailingBatch(input.customerIds, input.content, input.ctaUrl, input.campaignTag, eventInfo, input.eventSections),
       };
+    }),
+    // Cola de envío automática (pedido explícito del usuario): a diferencia
+    // de sendBatch (manda ya mismo desde el navegador), esto solo guarda la
+    // campaña -- el cron diario (server/cronRoutes.ts) la va drenando.
+    createAutoCampaign: adminProcedure.input(z.object({
+      name: z.string().min(1),
+      audienceDescription: z.string(),
+      customerIds: z.array(z.number()).min(1),
+      content: MailingContentSchema,
+      ctaUrl: z.string(),
+      eventSections: mailingEventSectionsSchema,
+    })).mutation(async ({ input }) => {
+      try {
+        return await createAutoMailingCampaign(input);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear la campaña.' });
+      }
+    }),
+    listCampaigns: adminProcedure.query(async () => {
+      return db.listMailingCampaigns();
+    }),
+    getCampaignRecipients: adminProcedure.input(z.object({ campaignId: z.number() })).query(async ({ input }) => {
+      return db.getMailingCampaignRecipients(input.campaignId);
     }),
   }),
 

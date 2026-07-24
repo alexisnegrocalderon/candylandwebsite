@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
@@ -1639,6 +1639,122 @@ export async function listCustomersByIds(ids: number[]) {
   const db = await getDb();
   if (!db || ids.length === 0) return [];
   return db.select().from(customers).where(inArray(customers.id, ids));
+}
+
+/** Crea una campaña de envío automático (pedido explícito del usuario: cola
+ * que el cron va drenando día a día, ver server/mailing.ts) junto con una
+ * fila `pending` por destinatario. El contenido ya viene armado -- este
+ * insert no arma nada, solo persiste lo que el admin dejó en la revisión. */
+export async function createMailingCampaign(input: {
+  name: string;
+  audienceDescription: string;
+  content: unknown;
+  ctaUrl: string;
+  eventSections: unknown;
+  customerIds: number[];
+}): Promise<{ campaignId: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (input.customerIds.length === 0) throw new Error("La campaña necesita al menos un destinatario");
+
+  const [result] = await db.insert(mailingCampaigns).values({
+    name: input.name,
+    audienceDescription: input.audienceDescription,
+    content: input.content,
+    ctaUrl: input.ctaUrl,
+    eventSections: input.eventSections,
+    totalRecipients: input.customerIds.length,
+  });
+  const campaignId = result.insertId;
+
+  await db.insert(mailingRecipients).values(
+    input.customerIds.map((customerId) => ({ campaignId, customerId }))
+  );
+
+  return { campaignId };
+}
+
+/** Historial de campañas automáticas para el admin (server/routers.ts
+ * mailing.listCampaigns), más recientes primero. */
+export async function listMailingCampaigns() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mailingCampaigns).orderBy(desc(mailingCampaigns.createdAt));
+}
+
+/** Detalle de una campaña -- se usa para mostrar quiénes fallaron (pedido
+ * explícito del usuario en el historial). Trae el email desde `customers`
+ * porque `mailingRecipients` no lo duplica. */
+export async function getMailingCampaignRecipients(campaignId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: mailingRecipients.id,
+    status: mailingRecipients.status,
+    reason: mailingRecipients.reason,
+    sentAt: mailingRecipients.sentAt,
+    email: customers.email,
+    fullName: customers.fullName,
+  }).from(mailingRecipients)
+    .innerJoin(customers, eq(customers.id, mailingRecipients.customerId))
+    .where(eq(mailingRecipients.campaignId, campaignId))
+    .orderBy(mailingRecipients.id);
+}
+
+/** Próximos destinatarios pendientes de campañas 'sending', de la más vieja a
+ * la más nueva (cola justa: una campaña no se "salta" a otra que llegó
+ * después) -- usado por el cron diario (server/mailing.ts). `limit` acota
+ * cuántas filas trae de una, el cron corta antes por presupuesto de tiempo. */
+export async function getPendingMailingRecipients(limit: number) {
+  const db = await getDb();
+  if (!db) return [];
+  // Trae ya unidos los datos de la campaña (nombre/contenido/ctaUrl/secciones)
+  // -- evita una consulta aparte por campaña dentro del loop del cron.
+  return db.select({
+    id: mailingRecipients.id,
+    campaignId: mailingRecipients.campaignId,
+    customerId: mailingRecipients.customerId,
+    email: customers.email,
+    fullName: customers.fullName,
+    campaignName: mailingCampaigns.name,
+    content: mailingCampaigns.content,
+    ctaUrl: mailingCampaigns.ctaUrl,
+    eventSections: mailingCampaigns.eventSections,
+  }).from(mailingRecipients)
+    .innerJoin(mailingCampaigns, eq(mailingCampaigns.id, mailingRecipients.campaignId))
+    .innerJoin(customers, eq(customers.id, mailingRecipients.customerId))
+    .where(and(eq(mailingRecipients.status, 'pending'), eq(mailingCampaigns.status, 'sending')))
+    .orderBy(mailingCampaigns.createdAt, mailingRecipients.id)
+    .limit(limit);
+}
+
+/** Marca el resultado de un destinatario y actualiza los contadores de la
+ * campaña -- si ya no quedan pendientes, la campaña pasa a 'done'. Se hace
+ * en dos pasos (no una transacción) porque mysql2/drizzle en este proyecto no
+ * usa transacciones explícitas en ningún otro lado tampoco; el peor caso ante
+ * un corte a mitad es un contador desalineado en 1, no un dato perdido -- el
+ * estado real sigue viviendo en `mailingRecipients.status` por fila. */
+export async function markMailingRecipientResult(recipientId: number, campaignId: number, success: boolean, reason?: string) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(mailingRecipients).set({
+    status: success ? 'sent' : 'failed',
+    reason: success ? null : (reason ?? 'Error desconocido').slice(0, 500),
+    sentAt: success ? new Date() : null,
+  }).where(eq(mailingRecipients.id, recipientId));
+
+  await db.update(mailingCampaigns).set({
+    sentCount: sql`sentCount + ${success ? 1 : 0}`,
+    failedCount: sql`failedCount + ${success ? 0 : 1}`,
+  }).where(eq(mailingCampaigns.id, campaignId));
+
+  const [remaining] = await db.select({ count: sql<number>`COUNT(*)` })
+    .from(mailingRecipients)
+    .where(and(eq(mailingRecipients.campaignId, campaignId), eq(mailingRecipients.status, 'pending')));
+  if (Number(remaining.count) === 0) {
+    await db.update(mailingCampaigns).set({ status: 'done' }).where(eq(mailingCampaigns.id, campaignId));
+  }
 }
 
 /** Taguea en masa clientes existentes por email (pedido explícito del
