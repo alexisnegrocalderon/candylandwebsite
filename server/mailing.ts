@@ -180,3 +180,111 @@ export async function sendMailingBatch(
 
   return results;
 }
+
+/** Crea una campaña de envío automático (pedido explícito del usuario): a
+ * diferencia de sendMailingBatch() de arriba (que manda ya mismo, disparado
+ * desde el navegador), esto solo persiste el contenido ya definido y la lista
+ * de destinatarios -- el cron diario (processMailingCronBatch, más abajo) es
+ * quien realmente los manda, de a poco, día a día. */
+export async function createAutoMailingCampaign(input: {
+  name: string;
+  audienceDescription: string;
+  customerIds: number[];
+  content: MailingContent;
+  ctaUrl: string;
+  eventSections?: MailingEventSections;
+}): Promise<{ campaignId: number }> {
+  const name = input.name.trim();
+  if (!name) throw new Error("Falta el nombre de la campaña.");
+  return db.createMailingCampaign({
+    name,
+    audienceDescription: input.audienceDescription,
+    content: input.content,
+    ctaUrl: input.ctaUrl,
+    eventSections: input.eventSections ?? null,
+    customerIds: input.customerIds,
+  });
+}
+
+/** Cuánto puede durar como máximo una corrida del cron antes de cortar y
+ * dejar el resto para la corrida de mañana -- deja margen bajo el
+ * maxDuration:60 de la función serverless (ver vercel.json). Cortar a mitad
+ * de camino no pierde nada: cada destinatario se marca sent/failed apenas se
+ * manda (markMailingRecipientResult), así que lo que no se alcanzó a tocar
+ * sigue 'pending' para la próxima corrida. */
+const CRON_TIME_BUDGET_MS = 50_000;
+
+/** Tope duro de emails por corrida, además del presupuesto de tiempo -- el
+ * cron comparte la cuota diaria de Resend (~100/día en el plan free) con los
+ * correos transaccionales del sitio (confirmaciones de compra, Misión 300,
+ * etc.), que no deben quedarse sin cupo por una campaña grande. Configurable
+ * por env var por si el dueño sube de plan y quiere drenar más rápido. */
+const CRON_MAX_PER_RUN = Number(process.env.MAILING_CRON_DAILY_CAP) || 50;
+
+export type MailingCronResult = {
+  processed: number;
+  sent: number;
+  failed: number;
+  campaignsTouched: number;
+};
+
+/** Corrida diaria del cron (server/cronRoutes.ts): manda la próxima tanda de
+ * pendientes de las campañas automáticas 'sending', de la más vieja a la más
+ * nueva -- una campaña grande no le "roba" el turno a una chica creada
+ * después, pero tampoco hace falta terminar una entera antes de empezar la
+ * siguiente si el presupuesto de tiempo/cupo se agota primero.
+ *
+ * El "próximo evento destacado" se resuelve UNA sola vez por corrida (no por
+ * destinatario ni por campaña) -- alcanza para que el contador de Misión 300
+ * salga al día en cada tanda diaria, sin pegarle una consulta a la base por
+ * cada email. */
+export async function processMailingCronBatch(): Promise<MailingCronResult> {
+  const start = Date.now();
+  const pending = await db.getPendingMailingRecipients(CRON_MAX_PER_RUN);
+
+  let sent = 0;
+  let failed = 0;
+  const campaignsTouched = new Set<number>();
+  let eventInfo: MailingEventInfo | null | undefined;
+
+  for (const recipient of pending) {
+    if (Date.now() - start > CRON_TIME_BUDGET_MS) break;
+
+    const content = recipient.content as MailingContent;
+    const eventSections = (recipient.eventSections ?? undefined) as MailingEventSections | undefined;
+    if (eventSections && eventInfo === undefined) {
+      eventInfo = await getMailingEventInfo();
+    }
+
+    const html = buildMailingBlastEmail({
+      buyerName: recipient.fullName ?? "",
+      preheader: content.preheader,
+      headline: content.headline,
+      paragraphs: content.paragraphs,
+      ctaText: content.ctaText,
+      ctaUrl: recipient.ctaUrl,
+      highlightLabel: content.highlightLabel,
+      highlightValue: content.highlightValue,
+      eventInfo: eventSections ? eventInfo : null,
+      eventSections,
+    });
+    const result = await sendEmail({ to: recipient.email, subject: content.subject, html });
+    await db.markMailingRecipientResult(recipient.id, recipient.campaignId, result.success, result.reason);
+    campaignsTouched.add(recipient.campaignId);
+
+    if (result.success) {
+      sent++;
+      try {
+        await db.addCustomerTag(recipient.customerId, recipient.campaignName);
+      } catch (err) {
+        console.error('[Mailing] No se pudo taguear al cliente tras el envío automático:', err);
+      }
+    } else {
+      failed++;
+    }
+
+    await sleep(THROTTLE_MS);
+  }
+
+  return { processed: sent + failed, sent, failed, campaignsTouched: campaignsTouched.size };
+}
