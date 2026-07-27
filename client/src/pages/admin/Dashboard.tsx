@@ -590,6 +590,11 @@ function ManualAccessSection() {
   const extraTypes = ticketTypesList.filter((t: any) => t.category === 'extra');
 
   const [quantities, setQuantities] = useState<Record<number, number>>({});
+  // Precio propio por tipo de entrada cuando kind==='paid' (pedido explícito
+  // del usuario: cobra montos distintos según el caso y el precio de
+  // catálogo no siempre es el que realmente recibió) -- si no se edita, se
+  // usa el precio de catálogo/abono Misión 300 por defecto.
+  const [prices, setPrices] = useState<Record<number, number>>({});
   const [buyerName, setBuyerName] = useState('');
   const [buyerEmail, setBuyerEmail] = useState('');
   const [buyerPhone, setBuyerPhone] = useState('');
@@ -605,20 +610,30 @@ function ManualAccessSection() {
 
   const missionOpen = selectedEvent ? isMissionWindowOpen(new Date(selectedEvent.eventDate)) : false;
 
+  // Precio de catálogo por defecto (abono Misión 300 si corresponde, si no
+  // el precio de lista) -- lo que se usa mientras el admin no lo edite.
+  const defaultUnitPrice = (tt: any) => {
+    const useDeposit = missionOpen && tt.category === 'acceso';
+    return useDeposit ? missionDepositPrice(tt.accesoSlug) : Number(tt.price);
+  };
+
   const items = Object.entries(quantities)
     .filter(([, qty]) => qty > 0)
-    .map(([id, qty]) => ({ ticketTypeId: Number(id), quantity: qty }));
+    .map(([id, qty]) => {
+      const ticketTypeId = Number(id);
+      const tt = ticketTypesList.find((t: any) => t.id === ticketTypeId);
+      return {
+        ticketTypeId,
+        quantity: qty,
+        unitPrice: kind === 'paid' ? (prices[ticketTypeId] ?? (tt ? defaultUnitPrice(tt) : 0)) : undefined,
+      };
+    });
 
-  const total = kind === 'invitation' ? 0 : items.reduce((sum, item) => {
-    const tt = ticketTypesList.find((t: any) => t.id === item.ticketTypeId);
-    if (!tt) return sum;
-    const useDeposit = missionOpen && tt.category === 'acceso';
-    const unitPrice = useDeposit ? missionDepositPrice(tt.accesoSlug) : Number(tt.price);
-    return sum + unitPrice * item.quantity;
-  }, 0);
+  const total = kind === 'invitation' ? 0 : items.reduce((sum, item) => sum + (item.unitPrice ?? 0) * item.quantity, 0);
 
   const resetForm = () => {
     setQuantities({});
+    setPrices({});
     setBuyerName(''); setBuyerEmail(''); setBuyerPhone(''); setBuyerRut(''); setBuyerInstagram('');
     setCompanionNamesText('');
     setKind('invitation');
@@ -689,7 +704,6 @@ function ManualAccessSection() {
                   {list.map((tt: any) => {
                     const available = tt.totalStock - tt.soldCount;
                     const useDeposit = missionOpen && tt.category === 'acceso';
-                    const unitPrice = useDeposit ? missionDepositPrice(tt.accesoSlug) : Number(tt.price);
                     return (
                       <div key={tt.id} className="flex items-center gap-3 rounded-lg border border-border/50 px-3 py-2">
                         <div className="flex-1 min-w-0">
@@ -698,16 +712,30 @@ function ManualAccessSection() {
                             {tt.status !== 'active' && <span className="ml-2 text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">{tt.status === 'soldout' ? 'Agotado' : 'Oculto'}</span>}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {kind === 'invitation' ? 'Gratis (invitación)' : `$${unitPrice.toLocaleString('es-CL')}${useDeposit ? ' (abono Misión 300)' : ''}`} · {available} disponibles
+                            {kind === 'invitation' ? 'Gratis (invitación)' : `Catálogo: $${defaultUnitPrice(tt).toLocaleString('es-CL')}${useDeposit ? ' (abono Misión 300)' : ''}`} · {available} disponibles
                           </p>
                         </div>
-                        <Input
-                          type="number" min={0} max={Math.max(0, available)}
-                          value={quantities[tt.id] ?? ''}
-                          onChange={(e) => setQuantities((prev) => ({ ...prev, [tt.id]: Math.max(0, Number(e.target.value) || 0) }))}
-                          className="w-20 text-center"
-                          placeholder="0"
-                        />
+                        {kind === 'paid' && (
+                          <div className="space-y-1">
+                            <Label className="text-[10px] text-muted-foreground">Precio a cobrar</Label>
+                            <Input
+                              type="number" min={0}
+                              value={prices[tt.id] ?? defaultUnitPrice(tt)}
+                              onChange={(e) => setPrices((prev) => ({ ...prev, [tt.id]: Math.max(0, Number(e.target.value) || 0) }))}
+                              className="w-28 text-center"
+                            />
+                          </div>
+                        )}
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-muted-foreground">Cantidad</Label>
+                          <Input
+                            type="number" min={0} max={Math.max(0, available)}
+                            value={quantities[tt.id] ?? ''}
+                            onChange={(e) => setQuantities((prev) => ({ ...prev, [tt.id]: Math.max(0, Number(e.target.value) || 0) }))}
+                            className="w-20 text-center"
+                            placeholder="0"
+                          />
+                        </div>
                       </div>
                     );
                   })}
