@@ -6,13 +6,19 @@ import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
+  AlertDialogFooter, AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
+} from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { MailingComposer } from '@/components/admin/MailingComposer';
+import { isMissionWindowOpen, missionDepositPrice } from '@shared/mission300';
 import {
   SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
   SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarTrigger,
@@ -561,6 +567,252 @@ function StatCard({ icon: Icon, colorClass, value, label }: { icon: typeof Dolla
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** Accesos manuales desde /admin (pedido explícito del usuario): invitaciones
+ * gratis o accesos ya pagados por transferencia/efectivo directo, sin pasar
+ * por Mercado Pago -- mismos datos que pide el checkout público y el mismo
+ * mail final con QR (server/routers.ts orders.createManual reusa
+ * confirmFreeOrder, igual que el checkout con descuento 100%). */
+function ManualAccessSection() {
+  const { data: eventsData } = trpc.events.listAll.useQuery();
+  const events = eventsData ?? [];
+  const [eventSlug, setEventSlug] = useState('');
+  const selectedEvent = events.find((e: any) => e.slug === eventSlug);
+
+  const { data: ticketTypesData } = trpc.events.listTicketTypes.useQuery(
+    { eventId: selectedEvent?.id ?? 0 },
+    { enabled: !!selectedEvent }
+  );
+  const ticketTypesList = ticketTypesData ?? [];
+  const accesoTypes = ticketTypesList.filter((t: any) => t.category === 'acceso');
+  const extraTypes = ticketTypesList.filter((t: any) => t.category === 'extra');
+
+  const [quantities, setQuantities] = useState<Record<number, number>>({});
+  const [buyerName, setBuyerName] = useState('');
+  const [buyerEmail, setBuyerEmail] = useState('');
+  const [buyerPhone, setBuyerPhone] = useState('');
+  const [buyerRut, setBuyerRut] = useState('');
+  const [buyerInstagram, setBuyerInstagram] = useState('');
+  const [companionNamesText, setCompanionNamesText] = useState('');
+  const [kind, setKind] = useState<'invitation' | 'paid'>('invitation');
+  const [paymentMethod, setPaymentMethod] = useState('Transferencia');
+
+  const createManual = trpc.orders.createManual.useMutation();
+  const { data: historyData, refetch: refetchHistory } = trpc.orders.listManual.useQuery();
+  const history = historyData ?? [];
+
+  const missionOpen = selectedEvent ? isMissionWindowOpen(new Date(selectedEvent.eventDate)) : false;
+
+  const items = Object.entries(quantities)
+    .filter(([, qty]) => qty > 0)
+    .map(([id, qty]) => ({ ticketTypeId: Number(id), quantity: qty }));
+
+  const total = kind === 'invitation' ? 0 : items.reduce((sum, item) => {
+    const tt = ticketTypesList.find((t: any) => t.id === item.ticketTypeId);
+    if (!tt) return sum;
+    const useDeposit = missionOpen && tt.category === 'acceso';
+    const unitPrice = useDeposit ? missionDepositPrice(tt.accesoSlug) : Number(tt.price);
+    return sum + unitPrice * item.quantity;
+  }, 0);
+
+  const resetForm = () => {
+    setQuantities({});
+    setBuyerName(''); setBuyerEmail(''); setBuyerPhone(''); setBuyerRut(''); setBuyerInstagram('');
+    setCompanionNamesText('');
+    setKind('invitation');
+    setPaymentMethod('Transferencia');
+  };
+
+  const canSubmit = !!selectedEvent && items.length > 0 && buyerName.trim().length > 0 && /\S+@\S+\.\S+/.test(buyerEmail) && (kind === 'invitation' || paymentMethod.trim().length > 0);
+
+  const handleSubmit = async () => {
+    // Mismas claves que arma el checkout público en attendeeData.campos --
+    // "rut"/"instagram" es lo que lee upsertCustomerFromOrder para completar
+    // la ficha del cliente, y cualquier clave que contenga "nombre" es lo que
+    // parseAttendeeNames muestra como acompañantes en el mail.
+    const campos: Record<string, string> = { nombre: buyerName };
+    if (buyerRut.trim()) campos.rut = buyerRut.trim();
+    if (buyerInstagram.trim()) campos.instagram = buyerInstagram.trim();
+    companionNamesText.split('\n').map((s) => s.trim()).filter(Boolean).forEach((name, i) => {
+      campos[`acomp${i + 1}_nombre`] = name;
+    });
+
+    try {
+      const result = await createManual.mutateAsync({
+        eventSlug,
+        buyerName: buyerName.trim(),
+        buyerEmail: buyerEmail.trim(),
+        buyerPhone: buyerPhone.trim() || undefined,
+        items,
+        kind,
+        paymentMethod: kind === 'paid' ? paymentMethod.trim() : undefined,
+        attendeeData: JSON.stringify({ campos }),
+      });
+      toast.success(`Acceso creado y mail enviado -- orden ${result.orderNumber}.`);
+      resetForm();
+      refetchHistory();
+    } catch (err) {
+      onMutationError(err);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-heading text-2xl">Accesos Manuales</h2>
+        <p className="text-sm text-muted-foreground">Invitaciones gratis o accesos ya pagados por transferencia/efectivo, sin pasar por Mercado Pago -- se manda el mismo mail con el ticket y QR.</p>
+      </div>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6 space-y-4">
+          <div className="space-y-2 max-w-md">
+            <Label>Evento</Label>
+            <Select value={eventSlug} onValueChange={(v) => { setEventSlug(v); setQuantities({}); }}>
+              <SelectTrigger><SelectValue placeholder="Elige un evento" /></SelectTrigger>
+              <SelectContent>
+                {events.map((e: any) => <SelectItem key={e.id} value={e.slug}>{e.title}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {selectedEvent && (
+            <div className="space-y-3">
+              <Label>Tipos de entrada</Label>
+              {accesoTypes.length === 0 && extraTypes.length === 0 && (
+                <p className="text-sm text-muted-foreground">Este evento todavía no tiene tipos de entrada cargados.</p>
+              )}
+              {[{ label: 'Accesos', list: accesoTypes }, { label: 'Extras', list: extraTypes }].map(({ label, list }) => list.length > 0 && (
+                <div key={label} className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</p>
+                  {list.map((tt: any) => {
+                    const available = tt.totalStock - tt.soldCount;
+                    const useDeposit = missionOpen && tt.category === 'acceso';
+                    const unitPrice = useDeposit ? missionDepositPrice(tt.accesoSlug) : Number(tt.price);
+                    return (
+                      <div key={tt.id} className="flex items-center gap-3 rounded-lg border border-border/50 px-3 py-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {tt.name}
+                            {tt.status !== 'active' && <span className="ml-2 text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">{tt.status === 'soldout' ? 'Agotado' : 'Oculto'}</span>}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {kind === 'invitation' ? 'Gratis (invitación)' : `$${unitPrice.toLocaleString('es-CL')}${useDeposit ? ' (abono Misión 300)' : ''}`} · {available} disponibles
+                          </p>
+                        </div>
+                        <Input
+                          type="number" min={0} max={Math.max(0, available)}
+                          value={quantities[tt.id] ?? ''}
+                          onChange={(e) => setQuantities((prev) => ({ ...prev, [tt.id]: Math.max(0, Number(e.target.value) || 0) }))}
+                          className="w-20 text-center"
+                          placeholder="0"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Nombre completo</Label>
+              <Input value={buyerName} onChange={(e) => setBuyerName(e.target.value)} placeholder="Nombre de quien recibe el acceso" />
+            </div>
+            <div className="space-y-2">
+              <Label>Email</Label>
+              <Input type="email" value={buyerEmail} onChange={(e) => setBuyerEmail(e.target.value)} placeholder="A donde llega el ticket" />
+            </div>
+            <div className="space-y-2">
+              <Label>WhatsApp (opcional)</Label>
+              <Input value={buyerPhone} onChange={(e) => setBuyerPhone(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>RUT (opcional)</Label>
+              <Input value={buyerRut} onChange={(e) => setBuyerRut(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Instagram (opcional)</Label>
+              <Input value={buyerInstagram} onChange={(e) => setBuyerInstagram(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Nombres de acompañantes (opcional, uno por línea)</Label>
+            <Textarea value={companionNamesText} onChange={(e) => setCompanionNamesText(e.target.value)} className="min-h-16" placeholder={'Juan Pérez\nMaría González'} />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Tipo de acceso</Label>
+              <Select value={kind} onValueChange={(v) => setKind(v as 'invitation' | 'paid')}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="invitation">Invitación gratis</SelectItem>
+                  <SelectItem value="paid">Ya pagado (transferencia/efectivo)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {kind === 'paid' && (
+              <div className="space-y-2">
+                <Label>Método de pago</Label>
+                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Transferencia">Transferencia</SelectItem>
+                    <SelectItem value="Efectivo">Efectivo</SelectItem>
+                    <SelectItem value="Otro">Otro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between rounded-xl border border-border/50 px-4 py-3">
+            <span className="text-sm text-muted-foreground">Total a registrar</span>
+            <span className="font-heading text-xl">{kind === 'invitation' ? 'Gratis' : `$${total.toLocaleString('es-CL')}`}</span>
+          </div>
+
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button type="button" disabled={!canSubmit || createManual.isPending} className="w-full interactive">
+                <Gift className="w-4 h-4 mr-2" /> {createManual.isPending ? 'Creando…' : 'Crear acceso y mandar mail'}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>¿Crear este acceso?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Se va a mandar un mail real a {buyerEmail} con el ticket y el QR de {selectedEvent?.title}. Esta acción no se puede deshacer.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={handleSubmit}>Sí, crear y mandar</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </CardContent>
+      </Card>
+
+      <div>
+        <h3 className="font-heading text-lg mb-3">Historial</h3>
+        <div className="rounded-lg border border-border/50 divide-y">
+          {history.map((o: any) => (
+            <div key={o.id} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm">
+              <div className="min-w-0">
+                <p className="font-medium truncate">{o.buyerName} · {o.eventTitle}</p>
+                <p className="text-xs text-muted-foreground truncate">{o.buyerEmail} · {o.paymentMethod?.replace('Manual: ', '')} · {new Date(o.createdAt).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
+              </div>
+              <span className="text-sm font-medium whitespace-nowrap">{Number(o.total) === 0 ? 'Gratis' : `$${Number(o.total).toLocaleString('es-CL')}`}</span>
+            </div>
+          ))}
+          {history.length === 0 && <p className="text-sm text-muted-foreground px-3 py-4">Todavía no se creó ningún acceso manual.</p>}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1811,6 +2063,7 @@ const ADMIN_SECTIONS = [
   { id: 'events', label: 'Eventos', icon: Calendar, render: () => <EventsManager /> },
   { id: 'orders-web', label: 'Ventas Web', icon: Ticket, render: () => <OrdersView channel="web" /> },
   { id: 'orders-caja', label: 'Ventas Caja', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
+  { id: 'manual-access', label: 'Accesos Manuales', icon: Gift, render: () => <ManualAccessSection /> },
   { id: 'discounts', label: 'Descuentos', icon: Percent, render: () => <DiscountsManager /> },
   { id: 'community', label: 'Códigos Comunidad', icon: Users, render: () => <CommunityCodesManager /> },
   { id: 'customers', label: 'Clientes', icon: Contact, render: () => <CustomersView /> },

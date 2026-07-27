@@ -543,6 +543,140 @@ export async function createOrder(input: {
   return { orderId, orderNumber, total, isFree };
 }
 
+/** Acceso manual desde /admin (pedido explícito del usuario): invitaciones
+ * gratis o accesos ya pagados por transferencia/efectivo directo, sin pasar
+ * por Mercado Pago. Hermana de createOrder() de arriba, pero sin código de
+ * descuento/embajador/comunidad (no aplican acá) y sin recargo por servicio
+ * (no corresponde cobrarle un % a algo que el admin resuelve a mano). La
+ * orden queda 'approved' de una -- server/routers.ts llama a
+ * confirmFreeOrder() después de esto para generar los tickets/QR y mandar el
+ * mismo mail de confirmación que recibe cualquier comprador real. */
+/** Parte pura de createManualOrder(): valida stock y calcula el precio de
+ * cada item -- separada para poder testearla sin base de datos. Una
+ * invitación sale a $0 siempre, sin importar el tipo de entrada; un acceso
+ * "ya pagado" usa el mismo criterio que el checkout real (precio de abono
+ * Misión 300 si la ventana está abierta y es category='acceso', si no el
+ * precio de lista). Tira si falta stock o el tipo no existe en el evento. */
+export function priceManualOrderItems(
+  items: { ticketTypeId: number; quantity: number }[],
+  ticketTypesForEvent: { id: number; name: string; category: string; accesoSlug: string | null; price: string | number; totalStock: number; soldCount: number }[],
+  kind: 'invitation' | 'paid',
+  missionOpen: boolean,
+): { unitPrices: Map<number, number>; subtotal: number; missionDeposit: boolean } {
+  let subtotal = 0;
+  let missionDeposit = false;
+  const unitPrices = new Map<number, number>();
+
+  for (const item of items) {
+    const tt = ticketTypesForEvent.find(t => t.id === item.ticketTypeId);
+    if (!tt) throw new Error(`Ticket type ${item.ticketTypeId} not found`);
+    const available = tt.totalStock - tt.soldCount;
+    if (item.quantity > available) throw new Error(`Not enough stock for ${tt.name}`);
+    const useDeposit = missionOpen && tt.category === 'acceso';
+    const unitPrice = kind === 'invitation' ? 0 : (useDeposit ? missionDepositPrice(tt.accesoSlug) : Number(tt.price));
+    if (kind === 'paid' && useDeposit) missionDeposit = true;
+    unitPrices.set(item.ticketTypeId, unitPrice);
+    subtotal += unitPrice * item.quantity;
+  }
+
+  return { unitPrices, subtotal, missionDeposit };
+}
+
+/** Prefijo fijo que después usa listManualOrders() para filtrar el
+ * historial, sin necesitar una columna/enum nuevo -- ningún otro flujo
+ * escribe paymentMethod con este prefijo (Mercado Pago manda ids como
+ * "visa"/"account_money", caja manda "efectivo"/"debito"/"credito"). */
+export function buildManualPaymentMethod(kind: 'invitation' | 'paid', paymentMethod?: string): string {
+  return kind === 'invitation' ? 'Manual: Invitación' : `Manual: ${paymentMethod?.trim() || 'Transferencia'}`;
+}
+
+export async function createManualOrder(input: {
+  eventSlug: string;
+  buyerName: string;
+  buyerEmail: string;
+  buyerPhone?: string;
+  items: { ticketTypeId: number; quantity: number }[];
+  kind: 'invitation' | 'paid';
+  paymentMethod?: string;
+  attendeeData?: string;
+}): Promise<{ orderId: number; orderNumber: string; total: number }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (input.items.length === 0) throw new Error("Elige al menos un tipo de entrada");
+
+  const event = await getEventBySlug(input.eventSlug);
+  if (!event) throw new Error("Event not found");
+
+  const missionOpen = isMissionWindowOpen(new Date(event.eventDate));
+  const tts = await getTicketTypesByEventId(event.id);
+  const { unitPrices, subtotal, missionDeposit } = priceManualOrderItems(input.items, tts, input.kind, missionOpen);
+
+  const total = subtotal;
+  const orderNumber = `MP-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`;
+  const paymentMethod = buildManualPaymentMethod(input.kind, input.paymentMethod);
+
+  const [orderResult] = await db.insert(orders).values({
+    orderNumber,
+    buyerName: input.buyerName,
+    buyerEmail: input.buyerEmail,
+    buyerPhone: input.buyerPhone,
+    eventId: event.id,
+    subtotal: String(subtotal),
+    discount: '0',
+    serviceFee: '0',
+    total: String(total),
+    paymentStatus: 'approved',
+    paymentId: `MANUAL-${orderNumber}`,
+    paymentMethod,
+    missionDeposit: missionDeposit ? 1 : 0,
+    ...(missionDeposit ? { missionTopupStatus: 'paid' as const, missionTopupAmount: '0' } : {}),
+    attendeeData: input.attendeeData,
+  });
+
+  const orderId = orderResult.insertId;
+
+  for (const item of input.items) {
+    const unitPrice = unitPrices.get(item.ticketTypeId)!;
+    const tt = tts.find(t => t.id === item.ticketTypeId);
+    await db.insert(orderItems).values({
+      orderId,
+      ticketTypeId: item.ticketTypeId,
+      quantity: item.quantity,
+      unitPrice: String(unitPrice),
+      totalPrice: String(unitPrice * item.quantity),
+      unitCost: tt?.costPrice != null ? String(tt.costPrice) : null,
+    });
+    // La orden ya nace 'approved' (no pasa por el webhook de Mercado Pago
+    // que normalmente hace esto) -- hay que sumar el stock acá mismo, es lo
+    // que hace reaccionar al contador de Misión 300 de la home.
+    await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
+  }
+
+  return { orderId, orderNumber, total };
+}
+
+/** Historial de accesos manuales para el admin (server/routers.ts
+ * orders.listManual) -- se distinguen de las ventas reales por el prefijo
+ * fijo "Manual: " en paymentMethod (ver createManualOrder), más recientes
+ * primero. */
+export async function listManualOrders() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: orders.id,
+    orderNumber: orders.orderNumber,
+    createdAt: orders.createdAt,
+    eventTitle: events.title,
+    buyerName: orders.buyerName,
+    buyerEmail: orders.buyerEmail,
+    total: orders.total,
+    paymentMethod: orders.paymentMethod,
+  }).from(orders)
+    .leftJoin(events, eq(orders.eventId, events.id))
+    .where(like(orders.paymentMethod, 'Manual: %'))
+    .orderBy(desc(orders.createdAt));
+}
+
 /** `channel`: 'web' = ventas del sitio (incluye 'import', la migración de la
  * ticketera anterior -- nunca fueron ventas de caja); 'caja' = solo ventas
  * presenciales. Nunca se mezclan en pantalla (pedido explícito del usuario). */
