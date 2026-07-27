@@ -225,6 +225,35 @@ export const appRouter = router({
     resendConfirmation: adminProcedure.input(z.object({ orderNumber: z.string() })).mutation(async ({ input }) => {
       return resendConfirmationEmail(input.orderNumber);
     }),
+    // Accesos manuales desde /admin (pedido explícito del usuario):
+    // invitaciones gratis o accesos ya pagados por transferencia/efectivo
+    // directo, sin pasar por Mercado Pago -- misma info del comprador que el
+    // checkout público, y el mismo mail final con QR (confirmFreeOrder ya lo
+    // usa el checkout público para el caso de descuento 100%).
+    createManual: adminProcedure.input(z.object({
+      eventSlug: z.string(),
+      buyerName: z.string().min(1),
+      buyerEmail: z.string().email(),
+      buyerPhone: z.string().optional(),
+      items: z.array(z.object({
+        ticketTypeId: z.number(),
+        quantity: z.number().min(1),
+      })).min(1),
+      kind: z.enum(['invitation', 'paid']),
+      paymentMethod: z.string().optional(),
+      attendeeData: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      try {
+        const result = await db.createManualOrder(input);
+        await confirmFreeOrder(result.orderNumber);
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear el acceso manual.' });
+      }
+    }),
+    listManual: adminProcedure.query(async () => {
+      return db.listManualOrders();
+    }),
   }),
 
   mission300: router({
