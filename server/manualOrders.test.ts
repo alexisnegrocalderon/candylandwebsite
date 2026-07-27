@@ -71,6 +71,41 @@ describe("priceManualOrderItems", () => {
       false,
     )).toThrow(/Ticket type 999 not found/);
   });
+
+  it("un pago usa el monto que el admin escribió en vez del precio de catálogo", () => {
+    const { unitPrices, subtotal, missionDeposit } = priceManualOrderItems(
+      [{ ticketTypeId: 1, quantity: 2, unitPrice: 12000 }],
+      [accesoType],
+      "paid",
+      false,
+    );
+    expect(unitPrices.get(1)).toBe(12000);
+    expect(subtotal).toBe(24000);
+    // El item sigue siendo category='acceso' con la ventana cerrada acá, así
+    // que missionDeposit no depende de qué precio se haya escrito a mano.
+    expect(missionDeposit).toBe(false);
+  });
+
+  it("una invitación sale a $0 aunque el admin haya escrito un unitPrice", () => {
+    const { unitPrices, subtotal } = priceManualOrderItems(
+      [{ ticketTypeId: 1, quantity: 1, unitPrice: 99999 }],
+      [accesoType],
+      "invitation",
+      false,
+    );
+    expect(unitPrices.get(1)).toBe(0);
+    expect(subtotal).toBe(0);
+  });
+
+  it("un monto negativo escrito a mano se recorta a $0", () => {
+    const { unitPrices } = priceManualOrderItems(
+      [{ ticketTypeId: 1, quantity: 1, unitPrice: -500 }],
+      [accesoType],
+      "paid",
+      false,
+    );
+    expect(unitPrices.get(1)).toBe(0);
+  });
 });
 
 describe("buildManualPaymentMethod", () => {

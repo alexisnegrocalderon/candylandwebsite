@@ -543,22 +543,18 @@ export async function createOrder(input: {
   return { orderId, orderNumber, total, isFree };
 }
 
-/** Acceso manual desde /admin (pedido explícito del usuario): invitaciones
- * gratis o accesos ya pagados por transferencia/efectivo directo, sin pasar
- * por Mercado Pago. Hermana de createOrder() de arriba, pero sin código de
- * descuento/embajador/comunidad (no aplican acá) y sin recargo por servicio
- * (no corresponde cobrarle un % a algo que el admin resuelve a mano). La
- * orden queda 'approved' de una -- server/routers.ts llama a
- * confirmFreeOrder() después de esto para generar los tickets/QR y mandar el
- * mismo mail de confirmación que recibe cualquier comprador real. */
 /** Parte pura de createManualOrder(): valida stock y calcula el precio de
  * cada item -- separada para poder testearla sin base de datos. Una
- * invitación sale a $0 siempre, sin importar el tipo de entrada; un acceso
- * "ya pagado" usa el mismo criterio que el checkout real (precio de abono
- * Misión 300 si la ventana está abierta y es category='acceso', si no el
- * precio de lista). Tira si falta stock o el tipo no existe en el evento. */
+ * invitación sale a $0 siempre, sin importar el tipo de entrada. Un acceso
+ * "ya pagado" usa por defecto el mismo criterio que el checkout real (precio
+ * de abono Misión 300 si la ventana está abierta y es category='acceso', si
+ * no el precio de lista), pero el admin puede escribir un monto propio por
+ * item (`item.unitPrice`) -- pedido explícito del usuario: cobra montos
+ * distintos según el caso (invitados con descuento, acuerdos puntuales,
+ * etc.) y el precio de catálogo no siempre es el que realmente cobró. Tira
+ * si falta stock o el tipo no existe en el evento. */
 export function priceManualOrderItems(
-  items: { ticketTypeId: number; quantity: number }[],
+  items: { ticketTypeId: number; quantity: number; unitPrice?: number }[],
   ticketTypesForEvent: { id: number; name: string; category: string; accesoSlug: string | null; price: string | number; totalStock: number; soldCount: number }[],
   kind: 'invitation' | 'paid',
   missionOpen: boolean,
@@ -573,7 +569,8 @@ export function priceManualOrderItems(
     const available = tt.totalStock - tt.soldCount;
     if (item.quantity > available) throw new Error(`Not enough stock for ${tt.name}`);
     const useDeposit = missionOpen && tt.category === 'acceso';
-    const unitPrice = kind === 'invitation' ? 0 : (useDeposit ? missionDepositPrice(tt.accesoSlug) : Number(tt.price));
+    const defaultPrice = useDeposit ? missionDepositPrice(tt.accesoSlug) : Number(tt.price);
+    const unitPrice = kind === 'invitation' ? 0 : (item.unitPrice != null ? Math.max(0, item.unitPrice) : defaultPrice);
     if (kind === 'paid' && useDeposit) missionDeposit = true;
     unitPrices.set(item.ticketTypeId, unitPrice);
     subtotal += unitPrice * item.quantity;
@@ -595,7 +592,7 @@ export async function createManualOrder(input: {
   buyerName: string;
   buyerEmail: string;
   buyerPhone?: string;
-  items: { ticketTypeId: number; quantity: number }[];
+  items: { ticketTypeId: number; quantity: number; unitPrice?: number }[];
   kind: 'invitation' | 'paid';
   paymentMethod?: string;
   attendeeData?: string;

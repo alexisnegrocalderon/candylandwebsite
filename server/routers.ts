@@ -238,6 +238,10 @@ export const appRouter = router({
       items: z.array(z.object({
         ticketTypeId: z.number(),
         quantity: z.number().min(1),
+        // Monto que el admin escribió a mano para este tipo de entrada
+        // (pedido explícito del usuario) -- si no viene, se usa el precio de
+        // catálogo/abono Misión 300 por defecto (ver priceManualOrderItems).
+        unitPrice: z.number().min(0).optional(),
       })).min(1),
       kind: z.enum(['invitation', 'paid']),
       paymentMethod: z.string().optional(),
