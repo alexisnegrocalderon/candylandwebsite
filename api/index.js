@@ -10,7 +10,7 @@ var __export = (target, all) => {
 
 // drizzle/schema.ts
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex } from "drizzle-orm/mysql-core";
-var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, exclusiveAmbassadors, ambassadorCommissions, operators, registers, devices, customers, ops, rateLimits, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyGifts, adminTotp;
+var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, operators, registers, devices, customers, ops, rateLimits, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyGifts, adminTotp;
 var init_schema = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -231,13 +231,22 @@ var init_schema = __esm({
     });
     exclusiveAmbassadors = mysqlTable("exclusiveAmbassadors", {
       id: int("id").autoincrement().primaryKey(),
-      eventId: int("eventId").notNull(),
+      // Nullable desde el programa VIP: el código ahora es PERMANENTE y global
+      // (SOFIA, CAMILA), no uno por evento -- el nivel y los beneficios se
+      // cuentan por mes, cruzando todos los eventos. Se conserva la columna para
+      // no perder de vista a qué evento se dio de alta cada fila vieja.
+      eventId: int("eventId"),
       name: varchar("name", { length: 255 }).notNull(),
       code: varchar("code", { length: 32 }).notNull().unique(),
-      // Mismo formato que siteSettings.serviceFeePercent (el único otro % del
-      // schema) -- editable por embajador, cada uno puede tener un % distinto.
-      commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }).notNull(),
+      // Nullable desde el programa VIP: en null significa "usar la escala global"
+      // (ambassadorProgramConfig.commissionScale, 30-50% según ventas del mes).
+      // Con un valor, es un override fijo para ese embajador en particular.
+      commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }),
       contact: varchar("contact", { length: 255 }),
+      // Destinatario del correo semanal -- `contact` es texto libre (teléfono o
+      // Instagram) y no sirve para mandar nada.
+      email: varchar("email", { length: 320 }),
+      instagram: varchar("instagram", { length: 100 }),
       active: int("active").default(1).notNull(),
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
@@ -245,12 +254,59 @@ var init_schema = __esm({
     ambassadorCommissions = mysqlTable("ambassadorCommissions", {
       id: int("id").autoincrement().primaryKey(),
       ambassadorId: int("ambassadorId").notNull(),
-      orderId: int("orderId").notNull(),
+      // Único: la idempotencia del pago colgaba solo de `orders.emailSent`, así
+      // que un reproceso de la misma orden pagaba dos veces la comisión.
+      orderId: int("orderId").notNull().unique(),
       eventId: int("eventId").notNull(),
       baseAmount: decimal("baseAmount", { precision: 10, scale: 0 }).notNull(),
       commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }).notNull(),
       commissionAmount: decimal("commissionAmount", { precision: 10, scale: 0 }).notNull(),
+      // Quién compró, para el historial del embajador y la vista de clientes
+      // referidos. Se guarda el email porque es la llave real de `customers`.
+      customerEmail: varchar("customerEmail", { length: 320 }),
+      // 'exclusivo' = cliente propio (suma al nivel); 'existente' = cliente de la
+      // casa o de otro embajador (10% fijo, no suma al nivel).
+      clientType: mysqlEnum("clientType", ["exclusivo", "existente"]).default("exclusivo").notNull(),
+      // El código realmente tecleado en el checkout -- puede no ser el del
+      // embajador que cobra, cuando el cliente ya tenía dueño.
+      codeUsed: varchar("codeUsed", { length: 32 }),
+      // Mes calendario en hora de Chile ("2026-08"): es el corte del nivel y de
+      // los beneficios. Se congela acá para que agrupar por mes no dependa de la
+      // zona horaria del servidor (ver monthKeyFor en shared/ambassadorProgram.ts).
+      monthKey: varchar("monthKey", { length: 7 }),
+      // Qué número de venta exclusiva del mes fue esta, para poder auditar de
+      // dónde salió el % aplicado.
+      salesRank: int("salesRank"),
       createdAt: timestamp("createdAt").defaultNow().notNull()
+    });
+    ambassadorClients = mysqlTable("ambassadorClients", {
+      id: int("id").autoincrement().primaryKey(),
+      ambassadorId: int("ambassadorId").notNull(),
+      customerEmail: varchar("customerEmail", { length: 320 }).notNull().unique(),
+      firstOrderId: int("firstOrderId"),
+      firstPurchaseAt: timestamp("firstPurchaseAt").defaultNow().notNull(),
+      ordersCount: int("ordersCount").default(1).notNull(),
+      totalSpent: decimal("totalSpent", { precision: 10, scale: 0 }).default("0").notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
+    ambassadorProgramConfig = mysqlTable("ambassadorProgramConfig", {
+      id: int("id").autoincrement().primaryKey(),
+      // La frontera entre "cliente de la casa" y "cliente nuevo": quien ya
+      // estaba antes de esta fecha nunca pasa a ser propiedad de un embajador.
+      launchDate: timestamp("launchDate").defaultNow().notNull(),
+      commissionScale: json("commissionScale"),
+      // CommissionTier[]
+      existingClientPercent: decimal("existingClientPercent", { precision: 5, scale: 2 }).default("10").notNull(),
+      benefits: json("benefits"),
+      // BenefitTier[]
+      weeklyEmailEnabled: int("weeklyEmailEnabled").default(1).notNull(),
+      // 0=domingo .. 1=lunes, igual que Date.getUTCDay().
+      weeklyEmailWeekday: int("weeklyEmailWeekday").default(1).notNull(),
+      // Solo informativo: Vercel Hobby dispara el cron una vez al día a la hora
+      // fija de vercel.json, así que esto no puede mover el disparo real.
+      weeklyEmailHourChile: int("weeklyEmailHourChile").default(9).notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     });
     operators = mysqlTable("operators", {
       id: int("id").autoincrement().primaryKey(),
@@ -593,7 +649,7 @@ import { parse as parseCookieHeader2 } from "cookie";
 
 // server/db.ts
 init_schema();
-import { eq as eq2, desc, and, sql, or, gte, lte, like, inArray, isNull } from "drizzle-orm";
+import { eq as eq2, desc, and, sql, or, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 
 // server/_core/env.ts
@@ -1325,6 +1381,8 @@ async function deleteOrderCascade(orderId) {
   await db.delete(orderItems).where(eq2(orderItems.orderId, orderId));
   await db.delete(tickets).where(eq2(tickets.orderId, orderId));
   await db.delete(referrals).where(eq2(referrals.orderId, orderId));
+  await db.delete(ambassadorCommissions).where(eq2(ambassadorCommissions.orderId, orderId));
+  await db.delete(ambassadorClients).where(eq2(ambassadorClients.firstOrderId, orderId));
   await db.delete(orders).where(eq2(orders.id, orderId));
   return { success: true };
 }
@@ -1421,12 +1479,17 @@ function computeAmbassadorCommission(baseAmount, commissionPercent) {
 async function createExclusiveAmbassador(data) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const code = data.code.trim().toUpperCase();
+  const [existing] = await db.select({ id: exclusiveAmbassadors.id }).from(exclusiveAmbassadors).where(eq2(exclusiveAmbassadors.code, code)).limit(1);
+  if (existing) throw new Error(`El c\xF3digo ${code} ya est\xE1 en uso por otro embajador`);
   await db.insert(exclusiveAmbassadors).values({
-    eventId: data.eventId,
+    eventId: data.eventId ?? null,
     name: data.name,
-    code: data.code.trim().toUpperCase(),
-    commissionPercent: String(data.commissionPercent),
-    contact: data.contact
+    code,
+    commissionPercent: data.commissionPercent === null || data.commissionPercent === void 0 ? null : String(data.commissionPercent),
+    contact: data.contact,
+    email: data.email ? data.email.trim().toLowerCase() : null,
+    instagram: data.instagram
   });
   return { success: true };
 }
@@ -1440,39 +1503,41 @@ async function updateExclusiveAmbassador(id, data) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const updateData = { ...data };
-  if (data.code !== void 0) updateData.code = data.code.trim().toUpperCase();
-  if (data.commissionPercent !== void 0) updateData.commissionPercent = String(data.commissionPercent);
+  if (data.code !== void 0) {
+    const code = data.code.trim().toUpperCase();
+    const [clash] = await db.select({ id: exclusiveAmbassadors.id }).from(exclusiveAmbassadors).where(and(eq2(exclusiveAmbassadors.code, code), ne(exclusiveAmbassadors.id, id))).limit(1);
+    if (clash) throw new Error(`El c\xF3digo ${code} ya est\xE1 en uso por otro embajador`);
+    updateData.code = code;
+  }
+  if (data.commissionPercent !== void 0) {
+    updateData.commissionPercent = data.commissionPercent === null ? null : String(data.commissionPercent);
+  }
+  if (data.email !== void 0) updateData.email = data.email ? data.email.trim().toLowerCase() : null;
   await db.update(exclusiveAmbassadors).set(updateData).where(eq2(exclusiveAmbassadors.id, id));
   return { success: true };
 }
 async function deleteExclusiveAmbassador(id) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  await db.delete(ambassadorClients).where(eq2(ambassadorClients.ambassadorId, id));
   await db.delete(exclusiveAmbassadors).where(eq2(exclusiveAmbassadors.id, id));
   return { success: true };
 }
-async function getActiveExclusiveAmbassadorByCode(code, eventId) {
+async function getActiveExclusiveAmbassadorByCode(code) {
   const db = await getDb();
   if (!db) return null;
   const [row] = await db.select().from(exclusiveAmbassadors).where(and(
     eq2(exclusiveAmbassadors.code, code.trim().toUpperCase()),
-    eq2(exclusiveAmbassadors.eventId, eventId),
     eq2(exclusiveAmbassadors.active, 1)
   )).limit(1);
   return row ?? null;
 }
-async function recordAmbassadorCommission(params) {
+async function getCustomerForAttribution(buyerEmail) {
   const db = await getDb();
-  if (!db) return;
-  const commissionAmount = computeAmbassadorCommission(params.baseAmount, params.commissionPercent);
-  await db.insert(ambassadorCommissions).values({
-    ambassadorId: params.ambassadorId,
-    orderId: params.orderId,
-    eventId: params.eventId,
-    baseAmount: String(params.baseAmount),
-    commissionPercent: String(params.commissionPercent),
-    commissionAmount: String(commissionAmount)
-  });
+  if (!db || !buyerEmail) return null;
+  const email = buyerEmail.trim().toLowerCase();
+  const [row] = await db.select({ firstSeenAt: customers.firstSeenAt, totalOrders: customers.totalOrders }).from(customers).where(eq2(customers.email, email)).limit(1);
+  return row ?? null;
 }
 async function getAmbassadorCommissionReport(eventId) {
   const db = await getDb();
@@ -4525,9 +4590,409 @@ async function getPaymentInfo(paymentId) {
   return result;
 }
 
+// server/ambassadorProgram.ts
+import { and as and2, eq as eq3, inArray as inArray2, sql as sql2 } from "drizzle-orm";
+init_schema();
+
+// shared/ambassadorProgram.ts
+var DEFAULT_COMMISSION_SCALE = [
+  { minSales: 1, maxSales: 5, percent: 30 },
+  { minSales: 6, maxSales: 10, percent: 35 },
+  { minSales: 11, maxSales: 20, percent: 40 },
+  { minSales: 21, maxSales: 30, percent: 45 },
+  { minSales: 31, maxSales: null, percent: 50 }
+];
+var DEFAULT_EXISTING_CLIENT_PERCENT = 10;
+var DEFAULT_BENEFITS = [
+  { minSales: 1, items: ["Entrada liberada", "1 acompa\xF1ante"], bonusClp: 0 },
+  { minSales: 5, items: ["1 botella de espumante"], bonusClp: 0 },
+  { minSales: 10, items: ["Botella de espumante o de pisco (a elecci\xF3n)", "2 accesos liberados para regalar"], bonusClp: 0 },
+  { minSales: 20, items: [], bonusClp: 5e4 }
+];
+var DEFAULT_WEEKLY_EMAIL_WEEKDAY = 1;
+function sortedScale(scale) {
+  return [...scale].sort((a, b) => a.minSales - b.minSales);
+}
+function percentForSaleNumber(saleNumber, scale = DEFAULT_COMMISSION_SCALE) {
+  if (!Number.isFinite(saleNumber) || saleNumber < 1) return 0;
+  const tiers = sortedScale(scale);
+  for (const t2 of tiers) {
+    if (saleNumber >= t2.minSales && (t2.maxSales === null || saleNumber <= t2.maxSales)) return t2.percent;
+  }
+  return tiers.length ? tiers[tiers.length - 1].percent : 0;
+}
+function tierForSales(count, scale = DEFAULT_COMMISSION_SCALE) {
+  if (count < 1) return void 0;
+  const tiers = sortedScale(scale);
+  return tiers.find((t2) => count >= t2.minSales && (t2.maxSales === null || count <= t2.maxSales)) ?? tiers[tiers.length - 1];
+}
+function nextTierTarget(count, scale = DEFAULT_COMMISSION_SCALE) {
+  const next = sortedScale(scale).find((t2) => count < t2.minSales);
+  if (!next) return null;
+  return { target: next.minSales, salesNeeded: next.minSales - count, nextPercent: next.percent };
+}
+function unlockedBenefits(monthlySales, benefits = DEFAULT_BENEFITS) {
+  const tiers = [...benefits].sort((a, b) => a.minSales - b.minSales).filter((b) => monthlySales >= b.minSales);
+  return {
+    items: tiers.flatMap((t2) => t2.items),
+    bonusClp: tiers.reduce((sum, t2) => sum + t2.bonusClp, 0),
+    tiers
+  };
+}
+function nextBenefit(monthlySales, benefits = DEFAULT_BENEFITS) {
+  return [...benefits].sort((a, b) => a.minSales - b.minSales).find((b) => monthlySales < b.minSales) ?? null;
+}
+function toTime2(value) {
+  if (value === null || value === void 0) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.getTime();
+}
+function resolveAttribution(params) {
+  const { ownerAmbassadorId, earnerAmbassadorId } = params;
+  if (ownerAmbassadorId !== null) {
+    const esSuyo = ownerAmbassadorId === earnerAmbassadorId;
+    return { clientType: esSuyo ? "exclusivo" : "existente", assignsOwnership: false, countsForTier: esSuyo };
+  }
+  const firstSeen = toTime2(params.priorCustomerFirstSeenAt);
+  const launch = toTime2(params.launchDate);
+  const esNuevo = firstSeen === null || launch !== null && firstSeen >= launch;
+  return esNuevo ? { clientType: "exclusivo", assignsOwnership: true, countsForTier: true } : { clientType: "existente", assignsOwnership: false, countsForTier: false };
+}
+function commissionPercentForSale(params) {
+  if (params.overridePercent !== null && params.overridePercent !== void 0) return params.overridePercent;
+  if (params.clientType === "existente") return params.existingClientPercent ?? DEFAULT_EXISTING_CLIENT_PERCENT;
+  return percentForSaleNumber(params.saleNumberThisMonth, params.scale ?? DEFAULT_COMMISSION_SCALE);
+}
+function monthKeyFor(date, offsetHours = CHILE_OFFSET_HOURS) {
+  const t2 = toTime2(date);
+  if (t2 === null) return "";
+  return new Date(t2 + offsetHours * 60 * 60 * 1e3).toISOString().slice(0, 7);
+}
+
+// server/ambassadorProgram.ts
+function parseJsonArray(raw, fallback) {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+async function getProgramConfig() {
+  const defaults = {
+    launchDate: /* @__PURE__ */ new Date(),
+    commissionScale: DEFAULT_COMMISSION_SCALE,
+    existingClientPercent: DEFAULT_EXISTING_CLIENT_PERCENT,
+    benefits: DEFAULT_BENEFITS,
+    weeklyEmailEnabled: true,
+    weeklyEmailWeekday: DEFAULT_WEEKLY_EMAIL_WEEKDAY,
+    weeklyEmailHourChile: 9
+  };
+  const db = await getDb();
+  if (!db) return defaults;
+  const [row] = await db.select().from(ambassadorProgramConfig).limit(1);
+  if (!row) {
+    await db.insert(ambassadorProgramConfig).values({
+      commissionScale: DEFAULT_COMMISSION_SCALE,
+      benefits: DEFAULT_BENEFITS,
+      existingClientPercent: String(DEFAULT_EXISTING_CLIENT_PERCENT)
+    });
+    return defaults;
+  }
+  return {
+    launchDate: new Date(row.launchDate),
+    commissionScale: parseJsonArray(row.commissionScale, DEFAULT_COMMISSION_SCALE),
+    existingClientPercent: Number(row.existingClientPercent),
+    benefits: parseJsonArray(row.benefits, DEFAULT_BENEFITS),
+    weeklyEmailEnabled: row.weeklyEmailEnabled === 1,
+    weeklyEmailWeekday: row.weeklyEmailWeekday,
+    weeklyEmailHourChile: row.weeklyEmailHourChile
+  };
+}
+async function updateProgramConfig(data) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await getProgramConfig();
+  const [row] = await db.select({ id: ambassadorProgramConfig.id }).from(ambassadorProgramConfig).limit(1);
+  const patch = {};
+  if (data.launchDate !== void 0) patch.launchDate = data.launchDate;
+  if (data.commissionScale !== void 0) patch.commissionScale = data.commissionScale;
+  if (data.existingClientPercent !== void 0) patch.existingClientPercent = String(data.existingClientPercent);
+  if (data.benefits !== void 0) patch.benefits = data.benefits;
+  if (data.weeklyEmailEnabled !== void 0) patch.weeklyEmailEnabled = data.weeklyEmailEnabled ? 1 : 0;
+  if (data.weeklyEmailWeekday !== void 0) patch.weeklyEmailWeekday = data.weeklyEmailWeekday;
+  if (data.weeklyEmailHourChile !== void 0) patch.weeklyEmailHourChile = data.weeklyEmailHourChile;
+  if (Object.keys(patch).length > 0 && row) {
+    await db.update(ambassadorProgramConfig).set(patch).where(eq3(ambassadorProgramConfig.id, row.id));
+  }
+  return { success: true };
+}
+async function countExclusiveSalesInMonth(db, ambassadorId, monthKey) {
+  const [row] = await db.select({ count: sql2`COUNT(*)` }).from(ambassadorCommissions).where(and2(
+    eq3(ambassadorCommissions.ambassadorId, ambassadorId),
+    eq3(ambassadorCommissions.monthKey, monthKey),
+    eq3(ambassadorCommissions.clientType, "exclusivo")
+  ));
+  return Number(row?.count ?? 0);
+}
+async function attributeAmbassadorSale(params) {
+  const db = await getDb();
+  if (!db) return { attributed: false, reason: "sin_base" };
+  const { order } = params;
+  const email = (order.buyerEmail ?? "").trim().toLowerCase();
+  const [already] = await db.select({ id: ambassadorCommissions.id }).from(ambassadorCommissions).where(eq3(ambassadorCommissions.orderId, order.id)).limit(1);
+  if (already) return { attributed: false, reason: "ya_registrada" };
+  const code = (order.referredByCode || order.ambassadorCode || "").trim().toUpperCase();
+  const fromCode = code ? await getActiveExclusiveAmbassadorByCode(code) : null;
+  const [owner] = email ? await db.select().from(ambassadorClients).where(eq3(ambassadorClients.customerEmail, email)).limit(1) : [];
+  const earner = fromCode ?? (owner ? await getAmbassadorById(db, owner.ambassadorId) : null);
+  if (!earner) {
+    return { attributed: false, reason: code ? "codigo_desconocido" : "sin_codigo_ni_due\xF1o" };
+  }
+  const config = await getProgramConfig();
+  const attribution = resolveAttribution({
+    priorCustomerFirstSeenAt: params.priorCustomer?.firstSeenAt ?? null,
+    launchDate: config.launchDate,
+    ownerAmbassadorId: owner ? owner.ambassadorId : null,
+    earnerAmbassadorId: earner.id
+  });
+  const createdAt = order.createdAt ? new Date(order.createdAt) : /* @__PURE__ */ new Date();
+  const monthKey = monthKeyFor(createdAt);
+  const salesRank = attribution.countsForTier ? await countExclusiveSalesInMonth(db, earner.id, monthKey) + 1 : 0;
+  const percent = commissionPercentForSale({
+    clientType: attribution.clientType,
+    saleNumberThisMonth: salesRank,
+    scale: config.commissionScale,
+    existingClientPercent: config.existingClientPercent,
+    overridePercent: earner.commissionPercent === null || earner.commissionPercent === void 0 ? null : Number(earner.commissionPercent)
+  });
+  const baseAmount = computeAmbassadorCommissionBase(params.accesoSubtotal, Number(order.discount ?? 0));
+  const commissionAmount = computeAmbassadorCommission(baseAmount, percent);
+  await db.insert(ambassadorCommissions).values({
+    ambassadorId: earner.id,
+    orderId: order.id,
+    eventId: order.eventId,
+    baseAmount: String(baseAmount),
+    commissionPercent: String(percent),
+    commissionAmount: String(commissionAmount),
+    customerEmail: email || null,
+    clientType: attribution.clientType,
+    codeUsed: code || null,
+    monthKey,
+    salesRank: attribution.countsForTier ? salesRank : null
+  });
+  if (attribution.assignsOwnership && email) {
+    try {
+      await db.insert(ambassadorClients).values({
+        ambassadorId: earner.id,
+        customerEmail: email,
+        firstOrderId: order.id,
+        firstPurchaseAt: createdAt,
+        ordersCount: 1,
+        totalSpent: String(Number(order.total ?? 0))
+      });
+    } catch {
+    }
+  } else if (owner && owner.ambassadorId === earner.id) {
+    await db.update(ambassadorClients).set({
+      ordersCount: owner.ordersCount + 1,
+      totalSpent: String(Number(owner.totalSpent) + Number(order.total ?? 0))
+    }).where(eq3(ambassadorClients.id, owner.id));
+  }
+  console.log(
+    `[Embajadores] Orden ${order.orderNumber}: ${earner.name} (${earner.code}) cobra $${commissionAmount.toLocaleString("es-CL")} = ${percent}% de $${baseAmount.toLocaleString("es-CL")} \xB7 cliente ${attribution.clientType}${attribution.countsForTier ? ` \xB7 venta #${salesRank} del mes ${monthKey}` : ""}${code && fromCode && owner && owner.ambassadorId !== earner.id ? " \xB7 c\xF3digo cruzado" : ""}`
+  );
+  return { attributed: true, ambassadorId: earner.id, clientType: attribution.clientType, percent, amount: commissionAmount };
+}
+async function getAmbassadorById(db, id) {
+  const [row] = await db.select().from(exclusiveAmbassadors).where(eq3(exclusiveAmbassadors.id, id)).limit(1);
+  return row ?? null;
+}
+async function getAmbassadorStats(ambassadorId, monthKey) {
+  const db = await getDb();
+  if (!db) return null;
+  const all = await db.select().from(ambassadorCommissions).where(eq3(ambassadorCommissions.ambassadorId, ambassadorId));
+  const delMes = all.filter((c) => c.monthKey === monthKey);
+  const exclusivasDelMes = delMes.filter((c) => c.clientType === "exclusivo");
+  const config = await getProgramConfig();
+  const monthlySales = exclusivasDelMes.length;
+  const clientes = await db.select({ count: sql2`COUNT(*)` }).from(ambassadorClients).where(eq3(ambassadorClients.ambassadorId, ambassadorId));
+  return {
+    monthKey,
+    monthlySales,
+    monthlyExistingSales: delMes.length - monthlySales,
+    monthlyRevenue: delMes.reduce((s, c) => s + Number(c.baseAmount), 0),
+    monthlyCommission: delMes.reduce((s, c) => s + Number(c.commissionAmount), 0),
+    totalCommission: all.reduce((s, c) => s + Number(c.commissionAmount), 0),
+    totalSales: all.length,
+    exclusiveClientsCount: Number(clientes[0]?.count ?? 0),
+    existingClientsCount: new Set(
+      all.filter((c) => c.clientType === "existente").map((c) => c.customerEmail).filter(Boolean)
+    ).size,
+    currentPercent: tierForSales(monthlySales, config.commissionScale)?.percent ?? config.commissionScale[0]?.percent ?? 0,
+    nextTarget: nextTierTarget(monthlySales, config.commissionScale),
+    benefits: unlockedBenefits(monthlySales, config.benefits),
+    nextBenefit: nextBenefit(monthlySales, config.benefits)
+  };
+}
+async function getAmbassadorSales(ambassadorId, limit = 200) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ambassadorCommissions).where(eq3(ambassadorCommissions.ambassadorId, ambassadorId)).orderBy(sql2`${ambassadorCommissions.createdAt} DESC`).limit(limit);
+  if (rows.length === 0) return [];
+  const eventIds = Array.from(new Set(rows.map((r) => r.eventId).filter(Boolean)));
+  const eventRows = eventIds.length ? await db.select({ id: events.id, title: events.title }).from(events).where(inArray2(events.id, eventIds)) : [];
+  const titleById = new Map(eventRows.map((e) => [e.id, e.title]));
+  const orderIds = Array.from(new Set(rows.map((r) => r.orderId).filter(Boolean)));
+  const orderRows = orderIds.length ? await db.select({ id: orders.id, orderNumber: orders.orderNumber, buyerName: orders.buyerName }).from(orders).where(inArray2(orders.id, orderIds)) : [];
+  const orderById = new Map(orderRows.map((o) => [o.id, o]));
+  return rows.map((r) => ({
+    id: r.id,
+    createdAt: r.createdAt,
+    eventTitle: titleById.get(r.eventId) ?? "\u2014",
+    orderNumber: orderById.get(r.orderId)?.orderNumber ?? null,
+    customerName: orderById.get(r.orderId)?.buyerName ?? null,
+    customerEmail: r.customerEmail,
+    baseAmount: Number(r.baseAmount),
+    commissionPercent: Number(r.commissionPercent),
+    commissionAmount: Number(r.commissionAmount),
+    clientType: r.clientType,
+    codeUsed: r.codeUsed,
+    salesRank: r.salesRank
+  }));
+}
+function maskEmail(email) {
+  if (!email) return "\u2014";
+  const [user, domain] = email.split("@");
+  if (!domain) return "\u2014";
+  const visible = user.slice(0, 2);
+  return `${visible}${"*".repeat(Math.max(2, user.length - 2))}@${domain}`;
+}
+async function getAmbassadorPanel(code, now = /* @__PURE__ */ new Date()) {
+  const db = await getDb();
+  if (!db) return null;
+  const clean = (code ?? "").trim().toUpperCase();
+  if (!clean) return null;
+  const [ambassador] = await db.select().from(exclusiveAmbassadors).where(eq3(exclusiveAmbassadors.code, clean)).limit(1);
+  if (!ambassador) return null;
+  const monthKey = monthKeyFor(now);
+  const stats = await getAmbassadorStats(ambassador.id, monthKey);
+  const sales = await getAmbassadorSales(ambassador.id, 50);
+  return {
+    name: ambassador.name,
+    code: ambassador.code,
+    active: ambassador.active === 1,
+    instagram: ambassador.instagram,
+    stats,
+    sales: sales.map((s) => ({ ...s, customerEmail: maskEmail(s.customerEmail), customerName: s.customerName }))
+  };
+}
+async function getAmbassadorRanking(monthKey) {
+  const db = await getDb();
+  if (!db) return [];
+  const ambassadors = await db.select().from(exclusiveAmbassadors).orderBy(exclusiveAmbassadors.name);
+  const rows = await db.select().from(ambassadorCommissions).where(eq3(ambassadorCommissions.monthKey, monthKey));
+  const allRows = await db.select().from(ambassadorCommissions);
+  const ranking = ambassadors.map((a) => {
+    const delMes = rows.filter((r) => r.ambassadorId === a.id);
+    const exclusivas = delMes.filter((r) => r.clientType === "exclusivo");
+    return {
+      id: a.id,
+      name: a.name,
+      code: a.code,
+      active: a.active === 1,
+      exclusiveSales: exclusivas.length,
+      existingSales: delMes.length - exclusivas.length,
+      monthlyRevenue: delMes.reduce((s, r) => s + Number(r.baseAmount), 0),
+      monthlyCommission: delMes.reduce((s, r) => s + Number(r.commissionAmount), 0),
+      totalCommission: allRows.filter((r) => r.ambassadorId === a.id).reduce((s, r) => s + Number(r.commissionAmount), 0)
+    };
+  });
+  return ranking.sort((a, b) => b.exclusiveSales - a.exclusiveSales || b.monthlyRevenue - a.monthlyRevenue).map((r, i) => ({ position: i + 1, ...r }));
+}
+async function getAmbassadorAdminSummary(monthKey) {
+  const db = await getDb();
+  if (!db) {
+    return {
+      monthKey,
+      activeAmbassadors: 0,
+      monthlySales: 0,
+      monthlyRevenue: 0,
+      monthlyCommission: 0,
+      newClients: 0,
+      existingClients: 0,
+      topAmbassador: null
+    };
+  }
+  const ranking = await getAmbassadorRanking(monthKey);
+  const rows = await db.select().from(ambassadorCommissions).where(eq3(ambassadorCommissions.monthKey, monthKey));
+  const exclusivas = rows.filter((r) => r.clientType === "exclusivo");
+  const top = ranking.find((r) => r.exclusiveSales > 0) ?? null;
+  return {
+    monthKey,
+    activeAmbassadors: ranking.filter((r) => r.active).length,
+    monthlySales: rows.length,
+    monthlyRevenue: rows.reduce((s, r) => s + Number(r.baseAmount), 0),
+    monthlyCommission: rows.reduce((s, r) => s + Number(r.commissionAmount), 0),
+    newClients: exclusivas.length,
+    existingClients: rows.length - exclusivas.length,
+    topAmbassador: top ? { name: top.name, code: top.code, exclusiveSales: top.exclusiveSales } : null
+  };
+}
+async function listReferredClients() {
+  const db = await getDb();
+  if (!db) return [];
+  const ambassadors = await db.select().from(exclusiveAmbassadors);
+  const nameById = new Map(ambassadors.map((a) => [a.id, a.name]));
+  const owned = await db.select().from(ambassadorClients);
+  const commissions = await db.select().from(ambassadorCommissions);
+  const exclusivos = owned.map((c) => ({
+    customerEmail: c.customerEmail,
+    ambassadorName: nameById.get(c.ambassadorId) ?? "\u2014",
+    firstPurchaseAt: c.firstPurchaseAt,
+    ordersCount: c.ordersCount,
+    totalSpent: Number(c.totalSpent),
+    clientType: "exclusivo"
+  }));
+  const yaListados = new Set(exclusivos.map((c) => c.customerEmail));
+  const existentesPorEmail = /* @__PURE__ */ new Map();
+  for (const r of commissions) {
+    if (r.clientType !== "existente" || !r.customerEmail || yaListados.has(r.customerEmail)) continue;
+    const prev = existentesPorEmail.get(r.customerEmail);
+    const at = new Date(r.createdAt);
+    if (prev) {
+      prev.count += 1;
+      prev.total += Number(r.baseAmount);
+      if (at < prev.first) prev.first = at;
+    } else {
+      existentesPorEmail.set(r.customerEmail, {
+        ambassadorName: nameById.get(r.ambassadorId) ?? "\u2014",
+        first: at,
+        count: 1,
+        total: Number(r.baseAmount)
+      });
+    }
+  }
+  const existentes = Array.from(existentesPorEmail.entries()).map(([email, v]) => ({
+    customerEmail: email,
+    ambassadorName: v.ambassadorName,
+    firstPurchaseAt: v.first,
+    ordersCount: v.count,
+    totalSpent: v.total,
+    clientType: "existente"
+  }));
+  return [...exclusivos, ...existentes].sort(
+    (a, b) => new Date(b.firstPurchaseAt).getTime() - new Date(a.firstPurchaseAt).getTime()
+  );
+}
+
 // server/webhooks.ts
 init_schema();
-import { eq as eq3, and as and2, sql as sql2, isNotNull, ne, inArray as inArray2 } from "drizzle-orm";
+import { eq as eq4, and as and3, sql as sql3, isNotNull, ne as ne2, inArray as inArray3 } from "drizzle-orm";
 import { nanoid as nanoid2 } from "nanoid";
 
 // server/qr.ts
@@ -4582,7 +5047,7 @@ function mapPaymentStatus(mpStatus) {
 async function applyPaymentResult(input) {
   const db = await getDb();
   if (!db) return { ok: false, reason: "Database not available" };
-  const [order] = await db.select().from(orders).where(eq3(orders.orderNumber, input.orderNumber)).limit(1);
+  const [order] = await db.select().from(orders).where(eq4(orders.orderNumber, input.orderNumber)).limit(1);
   if (!order) return { ok: false, reason: "Order not found" };
   if (order.paymentId === input.paymentId && order.paymentStatus !== "pending") {
     return { ok: true, alreadyProcessed: true };
@@ -4591,20 +5056,20 @@ async function applyPaymentResult(input) {
     paymentStatus: input.status,
     paymentId: input.paymentId,
     paymentMethod: input.paymentMethodId || void 0
-  }).where(eq3(orders.id, order.id));
+  }).where(eq4(orders.id, order.id));
   if (input.status === "approved") {
     const isTopupPayment = order.missionTopupStatus === "pending";
     const isMissionDeposit = order.missionDeposit === 1 && order.missionTopupStatus === "none";
     if (!isTopupPayment) {
-      const items = await db.select().from(orderItems).where(eq3(orderItems.orderId, order.id));
+      const items = await db.select().from(orderItems).where(eq4(orderItems.orderId, order.id));
       for (const item of items) {
-        await db.update(ticketTypes).set({ soldCount: sql2`soldCount + ${item.quantity}` }).where(eq3(ticketTypes.id, item.ticketTypeId));
+        await db.update(ticketTypes).set({ soldCount: sql3`soldCount + ${item.quantity}` }).where(eq4(ticketTypes.id, item.ticketTypeId));
       }
     }
     if (isMissionDeposit) {
       if (!order.depositEmailSent) await sendMissionDepositEmail(order);
     } else if (isTopupPayment) {
-      await db.update(orders).set({ missionTopupStatus: "paid" }).where(eq3(orders.id, order.id));
+      await db.update(orders).set({ missionTopupStatus: "paid" }).where(eq4(orders.id, order.id));
       if (!order.emailSent) await processApprovedOrder(order);
     } else if (!order.emailSent) {
       await processApprovedOrder(order);
@@ -4615,10 +5080,10 @@ async function applyPaymentResult(input) {
 async function processCardPaymentForOrder(input) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [order] = await db.select().from(orders).where(eq3(orders.orderNumber, input.orderNumber)).limit(1);
+  const [order] = await db.select().from(orders).where(eq4(orders.orderNumber, input.orderNumber)).limit(1);
   if (!order) throw new Error("Order not found");
   if (order.paymentStatus === "approved") throw new Error("Order already paid");
-  const [event] = await db.select().from(events).where(eq3(events.id, order.eventId)).limit(1);
+  const [event] = await db.select().from(events).where(eq4(events.id, order.eventId)).limit(1);
   const result = await createCardPayment({
     orderNumber: order.orderNumber,
     amount: Number(order.total),
@@ -4642,7 +5107,7 @@ async function processCardPaymentForOrder(input) {
 async function confirmFreeOrder(orderNumber) {
   const db = await getDb();
   if (!db) return;
-  const [order] = await db.select().from(orders).where(eq3(orders.orderNumber, orderNumber)).limit(1);
+  const [order] = await db.select().from(orders).where(eq4(orders.orderNumber, orderNumber)).limit(1);
   if (!order || order.paymentStatus !== "approved" || order.emailSent) return;
   await processApprovedOrder(order);
 }
@@ -4679,10 +5144,10 @@ webhooksRouter.post("/api/webhooks/mercadopago", async (req, res) => {
   }
 });
 async function ensureOwnAmbassadorCode(db, order) {
-  const [previousOrder] = await db.select().from(orders).where(and2(eq3(orders.buyerEmail, order.buyerEmail), eq3(orders.paymentStatus, "approved"), isNotNull(orders.ambassadorCode), ne(orders.id, order.id))).orderBy(orders.createdAt).limit(1);
-  const existingUsers = previousOrder ? null : await db.select().from(users).where(eq3(users.email, order.buyerEmail)).limit(1);
+  const [previousOrder] = await db.select().from(orders).where(and3(eq4(orders.buyerEmail, order.buyerEmail), eq4(orders.paymentStatus, "approved"), isNotNull(orders.ambassadorCode), ne2(orders.id, order.id))).orderBy(orders.createdAt).limit(1);
+  const existingUsers = previousOrder ? null : await db.select().from(users).where(eq4(users.email, order.buyerEmail)).limit(1);
   const code = previousOrder?.ambassadorCode || existingUsers?.[0]?.ambassadorCode || nanoid2(8).toUpperCase();
-  await db.update(orders).set({ ambassadorCode: code }).where(eq3(orders.id, order.id));
+  await db.update(orders).set({ ambassadorCode: code }).where(eq4(orders.id, order.id));
   return code;
 }
 var SALES_RECORD_EMAIL = "contacto@mansionplayroom.cl";
@@ -4706,12 +5171,12 @@ async function sendSalesRecordCopy(order, event, salesItems, isFinal) {
 async function sendMissionDepositEmail(order) {
   const db = await getDb();
   if (!db) return { success: false };
-  const [event] = await db.select().from(events).where(eq3(events.id, order.eventId)).limit(1);
+  const [event] = await db.select().from(events).where(eq4(events.id, order.eventId)).limit(1);
   if (!event) return { success: false };
-  const items = await db.select().from(orderItems).where(eq3(orderItems.orderId, order.id));
+  const items = await db.select().from(orderItems).where(eq4(orderItems.orderId, order.id));
   const emailItems = [];
   for (const item of items) {
-    const [tt] = await db.select().from(ticketTypes).where(eq3(ticketTypes.id, item.ticketTypeId)).limit(1);
+    const [tt] = await db.select().from(ticketTypes).where(eq4(ticketTypes.id, item.ticketTypeId)).limit(1);
     emailItems.push({ name: tt?.name || "Entrada", quantity: item.quantity, price: Number(item.totalPrice) });
   }
   const ambassadorCode = await ensureOwnAmbassadorCode(db, order);
@@ -4736,7 +5201,7 @@ async function sendMissionDepositEmail(order) {
     html
   });
   if (result.success) {
-    await db.update(orders).set({ depositEmailSent: 1 }).where(eq3(orders.id, order.id));
+    await db.update(orders).set({ depositEmailSent: 1 }).where(eq4(orders.id, order.id));
     await sendSalesRecordCopy(order, event, emailItems, false);
   }
   return result;
@@ -4744,18 +5209,18 @@ async function sendMissionDepositEmail(order) {
 async function sendConfirmationEmailForOrder(order, sendSalesCopy = false) {
   const db = await getDb();
   if (!db) return { success: false };
-  const [event] = await db.select().from(events).where(eq3(events.id, order.eventId)).limit(1);
+  const [event] = await db.select().from(events).where(eq4(events.id, order.eventId)).limit(1);
   if (!event) return { success: false };
-  const items = await db.select().from(orderItems).where(eq3(orderItems.orderId, order.id));
+  const items = await db.select().from(orderItems).where(eq4(orderItems.orderId, order.id));
   const emailItems = [];
   for (const item of items) {
-    const [tt] = await db.select().from(ticketTypes).where(eq3(ticketTypes.id, item.ticketTypeId)).limit(1);
+    const [tt] = await db.select().from(ticketTypes).where(eq4(ticketTypes.id, item.ticketTypeId)).limit(1);
     emailItems.push({ name: tt?.name || "Entrada", quantity: item.quantity, price: Number(item.totalPrice) });
   }
-  const orderTickets = await db.select().from(tickets).where(eq3(tickets.orderId, order.id));
+  const orderTickets = await db.select().from(tickets).where(eq4(tickets.orderId, order.id));
   let mainTicket = null;
   for (const t2 of orderTickets) {
-    const [tt] = await db.select().from(ticketTypes).where(eq3(ticketTypes.id, t2.ticketTypeId)).limit(1);
+    const [tt] = await db.select().from(ticketTypes).where(eq4(ticketTypes.id, t2.ticketTypeId)).limit(1);
     if (tt?.category === "acceso") {
       mainTicket = t2;
       break;
@@ -4802,10 +5267,10 @@ async function sendConfirmationEmailForOrder(order, sendSalesCopy = false) {
 async function resendConfirmationEmail(orderNumber) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [order] = await db.select().from(orders).where(eq3(orders.orderNumber, orderNumber)).limit(1);
+  const [order] = await db.select().from(orders).where(eq4(orders.orderNumber, orderNumber)).limit(1);
   if (!order) throw new Error("Orden no encontrada");
   if (order.paymentStatus !== "approved") throw new Error("La orden todav\xEDa no est\xE1 aprobada");
-  const existingTickets = await db.select().from(tickets).where(eq3(tickets.orderId, order.id)).limit(1);
+  const existingTickets = await db.select().from(tickets).where(eq4(tickets.orderId, order.id)).limit(1);
   const isUnresolvedDeposit = existingTickets.length === 0 && order.missionDeposit === 1;
   const result = isUnresolvedDeposit ? await sendMissionDepositEmail(order) : await sendConfirmationEmailForOrder(order);
   if (!result.success) throw new Error("Resend rechaz\xF3 el env\xEDo -- revisa la configuraci\xF3n de RESEND_API_KEY/RESEND_FROM_EMAIL en Vercel.");
@@ -4814,8 +5279,8 @@ async function resendConfirmationEmail(orderNumber) {
 async function processApprovedOrder(order) {
   const db = await getDb();
   if (!db) return;
-  const items = await db.select().from(orderItems).where(eq3(orderItems.orderId, order.id));
-  const [event] = await db.select().from(events).where(eq3(events.id, order.eventId)).limit(1);
+  const items = await db.select().from(orderItems).where(eq4(orderItems.orderId, order.id));
+  const [event] = await db.select().from(events).where(eq4(events.id, order.eventId)).limit(1);
   if (!event) return;
   const gift = await getPartyGiftByOrderId(order.id);
   const giftRecipient = gift ? await getPartyProfileContact(gift.toProfileId) : null;
@@ -4823,7 +5288,7 @@ async function processApprovedOrder(order) {
   let giftTicketId = null;
   let giftDisplayCode = null;
   const orderTicketTypeIds = Array.from(new Set(items.map((i) => i.ticketTypeId)));
-  const orderTicketTypes = orderTicketTypeIds.length ? await db.select().from(ticketTypes).where(inArray2(ticketTypes.id, orderTicketTypeIds)) : [];
+  const orderTicketTypes = orderTicketTypeIds.length ? await db.select().from(ticketTypes).where(inArray3(ticketTypes.id, orderTicketTypeIds)) : [];
   const ticketTypeById = new Map(orderTicketTypes.map((tt) => [tt.id, tt]));
   for (const item of items) {
     const tt = ticketTypeById.get(item.ticketTypeId);
@@ -4854,52 +5319,42 @@ async function processApprovedOrder(order) {
     }
   }
   const orderAccesoSlugs = Array.from(orderTicketTypes).filter((tt) => tt.category === "acceso" && tt.accesoSlug).map((tt) => tt.accesoSlug);
+  const priorCustomer = await getCustomerForAttribution(order.buyerEmail);
   await upsertCustomerFromOrder(order, orderAccesoSlugs);
   await awardPlaycoins({ email: order.buyerEmail, totalClp: Number(order.total), reason: "earn_web", orderId: order.id });
   const referrerCode = order.referredByCode || order.ambassadorCode;
-  if (referrerCode) {
-    const exclusiveAmbassador = await getActiveExclusiveAmbassadorByCode(referrerCode, order.eventId);
-    if (exclusiveAmbassador) {
-      const accesoSubtotal = items.reduce((sum, item) => {
-        const tt = ticketTypeById.get(item.ticketTypeId);
-        return tt?.category === "acceso" ? sum + Number(item.totalPrice) : sum;
-      }, 0);
-      const baseAmount = computeAmbassadorCommissionBase(accesoSubtotal, Number(order.discount ?? 0));
-      await recordAmbassadorCommission({
-        ambassadorId: exclusiveAmbassador.id,
+  const accesoSubtotal = items.reduce((sum, item) => {
+    const tt = ticketTypeById.get(item.ticketTypeId);
+    return tt?.category === "acceso" ? sum + Number(item.totalPrice) : sum;
+  }, 0);
+  const vipAttribution = await attributeAmbassadorSale({ order, accesoSubtotal, priorCustomer });
+  if (referrerCode && !vipAttribution.attributed) {
+    const [ambassadorOrder] = await db.select().from(orders).where(and3(eq4(orders.ambassadorCode, referrerCode), eq4(orders.paymentStatus, "approved"))).limit(1);
+    if (ambassadorOrder && ambassadorOrder.id !== order.id) {
+      const totalTickets = items.reduce((sum, item) => sum + item.quantity, 0);
+      await db.insert(referrals).values({
+        ambassadorCode: referrerCode,
         orderId: order.id,
-        eventId: order.eventId,
-        baseAmount,
-        commissionPercent: Number(exclusiveAmbassador.commissionPercent)
+        buyerEmail: order.buyerEmail,
+        ticketCount: totalTickets,
+        orderTotal: order.total
       });
-    } else {
-      const [ambassadorOrder] = await db.select().from(orders).where(and2(eq3(orders.ambassadorCode, referrerCode), eq3(orders.paymentStatus, "approved"))).limit(1);
-      if (ambassadorOrder && ambassadorOrder.id !== order.id) {
-        const totalTickets = items.reduce((sum, item) => sum + item.quantity, 0);
-        await db.insert(referrals).values({
-          ambassadorCode: referrerCode,
-          orderId: order.id,
-          buyerEmail: order.buyerEmail,
-          ticketCount: totalTickets,
-          orderTotal: order.total
-        });
-        const [{ count: referralCount }] = await db.select({ count: sql2`COUNT(*)` }).from(referrals).where(eq3(referrals.ambassadorCode, referrerCode));
-        const count = Number(referralCount);
-        if (AMBASSADOR_TIERS.some((t2) => t2.min === count)) {
-          const html = buildTierUpEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: referrerCode, referralCount: count });
-          await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `${tierForCount(count).emoji} \xA1Llegaste a nivel ${tierForCount(count).name}!`, html });
-        } else {
-          const next = nextTierForCount(count);
-          if (next && next.min - count === 1) {
-            const html = buildAlmostTierEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: referrerCode, referralCount: count });
-            await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `\u{1F525} \xA1Est\xE1s a 1 venta de nivel ${next.name}!`, html });
-          }
+      const [{ count: referralCount }] = await db.select({ count: sql3`COUNT(*)` }).from(referrals).where(eq4(referrals.ambassadorCode, referrerCode));
+      const count = Number(referralCount);
+      if (AMBASSADOR_TIERS.some((t2) => t2.min === count)) {
+        const html = buildTierUpEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: referrerCode, referralCount: count });
+        await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `${tierForCount(count).emoji} \xA1Llegaste a nivel ${tierForCount(count).name}!`, html });
+      } else {
+        const next = nextTierForCount(count);
+        if (next && next.min - count === 1) {
+          const html = buildAlmostTierEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: referrerCode, referralCount: count });
+          await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `\u{1F525} \xA1Est\xE1s a 1 venta de nivel ${next.name}!`, html });
         }
       }
     }
   }
   await ensureOwnAmbassadorCode(db, order);
-  const [refreshedOrder] = await db.select().from(orders).where(eq3(orders.id, order.id)).limit(1);
+  const [refreshedOrder] = await db.select().from(orders).where(eq4(orders.id, order.id)).limit(1);
   if (gift && giftTicketId !== null) {
     await markGiftPaid(gift.id, giftTicketId, giftDisplayCode);
     if (giftRecipient?.email && giftDisplayCode) {
@@ -4913,30 +5368,30 @@ async function processApprovedOrder(order) {
       });
       await sendEmail({ to: giftRecipient.email, subject: `\u{1F379} ${giftSender?.alias ?? "Alguien"} te invit\xF3 un ${gift.drinkName}`, html });
     }
-    await db.update(orders).set({ emailSent: 1 }).where(eq3(orders.id, order.id));
+    await db.update(orders).set({ emailSent: 1 }).where(eq4(orders.id, order.id));
     return;
   }
   const result = await sendConfirmationEmailForOrder(refreshedOrder ?? order, true);
   if (result.success) {
-    await db.update(orders).set({ emailSent: 1 }).where(eq3(orders.id, order.id));
+    await db.update(orders).set({ emailSent: 1 }).where(eq4(orders.id, order.id));
   }
 }
 async function getMission300Status(eventId) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [event] = await db.select().from(events).where(eq3(events.id, eventId)).limit(1);
+  const [event] = await db.select().from(events).where(eq4(events.id, eventId)).limit(1);
   if (!event) throw new Error("Event not found");
-  const eligible = await db.select().from(orders).where(and2(
-    eq3(orders.eventId, eventId),
-    eq3(orders.missionDeposit, 1),
-    eq3(orders.paymentStatus, "approved"),
-    eq3(orders.missionTopupStatus, "none")
+  const eligible = await db.select().from(orders).where(and3(
+    eq4(orders.eventId, eventId),
+    eq4(orders.missionDeposit, 1),
+    eq4(orders.paymentStatus, "approved"),
+    eq4(orders.missionTopupStatus, "none")
   ));
   let totalPersonas = 0;
   for (const order of eligible) {
-    const items = await db.select().from(orderItems).where(eq3(orderItems.orderId, order.id));
+    const items = await db.select().from(orderItems).where(eq4(orderItems.orderId, order.id));
     for (const item of items) {
-      const [tt] = await db.select().from(ticketTypes).where(eq3(ticketTypes.id, item.ticketTypeId)).limit(1);
+      const [tt] = await db.select().from(ticketTypes).where(eq4(ticketTypes.id, item.ticketTypeId)).limit(1);
       if (tt?.category === "acceso") totalPersonas += personasForAccesoSlug(tt.accesoSlug) * item.quantity;
     }
   }
@@ -4951,21 +5406,21 @@ async function getMission300Status(eventId) {
 async function evaluateMission300(eventId) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [event] = await db.select().from(events).where(eq3(events.id, eventId)).limit(1);
+  const [event] = await db.select().from(events).where(eq4(events.id, eventId)).limit(1);
   if (!event) throw new Error("Event not found");
-  const eligible = await db.select().from(orders).where(and2(
-    eq3(orders.eventId, eventId),
-    eq3(orders.missionDeposit, 1),
-    eq3(orders.paymentStatus, "approved"),
-    eq3(orders.missionTopupStatus, "none")
+  const eligible = await db.select().from(orders).where(and3(
+    eq4(orders.eventId, eventId),
+    eq4(orders.missionDeposit, 1),
+    eq4(orders.paymentStatus, "approved"),
+    eq4(orders.missionTopupStatus, "none")
   ));
   const orderItemsByOrder = /* @__PURE__ */ new Map();
   let totalPersonas = 0;
   for (const order of eligible) {
-    const items = await db.select().from(orderItems).where(eq3(orderItems.orderId, order.id));
+    const items = await db.select().from(orderItems).where(eq4(orderItems.orderId, order.id));
     const withTt = [];
     for (const item of items) {
-      const [tt] = await db.select().from(ticketTypes).where(eq3(ticketTypes.id, item.ticketTypeId)).limit(1);
+      const [tt] = await db.select().from(ticketTypes).where(eq4(ticketTypes.id, item.ticketTypeId)).limit(1);
       withTt.push({ ...item, ticketType: tt });
       if (tt?.category === "acceso") totalPersonas += personasForAccesoSlug(tt.accesoSlug) * item.quantity;
     }
@@ -4976,7 +5431,7 @@ async function evaluateMission300(eventId) {
   let topupRequested = 0;
   for (const order of eligible) {
     if (success) {
-      await db.update(orders).set({ missionTopupStatus: "paid", missionTopupAmount: "0" }).where(eq3(orders.id, order.id));
+      await db.update(orders).set({ missionTopupStatus: "paid", missionTopupAmount: "0" }).where(eq4(orders.id, order.id));
       if (!order.emailSent) await processApprovedOrder(order);
       resolved++;
       continue;
@@ -4990,7 +5445,7 @@ async function evaluateMission300(eventId) {
       topupAmount += Math.max(0, cap - alreadyPaidUnit) * item.quantity;
     }
     if (topupAmount <= 0) {
-      await db.update(orders).set({ missionTopupStatus: "paid", missionTopupAmount: "0" }).where(eq3(orders.id, order.id));
+      await db.update(orders).set({ missionTopupStatus: "paid", missionTopupAmount: "0" }).where(eq4(orders.id, order.id));
       if (!order.emailSent) await processApprovedOrder(order);
       resolved++;
       continue;
@@ -5006,7 +5461,7 @@ async function evaluateMission300(eventId) {
       missionTopupStatus: "pending",
       missionTopupAmount: String(topupAmount),
       missionTopupPreferenceId: pref.id
-    }).where(eq3(orders.id, order.id));
+    }).where(eq4(orders.id, order.id));
     const html = buildMissionTopupEmail({
       buyerName: order.buyerName,
       eventTitle: event.title,
@@ -5607,7 +6062,7 @@ async function verifyDeviceSession(cookieValue) {
 // server/caja/redeem.ts
 init_schema();
 init_ops();
-import { eq as eq4 } from "drizzle-orm";
+import { eq as eq5 } from "drizzle-orm";
 async function redeemDisplayCode(db, params) {
   const code = params.displayCode.trim().toUpperCase();
   const { result, conflictNote } = await applyOp(
@@ -5624,9 +6079,9 @@ async function redeemDisplayCode(db, params) {
       clientAt: params.clientAt
     },
     async () => {
-      const [ticket] = await db.select().from(tickets).where(eq4(tickets.displayCode, code)).limit(1);
+      const [ticket] = await db.select().from(tickets).where(eq5(tickets.displayCode, code)).limit(1);
       if (!ticket) return { result: "rejected", conflictNote: "El c\xF3digo no existe" };
-      const [gift] = await db.select().from(partyGifts).where(eq4(partyGifts.ticketId, ticket.id)).limit(1);
+      const [gift] = await db.select().from(partyGifts).where(eq5(partyGifts.ticketId, ticket.id)).limit(1);
       if (!gift && ticket.eventId !== params.eventId) {
         return { result: "rejected", conflictNote: "El c\xF3digo no corresponde a este evento" };
       }
@@ -5639,9 +6094,9 @@ async function redeemDisplayCode(db, params) {
         usedAt: /* @__PURE__ */ new Date(),
         usedByOperatorId: params.operatorId,
         usedAtRegisterId: params.registerId ?? null
-      }).where(eq4(tickets.id, ticket.id));
+      }).where(eq5(tickets.id, ticket.id));
       if (gift) {
-        await db.update(partyGifts).set({ status: "redeemed", redeemedAt: /* @__PURE__ */ new Date() }).where(eq4(partyGifts.id, gift.id));
+        await db.update(partyGifts).set({ status: "redeemed", redeemedAt: /* @__PURE__ */ new Date() }).where(eq5(partyGifts.id, gift.id));
       }
       return { result: "applied" };
     }
@@ -5652,7 +6107,7 @@ async function redeemDisplayCode(db, params) {
 // server/caja/checkin.ts
 init_schema();
 init_ops();
-import { eq as eq5 } from "drizzle-orm";
+import { eq as eq6 } from "drizzle-orm";
 async function checkInTicket(db, params) {
   const code = params.ticketCode.trim().toUpperCase();
   const { result, conflictNote } = await applyOp(
@@ -5669,14 +6124,14 @@ async function checkInTicket(db, params) {
       clientAt: params.clientAt
     },
     async () => {
-      const [ticket] = await db.select().from(tickets).where(eq5(tickets.ticketCode, code)).limit(1);
+      const [ticket] = await db.select().from(tickets).where(eq6(tickets.ticketCode, code)).limit(1);
       if (!ticket) return { result: "rejected", conflictNote: "El c\xF3digo no existe" };
       if (ticket.eventId !== params.eventId) return { result: "rejected", conflictNote: "El c\xF3digo no corresponde a este evento" };
       if (ticket.status === "cancelled") return { result: "rejected", conflictNote: "El acceso fue anulado" };
       if (ticket.status === "used") {
         return { result: "conflict", conflictNote: `Esta persona ya entr\xF3 el ${ticket.usedAt?.toISOString?.() ?? ticket.usedAt}` };
       }
-      const [tt] = await db.select().from(ticketTypes).where(eq5(ticketTypes.id, ticket.ticketTypeId)).limit(1);
+      const [tt] = await db.select().from(ticketTypes).where(eq6(ticketTypes.id, ticket.ticketTypeId)).limit(1);
       if (tt?.category !== "acceso") {
         return { result: "rejected", conflictNote: "Ese c\xF3digo es de un extra, no de un acceso" };
       }
@@ -5685,7 +6140,7 @@ async function checkInTicket(db, params) {
         usedAt: /* @__PURE__ */ new Date(),
         usedByOperatorId: params.operatorId,
         usedAtRegisterId: params.registerId ?? null
-      }).where(eq5(tickets.id, ticket.id));
+      }).where(eq6(tickets.id, ticket.id));
       return { result: "applied" };
     }
   );
@@ -5695,11 +6150,11 @@ async function checkInTicket(db, params) {
 // server/caja/sale.ts
 init_schema();
 init_ops();
-import { eq as eq6, sql as sql3, inArray as inArray3 } from "drizzle-orm";
+import { eq as eq7, sql as sql4, inArray as inArray4 } from "drizzle-orm";
 async function createCajaSale(db, params) {
   if (params.items.length === 0) throw new Error("La venta necesita al menos un producto");
   const ticketTypeIds = params.items.map((i) => i.ticketTypeId);
-  const tts = await db.select().from(ticketTypes).where(inArray3(ticketTypes.id, ticketTypeIds));
+  const tts = await db.select().from(ticketTypes).where(inArray4(ticketTypes.id, ticketTypeIds));
   const ttById = new Map(tts.map((t2) => [t2.id, t2]));
   let total = 0;
   const lineItems = [];
@@ -5767,7 +6222,7 @@ async function createCajaSale(db, params) {
           totalPrice: String(item.unitPrice * item.quantity),
           unitCost: item.unitCost != null ? String(item.unitCost) : null
         });
-        await db.update(ticketTypes).set({ soldCount: sql3`soldCount + ${item.quantity}` }).where(eq6(ticketTypes.id, item.ticketTypeId));
+        await db.update(ticketTypes).set({ soldCount: sql4`soldCount + ${item.quantity}` }).where(eq7(ticketTypes.id, item.ticketTypeId));
       }
       if (params.buyerEmail) {
         await awardPlaycoins({ email: params.buyerEmail, totalClp: finalTotal, reason: "earn_caja", opId: params.opId });
@@ -5781,7 +6236,7 @@ async function createCajaSale(db, params) {
 // server/caja/void.ts
 init_schema();
 init_ops();
-import { eq as eq7 } from "drizzle-orm";
+import { eq as eq8 } from "drizzle-orm";
 async function voidTicketCode(db, params) {
   const code = params.displayCode.trim().toUpperCase();
   const { result, conflictNote } = await applyOp(
@@ -5798,11 +6253,11 @@ async function voidTicketCode(db, params) {
       clientAt: params.clientAt
     },
     async () => {
-      const [ticket] = await db.select().from(tickets).where(eq7(tickets.displayCode, code)).limit(1);
+      const [ticket] = await db.select().from(tickets).where(eq8(tickets.displayCode, code)).limit(1);
       if (!ticket) return { result: "rejected", conflictNote: "El c\xF3digo no existe" };
       if (ticket.eventId !== params.eventId) return { result: "rejected", conflictNote: "El c\xF3digo no corresponde a este evento" };
       if (ticket.status === "cancelled") return { result: "rejected", conflictNote: "El c\xF3digo ya estaba anulado" };
-      await db.update(tickets).set({ status: "cancelled" }).where(eq7(tickets.id, ticket.id));
+      await db.update(tickets).set({ status: "cancelled" }).where(eq8(tickets.id, ticket.id));
       return { result: "applied" };
     }
   );
@@ -6617,11 +7072,15 @@ var appRouter = router({
       return listExclusiveAmbassadors(input?.eventId);
     }),
     create: adminProcedure2.input(z3.object({
-      eventId: z3.number(),
+      // Opcional: el código es permanente y de la persona, no del evento.
+      eventId: z3.number().optional(),
       name: z3.string().min(1),
       code: z3.string().min(1),
-      commissionPercent: z3.number().min(0).max(100),
-      contact: z3.string().optional()
+      // `null` = usar la escala global del programa (lo normal).
+      commissionPercent: z3.number().min(0).max(100).nullable().optional(),
+      contact: z3.string().optional(),
+      email: z3.string().email().optional(),
+      instagram: z3.string().optional()
     })).mutation(async ({ input }) => {
       return createExclusiveAmbassador(input);
     }),
@@ -6629,8 +7088,10 @@ var appRouter = router({
       id: z3.number(),
       name: z3.string().optional(),
       code: z3.string().optional(),
-      commissionPercent: z3.number().min(0).max(100).optional(),
+      commissionPercent: z3.number().min(0).max(100).nullable().optional(),
       contact: z3.string().optional(),
+      email: z3.string().email().optional(),
+      instagram: z3.string().optional(),
       active: z3.number().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
@@ -6639,10 +7100,69 @@ var appRouter = router({
     delete: adminProcedure2.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
       return deleteExclusiveAmbassador(input.id);
     }),
-    // Reporte para el tab: ventas + comisión exacta de cada embajador de ese
-    // evento, más el total del evento.
+    // Reporte histórico por evento (el del PR original). Se conserva porque
+    // sigue siendo la forma de saber cuánto se pagó en una fiesta puntual.
     getReport: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
       return getAmbassadorCommissionReport(input.eventId);
+    }),
+    // --- Programa VIP automatizado ---
+    /** Valida el código en el checkout. Público, igual que
+     * communityCodes.validate: hasta ahora el campo se mandaba sin verificar
+     * nada, así que un código mal tecleado se perdía en silencio. */
+    validate: publicProcedure.input(z3.object({ code: z3.string() })).mutation(async ({ input }) => {
+      const clean = input.code.trim().toUpperCase();
+      if (!clean) return { valid: false, message: "Escribe un c\xF3digo" };
+      const ambassador = await getActiveExclusiveAmbassadorByCode(clean);
+      if (!ambassador) return { valid: false, message: "No encontramos ese c\xF3digo" };
+      return { valid: true, name: ambassador.name, code: ambassador.code };
+    }),
+    /** Panel público del embajador (/embajador/<CODIGO>). El código hace de
+     * llave -- no hay login de embajadores, mismo criterio que /mis-referidos. */
+    getPanelByCode: publicProcedure.input(z3.object({ code: z3.string() })).query(async ({ input }) => {
+      return getAmbassadorPanel(input.code);
+    }),
+    getConfig: adminProcedure2.query(async () => {
+      return getProgramConfig();
+    }),
+    updateConfig: adminProcedure2.input(z3.object({
+      launchDate: z3.string().optional(),
+      commissionScale: z3.array(z3.object({
+        minSales: z3.number().int().min(1),
+        maxSales: z3.number().int().min(1).nullable(),
+        percent: z3.number().min(0).max(100)
+      })).optional(),
+      existingClientPercent: z3.number().min(0).max(100).optional(),
+      benefits: z3.array(z3.object({
+        minSales: z3.number().int().min(1),
+        items: z3.array(z3.string()),
+        bonusClp: z3.number().min(0)
+      })).optional(),
+      weeklyEmailEnabled: z3.boolean().optional(),
+      weeklyEmailWeekday: z3.number().int().min(0).max(6).optional(),
+      weeklyEmailHourChile: z3.number().int().min(0).max(23).optional()
+    })).mutation(async ({ input }) => {
+      const { launchDate, ...rest } = input;
+      return updateProgramConfig({
+        ...rest,
+        ...launchDate ? { launchDate: new Date(launchDate) } : {}
+      });
+    }),
+    /** `monthKey` en formato "2026-08"; si no viene, el mes actual de Chile. */
+    getSummary: adminProcedure2.input(z3.object({ monthKey: z3.string().optional() }).optional()).query(async ({ input }) => {
+      return getAmbassadorAdminSummary(input?.monthKey || monthKeyFor(/* @__PURE__ */ new Date()));
+    }),
+    getRanking: adminProcedure2.input(z3.object({ monthKey: z3.string().optional() }).optional()).query(async ({ input }) => {
+      return getAmbassadorRanking(input?.monthKey || monthKeyFor(/* @__PURE__ */ new Date()));
+    }),
+    getProfile: adminProcedure2.input(z3.object({ id: z3.number(), monthKey: z3.string().optional() })).query(async ({ input }) => {
+      const monthKey = input.monthKey || monthKeyFor(/* @__PURE__ */ new Date());
+      return {
+        stats: await getAmbassadorStats(input.id, monthKey),
+        sales: await getAmbassadorSales(input.id)
+      };
+    }),
+    listReferredClients: adminProcedure2.query(async () => {
+      return listReferredClients();
     })
   }),
   // Módulo /caja — login por PIN de operadores (docs/ARQUITECTURA-CAJA.md

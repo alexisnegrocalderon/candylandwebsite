@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
-import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getActiveExclusiveAmbassadorByCode, recordAmbassadorCommission, computeAmbassadorCommissionBase, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid } from './db';
+import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid } from './db';
+import { attributeAmbassadorSale } from './ambassadorProgram';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
 import { eq, and, sql, isNotNull, ne, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
@@ -475,6 +476,15 @@ async function processApprovedOrder(order: any) {
   const orderAccesoSlugs = Array.from(orderTicketTypes)
     .filter((tt: any) => tt.category === 'acceso' && tt.accesoSlug)
     .map((tt: any) => tt.accesoSlug as string);
+
+  // ⚠️ ANTES de registrar al cliente: el programa de Embajadores VIP necesita
+  // saber si esta persona ya estaba en la base antes del lanzamiento (paga
+  // 10%) o si es nueva y pasa a ser cliente exclusivo del embajador (30-50%).
+  // Tanto upsertCustomerFromOrder como awardPlaycoins crean/actualizan la fila
+  // de `customers`, así que después de esas dos líneas TODO cliente parece
+  // nuevo y el dato se pierde para siempre.
+  const priorCustomer = await getCustomerForAttribution(order.buyerEmail);
+
   await upsertCustomerFromOrder(order, orderAccesoSlugs);
   // Playcoins (pedido explícito del usuario): 25 por cada $1.000 CLP
   // gastados, misma regla para web y caja -- ver shared/playcoins.ts.
@@ -488,26 +498,21 @@ async function processApprovedOrder(order: any) {
   // fallback a ambassadorCode es solo para órdenes en vuelo creadas antes de
   // que existiera esta columna.
   const referrerCode = order.referredByCode || order.ambassadorCode;
-  if (referrerCode) {
-    // Un embajador exclusivo (dado de alta a mano en el admin, cobra
-    // comisión en plata) no es necesariamente un comprador -- se registra su
-    // comisión y se corta acá, sin la lógica de referidos/niveles entre
-    // compradores que sigue abajo.
-    const exclusiveAmbassador = await getActiveExclusiveAmbassadorByCode(referrerCode, order.eventId);
-    if (exclusiveAmbassador) {
-      const accesoSubtotal = items.reduce((sum: number, item: any) => {
-        const tt = ticketTypeById.get(item.ticketTypeId);
-        return tt?.category === 'acceso' ? sum + Number(item.totalPrice) : sum;
-      }, 0);
-      const baseAmount = computeAmbassadorCommissionBase(accesoSubtotal, Number(order.discount ?? 0));
-      await recordAmbassadorCommission({
-        ambassadorId: exclusiveAmbassador.id,
-        orderId: order.id,
-        eventId: order.eventId,
-        baseAmount,
-        commissionPercent: Number(exclusiveAmbassador.commissionPercent),
-      });
-    } else {
+
+  // Programa VIP: se intenta primero, y también SIN código -- un cliente que
+  // ya es exclusivo de un embajador le sigue pagando aunque no vuelva a
+  // teclearlo (decisión del dueño). `attributed` indica si esta venta ya
+  // quedó cubierta por el programa VIP.
+  const accesoSubtotal = items.reduce((sum: number, item: any) => {
+    const tt = ticketTypeById.get(item.ticketTypeId);
+    return tt?.category === 'acceso' ? sum + Number(item.totalPrice) : sum;
+  }, 0);
+  const vipAttribution = await attributeAmbassadorSale({ order, accesoSubtotal, priorCustomer });
+
+  // Referidos orgánicos (cualquier comprador que comparte su código y gana
+  // premios en especie): solo si el programa VIP no se quedó con esta venta.
+  // Son dos sistemas distintos y mutuamente exclusivos por diseño.
+  if (referrerCode && !vipAttribution.attributed) {
       // El "dueño" del código casi nunca tiene fila en `users` -esa tabla
       // solo la usa el login OAuth/admin, que los compradores normales no
       // usan- así que se busca directo en sus propias órdenes aprobadas,
@@ -545,7 +550,6 @@ async function processApprovedOrder(order: any) {
           }
         }
       }
-    }
   }
 
   await ensureOwnAmbassadorCode(db, order);
