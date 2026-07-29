@@ -893,14 +893,16 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const ordersList = ordersData?.orders ?? [];
   const pendingCount = ordersList.filter((o: any) => o.paymentStatus === 'pending').length;
 
-  const exportUrl = () => {
+  const filterParams = () => {
     const params = new URLSearchParams();
     if (statusFilter !== 'all') params.set('status', statusFilter);
     if (dateFrom) params.set('dateFrom', dateFrom);
     if (dateTo) params.set('dateTo', dateTo);
     params.set('channel', channel);
-    return `/api/admin/orders/export.csv?${params.toString()}`;
+    return params;
   };
+  const exportUrl = () => `/api/admin/orders/export.csv?${filterParams().toString()}`;
+  const printUrl = () => `/admin/print/orders?${filterParams().toString()}`;
 
   return (
     <div className="space-y-6">
@@ -921,6 +923,9 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
           <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-36" aria-label="Hasta" />
           <a href={exportUrl()} target="_blank" rel="noopener noreferrer">
             <Button variant="outline" className="interactive">Descargar CSV</Button>
+          </a>
+          <a href={printUrl()} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" className="interactive">Descargar PDF</Button>
           </a>
         </div>
       </div>
@@ -1069,13 +1074,15 @@ function CustomersView() {
 
   useEffect(() => { setPage(0); }, [search, accessType, tagFilter, eventFilter]);
 
-  const exportUrl = () => {
+  const filterParams = () => {
     const params = new URLSearchParams();
     if (search) params.set('search', search);
     if (accessType !== 'all') params.set('accessType', accessType);
     if (tagFilter) params.set('tag', tagFilter);
-    return `/api/admin/customers/export.csv?${params.toString()}`;
+    return params;
   };
+  const exportUrl = () => `/api/admin/customers/export.csv?${filterParams().toString()}`;
+  const printUrl = () => `/admin/print/customers?${filterParams().toString()}`;
 
   const handleImportFile = async (file: File) => {
     setImporting(true);
@@ -1145,6 +1152,12 @@ function CustomersView() {
             <Button variant="outline" className="interactive">
               <Download className="w-4 h-4 mr-2" />
               Exportar CSV
+            </Button>
+          </a>
+          <a href={printUrl()} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" className="interactive">
+              <Download className="w-4 h-4 mr-2" />
+              Descargar PDF
             </Button>
           </a>
         </div>
@@ -2146,11 +2159,13 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
   const { data, refetch } = trpc.cajaReports.shiftClosings.useQuery({ eventId: eventIdFilter });
   const rows = data ?? [];
 
-  const exportUrl = () => {
+  const filterParams = () => {
     const params = new URLSearchParams();
     if (eventIdFilter) params.set('eventId', String(eventIdFilter));
-    return `/api/admin/shifts/export.csv?${params.toString()}`;
+    return params;
   };
+  const exportUrl = () => `/api/admin/shifts/export.csv?${filterParams().toString()}`;
+  const printUrl = () => `/admin/print/shifts?${filterParams().toString()}`;
 
   const diffLabel = (diff: number) => {
     if (Math.abs(diff) < 1) return <span className="text-green-500 font-semibold">✓ Cuadra</span>;
@@ -2172,6 +2187,9 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
           </Select>
           <a href={exportUrl()} target="_blank" rel="noopener noreferrer">
             <Button variant="outline" size="sm" className="interactive">Exportar CSV</Button>
+          </a>
+          <a href={printUrl()} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" size="sm" className="interactive">Descargar PDF</Button>
           </a>
         </div>
       </CardHeader>

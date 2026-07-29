@@ -459,3 +459,16 @@ html {
     animation: none !important;
   }
 }
+
+/* Reportes imprimibles del admin (/admin/print/...) -- pedido explícito del
+ * usuario, PDF vía impresión del navegador en vez de una librería nueva.
+ * .print-hide oculta controles (botón de imprimir, filtros) que no tienen
+ * sentido en la hoja impresa. */
+@media print {
+  .print-hide {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+}

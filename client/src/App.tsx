@@ -21,6 +21,9 @@ const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess"));
 const PaymentFailure = lazy(() => import("./pages/PaymentFailure"));
 const About = lazy(() => import("./pages/About"));
 const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
+const PrintOrders = lazy(() => import("./pages/admin/print/PrintOrders"));
+const PrintCustomers = lazy(() => import("./pages/admin/print/PrintCustomers"));
+const PrintShifts = lazy(() => import("./pages/admin/print/PrintShifts"));
 const CajaApp = lazy(() => import("./pages/caja"));
 const MyReferrals = lazy(() => import("./pages/MyReferrals"));
 const MisPuntos = lazy(() => import("./pages/MisPuntos"));
@@ -74,6 +77,9 @@ function Router() {
           <Route path="/entradas" component={Prices} />
           <Route path="/politica-de-reembolso" component={RefundPolicy} />
           <Route path="/admin" component={AdminDashboard} />
+          <Route path="/admin/print/orders" component={PrintOrders} />
+          <Route path="/admin/print/customers" component={PrintCustomers} />
+          <Route path="/admin/print/shifts" component={PrintShifts} />
           <Route path="/caja" component={CajaApp} />
           <Route path="/404" component={NotFound} />
           <Route component={NotFound} />
