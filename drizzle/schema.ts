@@ -264,17 +264,25 @@ export type InsertReferral = typeof referrals.$inferInsert;
 // se dan de alta a mano en el admin con un código propio y cobran una
 // comisión en plata por cada venta con su código -- no dan descuento al
 // comprador, solo trackean quién trajo la venta. El mismo campo de código de
-// embajador del checkout sirve para ambos casos; lo que distingue a uno
-// exclusivo es que su código está acá, activo, para ese evento.
+// embajador del checkout sirve para ambos casos.
 export const exclusiveAmbassadors = mysqlTable("exclusiveAmbassadors", {
   id: int("id").autoincrement().primaryKey(),
-  eventId: int("eventId").notNull(),
+  // Nullable desde el programa VIP: el código ahora es PERMANENTE y global
+  // (SOFIA, CAMILA), no uno por evento -- el nivel y los beneficios se
+  // cuentan por mes, cruzando todos los eventos. Se conserva la columna para
+  // no perder de vista a qué evento se dio de alta cada fila vieja.
+  eventId: int("eventId"),
   name: varchar("name", { length: 255 }).notNull(),
   code: varchar("code", { length: 32 }).notNull().unique(),
-  // Mismo formato que siteSettings.serviceFeePercent (el único otro % del
-  // schema) -- editable por embajador, cada uno puede tener un % distinto.
-  commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }).notNull(),
+  // Nullable desde el programa VIP: en null significa "usar la escala global"
+  // (ambassadorProgramConfig.commissionScale, 30-50% según ventas del mes).
+  // Con un valor, es un override fijo para ese embajador en particular.
+  commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }),
   contact: varchar("contact", { length: 255 }),
+  // Destinatario del correo semanal -- `contact` es texto libre (teléfono o
+  // Instagram) y no sirve para mandar nada.
+  email: varchar("email", { length: 320 }),
+  instagram: varchar("instagram", { length: 100 }),
   active: int("active").default(1).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -286,21 +294,84 @@ export type InsertExclusiveAmbassador = typeof exclusiveAmbassadors.$inferInsert
 // Comisión generada por cada venta con un código de embajador exclusivo.
 // baseAmount/commissionPercent/commissionAmount quedan CONGELADOS al momento
 // de la venta (misma convención que orders.serviceFee) -- si después se
-// cambia el % del embajador, el historial de ventas ya pagadas no se
-// reescribe.
+// cambia el % del embajador o la escala, el historial ya pagado no se
+// reescribe. Eso es justamente lo que hace que la escala NO sea retroactiva.
 export const ambassadorCommissions = mysqlTable("ambassadorCommissions", {
   id: int("id").autoincrement().primaryKey(),
   ambassadorId: int("ambassadorId").notNull(),
-  orderId: int("orderId").notNull(),
+  // Único: la idempotencia del pago colgaba solo de `orders.emailSent`, así
+  // que un reproceso de la misma orden pagaba dos veces la comisión.
+  orderId: int("orderId").notNull().unique(),
   eventId: int("eventId").notNull(),
   baseAmount: decimal("baseAmount", { precision: 10, scale: 0 }).notNull(),
   commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }).notNull(),
   commissionAmount: decimal("commissionAmount", { precision: 10, scale: 0 }).notNull(),
+  // Quién compró, para el historial del embajador y la vista de clientes
+  // referidos. Se guarda el email porque es la llave real de `customers`.
+  customerEmail: varchar("customerEmail", { length: 320 }),
+  // 'exclusivo' = cliente propio (suma al nivel); 'existente' = cliente de la
+  // casa o de otro embajador (10% fijo, no suma al nivel).
+  clientType: mysqlEnum("clientType", ["exclusivo", "existente"]).default("exclusivo").notNull(),
+  // El código realmente tecleado en el checkout -- puede no ser el del
+  // embajador que cobra, cuando el cliente ya tenía dueño.
+  codeUsed: varchar("codeUsed", { length: 32 }),
+  // Mes calendario en hora de Chile ("2026-08"): es el corte del nivel y de
+  // los beneficios. Se congela acá para que agrupar por mes no dependa de la
+  // zona horaria del servidor (ver monthKeyFor en shared/ambassadorProgram.ts).
+  monthKey: varchar("monthKey", { length: 7 }),
+  // Qué número de venta exclusiva del mes fue esta, para poder auditar de
+  // dónde salió el % aplicado.
+  salesRank: int("salesRank"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export type AmbassadorCommission = typeof ambassadorCommissions.$inferSelect;
 export type InsertAmbassadorCommission = typeof ambassadorCommissions.$inferInsert;
+
+// Propiedad permanente de un cliente. El único en `customerEmail` es lo que
+// garantiza a nivel de base de datos la regla más importante del programa:
+// un cliente pertenece a UN solo embajador, y nunca cambia de dueño.
+//
+// Solo guarda clientes EXCLUSIVOS (los que llegaron nuevos después del
+// lanzamiento). Los clientes que ya estaban en la base no son propiedad de
+// nadie, así que no tienen fila acá -- aparecen en el historial derivados de
+// `ambassadorCommissions.clientType = 'existente'`.
+export const ambassadorClients = mysqlTable("ambassadorClients", {
+  id: int("id").autoincrement().primaryKey(),
+  ambassadorId: int("ambassadorId").notNull(),
+  customerEmail: varchar("customerEmail", { length: 320 }).notNull().unique(),
+  firstOrderId: int("firstOrderId"),
+  firstPurchaseAt: timestamp("firstPurchaseAt").defaultNow().notNull(),
+  ordersCount: int("ordersCount").default(1).notNull(),
+  totalSpent: decimal("totalSpent", { precision: 10, scale: 0 }).default("0").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AmbassadorClient = typeof ambassadorClients.$inferSelect;
+
+// Config del programa (fila única, mismo patrón que siteSettings): el dueño
+// pidió explícitamente que NADA quede hardcodeado -- escalas, beneficios,
+// bonos y horario del correo se editan desde el admin. Los valores por
+// defecto viven en shared/ambassadorProgram.ts.
+export const ambassadorProgramConfig = mysqlTable("ambassadorProgramConfig", {
+  id: int("id").autoincrement().primaryKey(),
+  // La frontera entre "cliente de la casa" y "cliente nuevo": quien ya
+  // estaba antes de esta fecha nunca pasa a ser propiedad de un embajador.
+  launchDate: timestamp("launchDate").defaultNow().notNull(),
+  commissionScale: json("commissionScale"), // CommissionTier[]
+  existingClientPercent: decimal("existingClientPercent", { precision: 5, scale: 2 }).default("10").notNull(),
+  benefits: json("benefits"), // BenefitTier[]
+  weeklyEmailEnabled: int("weeklyEmailEnabled").default(1).notNull(),
+  // 0=domingo .. 1=lunes, igual que Date.getUTCDay().
+  weeklyEmailWeekday: int("weeklyEmailWeekday").default(1).notNull(),
+  // Solo informativo: Vercel Hobby dispara el cron una vez al día a la hora
+  // fija de vercel.json, así que esto no puede mover el disparo real.
+  weeklyEmailHourChile: int("weeklyEmailHourChile").default(9).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AmbassadorProgramConfig = typeof ambassadorProgramConfig.$inferSelect;
 
 // --- Módulo /caja (docs/ARQUITECTURA-CAJA.md §4.2) ---
 

@@ -169,6 +169,13 @@
       "when": 1785323384984,
       "tag": "0023_new_madrox",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1785362808727,
+      "tag": "0024_great_lockjaw",
+      "breakpoints": true
     }
   ]
 }

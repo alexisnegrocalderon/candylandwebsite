@@ -12,6 +12,8 @@ import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceTo
 import { redeemDisplayCode } from "./caja/redeem";
 import { checkInTicket } from "./caja/checkin";
 import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage } from "../shared/party";
+import * as ambassadorProgram from "./ambassadorProgram";
+import { monthKeyFor } from "../shared/ambassadorProgram";
 
 /** Puerta de entrada a "Caramelo": resuelve al que llama por su ticketCode
  * y revalida, en cada llamada, que entró de verdad por la puerta y que la
@@ -872,11 +874,15 @@ export const appRouter = router({
       return db.listExclusiveAmbassadors(input?.eventId);
     }),
     create: adminProcedure.input(z.object({
-      eventId: z.number(),
+      // Opcional: el código es permanente y de la persona, no del evento.
+      eventId: z.number().optional(),
       name: z.string().min(1),
       code: z.string().min(1),
-      commissionPercent: z.number().min(0).max(100),
+      // `null` = usar la escala global del programa (lo normal).
+      commissionPercent: z.number().min(0).max(100).nullable().optional(),
       contact: z.string().optional(),
+      email: z.string().email().optional(),
+      instagram: z.string().optional(),
     })).mutation(async ({ input }) => {
       return db.createExclusiveAmbassador(input);
     }),
@@ -884,8 +890,10 @@ export const appRouter = router({
       id: z.number(),
       name: z.string().optional(),
       code: z.string().optional(),
-      commissionPercent: z.number().min(0).max(100).optional(),
+      commissionPercent: z.number().min(0).max(100).nullable().optional(),
       contact: z.string().optional(),
+      email: z.string().email().optional(),
+      instagram: z.string().optional(),
       active: z.number().optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
@@ -894,10 +902,74 @@ export const appRouter = router({
     delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       return db.deleteExclusiveAmbassador(input.id);
     }),
-    // Reporte para el tab: ventas + comisión exacta de cada embajador de ese
-    // evento, más el total del evento.
+    // Reporte histórico por evento (el del PR original). Se conserva porque
+    // sigue siendo la forma de saber cuánto se pagó en una fiesta puntual.
     getReport: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getAmbassadorCommissionReport(input.eventId);
+    }),
+
+    // --- Programa VIP automatizado ---
+
+    /** Valida el código en el checkout. Público, igual que
+     * communityCodes.validate: hasta ahora el campo se mandaba sin verificar
+     * nada, así que un código mal tecleado se perdía en silencio. */
+    validate: publicProcedure.input(z.object({ code: z.string() })).mutation(async ({ input }) => {
+      const clean = input.code.trim().toUpperCase();
+      if (!clean) return { valid: false as const, message: 'Escribe un código' };
+      const ambassador = await db.getActiveExclusiveAmbassadorByCode(clean);
+      if (!ambassador) return { valid: false as const, message: 'No encontramos ese código' };
+      return { valid: true as const, name: ambassador.name, code: ambassador.code };
+    }),
+
+    /** Panel público del embajador (/embajador/<CODIGO>). El código hace de
+     * llave -- no hay login de embajadores, mismo criterio que /mis-referidos. */
+    getPanelByCode: publicProcedure.input(z.object({ code: z.string() })).query(async ({ input }) => {
+      return ambassadorProgram.getAmbassadorPanel(input.code);
+    }),
+
+    getConfig: adminProcedure.query(async () => {
+      return ambassadorProgram.getProgramConfig();
+    }),
+    updateConfig: adminProcedure.input(z.object({
+      launchDate: z.string().optional(),
+      commissionScale: z.array(z.object({
+        minSales: z.number().int().min(1),
+        maxSales: z.number().int().min(1).nullable(),
+        percent: z.number().min(0).max(100),
+      })).optional(),
+      existingClientPercent: z.number().min(0).max(100).optional(),
+      benefits: z.array(z.object({
+        minSales: z.number().int().min(1),
+        items: z.array(z.string()),
+        bonusClp: z.number().min(0),
+      })).optional(),
+      weeklyEmailEnabled: z.boolean().optional(),
+      weeklyEmailWeekday: z.number().int().min(0).max(6).optional(),
+      weeklyEmailHourChile: z.number().int().min(0).max(23).optional(),
+    })).mutation(async ({ input }) => {
+      const { launchDate, ...rest } = input;
+      return ambassadorProgram.updateProgramConfig({
+        ...rest,
+        ...(launchDate ? { launchDate: new Date(launchDate) } : {}),
+      });
+    }),
+
+    /** `monthKey` en formato "2026-08"; si no viene, el mes actual de Chile. */
+    getSummary: adminProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
+      return ambassadorProgram.getAmbassadorAdminSummary(input?.monthKey || monthKeyFor(new Date()));
+    }),
+    getRanking: adminProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
+      return ambassadorProgram.getAmbassadorRanking(input?.monthKey || monthKeyFor(new Date()));
+    }),
+    getProfile: adminProcedure.input(z.object({ id: z.number(), monthKey: z.string().optional() })).query(async ({ input }) => {
+      const monthKey = input.monthKey || monthKeyFor(new Date());
+      return {
+        stats: await ambassadorProgram.getAmbassadorStats(input.id, monthKey),
+        sales: await ambassadorProgram.getAmbassadorSales(input.id),
+      };
+    }),
+    listReferredClients: adminProcedure.query(async () => {
+      return ambassadorProgram.listReferredClients();
     }),
   }),
 

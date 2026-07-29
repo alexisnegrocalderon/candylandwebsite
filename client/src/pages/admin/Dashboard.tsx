@@ -20,6 +20,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { isMissionWindowOpen, missionDepositPrice } from '@shared/mission300';
+import { monthKeyFor } from '@shared/ambassadorProgram';
 import {
   SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
   SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarTrigger,
@@ -1696,12 +1697,18 @@ function ReferralsView() {
   );
 }
 
-/** Fila editable de AmbassadorsView -- nombre/código/%/contacto se editan
- * en el lugar (pedido explícito del usuario: "todo valor debe ser
- * personalizable"), sin un diálogo aparte. */
-function AmbassadorRow({ ambassador, onUpdate, onDelete, updating, deleting }: {
+/** Fila editable de la lista de embajadores -- nombre/código/%/contacto se
+ * editan en el lugar (pedido explícito del usuario: "todo valor debe ser
+ * personalizable"), sin un diálogo aparte.
+ *
+ * `commissionPercent` en null significa "usar la escala del programa": es lo
+ * normal ahora, y el campo se deja vacío para dejarlo así. */
+function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, onDelete, updating, deleting }: {
   ambassador: any;
-  onUpdate: (data: { name?: string; code?: string; commissionPercent?: number; contact?: string; active?: number }) => Promise<unknown>;
+  stats: { exclusiveSales: number; existingSales: number; monthlyRevenue: number; monthlyCommission: number; totalCommission: number } | undefined;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onUpdate: (data: { name?: string; code?: string; commissionPercent?: number | null; contact?: string; email?: string; instagram?: string; active?: number }) => Promise<unknown>;
   onDelete: () => Promise<unknown>;
   updating: boolean;
   deleting: boolean;
@@ -1709,11 +1716,23 @@ function AmbassadorRow({ ambassador, onUpdate, onDelete, updating, deleting }: {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(ambassador.name);
   const [code, setCode] = useState(ambassador.code);
-  const [commissionPercent, setCommissionPercent] = useState(String(ambassador.commissionPercent));
+  const [commissionPercent, setCommissionPercent] = useState(
+    ambassador.commissionPercent === null || ambassador.commissionPercent === undefined ? '' : String(ambassador.commissionPercent),
+  );
   const [contact, setContact] = useState(ambassador.contact ?? '');
+  const [email, setEmail] = useState(ambassador.email ?? '');
+
+  const s = stats ?? { exclusiveSales: 0, existingSales: 0, monthlyRevenue: 0, monthlyCommission: 0, totalCommission: 0 };
 
   const handleSave = async () => {
-    await onUpdate({ name, code: code.toUpperCase(), commissionPercent: Number(commissionPercent) || 0, contact: contact || undefined });
+    await onUpdate({
+      name,
+      code: code.toUpperCase(),
+      // Vacío = null = usar la escala global, no 0%.
+      commissionPercent: commissionPercent.trim() === '' ? null : Number(commissionPercent) || 0,
+      contact: contact || undefined,
+      email: email || undefined,
+    });
     setEditing(false);
   };
 
@@ -1722,10 +1741,11 @@ function AmbassadorRow({ ambassador, onUpdate, onDelete, updating, deleting }: {
       <tr className="border-b border-border/50 bg-muted/20">
         <td className="py-2 px-3"><Input value={name} onChange={(e) => setName(e.target.value)} className="h-8" /></td>
         <td className="py-2 px-3"><Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} className="h-8 font-mono" /></td>
-        <td className="py-2 px-3"><Input type="number" value={commissionPercent} onChange={(e) => setCommissionPercent(e.target.value)} className="h-8 w-20" /></td>
-        <td className="py-2 px-3 text-muted-foreground">{ambassador.salesCount}</td>
-        <td className="py-2 px-3 text-muted-foreground">${ambassador.totalBase.toLocaleString('es-CL')}</td>
-        <td className="py-2 px-3 text-muted-foreground">${ambassador.totalCommission.toLocaleString('es-CL')}</td>
+        <td className="py-2 px-3"><Input type="number" value={commissionPercent} onChange={(e) => setCommissionPercent(e.target.value)} placeholder="Escala" className="h-8 w-20" /></td>
+        <td className="py-2 px-3 text-muted-foreground">{s.exclusiveSales}</td>
+        <td className="py-2 px-3 text-muted-foreground">${s.monthlyRevenue.toLocaleString('es-CL')}</td>
+        <td className="py-2 px-3 text-muted-foreground">${s.monthlyCommission.toLocaleString('es-CL')}</td>
+        <td className="py-2 px-3"><Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Correo" className="h-8" /></td>
         <td className="py-2 px-3"><Input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="Contacto" className="h-8" /></td>
         <td className="py-2 px-3">
           <div className="flex gap-2">
@@ -1739,93 +1759,336 @@ function AmbassadorRow({ ambassador, onUpdate, onDelete, updating, deleting }: {
 
   return (
     <tr className="border-b border-border/50">
-      <td className="py-2 px-3">{ambassador.name}</td>
+      <td className="py-2 px-3">
+        <button className="text-left hover:text-primary transition-colors" onClick={onToggleExpand}>
+          {ambassador.name}
+        </button>
+      </td>
       <td className="py-2 px-3 font-mono font-bold text-primary">{ambassador.code}</td>
-      <td className="py-2 px-3">{ambassador.commissionPercent}%</td>
-      <td className="py-2 px-3">{ambassador.salesCount}</td>
-      <td className="py-2 px-3">${ambassador.totalBase.toLocaleString('es-CL')}</td>
-      <td className="py-2 px-3 font-semibold text-primary">${ambassador.totalCommission.toLocaleString('es-CL')}</td>
+      <td className="py-2 px-3">
+        {ambassador.commissionPercent === null || ambassador.commissionPercent === undefined
+          ? <span className="text-muted-foreground text-xs">Escala</span>
+          : `${ambassador.commissionPercent}%`}
+      </td>
+      <td className="py-2 px-3">
+        {s.exclusiveSales}
+        {s.existingSales > 0 && <span className="text-muted-foreground text-xs"> +{s.existingSales} exist.</span>}
+      </td>
+      <td className="py-2 px-3">${s.monthlyRevenue.toLocaleString('es-CL')}</td>
+      <td className="py-2 px-3 font-semibold text-primary">${s.monthlyCommission.toLocaleString('es-CL')}</td>
+      <td className="py-2 px-3 text-muted-foreground text-xs">{ambassador.email || '—'}</td>
       <td className="py-2 px-3 text-muted-foreground text-xs">{ambassador.contact || '—'}</td>
       <td className="py-2 px-3">
         <div className="flex gap-2">
           <span className={`px-2 py-0.5 rounded-full text-xs ${ambassador.active ? 'bg-green-500/20 text-green-400' : 'bg-muted text-muted-foreground'}`}>{ambassador.active ? 'Activo' : 'Inactivo'}</span>
+          <Button variant="outline" size="sm" onClick={onToggleExpand} title="Ver perfil">{expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}</Button>
           <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Edit className="w-3 h-3" /></Button>
           <Button variant="outline" size="sm" disabled={updating} onClick={() => onUpdate({ active: ambassador.active ? 0 : 1 })}>
             {ambassador.active ? 'Desactivar' : 'Activar'}
           </Button>
-          <ConfirmDeleteButton description={`Vas a eliminar al embajador "${ambassador.name}" (${ambassador.code}).`} onConfirm={onDelete} disabled={deleting} />
+          <ConfirmDeleteButton description={`Vas a eliminar al embajador "${ambassador.name}" (${ambassador.code}). Sus clientes exclusivos quedan libres; las comisiones ya generadas se conservan.`} onConfirm={onDelete} disabled={deleting} />
         </div>
       </td>
     </tr>
   );
 }
 
-function AmbassadorsView() {
-  const { data: eventsData } = trpc.events.listAll.useQuery();
-  const events = eventsData ?? [];
-  const [eventId, setEventId] = useState<number | null>(null);
-  const activeEventId = eventId ?? events[0]?.id ?? null;
+/** Ficha completa que se abre al tocar un embajador: nivel, progreso,
+ * beneficios e historial de ventas. Usa el patrón de fila expandible de
+ * OrdersView, que es el que ya usa el panel. */
+function AmbassadorProfileRow({ ambassadorId, monthKey }: { ambassadorId: number; monthKey: string }) {
+  const { data } = trpc.ambassadors.getProfile.useQuery({ id: ambassadorId, monthKey });
+  const stats = data?.stats;
+  const sales = data?.sales ?? [];
 
-  const { data: reportData, refetch } = trpc.ambassadors.getReport.useQuery(
-    { eventId: activeEventId ?? 0 },
-    { enabled: !!activeEventId },
+  if (!data) {
+    return <tr className="border-b border-border/50 bg-muted/10"><td colSpan={9} className="py-3 px-3 text-xs text-muted-foreground">Cargando ficha…</td></tr>;
+  }
+
+  const progreso = stats?.nextTarget
+    ? Math.min(100, Math.round((stats.monthlySales / stats.nextTarget.target) * 100))
+    : 100;
+
+  return (
+    <tr className="border-b border-border/50 bg-muted/10">
+      <td colSpan={9} className="py-4 px-3">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+          <div className="p-3 rounded-xl bg-background border border-border">
+            <p className="text-xs text-muted-foreground">Comisión actual</p>
+            <p className="font-heading text-2xl">{stats?.currentPercent ?? 0}%</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {stats?.monthlySales ?? 0} venta{(stats?.monthlySales ?? 0) === 1 ? '' : 's'} a clientes exclusivos este mes
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-background border border-border">
+            <p className="text-xs text-muted-foreground">Próximo objetivo</p>
+            {stats?.nextTarget ? (
+              <>
+                <p className="font-heading text-2xl">{stats.monthlySales} / {stats.nextTarget.target}</p>
+                <div className="w-full h-2 bg-muted rounded-full overflow-hidden mt-2">
+                  <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${progreso}%` }} />
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Faltan {stats.nextTarget.salesNeeded} para subir al {stats.nextTarget.nextPercent}%
+                </p>
+              </>
+            ) : (
+              <p className="font-heading text-2xl">Nivel máximo 🏆</p>
+            )}
+          </div>
+          <div className="p-3 rounded-xl bg-background border border-border">
+            <p className="text-xs text-muted-foreground">Comisión acumulada (histórica)</p>
+            <p className="font-heading text-2xl text-primary">${(stats?.totalCommission ?? 0).toLocaleString('es-CL')}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {stats?.exclusiveClientsCount ?? 0} clientes exclusivos · {stats?.existingClientsCount ?? 0} existentes
+            </p>
+          </div>
+        </div>
+
+        {stats && stats.benefits.items.length > 0 && (
+          <div className="mb-4">
+            <p className="text-xs text-muted-foreground mb-1.5">Beneficios desbloqueados este mes</p>
+            <div className="flex flex-wrap gap-2">
+              {stats.benefits.items.map((b: string, i: number) => (
+                <span key={i} className="px-2 py-1 rounded-lg bg-primary/10 border border-primary/30 text-xs">{b}</span>
+              ))}
+              {stats.benefits.bonusClp > 0 && (
+                <span className="px-2 py-1 rounded-lg bg-green-500/15 border border-green-500/30 text-xs font-semibold text-green-400">
+                  Bono ${stats.benefits.bonusClp.toLocaleString('es-CL')}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        <p className="text-xs text-muted-foreground mb-1.5">Historial de ventas</p>
+        {sales.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Todavía no tiene ventas registradas.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-1.5 px-2">Fecha</th>
+                  <th className="text-left py-1.5 px-2">Evento</th>
+                  <th className="text-left py-1.5 px-2">Cliente</th>
+                  <th className="text-left py-1.5 px-2">Tipo</th>
+                  <th className="text-left py-1.5 px-2">Código</th>
+                  <th className="text-left py-1.5 px-2">Monto</th>
+                  <th className="text-left py-1.5 px-2">%</th>
+                  <th className="text-left py-1.5 px-2">Comisión</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sales.map((s: any) => (
+                  <tr key={s.id} className="border-b border-border/40">
+                    <td className="py-1.5 px-2">{new Date(s.createdAt).toLocaleDateString('es-CL')}</td>
+                    <td className="py-1.5 px-2">{s.eventTitle}</td>
+                    <td className="py-1.5 px-2">{s.customerName || s.customerEmail || '—'}</td>
+                    <td className="py-1.5 px-2">
+                      <span className={`px-1.5 py-0.5 rounded-full ${s.clientType === 'exclusivo' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                        {s.clientType === 'exclusivo' ? 'Exclusivo' : 'Existente'}
+                      </span>
+                    </td>
+                    <td className="py-1.5 px-2 font-mono">{s.codeUsed || '—'}</td>
+                    <td className="py-1.5 px-2">${s.baseAmount.toLocaleString('es-CL')}</td>
+                    <td className="py-1.5 px-2">{s.commissionPercent}%</td>
+                    <td className="py-1.5 px-2 font-semibold text-primary">${s.commissionAmount.toLocaleString('es-CL')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </td>
+    </tr>
   );
-  const report = reportData ?? { ambassadors: [], totalBase: 0, totalCommission: 0 };
+}
 
-  const createAmbassador = trpc.ambassadors.create.useMutation({
-    onSuccess: () => { refetch(); toast.success('Embajador creado'); setShowForm(false); setNewAmbassador({ name: '', code: '', commissionPercent: '10', contact: '' }); },
-    onError: onMutationError,
-  });
-  const updateAmbassador = trpc.ambassadors.update.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
-  const deleteAmbassador = trpc.ambassadors.delete.useMutation({ onSuccess: () => { refetch(); toast.success('Embajador eliminado'); }, onError: onMutationError });
+/** Últimos 12 meses como opciones "2026-08", en hora de Chile. */
+function monthOptions(): { value: string; label: string }[] {
+  const out: { value: string; label: string }[] = [];
+  const now = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 15, 12));
+    out.push({
+      value: monthKeyFor(d),
+      label: d.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' }),
+    });
+  }
+  return out;
+}
 
-  const [showForm, setShowForm] = useState(false);
-  const [newAmbassador, setNewAmbassador] = useState({ name: '', code: '', commissionPercent: '10', contact: '' });
+const AMBASSADOR_TABS = [
+  { id: 'resumen', label: 'Resumen' },
+  { id: 'embajadores', label: 'Embajadores' },
+  { id: 'ranking', label: 'Ranking' },
+  { id: 'clientes', label: 'Clientes referidos' },
+  { id: 'config', label: 'Configuración' },
+] as const;
 
-  const handleCreate = async () => {
-    if (!activeEventId || !newAmbassador.name || !newAmbassador.code) return;
-    try {
-      await createAmbassador.mutateAsync({
-        eventId: activeEventId,
-        name: newAmbassador.name,
-        code: newAmbassador.code.toUpperCase(),
-        commissionPercent: Number(newAmbassador.commissionPercent) || 0,
-        contact: newAmbassador.contact || undefined,
-      });
-    } catch {
-      // el toast de error ya lo muestra onMutationError; dejamos el formulario abierto para reintentar
-    }
-  };
+function AmbassadorsView() {
+  const [tab, setTab] = useState<typeof AMBASSADOR_TABS[number]['id']>('resumen');
+  const meses = monthOptions();
+  const [monthKey, setMonthKey] = useState(meses[0].value);
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-heading text-2xl">Embajadores VIP</h2>
-          <p className="text-muted-foreground text-sm mt-1">Embajadores exclusivos dados de alta a mano, con comisión en plata por cada venta con su código -- no dan descuento al comprador. El código se ingresa en el mismo campo de "código de embajador" del checkout.</p>
+          <p className="text-muted-foreground text-sm mt-1 max-w-3xl">
+            Cada embajador tiene un código permanente. Las ventas a clientes que él trae (exclusivos) suben su comisión
+            del 30% al 50% según cuántas haga en el mes; las ventas a clientes que ya estaban en la base pagan un 10%
+            fijo y no suben el nivel. Todo se calcula solo al aprobarse cada compra.
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          {events.length > 0 && (
-            <Select value={String(activeEventId)} onValueChange={(v) => setEventId(Number(v))}>
-              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
-              </SelectContent>
-            </Select>
+        {tab !== 'config' && tab !== 'clientes' && (
+          <Select value={monthKey} onValueChange={setMonthKey}>
+            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {meses.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2 border-b border-border pb-3">
+        {AMBASSADOR_TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors interactive ${
+              tab === t.id ? 'bg-primary text-primary-foreground' : 'bg-muted/40 text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'resumen' && <AmbassadorSummaryTab monthKey={monthKey} />}
+      {tab === 'embajadores' && <AmbassadorsListTab monthKey={monthKey} />}
+      {tab === 'ranking' && <AmbassadorRankingTab monthKey={monthKey} />}
+      {tab === 'clientes' && <ReferredClientsTab />}
+      {tab === 'config' && <ProgramConfigTab />}
+    </div>
+  );
+}
+
+function AmbassadorSummaryTab({ monthKey }: { monthKey: string }) {
+  const { data } = trpc.ambassadors.getSummary.useQuery({ monthKey }, { refetchInterval: 60_000 });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard icon={Crown} colorClass="bg-[oklch(0.68_0.16_340)]" value={data?.activeAmbassadors ?? 0} label="Embajadores activos" />
+        <StatCard icon={Ticket} colorClass="bg-[oklch(0.72_0.1_300)]" value={data?.monthlySales ?? 0} label="Ventas del mes" />
+        <StatCard icon={DollarSign} colorClass="bg-[oklch(0.75_0.15_230)]" value={`$${(data?.monthlyRevenue ?? 0).toLocaleString('es-CL')}`} label="Monto vendido" />
+        <StatCard icon={Percent} colorClass="bg-[oklch(0.7_0.16_20)]" value={`$${(data?.monthlyCommission ?? 0).toLocaleString('es-CL')}`} label="Comisiones del mes" />
+        <StatCard icon={Users} colorClass="bg-[oklch(0.72_0.14_150)]" value={data?.newClients ?? 0} label="Ventas a clientes nuevos" />
+        <StatCard icon={Contact} colorClass="bg-[oklch(0.7_0.08_260)]" value={data?.existingClients ?? 0} label="Ventas a clientes existentes" />
+      </div>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Top embajador del mes</CardTitle></CardHeader>
+        <CardContent>
+          {data?.topAmbassador ? (
+            <div className="flex items-baseline gap-3">
+              <p className="font-heading text-3xl">{data.topAmbassador.name}</p>
+              <p className="font-mono text-primary font-bold">{data.topAmbassador.code}</p>
+              <p className="text-muted-foreground text-sm">
+                {data.topAmbassador.exclusiveSales} venta{data.topAmbassador.exclusiveSales === 1 ? '' : 's'} a clientes propios
+              </p>
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-sm">Todavía nadie hizo ventas este mes.</p>
           )}
-          <Button onClick={() => setShowForm(!showForm)} className="interactive" disabled={!activeEventId}><Plus className="w-4 h-4 mr-2" /> Nuevo Embajador</Button>
-        </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
+  const { data: listData, refetch } = trpc.ambassadors.listAll.useQuery();
+  const { data: rankingData, refetch: refetchRanking } = trpc.ambassadors.getRanking.useQuery({ monthKey });
+  const ambassadors = listData ?? [];
+  const statsById = new Map((rankingData ?? []).map((r: any) => [r.id, r]));
+
+  const refreshAll = () => { refetch(); refetchRanking(); };
+
+  const createAmbassador = trpc.ambassadors.create.useMutation({
+    onSuccess: () => { refreshAll(); toast.success('Embajador creado'); setShowForm(false); setNewAmbassador({ name: '', code: '', commissionPercent: '', contact: '', email: '' }); },
+    onError: onMutationError,
+  });
+  const updateAmbassador = trpc.ambassadors.update.useMutation({ onSuccess: refreshAll, onError: onMutationError });
+  const deleteAmbassador = trpc.ambassadors.delete.useMutation({ onSuccess: () => { refreshAll(); toast.success('Embajador eliminado'); }, onError: onMutationError });
+
+  const [showForm, setShowForm] = useState(false);
+  const [newAmbassador, setNewAmbassador] = useState({ name: '', code: '', commissionPercent: '', contact: '', email: '' });
+  const [search, setSearch] = useState('');
+  const [estado, setEstado] = useState<'all' | 'active' | 'inactive'>('all');
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const visibles = ambassadors.filter((a: any) => {
+    if (estado === 'active' && !a.active) return false;
+    if (estado === 'inactive' && a.active) return false;
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return a.name.toLowerCase().includes(q) || a.code.toLowerCase().includes(q) || (a.email ?? '').toLowerCase().includes(q);
+  });
+
+  const handleCreate = async () => {
+    if (!newAmbassador.name || !newAmbassador.code) return;
+    try {
+      await createAmbassador.mutateAsync({
+        name: newAmbassador.name,
+        code: newAmbassador.code.toUpperCase(),
+        commissionPercent: newAmbassador.commissionPercent.trim() === '' ? null : Number(newAmbassador.commissionPercent) || 0,
+        contact: newAmbassador.contact || undefined,
+        email: newAmbassador.email || undefined,
+      });
+    } catch {
+      // onMutationError ya avisó; el formulario queda abierto para reintentar.
+    }
+  };
+
+  const totalComision = visibles.reduce((sum: number, a: any) => sum + (statsById.get(a.id)?.monthlyCommission ?? 0), 0);
+  const totalVendido = visibles.reduce((sum: number, a: any) => sum + (statsById.get(a.id)?.monthlyRevenue ?? 0), 0);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, código o correo…" className="max-w-xs" />
+        <Select value={estado} onValueChange={(v) => setEstado(v as typeof estado)}>
+          <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            <SelectItem value="active">Solo activos</SelectItem>
+            <SelectItem value="inactive">Solo inactivos</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button onClick={() => setShowForm(!showForm)} className="interactive ml-auto"><Plus className="w-4 h-4 mr-2" /> Nuevo Embajador</Button>
       </div>
 
       {showForm && (
         <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
           <CardContent className="pt-6 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div><Label>Nombre</Label><Input value={newAmbassador.name} onChange={(e) => setNewAmbassador({ ...newAmbassador, name: e.target.value })} className="mt-1" /></div>
-              <div><Label>Código</Label><Input value={newAmbassador.code} onChange={(e) => setNewAmbassador({ ...newAmbassador, code: e.target.value.toUpperCase() })} className="mt-1" placeholder="Ej: VIP-CAMI" /></div>
-              <div><Label>% de comisión</Label><Input type="number" value={newAmbassador.commissionPercent} onChange={(e) => setNewAmbassador({ ...newAmbassador, commissionPercent: e.target.value })} className="mt-1" /></div>
+              <div><Label>Código</Label><Input value={newAmbassador.code} onChange={(e) => setNewAmbassador({ ...newAmbassador, code: e.target.value.toUpperCase() })} className="mt-1 font-mono" placeholder="SOFIA" /></div>
+              <div>
+                <Label>% fijo (opcional)</Label>
+                <Input type="number" value={newAmbassador.commissionPercent} onChange={(e) => setNewAmbassador({ ...newAmbassador, commissionPercent: e.target.value })} className="mt-1" placeholder="Escala" />
+              </div>
+              <div><Label>Correo</Label><Input value={newAmbassador.email} onChange={(e) => setNewAmbassador({ ...newAmbassador, email: e.target.value })} className="mt-1" placeholder="Para el correo semanal" /></div>
               <div><Label>Contacto (opcional)</Label><Input value={newAmbassador.contact} onChange={(e) => setNewAmbassador({ ...newAmbassador, contact: e.target.value })} className="mt-1" placeholder="Teléfono o Instagram" /></div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Deja el "% fijo" vacío para que use la escala del programa (30% a 50% según sus ventas del mes). Solo
+              ponle un número si ese embajador tiene un trato distinto al resto.
+            </p>
             <div className="flex gap-2">
               <Button onClick={handleCreate} disabled={!newAmbassador.name || !newAmbassador.code || createAmbassador.isPending}>Crear Embajador</Button>
               <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
@@ -1834,55 +2097,313 @@ function AmbassadorsView() {
         </Card>
       )}
 
-      {activeEventId ? (
-        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-          <CardContent className="pt-6">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-2 px-3">Embajador</th>
-                    <th className="text-left py-2 px-3">Código</th>
-                    <th className="text-left py-2 px-3">% Comisión</th>
-                    <th className="text-left py-2 px-3">Ventas</th>
-                    <th className="text-left py-2 px-3">Base (entradas)</th>
-                    <th className="text-left py-2 px-3">Comisión a pagar</th>
-                    <th className="text-left py-2 px-3">Contacto</th>
-                    <th className="text-left py-2 px-3">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.ambassadors.map((a: any) => (
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 px-3">Embajador</th>
+                  <th className="text-left py-2 px-3">Código</th>
+                  <th className="text-left py-2 px-3">% Comisión</th>
+                  <th className="text-left py-2 px-3">Ventas del mes</th>
+                  <th className="text-left py-2 px-3">Monto vendido</th>
+                  <th className="text-left py-2 px-3">Comisión del mes</th>
+                  <th className="text-left py-2 px-3">Correo</th>
+                  <th className="text-left py-2 px-3">Contacto</th>
+                  <th className="text-left py-2 px-3">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibles.map((a: any) => (
+                  <Fragment key={a.id}>
                     <AmbassadorRow
-                      key={a.id}
                       ambassador={a}
+                      stats={statsById.get(a.id)}
+                      expanded={expandedId === a.id}
+                      onToggleExpand={() => setExpandedId(expandedId === a.id ? null : a.id)}
                       updating={updateAmbassador.isPending}
                       deleting={deleteAmbassador.isPending}
                       onUpdate={(data) => updateAmbassador.mutateAsync({ id: a.id, ...data })}
                       onDelete={() => deleteAmbassador.mutateAsync({ id: a.id })}
                     />
-                  ))}
-                  {report.ambassadors.length === 0 && (
-                    <tr><td colSpan={8} className="py-8 text-center text-muted-foreground">Sin embajadores para este evento todavía.</td></tr>
-                  )}
-                </tbody>
-                {report.ambassadors.length > 0 && (
-                  <tfoot>
-                    <tr className="border-t border-border font-semibold">
-                      <td colSpan={4} className="py-2 px-3 text-right">Total evento</td>
-                      <td className="py-2 px-3">${report.totalBase.toLocaleString('es-CL')}</td>
-                      <td className="py-2 px-3 text-primary">${report.totalCommission.toLocaleString('es-CL')}</td>
-                      <td colSpan={2}></td>
-                    </tr>
-                  </tfoot>
+                    {expandedId === a.id && <AmbassadorProfileRow ambassadorId={a.id} monthKey={monthKey} />}
+                  </Fragment>
+                ))}
+                {visibles.length === 0 && (
+                  <tr><td colSpan={9} className="py-8 text-center text-muted-foreground">
+                    {ambassadors.length === 0 ? 'Sin embajadores todavía. Crea el primero con el botón de arriba.' : 'Ningún embajador coincide con el filtro.'}
+                  </td></tr>
                 )}
-              </table>
+              </tbody>
+              {visibles.length > 0 && (
+                <tfoot>
+                  <tr className="border-t border-border font-semibold">
+                    <td colSpan={4} className="py-2 px-3 text-right">Total del mes</td>
+                    <td className="py-2 px-3">${totalVendido.toLocaleString('es-CL')}</td>
+                    <td className="py-2 px-3 text-primary">${totalComision.toLocaleString('es-CL')}</td>
+                    <td colSpan={3}></td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function AmbassadorRankingTab({ monthKey }: { monthKey: string }) {
+  const { data } = trpc.ambassadors.getRanking.useQuery({ monthKey });
+  const ranking = (data ?? []).filter((r: any) => r.exclusiveSales > 0 || r.existingSales > 0);
+  const MEDALLAS = ['🥇', '🥈', '🥉'];
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardContent className="pt-6">
+        <p className="text-muted-foreground text-sm mb-4">
+          Ordenado por cantidad de ventas a clientes exclusivos, no por dinero.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left py-2 px-3">#</th>
+                <th className="text-left py-2 px-3">Embajador</th>
+                <th className="text-left py-2 px-3">Ventas exclusivas</th>
+                <th className="text-left py-2 px-3">Monto vendido</th>
+                <th className="text-left py-2 px-3">Comisión del mes</th>
+                <th className="text-left py-2 px-3">Comisión acumulada</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ranking.map((r: any, i: number) => (
+                <tr key={r.id} className={`border-b border-border/50 ${i < 3 ? 'bg-primary/5' : ''}`}>
+                  <td className="py-2 px-3 font-bold">{MEDALLAS[i] ?? r.position}</td>
+                  <td className="py-2 px-3">
+                    {r.name} <span className="font-mono text-primary text-xs">{r.code}</span>
+                  </td>
+                  <td className="py-2 px-3 font-semibold">{r.exclusiveSales}</td>
+                  <td className="py-2 px-3">${r.monthlyRevenue.toLocaleString('es-CL')}</td>
+                  <td className="py-2 px-3 text-primary font-semibold">${r.monthlyCommission.toLocaleString('es-CL')}</td>
+                  <td className="py-2 px-3 text-muted-foreground">${r.totalCommission.toLocaleString('es-CL')}</td>
+                </tr>
+              ))}
+              {ranking.length === 0 && (
+                <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">Sin ventas de embajadores este mes.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReferredClientsTab() {
+  const { data } = trpc.ambassadors.listReferredClients.useQuery();
+  const clientes = data ?? [];
+  const [search, setSearch] = useState('');
+
+  const visibles = clientes.filter((c: any) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return c.customerEmail.toLowerCase().includes(q) || c.ambassadorName.toLowerCase().includes(q);
+  });
+
+  return (
+    <div className="space-y-4">
+      <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por cliente o embajador…" className="max-w-xs" />
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6">
+          <p className="text-muted-foreground text-sm mb-4">
+            Los <strong>exclusivos</strong> son propiedad permanente de su embajador: todas sus compras futuras le pagan.
+            Los <strong>existentes</strong> ya estaban en la base antes del programa y nunca cambian de dueño.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 px-3">Cliente</th>
+                  <th className="text-left py-2 px-3">Embajador</th>
+                  <th className="text-left py-2 px-3">Primera compra</th>
+                  <th className="text-left py-2 px-3">Compras</th>
+                  <th className="text-left py-2 px-3">Monto total</th>
+                  <th className="text-left py-2 px-3">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibles.map((c: any, i: number) => (
+                  <tr key={`${c.customerEmail}-${i}`} className="border-b border-border/50">
+                    <td className="py-2 px-3">{c.customerEmail}</td>
+                    <td className="py-2 px-3">{c.ambassadorName}</td>
+                    <td className="py-2 px-3">{new Date(c.firstPurchaseAt).toLocaleDateString('es-CL')}</td>
+                    <td className="py-2 px-3">{c.ordersCount}</td>
+                    <td className="py-2 px-3">${c.totalSpent.toLocaleString('es-CL')}</td>
+                    <td className="py-2 px-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs ${c.clientType === 'exclusivo' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                        {c.clientType === 'exclusivo' ? 'Cliente Exclusivo' : 'Cliente Existente'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {visibles.length === 0 && (
+                  <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">Sin clientes referidos todavía.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/** Toda la configuración del programa. El dueño pidió explícitamente que
+ * nada quede fijo en el código. */
+function ProgramConfigTab() {
+  const { data, refetch } = trpc.ambassadors.getConfig.useQuery();
+  const update = trpc.ambassadors.updateConfig.useMutation({
+    onSuccess: () => { refetch(); toast.success('Configuración guardada'); },
+    onError: onMutationError,
+  });
+
+  const [scale, setScale] = useState<{ minSales: number; maxSales: number | null; percent: number }[]>([]);
+  const [benefits, setBenefits] = useState<{ minSales: number; items: string[]; bonusClp: number }[]>([]);
+  const [existingPercent, setExistingPercent] = useState('');
+  const [launchDate, setLaunchDate] = useState('');
+  const [weeklyEnabled, setWeeklyEnabled] = useState(true);
+  const [weekday, setWeekday] = useState('1');
+
+  useEffect(() => {
+    if (!data) return;
+    setScale(data.commissionScale);
+    setBenefits(data.benefits);
+    setExistingPercent(String(data.existingClientPercent));
+    setLaunchDate(new Date(data.launchDate).toISOString().slice(0, 10));
+    setWeeklyEnabled(data.weeklyEmailEnabled);
+    setWeekday(String(data.weeklyEmailWeekday));
+  }, [data]);
+
+  const DIAS = [
+    { value: '1', label: 'Lunes' }, { value: '2', label: 'Martes' }, { value: '3', label: 'Miércoles' },
+    { value: '4', label: 'Jueves' }, { value: '5', label: 'Viernes' }, { value: '6', label: 'Sábado' },
+    { value: '0', label: 'Domingo' },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Escala de comisión</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            El % se fija por cada venta según cuántas ventas a clientes exclusivos lleve el embajador ese mes, y queda
+            congelado: subir de tramo no recalcula las ventas anteriores. Deja "hasta" vacío en el último tramo para
+            que sea abierto.
+          </p>
+          {scale.map((t, i) => (
+            <div key={i} className="flex flex-wrap items-end gap-3">
+              <div><Label className="text-xs">Desde</Label><Input type="number" value={t.minSales} onChange={(e) => setScale(scale.map((x, j) => j === i ? { ...x, minSales: Number(e.target.value) || 1 } : x))} className="mt-1 w-24 h-9" /></div>
+              <div><Label className="text-xs">Hasta</Label><Input type="number" value={t.maxSales ?? ''} placeholder="∞" onChange={(e) => setScale(scale.map((x, j) => j === i ? { ...x, maxSales: e.target.value === '' ? null : Number(e.target.value) } : x))} className="mt-1 w-24 h-9" /></div>
+              <div><Label className="text-xs">Comisión %</Label><Input type="number" value={t.percent} onChange={(e) => setScale(scale.map((x, j) => j === i ? { ...x, percent: Number(e.target.value) || 0 } : x))} className="mt-1 w-24 h-9" /></div>
+              <Button variant="outline" size="sm" className="text-destructive h-9" onClick={() => setScale(scale.filter((_, j) => j !== i))}><Trash2 className="w-3 h-3" /></Button>
             </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <p className="text-sm text-muted-foreground">Creá un evento primero para poder dar de alta embajadores.</p>
-      )}
+          ))}
+          <Button variant="outline" size="sm" onClick={() => setScale([...scale, { minSales: 1, maxSales: null, percent: 30 }])}>
+            <Plus className="w-3 h-3 mr-1" /> Agregar tramo
+          </Button>
+          <div className="pt-2 max-w-xs">
+            <Label>% para clientes existentes</Label>
+            <Input type="number" step="0.01" value={existingPercent} onChange={(e) => setExistingPercent(e.target.value)} className="mt-1" />
+            <p className="text-xs text-muted-foreground mt-1">Se paga por vender a alguien que ya estaba en la base, o al cliente de otro embajador.</p>
+          </div>
+          <Button
+            onClick={() => update.mutate({ commissionScale: scale, existingClientPercent: Number(existingPercent) || 0 })}
+            disabled={update.isPending}
+            className="interactive"
+          >
+            {update.isPending ? 'Guardando…' : 'Guardar escala'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Beneficios por ventas del mes</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Son acumulativos: quien llega a 10 ventas también tiene lo de 5 y lo de 1. Con 0 ventas no hay beneficios.
+            Separa varios beneficios del mismo tramo con punto y coma.
+          </p>
+          {benefits.map((b, i) => (
+            <div key={i} className="flex flex-wrap items-end gap-3">
+              <div><Label className="text-xs">Desde ventas</Label><Input type="number" value={b.minSales} onChange={(e) => setBenefits(benefits.map((x, j) => j === i ? { ...x, minSales: Number(e.target.value) || 1 } : x))} className="mt-1 w-28 h-9" /></div>
+              <div className="flex-1 min-w-[240px]">
+                <Label className="text-xs">Beneficios</Label>
+                <Input value={b.items.join('; ')} onChange={(e) => setBenefits(benefits.map((x, j) => j === i ? { ...x, items: e.target.value.split(';').map((s) => s.trim()).filter(Boolean) } : x))} className="mt-1 h-9" />
+              </div>
+              <div><Label className="text-xs">Bono $</Label><Input type="number" value={b.bonusClp} onChange={(e) => setBenefits(benefits.map((x, j) => j === i ? { ...x, bonusClp: Number(e.target.value) || 0 } : x))} className="mt-1 w-28 h-9" /></div>
+              <Button variant="outline" size="sm" className="text-destructive h-9" onClick={() => setBenefits(benefits.filter((_, j) => j !== i))}><Trash2 className="w-3 h-3" /></Button>
+            </div>
+          ))}
+          <Button variant="outline" size="sm" onClick={() => setBenefits([...benefits, { minSales: 1, items: [], bonusClp: 0 }])}>
+            <Plus className="w-3 h-3 mr-1" /> Agregar tramo de beneficios
+          </Button>
+          <Button onClick={() => update.mutate({ benefits })} disabled={update.isPending} className="interactive">
+            {update.isPending ? 'Guardando…' : 'Guardar beneficios'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Fecha de lanzamiento del programa</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Es la frontera del programa: quien ya estaba en la base <strong>antes</strong> de esta fecha se considera
+            cliente de la casa para siempre (paga 10% y no sube el nivel de nadie). Quien aparezca después puede
+            volverse cliente exclusivo del embajador que lo trajo. Cambiarla afecta solo a las ventas futuras.
+          </p>
+          <div className="max-w-xs">
+            <Label>Fecha</Label>
+            <Input type="date" value={launchDate} onChange={(e) => setLaunchDate(e.target.value)} className="mt-1" />
+          </div>
+          <Button
+            onClick={() => update.mutate({ launchDate: new Date(`${launchDate}T00:00:00`).toISOString() })}
+            disabled={update.isPending || !launchDate}
+            className="interactive"
+          >
+            {update.isPending ? 'Guardando…' : 'Guardar fecha'}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Correo semanal</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-3">
+            <Checkbox id="weekly" checked={weeklyEnabled} onCheckedChange={(v) => setWeeklyEnabled(!!v)} />
+            <Label htmlFor="weekly">Mandar el resumen semanal a los embajadores</Label>
+          </div>
+          <div className="max-w-xs">
+            <Label>Día de la semana</Label>
+            <Select value={weekday} onValueChange={setWeekday}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>{DIAS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            El envío sale con la corrida diaria del sistema, cerca de las 9 de la mañana en Chile. La hora exacta no se
+            puede mover desde acá (la fija el plan de Vercel); este día es el que decide si ese envío se hace o no.
+          </p>
+          <Button
+            onClick={() => update.mutate({ weeklyEmailEnabled: weeklyEnabled, weeklyEmailWeekday: Number(weekday) })}
+            disabled={update.isPending}
+            className="interactive"
+          >
+            {update.isPending ? 'Guardando…' : 'Guardar correo semanal'}
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -237,6 +237,7 @@ export default function Checkout() {
 
   const validateDiscount = trpc.orders.validateDiscount.useMutation();
   const validateCommunityCode = trpc.communityCodes.validate.useMutation();
+  const validateAmbassador = trpc.ambassadors.validate.useMutation();
   const createOrder = trpc.orders.create.useMutation();
 
   /* ── "¿Cómo vienes?" (Paso 1) + acceso resuelto a partir de la respuesta ── */
@@ -350,6 +351,11 @@ export default function Checkout() {
   const [dbExtraQty, setDbExtraQty] = useState<Record<number, number>>({});
   const [discountCode, setDiscountCode] = useState('');
   const [ambassadorCode, setAmbassadorCode] = useState('');
+  // El código de embajador se mandaba sin verificar nada: si venía mal
+  // tecleado, la comisión se perdía en silencio y nadie se enteraba.
+  const [ambassadorStatus, setAmbassadorStatus] = useState<'idle' | 'valid' | 'invalid'>('idle');
+  const [ambassadorName, setAmbassadorName] = useState('');
+  const [ambassadorError, setAmbassadorError] = useState('');
   const [discountApplied, setDiscountApplied] = useState<any>(null);
   const [discountError, setDiscountError] = useState('');
   const [communityCodeInput, setCommunityCodeInput] = useState('');
@@ -486,6 +492,28 @@ export default function Checkout() {
       else setDiscountError(result.message || 'Código inválido');
     } catch {
       setDiscountError('No pudimos validar el código');
+    }
+  };
+
+  /** Valida el código de embajador. A propósito NO bloquea la compra: el
+   * código es opcional y un embajador mal escrito no puede impedir una venta;
+   * solo se avisa para que la persona lo corrija y la comisión llegue. */
+  const handleValidateAmbassador = async () => {
+    const code = ambassadorCode.trim();
+    if (!code) return;
+    setAmbassadorError('');
+    try {
+      const result = await validateAmbassador.mutateAsync({ code });
+      if (result.valid) {
+        setAmbassadorStatus('valid');
+        setAmbassadorName(result.name);
+      } else {
+        setAmbassadorStatus('invalid');
+        setAmbassadorError(result.message || 'No encontramos ese código');
+      }
+    } catch {
+      setAmbassadorStatus('invalid');
+      setAmbassadorError('No pudimos validar el código');
     }
   };
 
@@ -953,7 +981,36 @@ export default function Checkout() {
                   </div>
                   <div>
                     <Label htmlFor="ambassador" className="text-sm">Código de embajador</Label>
-                    <Input id="ambassador" value={ambassadorCode} onChange={(e) => setAmbassadorCode(e.target.value.toUpperCase())} className="mt-1.5 h-12" placeholder="Código de quien te invitó" />
+                    <div className="flex flex-col sm:flex-row gap-2 mt-1.5">
+                      <Input
+                        id="ambassador"
+                        value={ambassadorCode}
+                        onChange={(e) => {
+                          setAmbassadorCode(e.target.value.toUpperCase());
+                          setAmbassadorStatus('idle');
+                          setAmbassadorError('');
+                        }}
+                        className="h-12 flex-1"
+                        placeholder="Código de quien te invitó"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleValidateAmbassador}
+                        disabled={!ambassadorCode.trim() || validateAmbassador.isPending}
+                        className="interactive h-12 px-6 rounded-full font-bold whitespace-nowrap"
+                      >
+                        {validateAmbassador.isPending
+                          ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Verificando…</>
+                          : ambassadorStatus === 'valid'
+                            ? <><Check className="w-4 h-4 mr-2" /> Verificado</>
+                            : 'Verificar'}
+                      </Button>
+                    </div>
+                    {ambassadorStatus === 'valid' && (
+                      <p className="text-sm text-green-400 mt-1">Le vamos a acreditar la venta a {ambassadorName} ✓</p>
+                    )}
+                    {ambassadorError && <p className="text-sm text-amber-400 mt-1" role="alert">{ambassadorError} — puedes seguir igual, pero nadie recibirá el crédito.</p>}
                     <p className="text-xs text-muted-foreground mt-2">Si no tienes ningún código, solo aprieta Continuar.</p>
                   </div>
                 </div>

@@ -1,6 +1,6 @@
-import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull } from "drizzle-orm";
+import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, adminTotp, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug } from '../shared/mission300';
@@ -792,6 +792,11 @@ export async function deleteOrderCascade(orderId: number) {
   await db.delete(orderItems).where(eq(orderItems.orderId, orderId));
   await db.delete(tickets).where(eq(tickets.orderId, orderId));
   await db.delete(referrals).where(eq(referrals.orderId, orderId));
+  // La comisión del embajador quedaba huérfana al borrar la orden y el
+  // reporte seguía cobrándola. Si esa era la PRIMERA compra del cliente,
+  // también se suelta la propiedad: sin esa orden, el embajador nunca lo trajo.
+  await db.delete(ambassadorCommissions).where(eq(ambassadorCommissions.orderId, orderId));
+  await db.delete(ambassadorClients).where(eq(ambassadorClients.firstOrderId, orderId));
   await db.delete(orders).where(eq(orders.id, orderId));
 
   return { success: true };
@@ -943,15 +948,31 @@ export function computeAmbassadorCommission(baseAmount: number, commissionPercen
   return Math.round(baseAmount * commissionPercent / 100);
 }
 
-export async function createExclusiveAmbassador(data: { eventId: number; name: string; code: string; commissionPercent: number; contact?: string }) {
+/** Da de alta un embajador. `eventId` quedó opcional: el código es permanente
+ * y de la persona, no del evento. `commissionPercent` en null/undefined
+ * significa "usar la escala global del programa" (lo normal); con un valor
+ * queda como override fijo para ese embajador. */
+export async function createExclusiveAmbassador(data: {
+  eventId?: number | null; name: string; code: string;
+  commissionPercent?: number | null; contact?: string; email?: string; instagram?: string;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  const code = data.code.trim().toUpperCase();
+  // El único de la columna ya lo impediría, pero el error de MySQL no le dice
+  // nada al dueño -- este mensaje sí.
+  const [existing] = await db.select({ id: exclusiveAmbassadors.id }).from(exclusiveAmbassadors)
+    .where(eq(exclusiveAmbassadors.code, code)).limit(1);
+  if (existing) throw new Error(`El código ${code} ya está en uso por otro embajador`);
+
   await db.insert(exclusiveAmbassadors).values({
-    eventId: data.eventId,
+    eventId: data.eventId ?? null,
     name: data.name,
-    code: data.code.trim().toUpperCase(),
-    commissionPercent: String(data.commissionPercent),
+    code,
+    commissionPercent: data.commissionPercent === null || data.commissionPercent === undefined ? null : String(data.commissionPercent),
     contact: data.contact,
+    email: data.email ? data.email.trim().toLowerCase() : null,
+    instagram: data.instagram,
   });
   return { success: true };
 }
@@ -965,12 +986,24 @@ export async function listExclusiveAmbassadors(eventId?: number) {
     .orderBy(exclusiveAmbassadors.name);
 }
 
-export async function updateExclusiveAmbassador(id: number, data: { name?: string; code?: string; commissionPercent?: number; contact?: string; active?: number }) {
+export async function updateExclusiveAmbassador(id: number, data: {
+  name?: string; code?: string; commissionPercent?: number | null;
+  contact?: string; email?: string; instagram?: string; active?: number;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const updateData: any = { ...data };
-  if (data.code !== undefined) updateData.code = data.code.trim().toUpperCase();
-  if (data.commissionPercent !== undefined) updateData.commissionPercent = String(data.commissionPercent);
+  if (data.code !== undefined) {
+    const code = data.code.trim().toUpperCase();
+    const [clash] = await db.select({ id: exclusiveAmbassadors.id }).from(exclusiveAmbassadors)
+      .where(and(eq(exclusiveAmbassadors.code, code), ne(exclusiveAmbassadors.id, id))).limit(1);
+    if (clash) throw new Error(`El código ${code} ya está en uso por otro embajador`);
+    updateData.code = code;
+  }
+  if (data.commissionPercent !== undefined) {
+    updateData.commissionPercent = data.commissionPercent === null ? null : String(data.commissionPercent);
+  }
+  if (data.email !== undefined) updateData.email = data.email ? data.email.trim().toLowerCase() : null;
   await db.update(exclusiveAmbassadors).set(updateData).where(eq(exclusiveAmbassadors.id, id));
   return { success: true };
 }
@@ -978,23 +1011,45 @@ export async function updateExclusiveAmbassador(id: number, data: { name?: strin
 export async function deleteExclusiveAmbassador(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  // Se sueltan sus clientes: si el embajador ya no existe, no puede seguir
+  // siendo dueño de nadie. Las comisiones ya generadas se conservan como
+  // historial de plata pagada.
+  await db.delete(ambassadorClients).where(eq(ambassadorClients.ambassadorId, id));
   await db.delete(exclusiveAmbassadors).where(eq(exclusiveAmbassadors.id, id));
   return { success: true };
 }
 
-/** Busca un embajador exclusivo activo por código, dentro de ESE evento --
- * el mismo código reusado en otro evento no debería disparar comisión ahí,
- * cada embajador se da de alta por evento. */
-export async function getActiveExclusiveAmbassadorByCode(code: string, eventId: number) {
+/** Busca un embajador exclusivo activo por código.
+ *
+ * Ya NO filtra por evento: en el programa VIP el código es permanente y de la
+ * persona (SOFIA, CAMILA), y el nivel se cuenta por mes cruzando todos los
+ * eventos. Antes se exigía que el código estuviera dado de alta para ese
+ * evento puntual, lo que obligaba a recrear cada embajador en cada fiesta. */
+export async function getActiveExclusiveAmbassadorByCode(code: string) {
   const db = await getDb();
   if (!db) return null;
   const [row] = await db.select().from(exclusiveAmbassadors)
     .where(and(
       eq(exclusiveAmbassadors.code, code.trim().toUpperCase()),
-      eq(exclusiveAmbassadors.eventId, eventId),
       eq(exclusiveAmbassadors.active, 1),
     ))
     .limit(1);
+  return row ?? null;
+}
+
+/** Foto del cliente ANTES de que la orden lo registre.
+ *
+ * ⚠️ Hay que llamarla antes de `upsertCustomerFromOrder` y de
+ * `awardPlaycoins`: las dos crean/actualizan la fila de `customers`, así que
+ * después de ellas todo cliente parece nuevo (`firstSeenAt = now()`) y se
+ * pierde para siempre el dato de si venía de antes del programa. De eso
+ * depende que la comisión sea 10% o 30-50%. */
+export async function getCustomerForAttribution(buyerEmail: string): Promise<{ firstSeenAt: Date; totalOrders: number } | null> {
+  const db = await getDb();
+  if (!db || !buyerEmail) return null;
+  const email = buyerEmail.trim().toLowerCase();
+  const [row] = await db.select({ firstSeenAt: customers.firstSeenAt, totalOrders: customers.totalOrders })
+    .from(customers).where(eq(customers.email, email)).limit(1);
   return row ?? null;
 }
 
