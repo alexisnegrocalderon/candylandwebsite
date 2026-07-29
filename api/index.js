@@ -10,7 +10,7 @@ var __export = (target, all) => {
 
 // drizzle/schema.ts
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex } from "drizzle-orm/mysql-core";
-var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, operators, registers, devices, customers, ops, rateLimits, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyGifts, adminTotp;
+var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorBenefitDeliveries, ambassadorWeeklyMaterial, operators, registers, devices, customers, ops, rateLimits, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyGifts, adminTotp;
 var init_schema = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -306,6 +306,28 @@ var init_schema = __esm({
       // Solo informativo: Vercel Hobby dispara el cron una vez al día a la hora
       // fija de vercel.json, así que esto no puede mover el disparo real.
       weeklyEmailHourChile: int("weeklyEmailHourChile").default(9).notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
+    ambassadorBenefitDeliveries = mysqlTable("ambassadorBenefitDeliveries", {
+      id: int("id").autoincrement().primaryKey(),
+      ambassadorId: int("ambassadorId").notNull(),
+      monthKey: varchar("monthKey", { length: 7 }).notNull(),
+      benefitKey: varchar("benefitKey", { length: 64 }).notNull(),
+      note: text("note"),
+      deliveredAt: timestamp("deliveredAt").defaultNow().notNull()
+    }, (t2) => [
+      uniqueIndex("ambassadorBenefitDeliveries_unique").on(t2.ambassadorId, t2.monthKey, t2.benefitKey)
+    ]);
+    ambassadorWeeklyMaterial = mysqlTable("ambassadorWeeklyMaterial", {
+      id: int("id").autoincrement().primaryKey(),
+      title: varchar("title", { length: 255 }),
+      storiesText: text("storiesText"),
+      reelText: text("reelText"),
+      postText: text("postText"),
+      countdownText: text("countdownText"),
+      linkUrl: varchar("linkUrl", { length: 500 }),
+      active: int("active").default(1).notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     });
     operators = mysqlTable("operators", {
@@ -4280,6 +4302,120 @@ function buildSalesRecordEmail(data) {
 </body>
 </html>`;
 }
+function buildAmbassadorWeeklyEmail(data) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+  const money = (n) => `$${Math.round(n).toLocaleString("es-CL")}`;
+  const m = data.material;
+  const tieneMaterial = !!m && !!(m.storiesText || m.reelText || m.postText || m.countdownText || m.linkUrl);
+  const progreso = data.nextTarget ? Math.min(100, Math.round(data.monthlySales / data.nextTarget.target * 100)) : 100;
+  const materialRow = (label, value) => value ? `<div style="padding:8px 0;border-bottom:1px solid ${BORDER};">
+         <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 3px;">${label}</p>
+         <p style="color:${INK};font-size:14px;margin:0;line-height:1.5;">${value}</p>
+       </div>` : "";
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <!-- HERO -->
+    <div style="background:linear-gradient(160deg,${ACCENT.lilac.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Tu semana como embajador</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">Hola ${data.name}</h1>
+      <p style="color:${MUTED};font-size:15px;margin:0;">
+        ${data.monthlySales === 0 ? "Este mes todav\xEDa no registras ventas \u2014 cualquier venta que traigas empieza al 30%." : `Llevas ${data.monthlySales} venta${data.monthlySales === 1 ? "" : "s"} este mes y est\xE1s cobrando el ${data.currentPercent}%.`}
+      </p>
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${sectionTitle("\u{1F4CA}", "Tus n\xFAmeros del mes")}
+      ${card(`
+        ${grid([
+    `<div style="background:${ACCENT.pink.bg};border-radius:14px;padding:14px;text-align:center;">
+            <p style="color:${ACCENT.pink.text};font-size:24px;font-weight:800;margin:0;">${data.monthlySales}</p>
+            <p style="color:${MUTED};font-size:11px;margin:4px 0 0;">Ventas a tus clientes</p>
+          </div>`,
+    `<div style="background:${ACCENT.blue.bg};border-radius:14px;padding:14px;text-align:center;">
+            <p style="color:${ACCENT.blue.text};font-size:24px;font-weight:800;margin:0;">${data.currentPercent}%</p>
+            <p style="color:${MUTED};font-size:11px;margin:4px 0 0;">Tu comisi\xF3n actual</p>
+          </div>`
+  ], 2)}
+        <div style="padding:10px 0 0;">
+          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${BORDER};">
+            <span style="color:${MUTED};font-size:13px;">Comisi\xF3n de este mes</span>
+            <span style="color:${INK};font-size:14px;font-weight:700;">${money(data.monthlyCommission)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${BORDER};">
+            <span style="color:${MUTED};font-size:13px;">Comisi\xF3n acumulada (hist\xF3rica)</span>
+            <span style="color:${ACCENT.pink.text};font-size:14px;font-weight:800;">${money(data.totalCommission)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:6px 0;">
+            <span style="color:${MUTED};font-size:13px;">Tus clientes exclusivos</span>
+            <span style="color:${INK};font-size:14px;font-weight:700;">${data.exclusiveClientsCount}</span>
+          </div>
+          ${data.monthlyExistingSales > 0 ? `
+          <p style="color:${FAINT};font-size:11px;margin:10px 0 0;line-height:1.5;">
+            Adem\xE1s hiciste ${data.monthlyExistingSales} venta${data.monthlyExistingSales === 1 ? "" : "s"} a clientes que ya estaban
+            en la base: esas pagan 10% y no suben tu nivel.
+          </p>` : ""}
+        </div>
+      `)}
+
+      ${data.nextTarget ? `
+      ${sectionTitle("\u{1F3AF}", "Tu pr\xF3ximo objetivo")}
+      ${card(`
+        <p style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">${data.monthlySales} / ${data.nextTarget.target} ventas</p>
+        <p style="color:${MUTED};font-size:14px;margin:0 0 12px;">
+          Te faltan <strong>${data.nextTarget.salesNeeded}</strong> para subir al <strong>${data.nextTarget.nextPercent}%</strong>.
+        </p>
+        <div style="background:${BORDER};border-radius:999px;height:10px;overflow:hidden;">
+          <div style="background:${ACCENT.pink.solid};height:10px;width:${progreso}%;border-radius:999px;"></div>
+        </div>
+      `, { bg: ACCENT.lilac.bg, border: false })}
+      ` : `
+      ${sectionTitle("\u{1F3C6}", "Nivel m\xE1ximo")}
+      ${card(`<p style="color:${INK};font-size:16px;font-weight:700;margin:0;">Est\xE1s en el tramo m\xE1s alto de la escala. Imposible subir m\xE1s.</p>`, { bg: ACCENT.yellow.bg, border: false })}
+      `}
+
+      ${data.benefitItems.length > 0 || data.benefitBonusClp > 0 ? `
+      ${sectionTitle("\u{1F381}", "Lo que ya desbloqueaste este mes")}
+      ${card(`
+        ${data.benefitItems.map((b) => `<p style="color:${INK};font-size:15px;font-weight:600;margin:0 0 6px;">\u2022 ${b}</p>`).join("")}
+        ${data.benefitBonusClp > 0 ? `<p style="color:${ACCENT.pink.text};font-size:17px;font-weight:800;margin:8px 0 0;">+ Bono de ${money(data.benefitBonusClp)}</p>` : ""}
+        <p style="color:${MUTED};font-size:12px;margin:10px 0 0;">Escr\xEDbenos por Instagram para coordinar c\xF3mo lo recibes.</p>
+      `, { bg: ACCENT.yellow.bg, border: false })}
+      ` : `
+      ${card(`<p style="color:${MUTED};font-size:14px;margin:0;">Con tu primera venta del mes se activan tus beneficios: entrada liberada y un acompa\xF1ante.</p>`)}
+      `}
+
+      ${tieneMaterial ? `
+      ${sectionTitle("\u{1F4F1}", m?.title || "Material de la semana")}
+      ${card(`
+        ${materialRow("Historias", m?.storiesText)}
+        ${materialRow("Reel", m?.reelText)}
+        ${materialRow("Publicaci\xF3n", m?.postText)}
+        ${materialRow("Cuenta regresiva", m?.countdownText)}
+        ${m?.linkUrl ? `<p style="margin:12px 0 0;"><a href="${m.linkUrl}" style="color:${ACCENT.pink.text};font-size:13px;font-weight:700;">Descargar el material \u2192</a></p>` : ""}
+      `)}
+      ` : ""}
+
+      <div style="text-align:center;margin-top:28px;">
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Tu c\xF3digo</p>
+        <p style="color:${INK};font-size:26px;font-weight:800;font-family:monospace;margin:0 0 20px;">${data.code}</p>
+        <a href="${data.panelUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;">Ver mi panel</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
 function buildCheckinSummaryEmail(data) {
   const fecha = new Date(data.eventDate).toLocaleDateString("es-CL", { day: "numeric", month: "long", year: "numeric" });
   const pct = data.expectedCount > 0 ? Math.round(data.insideCount / data.expectedCount * 100) : 0;
@@ -4591,7 +4727,7 @@ async function getPaymentInfo(paymentId) {
 }
 
 // server/ambassadorProgram.ts
-import { and as and2, eq as eq3, inArray as inArray2, sql as sql2 } from "drizzle-orm";
+import { and as and2, eq as eq3, inArray as inArray2, sql as sql2, desc as desc2 } from "drizzle-orm";
 init_schema();
 
 // shared/ambassadorProgram.ts
@@ -4667,6 +4803,10 @@ function monthKeyFor(date, offsetHours = CHILE_OFFSET_HOURS) {
   const t2 = toTime2(date);
   if (t2 === null) return "";
   return new Date(t2 + offsetHours * 60 * 60 * 1e3).toISOString().slice(0, 7);
+}
+function isWeeklyEmailDay(now, weekday = DEFAULT_WEEKLY_EMAIL_WEEKDAY, offsetHours = CHILE_OFFSET_HOURS) {
+  const shifted = new Date(now.getTime() + offsetHours * 60 * 60 * 1e3);
+  return shifted.getUTCDay() === weekday;
 }
 
 // server/ambassadorProgram.ts
@@ -4932,6 +5072,7 @@ async function getAmbassadorAdminSummary(monthKey) {
   const rows = await db.select().from(ambassadorCommissions).where(eq3(ambassadorCommissions.monthKey, monthKey));
   const exclusivas = rows.filter((r) => r.clientType === "exclusivo");
   const top = ranking.find((r) => r.exclusiveSales > 0) ?? null;
+  const deliveries = await db.select({ count: sql2`COUNT(*)` }).from(ambassadorBenefitDeliveries).where(eq3(ambassadorBenefitDeliveries.monthKey, monthKey));
   return {
     monthKey,
     activeAmbassadors: ranking.filter((r) => r.active).length,
@@ -4940,6 +5081,7 @@ async function getAmbassadorAdminSummary(monthKey) {
     monthlyCommission: rows.reduce((s, r) => s + Number(r.commissionAmount), 0),
     newClients: exclusivas.length,
     existingClients: rows.length - exclusivas.length,
+    benefitsDelivered: Number(deliveries[0]?.count ?? 0),
     topAmbassador: top ? { name: top.name, code: top.code, exclusiveSales: top.exclusiveSales } : null
   };
 }
@@ -4988,6 +5130,111 @@ async function listReferredClients() {
   return [...exclusivos, ...existentes].sort(
     (a, b) => new Date(b.firstPurchaseAt).getTime() - new Date(a.firstPurchaseAt).getTime()
   );
+}
+async function listBenefitDeliveries(monthKey) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(ambassadorBenefitDeliveries).where(eq3(ambassadorBenefitDeliveries.monthKey, monthKey));
+}
+async function markBenefitDelivered(params) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  try {
+    await db.insert(ambassadorBenefitDeliveries).values({
+      ambassadorId: params.ambassadorId,
+      monthKey: params.monthKey,
+      benefitKey: params.benefitKey,
+      note: params.note
+    });
+  } catch {
+  }
+  return { success: true };
+}
+async function unmarkBenefitDelivered(params) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(ambassadorBenefitDeliveries).where(and2(
+    eq3(ambassadorBenefitDeliveries.ambassadorId, params.ambassadorId),
+    eq3(ambassadorBenefitDeliveries.monthKey, params.monthKey),
+    eq3(ambassadorBenefitDeliveries.benefitKey, params.benefitKey)
+  ));
+  return { success: true };
+}
+async function getWeeklyMaterial() {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(ambassadorWeeklyMaterial).where(eq3(ambassadorWeeklyMaterial.active, 1)).orderBy(desc2(ambassadorWeeklyMaterial.createdAt)).limit(1);
+  return row ?? null;
+}
+async function saveWeeklyMaterial(data) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(ambassadorWeeklyMaterial).set({ active: 0 }).where(eq3(ambassadorWeeklyMaterial.active, 1));
+  await db.insert(ambassadorWeeklyMaterial).values({
+    title: data.title,
+    storiesText: data.storiesText,
+    reelText: data.reelText,
+    postText: data.postText,
+    countdownText: data.countdownText,
+    linkUrl: data.linkUrl,
+    active: 1
+  });
+  return { success: true };
+}
+var PANEL_BASE_URL = process.env.APP_URL && process.env.APP_URL !== "https://mansionplayroom.cl" ? process.env.APP_URL : "https://mansionplayroom.cl";
+async function sendWeeklyAmbassadorEmails(now = /* @__PURE__ */ new Date()) {
+  const db = await getDb();
+  if (!db) return { sent: 0, skipped: 0, failed: 0 };
+  const monthKey = monthKeyFor(now);
+  const material = await getWeeklyMaterial();
+  const featured = await getFeaturedEvent();
+  let countdownText = material?.countdownText ?? null;
+  if (!countdownText && featured?.eventDate) {
+    const dias = Math.ceil((new Date(featured.eventDate).getTime() - now.getTime()) / (1e3 * 60 * 60 * 24));
+    if (dias > 0) countdownText = `Faltan ${dias} d\xEDa${dias === 1 ? "" : "s"} para ${featured.title}.`;
+  }
+  const ambassadors = await db.select().from(exclusiveAmbassadors).where(eq3(exclusiveAmbassadors.active, 1));
+  let sent = 0, skipped = 0, failed = 0;
+  for (const a of ambassadors) {
+    if (!a.email) {
+      skipped++;
+      continue;
+    }
+    try {
+      const stats = await getAmbassadorStats(a.id, monthKey);
+      if (!stats) {
+        skipped++;
+        continue;
+      }
+      const html = buildAmbassadorWeeklyEmail({
+        name: a.name,
+        code: a.code,
+        monthlySales: stats.monthlySales,
+        monthlyExistingSales: stats.monthlyExistingSales,
+        monthlyCommission: stats.monthlyCommission,
+        totalCommission: stats.totalCommission,
+        currentPercent: stats.currentPercent,
+        nextTarget: stats.nextTarget,
+        benefitItems: stats.benefits.items,
+        benefitBonusClp: stats.benefits.bonusClp,
+        exclusiveClientsCount: stats.exclusiveClientsCount,
+        panelUrl: `${PANEL_BASE_URL}/embajador/${a.code}`,
+        material: material ? { ...material, countdownText } : countdownText ? { countdownText } : null
+      });
+      const res = await sendEmail({
+        to: a.email,
+        subject: stats.nextTarget && stats.monthlySales > 0 ? `\u{1F36C} ${a.name}, te faltan ${stats.nextTarget.salesNeeded} ventas para el ${stats.nextTarget.nextPercent}%` : `\u{1F36C} Tu resumen de embajador \u2014 ${a.name}`,
+        html
+      });
+      if (res.success) sent++;
+      else failed++;
+    } catch (err) {
+      console.error(`[Embajadores] Fall\xF3 el correo semanal de ${a.code}:`, err);
+      failed++;
+    }
+  }
+  console.log(`[Embajadores] Correo semanal: ${sent} enviados, ${skipped} sin correo, ${failed} con error.`);
+  return { sent, skipped, failed };
 }
 
 // server/webhooks.ts
@@ -5693,7 +5940,16 @@ function registerCronRoutes(app) {
       } catch (err) {
         console.error("[Cron] Error limpiando datos de fiestas terminadas:", err);
       }
-      res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired });
+      let ambassadorWeekly = null;
+      try {
+        const config = await getProgramConfig();
+        if (config.weeklyEmailEnabled && isWeeklyEmailDay(/* @__PURE__ */ new Date(), config.weeklyEmailWeekday)) {
+          ambassadorWeekly = await sendWeeklyAmbassadorEmails();
+        }
+      } catch (err) {
+        console.error("[Cron] Error mandando el correo semanal de embajadores:", err);
+      }
+      res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, ambassadorWeekly });
     } catch (err) {
       console.error("[Cron] Error procesando la cola de mailing:", err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : "Error desconocido" });
@@ -7163,6 +7419,44 @@ var appRouter = router({
     }),
     listReferredClients: adminProcedure2.query(async () => {
       return listReferredClients();
+    }),
+    // --- Beneficios entregados ---
+    listBenefitDeliveries: adminProcedure2.input(z3.object({ monthKey: z3.string().optional() }).optional()).query(async ({ input }) => {
+      return listBenefitDeliveries(input?.monthKey || monthKeyFor(/* @__PURE__ */ new Date()));
+    }),
+    markBenefitDelivered: adminProcedure2.input(z3.object({
+      ambassadorId: z3.number(),
+      monthKey: z3.string(),
+      benefitKey: z3.string(),
+      note: z3.string().optional()
+    })).mutation(async ({ input }) => {
+      return markBenefitDelivered(input);
+    }),
+    unmarkBenefitDelivered: adminProcedure2.input(z3.object({
+      ambassadorId: z3.number(),
+      monthKey: z3.string(),
+      benefitKey: z3.string()
+    })).mutation(async ({ input }) => {
+      return unmarkBenefitDelivered(input);
+    }),
+    // --- Material de la semana ---
+    getWeeklyMaterial: adminProcedure2.query(async () => {
+      return getWeeklyMaterial();
+    }),
+    saveWeeklyMaterial: adminProcedure2.input(z3.object({
+      title: z3.string().optional(),
+      storiesText: z3.string().optional(),
+      reelText: z3.string().optional(),
+      postText: z3.string().optional(),
+      countdownText: z3.string().optional(),
+      linkUrl: z3.string().optional()
+    })).mutation(async ({ input }) => {
+      return saveWeeklyMaterial(input);
+    }),
+    /** Manda el resumen semanal ahora mismo, sin esperar al día configurado --
+     * para poder probarlo y para reenviarlo si un lunes falló. */
+    sendWeeklyNow: adminProcedure2.mutation(async () => {
+      return sendWeeklyAmbassadorEmails();
     })
   }),
   // Módulo /caja — login por PIN de operadores (docs/ARQUITECTURA-CAJA.md

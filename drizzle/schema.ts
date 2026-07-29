@@ -373,6 +373,46 @@ export const ambassadorProgramConfig = mysqlTable("ambassadorProgramConfig", {
 
 export type AmbassadorProgramConfig = typeof ambassadorProgramConfig.$inferSelect;
 
+// Registro de beneficios ya entregados, para que el admin sepa a quién le
+// falta darle su botella o su bono. El sistema CALCULA qué desbloqueó cada
+// uno (según sus ventas del mes y la config); esta tabla solo anota lo que ya
+// se entregó de verdad.
+//
+// `benefitKey` es el tramo de beneficios (`tramo-5`, `tramo-20`): se marca el
+// tramo completo, no cada ítem por separado -- "le entregué lo de 5 ventas".
+// El único evita marcar dos veces lo mismo.
+export const ambassadorBenefitDeliveries = mysqlTable("ambassadorBenefitDeliveries", {
+  id: int("id").autoincrement().primaryKey(),
+  ambassadorId: int("ambassadorId").notNull(),
+  monthKey: varchar("monthKey", { length: 7 }).notNull(),
+  benefitKey: varchar("benefitKey", { length: 64 }).notNull(),
+  note: text("note"),
+  deliveredAt: timestamp("deliveredAt").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("ambassadorBenefitDeliveries_unique").on(t.ambassadorId, t.monthKey, t.benefitKey),
+]);
+
+export type AmbassadorBenefitDelivery = typeof ambassadorBenefitDeliveries.$inferSelect;
+
+// Material que los embajadores reciben en el correo semanal (historias, reel,
+// publicación, cuenta regresiva). Lo carga el admin cada semana; el correo
+// toma la última fila con `active = 1`. Se guardan las anteriores como
+// historial en vez de sobreescribir.
+export const ambassadorWeeklyMaterial = mysqlTable("ambassadorWeeklyMaterial", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 255 }),
+  storiesText: text("storiesText"),
+  reelText: text("reelText"),
+  postText: text("postText"),
+  countdownText: text("countdownText"),
+  linkUrl: varchar("linkUrl", { length: 500 }),
+  active: int("active").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AmbassadorWeeklyMaterial = typeof ambassadorWeeklyMaterial.$inferSelect;
+
 // --- Módulo /caja (docs/ARQUITECTURA-CAJA.md §4.2) ---
 
 // Operadores de caja: cajera, supervisor, admin (más barra/acceso a futuro).

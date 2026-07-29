@@ -971,6 +971,47 @@ export const appRouter = router({
     listReferredClients: adminProcedure.query(async () => {
       return ambassadorProgram.listReferredClients();
     }),
+
+    // --- Beneficios entregados ---
+    listBenefitDeliveries: adminProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
+      return ambassadorProgram.listBenefitDeliveries(input?.monthKey || monthKeyFor(new Date()));
+    }),
+    markBenefitDelivered: adminProcedure.input(z.object({
+      ambassadorId: z.number(),
+      monthKey: z.string(),
+      benefitKey: z.string(),
+      note: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      return ambassadorProgram.markBenefitDelivered(input);
+    }),
+    unmarkBenefitDelivered: adminProcedure.input(z.object({
+      ambassadorId: z.number(),
+      monthKey: z.string(),
+      benefitKey: z.string(),
+    })).mutation(async ({ input }) => {
+      return ambassadorProgram.unmarkBenefitDelivered(input);
+    }),
+
+    // --- Material de la semana ---
+    getWeeklyMaterial: adminProcedure.query(async () => {
+      return ambassadorProgram.getWeeklyMaterial();
+    }),
+    saveWeeklyMaterial: adminProcedure.input(z.object({
+      title: z.string().optional(),
+      storiesText: z.string().optional(),
+      reelText: z.string().optional(),
+      postText: z.string().optional(),
+      countdownText: z.string().optional(),
+      linkUrl: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      return ambassadorProgram.saveWeeklyMaterial(input);
+    }),
+
+    /** Manda el resumen semanal ahora mismo, sin esperar al día configurado --
+     * para poder probarlo y para reenviarlo si un lunes falló. */
+    sendWeeklyNow: adminProcedure.mutation(async () => {
+      return ambassadorProgram.sendWeeklyAmbassadorEmails();
+    }),
   }),
 
   // Módulo /caja — login por PIN de operadores (docs/ARQUITECTURA-CAJA.md

@@ -1,8 +1,8 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
-import { getDb, computeAmbassadorCommission, computeAmbassadorCommissionBase, getActiveExclusiveAmbassadorByCode } from './db';
+import { and, eq, inArray, sql, desc } from 'drizzle-orm';
+import { getDb, computeAmbassadorCommission, computeAmbassadorCommissionBase, getActiveExclusiveAmbassadorByCode, getFeaturedEvent } from './db';
 import {
-  ambassadorClients, ambassadorCommissions, ambassadorProgramConfig,
-  events, exclusiveAmbassadors, orders,
+  ambassadorBenefitDeliveries, ambassadorClients, ambassadorCommissions, ambassadorProgramConfig,
+  ambassadorWeeklyMaterial, events, exclusiveAmbassadors, orders,
 } from '../drizzle/schema';
 import {
   DEFAULT_BENEFITS, DEFAULT_COMMISSION_SCALE, DEFAULT_EXISTING_CLIENT_PERCENT,
@@ -10,6 +10,7 @@ import {
   nextTierTarget, resolveAttribution, tierForSales, unlockedBenefits,
   type BenefitTier, type CommissionTier,
 } from '../shared/ambassadorProgram';
+import { buildAmbassadorWeeklyEmail, sendEmail } from './email';
 
 /* Motor del programa de Embajadores VIP: atribución de cada venta, y las
  * consultas que alimentan el panel del embajador y el admin.
@@ -411,6 +412,8 @@ export async function getAmbassadorAdminSummary(monthKey: string) {
   const rows = await db.select().from(ambassadorCommissions).where(eq(ambassadorCommissions.monthKey, monthKey));
   const exclusivas = rows.filter((r: any) => r.clientType === 'exclusivo');
   const top = ranking.find((r) => r.exclusiveSales > 0) ?? null;
+  const deliveries = await db.select({ count: sql<number>`COUNT(*)` }).from(ambassadorBenefitDeliveries)
+    .where(eq(ambassadorBenefitDeliveries.monthKey, monthKey));
 
   return {
     monthKey,
@@ -420,6 +423,7 @@ export async function getAmbassadorAdminSummary(monthKey: string) {
     monthlyCommission: rows.reduce((s: number, r: any) => s + Number(r.commissionAmount), 0),
     newClients: exclusivas.length,
     existingClients: rows.length - exclusivas.length,
+    benefitsDelivered: Number(deliveries[0]?.count ?? 0),
     topAmbassador: top ? { name: top.name, code: top.code, exclusiveSales: top.exclusiveSales } : null,
   };
 }
@@ -475,4 +479,151 @@ export async function listReferredClients() {
   return [...exclusivos, ...existentes].sort(
     (a, b) => new Date(b.firstPurchaseAt).getTime() - new Date(a.firstPurchaseAt).getTime(),
   );
+}
+
+// --- Beneficios entregados ---
+
+/** Clave estable de un tramo de beneficios. Se marca el tramo completo ("le
+ * entregué lo de 5 ventas"), no cada ítem por separado -- los ítems son texto
+ * editable y cambiarlos no debería borrar el registro de lo ya entregado. */
+export function benefitKeyForTier(minSales: number): string {
+  return `tramo-${minSales}`;
+}
+
+export async function listBenefitDeliveries(monthKey: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(ambassadorBenefitDeliveries).where(eq(ambassadorBenefitDeliveries.monthKey, monthKey));
+}
+
+export async function markBenefitDelivered(params: { ambassadorId: number; monthKey: string; benefitKey: string; note?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  try {
+    await db.insert(ambassadorBenefitDeliveries).values({
+      ambassadorId: params.ambassadorId,
+      monthKey: params.monthKey,
+      benefitKey: params.benefitKey,
+      note: params.note,
+    });
+  } catch {
+    // Ya estaba marcado (choca el único): la intención del admin ya se cumplió.
+  }
+  return { success: true };
+}
+
+export async function unmarkBenefitDelivered(params: { ambassadorId: number; monthKey: string; benefitKey: string }) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  await db.delete(ambassadorBenefitDeliveries).where(and(
+    eq(ambassadorBenefitDeliveries.ambassadorId, params.ambassadorId),
+    eq(ambassadorBenefitDeliveries.monthKey, params.monthKey),
+    eq(ambassadorBenefitDeliveries.benefitKey, params.benefitKey),
+  ));
+  return { success: true };
+}
+
+// --- Material de la semana ---
+
+/** El material vigente: la última fila activa. Se guardan las anteriores como
+ * historial en vez de sobreescribir. */
+export async function getWeeklyMaterial() {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(ambassadorWeeklyMaterial)
+    .where(eq(ambassadorWeeklyMaterial.active, 1))
+    .orderBy(desc(ambassadorWeeklyMaterial.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function saveWeeklyMaterial(data: {
+  title?: string; storiesText?: string; reelText?: string;
+  postText?: string; countdownText?: string; linkUrl?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  // Se desactiva lo anterior y se inserta la semana nueva: así el correo
+  // siempre toma una sola versión y queda el historial de lo que se mandó.
+  await db.update(ambassadorWeeklyMaterial).set({ active: 0 }).where(eq(ambassadorWeeklyMaterial.active, 1));
+  await db.insert(ambassadorWeeklyMaterial).values({
+    title: data.title,
+    storiesText: data.storiesText,
+    reelText: data.reelText,
+    postText: data.postText,
+    countdownText: data.countdownText,
+    linkUrl: data.linkUrl,
+    active: 1,
+  });
+  return { success: true };
+}
+
+// --- Correo semanal ---
+
+const PANEL_BASE_URL = process.env.APP_URL && process.env.APP_URL !== 'https://mansionplayroom.cl'
+  ? process.env.APP_URL
+  : 'https://mansionplayroom.cl';
+
+/** Manda el resumen semanal a cada embajador activo que tenga correo.
+ *
+ * Lo llama el cron diario (server/cronRoutes.ts), que ya decidió que hoy es el
+ * día configurado. Devuelve el conteo para que el cron lo reporte. Un fallo de
+ * envío a una persona no corta el resto: se registra y se sigue. */
+export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
+  const db = await getDb();
+  if (!db) return { sent: 0, skipped: 0, failed: 0 };
+
+  const monthKey = monthKeyFor(now);
+  const material = await getWeeklyMaterial();
+  const featured = await getFeaturedEvent();
+
+  // Si el material no trae cuenta regresiva escrita a mano, se arma con los
+  // días que faltan para el próximo evento destacado.
+  let countdownText = material?.countdownText ?? null;
+  if (!countdownText && featured?.eventDate) {
+    const dias = Math.ceil((new Date(featured.eventDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    if (dias > 0) countdownText = `Faltan ${dias} día${dias === 1 ? '' : 's'} para ${featured.title}.`;
+  }
+
+  const ambassadors = await db.select().from(exclusiveAmbassadors).where(eq(exclusiveAmbassadors.active, 1));
+
+  let sent = 0, skipped = 0, failed = 0;
+  for (const a of ambassadors) {
+    if (!a.email) { skipped++; continue; }
+    try {
+      const stats = await getAmbassadorStats(a.id, monthKey);
+      if (!stats) { skipped++; continue; }
+
+      const html = buildAmbassadorWeeklyEmail({
+        name: a.name,
+        code: a.code,
+        monthlySales: stats.monthlySales,
+        monthlyExistingSales: stats.monthlyExistingSales,
+        monthlyCommission: stats.monthlyCommission,
+        totalCommission: stats.totalCommission,
+        currentPercent: stats.currentPercent,
+        nextTarget: stats.nextTarget,
+        benefitItems: stats.benefits.items,
+        benefitBonusClp: stats.benefits.bonusClp,
+        exclusiveClientsCount: stats.exclusiveClientsCount,
+        panelUrl: `${PANEL_BASE_URL}/embajador/${a.code}`,
+        material: material ? { ...material, countdownText } : (countdownText ? { countdownText } : null),
+      });
+
+      const res = await sendEmail({
+        to: a.email,
+        subject: stats.nextTarget && stats.monthlySales > 0
+          ? `🍬 ${a.name}, te faltan ${stats.nextTarget.salesNeeded} ventas para el ${stats.nextTarget.nextPercent}%`
+          : `🍬 Tu resumen de embajador — ${a.name}`,
+        html,
+      });
+      if (res.success) sent++; else failed++;
+    } catch (err) {
+      console.error(`[Embajadores] Falló el correo semanal de ${a.code}:`, err);
+      failed++;
+    }
+  }
+
+  console.log(`[Embajadores] Correo semanal: ${sent} enviados, ${skipped} sin correo, ${failed} con error.`);
+  return { sent, skipped, failed };
 }

@@ -3,6 +3,8 @@ import { ENV } from "./_core/env";
 import { processMailingCronBatch } from "./mailing";
 import { purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, getEventHappeningToday, getCajaDashboard } from "./db";
 import { sendEmail, buildCheckinSummaryEmail } from "./email";
+import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
+import { isWeeklyEmailDay } from "../shared/ambassadorProgram";
 
 const CHECKIN_SUMMARY_EMAIL = 'contacto@mansionplayroom.cl';
 
@@ -56,7 +58,21 @@ export function registerCronRoutes(app: Express) {
         console.error('[Cron] Error limpiando datos de fiestas terminadas:', err);
       }
 
-      res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired });
+      // Correo semanal de los embajadores VIP. Va en la misma corrida diaria
+      // porque Vercel Hobby ya tiene sus 2 crons ocupados y un tercero
+      // rompería el despliegue -- este chequeo decide si hoy toca mandar.
+      // Try/catch propio: si el envío falla, la cola de mailing igual reporta.
+      let ambassadorWeekly: { sent: number; skipped: number; failed: number } | null = null;
+      try {
+        const config = await getProgramConfig();
+        if (config.weeklyEmailEnabled && isWeeklyEmailDay(new Date(), config.weeklyEmailWeekday)) {
+          ambassadorWeekly = await sendWeeklyAmbassadorEmails();
+        }
+      } catch (err) {
+        console.error('[Cron] Error mandando el correo semanal de embajadores:', err);
+      }
+
+      res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, ambassadorWeekly });
     } catch (err) {
       console.error('[Cron] Error procesando la cola de mailing:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });

@@ -176,6 +176,13 @@
       "when": 1785362808727,
       "tag": "0024_great_lockjaw",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1785364883550,
+      "tag": "0025_chunky_nomad",
+      "breakpoints": true
     }
   ]
 }
