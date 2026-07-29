@@ -219,6 +219,18 @@ export const appRouter = router({
     getStats: adminProcedure.input(z.object({ channel: z.enum(['web', 'caja']).optional() }).optional()).query(async ({ input }) => {
       return db.getOrderStats(input?.channel);
     }),
+    // Mismos filtros y mismas columnas que el CSV (server/adminRoutes.ts) --
+    // alimenta la vista de impresión/PDF, para que ambos formatos muestren
+    // exactamente lo mismo.
+    forPrint: adminProcedure.input(z.object({
+      eventId: z.number().optional(),
+      dateFrom: z.string().optional(),
+      dateTo: z.string().optional(),
+      status: z.string().optional(),
+      channel: z.enum(['web', 'caja']).optional(),
+    }).optional()).query(async ({ input }) => {
+      return db.getOrdersForExport(input ?? {});
+    }),
     getTickets: adminProcedure.input(z.object({ orderId: z.number() })).query(async ({ input }) => {
       return db.getOrderTickets(input.orderId);
     }),
