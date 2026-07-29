@@ -28,6 +28,7 @@ const CajaApp = lazy(() => import("./pages/caja"));
 const MyReferrals = lazy(() => import("./pages/MyReferrals"));
 const MisPuntos = lazy(() => import("./pages/MisPuntos"));
 const Ticket = lazy(() => import("./pages/Ticket"));
+const Party = lazy(() => import("./pages/Party"));
 const Prices = lazy(() => import("./pages/Prices"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
 
@@ -74,6 +75,7 @@ function Router() {
           <Route path="/mis-referidos" component={MyReferrals} />
           <Route path="/mis-puntos" component={MisPuntos} />
           <Route path="/verificar/:ticketCode" component={Ticket} />
+          <Route path="/fiesta/:ticketCode" component={Party} />
           <Route path="/entradas" component={Prices} />
           <Route path="/politica-de-reembolso" component={RefundPolicy} />
           <Route path="/admin" component={AdminDashboard} />
@@ -95,10 +97,14 @@ function App() {
   // (docs/ARQUITECTURA-CAJA.md §10.1). /admin ahora usa un sidebar propio
   // (fixed, inset-y-0) que chocaría con la navbar pública fija arriba, así
   // que tampoco la lleva -- es un panel interno, no una página del sitio.
+  // /fiesta tampoco: es una app de pantalla completa que se usa a oscuras y
+  // con una mano, y la navbar pública ("Comprar entradas") no tiene ningún
+  // sentido para alguien que ya está adentro de la fiesta.
   const [location] = useLocation();
   const isCaja = location.startsWith('/caja');
   const isAdmin = location.startsWith('/admin');
-  const hideChrome = isCaja || isAdmin;
+  const isParty = location.startsWith('/fiesta');
+  const hideChrome = isCaja || isAdmin || isParty;
 
   // Saca el loader estático de client/index.html (pintado antes de que
   // React exista, para que nunca haya un instante en blanco) apenas React

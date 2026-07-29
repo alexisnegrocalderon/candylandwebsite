@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { CalendarPlus, MapPin, Calendar, User, ShieldCheck, TicketX, CheckCircle2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
+import { canEnterParty } from '@shared/party';
 
 /** Página pública "Mi entrada" — a donde apunta el QR de cada ticket
  * (server/qr.ts). De solo lectura: muestra el QR, los nombres de todos los
@@ -110,6 +111,21 @@ export default function Ticket() {
               </div>
             )}
           </div>
+
+          {/* La fiesta en el celular. Solo aparece cuando la persona ya
+              entró de verdad (QR escaneado en la puerta) y el evento está en
+              curso -- el servidor revalida ambas cosas igual. */}
+          {ticket.eventDate && canEnterParty(
+            { status: ticket.status, eventId: 0 },
+            { eventDate: ticket.eventDate, doorsOpen: ticket.doorsOpen, eventEnd: ticket.eventEnd },
+          ) && (
+            <Link
+              href={`/fiesta/${ticket.ticketCode}`}
+              className="btn-jelly w-full h-14 rounded-full bg-primary text-white text-base font-bold inline-flex items-center justify-center gap-2 mb-3 interactive"
+            >
+              🍬 Entrar a la fiesta
+            </Link>
+          )}
 
           <a
             href={`/api/calendar/${ticket.ticketCode}.ics`}

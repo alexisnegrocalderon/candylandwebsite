@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -533,3 +533,103 @@ export const mailingRecipients = mysqlTable("mailingRecipients", {
 
 export type MailingRecipient = typeof mailingRecipients.$inferSelect;
 export type InsertMailingRecipient = typeof mailingRecipients.$inferInsert;
+
+// --- Caramelo: la capa social que vive solo mientras dura la fiesta ---
+// Las reglas (ventana horaria, tope de toques, alias permitidos) están en
+// shared/party.ts, compartidas con el cliente. Acá solo viven los datos.
+
+// Un perfil por acceso que efectivamente entró (tickets.status='used').
+// Sin foto y sin nombre real: alias + uno de los avatares dibujados.
+export const partyProfiles = mysqlTable("partyProfiles", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  // Un acceso, un perfil. El ticketCode es además el token de sesión de la
+  // fiesta, igual que en la página pública de la entrada.
+  ticketId: int("ticketId").notNull().unique(),
+  alias: varchar("alias", { length: 32 }).notNull(),
+  gender: mysqlEnum("gender", ["hombre", "mujer", "pareja"]).notNull(),
+  avatarId: int("avatarId").notNull(),
+  zone: mysqlEnum("zone", ["living", "playground", "piscina", "barra"]).default("living").notNull(),
+  // Se refresca solo, cada vez que la persona mira la mansión.
+  lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+  active: int("active").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  // El patrón de consulta real: "todos los perfiles activos de este evento".
+  eventActiveIdx: index("party_profiles_event_active_idx").on(table.eventId, table.active),
+}));
+
+export type PartyProfile = typeof partyProfiles.$inferSelect;
+export type InsertPartyProfile = typeof partyProfiles.$inferInsert;
+
+// Un toque 👋 y su respuesta. El par se guarda SIEMPRE normalizado
+// (profileLowId < profileHighId, ver orderedPair en shared/party.ts): con
+// eso el índice único de abajo impide duplicados en los dos sentidos, y
+// "no puede volver a tocar a quien ya lo rechazó" queda garantizado por la
+// base de datos en vez de por una validación que se puede olvidar.
+export const partyConnections = mysqlTable("partyConnections", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  profileLowId: int("profileLowId").notNull(),
+  profileHighId: int("profileHighId").notNull(),
+  initiatedById: int("initiatedById").notNull(),
+  status: mysqlEnum("status", ["pending", "accepted", "declined"]).default("pending").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  respondedAt: timestamp("respondedAt"),
+}, (table) => ({
+  pairIdx: uniqueIndex("party_connections_pair_idx").on(table.profileLowId, table.profileHighId),
+  // "mis conexiones" se consulta por cada lado del par.
+  lowIdx: index("party_connections_low_idx").on(table.profileLowId),
+  highIdx: index("party_connections_high_idx").on(table.profileHighId),
+}));
+
+export type PartyConnection = typeof partyConnections.$inferSelect;
+export type InsertPartyConnection = typeof partyConnections.$inferInsert;
+
+// Los mensajes se borran a las 24h de terminado el evento (cron diario).
+// Los perfiles y conexiones se conservan; lo que la gente escribió, no.
+export const partyMessages = mysqlTable("partyMessages", {
+  id: int("id").autoincrement().primaryKey(),
+  connectionId: int("connectionId").notNull(),
+  fromProfileId: int("fromProfileId").notNull(),
+  body: varchar("body", { length: 500 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  connectionIdx: index("party_messages_connection_idx").on(table.connectionId, table.createdAt),
+}));
+
+export type PartyMessage = typeof partyMessages.$inferSelect;
+export type InsertPartyMessage = typeof partyMessages.$inferInsert;
+
+// Bloqueo: la invisibilidad es MUTUA. Quien bloquea deja de ver al
+// bloqueado y también desaparece de su mansión -- si solo desapareciera de
+// un lado, el bloqueado notaría el bloqueo y podría buscar a la persona en
+// la fiesta real, que es exactamente lo que hay que evitar.
+export const partyBlocks = mysqlTable("partyBlocks", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  blockerProfileId: int("blockerProfileId").notNull(),
+  blockedProfileId: int("blockedProfileId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  pairIdx: uniqueIndex("party_blocks_pair_idx").on(table.blockerProfileId, table.blockedProfileId),
+}));
+
+export type PartyBlock = typeof partyBlocks.$inferSelect;
+export type InsertPartyBlock = typeof partyBlocks.$inferInsert;
+
+// Denuncias, para que el equipo del local pueda actuar durante la fiesta.
+export const partyReports = mysqlTable("partyReports", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  reporterProfileId: int("reporterProfileId").notNull(),
+  reportedProfileId: int("reportedProfileId").notNull(),
+  reason: varchar("reason", { length: 500 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+}, (table) => ({
+  eventIdx: index("party_reports_event_idx").on(table.eventId, table.resolvedAt),
+}));
+
+export type PartyReport = typeof partyReports.$inferSelect;
+export type InsertPartyReport = typeof partyReports.$inferInsert;

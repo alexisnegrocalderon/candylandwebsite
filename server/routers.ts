@@ -11,6 +11,30 @@ import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
 import { redeemDisplayCode } from "./caja/redeem";
 import { checkInTicket } from "./caja/checkin";
+import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeMessage } from "../shared/party";
+
+/** Puerta de entrada a "Caramelo": resuelve al que llama por su ticketCode
+ * y revalida, en cada llamada, que entró de verdad por la puerta y que la
+ * fiesta está abierta. Todos los endpoints de `party` pasan por acá. */
+async function requirePartyActor(ticketCode: string) {
+  const actor = await db.getPartyActor(ticketCode);
+  const denial = partyEntryDenial(actor?.ticket, actor?.event, new Date());
+  if (denial || !actor) {
+    const message =
+      denial === 'no_ingreso' ? 'Tu entrada todavía no fue escaneada en la puerta'
+      : denial === 'fuera_de_horario' ? 'La fiesta no está abierta en este momento'
+      : 'No encontramos tu entrada';
+    throw new TRPCError({ code: 'FORBIDDEN', message });
+  }
+  return actor;
+}
+
+/** Igual que la anterior, pero además exige tener el perfil creado. */
+async function requirePartyProfile(ticketCode: string) {
+  const actor = await requirePartyActor(ticketCode);
+  if (!actor.profile) throw new TRPCError({ code: 'FORBIDDEN', message: 'Todavía no creaste tu perfil' });
+  return { ...actor, profile: actor.profile };
+}
 import { createCajaSale } from "./caja/sale";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
@@ -293,6 +317,128 @@ export const appRouter = router({
     // el ticketCode ya funciona como token portador (viene del QR/email).
     getByCode: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
       return db.getTicketByCode(input.ticketCode);
+    }),
+  }),
+
+  // --- Caramelo: la fiesta dentro del celular ---
+  // Todo público porque el `ticketCode` ES el token (igual que la página de
+  // la entrada): no hay cuentas ni contraseñas. Cada llamada revalida las
+  // tres condiciones desde cero contra la base -- esconder un botón en el
+  // cliente no protege nada.
+  party: router({
+    getSession: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await db.getPartyActor(input.ticketCode);
+      if (!actor) return { denial: 'sin_ticket' as const, event: null, profile: null };
+
+      const denial = partyEntryDenial(actor.ticket, actor.event, new Date());
+      return {
+        denial,
+        event: {
+          id: actor.event.id,
+          title: actor.event.title,
+          eventDate: actor.event.eventDate,
+          doorsOpen: actor.event.doorsOpen,
+          eventEnd: actor.event.eventEnd,
+        },
+        profile: actor.profile
+          ? { id: actor.profile.id, alias: actor.profile.alias, gender: actor.profile.gender, avatarId: actor.profile.avatarId, zone: actor.profile.zone }
+          : null,
+      };
+    }),
+
+    createProfile: publicProcedure.input(z.object({
+      ticketCode: z.string(),
+      alias: z.string(),
+      gender: z.enum(PARTY_GENDERS),
+      avatarId: z.number().int().min(1).max(AVATARS_PER_GENDER),
+      zone: z.enum(PARTY_ZONES),
+    })).mutation(async ({ input }) => {
+      const actor = await requirePartyActor(input.ticketCode);
+      if (actor.profile) return { id: actor.profile.id };
+
+      // El alias lo ve toda la fiesta: se valida en el servidor, no solo en
+      // el formulario.
+      const check = sanitizeAlias(input.alias);
+      if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
+
+      const profile = await db.createPartyProfile({
+        eventId: actor.event.id,
+        ticketId: actor.ticket.id,
+        alias: check.alias,
+        gender: input.gender,
+        avatarId: input.avatarId,
+        zone: input.zone,
+      });
+      return { id: profile!.id };
+    }),
+
+    listMansion: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return db.listPartyMansion(actor.profile.id, actor.event.id);
+    }),
+
+    setZone: publicProcedure.input(z.object({ ticketCode: z.string(), zone: z.enum(PARTY_ZONES) }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        await db.updatePartyProfile(actor.profile.id, { zone: input.zone });
+        return { ok: true };
+      }),
+
+    touch: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number() }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        const res = await db.touchPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
+        if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+        return res;
+      }),
+
+    respondTouch: publicProcedure.input(z.object({ ticketCode: z.string(), connectionId: z.number(), accept: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        const res = await db.respondToPartyTouch(actor.profile.id, input.connectionId, input.accept);
+        if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+        return res;
+      }),
+
+    getMessages: publicProcedure.input(z.object({ ticketCode: z.string(), connectionId: z.number() }))
+      .query(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        const res = await db.listPartyMessages(actor.profile.id, input.connectionId);
+        if (!res) throw new TRPCError({ code: 'FORBIDDEN', message: 'Esta conversación no está abierta' });
+        return res;
+      }),
+
+    sendMessage: publicProcedure.input(z.object({ ticketCode: z.string(), connectionId: z.number(), body: z.string() }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        const check = sanitizeMessage(input.body);
+        if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
+
+        const res = await db.sendPartyMessage(actor.profile.id, input.connectionId, check.body);
+        if (!res.ok) throw new TRPCError({ code: 'FORBIDDEN', message: res.reason });
+        return { ok: true };
+      }),
+
+    block: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number() }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        await db.blockPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
+        return { ok: true };
+      }),
+
+    report: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number(), reason: z.string().min(3).max(500) }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        // Denunciar también bloquea: quien denuncia no debería seguir
+        // viendo a esa persona mientras el equipo revisa.
+        await db.reportPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id, input.reason.trim());
+        await db.blockPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
+        return { ok: true };
+      }),
+
+    // Para el equipo del local, durante la fiesta.
+    listReports: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.listPartyReports(input.eventId);
     }),
   }),
 

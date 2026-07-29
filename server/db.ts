@@ -1,9 +1,10 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
+import { MAX_TOUCHES_PER_EVENT, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -2264,4 +2265,295 @@ export async function importCustomers(rows: {
   }
 
   return { imported, updated };
+}
+
+// --- Caramelo: la fiesta dentro del celular ---
+// Las reglas de autorización (ventana horaria, check-in, tope de toques)
+// viven en shared/party.ts y las aplica el router en cada llamada. Acá solo
+// están las consultas.
+
+/** Resuelve quién es el que llama a partir de su `ticketCode` -- el mismo
+ * token que ya usa la página pública de la entrada. Devuelve también el
+ * evento y el perfil (si ya lo creó), que es lo que el router necesita para
+ * decidir si lo deja entrar. */
+export async function getPartyActor(ticketCode: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [ticket] = await db.select().from(tickets).where(eq(tickets.ticketCode, ticketCode.trim())).limit(1);
+  if (!ticket) return null;
+
+  const [event] = await db.select().from(events).where(eq(events.id, ticket.eventId)).limit(1);
+  if (!event) return null;
+
+  const [profile] = await db.select().from(partyProfiles).where(eq(partyProfiles.ticketId, ticket.id)).limit(1);
+
+  return { ticket, event, profile: profile ?? null };
+}
+
+export async function createPartyProfile(params: {
+  eventId: number; ticketId: number; alias: string; gender: PartyGender; avatarId: number; zone: PartyZone;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.insert(partyProfiles).values({
+    eventId: params.eventId,
+    ticketId: params.ticketId,
+    alias: params.alias,
+    gender: params.gender,
+    avatarId: params.avatarId,
+    zone: params.zone,
+    lastSeenAt: new Date(),
+  });
+
+  const [profile] = await db.select().from(partyProfiles).where(eq(partyProfiles.ticketId, params.ticketId)).limit(1);
+  return profile;
+}
+
+export async function updatePartyProfile(profileId: number, data: { zone?: PartyZone; avatarId?: number; active?: number }) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(partyProfiles).set(data).where(eq(partyProfiles.id, profileId));
+}
+
+/** Ids que este perfil no debe ver ni poder tocar. El bloqueo es MUTUO: se
+ * juntan los que bloqueé con los que me bloquearon, así el bloqueado nunca
+ * nota que lo bloquearon (si solo desapareciera de un lado, lo notaría y
+ * podría ir a buscar a la persona en la fiesta real). */
+async function getPartyHiddenIds(db: any, profileId: number): Promise<Set<number>> {
+  const rows = await db.select().from(partyBlocks)
+    .where(or(eq(partyBlocks.blockerProfileId, profileId), eq(partyBlocks.blockedProfileId, profileId)));
+  const hidden = new Set<number>();
+  for (const r of rows) {
+    hidden.add(r.blockerProfileId === profileId ? r.blockedProfileId : r.blockerProfileId);
+  }
+  return hidden;
+}
+
+/** Todas las conexiones en las que participa este perfil, en cualquier estado. */
+async function getPartyConnectionsFor(db: any, profileId: number) {
+  return db.select().from(partyConnections)
+    .where(or(eq(partyConnections.profileLowId, profileId), eq(partyConnections.profileHighId, profileId)));
+}
+
+/** La mansión: todos los perfiles activos del evento, con el estado de mi
+ * relación con cada uno. De paso refresca mi `lastSeenAt`, así la presencia
+ * no necesita un endpoint de heartbeat aparte. */
+export async function listPartyMansion(profileId: number, eventId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  await db.update(partyProfiles).set({ lastSeenAt: new Date() }).where(eq(partyProfiles.id, profileId));
+
+  const [hidden, connections, profiles] = await Promise.all([
+    getPartyHiddenIds(db, profileId),
+    getPartyConnectionsFor(db, profileId),
+    db.select().from(partyProfiles).where(and(eq(partyProfiles.eventId, eventId), eq(partyProfiles.active, 1))),
+  ]);
+
+  const byOther = new Map<number, any>();
+  for (const c of connections) {
+    const other = c.profileLowId === profileId ? c.profileHighId : c.profileLowId;
+    byOther.set(other, c);
+  }
+
+  const people = profiles
+    .filter((p: any) => p.id !== profileId && !hidden.has(p.id))
+    .map((p: any) => {
+      const c = byOther.get(p.id);
+      // Un toque que me mandaron y todavía no respondo: es lo único que
+      // exige acción de mi parte, por eso se distingue del resto.
+      const pendingForMe = !!c && c.status === 'pending' && c.initiatedById !== profileId;
+      return {
+        id: p.id,
+        alias: p.alias,
+        gender: p.gender as PartyGender,
+        avatarId: p.avatarId,
+        zone: p.zone as PartyZone,
+        lastSeenAt: p.lastSeenAt,
+        connectionId: c?.id ?? null,
+        // `declined` se le muestra a quien tocó como si siguiera pendiente:
+        // el rechazo es silencioso (decisión del dueño).
+        connectionStatus: c ? (c.status === 'declined' && c.initiatedById === profileId ? 'pending' : c.status) : null,
+        pendingForMe,
+      };
+    });
+
+  const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId).length;
+
+  return { people, touchesUsed, touchesLeft: Math.max(0, MAX_TOUCHES_PER_EVENT - touchesUsed) };
+}
+
+export type PartyTouchResult =
+  | { ok: true; status: 'pending' | 'accepted'; connectionId: number }
+  | { ok: false; reason: string };
+
+/** Mandar un toque 👋. Si la otra persona ya me había tocado, la conexión
+ * pasa sola a `accepted`: toque recíproco = match. */
+export async function touchPartyProfile(profileId: number, targetProfileId: number, eventId: number): Promise<PartyTouchResult> {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: 'Base de datos no disponible' };
+  if (profileId === targetProfileId) return { ok: false, reason: 'No puedes tocarte a ti mismo' };
+
+  const [target] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, targetProfileId)).limit(1);
+  if (!target || target.eventId !== eventId || target.active !== 1) {
+    return { ok: false, reason: 'Esa persona ya no está en la fiesta' };
+  }
+
+  const hidden = await getPartyHiddenIds(db, profileId);
+  if (hidden.has(targetProfileId)) return { ok: false, reason: 'Esa persona ya no está en la fiesta' };
+
+  const { low, high } = orderedPair(profileId, targetProfileId);
+  const [existing] = await db.select().from(partyConnections)
+    .where(and(eq(partyConnections.profileLowId, low), eq(partyConnections.profileHighId, high))).limit(1);
+
+  if (existing) {
+    if (existing.initiatedById === profileId) {
+      // Ya lo toqué antes. Si me rechazó no se lo digo (rechazo silencioso).
+      return existing.status === 'accepted'
+        ? { ok: true, status: 'accepted', connectionId: existing.id }
+        : { ok: true, status: 'pending', connectionId: existing.id };
+    }
+    if (existing.status === 'pending') {
+      // Me habían tocado y ahora yo toco de vuelta: match automático.
+      await db.update(partyConnections).set({ status: 'accepted', respondedAt: new Date() })
+        .where(eq(partyConnections.id, existing.id));
+      return { ok: true, status: 'accepted', connectionId: existing.id };
+    }
+    if (existing.status === 'accepted') return { ok: true, status: 'accepted', connectionId: existing.id };
+    // Yo lo rechacé antes: no se reabre desde acá.
+    return { ok: false, reason: 'No se puede abrir esta conversación' };
+  }
+
+  const connections = await getPartyConnectionsFor(db, profileId);
+  const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId).length;
+  if (touchesUsed >= MAX_TOUCHES_PER_EVENT) {
+    return { ok: false, reason: `Llegaste al máximo de ${MAX_TOUCHES_PER_EVENT} toques por noche` };
+  }
+
+  await db.insert(partyConnections).values({
+    eventId, profileLowId: low, profileHighId: high, initiatedById: profileId, status: 'pending',
+  });
+  const [created] = await db.select().from(partyConnections)
+    .where(and(eq(partyConnections.profileLowId, low), eq(partyConnections.profileHighId, high))).limit(1);
+
+  return { ok: true, status: 'pending', connectionId: created.id };
+}
+
+/** Aceptar o rechazar un toque. Solo puede responder quien NO lo inició. */
+export async function respondToPartyTouch(profileId: number, connectionId: number, accept: boolean) {
+  const db = await getDb();
+  if (!db) return { ok: false as const, reason: 'Base de datos no disponible' };
+
+  const [c] = await db.select().from(partyConnections).where(eq(partyConnections.id, connectionId)).limit(1);
+  if (!c) return { ok: false as const, reason: 'Ese toque ya no existe' };
+  if (c.profileLowId !== profileId && c.profileHighId !== profileId) return { ok: false as const, reason: 'No es tu toque' };
+  if (c.initiatedById === profileId) return { ok: false as const, reason: 'No puedes responder tu propio toque' };
+  if (c.status !== 'pending') return { ok: true as const, status: c.status };
+
+  const status = accept ? 'accepted' : 'declined';
+  await db.update(partyConnections).set({ status, respondedAt: new Date() }).where(eq(partyConnections.id, connectionId));
+  return { ok: true as const, status };
+}
+
+/** Devuelve la conexión solo si este perfil es parte de ella y está
+ * aceptada -- el chat no existe antes del consentimiento. */
+async function getAcceptedConnection(db: any, profileId: number, connectionId: number) {
+  const [c] = await db.select().from(partyConnections).where(eq(partyConnections.id, connectionId)).limit(1);
+  if (!c) return null;
+  if (c.profileLowId !== profileId && c.profileHighId !== profileId) return null;
+  if (c.status !== 'accepted') return null;
+  return c;
+}
+
+export async function listPartyMessages(profileId: number, connectionId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const c = await getAcceptedConnection(db, profileId, connectionId);
+  if (!c) return null;
+
+  const otherId = c.profileLowId === profileId ? c.profileHighId : c.profileLowId;
+  const hidden = await getPartyHiddenIds(db, profileId);
+  if (hidden.has(otherId)) return null;
+
+  const [other] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, otherId)).limit(1);
+  const messages = await db.select().from(partyMessages)
+    .where(eq(partyMessages.connectionId, connectionId))
+    .orderBy(partyMessages.createdAt);
+
+  return {
+    other: other ? { id: other.id, alias: other.alias, gender: other.gender, avatarId: other.avatarId, zone: other.zone, lastSeenAt: other.lastSeenAt } : null,
+    messages: messages.map((m: any) => ({ id: m.id, body: m.body, mine: m.fromProfileId === profileId, createdAt: m.createdAt })),
+  };
+}
+
+export async function sendPartyMessage(profileId: number, connectionId: number, body: string) {
+  const db = await getDb();
+  if (!db) return { ok: false as const, reason: 'Base de datos no disponible' };
+
+  const c = await getAcceptedConnection(db, profileId, connectionId);
+  if (!c) return { ok: false as const, reason: 'Esta conversación no está abierta' };
+
+  const otherId = c.profileLowId === profileId ? c.profileHighId : c.profileLowId;
+  const hidden = await getPartyHiddenIds(db, profileId);
+  if (hidden.has(otherId)) return { ok: false as const, reason: 'Esta conversación no está abierta' };
+
+  await db.insert(partyMessages).values({ connectionId, fromProfileId: profileId, body });
+  return { ok: true as const };
+}
+
+export async function blockPartyProfile(profileId: number, targetProfileId: number, eventId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(partyBlocks).values({ eventId, blockerProfileId: profileId, blockedProfileId: targetProfileId })
+    .onDuplicateKeyUpdate({ set: { blockedProfileId: targetProfileId } });
+}
+
+export async function reportPartyProfile(profileId: number, targetProfileId: number, eventId: number, reason: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(partyReports).values({ eventId, reporterProfileId: profileId, reportedProfileId: targetProfileId, reason });
+}
+
+/** Denuncias sin resolver de un evento, para el equipo del local. */
+export async function listPartyReports(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    id: partyReports.id,
+    reason: partyReports.reason,
+    createdAt: partyReports.createdAt,
+    resolvedAt: partyReports.resolvedAt,
+    reporterAlias: sql<string>`reporter.alias`,
+    reportedAlias: sql<string>`reported.alias`,
+    reportedZone: sql<string>`reported.zone`,
+  })
+    .from(partyReports)
+    .leftJoin(sql`${partyProfiles} as reporter`, sql`reporter.id = ${partyReports.reporterProfileId}`)
+    .leftJoin(sql`${partyProfiles} as reported`, sql`reported.id = ${partyReports.reportedProfileId}`)
+    .where(eq(partyReports.eventId, eventId))
+    .orderBy(desc(partyReports.createdAt));
+  return rows;
+}
+
+/** Borra lo que la gente escribió, 24h después de terminada la fiesta. Los
+ * perfiles y las conexiones se conservan (sirven para saber si la función
+ * funcionó); los mensajes no. Lo corre el cron diario que ya existe. */
+export async function purgeOldPartyMessages(now: Date = new Date()) {
+  const db = await getDb();
+  if (!db) return { deletedFor: 0 };
+
+  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const oldEvents = await db.select({ id: events.id }).from(events).where(lte(events.eventEnd, cutoff));
+  if (oldEvents.length === 0) return { deletedFor: 0 };
+
+  const eventIds = oldEvents.map((e: any) => e.id);
+  const conns = await db.select({ id: partyConnections.id }).from(partyConnections)
+    .where(inArray(partyConnections.eventId, eventIds));
+  if (conns.length === 0) return { deletedFor: 0 };
+
+  await db.delete(partyMessages).where(inArray(partyMessages.connectionId, conns.map((c: any) => c.id)));
+  return { deletedFor: eventIds.length };
 }
