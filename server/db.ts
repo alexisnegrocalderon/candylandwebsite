@@ -716,6 +716,82 @@ export async function getOrderTickets(orderId: number) {
   return result;
 }
 
+/** Parte pura de deleteOrderCascade(): decide qué ajustes hacen falta al
+ * borrar una orden, sin tocar la base -- separada para poder testearla sin
+ * conexión (mismo patrón que priceManualOrderItems/tallyTags).
+ * - `decrementSoldCount`: el stock solo se incrementó si la orden llegó a
+ *   'approved' (o luego 'refunded', que hoy no revierte el contador) --
+ *   fuera de esos estados, decrementar regalaría stock que nunca se descontó.
+ * - `decrementCustomerTotals`: customers.totalOrders/totalSpent son una
+ *   proyección de upsertCustomerFromOrder, que solo corre para ventas web
+ *   aprobadas.
+ * - `playcoinsReversals`: un delta por reversar por cada fila del ledger
+ *   ligada a esta orden (normalmente una sola, por la idempotencia de
+ *   awardPlaycoins), con el signo invertido. */
+export function computeOrderDeleteEffects(
+  order: { paymentStatus: string; channel: string },
+  ledgerEntries: { customerId: number; delta: number }[],
+): {
+  decrementSoldCount: boolean;
+  decrementCustomerTotals: boolean;
+  playcoinsReversals: { customerId: number; delta: number }[];
+} {
+  return {
+    decrementSoldCount: order.paymentStatus === 'approved' || order.paymentStatus === 'refunded',
+    decrementCustomerTotals: order.channel === 'web' && order.paymentStatus === 'approved',
+    playcoinsReversals: ledgerEntries.filter((e) => e.delta !== 0).map((e) => ({ customerId: e.customerId, delta: -e.delta })),
+  };
+}
+
+/** Elimina una orden y todo lo que depende de ella (pedido explícito del
+ * usuario, irreversible). No hay foreign keys en la base (ver comentarios
+ * del schema), así que hay que limpiar a mano cada tabla relacionada:
+ * - orderItems, tickets, referrals: dependen 1:1 de orderId, se borran.
+ * - playcoinsLedger es append-only (mismo principio que `ops`, ver
+ *   comentario del schema) -- en vez de borrar sus filas, se revierte el
+ *   saldo con `adjustPlaycoinsManually`, que agrega una fila nueva de
+ *   ajuste y mantiene la auditoría completa.
+ * Qué ajustar exactamente sale de computeOrderDeleteEffects(). */
+export async function deleteOrderCascade(orderId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  if (!order) return { success: true };
+
+  const ledgerEntries = await db.select().from(playcoinsLedger).where(eq(playcoinsLedger.orderId, orderId));
+  const effects = computeOrderDeleteEffects(order, ledgerEntries);
+
+  if (effects.decrementSoldCount) {
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+    for (const item of items) {
+      await db.update(ticketTypes).set({ soldCount: sql`GREATEST(soldCount - ${item.quantity}, 0)` }).where(eq(ticketTypes.id, item.ticketTypeId));
+    }
+  }
+
+  for (const reversal of effects.playcoinsReversals) {
+    await adjustPlaycoinsManually(reversal.customerId, reversal.delta, `Orden #${order.orderNumber} eliminada`);
+  }
+
+  if (effects.decrementCustomerTotals) {
+    const email = order.buyerEmail.trim().toLowerCase();
+    const [customer] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+    if (customer) {
+      await db.update(customers).set({
+        totalOrders: Math.max(0, customer.totalOrders - 1),
+        totalSpent: String(Math.max(0, Number(customer.totalSpent) - Number(order.total))),
+      }).where(eq(customers.id, customer.id));
+    }
+  }
+
+  await db.delete(orderItems).where(eq(orderItems.orderId, orderId));
+  await db.delete(tickets).where(eq(tickets.orderId, orderId));
+  await db.delete(referrals).where(eq(referrals.orderId, orderId));
+  await db.delete(orders).where(eq(orders.id, orderId));
+
+  return { success: true };
+}
+
 // Export completo (sin paginar) para CSV — filtra por evento/rango de fechas/estado.
 export async function getOrdersForExport(filters: { eventId?: number; dateFrom?: string; dateTo?: string; status?: string; channel?: 'web' | 'caja' }) {
   const db = await getDb();
@@ -1537,6 +1613,19 @@ export async function getShiftClosingsForExport(eventId?: number) {
   return listShiftClosings(eventId);
 }
 
+/** Elimina un cierre de turno (pedido explícito del usuario: hace pruebas de
+ * cierre y no quiere que queden mezcladas con datos reales). La verificación
+ * con clave de admin vive en el router (cajaReports.deleteShiftClosing), acá
+ * solo se borra la fila de `shifts` -- el ledger `ops` es append-only y no se
+ * toca, así que la auditoría de operaciones queda intacta aunque el cierre
+ * desaparezca del listado. */
+export async function deleteShiftClosing(shiftId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(shifts).where(eq(shifts.id, shiftId));
+  return { success: true };
+}
+
 // --- Base de datos de clientes (pedido explícito del usuario) ---
 
 /** Se llama una sola vez por orden, desde processApprovedOrder (solo ventas
@@ -1690,7 +1779,16 @@ export async function adjustPlaycoinsManually(customerId: number, delta: number,
   await db.insert(playcoinsLedger).values({ customerId, delta: appliedDelta, reason: 'manual_adjust', balanceAfter, note });
 }
 
-export async function listCustomers(filters: { search?: string; accessType?: string; tag?: string; excludeTag?: string; eventId?: number } = {}) {
+/** Parte pura del filtro "excluir etiquetas" de listCustomers -- separada
+ * para poder testearla sin base de datos (mismo patrón que tallyTags).
+ * Excluye al cliente si tiene CUALQUIERA de las etiquetas de `excludeTags`. */
+export function excludeCustomersByTags<T extends { tags: unknown }>(rows: T[], excludeTags?: string[]): T[] {
+  if (!excludeTags || excludeTags.length === 0) return rows;
+  const excludeSet = new Set(excludeTags);
+  return rows.filter((c) => !Array.isArray(c.tags) || !c.tags.some((t: string) => excludeSet.has(t)));
+}
+
+export async function listCustomers(filters: { search?: string; accessType?: string; tag?: string; excludeTags?: string[]; eventId?: number } = {}) {
   const db = await getDb();
   if (!db) return [];
   let rows = await db.select().from(customers).orderBy(desc(customers.lastSeenAt));
@@ -1712,9 +1810,7 @@ export async function listCustomers(filters: { search?: string; accessType?: str
   // Excluir por etiqueta (pedido explícito del usuario): armar audiencias de
   // mailing tipo "todos menos los que ya recibieron la campaña X" sin tener
   // que mantener una lista aparte -- reusa las mismas tags libres de siempre.
-  if (filters.excludeTag) {
-    rows = rows.filter((c: any) => !Array.isArray(c.tags) || !c.tags.includes(filters.excludeTag));
-  }
+  rows = excludeCustomersByTags(rows, filters.excludeTags);
   // "Clientes de este evento" no vive en `customers` (no tiene FK a events) --
   // se resuelve cruzando por email contra las órdenes aprobadas de ese evento
   // (mismo criterio que el resto del sistema: la fuente de verdad es `orders`,
