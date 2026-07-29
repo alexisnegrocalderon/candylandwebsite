@@ -6,6 +6,7 @@ import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug } from '../shared/mission300';
 import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
+import { isEventToday } from '../shared/eventDay';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1203,6 +1204,16 @@ export async function getActiveEventForCaja() {
   , rows[0]);
 }
 
+/** Evento cuyo día (hora de Chile) es hoy -- para el correo de las 3am con
+ * el total de gente que entró (server/cronRoutes.ts). `undefined` si ningún
+ * evento publicado cae hoy, para que el cron no mande nada esos días. */
+export async function getEventHappeningToday(now: Date = new Date()) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(events).where(or(eq(events.status, 'published'), eq(events.status, 'soldout')));
+  return rows.find((r: any) => isEventToday(r.eventDate, now));
+}
+
 /** Búsqueda de la pantalla principal de caja: primero intenta match exacto
  * por código (QR de acceso o displayCode de un extra); si no hay, busca por
  * nombre/email/teléfono. Solo dentro del evento activo, solo órdenes aprobadas. */
@@ -1291,6 +1302,18 @@ export async function getCajaSnapshot(eventId: number) {
     ticketsByOrder.set(t.orderId, list);
   }
 
+  // RUT del comprador, para que la puerta lo compare con la cedula. Se cruza
+  // por email porque `orders`/`tickets` no guardan `customerId` -- es el
+  // mismo cruce que usa `upsertCustomerFromOrder`. Es el RUT de quien compro,
+  // no uno por cada persona del grupo: `attendeeData` no trae un RUT por
+  // asistente.
+  const buyerEmails = Array.from(new Set(approvedOrders.map((o: any) => (o.buyerEmail || '').trim().toLowerCase()).filter(Boolean)));
+  const rutByEmail = new Map<string, string | null>();
+  if (buyerEmails.length) {
+    const matchingCustomers = await db.select({ email: customers.email, rut: customers.rut }).from(customers).where(inArray(customers.email, buyerEmails));
+    for (const c of matchingCustomers) rutByEmail.set(c.email, c.rut);
+  }
+
   const attendees = approvedOrders.map((o: any) => {
     const ts = ticketsByOrder.get(o.id) ?? [];
     // Los nombres de todos los asistentes de la orden: es lo que el
@@ -1303,6 +1326,7 @@ export async function getCajaSnapshot(eventId: number) {
       buyerName: o.buyerName,
       buyerEmail: o.buyerEmail,
       buyerPhone: o.buyerPhone,
+      rut: rutByEmail.get((o.buyerEmail || '').trim().toLowerCase()) ?? null,
       attendeeNames: attendeeNames.length > 0 ? attendeeNames : [o.buyerName],
       access: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'acceso').map((t: any) => ({
         ticketCode: t.ticketCode,

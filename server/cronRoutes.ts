@@ -1,7 +1,10 @@
 import type { Express, Request, Response } from "express";
 import { ENV } from "./_core/env";
 import { processMailingCronBatch } from "./mailing";
-import { purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations } from "./db";
+import { purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, getEventHappeningToday, getCajaDashboard } from "./db";
+import { sendEmail, buildCheckinSummaryEmail } from "./email";
+
+const CHECKIN_SUMMARY_EMAIL = 'contacto@mansionplayroom.cl';
 
 /** Vercel manda `Authorization: Bearer <CRON_SECRET>` en cada invocación de
  * un cron job cuando esa variable está seteada en el proyecto -- es el
@@ -56,6 +59,38 @@ export function registerCronRoutes(app: Express) {
       res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired });
     } catch (err) {
       console.error('[Cron] Error procesando la cola de mailing:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  // Correo de las 3am con el total de gente que entró (pedido explícito del
+  // dueño). Corre todos los días -- si ningún evento cae hoy no manda nada,
+  // así que no hace falta desactivarlo entre fiestas. `vercel.json` la
+  // programa a las 06:00 UTC ≈ 03:00 en Chile con horario de verano (CLST,
+  // UTC-3) / 02:00 con horario de invierno (CLT, UTC-4) -- ver
+  // shared/eventDay.ts sobre esta misma imprecisión.
+  app.get("/api/cron/checkin-summary", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const event = await getEventHappeningToday();
+      if (!event) { res.json({ success: true, sent: false, reason: 'no hay evento hoy' }); return; }
+
+      const dashboard = await getCajaDashboard(event.id);
+      if (!dashboard) { res.json({ success: true, sent: false, reason: 'sin datos de caja para el evento' }); return; }
+
+      await sendEmail({
+        to: CHECKIN_SUMMARY_EMAIL,
+        subject: `[Candyland] Ingresos del día — ${event.title}`,
+        html: buildCheckinSummaryEmail({
+          eventTitle: event.title,
+          eventDate: event.eventDate,
+          insideCount: dashboard.insideCount,
+          expectedCount: dashboard.expectedCount,
+        }),
+      });
+      res.json({ success: true, sent: true, insideCount: dashboard.insideCount, expectedCount: dashboard.expectedCount });
+    } catch (err) {
+      console.error('[Cron] Error mandando el resumen de ingresos:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
   });

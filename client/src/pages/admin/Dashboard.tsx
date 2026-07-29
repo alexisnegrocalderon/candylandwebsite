@@ -2318,6 +2318,9 @@ function DeleteShiftClosingButton({ shiftId, label, onDeleted }: { shiftId: numb
 function SettingsManager() {
   const { data: settings, refetch } = trpc.settings.get.useQuery();
   const updateSettings = trpc.settings.update.useMutation({ onSuccess: () => { refetch(); toast.success('Ajustes guardados'); }, onError: onMutationError });
+  // Mismo número que llega en el correo de las 3am -- acá se puede revisar
+  // manual en cualquier momento, sin esperar el correo.
+  const { data: checkin } = trpc.settings.checkinCount.useQuery(undefined, { refetchInterval: 30_000 });
   const [followers, setFollowers] = useState('');
   const [posts, setPosts] = useState('');
   const [feePercent, setFeePercent] = useState('');
@@ -2341,6 +2344,23 @@ function SettingsManager() {
   return (
     <div className="space-y-6">
       <h2 className="font-heading text-2xl">Ajustes</h2>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Personas adentro</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          {checkin ? (
+            <>
+              <p className="text-muted-foreground text-sm">{checkin.eventTitle}</p>
+              <p className="text-4xl font-heading font-extrabold">
+                {checkin.insideCount.toLocaleString('es-CL')}
+                <span className="text-muted-foreground text-lg font-semibold"> / {checkin.expectedCount.toLocaleString('es-CL')}</span>
+              </p>
+              <p className="text-xs text-muted-foreground">Se actualiza solo cada 30 segundos.</p>
+            </>
+          ) : (
+            <p className="text-muted-foreground text-sm">No hay un evento activo con datos de puerta todavía.</p>
+          )}
+        </CardContent>
+      </Card>
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardHeader><CardTitle>Instagram</CardTitle></CardHeader>
         <CardContent className="space-y-4">

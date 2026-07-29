@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import jsQR from 'jsqr';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Camera, CameraOff, Search, WifiOff, X } from 'lucide-react';
+import { Camera, Search, WifiOff, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
+import { QrScanner } from '@/components/QrScanner';
 import { parseTicketCodeFromQr } from '@shared/qr';
 import { personasForAccesoSlug } from '@shared/mission300';
 import {
@@ -27,6 +27,8 @@ type Ficha = {
   accesoSlug: string | null;
   status: string;
   attendeeNames: string[];
+  /** RUT de quien compró -- no hay uno por asistente, ver `caja/db.ts`. */
+  rut: string | null;
   extras: { typeName: string; status: string }[];
   buyerName: string;
 };
@@ -118,14 +120,9 @@ function Login({ onDone }: { onDone: () => void }) {
 /* --- Escáner -------------------------------------------------------------- */
 
 function Scanner({ operatorName }: { operatorName: string }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number>(0);
-  const scanningRef = useRef(true);
+  const [scanning, setScanning] = useState(true);
 
   const [ficha, setFicha] = useState<Ficha | null>(null);
-  const [camError, setCamError] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pending, setPending] = useState(0);
   const [localEvent, setLocalEvent] = useState<{ id: number; title: string } | null>(null);
@@ -197,6 +194,7 @@ function Scanner({ operatorName }: { operatorName: string }) {
       accesoSlug: acc.accesoSlug,
       status: acc.status,
       attendeeNames: attendee.attendeeNames ?? [attendee.buyerName],
+      rut: attendee.rut ?? null,
       extras: attendee.extras.map((e) => ({ typeName: e.typeName, status: e.status })),
       buyerName: attendee.buyerName,
     };
@@ -205,63 +203,17 @@ function Scanner({ operatorName }: { operatorName: string }) {
   const handleCode = useCallback(async (raw: string) => {
     const code = parseTicketCodeFromQr(raw);
     if (!code) return;
-    scanningRef.current = false;
+    setScanning(false);
     const f = await buildFicha(code);
     if (!f) {
       // Sin ficha local: puede ser de otro evento o de una compra hecha
       // en el último minuto, todavía no descargada.
-      setFicha({ ticketCode: code, typeName: '', accesoSlug: null, status: 'desconocido', attendeeNames: [], extras: [], buyerName: '' });
+      setFicha({ ticketCode: code, typeName: '', accesoSlug: null, status: 'desconocido', attendeeNames: [], rut: null, extras: [], buyerName: '' });
     } else {
       setFicha(f);
     }
     navigator.vibrate?.(60);
   }, [buildFicha]);
-
-  // Bucle de escaneo: un frame del video al canvas, jsQR sobre los píxeles.
-  // Se usa jsQR porque BarcodeDetector no existe en Safari/iOS.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-          audio: false,
-        });
-        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-        setCamError(null);
-
-        const tick = () => {
-          rafRef.current = requestAnimationFrame(tick);
-          const video = videoRef.current;
-          const canvas = canvasRef.current;
-          if (!scanningRef.current || !video || !canvas || video.readyState !== video.HAVE_ENOUGH_DATA) return;
-
-          const ctx = canvas.getContext('2d', { willReadFrequently: true });
-          if (!ctx) return;
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const found = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
-          if (found?.data) handleCode(found.data);
-        };
-        tick();
-      } catch {
-        setCamError('No pudimos abrir la cámara. Revisa el permiso en el navegador.');
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(rafRef.current);
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-    };
-  }, [handleCode]);
 
   useEffect(() => {
     const q = query.trim();
@@ -276,10 +228,10 @@ function Scanner({ operatorName }: { operatorName: string }) {
     setFicha(null);
     setBuscando(false);
     setQuery('');
-    scanningRef.current = true;
+    setScanning(true);
   };
 
-  const cerrar = () => { setFicha(null); scanningRef.current = true; };
+  const cerrar = () => { setFicha(null); setScanning(true); };
 
   return (
     <div className="min-h-dvh bg-[#0d0810] text-white flex flex-col">
@@ -301,30 +253,20 @@ function Scanner({ operatorName }: { operatorName: string }) {
         </div>
       </header>
 
-      <div className="relative flex-1 overflow-hidden bg-black">
-        <video ref={videoRef} playsInline muted className="absolute inset-0 w-full h-full object-cover" />
-        <canvas ref={canvasRef} className="hidden" />
-
-        {camError ? (
-          <div className="absolute inset-0 grid place-items-center px-8 text-center">
-            <div>
-              <CameraOff className="w-10 h-10 mx-auto mb-3 text-white/40" />
-              <p className="text-sm text-white/70">{camError}</p>
-              <p className="text-xs text-white/40 mt-2">Igual puedes buscar por nombre con la lupa de arriba.</p>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Marco de puntería: le dice al anfitrión dónde poner el QR. */}
-            <div className="absolute inset-0 grid place-items-center pointer-events-none">
-              <div className="w-56 h-56 rounded-3xl border-2 border-primary/70 shadow-[0_0_0_100vmax_rgba(0,0,0,0.45)]" />
-            </div>
-            <p className="absolute bottom-6 inset-x-0 text-center text-sm text-white/70 inline-flex items-center justify-center gap-2">
-              <Camera className="w-4 h-4" /> Apunta al QR de la entrada
-            </p>
-          </>
-        )}
-      </div>
+      <QrScanner
+        paused={!scanning}
+        onDecode={handleCode}
+        className="flex-1"
+        onError={() => toast.message('Igual puedes buscar por nombre con la lupa de arriba.')}
+      >
+        {/* Marco de puntería: le dice al anfitrión dónde poner el QR. */}
+        <div className="absolute inset-0 grid place-items-center pointer-events-none">
+          <div className="w-56 h-56 rounded-3xl border-2 border-primary/70 shadow-[0_0_0_100vmax_rgba(0,0,0,0.45)]" />
+        </div>
+        <p className="absolute bottom-6 inset-x-0 text-center text-sm text-white/70 inline-flex items-center justify-center gap-2">
+          <Camera className="w-4 h-4" /> Apunta al QR de la entrada
+        </p>
+      </QrScanner>
 
       {ficha && <FichaVerificacion ficha={ficha} onAceptar={() => darAcceso(ficha.ticketCode)} onCerrar={cerrar} />}
 
@@ -358,6 +300,9 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar }: {
   // decirle al auto dónde ir, así que va destacado y aparte del resto.
   const estacionamiento = ficha.extras.filter((e) => /estacionamiento|parking/i.test(e.typeName));
   const otrosExtras = ficha.extras.filter((e) => !/estacionamiento|parking/i.test(e.typeName));
+  // El admin crea "Estacionamiento VIP" como un extra más -- el nombre es la
+  // única señal de que es VIP, así que se distingue con esa misma palabra.
+  const esVip = (nombre: string) => /vip/i.test(nombre);
 
   return (
     <div className="fixed inset-0 z-50 bg-[#0d0810] flex flex-col">
@@ -379,17 +324,22 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar }: {
             </div>
 
             <p className="text-xs uppercase tracking-widest text-white/45 mb-2">A nombre de</p>
-            <div className="space-y-1.5 mb-5">
+            <div className="space-y-1.5 mb-2">
               {ficha.attendeeNames.map((n, i) => (
                 <p key={i} className="text-xl font-bold leading-tight">{n}</p>
               ))}
             </div>
+            <p className="text-sm text-white/50 mb-5">
+              {ficha.rut ? `RUT ${ficha.rut}` : 'RUT no registrado — pídelo verbalmente'}
+            </p>
 
             {estacionamiento.length > 0 && (
               <div className="rounded-2xl border border-candy-blue/35 bg-candy-blue/10 p-4 mb-3">
                 <p className="text-xs uppercase tracking-widest text-white/50 mb-1">Estacionamiento</p>
                 {estacionamiento.map((e, i) => (
-                  <p key={i} className="font-bold text-lg">🅿️ {e.typeName}</p>
+                  <p key={i} className={`font-bold text-lg ${esVip(e.typeName) ? 'text-amber-300' : ''}`}>
+                    {esVip(e.typeName) ? '⭐' : '🅿️'} {e.typeName}
+                  </p>
                 ))}
               </div>
             )}
