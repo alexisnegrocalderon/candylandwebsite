@@ -11,7 +11,10 @@ export interface CajaAttendee {
   buyerName: string;
   buyerEmail: string;
   buyerPhone: string | null;
-  access: { ticketCode: string; status: string; typeName: string }[];
+  /** Nombres de todos los asistentes de la orden -- es lo que el anfitrión
+   * compara contra la cédula en la puerta. */
+  attendeeNames: string[];
+  access: { ticketCode: string; status: string; typeName: string; accesoSlug: string | null }[];
   extras: { displayCode: string | null; status: string; typeName: string }[];
 }
 

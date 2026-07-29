@@ -29,6 +29,7 @@ const MyReferrals = lazy(() => import("./pages/MyReferrals"));
 const MisPuntos = lazy(() => import("./pages/MisPuntos"));
 const Ticket = lazy(() => import("./pages/Ticket"));
 const Party = lazy(() => import("./pages/Party"));
+const Puerta = lazy(() => import("./pages/Puerta"));
 const Prices = lazy(() => import("./pages/Prices"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
@@ -77,6 +78,7 @@ function Router() {
           <Route path="/mis-puntos" component={MisPuntos} />
           <Route path="/verificar/:ticketCode" component={Ticket} />
           <Route path="/fiesta/:ticketCode" component={Party} />
+          <Route path="/puerta" component={Puerta} />
           <Route path="/entradas" component={Prices} />
           <Route path="/politica-de-reembolso" component={RefundPolicy} />
           <Route path="/politica-de-privacidad" component={PrivacyPolicy} />
@@ -106,7 +108,10 @@ function App() {
   const isCaja = location.startsWith('/caja');
   const isAdmin = location.startsWith('/admin');
   const isParty = location.startsWith('/fiesta');
-  const hideChrome = isCaja || isAdmin || isParty;
+  // /puerta es la pantalla del anfitrión en la entrada: cámara a pantalla
+  // completa, sin nada del sitio público alrededor.
+  const isPuerta = location.startsWith('/puerta');
+  const hideChrome = isCaja || isAdmin || isParty || isPuerta;
 
   // Saca el loader estático de client/index.html (pintado antes de que
   // React exista, para que nunca haya un instante en blanco) apenas React

@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
-import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
+import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug } from '../shared/mission300';
 import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 
@@ -1293,13 +1293,24 @@ export async function getCajaSnapshot(eventId: number) {
 
   const attendees = approvedOrders.map((o: any) => {
     const ts = ticketsByOrder.get(o.id) ?? [];
+    // Los nombres de todos los asistentes de la orden: es lo que el
+    // anfitrion compara contra la cedula en la puerta. Van en el snapshot
+    // para que la ficha funcione sin senal.
+    const attendeeNames = parseAttendeeNames(o.attendeeData);
     return {
       orderId: o.id,
       orderNumber: o.orderNumber,
       buyerName: o.buyerName,
       buyerEmail: o.buyerEmail,
       buyerPhone: o.buyerPhone,
-      access: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'acceso').map((t: any) => ({ ticketCode: t.ticketCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name })),
+      attendeeNames: attendeeNames.length > 0 ? attendeeNames : [o.buyerName],
+      access: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'acceso').map((t: any) => ({
+        ticketCode: t.ticketCode,
+        status: t.status,
+        typeName: ttById.get(t.ticketTypeId)?.name,
+        // Para contar personas reales en el aforo (un Duo son 2).
+        accesoSlug: ttById.get(t.ticketTypeId)?.accesoSlug ?? null,
+      })),
       extras: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'extra').map((t: any) => ({ displayCode: t.displayCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name })),
     };
   });
@@ -1357,9 +1368,24 @@ export async function getCajaDashboard(eventId: number) {
   const statOf = (category: string, status: string) =>
     Number(ticketStats.find((r: any) => r.category === category && r.status === status)?.count ?? 0);
 
-  const insideCount = statOf('acceso', 'used');       // gente adentro ahora
-  const expectedCount = insideCount + statOf('acceso', 'valid'); // accesos vigentes en total
   const redeemedCount = statOf('extra', 'used');      // extras retirados
+
+  // Aforo en PERSONAS, no en entradas: un Duo son 2 personas y un Grupo 4.
+  // Contar tickets daria un numero muy por debajo del real, y este numero
+  // existe justamente para saber cuanta gente hay dentro del recinto.
+  const accesoTickets = await db.select({ accesoSlug: ticketTypes.accesoSlug, status: tickets.status })
+    .from(tickets)
+    .innerJoin(ticketTypes, eq(ticketTypes.id, tickets.ticketTypeId))
+    .where(and(eq(tickets.eventId, eventId), eq(ticketTypes.category, 'acceso')));
+
+  let insideCount = 0;
+  let expectedCount = 0;
+  for (const t of accesoTickets) {
+    if (t.status === 'cancelled') continue;
+    const personas = personasForAccesoSlug(t.accesoSlug);
+    expectedCount += personas;
+    if (t.status === 'used') insideCount += personas;
+  }
 
   const items = await db.select({ ticketTypeId: orderItems.ticketTypeId, quantity: orderItems.quantity })
     .from(orderItems)

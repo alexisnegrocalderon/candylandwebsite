@@ -2,7 +2,7 @@ import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS, CAJA_DEVIC
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk, ADMIN_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
@@ -57,6 +57,50 @@ const mailingEventSectionsSchema = z.object({
   mission300: z.boolean(),
   venueGrid: z.boolean(),
 });
+
+
+/** Verifica el PIN de un operador aplicando los dos límites que ya existen:
+ * por IP (para que nadie enumere operadores probando pocos intentos en cada
+ * uno) y por operador (5 fallos lo bloquean 5 minutos). Lo comparten el
+ * login de /caja y el de /puerta -- una sola implementación para que un
+ * arreglo de seguridad no se aplique en un lado y se olvide en el otro. */
+async function verifyOperatorPinOrThrow(ctx: any, operatorId: number, pin: string) {
+  const forwardedFor = ctx.req.headers['x-forwarded-for'];
+  const clientIp = (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || 'unknown';
+  const ipKey = `pin-login:${clientIp}`;
+  if (!(await db.checkIpRateLimit(ipKey))) {
+    throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos desde este dispositivo. Intenta de nuevo más tarde.' });
+  }
+
+  const operator = await db.getOperatorById(operatorId);
+  if (!operator || !operator.active) {
+    await db.recordIpFailedAttempt(ipKey);
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'PIN incorrecto' });
+  }
+
+  if (operator.lockedUntil && new Date(operator.lockedUntil).getTime() > Date.now()) {
+    const minutesLeft = Math.ceil((new Date(operator.lockedUntil).getTime() - Date.now()) / 60_000);
+    throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: `Demasiados intentos. Intenta de nuevo en ${minutesLeft} min.` });
+  }
+
+  if (!verifyPin(pin, operator.pinHash)) {
+    await db.recordFailedPinAttempt(operator.id);
+    await db.recordIpFailedAttempt(ipKey);
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'PIN incorrecto' });
+  }
+
+  await db.resetPinAttempts(operator.id);
+  return operator;
+}
+
+/** Igual que la anterior pero solo para quienes trabajan en la puerta. */
+async function verifyDoorPinOrThrow(ctx: any, operatorId: number, pin: string) {
+  const operator = await verifyOperatorPinOrThrow(ctx, operatorId, pin);
+  if (operator.role !== 'acceso' && operator.role !== 'supervisor' && operator.role !== 'admin') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Tu usuario no trabaja en la puerta' });
+  }
+  return operator;
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -317,6 +361,81 @@ export const appRouter = router({
     // el ticketCode ya funciona como token portador (viene del QR/email).
     getByCode: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
       return db.getTicketByCode(input.ticketCode);
+    }),
+  }),
+
+  // --- Puerta: el anfitrión en la entrada del estacionamiento ---
+  // Pantalla aparte de /caja a propósito: el anfitrión no es cajero, no
+  // debería ver el menú de venta, y escanea con su propio teléfono. Lo
+  // único que puede hacer con esta sesión es marcar entradas.
+  puerta: router({
+    // Público como el de caja: solo devuelve nombres y roles, nunca PINs.
+    listOperators: publicProcedure.query(async () => {
+      const all = await db.listActiveOperatorsPublic();
+      return all.filter((o: any) => o.role === 'acceso' || o.role === 'supervisor' || o.role === 'admin');
+    }),
+
+    login: publicProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) }))
+      .mutation(async ({ input, ctx }) => {
+        const operator = await verifyDoorPinOrThrow(ctx, input.operatorId, input.pin);
+        const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
+        return { id: operator.id, name: operator.name, role: operator.role };
+      }),
+
+    me: publicProcedure.query(({ ctx }) => ctx.operator),
+
+    activeEvent: doorProcedure.query(async () => {
+      return db.getActiveEventForCaja();
+    }),
+
+    // Mismo snapshot que la caja: la puerta lo guarda en el mismo IndexedDB
+    // y por eso funciona sin señal.
+    snapshot: doorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getCajaSnapshot(input.eventId);
+    }),
+
+    checkin: doorProcedure.input(z.object({
+      opId: z.string(),
+      eventId: z.number(),
+      ticketCode: z.string().min(1),
+      clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      return checkInTicket(rawDb, {
+        opId: input.opId,
+        ticketCode: input.ticketCode,
+        eventId: input.eventId,
+        operatorId: ctx.operator.operatorId,
+        clientAt: new Date(input.clientAt),
+      });
+    }),
+
+    // Vaciado de la cola offline. Solo acepta operaciones de check-in: la
+    // puerta no vende ni canjea, aunque comparta la cola con la caja.
+    sync: doorProcedure.input(z.object({
+      eventId: z.number(),
+      ops: z.array(z.object({
+        type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string(),
+      })).max(50),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+
+      const results: Record<string, { result: string; conflictNote?: string }> = {};
+      for (const op of input.ops) {
+        try {
+          results[op.opId] = await checkInTicket(rawDb, {
+            opId: op.opId, ticketCode: op.ticketCode, eventId: input.eventId,
+            operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
+          });
+        } catch (err) {
+          results[op.opId] = { result: 'rejected', conflictNote: err instanceof Error ? err.message : 'Error al sincronizar' };
+        }
+      }
+      return results;
     }),
   }),
 
@@ -668,38 +787,7 @@ export const appRouter = router({
       return db.listActiveOperatorsPublic();
     }),
     login: deviceProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
-      // Rate limiting por IP (docs/ARQUITECTURA-CAJA.md §13, riesgo 7):
-      // complementa el límite por operador -- sin esto, alguien podría
-      // enumerar operadores (listOperators es público) y probar pocos
-      // intentos en cada uno sin disparar nunca el bloqueo individual.
-      const forwardedFor = ctx.req.headers['x-forwarded-for'];
-      const clientIp = (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || 'unknown';
-      const ipKey = `pin-login:${clientIp}`;
-      if (!(await db.checkIpRateLimit(ipKey))) {
-        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos desde este dispositivo. Intenta de nuevo más tarde.' });
-      }
-
-      const operator = await db.getOperatorById(input.operatorId);
-      if (!operator || !operator.active) {
-        await db.recordIpFailedAttempt(ipKey);
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'PIN incorrecto' });
-      }
-
-      // Rate limiting por operador: 5 intentos fallidos lo bloquean 5
-      // minutos -- el PIN es mucho más débil que una contraseña y la
-      // tablet es compartida.
-      if (operator.lockedUntil && new Date(operator.lockedUntil).getTime() > Date.now()) {
-        const minutesLeft = Math.ceil((new Date(operator.lockedUntil).getTime() - Date.now()) / 60_000);
-        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: `Demasiados intentos. Intenta de nuevo en ${minutesLeft} min.` });
-      }
-
-      if (!verifyPin(input.pin, operator.pinHash)) {
-        await db.recordFailedPinAttempt(operator.id);
-        await db.recordIpFailedAttempt(ipKey);
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'PIN incorrecto' });
-      }
-
-      await db.resetPinAttempts(operator.id);
+      const operator = await verifyOperatorPinOrThrow(ctx, input.operatorId, input.pin);
       const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });

@@ -64,6 +64,34 @@ export const deviceProcedure = t.procedure.use(
   }),
 );
 
+/** Pantalla de puerta (/puerta): sesión de operador con rol de acceso,
+ * SIN exigir dispositivo enrolado.
+ *
+ * Es la única puerta de entrada del sistema que renuncia a esa segunda
+ * barrera, y es a propósito: el anfitrión escanea con su propio teléfono
+ * en la entrada del estacionamiento, y hacerlo emparejar el dispositivo
+ * ahí, con autos llegando, garantizaba que la función no se usara.
+ *
+ * El riesgo queda acotado porque lo único que se puede hacer con esta
+ * sesión es MARCAR ENTRADAS: no vende, no cobra y no anula. Cada marca
+ * queda firmada con el nombre del operador en el ledger `ops`, y el login
+ * pasa por el mismo límite por IP que el de caja. */
+export const doorProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+
+    if (!ctx.operator) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: "Sesión de puerta requerida" });
+    }
+    const role = ctx.operator.role;
+    if (role !== 'acceso' && role !== 'supervisor' && role !== 'admin') {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Tu usuario no tiene acceso a la puerta" });
+    }
+
+    return next({ ctx: { ...ctx, operator: ctx.operator } });
+  }),
+);
+
 // Requiere una sesión de operador de /caja válida (login por PIN, no admin)
 // EN un dispositivo enrolado -- ambos, no solo uno. Una sesión de operador
 // robada no sirve de nada sin también tener el dispositivo enrolado.
