@@ -105,6 +105,14 @@ export const orders = mysqlTable("orders", {
   total: decimal("total", { precision: 10, scale: 0 }).notNull(),
   discountCodeId: int("discountCodeId"),
   ambassadorCode: varchar("ambassadorCode", { length: 32 }),
+  // Código que el comprador tecleó al pagar, congelado para siempre desde
+  // createOrder -- a diferencia de `ambassadorCode`, que más tarde
+  // ensureOwnAmbassadorCode() pisa con el código PROPIO del comprador (ver
+  // ese comentario en webhooks.ts). Sin esta columna, la Misión 300 (donde
+  // ese pisado ocurre antes de la aprobación final) perdía el rastro de quién
+  // refirió la venta -- ahora tanto los referidos normales como la comisión
+  // de embajadores exclusivos leen de acá.
+  referredByCode: varchar("referredByCode", { length: 32 }),
   paymentStatus: mysqlEnum("paymentStatus", ["pending", "approved", "rejected", "refunded"]).default("pending").notNull(),
   paymentId: varchar("paymentId", { length: 255 }),
   paymentMethod: varchar("paymentMethod", { length: 64 }),
@@ -250,6 +258,49 @@ export const referrals = mysqlTable("referrals", {
 
 export type Referral = typeof referrals.$inferSelect;
 export type InsertReferral = typeof referrals.$inferInsert;
+
+// Embajadores exclusivos (pedido explícito del usuario): a diferencia de un
+// embajador "orgánico" (cualquier comprador, ver `referrals` arriba), estos
+// se dan de alta a mano en el admin con un código propio y cobran una
+// comisión en plata por cada venta con su código -- no dan descuento al
+// comprador, solo trackean quién trajo la venta. El mismo campo de código de
+// embajador del checkout sirve para ambos casos; lo que distingue a uno
+// exclusivo es que su código está acá, activo, para ese evento.
+export const exclusiveAmbassadors = mysqlTable("exclusiveAmbassadors", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  code: varchar("code", { length: 32 }).notNull().unique(),
+  // Mismo formato que siteSettings.serviceFeePercent (el único otro % del
+  // schema) -- editable por embajador, cada uno puede tener un % distinto.
+  commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }).notNull(),
+  contact: varchar("contact", { length: 255 }),
+  active: int("active").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ExclusiveAmbassador = typeof exclusiveAmbassadors.$inferSelect;
+export type InsertExclusiveAmbassador = typeof exclusiveAmbassadors.$inferInsert;
+
+// Comisión generada por cada venta con un código de embajador exclusivo.
+// baseAmount/commissionPercent/commissionAmount quedan CONGELADOS al momento
+// de la venta (misma convención que orders.serviceFee) -- si después se
+// cambia el % del embajador, el historial de ventas ya pagadas no se
+// reescribe.
+export const ambassadorCommissions = mysqlTable("ambassadorCommissions", {
+  id: int("id").autoincrement().primaryKey(),
+  ambassadorId: int("ambassadorId").notNull(),
+  orderId: int("orderId").notNull(),
+  eventId: int("eventId").notNull(),
+  baseAmount: decimal("baseAmount", { precision: 10, scale: 0 }).notNull(),
+  commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }).notNull(),
+  commissionAmount: decimal("commissionAmount", { precision: 10, scale: 0 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AmbassadorCommission = typeof ambassadorCommissions.$inferSelect;
+export type InsertAmbassadorCommission = typeof ambassadorCommissions.$inferInsert;
 
 // --- Módulo /caja (docs/ARQUITECTURA-CAJA.md §4.2) ---
 
