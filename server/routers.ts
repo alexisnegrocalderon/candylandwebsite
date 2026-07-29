@@ -258,6 +258,12 @@ export const appRouter = router({
     listManual: adminProcedure.query(async () => {
       return db.listManualOrders();
     }),
+    // Eliminar una compra (pedido explícito del usuario): irreversible, la
+    // confirmación con ventana de diálogo vive en el admin, acá solo se
+    // ejecuta el borrado en cascada.
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      return db.deleteOrderCascade(input.id);
+    }),
   }),
 
   mission300: router({
@@ -701,7 +707,7 @@ export const appRouter = router({
       search: z.string().optional(),
       accessType: z.string().optional(),
       tag: z.string().optional(),
-      excludeTag: z.string().optional(),
+      excludeTags: z.array(z.string()).optional(),
       eventId: z.number().optional(),
     }).optional()).query(async ({ input }) => {
       return db.listCustomers(input ?? {});
@@ -873,6 +879,20 @@ export const appRouter = router({
     // eventId trae los de todos los eventos, para comparar entre fiestas.
     shiftClosings: adminProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
       return db.listShiftClosings(input?.eventId);
+    }),
+    // Eliminar un cierre de turno (pedido explícito del usuario, para sacar
+    // pruebas/cierres de práctica de los reportes reales) -- doble
+    // verificación: además del diálogo de confirmación en el admin, pide la
+    // misma clave que auth.adminLogin.
+    deleteShiftClosing: adminProcedure.input(z.object({
+      shiftId: z.number(),
+      password: z.string(),
+    })).mutation(async ({ input }) => {
+      const adminPassword = process.env.ADMIN_PASSWORD;
+      if (!adminPassword || input.password !== adminPassword) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Contraseña incorrecta' });
+      }
+      return db.deleteShiftClosing(input.shiftId);
     }),
   }),
 });

@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
@@ -471,7 +471,18 @@ function DiscountsManager() {
                 </span>
                 <span className="text-muted-foreground text-sm ml-3">Usos: {d.usedCount}/{d.maxUses || '∞'}</span>
               </div>
-              <ConfirmDeleteButton description={`Vas a eliminar el código de descuento "${d.code}".`} onConfirm={() => deleteDiscount.mutateAsync({ id: d.id })} />
+              <div className="flex gap-2">
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(`Usa mi código ${d.code} para comprar tu entrada a Candyland en Mansion Playroom 🍭 ${window.location.origin}`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button variant="outline" size="sm" className="text-primary">
+                    <MessageCircle className="w-3 h-3" />
+                  </Button>
+                </a>
+                <ConfirmDeleteButton description={`Vas a eliminar el código de descuento "${d.code}".`} onConfirm={() => deleteDiscount.mutateAsync({ id: d.id })} />
+              </div>
             </CardContent>
           </Card>
         ))}
@@ -542,6 +553,15 @@ function CommunityCodesManager() {
                 <Button variant="outline" size="sm" onClick={() => updateCode.mutateAsync({ id: c.id, isActive: c.isActive ? 0 : 1 })}>
                   {c.isActive ? 'Desactivar' : 'Activar'}
                 </Button>
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(`Usa mi código ${c.code} para comprar tu entrada a Candyland en Mansion Playroom 🍭 ${window.location.origin}`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Button variant="outline" size="sm" className="text-primary">
+                    <MessageCircle className="w-3 h-3" />
+                  </Button>
+                </a>
                 <ConfirmDeleteButton description={`Vas a eliminar el código de comunidad "${c.code}".`} onConfirm={() => deleteCode.mutateAsync({ id: c.id })} />
               </div>
             </CardContent>
@@ -850,14 +870,23 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const [dateTo, setDateTo] = useState('');
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
 
-  const { data: ordersData } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter, channel });
-  const { data: stats } = trpc.orders.getStats.useQuery({ channel });
+  const { data: ordersData, refetch: refetchOrders } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter, channel });
+  const { data: stats, refetch: refetchStats } = trpc.orders.getStats.useQuery({ channel });
   const { data: orderTickets, isFetching: loadingTickets } = trpc.orders.getTickets.useQuery(
     { orderId: expandedOrderId ?? 0 },
     { enabled: expandedOrderId !== null }
   );
   const resendConfirmation = trpc.orders.resendConfirmation.useMutation({
     onSuccess: () => toast.success('Email reenviado'),
+    onError: onMutationError,
+  });
+  const deleteOrder = trpc.orders.delete.useMutation({
+    onSuccess: (_data, variables) => {
+      toast.success('Compra eliminada');
+      if (expandedOrderId === variables.id) setExpandedOrderId(null);
+      refetchOrders();
+      refetchStats();
+    },
     onError: onMutationError,
   });
 
@@ -943,23 +972,30 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                         </div>
                       </td>
                       <td className="py-2 px-3">
-                        {order.paymentStatus === 'approved' && (
-                          <div className="flex gap-2">
-                            <button
-                              className="text-primary text-xs underline"
-                              onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
-                            >
-                              {expandedOrderId === order.id ? 'Ocultar' : 'Ver tickets'}
-                            </button>
-                            <button
-                              className="text-primary text-xs underline disabled:opacity-50"
-                              disabled={resendConfirmation.isPending}
-                              onClick={() => resendConfirmation.mutate({ orderNumber: order.orderNumber })}
-                            >
-                              Reenviar email
-                            </button>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {order.paymentStatus === 'approved' && (
+                            <>
+                              <button
+                                className="text-primary text-xs underline"
+                                onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                              >
+                                {expandedOrderId === order.id ? 'Ocultar' : 'Ver tickets'}
+                              </button>
+                              <button
+                                className="text-primary text-xs underline disabled:opacity-50"
+                                disabled={resendConfirmation.isPending}
+                                onClick={() => resendConfirmation.mutate({ orderNumber: order.orderNumber })}
+                              >
+                                Reenviar email
+                              </button>
+                            </>
+                          )}
+                          <ConfirmDeleteButton
+                            description={`Vas a eliminar la compra "${order.orderNumber}" de ${order.buyerName}.`}
+                            onConfirm={() => deleteOrder.mutateAsync({ id: order.id })}
+                            disabled={deleteOrder.isPending}
+                          />
+                        </div>
                       </td>
                     </tr>
                     {expandedOrderId === order.id && (
@@ -1226,7 +1262,7 @@ function MailingSection() {
   const [search, setSearch] = useState('');
   const [accessType, setAccessType] = useState<string>('all');
   const [tagFilter, setTagFilter] = useState('');
-  const [excludeTagFilter, setExcludeTagFilter] = useState('');
+  const [excludeTagFilters, setExcludeTagFilters] = useState<string[]>([]);
   const [eventFilter, setEventFilter] = useState<string>('all');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [campaignTag, setCampaignTag] = useState('');
@@ -1241,7 +1277,7 @@ function MailingSection() {
     search: search || undefined,
     accessType: accessType === 'all' ? undefined : accessType,
     tag: tagFilter || undefined,
-    excludeTag: excludeTagFilter || undefined,
+    excludeTags: excludeTagFilters.length > 0 ? excludeTagFilters : undefined,
     eventId: eventFilter === 'all' ? undefined : Number(eventFilter),
   });
   const customersList = customersData ?? [];
@@ -1289,7 +1325,7 @@ function MailingSection() {
     }
     if (accessType !== 'all') parts.push(`tipo de acceso "${ACCESO_SLUG_OPTIONS.find((o) => o.value === accessType)?.label ?? accessType}"`);
     if (tagFilter) parts.push(`etiqueta "${tagFilter}"`);
-    if (excludeTagFilter) parts.push(`sin la etiqueta "${excludeTagFilter}"`);
+    if (excludeTagFilters.length > 0) parts.push(`sin las etiquetas ${excludeTagFilters.map((t) => `"${t}"`).join(', ')}`);
     if (search) parts.push(`búsqueda "${search}"`);
     return parts.length > 0 ? parts.join(', ') : 'toda la base de clientes';
   })();
@@ -1363,11 +1399,17 @@ function MailingSection() {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={excludeTagFilter || NO_TAG_FILTER} onValueChange={(v) => setExcludeTagFilter(v === NO_TAG_FILTER ? '' : v)}>
+            <Select
+              value={NO_TAG_FILTER}
+              onValueChange={(v) => {
+                if (v === NO_TAG_FILTER) return;
+                setExcludeTagFilters((prev) => (prev.includes(v) ? prev : [...prev, v]));
+              }}
+            >
               <SelectTrigger className="w-52"><SelectValue placeholder="Excluir etiqueta" /></SelectTrigger>
               <SelectContent>
-                <SelectItem value={NO_TAG_FILTER}>Sin excluir a nadie</SelectItem>
-                {availableTags.map((t) => (
+                <SelectItem value={NO_TAG_FILTER}>Agregar etiqueta a excluir…</SelectItem>
+                {availableTags.filter((t) => !excludeTagFilters.includes(t.tag)).map((t) => (
                   <SelectItem key={t.tag} value={t.tag}>Sin "{t.tag}" ({t.count})</SelectItem>
                 ))}
               </SelectContent>
@@ -1399,6 +1441,25 @@ function MailingSection() {
               {!campaignTag.trim() && <p className="text-xs text-destructive">Pon el nombre de campaña arriba primero</p>}
             </div>
           </div>
+
+          {excludeTagFilters.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">Excluyendo:</span>
+              {excludeTagFilters.map((tag) => (
+                <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-destructive/10 text-destructive text-xs font-medium pl-3 pr-2 py-1">
+                  {tag}
+                  <button
+                    type="button"
+                    onClick={() => setExcludeTagFilters((prev) => prev.filter((t) => t !== tag))}
+                    className="interactive rounded-full hover:bg-destructive/20 p-0.5"
+                    aria-label={`Sacar "${tag}" de la exclusión`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
 
           {csvImportResult && (
             <div className="rounded-xl border border-border/50 px-4 py-3 text-sm space-y-2">
@@ -1891,7 +1952,7 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
   const [filterEventId, setFilterEventId] = useState<string>('all');
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const eventIdFilter = filterEventId === 'all' ? undefined : Number(filterEventId);
-  const { data } = trpc.cajaReports.shiftClosings.useQuery({ eventId: eventIdFilter });
+  const { data, refetch } = trpc.cajaReports.shiftClosings.useQuery({ eventId: eventIdFilter });
   const rows = data ?? [];
 
   const exportUrl = () => {
@@ -1935,9 +1996,12 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
                   {new Date(r.openedAt).toLocaleString('es-CL')} → {r.closedAt ? new Date(r.closedAt).toLocaleString('es-CL') : '—'}
                 </p>
               </div>
-              <Button variant="ghost" size="sm" onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}>
-                {expandedId === r.id ? 'Ocultar detalle' : 'Ver detalle'}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}>
+                  {expandedId === r.id ? 'Ocultar detalle' : 'Ver detalle'}
+                </Button>
+                <DeleteShiftClosingButton shiftId={r.id} label={`${r.eventTitle} · ${r.registerName} (${new Date(r.openedAt).toLocaleString('es-CL')})`} onDeleted={refetch} />
+              </div>
             </div>
 
             <div className="grid grid-cols-3 gap-3 mt-3 text-sm">
@@ -1984,6 +2048,60 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
         ))}
       </CardContent>
     </Card>
+  );
+}
+
+/** Eliminar un cierre de turno con doble verificación (pedido explícito del
+ * usuario, para sacar sus cierres de práctica de los reportes reales) -- a
+ * diferencia de ConfirmDeleteButton, acá además hay que escribir la clave de
+ * admin, así que el diálogo queda controlado a mano en vez de usar el
+ * genérico. */
+function DeleteShiftClosingButton({ shiftId, label, onDeleted }: { shiftId: number; label: string; onDeleted: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const deleteShift = trpc.cajaReports.deleteShiftClosing.useMutation({
+    onSuccess: () => {
+      toast.success('Cierre de turno eliminado');
+      setOpen(false);
+      setPassword('');
+      onDeleted();
+    },
+    onError: onMutationError,
+  });
+
+  return (
+    <AlertDialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setPassword(''); }}>
+      <AlertDialogTrigger asChild>
+        <Button variant="outline" size="sm" className="text-destructive">
+          <Trash2 className="w-3 h-3" />
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Eliminar este cierre de turno?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Vas a eliminar el cierre de {label}. Esta acción no se puede deshacer. Para confirmar, escribe la clave de admin.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <Input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="Clave de admin"
+          autoFocus
+        />
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <Button
+            variant="destructive"
+            disabled={!password || deleteShift.isPending}
+            onClick={() => deleteShift.mutate({ shiftId, password })}
+          >
+            {deleteShift.isPending ? 'Eliminando…' : 'Eliminar'}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
