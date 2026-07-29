@@ -179,7 +179,7 @@ export const appRouter = router({
       // peor que no tenerlo, y tocar variables de entorno es más rápido
       // que entrar a la consola de la base a medianoche.
       if (process.env.ADMIN_2FA_DISABLED === '1') {
-        issueAdminSession(ctx);
+        await issueAdminSession(ctx);
         return { ticket: '', needsSetup: false, skipped2fa: true } as const;
       }
 
@@ -221,7 +221,7 @@ export const appRouter = router({
 
         const { plain, hashed } = generateBackupCodes();
         await db.confirmAdminTotp(totp.id, hashed, res.timeStep);
-        issueAdminSession(ctx);
+        await issueAdminSession(ctx);
         return { backupCodes: plain } as const;
       }),
 
@@ -242,7 +242,7 @@ export const appRouter = router({
         if (res.ok) {
           await db.recordAdminTotpStep(totp.id, res.timeStep);
           await db.resetIpRateLimit(ipKey);
-          issueAdminSession(ctx);
+          await issueAdminSession(ctx);
           return { success: true } as const;
         }
 
@@ -251,7 +251,7 @@ export const appRouter = router({
         if (backup.ok) {
           await db.consumeAdminBackupCodes(totp.id, backup.remaining);
           await db.resetIpRateLimit(ipKey);
-          issueAdminSession(ctx);
+          await issueAdminSession(ctx);
           return { success: true, backupCodeUsed: true, backupCodesLeft: backup.remaining.length } as const;
         }
 
