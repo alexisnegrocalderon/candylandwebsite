@@ -31,7 +31,7 @@ type GroupSize = 1 | 2 | 3 | 4;
 type DuoComposicion = 'mixta' | 'dos_mujeres' | 'dos_hombres';
 
 const VIBE_OPTIONS: { size: GroupSize; image: string; label: string; emoji: string }[] = [
-  { size: 1, image: '/candyland/checkout/vibe-solo.webp', label: 'VOY SOLx', emoji: '👤' },
+  { size: 1, image: '/candyland/checkout/vibe-solo.webp', label: 'Voy Solx', emoji: '👤' },
   { size: 2, image: '/candyland/checkout/vibe-pareja.webp', label: 'Somos Dos', emoji: '💕' },
   { size: 3, image: '/candyland/checkout/vibe-triada.webp', label: 'Somos Tres', emoji: '🎭' },
   { size: 4, image: '/candyland/checkout/vibe-grupo.webp', label: 'Somos Cuatro', emoji: '🌈' },
@@ -111,14 +111,14 @@ function friendlyPregunta(rawKey: string, field: CampoForm): { titulo: string; s
     const n = Number(m[1]);
     const quien = n === 1 && !field.required ? 'tu +1' : n === 1 ? 'tu acompañante' : `tu acompañante ${n}`;
     if (m[2] === 'nombre') return { titulo: `¿Cómo se llama ${quien}?`, sub: field.required ? 'Así aparece en su carnet de acceso.' : 'Puedes completarlo ahora o después — es opcional.' };
-    if (m[2] === 'rut') return { titulo: '¿Cuál es su RUT?', sub: field.required ? 'Lo pedimos para su carnet de acceso.' : 'Opcional, puedes saltarlo.' };
+    if (m[2] === 'rut') return { titulo: '¿Cuál es su RUT?', sub: field.required ? 'Escríbelo con puntos y guion, igual que el ejemplo: 12.345.678-9' : 'Opcional. Si lo pones, escríbelo igual que el ejemplo: 12.345.678-9' };
     return { titulo: '¿Su Instagram?', sub: 'Opcional, para etiquetarlos en las fotos de la fiesta.' };
   }
   switch (rawKey) {
-    case 'nombre': return { titulo: '¿Cómo te llamas?', sub: 'Así aparece en tu carnet de acceso.' };
+    case 'nombre': return { titulo: '¿Cómo te llamas?', sub: 'Nombre y apellido, tal como aparece en tu carnet de identidad o el documento que vas a presentar en la entrada.' };
     case 'email': return { titulo: '¿A qué email enviamos tu entrada?', sub: 'Ahí llega tu QR y la dirección exacta.' };
     case 'whatsapp': return { titulo: '¿Cuál es tu WhatsApp?', sub: 'Por si necesitamos contactarte antes de la fiesta.' };
-    case 'rut': return { titulo: 'Tu RUT, para el carnet', sub: 'Tus datos son 100% privados.' };
+    case 'rut': return { titulo: 'Tu RUT, para el carnet', sub: 'Escríbelo con puntos y guion, igual que el ejemplo: 12.345.678-9. Tus datos son 100% privados.' };
     case 'instagram': return { titulo: '¿Nos compartes tu Instagram?', sub: 'Es el único dato opcional — puedes saltarlo.' };
     case 'mayorEdad': return { titulo: 'Una última confirmación', sub: 'Candyland es un evento estrictamente +18.' };
     case 'codigo_acceso': return { titulo: 'Tu código de comunidad', sub: field.help };
@@ -695,7 +695,10 @@ export default function Checkout() {
         <div className="container max-w-md text-center">
           <div className="w-16 h-16 rounded-full glass-candy flex items-center justify-center mx-auto mb-5 text-3xl">🍭</div>
           <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-2">¡Bienvenidx a Candyland!</h1>
-          <p className="text-muted-foreground text-sm mb-8">Tu pago se confirmó. En breve te llega el email con tu entrada y código QR.</p>
+          <p className="text-muted-foreground text-sm mb-3">Tu pago se confirmó y tu acceso ya fue enviado a tu correo. Revisa tu bandeja de entrada.</p>
+          <p className="text-muted-foreground text-sm mb-8">
+            Si no lo encuentras, revisa tu carpeta de <span className="font-semibold text-foreground">spam o correo no deseado</span> — dependiendo del filtro de tu correo, puede haberse ido para allá.
+          </p>
           <Link href="/" className="btn-jelly inline-flex h-13 items-center justify-center px-8 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm interactive">
             Volver al inicio
           </Link>
@@ -1019,10 +1022,19 @@ export default function Checkout() {
                 <div className="space-y-4">
                   <div>
                     <Label htmlFor="discount" className="text-sm">Código de descuento</Label>
-                    <div className="flex gap-2 mt-1.5">
-                      <Input id="discount" value={discountCode} onChange={(e) => setDiscountCode(e.target.value.toUpperCase())} placeholder="CANDY2026" disabled={!!discountApplied} className="h-12" />
-                      <Button type="button" variant="outline" onClick={handleApplyDiscount} disabled={!!discountApplied || !discountCode} className="interactive h-12" aria-label="Aplicar código">
-                        <Tag className="w-4 h-4" />
+                    <div className="flex flex-col sm:flex-row gap-2 mt-1.5">
+                      <Input id="discount" value={discountCode} onChange={(e) => setDiscountCode(e.target.value.toUpperCase())} placeholder="CANDY2026" disabled={!!discountApplied} className="h-12 flex-1" />
+                      <Button
+                        type="button"
+                        onClick={handleApplyDiscount}
+                        disabled={!!discountApplied || !discountCode || validateDiscount.isPending}
+                        className="interactive h-12 px-6 rounded-full font-bold whitespace-nowrap"
+                      >
+                        {validateDiscount.isPending
+                          ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Aplicando…</>
+                          : discountApplied
+                            ? <><Check className="w-4 h-4 mr-2" /> Aplicado</>
+                            : <><Tag className="w-4 h-4 mr-2" /> Aplicar descuento</>}
                       </Button>
                     </div>
                     {discountApplied && <p className="text-sm text-green-400 mt-1">Descuento aplicado ✓</p>}
@@ -1031,6 +1043,7 @@ export default function Checkout() {
                   <div>
                     <Label htmlFor="ambassador" className="text-sm">Código de embajador</Label>
                     <Input id="ambassador" value={ambassadorCode} onChange={(e) => setAmbassadorCode(e.target.value.toUpperCase())} className="mt-1.5 h-12" placeholder="Código de quien te invitó" />
+                    <p className="text-xs text-muted-foreground mt-2">Si no tienes ningún código, solo aprieta Continuar.</p>
                   </div>
                 </div>
               )}

@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Link } from 'wouter';
-import { CheckCircle, Ticket, Mail, Sparkles } from 'lucide-react';
+import { CheckCircle, Ticket, Mail, Sparkles, AlertTriangle } from 'lucide-react';
 import { useSeo } from '@/hooks/useSeo';
 
 /* Bienvenida post-pago: el momento en que la persona queda oficialmente
@@ -60,16 +60,22 @@ export default function PaymentSuccess() {
           Tu pago fue confirmado y ya sumaste tu dulce a la Misión 300.
         </motion.p>
         <p className="text-muted-foreground text-sm mb-8 inline-flex items-center gap-1.5 justify-center">
-          <Sparkles className="w-3.5 h-3.5 text-primary" /> En breve recibirás un email con tu entrada y código QR.
+          <Sparkles className="w-3.5 h-3.5 text-primary" /> Tu acceso ya fue enviado a tu correo.
         </p>
 
-        <div className="bg-card border border-border/50 rounded-2xl p-6 mb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <Mail className="w-5 h-5 text-primary" />
+        <div className="bg-card border border-border/50 rounded-2xl p-6 mb-8 text-left">
+          <div className="flex items-start gap-3 mb-4">
+            <Mail className="w-5 h-5 text-primary shrink-0 mt-0.5" />
             <span className="text-sm">Revisa tu bandeja de entrada</span>
           </div>
-          <div className="flex items-center gap-3">
-            <Ticket className="w-5 h-5 text-primary" />
+          <div className="flex items-start gap-3 mb-4">
+            <AlertTriangle className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+            <span className="text-sm">
+              Si no lo encuentras, revisa tu carpeta de <span className="font-semibold text-foreground">spam o correo no deseado</span> — dependiendo del filtro de tu correo, puede haberse ido para allá.
+            </span>
+          </div>
+          <div className="flex items-start gap-3">
+            <Ticket className="w-5 h-5 text-primary shrink-0 mt-0.5" />
             <span className="text-sm">Tu QR es tu entrada al evento</span>
           </div>
         </div>
