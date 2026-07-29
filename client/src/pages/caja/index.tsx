@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
+import { useSeo } from '@/hooks/useSeo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -26,6 +27,9 @@ function newOpId() {
 type View = 'menu' | 'sheet' | 'sale' | 'dashboard' | 'conflicts';
 
 export default function CajaApp() {
+  // Fuera del indice de Google: robots.txt solo lo pide, noindex lo asegura.
+  useSeo({ title: 'Caja — Mansion Playroom', description: '', path: '/caja', noindex: true });
+
   // Registro manual del service worker (solo en build de producción -- en
   // dev vite-plugin-pwa no genera un SW real). Scope acotado a /caja/ para
   // no tocar el resto del sitio (checkout con Mercado Pago, admin).

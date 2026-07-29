@@ -675,3 +675,23 @@ export const partyGifts = mysqlTable("partyGifts", {
 
 export type PartyGift = typeof partyGifts.$inferSelect;
 export type InsertPartyGift = typeof partyGifts.$inferInsert;
+
+// Segundo factor del panel de administración. Una sola fila: el panel
+// tiene un solo dueño y una sola contraseña (ADMIN_PASSWORD).
+export const adminTotp = mysqlTable("adminTotp", {
+  id: int("id").autoincrement().primaryKey(),
+  secret: varchar("secret", { length: 64 }).notNull(),
+  // Nulo hasta que el dueño confirma con un código real de su app. Sin esta
+  // confirmación no se activa nada: si se guardara al generar el secreto,
+  // un QR mal escaneado lo dejaría afuera de su propio panel para siempre.
+  confirmedAt: timestamp("confirmedAt"),
+  // Códigos de respaldo HASHEADOS. Los legibles se muestran una sola vez.
+  backupCodes: json("backupCodes"),
+  // Último paso TOTP aceptado: impide reusar un código dentro de sus 30
+  // segundos de vida (ver verifyTotp en server/adminSecurity.ts).
+  lastUsedStep: int("lastUsedStep"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AdminTotp = typeof adminTotp.$inferSelect;

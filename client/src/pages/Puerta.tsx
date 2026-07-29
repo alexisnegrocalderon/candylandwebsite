@@ -61,7 +61,11 @@ function Login({ onDone }: { onDone: () => void }) {
   return (
     <div className="min-h-dvh bg-[#0d0810] text-white px-5 py-10">
       <div className="max-w-sm mx-auto">
-        <p className="text-4xl text-center mb-3" aria-hidden>🚪</p>
+        <img
+          src="/candyland/logo-wordmark.webp"
+          alt="Mansion Playroom"
+          className="h-12 w-auto mx-auto mb-6"
+        />
         <h1 className="font-heading font-extrabold text-3xl tracking-tight text-center mb-1">Puerta</h1>
         <p className="text-white/45 text-sm text-center mb-8">Control de acceso</p>
 

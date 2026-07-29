@@ -162,6 +162,13 @@
       "when": 1785311784180,
       "tag": "0022_violet_hobgoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1785323384984,
+      "tag": "0023_new_madrox",
+      "breakpoints": true
     }
   ]
 }
