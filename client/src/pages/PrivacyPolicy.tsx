@@ -124,6 +124,27 @@ export default function PrivacyPolicy() {
             </p>
           </div>
 
+          {/* Identificar al responsable del tratamiento es lo primero que
+              exige la ley: sin esto, la persona no sabe a quién reclamarle. */}
+          <h2 className="font-heading font-bold text-xl mb-4">Quién responde por tus datos</h2>
+          <div className="glass-candy rounded-xl p-5 mb-10">
+            <p className="text-sm text-muted-foreground leading-relaxed mb-3">
+              El responsable del tratamiento de tus datos personales es:
+            </p>
+            <div className="space-y-1 mb-3">
+              <p className="text-sm"><span className="text-muted-foreground">Razón social:</span> <span className="font-semibold">DYNAMICS SpA</span></p>
+              <p className="text-sm"><span className="text-muted-foreground">RUT:</span> <span className="font-semibold">78.203.386-7</span></p>
+              <p className="text-sm"><span className="text-muted-foreground">Nombre de fantasía:</span> <span className="font-semibold">Mansion Playroom</span></p>
+              <p className="text-sm">
+                <span className="text-muted-foreground">Contacto:</span>{' '}
+                <a href="mailto:contacto@mansionplayroom.cl" className="text-primary font-medium hover:underline">contacto@mansionplayroom.cl</a>
+              </p>
+            </div>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Cualquier consulta, reclamo o solicitud sobre tus datos personales puedes dirigirla a ese correo.
+            </p>
+          </div>
+
           {/* Discreción: es lo que más le importa a alguien que compra una
               entrada a este tipo de evento, así que va antes que nada. */}
           <div className="rounded-2xl p-6 mb-10 border border-primary/30 bg-primary/5">
