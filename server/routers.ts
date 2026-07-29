@@ -41,7 +41,7 @@ import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
 import { parseCsv, extractEmailColumn } from "./csv";
 import QRCode from "qrcode";
-import { consumeBackupCode, createTotpSecret, generateBackupCodes, safeCompare, totpUri, verifyTotp } from "./adminSecurity";
+import { consumeBackupCode, createTotpSecret, generateBackupCodes, parseBackupCodes, safeCompare, totpUri, verifyTotp } from "./adminSecurity";
 
 const SHIFT_CLOSE_REPORT_EMAIL = 'contacto@mansionplayroom.cl';
 
@@ -171,6 +171,18 @@ export const appRouter = router({
       // Vale de un solo uso para el segundo paso: sin esto habría que
       // volver a mandar la contraseña, o peor, confiar en que el cliente
       // dice la verdad sobre haberla pasado.
+      await db.resetIpRateLimit(ipKey);
+
+      // Válvula de escape que NO depende de la base de datos: con
+      // ADMIN_2FA_DISABLED=1 en Vercel, la contraseña basta. Existe porque
+      // un segundo factor que deja al dueño fuera de su propio negocio es
+      // peor que no tenerlo, y tocar variables de entorno es más rápido
+      // que entrar a la consola de la base a medianoche.
+      if (process.env.ADMIN_2FA_DISABLED === '1') {
+        await issueAdminSession(ctx);
+        return { ticket: '', needsSetup: false, skipped2fa: true } as const;
+      }
+
       const ticket = await signAdminStepTicket();
       const totp = await db.getAdminTotp();
       return { ticket, needsSetup: !totp?.confirmedAt } as const;
@@ -185,8 +197,9 @@ export const appRouter = router({
       if (existing?.confirmedAt) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'El segundo factor ya está configurado' });
       }
-      const secret = createTotpSecret();
-      await db.saveUnconfirmedAdminTotp(secret);
+      // Reusa el secreto sin confirmar si ya existe: regenerarlo invalida
+      // el QR que el dueño ya escaneó y lo deja sin poder confirmar nunca.
+      const secret = await db.getOrCreateUnconfirmedAdminTotp(createTotpSecret());
       const qrImageUrl = await QRCode.toDataURL(totpUri(secret), { width: 320, margin: 2 });
       return { secret, qrImageUrl } as const;
     }),
@@ -208,7 +221,7 @@ export const appRouter = router({
 
         const { plain, hashed } = generateBackupCodes();
         await db.confirmAdminTotp(totp.id, hashed, res.timeStep);
-        issueAdminSession(ctx);
+        await issueAdminSession(ctx);
         return { backupCodes: plain } as const;
       }),
 
@@ -228,15 +241,17 @@ export const appRouter = router({
         const res = verifyTotp({ secret: totp.secret, token: input.code, lastUsedStep: totp.lastUsedStep });
         if (res.ok) {
           await db.recordAdminTotpStep(totp.id, res.timeStep);
-          issueAdminSession(ctx);
+          await db.resetIpRateLimit(ipKey);
+          await issueAdminSession(ctx);
           return { success: true } as const;
         }
 
         // Si no era un código de la app, puede ser uno de respaldo.
-        const backup = consumeBackupCode((totp.backupCodes as string[] | null) ?? [], input.code);
+        const backup = consumeBackupCode(parseBackupCodes(totp.backupCodes), input.code);
         if (backup.ok) {
           await db.consumeAdminBackupCodes(totp.id, backup.remaining);
-          issueAdminSession(ctx);
+          await db.resetIpRateLimit(ipKey);
+          await issueAdminSession(ctx);
           return { success: true, backupCodeUsed: true, backupCodesLeft: backup.remaining.length } as const;
         }
 

@@ -131,3 +131,22 @@ export function consumeBackupCode(hashed: string[], code: string): { ok: boolean
   if (idx === -1) return { ok: false, remaining: hashed };
   return { ok: true, remaining: hashed.filter((_, i) => i !== idx) };
 }
+
+/** Los códigos de respaldo viven en una columna `json`. Según el driver y
+ * la versión de la base, eso vuelve como arreglo ya parseado o como texto
+ * plano -- el resto del proyecto ya se defiende igual (ver `Array.isArray`
+ * en upsertCustomerFromOrder). Sin esto, un `.findIndex` sobre un string
+ * revienta y el dueño se queda sin poder usar sus códigos de respaldo,
+ * que es justo cuando más los necesita. */
+export function parseBackupCodes(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw.filter((x): x is string => typeof x === 'string');
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}

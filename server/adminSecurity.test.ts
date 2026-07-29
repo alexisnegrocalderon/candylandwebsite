@@ -7,6 +7,7 @@ import {
   generateBackupCodes,
   hashBackupCode,
   normalizeBackupCode,
+  parseBackupCodes,
   safeCompare,
   totpUri,
   verifyTotp,
@@ -140,5 +141,32 @@ describe("códigos de respaldo", () => {
   it("normaliza igual el mismo código escrito de varias formas", () => {
     expect(normalizeBackupCode("abcd-2345")).toBe("ABCD2345");
     expect(hashBackupCode("abcd-2345")).toBe(hashBackupCode("ABCD 2345"));
+  });
+});
+
+describe("parseBackupCodes", () => {
+  it("acepta un arreglo ya parseado", () => {
+    expect(parseBackupCodes(["a", "b"])).toEqual(["a", "b"]);
+  });
+
+  it("acepta texto JSON: la columna `json` a veces vuelve como string", () => {
+    expect(parseBackupCodes('["a","b"]')).toEqual(["a", "b"]);
+  });
+
+  it("devuelve lista vacía ante null, texto roto o cualquier cosa rara", () => {
+    expect(parseBackupCodes(null)).toEqual([]);
+    expect(parseBackupCodes(undefined)).toEqual([]);
+    expect(parseBackupCodes("{no es json")).toEqual([]);
+    expect(parseBackupCodes(42)).toEqual([]);
+    expect(parseBackupCodes('{"a":1}')).toEqual([]);
+  });
+
+  it("NO revienta con un string: era lo que dejaba al dueño sin códigos de respaldo", () => {
+    const { plain, hashed } = generateBackupCodes();
+    // Tal como podría llegar desde la base de datos.
+    const comoTexto = JSON.stringify(hashed);
+    const res = consumeBackupCode(parseBackupCodes(comoTexto), plain[0]);
+    expect(res.ok).toBe(true);
+    expect(res.remaining).toHaveLength(BACKUP_CODE_COUNT - 1);
   });
 });
