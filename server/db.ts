@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
@@ -493,6 +493,9 @@ export async function createOrder(input: {
     total: String(total),
     discountCodeId,
     ambassadorCode: input.ambassadorCode,
+    // Congelado para siempre, a diferencia de ambassadorCode (que
+    // ensureOwnAmbassadorCode pisa más adelante) -- ver comentario en el schema.
+    referredByCode: input.ambassadorCode || null,
     paymentStatus: 'pending',
     missionDeposit: missionDeposit ? 1 : 0,
     attendeeData: input.attendeeData,
@@ -915,6 +918,141 @@ export async function getReferralsByCode(ambassadorCode: string) {
 
   const rows = await db.select().from(referrals).where(eq(referrals.ambassadorCode, code)).orderBy(desc(referrals.createdAt));
   return { ambassadorCode: code, buyerName: owner.buyerName, referrals: rows };
+}
+
+// --- Embajadores exclusivos con comisión (pedido explícito del usuario) ---
+// A diferencia de un embajador orgánico (cualquier comprador, tabla
+// `referrals` arriba), estos se dan de alta a mano y cobran una comisión en
+// plata por venta -- su código no da descuento, solo trackea quién trajo la
+// venta (ver bloque de embajadores en webhooks.ts).
+
+/** Base sobre la que se calcula la comisión: solo el valor de las entradas
+ * (accesos) de la orden, sin el recargo por servicio ni los extras (pedido
+ * explícito del usuario), con el descuento ya restado -- el descuento solo
+ * se aplica sobre accesos (ver createOrder). Parte pura, testeable sin base
+ * de datos. */
+export function computeAmbassadorCommissionBase(accesoSubtotal: number, discount: number): number {
+  return Math.max(0, accesoSubtotal - discount);
+}
+
+/** Comisión exacta a pagar sobre una base ya neta de descuento. Parte pura,
+ * misma convención de redondeo que el resto del proyecto (Math.round). */
+export function computeAmbassadorCommission(baseAmount: number, commissionPercent: number): number {
+  return Math.round(baseAmount * commissionPercent / 100);
+}
+
+export async function createExclusiveAmbassador(data: { eventId: number; name: string; code: string; commissionPercent: number; contact?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(exclusiveAmbassadors).values({
+    eventId: data.eventId,
+    name: data.name,
+    code: data.code.trim().toUpperCase(),
+    commissionPercent: String(data.commissionPercent),
+    contact: data.contact,
+  });
+  return { success: true };
+}
+
+export async function listExclusiveAmbassadors(eventId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = eventId ? [eq(exclusiveAmbassadors.eventId, eventId)] : [];
+  return db.select().from(exclusiveAmbassadors)
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(exclusiveAmbassadors.name);
+}
+
+export async function updateExclusiveAmbassador(id: number, data: { name?: string; code?: string; commissionPercent?: number; contact?: string; active?: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const updateData: any = { ...data };
+  if (data.code !== undefined) updateData.code = data.code.trim().toUpperCase();
+  if (data.commissionPercent !== undefined) updateData.commissionPercent = String(data.commissionPercent);
+  await db.update(exclusiveAmbassadors).set(updateData).where(eq(exclusiveAmbassadors.id, id));
+  return { success: true };
+}
+
+export async function deleteExclusiveAmbassador(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(exclusiveAmbassadors).where(eq(exclusiveAmbassadors.id, id));
+  return { success: true };
+}
+
+/** Busca un embajador exclusivo activo por código, dentro de ESE evento --
+ * el mismo código reusado en otro evento no debería disparar comisión ahí,
+ * cada embajador se da de alta por evento. */
+export async function getActiveExclusiveAmbassadorByCode(code: string, eventId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(exclusiveAmbassadors)
+    .where(and(
+      eq(exclusiveAmbassadors.code, code.trim().toUpperCase()),
+      eq(exclusiveAmbassadors.eventId, eventId),
+      eq(exclusiveAmbassadors.active, 1),
+    ))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Registra la comisión de una venta con código de embajador exclusivo --
+ * baseAmount/commissionPercent/commissionAmount quedan congelados al momento
+ * de la venta (ver comentario del schema), así un cambio de % después no
+ * reescribe comisiones ya generadas. */
+export async function recordAmbassadorCommission(params: { ambassadorId: number; orderId: number; eventId: number; baseAmount: number; commissionPercent: number }) {
+  const db = await getDb();
+  if (!db) return;
+  const commissionAmount = computeAmbassadorCommission(params.baseAmount, params.commissionPercent);
+  await db.insert(ambassadorCommissions).values({
+    ambassadorId: params.ambassadorId,
+    orderId: params.orderId,
+    eventId: params.eventId,
+    baseAmount: String(params.baseAmount),
+    commissionPercent: String(params.commissionPercent),
+    commissionAmount: String(commissionAmount),
+  });
+}
+
+/** Reporte para el tab "Embajadores VIP": ventas + comisión exacta de cada
+ * embajador de ese evento, más el total del evento -- todo lo que pidió el
+ * dueño para poder pagarle a cada uno. */
+export async function getAmbassadorCommissionReport(eventId: number) {
+  const db = await getDb();
+  if (!db) return { ambassadors: [], totalBase: 0, totalCommission: 0 };
+
+  const ambassadorRows = await db.select().from(exclusiveAmbassadors).where(eq(exclusiveAmbassadors.eventId, eventId)).orderBy(exclusiveAmbassadors.name);
+  const commissionRows = await db.select().from(ambassadorCommissions).where(eq(ambassadorCommissions.eventId, eventId));
+
+  const byAmbassador = new Map<number, { salesCount: number; totalBase: number; totalCommission: number }>();
+  for (const r of commissionRows) {
+    const entry = byAmbassador.get(r.ambassadorId) ?? { salesCount: 0, totalBase: 0, totalCommission: 0 };
+    entry.salesCount += 1;
+    entry.totalBase += Number(r.baseAmount);
+    entry.totalCommission += Number(r.commissionAmount);
+    byAmbassador.set(r.ambassadorId, entry);
+  }
+
+  const ambassadors = ambassadorRows.map((a: any) => {
+    const stats = byAmbassador.get(a.id) ?? { salesCount: 0, totalBase: 0, totalCommission: 0 };
+    return {
+      id: a.id,
+      name: a.name,
+      code: a.code,
+      commissionPercent: Number(a.commissionPercent),
+      contact: a.contact,
+      active: a.active,
+      salesCount: stats.salesCount,
+      totalBase: stats.totalBase,
+      totalCommission: stats.totalCommission,
+    };
+  });
+
+  return {
+    ambassadors,
+    totalBase: ambassadors.reduce((sum, a) => sum + a.totalBase, 0),
+    totalCommission: ambassadors.reduce((sum, a) => sum + a.totalCommission, 0),
+  };
 }
 
 // --- Módulo /caja: operadores (docs/ARQUITECTURA-CAJA.md §4.2, Fase 0) ---

@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2 } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
@@ -1682,6 +1682,197 @@ function ReferralsView() {
   );
 }
 
+/** Fila editable de AmbassadorsView -- nombre/código/%/contacto se editan
+ * en el lugar (pedido explícito del usuario: "todo valor debe ser
+ * personalizable"), sin un diálogo aparte. */
+function AmbassadorRow({ ambassador, onUpdate, onDelete, updating, deleting }: {
+  ambassador: any;
+  onUpdate: (data: { name?: string; code?: string; commissionPercent?: number; contact?: string; active?: number }) => Promise<unknown>;
+  onDelete: () => Promise<unknown>;
+  updating: boolean;
+  deleting: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(ambassador.name);
+  const [code, setCode] = useState(ambassador.code);
+  const [commissionPercent, setCommissionPercent] = useState(String(ambassador.commissionPercent));
+  const [contact, setContact] = useState(ambassador.contact ?? '');
+
+  const handleSave = async () => {
+    await onUpdate({ name, code: code.toUpperCase(), commissionPercent: Number(commissionPercent) || 0, contact: contact || undefined });
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <tr className="border-b border-border/50 bg-muted/20">
+        <td className="py-2 px-3"><Input value={name} onChange={(e) => setName(e.target.value)} className="h-8" /></td>
+        <td className="py-2 px-3"><Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} className="h-8 font-mono" /></td>
+        <td className="py-2 px-3"><Input type="number" value={commissionPercent} onChange={(e) => setCommissionPercent(e.target.value)} className="h-8 w-20" /></td>
+        <td className="py-2 px-3 text-muted-foreground">{ambassador.salesCount}</td>
+        <td className="py-2 px-3 text-muted-foreground">${ambassador.totalBase.toLocaleString('es-CL')}</td>
+        <td className="py-2 px-3 text-muted-foreground">${ambassador.totalCommission.toLocaleString('es-CL')}</td>
+        <td className="py-2 px-3"><Input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="Contacto" className="h-8" /></td>
+        <td className="py-2 px-3">
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleSave} disabled={updating || !name || !code}>Guardar</Button>
+            <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancelar</Button>
+          </div>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr className="border-b border-border/50">
+      <td className="py-2 px-3">{ambassador.name}</td>
+      <td className="py-2 px-3 font-mono font-bold text-primary">{ambassador.code}</td>
+      <td className="py-2 px-3">{ambassador.commissionPercent}%</td>
+      <td className="py-2 px-3">{ambassador.salesCount}</td>
+      <td className="py-2 px-3">${ambassador.totalBase.toLocaleString('es-CL')}</td>
+      <td className="py-2 px-3 font-semibold text-primary">${ambassador.totalCommission.toLocaleString('es-CL')}</td>
+      <td className="py-2 px-3 text-muted-foreground text-xs">{ambassador.contact || '—'}</td>
+      <td className="py-2 px-3">
+        <div className="flex gap-2">
+          <span className={`px-2 py-0.5 rounded-full text-xs ${ambassador.active ? 'bg-green-500/20 text-green-400' : 'bg-muted text-muted-foreground'}`}>{ambassador.active ? 'Activo' : 'Inactivo'}</span>
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Edit className="w-3 h-3" /></Button>
+          <Button variant="outline" size="sm" disabled={updating} onClick={() => onUpdate({ active: ambassador.active ? 0 : 1 })}>
+            {ambassador.active ? 'Desactivar' : 'Activar'}
+          </Button>
+          <ConfirmDeleteButton description={`Vas a eliminar al embajador "${ambassador.name}" (${ambassador.code}).`} onConfirm={onDelete} disabled={deleting} />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function AmbassadorsView() {
+  const { data: eventsData } = trpc.events.listAll.useQuery();
+  const events = eventsData ?? [];
+  const [eventId, setEventId] = useState<number | null>(null);
+  const activeEventId = eventId ?? events[0]?.id ?? null;
+
+  const { data: reportData, refetch } = trpc.ambassadors.getReport.useQuery(
+    { eventId: activeEventId ?? 0 },
+    { enabled: !!activeEventId },
+  );
+  const report = reportData ?? { ambassadors: [], totalBase: 0, totalCommission: 0 };
+
+  const createAmbassador = trpc.ambassadors.create.useMutation({
+    onSuccess: () => { refetch(); toast.success('Embajador creado'); setShowForm(false); setNewAmbassador({ name: '', code: '', commissionPercent: '10', contact: '' }); },
+    onError: onMutationError,
+  });
+  const updateAmbassador = trpc.ambassadors.update.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const deleteAmbassador = trpc.ambassadors.delete.useMutation({ onSuccess: () => { refetch(); toast.success('Embajador eliminado'); }, onError: onMutationError });
+
+  const [showForm, setShowForm] = useState(false);
+  const [newAmbassador, setNewAmbassador] = useState({ name: '', code: '', commissionPercent: '10', contact: '' });
+
+  const handleCreate = async () => {
+    if (!activeEventId || !newAmbassador.name || !newAmbassador.code) return;
+    try {
+      await createAmbassador.mutateAsync({
+        eventId: activeEventId,
+        name: newAmbassador.name,
+        code: newAmbassador.code.toUpperCase(),
+        commissionPercent: Number(newAmbassador.commissionPercent) || 0,
+        contact: newAmbassador.contact || undefined,
+      });
+    } catch {
+      // el toast de error ya lo muestra onMutationError; dejamos el formulario abierto para reintentar
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-heading text-2xl">Embajadores VIP</h2>
+          <p className="text-muted-foreground text-sm mt-1">Embajadores exclusivos dados de alta a mano, con comisión en plata por cada venta con su código -- no dan descuento al comprador. El código se ingresa en el mismo campo de "código de embajador" del checkout.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {events.length > 0 && (
+            <Select value={String(activeEventId)} onValueChange={(v) => setEventId(Number(v))}>
+              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
+          <Button onClick={() => setShowForm(!showForm)} className="interactive" disabled={!activeEventId}><Plus className="w-4 h-4 mr-2" /> Nuevo Embajador</Button>
+        </div>
+      </div>
+
+      {showForm && (
+        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+          <CardContent className="pt-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div><Label>Nombre</Label><Input value={newAmbassador.name} onChange={(e) => setNewAmbassador({ ...newAmbassador, name: e.target.value })} className="mt-1" /></div>
+              <div><Label>Código</Label><Input value={newAmbassador.code} onChange={(e) => setNewAmbassador({ ...newAmbassador, code: e.target.value.toUpperCase() })} className="mt-1" placeholder="Ej: VIP-CAMI" /></div>
+              <div><Label>% de comisión</Label><Input type="number" value={newAmbassador.commissionPercent} onChange={(e) => setNewAmbassador({ ...newAmbassador, commissionPercent: e.target.value })} className="mt-1" /></div>
+              <div><Label>Contacto (opcional)</Label><Input value={newAmbassador.contact} onChange={(e) => setNewAmbassador({ ...newAmbassador, contact: e.target.value })} className="mt-1" placeholder="Teléfono o Instagram" /></div>
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={handleCreate} disabled={!newAmbassador.name || !newAmbassador.code || createAmbassador.isPending}>Crear Embajador</Button>
+              <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {activeEventId ? (
+        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+          <CardContent className="pt-6">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-2 px-3">Embajador</th>
+                    <th className="text-left py-2 px-3">Código</th>
+                    <th className="text-left py-2 px-3">% Comisión</th>
+                    <th className="text-left py-2 px-3">Ventas</th>
+                    <th className="text-left py-2 px-3">Base (entradas)</th>
+                    <th className="text-left py-2 px-3">Comisión a pagar</th>
+                    <th className="text-left py-2 px-3">Contacto</th>
+                    <th className="text-left py-2 px-3">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.ambassadors.map((a: any) => (
+                    <AmbassadorRow
+                      key={a.id}
+                      ambassador={a}
+                      updating={updateAmbassador.isPending}
+                      deleting={deleteAmbassador.isPending}
+                      onUpdate={(data) => updateAmbassador.mutateAsync({ id: a.id, ...data })}
+                      onDelete={() => deleteAmbassador.mutateAsync({ id: a.id })}
+                    />
+                  ))}
+                  {report.ambassadors.length === 0 && (
+                    <tr><td colSpan={8} className="py-8 text-center text-muted-foreground">Sin embajadores para este evento todavía.</td></tr>
+                  )}
+                </tbody>
+                {report.ambassadors.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t border-border font-semibold">
+                      <td colSpan={4} className="py-2 px-3 text-right">Total evento</td>
+                      <td className="py-2 px-3">${report.totalBase.toLocaleString('es-CL')}</td>
+                      <td className="py-2 px-3 text-primary">${report.totalCommission.toLocaleString('es-CL')}</td>
+                      <td colSpan={2}></td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <p className="text-sm text-muted-foreground">Creá un evento primero para poder dar de alta embajadores.</p>
+      )}
+    </div>
+  );
+}
+
 function CajaAdminView() {
   const { data: eventsData } = trpc.events.listAll.useQuery();
   const events = eventsData ?? [];
@@ -2216,6 +2407,7 @@ const ADMIN_SECTIONS = [
   { id: 'mailing', label: 'Mailing', icon: Mail, render: () => <MailingSection /> },
   { id: 'mailing-history', label: 'Historial de Mailing', icon: History, render: () => <MailingHistoryView /> },
   { id: 'referrals', label: 'Referidos', icon: Trophy, render: () => <ReferralsView /> },
+  { id: 'ambassadors', label: 'Embajadores VIP', icon: Crown, render: () => <AmbassadorsView /> },
   { id: 'caja', label: 'Caja', icon: Store, render: () => <CajaAdminView /> },
   { id: 'settings', label: 'Ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },
 ] as const;

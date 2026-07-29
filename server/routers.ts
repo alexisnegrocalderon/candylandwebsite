@@ -382,6 +382,43 @@ export const appRouter = router({
     }),
   }),
 
+  // Embajadores exclusivos con comisión (pedido explícito del usuario) --
+  // tab aparte de "Referidos" (arriba), para embajadores dados de alta a
+  // mano que cobran una comisión en plata por venta, no descuento.
+  ambassadors: router({
+    listAll: adminProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
+      return db.listExclusiveAmbassadors(input?.eventId);
+    }),
+    create: adminProcedure.input(z.object({
+      eventId: z.number(),
+      name: z.string().min(1),
+      code: z.string().min(1),
+      commissionPercent: z.number().min(0).max(100),
+      contact: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      return db.createExclusiveAmbassador(input);
+    }),
+    update: adminProcedure.input(z.object({
+      id: z.number(),
+      name: z.string().optional(),
+      code: z.string().optional(),
+      commissionPercent: z.number().min(0).max(100).optional(),
+      contact: z.string().optional(),
+      active: z.number().optional(),
+    })).mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      return db.updateExclusiveAmbassador(id, data);
+    }),
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      return db.deleteExclusiveAmbassador(input.id);
+    }),
+    // Reporte para el tab: ventas + comisión exacta de cada embajador de ese
+    // evento, más el total del evento.
+    getReport: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getAmbassadorCommissionReport(input.eventId);
+    }),
+  }),
+
   // Módulo /caja — login por PIN de operadores (docs/ARQUITECTURA-CAJA.md
   // Fase 0). Sesión separada de auth.adminLogin: no toca `users` ni COOKIE_NAME.
   caja: router({

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
-import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins } from './db';
+import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getActiveExclusiveAmbassadorByCode, recordAmbassadorCommission, computeAmbassadorCommissionBase } from './db';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
 import { eq, and, sql, isNotNull, ne, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
@@ -463,43 +463,68 @@ async function processApprovedOrder(order: any) {
   await awardPlaycoins({ email: order.buyerEmail, totalClp: Number(order.total), reason: 'earn_web', orderId: order.id });
 
   // Handle ambassador referral (con el código que el comprador ingresó al pagar, si corresponde).
-  // El "dueño" del código casi nunca tiene fila en `users` -esa tabla solo la
-  // usa el login OAuth/admin, que los compradores normales no usan- así que
-  // se busca directo en sus propias órdenes aprobadas, donde
-  // ensureOwnAmbassadorCode ya le dejó su código estampado. (Antes esto
-  // buscaba en `users`, que para compradores reales nunca tenía match -el
-  // acreditado de referidos nunca se estaba registrando en la práctica.)
-  if (order.ambassadorCode) {
-    const [ambassadorOrder] = await db.select().from(orders)
-      .where(and(eq(orders.ambassadorCode, order.ambassadorCode), eq(orders.paymentStatus, 'approved')))
-      .limit(1);
-    if (ambassadorOrder && ambassadorOrder.id !== order.id) {
-      const totalTickets = items.reduce((sum: number, item: any) => sum + item.quantity, 0);
-      await db.insert(referrals).values({
-        ambassadorCode: order.ambassadorCode,
+  // Se usa referredByCode -- congelado desde createOrder -- en vez de
+  // order.ambassadorCode, que ensureOwnAmbassadorCode puede haber pisado ya
+  // con el código PROPIO del comprador antes de llegar acá (pasa siempre en
+  // Misión 300, donde el abono se aprueba antes que la venta final). El
+  // fallback a ambassadorCode es solo para órdenes en vuelo creadas antes de
+  // que existiera esta columna.
+  const referrerCode = order.referredByCode || order.ambassadorCode;
+  if (referrerCode) {
+    // Un embajador exclusivo (dado de alta a mano en el admin, cobra
+    // comisión en plata) no es necesariamente un comprador -- se registra su
+    // comisión y se corta acá, sin la lógica de referidos/niveles entre
+    // compradores que sigue abajo.
+    const exclusiveAmbassador = await getActiveExclusiveAmbassadorByCode(referrerCode, order.eventId);
+    if (exclusiveAmbassador) {
+      const accesoSubtotal = items.reduce((sum: number, item: any) => {
+        const tt = ticketTypeById.get(item.ticketTypeId);
+        return tt?.category === 'acceso' ? sum + Number(item.totalPrice) : sum;
+      }, 0);
+      const baseAmount = computeAmbassadorCommissionBase(accesoSubtotal, Number(order.discount ?? 0));
+      await recordAmbassadorCommission({
+        ambassadorId: exclusiveAmbassador.id,
         orderId: order.id,
-        buyerEmail: order.buyerEmail,
-        ticketCount: totalTickets,
-        orderTotal: order.total,
+        eventId: order.eventId,
+        baseAmount,
+        commissionPercent: Number(exclusiveAmbassador.commissionPercent),
       });
+    } else {
+      // El "dueño" del código casi nunca tiene fila en `users` -esa tabla
+      // solo la usa el login OAuth/admin, que los compradores normales no
+      // usan- así que se busca directo en sus propias órdenes aprobadas,
+      // donde ensureOwnAmbassadorCode ya le dejó su código estampado.
+      const [ambassadorOrder] = await db.select().from(orders)
+        .where(and(eq(orders.ambassadorCode, referrerCode), eq(orders.paymentStatus, 'approved')))
+        .limit(1);
+      if (ambassadorOrder && ambassadorOrder.id !== order.id) {
+        const totalTickets = items.reduce((sum: number, item: any) => sum + item.quantity, 0);
+        await db.insert(referrals).values({
+          ambassadorCode: referrerCode,
+          orderId: order.id,
+          buyerEmail: order.buyerEmail,
+          ticketCount: totalTickets,
+          orderTotal: order.total,
+        });
 
-      // Correos de nivel: se cuenta cuántas ventas lleva ese código justo
-      // después de insertar esta -- si el conteo cae EXACTO en un umbral (o
-      // uno antes de un umbral), significa que recién lo cruzó (o está a 1
-      // de cruzarlo), porque los referidos solo se insertan, nunca se
-      // borran -- la igualdad exacta garantiza que cada correo se manda una
-      // sola vez, sin necesitar una columna de "ya avisado".
-      const [{ count: referralCount }] = await db.select({ count: sql<number>`COUNT(*)` })
-        .from(referrals).where(eq(referrals.ambassadorCode, order.ambassadorCode));
-      const count = Number(referralCount);
-      if (AMBASSADOR_TIERS.some(t => t.min === count)) {
-        const html = buildTierUpEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: order.ambassadorCode, referralCount: count });
-        await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `${tierForCount(count)!.emoji} ¡Llegaste a nivel ${tierForCount(count)!.name}!`, html });
-      } else {
-        const next = nextTierForCount(count);
-        if (next && next.min - count === 1) {
-          const html = buildAlmostTierEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: order.ambassadorCode, referralCount: count });
-          await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `🔥 ¡Estás a 1 venta de nivel ${next.name}!`, html });
+        // Correos de nivel: se cuenta cuántas ventas lleva ese código justo
+        // después de insertar esta -- si el conteo cae EXACTO en un umbral (o
+        // uno antes de un umbral), significa que recién lo cruzó (o está a 1
+        // de cruzarlo), porque los referidos solo se insertan, nunca se
+        // borran -- la igualdad exacta garantiza que cada correo se manda una
+        // sola vez, sin necesitar una columna de "ya avisado".
+        const [{ count: referralCount }] = await db.select({ count: sql<number>`COUNT(*)` })
+          .from(referrals).where(eq(referrals.ambassadorCode, referrerCode));
+        const count = Number(referralCount);
+        if (AMBASSADOR_TIERS.some(t => t.min === count)) {
+          const html = buildTierUpEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: referrerCode, referralCount: count });
+          await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `${tierForCount(count)!.emoji} ¡Llegaste a nivel ${tierForCount(count)!.name}!`, html });
+        } else {
+          const next = nextTierForCount(count);
+          if (next && next.min - count === 1) {
+            const html = buildAlmostTierEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: referrerCode, referralCount: count });
+            await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `🔥 ¡Estás a 1 venta de nivel ${next.name}!`, html });
+          }
         }
       }
     }
