@@ -28,8 +28,8 @@ export default function Party() {
   const ticketCode = params?.ticketCode ?? '';
 
   useSeo({
-    title: 'La fiesta — Mansion Playroom',
-    description: 'Conoce gente dentro de la fiesta.',
+    title: 'Playmatch — Mansion Playroom',
+    description: 'Conecta con la gente que está en la fiesta contigo, en Playmatch.',
     path: `/fiesta/${ticketCode}`,
     noindex: true,
   });
@@ -49,7 +49,7 @@ export default function Party() {
   }
 
   const denial = session.data?.denial;
-  if (denial) return <ClosedDoor denial={denial} eventTitle={session.data?.event?.title} />;
+  if (denial) return <ClosedDoor denial={denial} eventTitle={session.data?.event?.title} doorsOpen={session.data?.event?.doorsOpen} />;
 
   if (!session.data?.profile) {
     return <CreateProfile ticketCode={ticketCode} onCreated={() => session.refetch()} />;
@@ -95,7 +95,11 @@ export default function Party() {
 
 /* --- Puerta cerrada ------------------------------------------------------ */
 
-function ClosedDoor({ denial, eventTitle }: { denial: string; eventTitle?: string | null }) {
+function ClosedDoor({ denial, eventTitle, doorsOpen }: { denial: string; eventTitle?: string | null; doorsOpen?: string | Date | null }) {
+  const horaApertura = doorsOpen
+    ? new Date(doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+    : null;
+
   const copy = {
     sin_ticket: {
       emoji: '🎫',
@@ -105,18 +109,21 @@ function ClosedDoor({ denial, eventTitle }: { denial: string; eventTitle?: strin
     no_ingreso: {
       emoji: '🚪',
       title: 'Todavía no estás adentro',
-      body: 'Esta parte se abre cuando escaneen tu QR en la entrada. Muéstralo en la puerta y vuelve a entrar acá.',
+      body: 'Playmatch se abre recién cuando escaneen tu QR en la entrada principal. Muestra tu entrada al anfitrión y vuelve a entrar acá.',
     },
     fuera_de_horario: {
       emoji: '🌙',
-      title: 'La fiesta no está abierta',
-      body: 'Esto vive solo durante el evento. Se abre cuando abren las puertas y se cierra cuando termina.',
+      title: 'Playmatch no está abierto',
+      body: horaApertura
+        ? `Esto vive solo durante la fiesta. Se abre a las ${horaApertura} y se cierra cuando termina el evento.`
+        : 'Esto vive solo durante el evento. Se abre cuando abren las puertas y se cierra cuando termina.',
     },
-  }[denial] ?? { emoji: '🌙', title: 'La fiesta no está abierta', body: '' };
+  }[denial] ?? { emoji: '🌙', title: 'Playmatch no está abierto', body: '' };
 
   return (
     <div className="min-h-dvh grid place-items-center bg-[#120a11] text-white px-6">
       <div className="text-center max-w-sm">
+        <img src="/candyland/logo-wordmark.webp" alt="Mansion Playroom" className="h-10 w-auto mx-auto mb-6" />
         <p className="text-5xl mb-4" aria-hidden>{copy.emoji}</p>
         <h1 className="font-heading font-extrabold text-2xl tracking-tight mb-2">{copy.title}</h1>
         <p className="text-white/50 text-sm mb-8">{copy.body}</p>
@@ -217,7 +224,7 @@ function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreate
           onClick={() => check.ok && create.mutate({ ticketCode, alias: check.alias, gender, avatarId, zone })}
           className="w-full h-14 rounded-full bg-primary text-white font-bold text-base disabled:opacity-35 transition-opacity"
         >
-          {create.isPending ? 'Entrando…' : 'Entrar a la fiesta'}
+          {create.isPending ? 'Entrando…' : 'Entrar a Playmatch'}
         </button>
 
         <p className="text-[11px] text-white/30 text-center mt-4 leading-relaxed">
@@ -264,7 +271,7 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, on
   return (
     <div className="max-w-md mx-auto px-4 py-5 pb-24">
       <header className="flex items-center justify-between mb-4">
-        <h1 className="font-heading font-extrabold text-2xl tracking-tight">La fiesta 🍬</h1>
+        <h1 className="font-heading font-extrabold text-2xl tracking-tight">Playmatch 🍬</h1>
         <div className="flex items-center gap-3">
           <p className="text-xs text-white/40">
             {mansion.data ? `${mansion.data.touchesLeft} toques` : ''}

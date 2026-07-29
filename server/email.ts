@@ -736,6 +736,41 @@ export function buildSalesRecordEmail(data: {
 </html>`;
 }
 
+/** Resumen de ingresos del día del evento, enviado por el cron de las 3am
+ * (server/cronRoutes.ts) -- el mismo número que se ve en vivo en Ajustes,
+ * por si el dueño quiere revisarlo sin abrir el celular temprano. */
+export function buildCheckinSummaryEmail(data: {
+  eventTitle: string;
+  eventDate: Date | string;
+  insideCount: number;
+  expectedCount: number;
+}) {
+  const fecha = new Date(data.eventDate).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' });
+  const pct = data.expectedCount > 0 ? Math.round((data.insideCount / data.expectedCount) * 100) : 0;
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">🚪 ${data.eventTitle}</h1>
+    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">Resumen de ingresos — ${fecha}</p>
+
+    ${card(`
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Personas adentro</p>
+      <p style="color:${INK};font-size:32px;font-weight:800;margin:0 0 2px;">${data.insideCount.toLocaleString('es-CL')} <span style="color:${MUTED};font-size:16px;font-weight:600;">/ ${data.expectedCount.toLocaleString('es-CL')}</span></p>
+      <p style="color:${MUTED};font-size:13px;margin:0;">${pct}% de las entradas vendidas ya hicieron check-in en la puerta.</p>
+    `)}
+  </div>
+</body>
+</html>`;
+}
+
 /** Cuadre de caja al cerrar un turno (pedido explícito del usuario): muestra
  * lo declarado por la cajera vs. lo esperado según las ventas registradas en
  * el sistema (solo canal caja, dentro de la ventana del turno), y "cómo

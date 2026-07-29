@@ -11,6 +11,9 @@ export interface CajaAttendee {
   buyerName: string;
   buyerEmail: string;
   buyerPhone: string | null;
+  /** RUT de quien compró (no uno por asistente -- `attendeeData` no lo
+   * separa por persona). `null` si la compra no lo capturó. */
+  rut: string | null;
   /** Nombres de todos los asistentes de la orden -- es lo que el anfitrión
    * compara contra la cédula en la puerta. */
   attendeeNames: string[];

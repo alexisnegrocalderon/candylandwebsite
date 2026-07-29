@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { Camera, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { QrScanner } from '@/components/QrScanner';
+import { parseTicketCodeFromQr } from '@shared/qr';
 import {
   saveSnapshot, getLocalEvent, searchLocal, searchGiftsLocal, getLocalAttendee, getLocalCatalog,
   enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, clearSyncedOps, correctedNow,
@@ -436,6 +439,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [sheetVersion, setSheetVersion] = useState(0); // fuerza refresco de la ficha tras un canje local
   const [showCloseForm, setShowCloseForm] = useState(false);
+  const [scanning, setScanning] = useState(false);
 
   const refreshPending = useCallback(() => { pendingOpsCount().then(setPending); }, []);
 
@@ -521,6 +525,20 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
     setManualCode('');
   };
 
+  // Escanear el QR de la entrada es un atajo para llegar a la ficha más
+  // rápido que teclear el nombre -- el canje en sí sigue pasando por el
+  // botón "Canjear" de cada extra, ya validado por el servidor.
+  const handleScan = async (raw: string) => {
+    const code = parseTicketCodeFromQr(raw);
+    if (!code) return;
+    setScanning(false);
+    const found = await searchLocal(code);
+    const attendee = found[0];
+    if (!attendee) { toast.error('No encontramos ese código.'); return; }
+    setSelectedOrderId(attendee.orderId);
+    setView('sheet');
+  };
+
   const isSupervisor = operator.role === 'supervisor' || operator.role === 'admin';
 
   const voidCode = trpc.caja.voidCode.useMutation({
@@ -568,6 +586,23 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
           </Button>
         </div>
       </header>
+
+      {scanning && (
+        <div className="fixed inset-0 z-50 bg-[#0d0810] flex flex-col">
+          <div className="flex items-center justify-between p-4 shrink-0">
+            <p className="font-semibold">Escanea el QR de la entrada</p>
+            <button onClick={() => setScanning(false)} className="p-2 text-white/50" aria-label="Cerrar"><X className="w-6 h-6" /></button>
+          </div>
+          <QrScanner onDecode={handleScan} className="flex-1">
+            <div className="absolute inset-0 grid place-items-center pointer-events-none">
+              <div className="w-56 h-56 rounded-3xl border-2 border-primary/70 shadow-[0_0_0_100vmax_rgba(0,0,0,0.45)]" />
+            </div>
+          </QrScanner>
+          <p className="p-4 text-center text-sm text-white/50 shrink-0">
+            Sirve el mismo código de la entrada -- abre la ficha para cobrar el extra.
+          </p>
+        </div>
+      )}
 
       {showCloseForm && (
         <ShiftCloseForm
@@ -622,6 +657,14 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
               />
               <Button className="h-12 bg-primary hover:bg-primary/90" disabled={!manualCode.trim()} onClick={redeemManual}>
                 Canjear
+              </Button>
+              <Button
+                variant="outline"
+                className="h-12 border-white/15 text-white px-3"
+                onClick={() => setScanning(true)}
+                aria-label="Escanear código QR"
+              >
+                <Camera className="w-5 h-5" />
               </Button>
             </div>
 

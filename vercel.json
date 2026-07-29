@@ -12,6 +12,7 @@
     { "source": "/((?!assets/|candyland/|api/|robots\\.txt|sitemap\\.xml|favicon\\.ico|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/).*)", "destination": "/index.html" }
   ],
   "crons": [
-    { "path": "/api/cron/mailing-queue", "schedule": "0 13 * * *" }
+    { "path": "/api/cron/mailing-queue", "schedule": "0 13 * * *" },
+    { "path": "/api/cron/checkin-summary", "schedule": "0 6 * * *" }
   ]
 }

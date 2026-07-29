@@ -802,6 +802,15 @@ export const appRouter = router({
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings(input);
     }),
+    // Mismo número que llega en el correo de las 3am (server/cronRoutes.ts),
+    // pero en vivo para revisarlo manual desde Ajustes.
+    checkinCount: adminProcedure.query(async () => {
+      const event = await db.getActiveEventForCaja();
+      if (!event) return null;
+      const dashboard = await db.getCajaDashboard(event.id);
+      if (!dashboard) return null;
+      return { eventTitle: event.title, insideCount: dashboard.insideCount, expectedCount: dashboard.expectedCount };
+    }),
   }),
 
   communityCodes: router({

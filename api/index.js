@@ -9,8 +9,8 @@ var __export = (target, all) => {
 };
 
 // drizzle/schema.ts
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index } from "drizzle-orm/mysql-core";
-var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, operators, registers, devices, customers, ops, rateLimits, shifts, playcoinsLedger;
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex } from "drizzle-orm/mysql-core";
+var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, exclusiveAmbassadors, ambassadorCommissions, operators, registers, devices, customers, ops, rateLimits, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyGifts, adminTotp;
 var init_schema = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -106,6 +106,14 @@ var init_schema = __esm({
       total: decimal("total", { precision: 10, scale: 0 }).notNull(),
       discountCodeId: int("discountCodeId"),
       ambassadorCode: varchar("ambassadorCode", { length: 32 }),
+      // Código que el comprador tecleó al pagar, congelado para siempre desde
+      // createOrder -- a diferencia de `ambassadorCode`, que más tarde
+      // ensureOwnAmbassadorCode() pisa con el código PROPIO del comprador (ver
+      // ese comentario en webhooks.ts). Sin esta columna, la Misión 300 (donde
+      // ese pisado ocurre antes de la aprobación final) perdía el rastro de quién
+      // refirió la venta -- ahora tanto los referidos normales como la comisión
+      // de embajadores exclusivos leen de acá.
+      referredByCode: varchar("referredByCode", { length: 32 }),
       paymentStatus: mysqlEnum("paymentStatus", ["pending", "approved", "rejected", "refunded"]).default("pending").notNull(),
       paymentId: varchar("paymentId", { length: 255 }),
       paymentMethod: varchar("paymentMethod", { length: 64 }),
@@ -219,6 +227,29 @@ var init_schema = __esm({
       buyerEmail: varchar("buyerEmail", { length: 320 }).notNull(),
       ticketCount: int("ticketCount").notNull(),
       orderTotal: decimal("orderTotal", { precision: 10, scale: 0 }).notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    });
+    exclusiveAmbassadors = mysqlTable("exclusiveAmbassadors", {
+      id: int("id").autoincrement().primaryKey(),
+      eventId: int("eventId").notNull(),
+      name: varchar("name", { length: 255 }).notNull(),
+      code: varchar("code", { length: 32 }).notNull().unique(),
+      // Mismo formato que siteSettings.serviceFeePercent (el único otro % del
+      // schema) -- editable por embajador, cada uno puede tener un % distinto.
+      commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }).notNull(),
+      contact: varchar("contact", { length: 255 }),
+      active: int("active").default(1).notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
+    ambassadorCommissions = mysqlTable("ambassadorCommissions", {
+      id: int("id").autoincrement().primaryKey(),
+      ambassadorId: int("ambassadorId").notNull(),
+      orderId: int("orderId").notNull(),
+      eventId: int("eventId").notNull(),
+      baseAmount: decimal("baseAmount", { precision: 10, scale: 0 }).notNull(),
+      commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }).notNull(),
+      commissionAmount: decimal("commissionAmount", { precision: 10, scale: 0 }).notNull(),
       createdAt: timestamp("createdAt").defaultNow().notNull()
     });
     operators = mysqlTable("operators", {
@@ -346,6 +377,153 @@ var init_schema = __esm({
       // motivo libre en ajustes manuales del admin
       createdAt: timestamp("createdAt").defaultNow().notNull()
     });
+    mailingCampaigns = mysqlTable("mailingCampaigns", {
+      id: int("id").autoincrement().primaryKey(),
+      // Mismo valor que se usa como etiqueta para taguear a cada destinatario
+      // exitoso (igual que en el envío manual) y que se muestra en el historial.
+      name: varchar("name", { length: 255 }).notNull(),
+      audienceDescription: text("audienceDescription"),
+      // MailingContent completo (subject/preheader/headline/paragraphs/ctaText/
+      // highlightLabel/highlightValue) tal como lo dejó el admin en la revisión
+      // -- fijo desde la creación, no se vuelve a generar con IA.
+      content: json("content").notNull(),
+      ctaUrl: varchar("ctaUrl", { length: 500 }).notNull(),
+      // MailingEventSections | null (null = sin tarjeta de evento). El evento
+      // destacado en sí NO se congela acá -- se resuelve de nuevo en cada tanda
+      // del cron (server/mailing.ts getMailingEventInfo), así el contador de
+      // Misión 300 sale siempre actualizado aunque la campaña tarde días en
+      // terminar de mandarse.
+      eventSections: json("eventSections"),
+      status: mysqlEnum("status", ["sending", "done"]).default("sending").notNull(),
+      totalRecipients: int("totalRecipients").notNull(),
+      sentCount: int("sentCount").default(0).notNull(),
+      failedCount: int("failedCount").default(0).notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
+    mailingRecipients = mysqlTable("mailingRecipients", {
+      id: int("id").autoincrement().primaryKey(),
+      campaignId: int("campaignId").notNull(),
+      customerId: int("customerId").notNull(),
+      status: mysqlEnum("status", ["pending", "sent", "failed"]).default("pending").notNull(),
+      reason: varchar("reason", { length: 500 }),
+      sentAt: timestamp("sentAt")
+    }, (table) => ({
+      // El cron necesita "próximos N pendientes de la campaña más vieja" -- este
+      // índice cubre ese patrón exacto.
+      campaignStatusIdx: index("mailing_recipients_campaign_status_idx").on(table.campaignId, table.status)
+    }));
+    partyProfiles = mysqlTable("partyProfiles", {
+      id: int("id").autoincrement().primaryKey(),
+      eventId: int("eventId").notNull(),
+      // Un acceso, un perfil. El ticketCode es además el token de sesión de la
+      // fiesta, igual que en la página pública de la entrada.
+      ticketId: int("ticketId").notNull().unique(),
+      alias: varchar("alias", { length: 32 }).notNull(),
+      gender: mysqlEnum("gender", ["hombre", "mujer", "pareja"]).notNull(),
+      avatarId: int("avatarId").notNull(),
+      zone: mysqlEnum("zone", ["living", "playground", "piscina", "barra"]).default("living").notNull(),
+      // Se refresca solo, cada vez que la persona mira la mansión.
+      lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+      active: int("active").default(1).notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => ({
+      // El patrón de consulta real: "todos los perfiles activos de este evento".
+      eventActiveIdx: index("party_profiles_event_active_idx").on(table.eventId, table.active)
+    }));
+    partyConnections = mysqlTable("partyConnections", {
+      id: int("id").autoincrement().primaryKey(),
+      eventId: int("eventId").notNull(),
+      profileLowId: int("profileLowId").notNull(),
+      profileHighId: int("profileHighId").notNull(),
+      initiatedById: int("initiatedById").notNull(),
+      status: mysqlEnum("status", ["pending", "accepted", "declined"]).default("pending").notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      respondedAt: timestamp("respondedAt")
+    }, (table) => ({
+      pairIdx: uniqueIndex("party_connections_pair_idx").on(table.profileLowId, table.profileHighId),
+      // "mis conexiones" se consulta por cada lado del par.
+      lowIdx: index("party_connections_low_idx").on(table.profileLowId),
+      highIdx: index("party_connections_high_idx").on(table.profileHighId)
+    }));
+    partyMessages = mysqlTable("partyMessages", {
+      id: int("id").autoincrement().primaryKey(),
+      connectionId: int("connectionId").notNull(),
+      fromProfileId: int("fromProfileId").notNull(),
+      body: varchar("body", { length: 500 }).notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => ({
+      connectionIdx: index("party_messages_connection_idx").on(table.connectionId, table.createdAt)
+    }));
+    partyBlocks = mysqlTable("partyBlocks", {
+      id: int("id").autoincrement().primaryKey(),
+      eventId: int("eventId").notNull(),
+      blockerProfileId: int("blockerProfileId").notNull(),
+      blockedProfileId: int("blockedProfileId").notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => ({
+      pairIdx: uniqueIndex("party_blocks_pair_idx").on(table.blockerProfileId, table.blockedProfileId)
+    }));
+    partyReports = mysqlTable("partyReports", {
+      id: int("id").autoincrement().primaryKey(),
+      eventId: int("eventId").notNull(),
+      reporterProfileId: int("reporterProfileId").notNull(),
+      reportedProfileId: int("reportedProfileId").notNull(),
+      reason: varchar("reason", { length: 500 }).notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      resolvedAt: timestamp("resolvedAt")
+    }, (table) => ({
+      eventIdx: index("party_reports_event_idx").on(table.eventId, table.resolvedAt)
+    }));
+    partyGifts = mysqlTable("partyGifts", {
+      id: int("id").autoincrement().primaryKey(),
+      eventId: int("eventId").notNull(),
+      fromProfileId: int("fromProfileId").notNull(),
+      toProfileId: int("toProfileId").notNull(),
+      ticketTypeId: int("ticketTypeId").notNull(),
+      // Nombre y precio CONGELADOS al invitar (misma convención que
+      // orders.serviceFee y ambassadorCommissions): los precios cambian entre
+      // eventos y un regalo puede cobrarse meses después, así que el barman
+      // tiene que ver lo que realmente se compró, no lo que vale hoy.
+      drinkName: varchar("drinkName", { length: 100 }).notNull(),
+      priceClp: decimal("priceClp", { precision: 10, scale: 0 }).notNull(),
+      message: varchar("message", { length: 120 }),
+      status: mysqlEnum("status", ["invited", "accepted", "declined", "paid", "redeemed", "expired"]).default("invited").notNull(),
+      // Se llenan al pagar. La orden es una orden web normal, así que se cobra
+      // con el mismo processCardPaymentForOrder que las entradas.
+      orderId: int("orderId"),
+      ticketId: int("ticketId"),
+      displayCode: varchar("displayCode", { length: 20 }),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      // Vence la INVITACIÓN sin pagar, nunca el regalo ya pagado.
+      expiresAt: timestamp("expiresAt"),
+      respondedAt: timestamp("respondedAt"),
+      paidAt: timestamp("paidAt"),
+      redeemedAt: timestamp("redeemedAt")
+    }, (table) => ({
+      // "mis regalos" (recibidos y enviados) y "los que la caja puede cobrar".
+      toIdx: index("party_gifts_to_idx").on(table.toProfileId, table.status),
+      fromIdx: index("party_gifts_from_idx").on(table.fromProfileId, table.status),
+      // El snapshot de caja necesita los pagados-no-cobrados de TODOS los
+      // eventos, no solo del actual.
+      statusIdx: index("party_gifts_status_idx").on(table.status),
+      orderIdx: index("party_gifts_order_idx").on(table.orderId)
+    }));
+    adminTotp = mysqlTable("adminTotp", {
+      id: int("id").autoincrement().primaryKey(),
+      secret: varchar("secret", { length: 64 }).notNull(),
+      // Nulo hasta que el dueño confirma con un código real de su app. Sin esta
+      // confirmación no se activa nada: si se guardara al generar el secreto,
+      // un QR mal escaneado lo dejaría afuera de su propio panel para siempre.
+      confirmedAt: timestamp("confirmedAt"),
+      // Códigos de respaldo HASHEADOS. Los legibles se muestran una sola vez.
+      backupCodes: json("backupCodes"),
+      // Último paso TOTP aceptado: impide reusar un código dentro de sus 30
+      // segundos de vida (ver verifyTotp en server/adminSecurity.ts).
+      lastUsedStep: int("lastUsedStep"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    });
   }
 });
 
@@ -427,7 +605,17 @@ var ENV = {
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
-  forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? ""
+  forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  // Fallback gratuito de LLM para despliegues fuera de la plataforma Forge
+  // (ver server/_core/llm.ts, resolveProvider) -- variable propia, nunca
+  // pisa BUILT_IN_FORGE_*, que siguen usando imageGeneration/voiceTranscription/
+  // map/dataApi/notification/heartbeat/storage.
+  geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+  // Autentica al cron diario de mailing (server/cronRoutes.ts) -- Vercel
+  // manda `Authorization: Bearer <CRON_SECRET>` automáticamente en cada
+  // invocación cuando esta variable está seteada en el proyecto. Sin ella
+  // configurada en producción, el endpoint queda abierto a cualquiera.
+  cronSecret: process.env.CRON_SECRET ?? ""
 };
 
 // server/db.ts
@@ -472,6 +660,91 @@ function missionCapPrice(generalPrice) {
   return Math.round(generalPrice * MISSION_300_TOPUP_CAP_PCT);
 }
 
+// shared/party.ts
+var MAX_TOUCHES_PER_EVENT = 15;
+var PRESENCE_WINDOW_MS = 2 * 60 * 1e3;
+var MAX_MESSAGE_LENGTH = 500;
+var MIN_ALIAS_LENGTH = 2;
+var MAX_ALIAS_LENGTH = 16;
+var DEFAULT_PARTY_DURATION_MS = 12 * 60 * 60 * 1e3;
+var PARTY_ZONES = ["living", "playground", "piscina", "barra"];
+var PARTY_GENDERS = ["hombre", "mujer", "pareja"];
+var AVATARS_PER_GENDER = 4;
+function toTime(value) {
+  if (!value) return null;
+  const t2 = new Date(value).getTime();
+  return Number.isFinite(t2) ? t2 : null;
+}
+function partyWindow(event) {
+  const eventDate = toTime(event.eventDate);
+  if (eventDate === null) return null;
+  const opensAt = toTime(event.doorsOpen) ?? eventDate;
+  const closesAt = toTime(event.eventEnd) ?? eventDate + DEFAULT_PARTY_DURATION_MS;
+  return { opensAt, closesAt };
+}
+function isPartyWindowOpen(event, now = /* @__PURE__ */ new Date()) {
+  const window = partyWindow(event);
+  if (!window) return false;
+  const t2 = now.getTime();
+  return t2 >= window.opensAt && t2 < window.closesAt;
+}
+function partyEntryDenial(ticket, event, now = /* @__PURE__ */ new Date()) {
+  if (!ticket || !event) return "sin_ticket";
+  if (ticket.status !== "used") return "no_ingreso";
+  if (!isPartyWindowOpen(event, now)) return "fuera_de_horario";
+  return null;
+}
+function orderedPair(a, b) {
+  return a <= b ? { low: a, high: b } : { low: b, high: a };
+}
+var ALIAS_FORBIDDEN = [
+  { re: /@\w/, reason: "Nada de arrobas ni redes sociales en el alias" },
+  { re: /https?:\/\/|www\.|\.com|\.cl\b/i, reason: "Nada de links en el alias" },
+  { re: /(?:\d[\s.-]*){7,}/, reason: "Nada de n\xFAmeros de tel\xE9fono en el alias" }
+];
+function sanitizeAlias(raw) {
+  const alias = raw.replace(/\s+/g, " ").trim();
+  if (alias.length < MIN_ALIAS_LENGTH) return { ok: false, reason: "Muy corto, m\xEDnimo 2 caracteres" };
+  if (alias.length > MAX_ALIAS_LENGTH) return { ok: false, reason: `M\xE1ximo ${MAX_ALIAS_LENGTH} caracteres` };
+  for (const { re, reason } of ALIAS_FORBIDDEN) {
+    if (re.test(alias)) return { ok: false, reason };
+  }
+  return { ok: true, alias };
+}
+function sanitizeMessage(raw) {
+  const body = raw.replace(/\s+/g, " ").trim();
+  if (!body) return { ok: false, reason: "El mensaje est\xE1 vac\xEDo" };
+  if (body.length > MAX_MESSAGE_LENGTH) return { ok: false, reason: `M\xE1ximo ${MAX_MESSAGE_LENGTH} caracteres` };
+  return { ok: true, body };
+}
+var GIFT_INVITE_TTL_MS = 15 * 60 * 1e3;
+var MAX_GIFT_MESSAGE_LENGTH = 120;
+function giftExpiresAt(createdAt = /* @__PURE__ */ new Date()) {
+  return new Date(createdAt.getTime() + GIFT_INVITE_TTL_MS);
+}
+function isGiftExpired(gift, now = /* @__PURE__ */ new Date()) {
+  if (gift.status === "paid" || gift.status === "redeemed") return false;
+  if (gift.status === "declined" || gift.status === "expired") return false;
+  const t2 = toTime(gift.expiresAt);
+  if (t2 === null) return false;
+  return now.getTime() >= t2;
+}
+function canRespondToGift(gift, profileId, now = /* @__PURE__ */ new Date()) {
+  if (gift.toProfileId !== profileId) return false;
+  if (gift.status !== "invited") return false;
+  return !isGiftExpired(gift, now);
+}
+function canPayGift(gift, profileId, now = /* @__PURE__ */ new Date()) {
+  if (gift.fromProfileId !== profileId) return false;
+  if (gift.status !== "accepted") return false;
+  return !isGiftExpired(gift, now);
+}
+function sanitizeGiftMessage(raw) {
+  const body = raw.replace(/\s+/g, " ").trim();
+  if (body.length > MAX_GIFT_MESSAGE_LENGTH) return { ok: false, reason: `M\xE1ximo ${MAX_GIFT_MESSAGE_LENGTH} caracteres` };
+  return { ok: true, body };
+}
+
 // shared/playcoins.ts
 var PLAYCOINS_PER_1000_CLP = 25;
 var PLAYCOINS_MIN_REDEEM_BALANCE = 5e3;
@@ -485,6 +758,18 @@ function canRedeem(balance) {
 function clampRedeemAmount(requested, balance) {
   if (!canRedeem(balance)) return 0;
   return Math.max(0, Math.min(requested, balance));
+}
+
+// shared/eventDay.ts
+var CHILE_OFFSET_HOURS = -4;
+function dateKey(d, offsetHours) {
+  const shifted = new Date(d.getTime() + offsetHours * 60 * 60 * 1e3);
+  return shifted.toISOString().slice(0, 10);
+}
+function isEventToday(eventDate, now, offsetHours = CHILE_OFFSET_HOURS) {
+  const d = eventDate instanceof Date ? eventDate : new Date(eventDate);
+  if (Number.isNaN(d.getTime())) return false;
+  return dateKey(d, offsetHours) === dateKey(now, offsetHours);
 }
 
 // server/db.ts
@@ -569,6 +854,12 @@ async function getEventBySlug(slug) {
   if (!db) return null;
   const result = await db.select().from(events).where(eq2(events.slug, slug)).limit(1);
   return result[0] ?? null;
+}
+async function getFeaturedEvent() {
+  const db = await getDb();
+  if (!db) return void 0;
+  const result = await db.select().from(events).where(eq2(events.status, "published")).orderBy(desc(events.featured), events.eventDate).limit(1);
+  return result[0];
 }
 async function createEvent(data) {
   const db = await getDb();
@@ -852,6 +1143,9 @@ async function createOrder(input) {
     total: String(total),
     discountCodeId,
     ambassadorCode: input.ambassadorCode,
+    // Congelado para siempre, a diferencia de ambassadorCode (que
+    // ensureOwnAmbassadorCode pisa más adelante) -- ver comentario en el schema.
+    referredByCode: input.ambassadorCode || null,
     paymentStatus: "pending",
     missionDeposit: missionDeposit ? 1 : 0,
     attendeeData: input.attendeeData
@@ -886,6 +1180,86 @@ async function createOrder(input) {
   }
   return { orderId, orderNumber, total, isFree };
 }
+function priceManualOrderItems(items, ticketTypesForEvent, kind, missionOpen) {
+  let subtotal = 0;
+  let missionDeposit = false;
+  const unitPrices = /* @__PURE__ */ new Map();
+  for (const item of items) {
+    const tt = ticketTypesForEvent.find((t2) => t2.id === item.ticketTypeId);
+    if (!tt) throw new Error(`Ticket type ${item.ticketTypeId} not found`);
+    const available = tt.totalStock - tt.soldCount;
+    if (item.quantity > available) throw new Error(`Not enough stock for ${tt.name}`);
+    const useDeposit = missionOpen && tt.category === "acceso";
+    const defaultPrice = useDeposit ? missionDepositPrice(tt.accesoSlug) : Number(tt.price);
+    const unitPrice = kind === "invitation" ? 0 : item.unitPrice != null ? Math.max(0, item.unitPrice) : defaultPrice;
+    if (kind === "paid" && useDeposit) missionDeposit = true;
+    unitPrices.set(item.ticketTypeId, unitPrice);
+    subtotal += unitPrice * item.quantity;
+  }
+  return { unitPrices, subtotal, missionDeposit };
+}
+function buildManualPaymentMethod(kind, paymentMethod) {
+  return kind === "invitation" ? "Manual: Invitaci\xF3n" : `Manual: ${paymentMethod?.trim() || "Transferencia"}`;
+}
+async function createManualOrder(input) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (input.items.length === 0) throw new Error("Elige al menos un tipo de entrada");
+  const event = await getEventBySlug(input.eventSlug);
+  if (!event) throw new Error("Event not found");
+  const missionOpen = isMissionWindowOpen(new Date(event.eventDate));
+  const tts = await getTicketTypesByEventId(event.id);
+  const { unitPrices, subtotal, missionDeposit } = priceManualOrderItems(input.items, tts, input.kind, missionOpen);
+  const total = subtotal;
+  const orderNumber = `MP-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`;
+  const paymentMethod = buildManualPaymentMethod(input.kind, input.paymentMethod);
+  const [orderResult] = await db.insert(orders).values({
+    orderNumber,
+    buyerName: input.buyerName,
+    buyerEmail: input.buyerEmail,
+    buyerPhone: input.buyerPhone,
+    eventId: event.id,
+    subtotal: String(subtotal),
+    discount: "0",
+    serviceFee: "0",
+    total: String(total),
+    paymentStatus: "approved",
+    paymentId: `MANUAL-${orderNumber}`,
+    paymentMethod,
+    missionDeposit: missionDeposit ? 1 : 0,
+    ...missionDeposit ? { missionTopupStatus: "paid", missionTopupAmount: "0" } : {},
+    attendeeData: input.attendeeData
+  });
+  const orderId = orderResult.insertId;
+  for (const item of input.items) {
+    const unitPrice = unitPrices.get(item.ticketTypeId);
+    const tt = tts.find((t2) => t2.id === item.ticketTypeId);
+    await db.insert(orderItems).values({
+      orderId,
+      ticketTypeId: item.ticketTypeId,
+      quantity: item.quantity,
+      unitPrice: String(unitPrice),
+      totalPrice: String(unitPrice * item.quantity),
+      unitCost: tt?.costPrice != null ? String(tt.costPrice) : null
+    });
+    await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq2(ticketTypes.id, item.ticketTypeId));
+  }
+  return { orderId, orderNumber, total };
+}
+async function listManualOrders() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: orders.id,
+    orderNumber: orders.orderNumber,
+    createdAt: orders.createdAt,
+    eventTitle: events.title,
+    buyerName: orders.buyerName,
+    buyerEmail: orders.buyerEmail,
+    total: orders.total,
+    paymentMethod: orders.paymentMethod
+  }).from(orders).leftJoin(events, eq2(orders.eventId, events.id)).where(like(orders.paymentMethod, "Manual: %")).orderBy(desc(orders.createdAt));
+}
 async function getAllOrders(page = 1, limit = 50, status, channel) {
   const db = await getDb();
   if (!db) return { orders: [], total: 0 };
@@ -914,6 +1288,45 @@ async function getOrderTickets(orderId) {
     });
   }
   return result;
+}
+function computeOrderDeleteEffects(order, ledgerEntries) {
+  return {
+    decrementSoldCount: order.paymentStatus === "approved" || order.paymentStatus === "refunded",
+    decrementCustomerTotals: order.channel === "web" && order.paymentStatus === "approved",
+    playcoinsReversals: ledgerEntries.filter((e) => e.delta !== 0).map((e) => ({ customerId: e.customerId, delta: -e.delta }))
+  };
+}
+async function deleteOrderCascade(orderId) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [order] = await db.select().from(orders).where(eq2(orders.id, orderId)).limit(1);
+  if (!order) return { success: true };
+  const ledgerEntries = await db.select().from(playcoinsLedger).where(eq2(playcoinsLedger.orderId, orderId));
+  const effects = computeOrderDeleteEffects(order, ledgerEntries);
+  if (effects.decrementSoldCount) {
+    const items = await db.select().from(orderItems).where(eq2(orderItems.orderId, orderId));
+    for (const item of items) {
+      await db.update(ticketTypes).set({ soldCount: sql`GREATEST(soldCount - ${item.quantity}, 0)` }).where(eq2(ticketTypes.id, item.ticketTypeId));
+    }
+  }
+  for (const reversal of effects.playcoinsReversals) {
+    await adjustPlaycoinsManually(reversal.customerId, reversal.delta, `Orden #${order.orderNumber} eliminada`);
+  }
+  if (effects.decrementCustomerTotals) {
+    const email = order.buyerEmail.trim().toLowerCase();
+    const [customer] = await db.select().from(customers).where(eq2(customers.email, email)).limit(1);
+    if (customer) {
+      await db.update(customers).set({
+        totalOrders: Math.max(0, customer.totalOrders - 1),
+        totalSpent: String(Math.max(0, Number(customer.totalSpent) - Number(order.total)))
+      }).where(eq2(customers.id, customer.id));
+    }
+  }
+  await db.delete(orderItems).where(eq2(orderItems.orderId, orderId));
+  await db.delete(tickets).where(eq2(tickets.orderId, orderId));
+  await db.delete(referrals).where(eq2(referrals.orderId, orderId));
+  await db.delete(orders).where(eq2(orders.id, orderId));
+  return { success: true };
 }
 async function getOrdersForExport(filters) {
   const db = await getDb();
@@ -998,6 +1411,101 @@ async function getReferralsByCode(ambassadorCode) {
   if (!owner) return null;
   const rows = await db.select().from(referrals).where(eq2(referrals.ambassadorCode, code)).orderBy(desc(referrals.createdAt));
   return { ambassadorCode: code, buyerName: owner.buyerName, referrals: rows };
+}
+function computeAmbassadorCommissionBase(accesoSubtotal, discount) {
+  return Math.max(0, accesoSubtotal - discount);
+}
+function computeAmbassadorCommission(baseAmount, commissionPercent) {
+  return Math.round(baseAmount * commissionPercent / 100);
+}
+async function createExclusiveAmbassador(data) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(exclusiveAmbassadors).values({
+    eventId: data.eventId,
+    name: data.name,
+    code: data.code.trim().toUpperCase(),
+    commissionPercent: String(data.commissionPercent),
+    contact: data.contact
+  });
+  return { success: true };
+}
+async function listExclusiveAmbassadors(eventId) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = eventId ? [eq2(exclusiveAmbassadors.eventId, eventId)] : [];
+  return db.select().from(exclusiveAmbassadors).where(conditions.length ? and(...conditions) : void 0).orderBy(exclusiveAmbassadors.name);
+}
+async function updateExclusiveAmbassador(id, data) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const updateData = { ...data };
+  if (data.code !== void 0) updateData.code = data.code.trim().toUpperCase();
+  if (data.commissionPercent !== void 0) updateData.commissionPercent = String(data.commissionPercent);
+  await db.update(exclusiveAmbassadors).set(updateData).where(eq2(exclusiveAmbassadors.id, id));
+  return { success: true };
+}
+async function deleteExclusiveAmbassador(id) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(exclusiveAmbassadors).where(eq2(exclusiveAmbassadors.id, id));
+  return { success: true };
+}
+async function getActiveExclusiveAmbassadorByCode(code, eventId) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(exclusiveAmbassadors).where(and(
+    eq2(exclusiveAmbassadors.code, code.trim().toUpperCase()),
+    eq2(exclusiveAmbassadors.eventId, eventId),
+    eq2(exclusiveAmbassadors.active, 1)
+  )).limit(1);
+  return row ?? null;
+}
+async function recordAmbassadorCommission(params) {
+  const db = await getDb();
+  if (!db) return;
+  const commissionAmount = computeAmbassadorCommission(params.baseAmount, params.commissionPercent);
+  await db.insert(ambassadorCommissions).values({
+    ambassadorId: params.ambassadorId,
+    orderId: params.orderId,
+    eventId: params.eventId,
+    baseAmount: String(params.baseAmount),
+    commissionPercent: String(params.commissionPercent),
+    commissionAmount: String(commissionAmount)
+  });
+}
+async function getAmbassadorCommissionReport(eventId) {
+  const db = await getDb();
+  if (!db) return { ambassadors: [], totalBase: 0, totalCommission: 0 };
+  const ambassadorRows = await db.select().from(exclusiveAmbassadors).where(eq2(exclusiveAmbassadors.eventId, eventId)).orderBy(exclusiveAmbassadors.name);
+  const commissionRows = await db.select().from(ambassadorCommissions).where(eq2(ambassadorCommissions.eventId, eventId));
+  const byAmbassador = /* @__PURE__ */ new Map();
+  for (const r of commissionRows) {
+    const entry = byAmbassador.get(r.ambassadorId) ?? { salesCount: 0, totalBase: 0, totalCommission: 0 };
+    entry.salesCount += 1;
+    entry.totalBase += Number(r.baseAmount);
+    entry.totalCommission += Number(r.commissionAmount);
+    byAmbassador.set(r.ambassadorId, entry);
+  }
+  const ambassadors = ambassadorRows.map((a) => {
+    const stats = byAmbassador.get(a.id) ?? { salesCount: 0, totalBase: 0, totalCommission: 0 };
+    return {
+      id: a.id,
+      name: a.name,
+      code: a.code,
+      commissionPercent: Number(a.commissionPercent),
+      contact: a.contact,
+      active: a.active,
+      salesCount: stats.salesCount,
+      totalBase: stats.totalBase,
+      totalCommission: stats.totalCommission
+    };
+  });
+  return {
+    ambassadors,
+    totalBase: ambassadors.reduce((sum, a) => sum + a.totalBase, 0),
+    totalCommission: ambassadors.reduce((sum, a) => sum + a.totalCommission, 0)
+  };
 }
 async function createOperator(input) {
   const db = await getDb();
@@ -1105,6 +1613,12 @@ async function getActiveEventForCaja() {
     rows[0]
   );
 }
+async function getEventHappeningToday(now = /* @__PURE__ */ new Date()) {
+  const db = await getDb();
+  if (!db) return void 0;
+  const rows = await db.select().from(events).where(or(eq2(events.status, "published"), eq2(events.status, "soldout")));
+  return rows.find((r) => isEventToday(r.eventDate, now));
+}
 async function searchCajaCustomers(eventId, query) {
   const db = await getDb();
   if (!db) return [];
@@ -1168,23 +1682,40 @@ async function getCajaSnapshot(eventId) {
     list.push(t2);
     ticketsByOrder.set(t2.orderId, list);
   }
+  const buyerEmails = Array.from(new Set(approvedOrders.map((o) => (o.buyerEmail || "").trim().toLowerCase()).filter(Boolean)));
+  const rutByEmail = /* @__PURE__ */ new Map();
+  if (buyerEmails.length) {
+    const matchingCustomers = await db.select({ email: customers.email, rut: customers.rut }).from(customers).where(inArray(customers.email, buyerEmails));
+    for (const c of matchingCustomers) rutByEmail.set(c.email, c.rut);
+  }
   const attendees = approvedOrders.map((o) => {
     const ts = ticketsByOrder.get(o.id) ?? [];
+    const attendeeNames = parseAttendeeNames(o.attendeeData);
     return {
       orderId: o.id,
       orderNumber: o.orderNumber,
       buyerName: o.buyerName,
       buyerEmail: o.buyerEmail,
       buyerPhone: o.buyerPhone,
-      access: ts.filter((t2) => ttById.get(t2.ticketTypeId)?.category === "acceso").map((t2) => ({ ticketCode: t2.ticketCode, status: t2.status, typeName: ttById.get(t2.ticketTypeId)?.name })),
+      rut: rutByEmail.get((o.buyerEmail || "").trim().toLowerCase()) ?? null,
+      attendeeNames: attendeeNames.length > 0 ? attendeeNames : [o.buyerName],
+      access: ts.filter((t2) => ttById.get(t2.ticketTypeId)?.category === "acceso").map((t2) => ({
+        ticketCode: t2.ticketCode,
+        status: t2.status,
+        typeName: ttById.get(t2.ticketTypeId)?.name,
+        // Para contar personas reales en el aforo (un Duo son 2).
+        accesoSlug: ttById.get(t2.ticketTypeId)?.accesoSlug ?? null
+      })),
       extras: ts.filter((t2) => ttById.get(t2.ticketTypeId)?.category === "extra").map((t2) => ({ displayCode: t2.displayCode, status: t2.status, typeName: ttById.get(t2.ticketTypeId)?.name }))
     };
   });
   const catalog = allTicketTypes.filter((t2) => t2.category === "extra" && t2.status === "active").map((t2) => ({ id: t2.id, name: t2.name, price: Number(t2.price), color: t2.color, internalCode: t2.internalCode }));
+  const gifts = await listClaimableGifts();
   return {
     event: { id: event.id, title: event.title, slug: event.slug },
     attendees,
     catalog,
+    gifts,
     serverTime: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
@@ -1198,7 +1729,22 @@ async function getCajaDashboard(eventId) {
   if (!db) return null;
   const cajaOrders = await db.select().from(orders).where(and(eq2(orders.eventId, eventId), eq2(orders.channel, "caja"), eq2(orders.paymentStatus, "approved")));
   const totalSales = cajaOrders.reduce((s, o) => s + Number(o.total), 0);
-  const [{ count: redeemedCount }] = await db.select({ count: sql`COUNT(*)` }).from(tickets).where(and(eq2(tickets.eventId, eventId), eq2(tickets.status, "used")));
+  const ticketStats = await db.select({
+    category: ticketTypes.category,
+    status: tickets.status,
+    count: sql`COUNT(*)`
+  }).from(tickets).innerJoin(ticketTypes, eq2(ticketTypes.id, tickets.ticketTypeId)).where(eq2(tickets.eventId, eventId)).groupBy(ticketTypes.category, tickets.status);
+  const statOf = (category, status) => Number(ticketStats.find((r) => r.category === category && r.status === status)?.count ?? 0);
+  const redeemedCount = statOf("extra", "used");
+  const accesoTickets = await db.select({ accesoSlug: ticketTypes.accesoSlug, status: tickets.status }).from(tickets).innerJoin(ticketTypes, eq2(ticketTypes.id, tickets.ticketTypeId)).where(and(eq2(tickets.eventId, eventId), eq2(ticketTypes.category, "acceso")));
+  let insideCount = 0;
+  let expectedCount = 0;
+  for (const t2 of accesoTickets) {
+    if (t2.status === "cancelled") continue;
+    const personas = personasForAccesoSlug(t2.accesoSlug);
+    expectedCount += personas;
+    if (t2.status === "used") insideCount += personas;
+  }
   const items = await db.select({ ticketTypeId: orderItems.ticketTypeId, quantity: orderItems.quantity }).from(orderItems).innerJoin(orders, eq2(orders.id, orderItems.orderId)).where(and(eq2(orders.eventId, eventId), eq2(orders.channel, "caja"), eq2(orders.paymentStatus, "approved")));
   const qtyByType = /* @__PURE__ */ new Map();
   for (const i of items) qtyByType.set(i.ticketTypeId, (qtyByType.get(i.ticketTypeId) || 0) + i.quantity);
@@ -1209,7 +1755,9 @@ async function getCajaDashboard(eventId) {
   return {
     totalSales,
     salesCount: cajaOrders.length,
-    redeemedCount: Number(redeemedCount),
+    redeemedCount,
+    insideCount,
+    expectedCount,
     topProducts,
     recentSales
   };
@@ -1518,6 +2066,12 @@ async function listShiftClosings(eventId) {
 async function getShiftClosingsForExport(eventId) {
   return listShiftClosings(eventId);
 }
+async function deleteShiftClosing(shiftId) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(shifts).where(eq2(shifts.id, shiftId));
+  return { success: true };
+}
 async function upsertCustomerFromOrder(order, accesoSlugs) {
   const db = await getDb();
   if (!db) return;
@@ -1630,6 +2184,11 @@ async function adjustPlaycoinsManually(customerId, delta, note) {
   await db.update(customers).set({ playcoins: balanceAfter }).where(eq2(customers.id, customerId));
   await db.insert(playcoinsLedger).values({ customerId, delta: appliedDelta, reason: "manual_adjust", balanceAfter, note });
 }
+function excludeCustomersByTags(rows, excludeTags) {
+  if (!excludeTags || excludeTags.length === 0) return rows;
+  const excludeSet = new Set(excludeTags);
+  return rows.filter((c) => !Array.isArray(c.tags) || !c.tags.some((t2) => excludeSet.has(t2)));
+}
 async function listCustomers(filters = {}) {
   const db = await getDb();
   if (!db) return [];
@@ -1646,7 +2205,132 @@ async function listCustomers(filters = {}) {
   if (filters.tag) {
     rows = rows.filter((c) => Array.isArray(c.tags) && c.tags.includes(filters.tag));
   }
+  rows = excludeCustomersByTags(rows, filters.excludeTags);
+  if (filters.eventId) {
+    const approvedOrders = await db.select({ buyerEmail: orders.buyerEmail }).from(orders).where(and(
+      eq2(orders.eventId, filters.eventId),
+      eq2(orders.paymentStatus, "approved")
+    ));
+    const emails = new Set(approvedOrders.map((o) => o.buyerEmail.toLowerCase()));
+    rows = rows.filter((c) => emails.has(c.email.toLowerCase()));
+  }
   return rows;
+}
+async function listCustomerTags() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({ tags: customers.tags }).from(customers);
+  return tallyTags(rows.map((r) => r.tags));
+}
+function tallyTags(tagLists) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const list of tagLists) {
+    if (!Array.isArray(list)) continue;
+    const seen = /* @__PURE__ */ new Set();
+    for (const raw of list) {
+      if (typeof raw !== "string") continue;
+      const tag = raw.trim();
+      if (!tag || seen.has(tag)) continue;
+      seen.add(tag);
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts, ([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag, "es"));
+}
+async function listCustomersByIds(ids) {
+  const db = await getDb();
+  if (!db || ids.length === 0) return [];
+  return db.select().from(customers).where(inArray(customers.id, ids));
+}
+async function createMailingCampaign(input) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (input.customerIds.length === 0) throw new Error("La campa\xF1a necesita al menos un destinatario");
+  const [result] = await db.insert(mailingCampaigns).values({
+    name: input.name,
+    audienceDescription: input.audienceDescription,
+    content: input.content,
+    ctaUrl: input.ctaUrl,
+    eventSections: input.eventSections,
+    totalRecipients: input.customerIds.length
+  });
+  const campaignId = result.insertId;
+  await db.insert(mailingRecipients).values(
+    input.customerIds.map((customerId) => ({ campaignId, customerId }))
+  );
+  return { campaignId };
+}
+async function listMailingCampaigns() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mailingCampaigns).orderBy(desc(mailingCampaigns.createdAt));
+}
+async function getMailingCampaignRecipients(campaignId) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: mailingRecipients.id,
+    status: mailingRecipients.status,
+    reason: mailingRecipients.reason,
+    sentAt: mailingRecipients.sentAt,
+    email: customers.email,
+    fullName: customers.fullName
+  }).from(mailingRecipients).innerJoin(customers, eq2(customers.id, mailingRecipients.customerId)).where(eq2(mailingRecipients.campaignId, campaignId)).orderBy(mailingRecipients.id);
+}
+async function getPendingMailingRecipients(limit) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: mailingRecipients.id,
+    campaignId: mailingRecipients.campaignId,
+    customerId: mailingRecipients.customerId,
+    email: customers.email,
+    fullName: customers.fullName,
+    campaignName: mailingCampaigns.name,
+    content: mailingCampaigns.content,
+    ctaUrl: mailingCampaigns.ctaUrl,
+    eventSections: mailingCampaigns.eventSections
+  }).from(mailingRecipients).innerJoin(mailingCampaigns, eq2(mailingCampaigns.id, mailingRecipients.campaignId)).innerJoin(customers, eq2(customers.id, mailingRecipients.customerId)).where(and(eq2(mailingRecipients.status, "pending"), eq2(mailingCampaigns.status, "sending"))).orderBy(mailingCampaigns.createdAt, mailingRecipients.id).limit(limit);
+}
+async function markMailingRecipientResult(recipientId, campaignId, success, reason) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(mailingRecipients).set({
+    status: success ? "sent" : "failed",
+    reason: success ? null : (reason ?? "Error desconocido").slice(0, 500),
+    sentAt: success ? /* @__PURE__ */ new Date() : null
+  }).where(eq2(mailingRecipients.id, recipientId));
+  await db.update(mailingCampaigns).set({
+    sentCount: sql`sentCount + ${success ? 1 : 0}`,
+    failedCount: sql`failedCount + ${success ? 0 : 1}`
+  }).where(eq2(mailingCampaigns.id, campaignId));
+  const [remaining] = await db.select({ count: sql`COUNT(*)` }).from(mailingRecipients).where(and(eq2(mailingRecipients.campaignId, campaignId), eq2(mailingRecipients.status, "pending")));
+  if (Number(remaining.count) === 0) {
+    await db.update(mailingCampaigns).set({ status: "done" }).where(eq2(mailingCampaigns.id, campaignId));
+  }
+}
+async function bulkAddTagByEmails(emails, tag) {
+  const db = await getDb();
+  const cleanTag = tag.trim();
+  const normalizedEmails = Array.from(new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean)));
+  if (!db || !cleanTag || normalizedEmails.length === 0) {
+    return { tagged: 0, alreadyTagged: 0, notFound: normalizedEmails };
+  }
+  const matches = await db.select().from(customers).where(inArray(customers.email, normalizedEmails));
+  const matchedEmails = new Set(matches.map((c) => c.email.toLowerCase()));
+  const notFound = normalizedEmails.filter((e) => !matchedEmails.has(e));
+  let tagged = 0;
+  let alreadyTagged = 0;
+  for (const customer of matches) {
+    const tags = Array.isArray(customer.tags) ? customer.tags : [];
+    if (tags.includes(cleanTag)) {
+      alreadyTagged++;
+      continue;
+    }
+    await db.update(customers).set({ tags: [...tags, cleanTag] }).where(eq2(customers.id, customer.id));
+    tagged++;
+  }
+  return { tagged, alreadyTagged, notFound };
 }
 async function addCustomerTag(customerId, tag) {
   const db = await getDb();
@@ -1714,6 +2398,439 @@ async function importCustomers(rows) {
     }
   }
   return { imported, updated };
+}
+async function getPartyActor(ticketCode) {
+  const db = await getDb();
+  if (!db) return null;
+  const [ticket] = await db.select().from(tickets).where(eq2(tickets.ticketCode, ticketCode.trim())).limit(1);
+  if (!ticket) return null;
+  const [event] = await db.select().from(events).where(eq2(events.id, ticket.eventId)).limit(1);
+  if (!event) return null;
+  const [profile] = await db.select().from(partyProfiles).where(eq2(partyProfiles.ticketId, ticket.id)).limit(1);
+  return { ticket, event, profile: profile ?? null };
+}
+async function createPartyProfile(params) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(partyProfiles).values({
+    eventId: params.eventId,
+    ticketId: params.ticketId,
+    alias: params.alias,
+    gender: params.gender,
+    avatarId: params.avatarId,
+    zone: params.zone,
+    lastSeenAt: /* @__PURE__ */ new Date()
+  });
+  const [profile] = await db.select().from(partyProfiles).where(eq2(partyProfiles.ticketId, params.ticketId)).limit(1);
+  return profile;
+}
+async function updatePartyProfile(profileId, data) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(partyProfiles).set(data).where(eq2(partyProfiles.id, profileId));
+}
+async function getPartyHiddenIds(db, profileId) {
+  const rows = await db.select().from(partyBlocks).where(or(eq2(partyBlocks.blockerProfileId, profileId), eq2(partyBlocks.blockedProfileId, profileId)));
+  const hidden = /* @__PURE__ */ new Set();
+  for (const r of rows) {
+    hidden.add(r.blockerProfileId === profileId ? r.blockedProfileId : r.blockerProfileId);
+  }
+  return hidden;
+}
+async function getPartyConnectionsFor(db, profileId) {
+  return db.select().from(partyConnections).where(or(eq2(partyConnections.profileLowId, profileId), eq2(partyConnections.profileHighId, profileId)));
+}
+async function listPartyMansion(profileId, eventId) {
+  const db = await getDb();
+  if (!db) return null;
+  await db.update(partyProfiles).set({ lastSeenAt: /* @__PURE__ */ new Date() }).where(eq2(partyProfiles.id, profileId));
+  const [hidden, connections, profiles] = await Promise.all([
+    getPartyHiddenIds(db, profileId),
+    getPartyConnectionsFor(db, profileId),
+    db.select().from(partyProfiles).where(and(eq2(partyProfiles.eventId, eventId), eq2(partyProfiles.active, 1)))
+  ]);
+  const byOther = /* @__PURE__ */ new Map();
+  for (const c of connections) {
+    const other = c.profileLowId === profileId ? c.profileHighId : c.profileLowId;
+    byOther.set(other, c);
+  }
+  const people = profiles.filter((p) => p.id !== profileId && !hidden.has(p.id)).map((p) => {
+    const c = byOther.get(p.id);
+    const pendingForMe = !!c && c.status === "pending" && c.initiatedById !== profileId;
+    return {
+      id: p.id,
+      alias: p.alias,
+      gender: p.gender,
+      avatarId: p.avatarId,
+      zone: p.zone,
+      lastSeenAt: p.lastSeenAt,
+      connectionId: c?.id ?? null,
+      // `declined` se le muestra a quien tocó como si siguiera pendiente:
+      // el rechazo es silencioso (decisión del dueño).
+      connectionStatus: c ? c.status === "declined" && c.initiatedById === profileId ? "pending" : c.status : null,
+      pendingForMe
+    };
+  });
+  const touchesUsed = connections.filter((c) => c.initiatedById === profileId).length;
+  return { people, touchesUsed, touchesLeft: Math.max(0, MAX_TOUCHES_PER_EVENT - touchesUsed) };
+}
+async function touchPartyProfile(profileId, targetProfileId, eventId) {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: "Base de datos no disponible" };
+  if (profileId === targetProfileId) return { ok: false, reason: "No puedes tocarte a ti mismo" };
+  const [target] = await db.select().from(partyProfiles).where(eq2(partyProfiles.id, targetProfileId)).limit(1);
+  if (!target || target.eventId !== eventId || target.active !== 1) {
+    return { ok: false, reason: "Esa persona ya no est\xE1 en la fiesta" };
+  }
+  const hidden = await getPartyHiddenIds(db, profileId);
+  if (hidden.has(targetProfileId)) return { ok: false, reason: "Esa persona ya no est\xE1 en la fiesta" };
+  const { low, high } = orderedPair(profileId, targetProfileId);
+  const [existing] = await db.select().from(partyConnections).where(and(eq2(partyConnections.profileLowId, low), eq2(partyConnections.profileHighId, high))).limit(1);
+  if (existing) {
+    if (existing.initiatedById === profileId) {
+      return existing.status === "accepted" ? { ok: true, status: "accepted", connectionId: existing.id } : { ok: true, status: "pending", connectionId: existing.id };
+    }
+    if (existing.status === "pending") {
+      await db.update(partyConnections).set({ status: "accepted", respondedAt: /* @__PURE__ */ new Date() }).where(eq2(partyConnections.id, existing.id));
+      return { ok: true, status: "accepted", connectionId: existing.id };
+    }
+    if (existing.status === "accepted") return { ok: true, status: "accepted", connectionId: existing.id };
+    return { ok: false, reason: "No se puede abrir esta conversaci\xF3n" };
+  }
+  const connections = await getPartyConnectionsFor(db, profileId);
+  const touchesUsed = connections.filter((c) => c.initiatedById === profileId).length;
+  if (touchesUsed >= MAX_TOUCHES_PER_EVENT) {
+    return { ok: false, reason: `Llegaste al m\xE1ximo de ${MAX_TOUCHES_PER_EVENT} toques por noche` };
+  }
+  await db.insert(partyConnections).values({
+    eventId,
+    profileLowId: low,
+    profileHighId: high,
+    initiatedById: profileId,
+    status: "pending"
+  });
+  const [created] = await db.select().from(partyConnections).where(and(eq2(partyConnections.profileLowId, low), eq2(partyConnections.profileHighId, high))).limit(1);
+  return { ok: true, status: "pending", connectionId: created.id };
+}
+async function respondToPartyTouch(profileId, connectionId, accept) {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: "Base de datos no disponible" };
+  const [c] = await db.select().from(partyConnections).where(eq2(partyConnections.id, connectionId)).limit(1);
+  if (!c) return { ok: false, reason: "Ese toque ya no existe" };
+  if (c.profileLowId !== profileId && c.profileHighId !== profileId) return { ok: false, reason: "No es tu toque" };
+  if (c.initiatedById === profileId) return { ok: false, reason: "No puedes responder tu propio toque" };
+  if (c.status !== "pending") return { ok: true, status: c.status };
+  const status = accept ? "accepted" : "declined";
+  await db.update(partyConnections).set({ status, respondedAt: /* @__PURE__ */ new Date() }).where(eq2(partyConnections.id, connectionId));
+  return { ok: true, status };
+}
+async function getAcceptedConnection(db, profileId, connectionId) {
+  const [c] = await db.select().from(partyConnections).where(eq2(partyConnections.id, connectionId)).limit(1);
+  if (!c) return null;
+  if (c.profileLowId !== profileId && c.profileHighId !== profileId) return null;
+  if (c.status !== "accepted") return null;
+  return c;
+}
+async function listPartyMessages(profileId, connectionId) {
+  const db = await getDb();
+  if (!db) return null;
+  const c = await getAcceptedConnection(db, profileId, connectionId);
+  if (!c) return null;
+  const otherId = c.profileLowId === profileId ? c.profileHighId : c.profileLowId;
+  const hidden = await getPartyHiddenIds(db, profileId);
+  if (hidden.has(otherId)) return null;
+  const [other] = await db.select().from(partyProfiles).where(eq2(partyProfiles.id, otherId)).limit(1);
+  const messages = await db.select().from(partyMessages).where(eq2(partyMessages.connectionId, connectionId)).orderBy(partyMessages.createdAt);
+  return {
+    other: other ? { id: other.id, alias: other.alias, gender: other.gender, avatarId: other.avatarId, zone: other.zone, lastSeenAt: other.lastSeenAt } : null,
+    messages: messages.map((m) => ({ id: m.id, body: m.body, mine: m.fromProfileId === profileId, createdAt: m.createdAt }))
+  };
+}
+async function sendPartyMessage(profileId, connectionId, body) {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: "Base de datos no disponible" };
+  const c = await getAcceptedConnection(db, profileId, connectionId);
+  if (!c) return { ok: false, reason: "Esta conversaci\xF3n no est\xE1 abierta" };
+  const otherId = c.profileLowId === profileId ? c.profileHighId : c.profileLowId;
+  const hidden = await getPartyHiddenIds(db, profileId);
+  if (hidden.has(otherId)) return { ok: false, reason: "Esta conversaci\xF3n no est\xE1 abierta" };
+  await db.insert(partyMessages).values({ connectionId, fromProfileId: profileId, body });
+  return { ok: true };
+}
+async function blockPartyProfile(profileId, targetProfileId, eventId) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(partyBlocks).values({ eventId, blockerProfileId: profileId, blockedProfileId: targetProfileId }).onDuplicateKeyUpdate({ set: { blockedProfileId: targetProfileId } });
+}
+async function reportPartyProfile(profileId, targetProfileId, eventId, reason) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(partyReports).values({ eventId, reporterProfileId: profileId, reportedProfileId: targetProfileId, reason });
+}
+async function listPartyReports(eventId) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    id: partyReports.id,
+    reason: partyReports.reason,
+    createdAt: partyReports.createdAt,
+    resolvedAt: partyReports.resolvedAt,
+    reporterAlias: sql`reporter.alias`,
+    reportedAlias: sql`reported.alias`,
+    reportedZone: sql`reported.zone`
+  }).from(partyReports).leftJoin(sql`${partyProfiles} as reporter`, sql`reporter.id = ${partyReports.reporterProfileId}`).leftJoin(sql`${partyProfiles} as reported`, sql`reported.id = ${partyReports.reportedProfileId}`).where(eq2(partyReports.eventId, eventId)).orderBy(desc(partyReports.createdAt));
+  return rows;
+}
+async function purgeOldPartyMessages(now = /* @__PURE__ */ new Date()) {
+  const db = await getDb();
+  if (!db) return { deletedFor: 0 };
+  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1e3);
+  const oldEvents = await db.select({ id: events.id }).from(events).where(lte(events.eventEnd, cutoff));
+  if (oldEvents.length === 0) return { deletedFor: 0 };
+  const eventIds = oldEvents.map((e) => e.id);
+  const conns = await db.select({ id: partyConnections.id }).from(partyConnections).where(inArray(partyConnections.eventId, eventIds));
+  if (conns.length === 0) return { deletedFor: 0 };
+  await db.delete(partyMessages).where(inArray(partyMessages.connectionId, conns.map((c) => c.id)));
+  return { deletedFor: eventIds.length };
+}
+var PARTY_PROFILE_RETENTION_MS = 365 * 24 * 60 * 60 * 1e3;
+async function purgeOldPartyProfiles(now = /* @__PURE__ */ new Date()) {
+  const db = await getDb();
+  if (!db) return { profilesDeleted: 0 };
+  const cutoff = new Date(now.getTime() - PARTY_PROFILE_RETENTION_MS);
+  const oldEvents = await db.select({ id: events.id }).from(events).where(lte(events.eventEnd, cutoff));
+  if (oldEvents.length === 0) return { profilesDeleted: 0 };
+  const eventIds = oldEvents.map((e) => e.id);
+  const claimable = await db.select().from(partyGifts).where(eq2(partyGifts.status, "paid"));
+  const keep = new Set(claimable.flatMap((g) => [g.fromProfileId, g.toProfileId]));
+  const profiles = await db.select({ id: partyProfiles.id }).from(partyProfiles).where(inArray(partyProfiles.eventId, eventIds));
+  const toDelete = profiles.map((p) => p.id).filter((id) => !keep.has(id));
+  if (toDelete.length === 0) return { profilesDeleted: 0 };
+  await db.delete(partyConnections).where(inArray(partyConnections.eventId, eventIds));
+  await db.delete(partyBlocks).where(inArray(partyBlocks.eventId, eventIds));
+  await db.delete(partyReports).where(inArray(partyReports.eventId, eventIds));
+  await db.delete(partyProfiles).where(inArray(partyProfiles.id, toDelete));
+  return { profilesDeleted: toDelete.length };
+}
+async function listPartyDrinks(eventId) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ticketTypes).where(and(eq2(ticketTypes.eventId, eventId), eq2(ticketTypes.category, "extra"), eq2(ticketTypes.status, "active"))).orderBy(ticketTypes.sortOrder);
+  return rows.map((t2) => ({ id: t2.id, name: t2.name, price: Number(t2.price), description: t2.description }));
+}
+async function createGiftInvitation(params) {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: "Base de datos no disponible" };
+  if (params.fromProfileId === params.toProfileId) return { ok: false, reason: "No puedes invitarte un trago a ti mismo" };
+  const [target] = await db.select().from(partyProfiles).where(eq2(partyProfiles.id, params.toProfileId)).limit(1);
+  if (!target || target.eventId !== params.eventId || target.active !== 1) {
+    return { ok: false, reason: "Esa persona ya no est\xE1 en la fiesta" };
+  }
+  const hidden = await getPartyHiddenIds(db, params.fromProfileId);
+  if (hidden.has(params.toProfileId)) return { ok: false, reason: "Esa persona ya no est\xE1 en la fiesta" };
+  const [tt] = await db.select().from(ticketTypes).where(eq2(ticketTypes.id, params.ticketTypeId)).limit(1);
+  if (!tt || tt.eventId !== params.eventId || tt.category !== "extra" || tt.status !== "active") {
+    return { ok: false, reason: "Ese trago no est\xE1 disponible" };
+  }
+  const existing = await db.select().from(partyGifts).where(and(
+    eq2(partyGifts.fromProfileId, params.fromProfileId),
+    eq2(partyGifts.toProfileId, params.toProfileId),
+    inArray(partyGifts.status, ["invited", "accepted"])
+  ));
+  if (existing.some((g) => !isGiftExpired(g))) {
+    return { ok: false, reason: "Ya tienes una invitaci\xF3n pendiente con esa persona" };
+  }
+  await db.insert(partyGifts).values({
+    eventId: params.eventId,
+    fromProfileId: params.fromProfileId,
+    toProfileId: params.toProfileId,
+    ticketTypeId: tt.id,
+    // Congelados: un regalo se puede cobrar meses después y el precio del
+    // trago va a haber cambiado.
+    drinkName: tt.name,
+    priceClp: String(Number(tt.price)),
+    message: params.message || null,
+    status: "invited",
+    expiresAt: giftExpiresAt()
+  });
+  const [created] = await db.select().from(partyGifts).where(and(eq2(partyGifts.fromProfileId, params.fromProfileId), eq2(partyGifts.toProfileId, params.toProfileId))).orderBy(desc(partyGifts.id)).limit(1);
+  return { ok: true, giftId: created.id };
+}
+async function respondToGiftInvitation(profileId, giftId, accept) {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: "Base de datos no disponible" };
+  const [gift] = await db.select().from(partyGifts).where(eq2(partyGifts.id, giftId)).limit(1);
+  if (!gift) return { ok: false, reason: "Esa invitaci\xF3n ya no existe" };
+  if (!canRespondToGift(gift, profileId)) return { ok: false, reason: "Esa invitaci\xF3n ya no est\xE1 disponible" };
+  const status = accept ? "accepted" : "declined";
+  await db.update(partyGifts).set({ status, respondedAt: /* @__PURE__ */ new Date() }).where(eq2(partyGifts.id, giftId));
+  return { ok: true, status };
+}
+async function createGiftOrder(profileId, giftId, buyer) {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: "Base de datos no disponible" };
+  const [gift] = await db.select().from(partyGifts).where(eq2(partyGifts.id, giftId)).limit(1);
+  if (!gift) return { ok: false, reason: "Esa invitaci\xF3n ya no existe" };
+  if (!canPayGift(gift, profileId)) return { ok: false, reason: "Esta invitaci\xF3n ya no se puede pagar" };
+  if (gift.orderId) {
+    const [existing] = await db.select().from(orders).where(eq2(orders.id, gift.orderId)).limit(1);
+    if (existing && existing.paymentStatus === "pending") {
+      return { ok: true, orderNumber: existing.orderNumber, total: Number(existing.total) };
+    }
+  }
+  const total = Number(gift.priceClp);
+  const orderNumber = `GIFT-${Date.now().toString(36).toUpperCase()}`;
+  const [orderResult] = await db.insert(orders).values({
+    orderNumber,
+    buyerName: buyer.name,
+    buyerEmail: buyer.email,
+    eventId: gift.eventId,
+    subtotal: String(total),
+    discount: "0",
+    serviceFee: "0",
+    // el trago se cobra al precio de la barra (decisión del dueño)
+    total: String(total),
+    paymentStatus: "pending",
+    channel: "web"
+  });
+  const orderId = orderResult.insertId;
+  await db.insert(orderItems).values({
+    orderId,
+    ticketTypeId: gift.ticketTypeId,
+    quantity: 1,
+    unitPrice: String(total),
+    totalPrice: String(total)
+  });
+  await db.update(partyGifts).set({ orderId }).where(eq2(partyGifts.id, giftId));
+  return { ok: true, orderNumber, total };
+}
+async function getPartyGiftByOrderId(orderId) {
+  const db = await getDb();
+  if (!db) return null;
+  const [gift] = await db.select().from(partyGifts).where(eq2(partyGifts.orderId, orderId)).limit(1);
+  return gift ?? null;
+}
+async function markGiftPaid(giftId, ticketId, displayCode) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(partyGifts).set({ status: "paid", ticketId, displayCode, paidAt: /* @__PURE__ */ new Date() }).where(eq2(partyGifts.id, giftId));
+}
+async function listMyGifts(profileId) {
+  const db = await getDb();
+  if (!db) return { received: [], sent: [] };
+  const rows = await db.select().from(partyGifts).where(or(eq2(partyGifts.toProfileId, profileId), eq2(partyGifts.fromProfileId, profileId))).orderBy(desc(partyGifts.id));
+  const profileIds = Array.from(new Set(rows.flatMap((g) => [g.fromProfileId, g.toProfileId])));
+  const profiles = profileIds.length ? await db.select().from(partyProfiles).where(inArray(partyProfiles.id, profileIds)) : [];
+  const aliasById = new Map(profiles.map((p) => [p.id, p.alias]));
+  const shape = (g) => ({
+    id: g.id,
+    drinkName: g.drinkName,
+    priceClp: Number(g.priceClp),
+    message: g.message,
+    // Una invitación vencida se muestra como vencida, no como pendiente.
+    status: isGiftExpired(g) ? "expired" : g.status,
+    // El código solo se muestra cuando ya está pagado.
+    displayCode: g.status === "paid" ? g.displayCode : null,
+    fromAlias: aliasById.get(g.fromProfileId) ?? "",
+    toAlias: aliasById.get(g.toProfileId) ?? "",
+    createdAt: g.createdAt
+  });
+  return {
+    received: rows.filter((g) => g.toProfileId === profileId).map(shape),
+    sent: rows.filter((g) => g.fromProfileId === profileId).map(shape)
+  };
+}
+async function listClaimableGifts() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(partyGifts).where(eq2(partyGifts.status, "paid"));
+  if (rows.length === 0) return [];
+  const profileIds = Array.from(new Set(rows.flatMap((g) => [g.fromProfileId, g.toProfileId])));
+  const profiles = profileIds.length ? await db.select().from(partyProfiles).where(inArray(partyProfiles.id, profileIds)) : [];
+  const aliasById = new Map(profiles.map((p) => [p.id, p.alias]));
+  return rows.filter((g) => g.displayCode).map((g) => ({
+    displayCode: g.displayCode,
+    drinkName: g.drinkName,
+    toAlias: aliasById.get(g.toProfileId) ?? "",
+    fromAlias: aliasById.get(g.fromProfileId) ?? "",
+    eventId: g.eventId,
+    paidAt: g.paidAt
+  }));
+}
+async function expireOldGiftInvitations(now = /* @__PURE__ */ new Date()) {
+  const db = await getDb();
+  if (!db) return { expired: 0 };
+  const pending = await db.select().from(partyGifts).where(inArray(partyGifts.status, ["invited", "accepted"]));
+  const stale = pending.filter((g) => isGiftExpired(g, now));
+  if (stale.length === 0) return { expired: 0 };
+  await db.update(partyGifts).set({ status: "expired" }).where(inArray(partyGifts.id, stale.map((g) => g.id)));
+  return { expired: stale.length };
+}
+async function listPartyGiftsForEvent(eventId) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(partyGifts).where(eq2(partyGifts.eventId, eventId)).orderBy(desc(partyGifts.id));
+  const profileIds = Array.from(new Set(rows.flatMap((g) => [g.fromProfileId, g.toProfileId])));
+  const profiles = profileIds.length ? await db.select().from(partyProfiles).where(inArray(partyProfiles.id, profileIds)) : [];
+  const aliasById = new Map(profiles.map((p) => [p.id, p.alias]));
+  return rows.map((g) => ({
+    id: g.id,
+    drinkName: g.drinkName,
+    priceClp: Number(g.priceClp),
+    status: isGiftExpired(g) ? "expired" : g.status,
+    fromAlias: aliasById.get(g.fromProfileId) ?? "",
+    toAlias: aliasById.get(g.toProfileId) ?? "",
+    displayCode: g.displayCode,
+    createdAt: g.createdAt,
+    paidAt: g.paidAt,
+    redeemedAt: g.redeemedAt
+  }));
+}
+async function getPartyProfileContact(profileId) {
+  const db = await getDb();
+  if (!db) return null;
+  const [profile] = await db.select().from(partyProfiles).where(eq2(partyProfiles.id, profileId)).limit(1);
+  if (!profile) return null;
+  const [ticket] = await db.select().from(tickets).where(eq2(tickets.id, profile.ticketId)).limit(1);
+  const [order] = ticket ? await db.select().from(orders).where(eq2(orders.id, ticket.orderId)).limit(1) : [null];
+  return { alias: profile.alias, email: order?.buyerEmail ?? null };
+}
+async function getAdminTotp() {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(adminTotp).limit(1);
+  return row ?? null;
+}
+async function getOrCreateUnconfirmedAdminTotp(newSecret) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await getAdminTotp();
+  if (existing) {
+    if (existing.confirmedAt) return existing.secret;
+    return existing.secret;
+  }
+  await db.insert(adminTotp).values({ secret: newSecret });
+  return newSecret;
+}
+async function confirmAdminTotp(id, hashedBackupCodes, timeStep) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(adminTotp).set({ confirmedAt: /* @__PURE__ */ new Date(), backupCodes: hashedBackupCodes, lastUsedStep: timeStep }).where(eq2(adminTotp.id, id));
+}
+async function recordAdminTotpStep(id, timeStep) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(adminTotp).set({ lastUsedStep: timeStep }).where(eq2(adminTotp.id, id));
+}
+async function consumeAdminBackupCodes(id, remaining) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(adminTotp).set({ backupCodes: remaining }).where(eq2(adminTotp.id, id));
+}
+async function resetIpRateLimit(key) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(rateLimits).where(eq2(rateLimits.key, key));
 }
 
 // server/_core/cookies.ts
@@ -2059,20 +3176,7 @@ function registerOAuthRoutes(app) {
   });
 }
 
-// server/adminRoutes.ts
-async function requireAdmin(req, res) {
-  try {
-    const user = await sdk.authenticateRequest(req);
-    if (user.role !== "admin") {
-      res.status(403).json({ error: "Admin access required" });
-      return false;
-    }
-    return true;
-  } catch {
-    res.status(401).json({ error: "Unauthorized" });
-    return false;
-  }
-}
+// server/csv.ts
 function csvEscape(value) {
   const s = value === null || value === void 0 ? "" : String(value);
   if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -2121,6 +3225,41 @@ function parseCsv(text2) {
     rows.push(row);
   }
   return rows.filter((r) => r.some((f) => f.trim() !== ""));
+}
+function extractEmailColumn(rows, columnNameHints) {
+  if (rows.length === 0) return [];
+  const [header, ...dataRows] = rows;
+  const normalizedHeader = header.map((h) => h.trim().toLowerCase());
+  let columnIndex = -1;
+  for (const hint of columnNameHints) {
+    const idx = normalizedHeader.indexOf(hint.toLowerCase());
+    if (idx !== -1) {
+      columnIndex = idx;
+      break;
+    }
+  }
+  if (columnIndex === -1) return [];
+  const emails = /* @__PURE__ */ new Set();
+  for (const row of dataRows) {
+    const value = row[columnIndex]?.trim().toLowerCase();
+    if (value) emails.add(value);
+  }
+  return Array.from(emails);
+}
+
+// server/adminRoutes.ts
+async function requireAdmin(req, res) {
+  try {
+    const user = await sdk.authenticateRequest(req);
+    if (user.role !== "admin") {
+      res.status(403).json({ error: "Admin access required" });
+      return false;
+    }
+    return true;
+  } catch {
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
 }
 function registerAdminRoutes(app) {
   app.get("/api/admin/orders/export.csv", async (req, res) => {
@@ -2284,358 +3423,240 @@ function registerAdminRoutes(app) {
   });
 }
 
-// server/calendar.ts
-function toIcsDate(date) {
-  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-}
-function icsEscape(text2) {
-  return text2.replace(/\\/g, "\\\\").replace(/,/g, "\\,").replace(/;/g, "\\;").replace(/\n/g, "\\n");
-}
-function registerTicketAssetRoutes(app) {
-  app.get("/api/qr/:ticketCode.png", async (req, res) => {
-    const { ticketCode } = req.params;
-    const ticket = await getTicketByCode(ticketCode);
-    if (!ticket?.qrImageUrl?.startsWith("data:image/png;base64,")) {
-      res.status(404).send("QR not found");
-      return;
-    }
-    const base64 = ticket.qrImageUrl.slice("data:image/png;base64,".length);
-    const buffer = Buffer.from(base64, "base64");
-    res.setHeader("Content-Type", "image/png");
-    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-    res.send(buffer);
-  });
-  app.get("/api/calendar/:ticketCode.ics", async (req, res) => {
-    const { ticketCode } = req.params;
-    const ticket = await getTicketByCode(ticketCode);
-    if (!ticket || !ticket.eventDate) {
-      res.status(404).send("Ticket not found");
-      return;
-    }
-    const start = ticket.doorsOpen ? new Date(ticket.doorsOpen) : new Date(ticket.eventDate);
-    const end = ticket.eventEnd ? new Date(ticket.eventEnd) : new Date(start.getTime() + 7 * 60 * 60 * 1e3);
-    const location = [ticket.venue, ticket.address].filter(Boolean).join(", ");
-    const ics = [
-      "BEGIN:VCALENDAR",
-      "VERSION:2.0",
-      "PRODID:-//Mansion Playroom//Candyland//ES",
-      "CALSCALE:GREGORIAN",
-      "BEGIN:VEVENT",
-      `UID:${ticket.ticketCode}@mansionplayroom.cl`,
-      `DTSTAMP:${toIcsDate(/* @__PURE__ */ new Date())}`,
-      `DTSTART:${toIcsDate(start)}`,
-      `DTEND:${toIcsDate(end)}`,
-      `SUMMARY:${icsEscape(ticket.eventTitle)}`,
-      `LOCATION:${icsEscape(location)}`,
-      `DESCRIPTION:${icsEscape(`Tu acceso: ${ticket.ticketTypeName}. C\xF3digo: ${ticket.ticketCode}`)}`,
-      "END:VEVENT",
-      "END:VCALENDAR"
-    ].join("\r\n");
-    res.setHeader("Content-Type", "text/calendar; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="${ticket.eventTitle.replace(/[^a-z0-9]/gi, "-")}.ics"`);
-    res.send(ics);
-  });
-}
-
-// server/_core/systemRouter.ts
+// server/mailing.ts
 import { z } from "zod";
 
-// server/_core/notification.ts
-import { TRPCError } from "@trpc/server";
-var TITLE_MAX_LENGTH = 1200;
-var CONTENT_MAX_LENGTH = 2e4;
-var trimValue = (value) => value.trim();
-var isNonEmptyString2 = (value) => typeof value === "string" && value.trim().length > 0;
-var buildEndpointUrl = (baseUrl) => {
-  const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-  return new URL(
-    "webdevtoken.v1.WebDevService/SendNotification",
-    normalizedBase
-  ).toString();
+// server/_core/llm.ts
+var ensureArray = (value) => Array.isArray(value) ? value : [value];
+var normalizeContentPart = (part) => {
+  if (typeof part === "string") {
+    return { type: "text", text: part };
+  }
+  if (part.type === "text") {
+    return part;
+  }
+  if (part.type === "image_url") {
+    return part;
+  }
+  if (part.type === "file_url") {
+    return part;
+  }
+  throw new Error("Unsupported message content part");
 };
-var validatePayload = (input) => {
-  if (!isNonEmptyString2(input.title)) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "Notification title is required."
-    });
-  }
-  if (!isNonEmptyString2(input.content)) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "Notification content is required."
-    });
-  }
-  const title = trimValue(input.title);
-  const content = trimValue(input.content);
-  if (title.length > TITLE_MAX_LENGTH) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: `Notification title must be at most ${TITLE_MAX_LENGTH} characters.`
-    });
-  }
-  if (content.length > CONTENT_MAX_LENGTH) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: `Notification content must be at most ${CONTENT_MAX_LENGTH} characters.`
-    });
-  }
-  return { title, content };
-};
-async function notifyOwner(payload) {
-  const { title, content } = validatePayload(payload);
-  if (!ENV.forgeApiUrl) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Notification service URL is not configured."
-    });
-  }
-  if (!ENV.forgeApiKey) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "Notification service API key is not configured."
-    });
-  }
-  const endpoint = buildEndpointUrl(ENV.forgeApiUrl);
-  try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        authorization: `Bearer ${ENV.forgeApiKey}`,
-        "content-type": "application/json",
-        "connect-protocol-version": "1"
-      },
-      body: JSON.stringify({ title, content })
-    });
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      console.warn(
-        `[Notification] Failed to notify owner (${response.status} ${response.statusText})${detail ? `: ${detail}` : ""}`
-      );
-      return false;
-    }
-    return true;
-  } catch (error) {
-    console.warn("[Notification] Error calling notification service:", error);
-    return false;
-  }
-}
-
-// server/_core/trpc.ts
-import { initTRPC, TRPCError as TRPCError2 } from "@trpc/server";
-import superjson from "superjson";
-var t = initTRPC.context().create({
-  transformer: superjson
-});
-var router = t.router;
-var publicProcedure = t.procedure;
-var requireUser = t.middleware(async (opts) => {
-  const { ctx, next } = opts;
-  if (!ctx.user) {
-    throw new TRPCError2({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
-  }
-  return next({
-    ctx: {
-      ...ctx,
-      user: ctx.user
-    }
-  });
-});
-var protectedProcedure = t.procedure.use(requireUser);
-var adminProcedure = t.procedure.use(
-  t.middleware(async (opts) => {
-    const { ctx, next } = opts;
-    if (!ctx.user || ctx.user.role !== "admin") {
-      throw new TRPCError2({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
-    }
-    return next({
-      ctx: {
-        ...ctx,
-        user: ctx.user
-      }
-    });
-  })
-);
-var deviceProcedure = t.procedure.use(
-  t.middleware(async (opts) => {
-    const { ctx, next } = opts;
-    if (!ctx.device) {
-      throw new TRPCError2({ code: "FORBIDDEN", message: "Este dispositivo no est\xE1 enrolado" });
-    }
-    return next({
-      ctx: {
-        ...ctx,
-        device: ctx.device
-      }
-    });
-  })
-);
-var operatorProcedure = deviceProcedure.use(
-  t.middleware(async (opts) => {
-    const { ctx, next } = opts;
-    if (!ctx.operator) {
-      throw new TRPCError2({ code: "UNAUTHORIZED", message: "Sesi\xF3n de caja requerida" });
-    }
-    return next({
-      ctx: {
-        ...ctx,
-        operator: ctx.operator
-      }
-    });
-  })
-);
-var supervisorProcedure = operatorProcedure.use(
-  t.middleware(async (opts) => {
-    const { ctx, next } = opts;
-    if (!ctx.operator || ctx.operator.role !== "supervisor" && ctx.operator.role !== "admin") {
-      throw new TRPCError2({ code: "FORBIDDEN", message: "Se requiere rol de supervisor" });
-    }
-    return next({
-      ctx: {
-        ...ctx,
-        operator: ctx.operator
-      }
-    });
-  })
-);
-
-// server/_core/systemRouter.ts
-var systemRouter = router({
-  health: publicProcedure.input(
-    z.object({
-      timestamp: z.number().min(0, "timestamp cannot be negative")
-    })
-  ).query(() => ({
-    ok: true
-  })),
-  notifyOwner: adminProcedure.input(
-    z.object({
-      title: z.string().min(1, "title is required"),
-      content: z.string().min(1, "content is required")
-    })
-  ).mutation(async ({ input }) => {
-    const delivered = await notifyOwner(input);
+var normalizeMessage = (message) => {
+  const { role, name, tool_call_id } = message;
+  if (role === "tool" || role === "function") {
+    const content = ensureArray(message.content).map((part) => typeof part === "string" ? part : JSON.stringify(part)).join("\n");
     return {
-      success: delivered
+      role,
+      name,
+      tool_call_id,
+      content
     };
-  })
-});
-
-// server/routers.ts
-import { z as z2 } from "zod";
-import { TRPCError as TRPCError3 } from "@trpc/server";
-
-// server/webhooks.ts
-import { Router } from "express";
-
-// server/mercadopago.ts
-import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
-var mpClient = null;
-function getClient() {
-  if (!mpClient) {
-    const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
-    if (!accessToken) {
-      console.warn("[MercadoPago] No access token configured");
-      return null;
-    }
-    mpClient = new MercadoPagoConfig({ accessToken });
   }
-  return mpClient;
-}
-async function createTopupPreference(input) {
-  const client = getClient();
-  if (!client) {
-    console.warn("[MercadoPago] Using mock topup URL (no access token)");
-    return { id: "mock-preference-topup-" + input.orderNumber, initPoint: `/pago/exito?order=${input.orderNumber}&mock=true` };
+  const contentParts = ensureArray(message.content).map(normalizeContentPart);
+  if (contentParts.length === 1 && contentParts[0].type === "text") {
+    return {
+      role,
+      name,
+      content: contentParts[0].text
+    };
   }
-  const preference = new Preference(client);
-  const baseUrl = process.env.APP_URL || "https://mansionplayroom.cl";
-  const result = await preference.create({
-    body: {
-      items: [{
-        id: input.orderNumber,
-        title: `Diferencia Misi\xF3n 300 - ${input.eventTitle}`,
-        quantity: 1,
-        unit_price: input.amount,
-        currency_id: "CLP"
-      }],
-      payer: { email: input.buyerEmail, name: input.buyerName },
-      back_urls: {
-        success: `${baseUrl}/pago/exito?order=${input.orderNumber}`,
-        failure: `${baseUrl}/pago/error?order=${input.orderNumber}`,
-        pending: `${baseUrl}/pago/exito?order=${input.orderNumber}&pending=true`
-      },
-      auto_return: "approved",
-      external_reference: input.orderNumber,
-      notification_url: `${baseUrl}/api/webhooks/mercadopago`,
-      statement_descriptor: "MANSION PLAYROOM"
-    }
-  });
-  return { id: result.id, initPoint: result.init_point };
-}
-async function createCardPayment(input) {
-  const client = getClient();
-  if (!client) {
-    console.warn("[MercadoPago] No hay access token \u2014 no se puede cobrar");
-    return { status: "rejected", statusDetail: "no_access_token", paymentId: "mock-" + input.orderNumber, paymentMethodId: input.paymentMethodId };
-  }
-  const baseUrl = process.env.APP_URL || "https://mansionplayroom.cl";
-  const payment = new Payment(client);
-  const result = await payment.create({
-    body: {
-      transaction_amount: input.amount,
-      token: input.token,
-      description: input.description,
-      installments: input.installments ?? 1,
-      payment_method_id: input.paymentMethodId,
-      issuer_id: input.issuerId ? Number(input.issuerId) : void 0,
-      external_reference: input.orderNumber,
-      notification_url: `${baseUrl}/api/webhooks/mercadopago`,
-      statement_descriptor: "MANSION PLAYROOM",
-      payer: {
-        email: input.payerEmail,
-        identification: input.identificationType && input.identificationNumber ? { type: input.identificationType, number: input.identificationNumber } : void 0
-      }
-    },
-    requestOptions: { idempotencyKey: `${input.orderNumber}-${Date.now()}` }
-  });
   return {
-    status: result.status ?? "pending",
-    statusDetail: result.status_detail ?? void 0,
-    paymentId: String(result.id ?? ""),
-    paymentMethodId: result.payment_method_id ?? input.paymentMethodId
+    role,
+    name,
+    content: contentParts
   };
-}
-async function getPaymentInfo(paymentId) {
-  const client = getClient();
-  if (!client) return null;
-  const payment = new Payment(client);
-  const result = await payment.get({ id: paymentId });
-  return result;
-}
-
-// server/webhooks.ts
-init_schema();
-import { eq as eq3, and as and2, sql as sql2, isNotNull, ne, inArray as inArray2 } from "drizzle-orm";
-import { nanoid as nanoid2 } from "nanoid";
-
-// server/qr.ts
-import QRCode from "qrcode";
-async function generateTicketQR(ticketCode, eventTitle) {
-  const baseUrl = process.env.APP_URL || "https://mansionplayroom.cl";
-  const qrData = `${baseUrl}/verificar/${ticketCode}`;
-  const qrImageUrl = await QRCode.toDataURL(qrData, {
-    type: "image/png",
-    width: 400,
-    margin: 2,
-    color: {
-      dark: "#000000",
-      light: "#FFFFFF"
-    },
-    errorCorrectionLevel: "H"
+};
+var normalizeToolChoice = (toolChoice, tools) => {
+  if (!toolChoice) return void 0;
+  if (toolChoice === "none" || toolChoice === "auto") {
+    return toolChoice;
+  }
+  if (toolChoice === "required") {
+    if (!tools || tools.length === 0) {
+      throw new Error(
+        "tool_choice 'required' was provided but no tools were configured"
+      );
+    }
+    if (tools.length > 1) {
+      throw new Error(
+        "tool_choice 'required' needs a single tool or specify the tool name explicitly"
+      );
+    }
+    return {
+      type: "function",
+      function: { name: tools[0].function.name }
+    };
+  }
+  if ("name" in toolChoice) {
+    return {
+      type: "function",
+      function: { name: toolChoice.name }
+    };
+  }
+  return toolChoice;
+};
+var resolveProvider = () => {
+  if (ENV.geminiApiKey) {
+    return {
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+      apiKey: ENV.geminiApiKey,
+      defaultModel: "gemini-flash-latest"
+    };
+  }
+  const forgeBase = ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0 ? ENV.forgeApiUrl.replace(/\/$/, "") : "https://forge.manus.im";
+  return { baseUrl: `${forgeBase}/v1`, apiKey: ENV.forgeApiKey };
+};
+var assertApiKey = () => {
+  if (!resolveProvider().apiKey) {
+    throw new Error("No hay ninguna API key de IA configurada (GEMINI_API_KEY o BUILT_IN_FORGE_API_KEY)");
+  }
+};
+var normalizeResponseFormat = ({
+  responseFormat,
+  response_format,
+  outputSchema,
+  output_schema
+}) => {
+  const explicitFormat = responseFormat || response_format;
+  if (explicitFormat) {
+    if (explicitFormat.type === "json_schema" && !explicitFormat.json_schema?.schema) {
+      throw new Error(
+        "responseFormat json_schema requires a defined schema object"
+      );
+    }
+    return explicitFormat;
+  }
+  const schema = outputSchema || output_schema;
+  if (!schema) return void 0;
+  if (!schema.name || !schema.schema) {
+    throw new Error("outputSchema requires both name and schema");
+  }
+  return {
+    type: "json_schema",
+    json_schema: {
+      name: schema.name,
+      schema: schema.schema,
+      ...typeof schema.strict === "boolean" ? { strict: schema.strict } : {}
+    }
+  };
+};
+var RETRY_MAX_RETRIES = 4;
+var RETRY_BASE_DELAY_MS = 500;
+var RETRY_MAX_DELAY_MS = 3e4;
+var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+var parseRetryAfter = (value) => {
+  if (!value) return void 0;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1e3);
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? void 0 : Math.max(0, at - Date.now());
+};
+var computeBackoffDelay = (attempt, retryAfterMs) => {
+  const cap = Math.min(RETRY_BASE_DELAY_MS * 2 ** attempt, RETRY_MAX_DELAY_MS);
+  const jittered = cap / 2 + Math.random() * (cap / 2);
+  return Math.min(Math.max(jittered, retryAfterMs ?? 0), RETRY_MAX_DELAY_MS);
+};
+var fetchWithBackoff = async (url, init) => {
+  let lastError;
+  for (let attempt = 0; attempt <= RETRY_MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(url, init);
+      if (response.ok || attempt === RETRY_MAX_RETRIES) {
+        return response;
+      }
+      const retryAfterMs = parseRetryAfter(
+        response.headers.get("retry-after")
+      );
+      try {
+        await response.body?.cancel();
+      } catch {
+      }
+      console.warn(
+        `LLM request retry ${attempt + 1}/${RETRY_MAX_RETRIES} after status ${response.status}`
+      );
+      await sleep(computeBackoffDelay(attempt, retryAfterMs));
+    } catch (error) {
+      lastError = error;
+      if (attempt === RETRY_MAX_RETRIES) throw error;
+      console.warn(
+        `LLM request retry ${attempt + 1}/${RETRY_MAX_RETRIES} after network error`
+      );
+      await sleep(computeBackoffDelay(attempt));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("LLM request failed after exhausting retries");
+};
+async function invokeLLM(params) {
+  assertApiKey();
+  const {
+    messages,
+    tools,
+    toolChoice,
+    tool_choice,
+    outputSchema,
+    output_schema,
+    responseFormat,
+    response_format,
+    model,
+    thinking,
+    reasoning,
+    maxTokens,
+    max_tokens
+  } = params;
+  const provider = resolveProvider();
+  const payload = {
+    messages: messages.map(normalizeMessage)
+  };
+  const resolvedModel = model ?? provider.defaultModel;
+  if (resolvedModel) {
+    payload.model = resolvedModel;
+  }
+  if (tools && tools.length > 0) {
+    payload.tools = tools;
+  }
+  const normalizedToolChoice = normalizeToolChoice(
+    toolChoice || tool_choice,
+    tools
+  );
+  if (normalizedToolChoice) {
+    payload.tool_choice = normalizedToolChoice;
+  }
+  const resolvedMaxTokens = max_tokens ?? maxTokens;
+  if (typeof resolvedMaxTokens === "number") {
+    payload.max_tokens = resolvedMaxTokens;
+  }
+  if (thinking) {
+    payload.thinking = thinking;
+  }
+  if (reasoning) {
+    payload.reasoning = reasoning;
+  }
+  const normalizedResponseFormat = normalizeResponseFormat({
+    responseFormat,
+    response_format,
+    outputSchema,
+    output_schema
   });
-  return { qrData, qrImageUrl };
+  if (normalizedResponseFormat) {
+    payload.response_format = normalizedResponseFormat;
+  }
+  const response = await fetchWithBackoff(`${provider.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${provider.apiKey}`
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `LLM invoke failed: ${response.status} ${response.statusText} \u2013 ${errorText}`
+    );
+  }
+  return await response.json();
 }
 
 // shared/ambassadorTiers.ts
@@ -2652,10 +3673,18 @@ function nextTierForCount(count) {
 }
 
 // server/email.ts
-var DEFAULT_FROM = "Candyland <onboarding@resend.dev>";
+var BRAND_NAME = "Mansion Playroom";
+var DEFAULT_FROM_ADDRESS = "onboarding@resend.dev";
+function resolveFromHeader() {
+  const raw = process.env.RESEND_FROM_EMAIL?.trim();
+  if (!raw) return `${BRAND_NAME} <${DEFAULT_FROM_ADDRESS}>`;
+  const match = raw.match(/<([^>]+)>/);
+  const address = (match ? match[1] : raw).trim();
+  return `${BRAND_NAME} <${address}>`;
+}
 async function sendEmail(input) {
   const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL || DEFAULT_FROM;
+  const from = resolveFromHeader();
   if (!apiKey) {
     console.warn("[Email] RESEND_API_KEY no configurada, no se env\xEDa el correo");
     return { success: false, reason: "No API configured" };
@@ -3186,6 +4215,32 @@ function buildSalesRecordEmail(data) {
 </body>
 </html>`;
 }
+function buildCheckinSummaryEmail(data) {
+  const fecha = new Date(data.eventDate).toLocaleDateString("es-CL", { day: "numeric", month: "long", year: "numeric" });
+  const pct = data.expectedCount > 0 ? Math.round(data.insideCount / data.expectedCount * 100) : 0;
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">\u{1F6AA} ${data.eventTitle}</h1>
+    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">Resumen de ingresos \u2014 ${fecha}</p>
+
+    ${card(`
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Personas adentro</p>
+      <p style="color:${INK};font-size:32px;font-weight:800;margin:0 0 2px;">${data.insideCount.toLocaleString("es-CL")} <span style="color:${MUTED};font-size:16px;font-weight:600;">/ ${data.expectedCount.toLocaleString("es-CL")}</span></p>
+      <p style="color:${MUTED};font-size:13px;margin:0;">${pct}% de las entradas vendidas ya hicieron check-in en la puerta.</p>
+    `)}
+  </div>
+</body>
+</html>`;
+}
 function buildShiftCloseEmail(data) {
   const money = (n) => `$${Math.round(n).toLocaleString("es-CL")}`;
   const diffRow = (label, counted, expected, diff) => `
@@ -3243,6 +4298,254 @@ function buildShiftCloseEmail(data) {
   </div>
 </body>
 </html>`;
+}
+function buildMailingBlastEmail(data) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+  const greeting = data.buyerName ? `\xA1Hola, ${data.buyerName}!` : "\xA1Hola!";
+  const eventInfo = data.eventInfo;
+  const showBanner = data.eventSections?.banner ?? true;
+  const showDetails = data.eventSections?.details ?? true;
+  const showMission300 = data.eventSections?.mission300 ?? true;
+  const showVenueGrid = data.eventSections?.venueGrid ?? true;
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  ${data.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${data.preheader}</div>` : ""}
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    ${eventInfo?.imageUrl && showBanner ? `<img src="${eventInfo.imageUrl}" alt="${eventInfo.title}" style="display:block;width:100%;height:auto;" />` : ""}
+
+    <!-- HERO -->
+    <div style="background:linear-gradient(160deg,${ACCENT.pink.bg},${ACCENT.yellow.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:52px;margin:0 0 12px;">\u{1F36C}</p>
+      <p style="color:${MUTED};font-size:14px;margin:0 0 4px;">${greeting}</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0;">${data.headline}</h1>
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${data.paragraphs.map((p) => `
+        <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 20px;">${p}</p>
+      `).join("")}
+
+      ${eventInfo && showDetails ? `
+      ${sectionTitle("\u{1F4C5}", eventInfo.title)}
+      ${card(`
+        <p style="color:${INK};font-size:15px;margin:6px 0;">\u{1F4C5} ${eventInfo.dateText}</p>
+        <p style="color:${INK};font-size:15px;margin:6px 0;">\u{1F4CD} ${eventInfo.venue}${eventInfo.address ? ` \u2014 ${eventInfo.address}` : ""}</p>
+        ${eventInfo.mapsUrl ? `<a href="${eventInfo.mapsUrl}" style="display:inline-block;color:${ACCENT.pink.text};font-size:13px;font-weight:700;text-decoration:none;margin:4px 0 0;">\u{1F4CD} Ver en Google Maps \u2192</a>` : ""}
+      `)}
+      ` : ""}
+
+      ${eventInfo?.mission300 && showMission300 ? card(`
+        <div style="text-align:center;">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Misi\xF3n 300</p>
+          <p style="color:${ACCENT.pink.text};font-size:28px;font-weight:800;margin:0 0 10px;">${eventInfo.mission300.confirmed}/${eventInfo.mission300.goal} ya confirmados</p>
+          <p style="color:${INK};font-size:15px;font-weight:700;margin:0;">\u{1F36C} Tu entrada sigue a $${eventInfo.mission300.depositPrice.toLocaleString("es-CL")} por persona mientras dure la Misi\xF3n 300</p>
+        </div>
+      `, { bg: ACCENT.pink.bg, border: false }) : ""}
+
+      ${eventInfo && showVenueGrid ? `
+      ${sectionTitle("\u{1F6DD}", "\xBFQu\xE9 encontrar\xE1s?")}
+      ${grid(CONTENT.encontraras.map((x) => `
+        <div style="background:${ACCENT.lilac.bg};border-radius:16px;padding:14px;">
+          <p style="font-size:22px;margin:0 0 4px;">${x.emoji}</p>
+          <p style="color:${INK};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
+        </div>
+      `), 2)}
+      ` : ""}
+
+      ${data.highlightLabel && data.highlightValue ? card(`
+        <div style="text-align:center;">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">${data.highlightLabel}</p>
+          <p style="color:${ACCENT.pink.text};font-size:32px;font-weight:800;margin:0;">${data.highlightValue}</p>
+        </div>
+      `, { bg: ACCENT.pink.bg, border: false }) : ""}
+
+      <div style="text-align:center;padding:${data.highlightLabel && data.highlightValue ? "24px" : "8px"} 0 8px;">
+        <a href="${data.ctaUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(236,95,163,0.35);">${data.ctaText || "Ver m\xE1s"}</a>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:8px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
+      <p style="margin:0 0 8px;">
+        <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>
+        <a href="https://www.mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Web</a>
+      </p>
+      <p style="color:${FAINT};font-size:11px;margin:0;">\xA9 ${(/* @__PURE__ */ new Date()).getFullYear()} Mansion Playroom \xB7 Valpara\xEDso, Chile</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+function buildGiftEmail(data) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <div style="background:linear-gradient(160deg,${ACCENT.pink.bg},${ACCENT.lilac.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:52px;margin:0 0 12px;">\u{1F379}</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">${data.fromAlias} te invit\xF3 un trago</h1>
+      <p style="color:${MUTED};font-size:15px;margin:0;">${data.drinkName}</p>
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${data.message ? card(
+    `<p style="color:${INK};font-size:15px;font-style:italic;margin:0;text-align:center;">"${data.message}"</p>`,
+    { bg: ACCENT.yellow.bg, border: false }
+  ) : ""}
+
+      ${card(`
+        <p style="color:${FAINT};font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 12px;text-align:center;">Muestra este c\xF3digo en la barra</p>
+        <p style="color:${INK};font-size:32px;font-weight:800;letter-spacing:3px;margin:0;text-align:center;font-family:monospace;">${data.displayCode}</p>
+      `, { bg: ACCENT.pink.bg, border: false })}
+
+      ${card(`
+        <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0;">
+          Es para <strong style="color:${INK};">${data.toAlias}</strong>, en ${data.eventTitle}.
+          Si no alcanzas a cobrarlo esta noche, no se pierde: <strong style="color:${INK};">queda v\xE1lido para la pr\xF3xima fiesta</strong>.
+        </p>
+      `)}
+
+      <p style="color:${FAINT};font-size:12px;text-align:center;margin:24px 0 0;line-height:1.6;">
+        Recibiste este correo porque alguien te invit\xF3 un trago en la fiesta.<br>
+        Mansion Playroom \xB7 Candyland
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+// server/webhooks.ts
+import { Router } from "express";
+
+// server/mercadopago.ts
+import { MercadoPagoConfig, Preference, Payment } from "mercadopago";
+var mpClient = null;
+function getClient() {
+  if (!mpClient) {
+    const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
+    if (!accessToken) {
+      console.warn("[MercadoPago] No access token configured");
+      return null;
+    }
+    mpClient = new MercadoPagoConfig({ accessToken });
+  }
+  return mpClient;
+}
+async function createTopupPreference(input) {
+  const client = getClient();
+  if (!client) {
+    console.warn("[MercadoPago] Using mock topup URL (no access token)");
+    return { id: "mock-preference-topup-" + input.orderNumber, initPoint: `/pago/exito?order=${input.orderNumber}&mock=true` };
+  }
+  const preference = new Preference(client);
+  const baseUrl = process.env.APP_URL || "https://mansionplayroom.cl";
+  const result = await preference.create({
+    body: {
+      items: [{
+        id: input.orderNumber,
+        title: `Diferencia Misi\xF3n 300 - ${input.eventTitle}`,
+        quantity: 1,
+        unit_price: input.amount,
+        currency_id: "CLP"
+      }],
+      payer: { email: input.buyerEmail, name: input.buyerName },
+      back_urls: {
+        success: `${baseUrl}/pago/exito?order=${input.orderNumber}`,
+        failure: `${baseUrl}/pago/error?order=${input.orderNumber}`,
+        pending: `${baseUrl}/pago/exito?order=${input.orderNumber}&pending=true`
+      },
+      auto_return: "approved",
+      external_reference: input.orderNumber,
+      notification_url: `${baseUrl}/api/webhooks/mercadopago`,
+      statement_descriptor: "MANSION PLAYROOM"
+    }
+  });
+  return { id: result.id, initPoint: result.init_point };
+}
+async function createCardPayment(input) {
+  const client = getClient();
+  if (!client) {
+    console.warn("[MercadoPago] No hay access token \u2014 no se puede cobrar");
+    return { status: "rejected", statusDetail: "no_access_token", paymentId: "mock-" + input.orderNumber, paymentMethodId: input.paymentMethodId };
+  }
+  const baseUrl = process.env.APP_URL || "https://mansionplayroom.cl";
+  const payment = new Payment(client);
+  const result = await payment.create({
+    body: {
+      transaction_amount: input.amount,
+      token: input.token,
+      description: input.description,
+      installments: input.installments ?? 1,
+      payment_method_id: input.paymentMethodId,
+      issuer_id: input.issuerId ? Number(input.issuerId) : void 0,
+      external_reference: input.orderNumber,
+      notification_url: `${baseUrl}/api/webhooks/mercadopago`,
+      statement_descriptor: "MANSION PLAYROOM",
+      payer: {
+        email: input.payerEmail,
+        identification: input.identificationType && input.identificationNumber ? { type: input.identificationType, number: input.identificationNumber } : void 0
+      }
+    },
+    requestOptions: { idempotencyKey: `${input.orderNumber}-${Date.now()}` }
+  });
+  return {
+    status: result.status ?? "pending",
+    statusDetail: result.status_detail ?? void 0,
+    paymentId: String(result.id ?? ""),
+    paymentMethodId: result.payment_method_id ?? input.paymentMethodId
+  };
+}
+async function getPaymentInfo(paymentId) {
+  const client = getClient();
+  if (!client) return null;
+  const payment = new Payment(client);
+  const result = await payment.get({ id: paymentId });
+  return result;
+}
+
+// server/webhooks.ts
+init_schema();
+import { eq as eq3, and as and2, sql as sql2, isNotNull, ne, inArray as inArray2 } from "drizzle-orm";
+import { nanoid as nanoid2 } from "nanoid";
+
+// server/qr.ts
+import QRCode from "qrcode";
+async function generateTicketQR(ticketCode, eventTitle) {
+  const baseUrl = process.env.APP_URL || "https://mansionplayroom.cl";
+  const qrData = `${baseUrl}/verificar/${ticketCode}`;
+  const qrImageUrl = await QRCode.toDataURL(qrData, {
+    type: "image/png",
+    width: 400,
+    margin: 2,
+    color: {
+      dark: "#000000",
+      light: "#FFFFFF"
+    },
+    errorCorrectionLevel: "H"
+  });
+  return { qrData, qrImageUrl };
 }
 
 // server/caja/displayCode.ts
@@ -3514,6 +4817,11 @@ async function processApprovedOrder(order) {
   const items = await db.select().from(orderItems).where(eq3(orderItems.orderId, order.id));
   const [event] = await db.select().from(events).where(eq3(events.id, order.eventId)).limit(1);
   if (!event) return;
+  const gift = await getPartyGiftByOrderId(order.id);
+  const giftRecipient = gift ? await getPartyProfileContact(gift.toProfileId) : null;
+  const giftSender = gift ? await getPartyProfileContact(gift.fromProfileId) : null;
+  let giftTicketId = null;
+  let giftDisplayCode = null;
   const orderTicketTypeIds = Array.from(new Set(items.map((i) => i.ticketTypeId)));
   const orderTicketTypes = orderTicketTypeIds.length ? await db.select().from(ticketTypes).where(inArray2(ticketTypes.id, orderTicketTypeIds)) : [];
   const ticketTypeById = new Map(orderTicketTypes.map((tt) => [tt.id, tt]));
@@ -3524,50 +4832,90 @@ async function processApprovedOrder(order) {
     for (let i = 0; i < item.quantity; i++) {
       const ticketCode = `MP-${nanoid2(12).toUpperCase()}`;
       const { qrData, qrImageUrl } = await generateTicketQR(ticketCode, event.title);
-      await db.insert(tickets).values({
+      const displayCode = isRedeemable ? generateDisplayCode(prefix) : null;
+      const [inserted] = await db.insert(tickets).values({
         ticketCode,
         orderId: order.id,
         orderItemId: item.id,
         eventId: order.eventId,
         ticketTypeId: item.ticketTypeId,
-        holderName: order.buyerName,
+        // Un regalo va a nombre de quien lo recibe, no de quien lo pagó:
+        // es el alias que el barman ve al canjearlo en la barra.
+        holderName: giftRecipient?.alias ?? order.buyerName,
         qrData,
         qrImageUrl,
         status: "valid",
-        displayCode: isRedeemable ? generateDisplayCode(prefix) : null
+        displayCode
       });
+      if (gift && giftTicketId === null) {
+        giftTicketId = inserted.insertId;
+        giftDisplayCode = displayCode;
+      }
     }
   }
   const orderAccesoSlugs = Array.from(orderTicketTypes).filter((tt) => tt.category === "acceso" && tt.accesoSlug).map((tt) => tt.accesoSlug);
   await upsertCustomerFromOrder(order, orderAccesoSlugs);
   await awardPlaycoins({ email: order.buyerEmail, totalClp: Number(order.total), reason: "earn_web", orderId: order.id });
-  if (order.ambassadorCode) {
-    const [ambassadorOrder] = await db.select().from(orders).where(and2(eq3(orders.ambassadorCode, order.ambassadorCode), eq3(orders.paymentStatus, "approved"))).limit(1);
-    if (ambassadorOrder && ambassadorOrder.id !== order.id) {
-      const totalTickets = items.reduce((sum, item) => sum + item.quantity, 0);
-      await db.insert(referrals).values({
-        ambassadorCode: order.ambassadorCode,
+  const referrerCode = order.referredByCode || order.ambassadorCode;
+  if (referrerCode) {
+    const exclusiveAmbassador = await getActiveExclusiveAmbassadorByCode(referrerCode, order.eventId);
+    if (exclusiveAmbassador) {
+      const accesoSubtotal = items.reduce((sum, item) => {
+        const tt = ticketTypeById.get(item.ticketTypeId);
+        return tt?.category === "acceso" ? sum + Number(item.totalPrice) : sum;
+      }, 0);
+      const baseAmount = computeAmbassadorCommissionBase(accesoSubtotal, Number(order.discount ?? 0));
+      await recordAmbassadorCommission({
+        ambassadorId: exclusiveAmbassador.id,
         orderId: order.id,
-        buyerEmail: order.buyerEmail,
-        ticketCount: totalTickets,
-        orderTotal: order.total
+        eventId: order.eventId,
+        baseAmount,
+        commissionPercent: Number(exclusiveAmbassador.commissionPercent)
       });
-      const [{ count: referralCount }] = await db.select({ count: sql2`COUNT(*)` }).from(referrals).where(eq3(referrals.ambassadorCode, order.ambassadorCode));
-      const count = Number(referralCount);
-      if (AMBASSADOR_TIERS.some((t2) => t2.min === count)) {
-        const html = buildTierUpEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: order.ambassadorCode, referralCount: count });
-        await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `${tierForCount(count).emoji} \xA1Llegaste a nivel ${tierForCount(count).name}!`, html });
-      } else {
-        const next = nextTierForCount(count);
-        if (next && next.min - count === 1) {
-          const html = buildAlmostTierEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: order.ambassadorCode, referralCount: count });
-          await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `\u{1F525} \xA1Est\xE1s a 1 venta de nivel ${next.name}!`, html });
+    } else {
+      const [ambassadorOrder] = await db.select().from(orders).where(and2(eq3(orders.ambassadorCode, referrerCode), eq3(orders.paymentStatus, "approved"))).limit(1);
+      if (ambassadorOrder && ambassadorOrder.id !== order.id) {
+        const totalTickets = items.reduce((sum, item) => sum + item.quantity, 0);
+        await db.insert(referrals).values({
+          ambassadorCode: referrerCode,
+          orderId: order.id,
+          buyerEmail: order.buyerEmail,
+          ticketCount: totalTickets,
+          orderTotal: order.total
+        });
+        const [{ count: referralCount }] = await db.select({ count: sql2`COUNT(*)` }).from(referrals).where(eq3(referrals.ambassadorCode, referrerCode));
+        const count = Number(referralCount);
+        if (AMBASSADOR_TIERS.some((t2) => t2.min === count)) {
+          const html = buildTierUpEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: referrerCode, referralCount: count });
+          await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `${tierForCount(count).emoji} \xA1Llegaste a nivel ${tierForCount(count).name}!`, html });
+        } else {
+          const next = nextTierForCount(count);
+          if (next && next.min - count === 1) {
+            const html = buildAlmostTierEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: referrerCode, referralCount: count });
+            await sendEmail({ to: ambassadorOrder.buyerEmail, subject: `\u{1F525} \xA1Est\xE1s a 1 venta de nivel ${next.name}!`, html });
+          }
         }
       }
     }
   }
   await ensureOwnAmbassadorCode(db, order);
   const [refreshedOrder] = await db.select().from(orders).where(eq3(orders.id, order.id)).limit(1);
+  if (gift && giftTicketId !== null) {
+    await markGiftPaid(gift.id, giftTicketId, giftDisplayCode);
+    if (giftRecipient?.email && giftDisplayCode) {
+      const html = buildGiftEmail({
+        toAlias: giftRecipient.alias,
+        fromAlias: giftSender?.alias ?? "Alguien",
+        drinkName: gift.drinkName,
+        displayCode: giftDisplayCode,
+        message: gift.message,
+        eventTitle: event.title
+      });
+      await sendEmail({ to: giftRecipient.email, subject: `\u{1F379} ${giftSender?.alias ?? "Alguien"} te invit\xF3 un ${gift.drinkName}`, html });
+    }
+    await db.update(orders).set({ emailSent: 1 }).where(eq3(orders.id, order.id));
+    return;
+  }
   const result = await sendConfirmationEmailForOrder(refreshedOrder ?? order, true);
   if (result.success) {
     await db.update(orders).set({ emailSent: 1 }).where(eq3(orders.id, order.id));
@@ -3677,6 +5025,511 @@ async function evaluateMission300(eventId) {
   return { totalPersonas, goal: MISSION_300_GOAL, success, ordersEvaluated: eligible.length, resolved, topupRequested };
 }
 
+// server/mailing.ts
+var CHILE_TZ2 = "America/Santiago";
+function formatEventDateTime(date) {
+  const dateText = date.toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long", timeZone: CHILE_TZ2 });
+  const timeText = date.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", timeZone: CHILE_TZ2 });
+  return `${dateText}, ${timeText} hrs`;
+}
+async function getMailingEventInfo() {
+  const event = await getFeaturedEvent();
+  if (!event) return null;
+  const eventDate = new Date(event.eventDate);
+  let mission300 = null;
+  if (isMissionWindowOpen(eventDate)) {
+    const status = await getMission300Status(event.id);
+    mission300 = { confirmed: status.totalPersonas, goal: status.goal, depositPrice: MISSION_300_DEPOSIT_PER_PERSON };
+  }
+  return {
+    title: event.title,
+    imageUrl: event.imageUrl ?? void 0,
+    dateText: formatEventDateTime(eventDate),
+    venue: event.venue ?? "Valpara\xEDso, Chile",
+    address: event.address ?? void 0,
+    mapsUrl: event.mapsUrl ?? void 0,
+    mission300
+  };
+}
+var MailingContentSchema = z.object({
+  subject: z.string().min(4).max(90),
+  preheader: z.string().max(140).optional(),
+  headline: z.string().min(4).max(80),
+  paragraphs: z.array(z.string().min(4).max(500)).min(1).max(4),
+  ctaText: z.string().max(40).optional(),
+  highlightLabel: z.string().max(60).optional(),
+  highlightValue: z.string().max(60).optional()
+});
+var MAILING_JSON_SCHEMA = {
+  name: "mailing_template",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["subject", "headline", "paragraphs"],
+    properties: {
+      subject: { type: "string", description: "Asunto del email, corto y directo, sin emojis excesivos." },
+      preheader: { type: "string", description: "Texto de preview que se ve junto al asunto en la bandeja de entrada (una frase corta)." },
+      headline: { type: "string", description: "T\xEDtulo grande dentro del email." },
+      paragraphs: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 1,
+        maxItems: 4,
+        description: "Uno a cuatro p\xE1rrafos cortos con el cuerpo del mensaje, tono cercano y conversacional."
+      },
+      ctaText: { type: "string", description: "Texto del bot\xF3n de acci\xF3n, ej. 'Comprar mi entrada'." },
+      highlightLabel: { type: "string", description: "Etiqueta chica de un dato destacado, ej. 'Solo por hoy'. Opcional, solo si el objetivo tiene un dato num\xE9rico o urgente que resaltar." },
+      highlightValue: { type: "string", description: "El dato destacado en s\xED, ej. '41 entradas' o '$50.000 en consumos'. Opcional, va junto a highlightLabel." }
+    }
+  }
+};
+var SYSTEM_PROMPT = `Eres quien escribe los emails de marketing de Mansion Playroom / Candyland, una productora de fiestas en Valpara\xEDso/Vi\xF1a del Mar, Chile.
+Tono: cercano, conversacional, en espa\xF1ol chileno, sin ser vulgar ni gritar en may\xFAsculas. Nada de lenguaje corporativo gen\xE9rico.
+La marca usa una paleta pastel (rosa/celeste/amarillo/lila) y emojis con moderaci\xF3n (\u{1F36C}\u{1F389}\u2728), pero el contenido que generas es solo texto, no HTML ni estilos.
+Responde \xDANICAMENTE con el JSON pedido, sin explicaciones adicionales. Usa "highlightLabel"/"highlightValue" solo si el objetivo menciona un dato concreto que valga la pena destacar en grande (un n\xFAmero de entradas, un precio, un premio); si no aplica, om\xEDtelos.`;
+function extractContent(message) {
+  if (typeof message.content === "string") return message.content;
+  return message.content.map((part) => part.type === "text" ? part.text ?? "" : "").join("");
+}
+async function generateMailingTemplate(objective, audienceDescription) {
+  const result = await invokeLLM({
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: `Objetivo del mail: ${objective}
+
+A qui\xE9n se le manda: ${audienceDescription}` }
+    ],
+    responseFormat: { type: "json_schema", json_schema: MAILING_JSON_SCHEMA }
+  });
+  const raw = extractContent(result.choices[0]?.message ?? { content: "" });
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("La IA no devolvi\xF3 un JSON v\xE1lido. Intenta de nuevo con un objetivo m\xE1s claro.");
+  }
+  const validated = MailingContentSchema.safeParse(parsed);
+  if (!validated.success) {
+    throw new Error(`La plantilla generada no tiene el formato esperado: ${validated.error.issues[0]?.message ?? "error desconocido"}.`);
+  }
+  return validated.data;
+}
+var MAILING_BATCH_MAX = 50;
+var sleep2 = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+var THROTTLE_MS = Number(process.env.MAILING_THROTTLE_MS) || 250;
+async function sendMailingBatch(customerIds, content, ctaUrl, campaignTag, eventInfo, eventSections) {
+  const recipients = await listCustomersByIds(customerIds);
+  const results = [];
+  const cleanCampaignTag = campaignTag?.trim();
+  for (const customer of recipients) {
+    const html = buildMailingBlastEmail({
+      buyerName: customer.fullName ?? "",
+      preheader: content.preheader,
+      headline: content.headline,
+      paragraphs: content.paragraphs,
+      ctaText: content.ctaText,
+      ctaUrl,
+      highlightLabel: content.highlightLabel,
+      highlightValue: content.highlightValue,
+      eventInfo,
+      eventSections
+    });
+    const sent = await sendEmail({ to: customer.email, subject: content.subject, html });
+    results.push({ customerId: customer.id, email: customer.email, success: sent.success, reason: sent.reason });
+    if (sent.success && cleanCampaignTag) {
+      try {
+        await addCustomerTag(customer.id, cleanCampaignTag);
+      } catch (err) {
+        console.error("[Mailing] No se pudo taguear al cliente tras el env\xEDo:", err);
+      }
+    }
+    await sleep2(THROTTLE_MS);
+  }
+  return results;
+}
+async function createAutoMailingCampaign(input) {
+  const name = input.name.trim();
+  if (!name) throw new Error("Falta el nombre de la campa\xF1a.");
+  return createMailingCampaign({
+    name,
+    audienceDescription: input.audienceDescription,
+    content: input.content,
+    ctaUrl: input.ctaUrl,
+    eventSections: input.eventSections ?? null,
+    customerIds: input.customerIds
+  });
+}
+var CRON_TIME_BUDGET_MS = 5e4;
+var CRON_MAX_PER_RUN = Number(process.env.MAILING_CRON_DAILY_CAP) || 50;
+async function processMailingCronBatch() {
+  const start = Date.now();
+  const pending = await getPendingMailingRecipients(CRON_MAX_PER_RUN);
+  let sent = 0;
+  let failed = 0;
+  const campaignsTouched = /* @__PURE__ */ new Set();
+  let eventInfo;
+  for (const recipient of pending) {
+    if (Date.now() - start > CRON_TIME_BUDGET_MS) break;
+    const content = recipient.content;
+    const eventSections = recipient.eventSections ?? void 0;
+    if (eventSections && eventInfo === void 0) {
+      eventInfo = await getMailingEventInfo();
+    }
+    const html = buildMailingBlastEmail({
+      buyerName: recipient.fullName ?? "",
+      preheader: content.preheader,
+      headline: content.headline,
+      paragraphs: content.paragraphs,
+      ctaText: content.ctaText,
+      ctaUrl: recipient.ctaUrl,
+      highlightLabel: content.highlightLabel,
+      highlightValue: content.highlightValue,
+      eventInfo: eventSections ? eventInfo : null,
+      eventSections
+    });
+    const result = await sendEmail({ to: recipient.email, subject: content.subject, html });
+    await markMailingRecipientResult(recipient.id, recipient.campaignId, result.success, result.reason);
+    campaignsTouched.add(recipient.campaignId);
+    if (result.success) {
+      sent++;
+      try {
+        await addCustomerTag(recipient.customerId, recipient.campaignName);
+      } catch (err) {
+        console.error("[Mailing] No se pudo taguear al cliente tras el env\xEDo autom\xE1tico:", err);
+      }
+    } else {
+      failed++;
+    }
+    await sleep2(THROTTLE_MS);
+  }
+  return { processed: sent + failed, sent, failed, campaignsTouched: campaignsTouched.size };
+}
+
+// server/cronRoutes.ts
+var CHECKIN_SUMMARY_EMAIL = "contacto@mansionplayroom.cl";
+function requireCronSecret(req, res) {
+  if (!ENV.cronSecret) {
+    console.warn("[Cron] CRON_SECRET no configurada -- el endpoint del cron queda sin autenticar.");
+    return true;
+  }
+  const auth = req.headers.authorization;
+  if (auth !== `Bearer ${ENV.cronSecret}`) {
+    res.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
+function registerCronRoutes(app) {
+  app.get("/api/cron/mailing-queue", async (req, res) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const result = await processMailingCronBatch();
+      let partyMessagesPurgedFor = 0;
+      let partyProfilesPurged = 0;
+      let giftInvitationsExpired = 0;
+      try {
+        const purge = await purgeOldPartyMessages();
+        partyMessagesPurgedFor = purge.deletedFor;
+        const profiles = await purgeOldPartyProfiles();
+        partyProfilesPurged = profiles.profilesDeleted;
+        const expired = await expireOldGiftInvitations();
+        giftInvitationsExpired = expired.expired;
+      } catch (err) {
+        console.error("[Cron] Error limpiando datos de fiestas terminadas:", err);
+      }
+      res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired });
+    } catch (err) {
+      console.error("[Cron] Error procesando la cola de mailing:", err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : "Error desconocido" });
+    }
+  });
+  app.get("/api/cron/checkin-summary", async (req, res) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const event = await getEventHappeningToday();
+      if (!event) {
+        res.json({ success: true, sent: false, reason: "no hay evento hoy" });
+        return;
+      }
+      const dashboard = await getCajaDashboard(event.id);
+      if (!dashboard) {
+        res.json({ success: true, sent: false, reason: "sin datos de caja para el evento" });
+        return;
+      }
+      await sendEmail({
+        to: CHECKIN_SUMMARY_EMAIL,
+        subject: `[Candyland] Ingresos del d\xEDa \u2014 ${event.title}`,
+        html: buildCheckinSummaryEmail({
+          eventTitle: event.title,
+          eventDate: event.eventDate,
+          insideCount: dashboard.insideCount,
+          expectedCount: dashboard.expectedCount
+        })
+      });
+      res.json({ success: true, sent: true, insideCount: dashboard.insideCount, expectedCount: dashboard.expectedCount });
+    } catch (err) {
+      console.error("[Cron] Error mandando el resumen de ingresos:", err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : "Error desconocido" });
+    }
+  });
+}
+
+// server/calendar.ts
+function toIcsDate(date) {
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+function icsEscape(text2) {
+  return text2.replace(/\\/g, "\\\\").replace(/,/g, "\\,").replace(/;/g, "\\;").replace(/\n/g, "\\n");
+}
+function registerTicketAssetRoutes(app) {
+  app.get("/api/qr/:ticketCode.png", async (req, res) => {
+    const { ticketCode } = req.params;
+    const ticket = await getTicketByCode(ticketCode);
+    if (!ticket?.qrImageUrl?.startsWith("data:image/png;base64,")) {
+      res.status(404).send("QR not found");
+      return;
+    }
+    const base64 = ticket.qrImageUrl.slice("data:image/png;base64,".length);
+    const buffer = Buffer.from(base64, "base64");
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    res.send(buffer);
+  });
+  app.get("/api/calendar/:ticketCode.ics", async (req, res) => {
+    const { ticketCode } = req.params;
+    const ticket = await getTicketByCode(ticketCode);
+    if (!ticket || !ticket.eventDate) {
+      res.status(404).send("Ticket not found");
+      return;
+    }
+    const start = ticket.doorsOpen ? new Date(ticket.doorsOpen) : new Date(ticket.eventDate);
+    const end = ticket.eventEnd ? new Date(ticket.eventEnd) : new Date(start.getTime() + 7 * 60 * 60 * 1e3);
+    const location = [ticket.venue, ticket.address].filter(Boolean).join(", ");
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//Mansion Playroom//Candyland//ES",
+      "CALSCALE:GREGORIAN",
+      "BEGIN:VEVENT",
+      `UID:${ticket.ticketCode}@mansionplayroom.cl`,
+      `DTSTAMP:${toIcsDate(/* @__PURE__ */ new Date())}`,
+      `DTSTART:${toIcsDate(start)}`,
+      `DTEND:${toIcsDate(end)}`,
+      `SUMMARY:${icsEscape(ticket.eventTitle)}`,
+      `LOCATION:${icsEscape(location)}`,
+      `DESCRIPTION:${icsEscape(`Tu acceso: ${ticket.ticketTypeName}. C\xF3digo: ${ticket.ticketCode}`)}`,
+      "END:VEVENT",
+      "END:VCALENDAR"
+    ].join("\r\n");
+    res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${ticket.eventTitle.replace(/[^a-z0-9]/gi, "-")}.ics"`);
+    res.send(ics);
+  });
+}
+
+// server/_core/systemRouter.ts
+import { z as z2 } from "zod";
+
+// server/_core/notification.ts
+import { TRPCError } from "@trpc/server";
+var TITLE_MAX_LENGTH = 1200;
+var CONTENT_MAX_LENGTH = 2e4;
+var trimValue = (value) => value.trim();
+var isNonEmptyString2 = (value) => typeof value === "string" && value.trim().length > 0;
+var buildEndpointUrl = (baseUrl) => {
+  const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  return new URL(
+    "webdevtoken.v1.WebDevService/SendNotification",
+    normalizedBase
+  ).toString();
+};
+var validatePayload = (input) => {
+  if (!isNonEmptyString2(input.title)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Notification title is required."
+    });
+  }
+  if (!isNonEmptyString2(input.content)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Notification content is required."
+    });
+  }
+  const title = trimValue(input.title);
+  const content = trimValue(input.content);
+  if (title.length > TITLE_MAX_LENGTH) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Notification title must be at most ${TITLE_MAX_LENGTH} characters.`
+    });
+  }
+  if (content.length > CONTENT_MAX_LENGTH) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `Notification content must be at most ${CONTENT_MAX_LENGTH} characters.`
+    });
+  }
+  return { title, content };
+};
+async function notifyOwner(payload) {
+  const { title, content } = validatePayload(payload);
+  if (!ENV.forgeApiUrl) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Notification service URL is not configured."
+    });
+  }
+  if (!ENV.forgeApiKey) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Notification service API key is not configured."
+    });
+  }
+  const endpoint = buildEndpointUrl(ENV.forgeApiUrl);
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${ENV.forgeApiKey}`,
+        "content-type": "application/json",
+        "connect-protocol-version": "1"
+      },
+      body: JSON.stringify({ title, content })
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      console.warn(
+        `[Notification] Failed to notify owner (${response.status} ${response.statusText})${detail ? `: ${detail}` : ""}`
+      );
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.warn("[Notification] Error calling notification service:", error);
+    return false;
+  }
+}
+
+// server/_core/trpc.ts
+import { initTRPC, TRPCError as TRPCError2 } from "@trpc/server";
+import superjson from "superjson";
+var t = initTRPC.context().create({
+  transformer: superjson
+});
+var router = t.router;
+var publicProcedure = t.procedure;
+var requireUser = t.middleware(async (opts) => {
+  const { ctx, next } = opts;
+  if (!ctx.user) {
+    throw new TRPCError2({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+  }
+  return next({
+    ctx: {
+      ...ctx,
+      user: ctx.user
+    }
+  });
+});
+var protectedProcedure = t.procedure.use(requireUser);
+var adminProcedure = t.procedure.use(
+  t.middleware(async (opts) => {
+    const { ctx, next } = opts;
+    if (!ctx.user || ctx.user.role !== "admin") {
+      throw new TRPCError2({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
+    }
+    return next({
+      ctx: {
+        ...ctx,
+        user: ctx.user
+      }
+    });
+  })
+);
+var deviceProcedure = t.procedure.use(
+  t.middleware(async (opts) => {
+    const { ctx, next } = opts;
+    if (!ctx.device) {
+      throw new TRPCError2({ code: "FORBIDDEN", message: "Este dispositivo no est\xE1 enrolado" });
+    }
+    return next({
+      ctx: {
+        ...ctx,
+        device: ctx.device
+      }
+    });
+  })
+);
+var doorProcedure = t.procedure.use(
+  t.middleware(async (opts) => {
+    const { ctx, next } = opts;
+    if (!ctx.operator) {
+      throw new TRPCError2({ code: "UNAUTHORIZED", message: "Sesi\xF3n de puerta requerida" });
+    }
+    const role = ctx.operator.role;
+    if (role !== "acceso" && role !== "supervisor" && role !== "admin") {
+      throw new TRPCError2({ code: "FORBIDDEN", message: "Tu usuario no tiene acceso a la puerta" });
+    }
+    return next({ ctx: { ...ctx, operator: ctx.operator } });
+  })
+);
+var operatorProcedure = deviceProcedure.use(
+  t.middleware(async (opts) => {
+    const { ctx, next } = opts;
+    if (!ctx.operator) {
+      throw new TRPCError2({ code: "UNAUTHORIZED", message: "Sesi\xF3n de caja requerida" });
+    }
+    return next({
+      ctx: {
+        ...ctx,
+        operator: ctx.operator
+      }
+    });
+  })
+);
+var supervisorProcedure = operatorProcedure.use(
+  t.middleware(async (opts) => {
+    const { ctx, next } = opts;
+    if (!ctx.operator || ctx.operator.role !== "supervisor" && ctx.operator.role !== "admin") {
+      throw new TRPCError2({ code: "FORBIDDEN", message: "Se requiere rol de supervisor" });
+    }
+    return next({
+      ctx: {
+        ...ctx,
+        operator: ctx.operator
+      }
+    });
+  })
+);
+
+// server/_core/systemRouter.ts
+var systemRouter = router({
+  health: publicProcedure.input(
+    z2.object({
+      timestamp: z2.number().min(0, "timestamp cannot be negative")
+    })
+  ).query(() => ({
+    ok: true
+  })),
+  notifyOwner: adminProcedure.input(
+    z2.object({
+      title: z2.string().min(1, "title is required"),
+      content: z2.string().min(1, "content is required")
+    })
+  ).mutation(async ({ input }) => {
+    const delivered = await notifyOwner(input);
+    return {
+      success: delivered
+    };
+  })
+});
+
+// server/routers.ts
+import { z as z3 } from "zod";
+import { TRPCError as TRPCError3 } from "@trpc/server";
+
 // server/caja/auth.ts
 import { randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import { SignJWT as SignJWT2, jwtVerify as jwtVerify2 } from "jose";
@@ -3773,7 +5626,10 @@ async function redeemDisplayCode(db, params) {
     async () => {
       const [ticket] = await db.select().from(tickets).where(eq4(tickets.displayCode, code)).limit(1);
       if (!ticket) return { result: "rejected", conflictNote: "El c\xF3digo no existe" };
-      if (ticket.eventId !== params.eventId) return { result: "rejected", conflictNote: "El c\xF3digo no corresponde a este evento" };
+      const [gift] = await db.select().from(partyGifts).where(eq4(partyGifts.ticketId, ticket.id)).limit(1);
+      if (!gift && ticket.eventId !== params.eventId) {
+        return { result: "rejected", conflictNote: "El c\xF3digo no corresponde a este evento" };
+      }
       if (ticket.status === "cancelled") return { result: "rejected", conflictNote: "El c\xF3digo fue anulado" };
       if (ticket.status === "used") {
         return { result: "conflict", conflictNote: `Ya fue canjeado el ${ticket.usedAt?.toISOString?.() ?? ticket.usedAt}` };
@@ -3784,6 +5640,52 @@ async function redeemDisplayCode(db, params) {
         usedByOperatorId: params.operatorId,
         usedAtRegisterId: params.registerId ?? null
       }).where(eq4(tickets.id, ticket.id));
+      if (gift) {
+        await db.update(partyGifts).set({ status: "redeemed", redeemedAt: /* @__PURE__ */ new Date() }).where(eq4(partyGifts.id, gift.id));
+      }
+      return { result: "applied" };
+    }
+  );
+  return { result, conflictNote };
+}
+
+// server/caja/checkin.ts
+init_schema();
+init_ops();
+import { eq as eq5 } from "drizzle-orm";
+async function checkInTicket(db, params) {
+  const code = params.ticketCode.trim().toUpperCase();
+  const { result, conflictNote } = await applyOp(
+    db,
+    {
+      id: params.opId,
+      type: "checkin",
+      eventId: params.eventId,
+      operatorId: params.operatorId,
+      registerId: params.registerId,
+      targetType: "ticket",
+      targetId: code,
+      payload: { ticketCode: code },
+      clientAt: params.clientAt
+    },
+    async () => {
+      const [ticket] = await db.select().from(tickets).where(eq5(tickets.ticketCode, code)).limit(1);
+      if (!ticket) return { result: "rejected", conflictNote: "El c\xF3digo no existe" };
+      if (ticket.eventId !== params.eventId) return { result: "rejected", conflictNote: "El c\xF3digo no corresponde a este evento" };
+      if (ticket.status === "cancelled") return { result: "rejected", conflictNote: "El acceso fue anulado" };
+      if (ticket.status === "used") {
+        return { result: "conflict", conflictNote: `Esta persona ya entr\xF3 el ${ticket.usedAt?.toISOString?.() ?? ticket.usedAt}` };
+      }
+      const [tt] = await db.select().from(ticketTypes).where(eq5(ticketTypes.id, ticket.ticketTypeId)).limit(1);
+      if (tt?.category !== "acceso") {
+        return { result: "rejected", conflictNote: "Ese c\xF3digo es de un extra, no de un acceso" };
+      }
+      await db.update(tickets).set({
+        status: "used",
+        usedAt: /* @__PURE__ */ new Date(),
+        usedByOperatorId: params.operatorId,
+        usedAtRegisterId: params.registerId ?? null
+      }).where(eq5(tickets.id, ticket.id));
       return { result: "applied" };
     }
   );
@@ -3793,7 +5695,7 @@ async function redeemDisplayCode(db, params) {
 // server/caja/sale.ts
 init_schema();
 init_ops();
-import { eq as eq5, sql as sql3, inArray as inArray3 } from "drizzle-orm";
+import { eq as eq6, sql as sql3, inArray as inArray3 } from "drizzle-orm";
 async function createCajaSale(db, params) {
   if (params.items.length === 0) throw new Error("La venta necesita al menos un producto");
   const ticketTypeIds = params.items.map((i) => i.ticketTypeId);
@@ -3865,7 +5767,7 @@ async function createCajaSale(db, params) {
           totalPrice: String(item.unitPrice * item.quantity),
           unitCost: item.unitCost != null ? String(item.unitCost) : null
         });
-        await db.update(ticketTypes).set({ soldCount: sql3`soldCount + ${item.quantity}` }).where(eq5(ticketTypes.id, item.ticketTypeId));
+        await db.update(ticketTypes).set({ soldCount: sql3`soldCount + ${item.quantity}` }).where(eq6(ticketTypes.id, item.ticketTypeId));
       }
       if (params.buyerEmail) {
         await awardPlaycoins({ email: params.buyerEmail, totalClp: finalTotal, reason: "earn_caja", opId: params.opId });
@@ -3879,7 +5781,7 @@ async function createCajaSale(db, params) {
 // server/caja/void.ts
 init_schema();
 init_ops();
-import { eq as eq6 } from "drizzle-orm";
+import { eq as eq7 } from "drizzle-orm";
 async function voidTicketCode(db, params) {
   const code = params.displayCode.trim().toUpperCase();
   const { result, conflictNote } = await applyOp(
@@ -3896,11 +5798,11 @@ async function voidTicketCode(db, params) {
       clientAt: params.clientAt
     },
     async () => {
-      const [ticket] = await db.select().from(tickets).where(eq6(tickets.displayCode, code)).limit(1);
+      const [ticket] = await db.select().from(tickets).where(eq7(tickets.displayCode, code)).limit(1);
       if (!ticket) return { result: "rejected", conflictNote: "El c\xF3digo no existe" };
       if (ticket.eventId !== params.eventId) return { result: "rejected", conflictNote: "El c\xF3digo no corresponde a este evento" };
       if (ticket.status === "cancelled") return { result: "rejected", conflictNote: "El c\xF3digo ya estaba anulado" };
-      await db.update(tickets).set({ status: "cancelled" }).where(eq6(tickets.id, ticket.id));
+      await db.update(tickets).set({ status: "cancelled" }).where(eq7(tickets.id, ticket.id));
       return { result: "applied" };
     }
   );
@@ -3908,11 +5810,162 @@ async function voidTicketCode(db, params) {
 }
 
 // server/routers.ts
+import QRCode2 from "qrcode";
+
+// server/adminSecurity.ts
+import crypto from "crypto";
+import { generateSecret, generateSync, verifySync, generateURI } from "otplib";
+var TOTP_TOLERANCE_SECONDS = 30;
+var BACKUP_CODE_COUNT = 8;
+var BACKUP_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function safeCompare(a, b) {
+  const ha = crypto.createHash("sha256").update(a ?? "").digest();
+  const hb = crypto.createHash("sha256").update(b ?? "").digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+function createTotpSecret() {
+  return generateSecret();
+}
+function totpUri(secret, label = "admin") {
+  return generateURI({ secret, issuer: "Candyland", label });
+}
+function verifyTotp(params) {
+  const token = (params.token ?? "").replace(/\s/g, "");
+  if (!/^\d{6}$/.test(token)) return { ok: false, reason: "invalido" };
+  const epoch = Math.floor((params.now?.getTime() ?? Date.now()) / 1e3);
+  const res = verifySync({
+    secret: params.secret,
+    token,
+    epoch,
+    epochTolerance: TOTP_TOLERANCE_SECONDS,
+    ...params.lastUsedStep != null ? { afterTimeStep: params.lastUsedStep } : {}
+  });
+  if (!res.valid) {
+    if (params.lastUsedStep != null) {
+      const sinReplay = verifySync({ secret: params.secret, token, epoch, epochTolerance: TOTP_TOLERANCE_SECONDS });
+      if (sinReplay.valid) return { ok: false, reason: "reusado" };
+    }
+    return { ok: false, reason: "invalido" };
+  }
+  const timeStep = res.timeStep;
+  if (typeof timeStep !== "number") return { ok: false, reason: "invalido" };
+  return { ok: true, timeStep };
+}
+function hashBackupCode(code) {
+  return crypto.createHash("sha256").update(normalizeBackupCode(code)).digest("hex");
+}
+function normalizeBackupCode(code) {
+  return (code ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+function generateBackupCodes(count = BACKUP_CODE_COUNT) {
+  const plain = [];
+  for (let i = 0; i < count; i++) {
+    const chars = [];
+    const bytes = crypto.randomBytes(8);
+    for (let j = 0; j < 8; j++) chars.push(BACKUP_ALPHABET[bytes[j] % BACKUP_ALPHABET.length]);
+    plain.push(`${chars.slice(0, 4).join("")}-${chars.slice(4).join("")}`);
+  }
+  return { plain, hashed: plain.map(hashBackupCode) };
+}
+function consumeBackupCode(hashed, code) {
+  const target = hashBackupCode(code);
+  const idx = hashed.findIndex((h) => safeCompare(h, target));
+  if (idx === -1) return { ok: false, remaining: hashed };
+  return { ok: true, remaining: hashed.filter((_, i) => i !== idx) };
+}
+function parseBackupCodes(raw) {
+  if (Array.isArray(raw)) return raw.filter((x) => typeof x === "string");
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+// server/routers.ts
+async function requirePartyActor(ticketCode) {
+  const actor = await getPartyActor(ticketCode);
+  const denial = partyEntryDenial(actor?.ticket, actor?.event, /* @__PURE__ */ new Date());
+  if (denial || !actor) {
+    const message = denial === "no_ingreso" ? "Tu entrada todav\xEDa no fue escaneada en la puerta" : denial === "fuera_de_horario" ? "La fiesta no est\xE1 abierta en este momento" : "No encontramos tu entrada";
+    throw new TRPCError3({ code: "FORBIDDEN", message });
+  }
+  return actor;
+}
+async function requirePartyProfile(ticketCode) {
+  const actor = await requirePartyActor(ticketCode);
+  if (!actor.profile) throw new TRPCError3({ code: "FORBIDDEN", message: "Todav\xEDa no creaste tu perfil" });
+  return { ...actor, profile: actor.profile };
+}
 var SHIFT_CLOSE_REPORT_EMAIL = "contacto@mansionplayroom.cl";
 var adminProcedure2 = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError3({ code: "FORBIDDEN", message: "Admin access required" });
   return next({ ctx });
 });
+var mailingEventSectionsSchema = z3.object({
+  banner: z3.boolean(),
+  details: z3.boolean(),
+  mission300: z3.boolean(),
+  venueGrid: z3.boolean()
+});
+async function verifyOperatorPinOrThrow(ctx, operatorId, pin) {
+  const forwardedFor = ctx.req.headers["x-forwarded-for"];
+  const clientIp = (typeof forwardedFor === "string" ? forwardedFor.split(",")[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || "unknown";
+  const ipKey = `pin-login:${clientIp}`;
+  if (!await checkIpRateLimit(ipKey)) {
+    throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: "Demasiados intentos desde este dispositivo. Intenta de nuevo m\xE1s tarde." });
+  }
+  const operator = await getOperatorById(operatorId);
+  if (!operator || !operator.active) {
+    await recordIpFailedAttempt(ipKey);
+    throw new TRPCError3({ code: "UNAUTHORIZED", message: "PIN incorrecto" });
+  }
+  if (operator.lockedUntil && new Date(operator.lockedUntil).getTime() > Date.now()) {
+    const minutesLeft = Math.ceil((new Date(operator.lockedUntil).getTime() - Date.now()) / 6e4);
+    throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: `Demasiados intentos. Intenta de nuevo en ${minutesLeft} min.` });
+  }
+  if (!verifyPin(pin, operator.pinHash)) {
+    await recordFailedPinAttempt(operator.id);
+    await recordIpFailedAttempt(ipKey);
+    throw new TRPCError3({ code: "UNAUTHORIZED", message: "PIN incorrecto" });
+  }
+  await resetPinAttempts(operator.id);
+  return operator;
+}
+async function verifyDoorPinOrThrow(ctx, operatorId, pin) {
+  const operator = await verifyOperatorPinOrThrow(ctx, operatorId, pin);
+  if (operator.role !== "acceso" && operator.role !== "supervisor" && operator.role !== "admin") {
+    throw new TRPCError3({ code: "FORBIDDEN", message: "Tu usuario no trabaja en la puerta" });
+  }
+  return operator;
+}
+function adminIpKey(ctx) {
+  const forwardedFor = ctx.req.headers["x-forwarded-for"];
+  const ip = (typeof forwardedFor === "string" ? forwardedFor.split(",")[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || "unknown";
+  return `admin-login:${ip}`;
+}
+async function signAdminStepTicket() {
+  return sdk.signSession({ openId: `${ADMIN_LOCAL_OPEN_ID}:step1`, appId: "candyland-admin-2fa", name: "step1" }, { expiresInMs: 5 * 60 * 1e3 });
+}
+async function requireAdminStepTicket(ticket) {
+  try {
+    const payload = await sdk.verifySession(ticket);
+    if (payload?.openId !== `${ADMIN_LOCAL_OPEN_ID}:step1`) throw new Error("bad ticket");
+  } catch {
+    throw new TRPCError3({ code: "UNAUTHORIZED", message: "Vuelve a ingresar tu contrase\xF1a" });
+  }
+}
+var ADMIN_SESSION_MS = 7 * 24 * 60 * 60 * 1e3;
+async function issueAdminSession(ctx) {
+  await upsertUser({ openId: ADMIN_LOCAL_OPEN_ID, name: "Admin", role: "admin", lastSignedIn: /* @__PURE__ */ new Date() });
+  const sessionToken = await sdk.signSession({ openId: ADMIN_LOCAL_OPEN_ID, appId: "candyland-admin", name: "Admin" }, { expiresInMs: ADMIN_SESSION_MS });
+  const cookieOptions = getSessionCookieOptions(ctx.req);
+  ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ADMIN_SESSION_MS });
+}
 var appRouter = router({
   system: systemRouter,
   auth: router({
@@ -3924,16 +5977,88 @@ var appRouter = router({
     }),
     // Login simple por contraseña para el panel admin — no depende de ningún
     // OAuth externo, solo de la variable de entorno ADMIN_PASSWORD.
-    adminLogin: publicProcedure.input(z2.object({ password: z2.string() })).mutation(async ({ input, ctx }) => {
+    // Paso 1 de 2: la contraseña NO entrega sesión por sí sola. Antes
+    // este endpoint firmaba la cookie de una, sin ningún límite de
+    // intentos -- un script podía probar miles de contraseñas por minuto
+    // contra el panel que puede borrar compras y exportar la base entera.
+    adminLogin: publicProcedure.input(z3.object({ password: z3.string() })).mutation(async ({ input, ctx }) => {
+      const ipKey = adminIpKey(ctx);
+      if (!await checkIpRateLimit(ipKey)) {
+        throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: "Demasiados intentos. Espera unos minutos." });
+      }
       const adminPassword = process.env.ADMIN_PASSWORD;
-      if (!adminPassword || input.password !== adminPassword) {
+      if (!adminPassword || !safeCompare(input.password, adminPassword)) {
+        await recordIpFailedAttempt(ipKey);
         throw new TRPCError3({ code: "UNAUTHORIZED", message: "Contrase\xF1a incorrecta" });
       }
-      await upsertUser({ openId: ADMIN_LOCAL_OPEN_ID, name: "Admin", role: "admin", lastSignedIn: /* @__PURE__ */ new Date() });
-      const sessionToken = await sdk.signSession({ openId: ADMIN_LOCAL_OPEN_ID, appId: "candyland-admin", name: "Admin" }, { expiresInMs: ONE_YEAR_MS });
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-      return { success: true };
+      await resetIpRateLimit(ipKey);
+      if (process.env.ADMIN_2FA_DISABLED === "1") {
+        await issueAdminSession(ctx);
+        return { ticket: "", needsSetup: false, skipped2fa: true };
+      }
+      const ticket = await signAdminStepTicket();
+      const totp = await getAdminTotp();
+      return { ticket, needsSetup: !totp?.confirmedAt };
+    }),
+    // Genera el secreto y el QR para configurar la app de autenticación.
+    // No activa nada todavía: recién se activa cuando el dueño confirma
+    // con un código real (adminConfirmTotp).
+    adminSetupTotp: publicProcedure.input(z3.object({ ticket: z3.string() })).mutation(async ({ input }) => {
+      await requireAdminStepTicket(input.ticket);
+      const existing = await getAdminTotp();
+      if (existing?.confirmedAt) {
+        throw new TRPCError3({ code: "FORBIDDEN", message: "El segundo factor ya est\xE1 configurado" });
+      }
+      const secret = await getOrCreateUnconfirmedAdminTotp(createTotpSecret());
+      const qrImageUrl = await QRCode2.toDataURL(totpUri(secret), { width: 320, margin: 2 });
+      return { secret, qrImageUrl };
+    }),
+    // Confirma la configuración y devuelve los códigos de respaldo. Es la
+    // ÚNICA vez que se muestran legibles: después solo queda su hash.
+    adminConfirmTotp: publicProcedure.input(z3.object({ ticket: z3.string(), code: z3.string() })).mutation(async ({ input, ctx }) => {
+      await requireAdminStepTicket(input.ticket);
+      const totp = await getAdminTotp();
+      if (!totp) throw new TRPCError3({ code: "BAD_REQUEST", message: "Primero escanea el c\xF3digo QR" });
+      if (totp.confirmedAt) throw new TRPCError3({ code: "FORBIDDEN", message: "Ya est\xE1 configurado" });
+      const res = verifyTotp({ secret: totp.secret, token: input.code });
+      if (!res.ok) {
+        await recordIpFailedAttempt(adminIpKey(ctx));
+        throw new TRPCError3({ code: "UNAUTHORIZED", message: "Ese c\xF3digo no coincide. Revisa que el reloj de tu tel\xE9fono est\xE9 en hora." });
+      }
+      const { plain, hashed } = generateBackupCodes();
+      await confirmAdminTotp(totp.id, hashed, res.timeStep);
+      await issueAdminSession(ctx);
+      return { backupCodes: plain };
+    }),
+    // Paso 2 de 2: el código de la app (o uno de respaldo). Recién acá se
+    // firma la sesión.
+    adminVerifyCode: publicProcedure.input(z3.object({ ticket: z3.string(), code: z3.string() })).mutation(async ({ input, ctx }) => {
+      const ipKey = adminIpKey(ctx);
+      if (!await checkIpRateLimit(ipKey)) {
+        throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: "Demasiados intentos. Espera unos minutos." });
+      }
+      await requireAdminStepTicket(input.ticket);
+      const totp = await getAdminTotp();
+      if (!totp?.confirmedAt) throw new TRPCError3({ code: "BAD_REQUEST", message: "El segundo factor no est\xE1 configurado" });
+      const res = verifyTotp({ secret: totp.secret, token: input.code, lastUsedStep: totp.lastUsedStep });
+      if (res.ok) {
+        await recordAdminTotpStep(totp.id, res.timeStep);
+        await resetIpRateLimit(ipKey);
+        await issueAdminSession(ctx);
+        return { success: true };
+      }
+      const backup = consumeBackupCode(parseBackupCodes(totp.backupCodes), input.code);
+      if (backup.ok) {
+        await consumeAdminBackupCodes(totp.id, backup.remaining);
+        await resetIpRateLimit(ipKey);
+        await issueAdminSession(ctx);
+        return { success: true, backupCodeUsed: true, backupCodesLeft: backup.remaining.length };
+      }
+      await recordIpFailedAttempt(ipKey);
+      throw new TRPCError3({
+        code: "UNAUTHORIZED",
+        message: res.reason === "reusado" ? "Ese c\xF3digo ya se us\xF3. Espera al siguiente." : "C\xF3digo incorrecto"
+      });
     })
   }),
   events: router({
@@ -3945,10 +6070,10 @@ var appRouter = router({
     listForHome: publicProcedure.query(async () => {
       return getHomeEvents();
     }),
-    getBySlug: publicProcedure.input(z2.object({ slug: z2.string() })).query(async ({ input }) => {
+    getBySlug: publicProcedure.input(z3.object({ slug: z3.string() })).query(async ({ input }) => {
       return getEventBySlug(input.slug);
     }),
-    getTicketTypes: publicProcedure.input(z2.object({ slug: z2.string() })).query(async ({ input }) => {
+    getTicketTypes: publicProcedure.input(z3.object({ slug: z3.string() })).query(async ({ input }) => {
       const event = await getEventBySlug(input.slug);
       if (!event) return [];
       return getTicketTypesByEventId(event.id);
@@ -3957,110 +6082,110 @@ var appRouter = router({
     listAll: adminProcedure2.query(async () => {
       return getAllEvents();
     }),
-    create: adminProcedure2.input(z2.object({
-      title: z2.string(),
-      slug: z2.string(),
-      description: z2.string().optional(),
-      shortDescription: z2.string().optional(),
-      imageUrl: z2.string().optional(),
-      venue: z2.string().optional(),
-      address: z2.string().optional(),
-      mapsUrl: z2.string().optional(),
-      eventDate: z2.string(),
-      doorsOpen: z2.string().optional(),
-      status: z2.enum(["draft", "published", "soldout", "cancelled", "past"]).optional(),
-      featured: z2.number().optional()
+    create: adminProcedure2.input(z3.object({
+      title: z3.string(),
+      slug: z3.string(),
+      description: z3.string().optional(),
+      shortDescription: z3.string().optional(),
+      imageUrl: z3.string().optional(),
+      venue: z3.string().optional(),
+      address: z3.string().optional(),
+      mapsUrl: z3.string().optional(),
+      eventDate: z3.string(),
+      doorsOpen: z3.string().optional(),
+      status: z3.enum(["draft", "published", "soldout", "cancelled", "past"]).optional(),
+      featured: z3.number().optional()
     })).mutation(async ({ input }) => {
       return createEvent(input);
     }),
-    update: adminProcedure2.input(z2.object({
-      id: z2.number(),
-      title: z2.string().optional(),
-      slug: z2.string().optional(),
-      description: z2.string().optional(),
-      shortDescription: z2.string().optional(),
-      imageUrl: z2.string().optional(),
-      venue: z2.string().optional(),
-      address: z2.string().optional(),
-      mapsUrl: z2.string().optional(),
-      eventDate: z2.string().optional(),
-      doorsOpen: z2.string().optional(),
-      status: z2.enum(["draft", "published", "soldout", "cancelled", "past"]).optional(),
-      featured: z2.number().optional()
+    update: adminProcedure2.input(z3.object({
+      id: z3.number(),
+      title: z3.string().optional(),
+      slug: z3.string().optional(),
+      description: z3.string().optional(),
+      shortDescription: z3.string().optional(),
+      imageUrl: z3.string().optional(),
+      venue: z3.string().optional(),
+      address: z3.string().optional(),
+      mapsUrl: z3.string().optional(),
+      eventDate: z3.string().optional(),
+      doorsOpen: z3.string().optional(),
+      status: z3.enum(["draft", "published", "soldout", "cancelled", "past"]).optional(),
+      featured: z3.number().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateEvent(id, data);
     }),
-    delete: adminProcedure2.input(z2.object({ id: z2.number() })).mutation(async ({ input }) => {
+    delete: adminProcedure2.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
       return deleteEvent(input.id);
     }),
     // Ticket types management
-    listTicketTypes: adminProcedure2.input(z2.object({ eventId: z2.number() })).query(async ({ input }) => {
+    listTicketTypes: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
       return getTicketTypesByEventId(input.eventId);
     }),
-    createTicketType: adminProcedure2.input(z2.object({
-      eventId: z2.number(),
-      name: z2.string(),
-      accesoSlug: z2.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
-      category: z2.enum(["acceso", "extra"]).optional(),
-      description: z2.string().optional(),
-      price: z2.number(),
-      originalPrice: z2.number().optional(),
-      totalStock: z2.number(),
-      maxPerOrder: z2.number().optional(),
-      sortOrder: z2.number().optional(),
-      status: z2.enum(["active", "soldout", "hidden"]).optional(),
-      costPrice: z2.number().optional(),
-      color: z2.string().optional(),
-      internalCode: z2.string().optional()
+    createTicketType: adminProcedure2.input(z3.object({
+      eventId: z3.number(),
+      name: z3.string(),
+      accesoSlug: z3.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
+      category: z3.enum(["acceso", "extra"]).optional(),
+      description: z3.string().optional(),
+      price: z3.number(),
+      originalPrice: z3.number().optional(),
+      totalStock: z3.number(),
+      maxPerOrder: z3.number().optional(),
+      sortOrder: z3.number().optional(),
+      status: z3.enum(["active", "soldout", "hidden"]).optional(),
+      costPrice: z3.number().optional(),
+      color: z3.string().optional(),
+      internalCode: z3.string().optional()
     })).mutation(async ({ input }) => {
       return createTicketType(input);
     }),
-    updateTicketType: adminProcedure2.input(z2.object({
-      id: z2.number(),
-      name: z2.string().optional(),
-      accesoSlug: z2.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
-      category: z2.enum(["acceso", "extra"]).optional(),
-      description: z2.string().optional(),
-      price: z2.number().optional(),
-      originalPrice: z2.number().optional(),
-      totalStock: z2.number().optional(),
-      maxPerOrder: z2.number().optional(),
-      sortOrder: z2.number().optional(),
-      status: z2.enum(["active", "soldout", "hidden"]).optional(),
-      costPrice: z2.number().optional(),
-      color: z2.string().optional(),
-      internalCode: z2.string().optional()
+    updateTicketType: adminProcedure2.input(z3.object({
+      id: z3.number(),
+      name: z3.string().optional(),
+      accesoSlug: z3.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
+      category: z3.enum(["acceso", "extra"]).optional(),
+      description: z3.string().optional(),
+      price: z3.number().optional(),
+      originalPrice: z3.number().optional(),
+      totalStock: z3.number().optional(),
+      maxPerOrder: z3.number().optional(),
+      sortOrder: z3.number().optional(),
+      status: z3.enum(["active", "soldout", "hidden"]).optional(),
+      costPrice: z3.number().optional(),
+      color: z3.string().optional(),
+      internalCode: z3.string().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateTicketType(id, data);
     }),
-    deleteTicketType: adminProcedure2.input(z2.object({ id: z2.number() })).mutation(async ({ input }) => {
+    deleteTicketType: adminProcedure2.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
       return deleteTicketType(input.id);
     })
   }),
   orders: router({
-    validateDiscount: publicProcedure.input(z2.object({
-      code: z2.string(),
-      eventId: z2.number()
+    validateDiscount: publicProcedure.input(z3.object({
+      code: z3.string(),
+      eventId: z3.number()
     })).mutation(async ({ input }) => {
       return validateDiscountCode(input.code, input.eventId);
     }),
-    create: publicProcedure.input(z2.object({
-      eventSlug: z2.string(),
-      buyerName: z2.string(),
-      buyerEmail: z2.string().email(),
-      buyerPhone: z2.string().optional(),
-      items: z2.array(z2.object({
-        ticketTypeId: z2.number(),
-        quantity: z2.number().min(1)
+    create: publicProcedure.input(z3.object({
+      eventSlug: z3.string(),
+      buyerName: z3.string(),
+      buyerEmail: z3.string().email(),
+      buyerPhone: z3.string().optional(),
+      items: z3.array(z3.object({
+        ticketTypeId: z3.number(),
+        quantity: z3.number().min(1)
       })),
-      discountCode: z2.string().optional(),
-      ambassadorCode: z2.string().optional(),
-      communityCode: z2.string().optional(),
+      discountCode: z3.string().optional(),
+      ambassadorCode: z3.string().optional(),
+      communityCode: z3.string().optional(),
       // Datos por asistente/tipo de acceso (JSON serializado). Se adjunta a la
       // preferencia de Mercado Pago como metadata; no requiere migración de schema.
-      attendeeData: z2.string().optional()
+      attendeeData: z3.string().optional()
     })).mutation(async ({ input }) => {
       const result = await createOrder(input);
       if (result.isFree) await confirmFreeOrder(result.orderNumber);
@@ -4069,82 +6194,348 @@ var appRouter = router({
     // Cobra una orden ya creada con el Payment Brick (tarjeta embebida, sin
     // modal/redirect de Mercado Pago). El monto se calcula server-side a
     // partir de la orden guardada, nunca del cliente.
-    processCardPayment: publicProcedure.input(z2.object({
-      orderNumber: z2.string(),
-      token: z2.string(),
-      paymentMethodId: z2.string(),
-      issuerId: z2.union([z2.string(), z2.number()]).optional(),
-      installments: z2.number().optional(),
-      identificationType: z2.string().optional(),
-      identificationNumber: z2.string().optional()
+    processCardPayment: publicProcedure.input(z3.object({
+      orderNumber: z3.string(),
+      token: z3.string(),
+      paymentMethodId: z3.string(),
+      issuerId: z3.union([z3.string(), z3.number()]).optional(),
+      installments: z3.number().optional(),
+      identificationType: z3.string().optional(),
+      identificationNumber: z3.string().optional()
     })).mutation(async ({ input }) => {
       return processCardPaymentForOrder(input);
     }),
     // Admin
-    listAll: adminProcedure2.input(z2.object({
-      page: z2.number().optional(),
-      limit: z2.number().optional(),
-      status: z2.string().optional(),
-      channel: z2.enum(["web", "caja"]).optional()
+    listAll: adminProcedure2.input(z3.object({
+      page: z3.number().optional(),
+      limit: z3.number().optional(),
+      status: z3.string().optional(),
+      channel: z3.enum(["web", "caja"]).optional()
     }).optional()).query(async ({ input }) => {
       return getAllOrders(input?.page ?? 1, input?.limit ?? 50, input?.status, input?.channel);
     }),
-    getStats: adminProcedure2.input(z2.object({ channel: z2.enum(["web", "caja"]).optional() }).optional()).query(async ({ input }) => {
+    getStats: adminProcedure2.input(z3.object({ channel: z3.enum(["web", "caja"]).optional() }).optional()).query(async ({ input }) => {
       return getOrderStats(input?.channel);
     }),
-    getTickets: adminProcedure2.input(z2.object({ orderId: z2.number() })).query(async ({ input }) => {
+    // Mismos filtros y mismas columnas que el CSV (server/adminRoutes.ts) --
+    // alimenta la vista de impresión/PDF, para que ambos formatos muestren
+    // exactamente lo mismo.
+    forPrint: adminProcedure2.input(z3.object({
+      eventId: z3.number().optional(),
+      dateFrom: z3.string().optional(),
+      dateTo: z3.string().optional(),
+      status: z3.string().optional(),
+      channel: z3.enum(["web", "caja"]).optional()
+    }).optional()).query(async ({ input }) => {
+      return getOrdersForExport(input ?? {});
+    }),
+    getTickets: adminProcedure2.input(z3.object({ orderId: z3.number() })).query(async ({ input }) => {
       return getOrderTickets(input.orderId);
     }),
-    resendConfirmation: adminProcedure2.input(z2.object({ orderNumber: z2.string() })).mutation(async ({ input }) => {
+    resendConfirmation: adminProcedure2.input(z3.object({ orderNumber: z3.string() })).mutation(async ({ input }) => {
       return resendConfirmationEmail(input.orderNumber);
+    }),
+    // Accesos manuales desde /admin (pedido explícito del usuario):
+    // invitaciones gratis o accesos ya pagados por transferencia/efectivo
+    // directo, sin pasar por Mercado Pago -- misma info del comprador que el
+    // checkout público, y el mismo mail final con QR (confirmFreeOrder ya lo
+    // usa el checkout público para el caso de descuento 100%).
+    createManual: adminProcedure2.input(z3.object({
+      eventSlug: z3.string(),
+      buyerName: z3.string().min(1),
+      buyerEmail: z3.string().email(),
+      buyerPhone: z3.string().optional(),
+      items: z3.array(z3.object({
+        ticketTypeId: z3.number(),
+        quantity: z3.number().min(1),
+        // Monto que el admin escribió a mano para este tipo de entrada
+        // (pedido explícito del usuario) -- si no viene, se usa el precio de
+        // catálogo/abono Misión 300 por defecto (ver priceManualOrderItems).
+        unitPrice: z3.number().min(0).optional()
+      })).min(1),
+      kind: z3.enum(["invitation", "paid"]),
+      paymentMethod: z3.string().optional(),
+      attendeeData: z3.string().optional()
+    })).mutation(async ({ input }) => {
+      try {
+        const result = await createManualOrder(input);
+        await confirmFreeOrder(result.orderNumber);
+        return result;
+      } catch (err) {
+        throw new TRPCError3({ code: "BAD_REQUEST", message: err instanceof Error ? err.message : "No se pudo crear el acceso manual." });
+      }
+    }),
+    listManual: adminProcedure2.query(async () => {
+      return listManualOrders();
+    }),
+    // Eliminar una compra (pedido explícito del usuario): irreversible, la
+    // confirmación con ventana de diálogo vive en el admin, acá solo se
+    // ejecuta el borrado en cascada.
+    delete: adminProcedure2.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
+      return deleteOrderCascade(input.id);
     })
   }),
   mission300: router({
-    status: adminProcedure2.input(z2.object({ eventId: z2.number() })).query(async ({ input }) => {
+    status: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
       return getMission300Status(input.eventId);
     }),
-    evaluate: adminProcedure2.input(z2.object({ eventId: z2.number() })).mutation(async ({ input }) => {
+    evaluate: adminProcedure2.input(z3.object({ eventId: z3.number() })).mutation(async ({ input }) => {
       return evaluateMission300(input.eventId);
     })
   }),
   tickets: router({
     // Página pública "Mi entrada" (/verificar/:ticketCode) — de solo lectura,
     // el ticketCode ya funciona como token portador (viene del QR/email).
-    getByCode: publicProcedure.input(z2.object({ ticketCode: z2.string() })).query(async ({ input }) => {
+    getByCode: publicProcedure.input(z3.object({ ticketCode: z3.string() })).query(async ({ input }) => {
       return getTicketByCode(input.ticketCode);
+    })
+  }),
+  // --- Puerta: el anfitrión en la entrada del estacionamiento ---
+  // Pantalla aparte de /caja a propósito: el anfitrión no es cajero, no
+  // debería ver el menú de venta, y escanea con su propio teléfono. Lo
+  // único que puede hacer con esta sesión es marcar entradas.
+  puerta: router({
+    // Público como el de caja: solo devuelve nombres y roles, nunca PINs.
+    listOperators: publicProcedure.query(async () => {
+      const all = await listActiveOperatorsPublic();
+      return all.filter((o) => o.role === "acceso" || o.role === "supervisor" || o.role === "admin");
+    }),
+    login: publicProcedure.input(z3.object({ operatorId: z3.number(), pin: z3.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
+      const operator = await verifyDoorPinOrThrow(ctx, input.operatorId, input.pin);
+      const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
+      return { id: operator.id, name: operator.name, role: operator.role };
+    }),
+    me: publicProcedure.query(({ ctx }) => ctx.operator),
+    activeEvent: doorProcedure.query(async () => {
+      return getActiveEventForCaja();
+    }),
+    // Mismo snapshot que la caja: la puerta lo guarda en el mismo IndexedDB
+    // y por eso funciona sin señal.
+    snapshot: doorProcedure.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+      return getCajaSnapshot(input.eventId);
+    }),
+    checkin: doorProcedure.input(z3.object({
+      opId: z3.string(),
+      eventId: z3.number(),
+      ticketCode: z3.string().min(1),
+      clientAt: z3.string()
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await getDb();
+      if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
+      return checkInTicket(rawDb, {
+        opId: input.opId,
+        ticketCode: input.ticketCode,
+        eventId: input.eventId,
+        operatorId: ctx.operator.operatorId,
+        clientAt: new Date(input.clientAt)
+      });
+    }),
+    // Vaciado de la cola offline. Solo acepta operaciones de check-in: la
+    // puerta no vende ni canjea, aunque comparta la cola con la caja.
+    sync: doorProcedure.input(z3.object({
+      eventId: z3.number(),
+      ops: z3.array(z3.object({
+        type: z3.literal("checkin"),
+        opId: z3.string(),
+        ticketCode: z3.string(),
+        clientAt: z3.string()
+      })).max(50)
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await getDb();
+      if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
+      const results = {};
+      for (const op of input.ops) {
+        try {
+          results[op.opId] = await checkInTicket(rawDb, {
+            opId: op.opId,
+            ticketCode: op.ticketCode,
+            eventId: input.eventId,
+            operatorId: ctx.operator.operatorId,
+            clientAt: new Date(op.clientAt)
+          });
+        } catch (err) {
+          results[op.opId] = { result: "rejected", conflictNote: err instanceof Error ? err.message : "Error al sincronizar" };
+        }
+      }
+      return results;
+    })
+  }),
+  // --- Caramelo: la fiesta dentro del celular ---
+  // Todo público porque el `ticketCode` ES el token (igual que la página de
+  // la entrada): no hay cuentas ni contraseñas. Cada llamada revalida las
+  // tres condiciones desde cero contra la base -- esconder un botón en el
+  // cliente no protege nada.
+  party: router({
+    getSession: publicProcedure.input(z3.object({ ticketCode: z3.string() })).query(async ({ input }) => {
+      const actor = await getPartyActor(input.ticketCode);
+      if (!actor) return { denial: "sin_ticket", event: null, profile: null };
+      const denial = partyEntryDenial(actor.ticket, actor.event, /* @__PURE__ */ new Date());
+      return {
+        denial,
+        event: {
+          id: actor.event.id,
+          title: actor.event.title,
+          eventDate: actor.event.eventDate,
+          doorsOpen: actor.event.doorsOpen,
+          eventEnd: actor.event.eventEnd
+        },
+        profile: actor.profile ? { id: actor.profile.id, alias: actor.profile.alias, gender: actor.profile.gender, avatarId: actor.profile.avatarId, zone: actor.profile.zone } : null
+      };
+    }),
+    createProfile: publicProcedure.input(z3.object({
+      ticketCode: z3.string(),
+      alias: z3.string(),
+      gender: z3.enum(PARTY_GENDERS),
+      avatarId: z3.number().int().min(1).max(AVATARS_PER_GENDER),
+      zone: z3.enum(PARTY_ZONES)
+    })).mutation(async ({ input }) => {
+      const actor = await requirePartyActor(input.ticketCode);
+      if (actor.profile) return { id: actor.profile.id };
+      const check = sanitizeAlias(input.alias);
+      if (!check.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: check.reason });
+      const profile = await createPartyProfile({
+        eventId: actor.event.id,
+        ticketId: actor.ticket.id,
+        alias: check.alias,
+        gender: input.gender,
+        avatarId: input.avatarId,
+        zone: input.zone
+      });
+      return { id: profile.id };
+    }),
+    listMansion: publicProcedure.input(z3.object({ ticketCode: z3.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return listPartyMansion(actor.profile.id, actor.event.id);
+    }),
+    setZone: publicProcedure.input(z3.object({ ticketCode: z3.string(), zone: z3.enum(PARTY_ZONES) })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      await updatePartyProfile(actor.profile.id, { zone: input.zone });
+      return { ok: true };
+    }),
+    touch: publicProcedure.input(z3.object({ ticketCode: z3.string(), targetProfileId: z3.number() })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const res = await touchPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
+      if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
+      return res;
+    }),
+    respondTouch: publicProcedure.input(z3.object({ ticketCode: z3.string(), connectionId: z3.number(), accept: z3.boolean() })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const res = await respondToPartyTouch(actor.profile.id, input.connectionId, input.accept);
+      if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
+      return res;
+    }),
+    getMessages: publicProcedure.input(z3.object({ ticketCode: z3.string(), connectionId: z3.number() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const res = await listPartyMessages(actor.profile.id, input.connectionId);
+      if (!res) throw new TRPCError3({ code: "FORBIDDEN", message: "Esta conversaci\xF3n no est\xE1 abierta" });
+      return res;
+    }),
+    sendMessage: publicProcedure.input(z3.object({ ticketCode: z3.string(), connectionId: z3.number(), body: z3.string() })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const check = sanitizeMessage(input.body);
+      if (!check.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: check.reason });
+      const res = await sendPartyMessage(actor.profile.id, input.connectionId, check.body);
+      if (!res.ok) throw new TRPCError3({ code: "FORBIDDEN", message: res.reason });
+      return { ok: true };
+    }),
+    block: publicProcedure.input(z3.object({ ticketCode: z3.string(), targetProfileId: z3.number() })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      await blockPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
+      return { ok: true };
+    }),
+    report: publicProcedure.input(z3.object({ ticketCode: z3.string(), targetProfileId: z3.number(), reason: z3.string().min(3).max(500) })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      await reportPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id, input.reason.trim());
+      await blockPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
+      return { ok: true };
+    }),
+    // --- Invitar un trago ---
+    // Tres pasos porque el destinatario puede rechazar y nadie paga por un
+    // trago rechazado: invitar (gratis) -> responder -> pagar.
+    listDrinks: publicProcedure.input(z3.object({ ticketCode: z3.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return listPartyDrinks(actor.event.id);
+    }),
+    sendGift: publicProcedure.input(z3.object({
+      ticketCode: z3.string(),
+      targetProfileId: z3.number(),
+      ticketTypeId: z3.number(),
+      message: z3.string().optional()
+    })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const check = sanitizeGiftMessage(input.message ?? "");
+      if (!check.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: check.reason });
+      const res = await createGiftInvitation({
+        eventId: actor.event.id,
+        fromProfileId: actor.profile.id,
+        toProfileId: input.targetProfileId,
+        ticketTypeId: input.ticketTypeId,
+        message: check.body
+      });
+      if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
+      return res;
+    }),
+    respondGift: publicProcedure.input(z3.object({ ticketCode: z3.string(), giftId: z3.number(), accept: z3.boolean() })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const res = await respondToGiftInvitation(actor.profile.id, input.giftId, input.accept);
+      if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
+      return res;
+    }),
+    // Crea la orden del regalo y devuelve su número. El cobro después va
+    // por `orders.processCardPayment`, el mismo endpoint que las entradas.
+    payGift: publicProcedure.input(z3.object({ ticketCode: z3.string(), giftId: z3.number() })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const contact = await getPartyProfileContact(actor.profile.id);
+      if (!contact?.email) throw new TRPCError3({ code: "BAD_REQUEST", message: "No pudimos identificar tu correo" });
+      const res = await createGiftOrder(actor.profile.id, input.giftId, { name: contact.alias, email: contact.email });
+      if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
+      return res;
+    }),
+    myGifts: publicProcedure.input(z3.object({ ticketCode: z3.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return listMyGifts(actor.profile.id);
+    }),
+    // Para el equipo del local, durante la fiesta.
+    listReports: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+      return listPartyReports(input.eventId);
+    }),
+    listGifts: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+      return listPartyGiftsForEvent(input.eventId);
     })
   }),
   discounts: router({
     listAll: adminProcedure2.query(async () => {
       return getAllDiscountCodes();
     }),
-    create: adminProcedure2.input(z2.object({
-      code: z2.string(),
-      description: z2.string().optional(),
-      discountType: z2.enum(["percentage", "fixed"]),
-      discountValue: z2.number(),
-      minPurchase: z2.number().optional(),
-      maxUses: z2.number().optional(),
-      eventId: z2.number().optional(),
-      validFrom: z2.string().optional(),
-      validUntil: z2.string().optional()
+    create: adminProcedure2.input(z3.object({
+      code: z3.string(),
+      description: z3.string().optional(),
+      discountType: z3.enum(["percentage", "fixed"]),
+      discountValue: z3.number(),
+      minPurchase: z3.number().optional(),
+      maxUses: z3.number().optional(),
+      eventId: z3.number().optional(),
+      validFrom: z3.string().optional(),
+      validUntil: z3.string().optional()
     })).mutation(async ({ input }) => {
       return createDiscountCode(input);
     }),
-    update: adminProcedure2.input(z2.object({
-      id: z2.number(),
-      code: z2.string().optional(),
-      description: z2.string().optional(),
-      discountType: z2.enum(["percentage", "fixed"]).optional(),
-      discountValue: z2.number().optional(),
-      maxUses: z2.number().optional(),
-      isActive: z2.number().optional(),
-      validUntil: z2.string().optional()
+    update: adminProcedure2.input(z3.object({
+      id: z3.number(),
+      code: z3.string().optional(),
+      description: z3.string().optional(),
+      discountType: z3.enum(["percentage", "fixed"]).optional(),
+      discountValue: z3.number().optional(),
+      maxUses: z3.number().optional(),
+      isActive: z3.number().optional(),
+      validUntil: z3.string().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateDiscountCode(id, data);
     }),
-    delete: adminProcedure2.input(z2.object({ id: z2.number() })).mutation(async ({ input }) => {
+    delete: adminProcedure2.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
       return deleteDiscountCode(input.id);
     })
   }),
@@ -4152,17 +6543,26 @@ var appRouter = router({
     get: publicProcedure.query(async () => {
       return getSiteSettings();
     }),
-    update: adminProcedure2.input(z2.object({
-      instagramFollowers: z2.number().optional(),
-      instagramPosts: z2.number().optional(),
-      serviceFeePercent: z2.number().min(0).max(100).optional()
+    update: adminProcedure2.input(z3.object({
+      instagramFollowers: z3.number().optional(),
+      instagramPosts: z3.number().optional(),
+      serviceFeePercent: z3.number().min(0).max(100).optional()
     })).mutation(async ({ input }) => {
       return updateSiteSettings(input);
+    }),
+    // Mismo número que llega en el correo de las 3am (server/cronRoutes.ts),
+    // pero en vivo para revisarlo manual desde Ajustes.
+    checkinCount: adminProcedure2.query(async () => {
+      const event = await getActiveEventForCaja();
+      if (!event) return null;
+      const dashboard = await getCajaDashboard(event.id);
+      if (!dashboard) return null;
+      return { eventTitle: event.title, insideCount: dashboard.insideCount, expectedCount: dashboard.expectedCount };
     })
   }),
   communityCodes: router({
-    validate: publicProcedure.input(z2.object({
-      code: z2.string()
+    validate: publicProcedure.input(z3.object({
+      code: z3.string()
     })).mutation(async ({ input }) => {
       return validateCommunityCode(input.code);
     }),
@@ -4170,24 +6570,24 @@ var appRouter = router({
     listAll: adminProcedure2.query(async () => {
       return getAllCommunityCodes();
     }),
-    create: adminProcedure2.input(z2.object({
-      code: z2.string(),
-      label: z2.string().optional(),
-      maxUses: z2.number().optional()
+    create: adminProcedure2.input(z3.object({
+      code: z3.string(),
+      label: z3.string().optional(),
+      maxUses: z3.number().optional()
     })).mutation(async ({ input }) => {
       return createCommunityCode(input);
     }),
-    update: adminProcedure2.input(z2.object({
-      id: z2.number(),
-      code: z2.string().optional(),
-      label: z2.string().optional(),
-      maxUses: z2.number().optional(),
-      isActive: z2.number().optional()
+    update: adminProcedure2.input(z3.object({
+      id: z3.number(),
+      code: z3.string().optional(),
+      label: z3.string().optional(),
+      maxUses: z3.number().optional(),
+      isActive: z3.number().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateCommunityCode(id, data);
     }),
-    delete: adminProcedure2.input(z2.object({ id: z2.number() })).mutation(async ({ input }) => {
+    delete: adminProcedure2.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
       return deleteCommunityCode(input.id);
     })
   }),
@@ -4200,13 +6600,49 @@ var appRouter = router({
     }),
     // Público, sin login: el mismo código de embajador que llega por email
     // es lo que valida el acceso a las propias estadísticas.
-    getByCode: publicProcedure.input(z2.object({ code: z2.string() })).query(async ({ input }) => {
+    getByCode: publicProcedure.input(z3.object({ code: z3.string() })).query(async ({ input }) => {
       return getReferralsByCode(input.code);
     }),
     // Público, para el Hall de la Fama -- solo primer nombre + código +
     // cantidad de ventas, nunca montos ni apellido (ver db.getReferralLeaderboard).
-    getLeaderboard: publicProcedure.input(z2.object({ eventId: z2.number() })).query(async ({ input }) => {
+    getLeaderboard: publicProcedure.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
       return getReferralLeaderboard(input.eventId);
+    })
+  }),
+  // Embajadores exclusivos con comisión (pedido explícito del usuario) --
+  // tab aparte de "Referidos" (arriba), para embajadores dados de alta a
+  // mano que cobran una comisión en plata por venta, no descuento.
+  ambassadors: router({
+    listAll: adminProcedure2.input(z3.object({ eventId: z3.number().optional() }).optional()).query(async ({ input }) => {
+      return listExclusiveAmbassadors(input?.eventId);
+    }),
+    create: adminProcedure2.input(z3.object({
+      eventId: z3.number(),
+      name: z3.string().min(1),
+      code: z3.string().min(1),
+      commissionPercent: z3.number().min(0).max(100),
+      contact: z3.string().optional()
+    })).mutation(async ({ input }) => {
+      return createExclusiveAmbassador(input);
+    }),
+    update: adminProcedure2.input(z3.object({
+      id: z3.number(),
+      name: z3.string().optional(),
+      code: z3.string().optional(),
+      commissionPercent: z3.number().min(0).max(100).optional(),
+      contact: z3.string().optional(),
+      active: z3.number().optional()
+    })).mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      return updateExclusiveAmbassador(id, data);
+    }),
+    delete: adminProcedure2.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
+      return deleteExclusiveAmbassador(input.id);
+    }),
+    // Reporte para el tab: ventas + comisión exacta de cada embajador de ese
+    // evento, más el total del evento.
+    getReport: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+      return getAmbassadorCommissionReport(input.eventId);
     })
   }),
   // Módulo /caja — login por PIN de operadores (docs/ARQUITECTURA-CAJA.md
@@ -4218,7 +6654,7 @@ var appRouter = router({
     deviceStatus: publicProcedure.query(({ ctx }) => {
       return ctx.device ? { enrolled: true, deviceName: ctx.device.name } : { enrolled: false };
     }),
-    enrollDevice: publicProcedure.input(z2.object({ code: z2.string().min(1) })).mutation(async ({ input, ctx }) => {
+    enrollDevice: publicProcedure.input(z3.object({ code: z3.string().min(1) })).mutation(async ({ input, ctx }) => {
       const code = input.code.trim().toUpperCase();
       const device = await getDeviceByEnrollCode(code);
       if (!device || device.enrolled || !device.enrollCodeExpiresAt || new Date(device.enrollCodeExpiresAt).getTime() < Date.now()) {
@@ -4236,28 +6672,8 @@ var appRouter = router({
     listOperators: deviceProcedure.query(async () => {
       return listActiveOperatorsPublic();
     }),
-    login: deviceProcedure.input(z2.object({ operatorId: z2.number(), pin: z2.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
-      const forwardedFor = ctx.req.headers["x-forwarded-for"];
-      const clientIp = (typeof forwardedFor === "string" ? forwardedFor.split(",")[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || "unknown";
-      const ipKey = `pin-login:${clientIp}`;
-      if (!await checkIpRateLimit(ipKey)) {
-        throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: "Demasiados intentos desde este dispositivo. Intenta de nuevo m\xE1s tarde." });
-      }
-      const operator = await getOperatorById(input.operatorId);
-      if (!operator || !operator.active) {
-        await recordIpFailedAttempt(ipKey);
-        throw new TRPCError3({ code: "UNAUTHORIZED", message: "PIN incorrecto" });
-      }
-      if (operator.lockedUntil && new Date(operator.lockedUntil).getTime() > Date.now()) {
-        const minutesLeft = Math.ceil((new Date(operator.lockedUntil).getTime() - Date.now()) / 6e4);
-        throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: `Demasiados intentos. Intenta de nuevo en ${minutesLeft} min.` });
-      }
-      if (!verifyPin(input.pin, operator.pinHash)) {
-        await recordFailedPinAttempt(operator.id);
-        await recordIpFailedAttempt(ipKey);
-        throw new TRPCError3({ code: "UNAUTHORIZED", message: "PIN incorrecto" });
-      }
-      await resetPinAttempts(operator.id);
+    login: deviceProcedure.input(z3.object({ operatorId: z3.number(), pin: z3.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
+      const operator = await verifyOperatorPinOrThrow(ctx, input.operatorId, input.pin);
       const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
@@ -4274,40 +6690,41 @@ var appRouter = router({
     activeEvent: operatorProcedure.query(async () => {
       return getActiveEventForCaja();
     }),
-    search: operatorProcedure.input(z2.object({ eventId: z2.number(), query: z2.string() })).query(async ({ input }) => {
+    search: operatorProcedure.input(z3.object({ eventId: z3.number(), query: z3.string() })).query(async ({ input }) => {
       return searchCajaCustomers(input.eventId, input.query);
     }),
-    customerSheet: operatorProcedure.input(z2.object({ orderId: z2.number() })).query(async ({ input }) => {
+    customerSheet: operatorProcedure.input(z3.object({ orderId: z3.number() })).query(async ({ input }) => {
       return getCajaCustomerSheet(input.orderId);
     }),
-    catalog: operatorProcedure.input(z2.object({ eventId: z2.number() })).query(async ({ input }) => {
+    catalog: operatorProcedure.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
       return getCajaCatalog(input.eventId);
     }),
-    dashboard: operatorProcedure.input(z2.object({ eventId: z2.number() })).query(async ({ input }) => {
+    dashboard: operatorProcedure.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
       return getCajaDashboard(input.eventId);
     }),
     // Descarga completa para el modo offline (docs/ARQUITECTURA-CAJA.md
     // §6.2) -- la tablet la guarda en IndexedDB al abrir turno y la
     // refresca cada 60s cuando hay conexión.
-    snapshot: operatorProcedure.input(z2.object({ eventId: z2.number() })).query(async ({ input }) => {
+    snapshot: operatorProcedure.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
       return getCajaSnapshot(input.eventId);
     }),
     // Procesa un lote de operaciones encoladas offline (§7) -- reutiliza
     // exactamente la misma lógica idempotente (applyOp) que los endpoints
     // online `redeem`/`sale`, así que reenviar el mismo opId nunca duplica nada.
-    sync: operatorProcedure.input(z2.object({
-      eventId: z2.number(),
-      registerId: z2.number().optional(),
-      ops: z2.array(z2.discriminatedUnion("type", [
-        z2.object({ type: z2.literal("redeem"), opId: z2.string(), displayCode: z2.string(), clientAt: z2.string() }),
-        z2.object({
-          type: z2.literal("sale"),
-          opId: z2.string(),
-          items: z2.array(z2.object({ ticketTypeId: z2.number(), quantity: z2.number().min(1) })).min(1),
-          paymentMethod: z2.enum(["efectivo", "debito", "credito"]),
-          buyerEmail: z2.string().email().optional(),
-          redeemPlaycoins: z2.number().int().min(0).optional(),
-          clientAt: z2.string()
+    sync: operatorProcedure.input(z3.object({
+      eventId: z3.number(),
+      registerId: z3.number().optional(),
+      ops: z3.array(z3.discriminatedUnion("type", [
+        z3.object({ type: z3.literal("redeem"), opId: z3.string(), displayCode: z3.string(), clientAt: z3.string() }),
+        z3.object({ type: z3.literal("checkin"), opId: z3.string(), ticketCode: z3.string(), clientAt: z3.string() }),
+        z3.object({
+          type: z3.literal("sale"),
+          opId: z3.string(),
+          items: z3.array(z3.object({ ticketTypeId: z3.number(), quantity: z3.number().min(1) })).min(1),
+          paymentMethod: z3.enum(["efectivo", "debito", "credito"]),
+          buyerEmail: z3.string().email().optional(),
+          redeemPlaycoins: z3.number().int().min(0).optional(),
+          clientAt: z3.string()
         })
       ])).max(50)
     })).mutation(async ({ input, ctx }) => {
@@ -4320,6 +6737,15 @@ var appRouter = router({
             results[op.opId] = await redeemDisplayCode(rawDb, {
               opId: op.opId,
               displayCode: op.displayCode,
+              eventId: input.eventId,
+              operatorId: ctx.operator.operatorId,
+              registerId: input.registerId,
+              clientAt: new Date(op.clientAt)
+            });
+          } else if (op.type === "checkin") {
+            results[op.opId] = await checkInTicket(rawDb, {
+              opId: op.opId,
+              ticketCode: op.ticketCode,
               eventId: input.eventId,
               operatorId: ctx.operator.operatorId,
               registerId: input.registerId,
@@ -4351,12 +6777,12 @@ var appRouter = router({
     // Apertura de turno con cuadre de caja (pedido explícito del usuario):
     // pide el efectivo inicial declarado por la cajera. Idempotente por
     // evento+caja (un refresh de página no duplica el turno abierto).
-    shiftOpen: operatorProcedure.input(z2.object({
-      opId: z2.string(),
-      eventId: z2.number(),
-      registerId: z2.number().optional(),
-      openingCash: z2.number().min(0),
-      clientAt: z2.string()
+    shiftOpen: operatorProcedure.input(z3.object({
+      opId: z3.string(),
+      eventId: z3.number(),
+      registerId: z3.number().optional(),
+      openingCash: z3.number().min(0),
+      clientAt: z3.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -4387,14 +6813,14 @@ var appRouter = router({
     // Pide efectivo TOTAL contado (no la diferencia) + totales de débito y
     // crédito de las máquinas, hace el cuadre contra las ventas registradas
     // (solo canal caja, nunca web) y manda el informe final por correo.
-    shiftClose: operatorProcedure.input(z2.object({
-      opId: z2.string(),
-      eventId: z2.number(),
-      registerId: z2.number().optional(),
-      countedCash: z2.number().min(0),
-      countedDebit: z2.number().min(0),
-      countedCredit: z2.number().min(0),
-      clientAt: z2.string()
+    shiftClose: operatorProcedure.input(z3.object({
+      opId: z3.string(),
+      eventId: z3.number(),
+      registerId: z3.number().optional(),
+      countedCash: z3.number().min(0),
+      countedDebit: z3.number().min(0),
+      countedCredit: z3.number().min(0),
+      clientAt: z3.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -4432,13 +6858,13 @@ var appRouter = router({
       return report;
     }),
     // Anulación con motivo -- solo supervisor/admin (docs/ARQUITECTURA-CAJA.md §3.2).
-    voidCode: supervisorProcedure.input(z2.object({
-      opId: z2.string(),
-      eventId: z2.number(),
-      displayCode: z2.string().min(1),
-      reason: z2.string().min(3, "El motivo es obligatorio"),
-      registerId: z2.number().optional(),
-      clientAt: z2.string()
+    voidCode: supervisorProcedure.input(z3.object({
+      opId: z3.string(),
+      eventId: z3.number(),
+      displayCode: z3.string().min(1),
+      reason: z3.string().min(3, "El motivo es obligatorio"),
+      registerId: z3.number().optional(),
+      clientAt: z3.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -4455,15 +6881,15 @@ var appRouter = router({
     }),
     // Cola de conflictos para el supervisor (§8): canjes dobles todavía sin
     // revisar. "Resuelto" = existe un op manual_adjust posterior que lo referencia.
-    conflictQueue: supervisorProcedure.input(z2.object({ eventId: z2.number() })).query(async ({ input }) => {
+    conflictQueue: supervisorProcedure.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
       return getConflictQueue(input.eventId);
     }),
-    resolveConflict: supervisorProcedure.input(z2.object({
-      opId: z2.string(),
-      eventId: z2.number(),
-      conflictOpId: z2.string(),
-      note: z2.string().optional(),
-      clientAt: z2.string()
+    resolveConflict: supervisorProcedure.input(z3.object({
+      opId: z3.string(),
+      eventId: z3.number(),
+      conflictOpId: z3.string(),
+      note: z3.string().optional(),
+      clientAt: z3.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -4477,12 +6903,12 @@ var appRouter = router({
         clientAt: new Date(input.clientAt)
       });
     }),
-    redeem: operatorProcedure.input(z2.object({
-      opId: z2.string(),
-      eventId: z2.number(),
-      displayCode: z2.string().min(1),
-      registerId: z2.number().optional(),
-      clientAt: z2.string()
+    redeem: operatorProcedure.input(z3.object({
+      opId: z3.string(),
+      eventId: z3.number(),
+      displayCode: z3.string().min(1),
+      registerId: z3.number().optional(),
+      clientAt: z3.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -4495,13 +6921,33 @@ var appRouter = router({
         clientAt: new Date(input.clientAt)
       });
     }),
-    sale: operatorProcedure.input(z2.object({
-      opId: z2.string(),
-      eventId: z2.number(),
-      items: z2.array(z2.object({ ticketTypeId: z2.number(), quantity: z2.number().min(1) })).min(1),
-      paymentMethod: z2.enum(["efectivo", "debito", "credito"]),
-      registerId: z2.number().optional(),
-      clientAt: z2.string()
+    // Marca la entrada de un acceso en la puerta (mismo ledger idempotente
+    // que `redeem`, pero por ticketCode y solo para category='acceso').
+    checkin: operatorProcedure.input(z3.object({
+      opId: z3.string(),
+      eventId: z3.number(),
+      ticketCode: z3.string().min(1),
+      registerId: z3.number().optional(),
+      clientAt: z3.string()
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await getDb();
+      if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
+      return checkInTicket(rawDb, {
+        opId: input.opId,
+        ticketCode: input.ticketCode,
+        eventId: input.eventId,
+        operatorId: ctx.operator.operatorId,
+        registerId: input.registerId,
+        clientAt: new Date(input.clientAt)
+      });
+    }),
+    sale: operatorProcedure.input(z3.object({
+      opId: z3.string(),
+      eventId: z3.number(),
+      items: z3.array(z3.object({ ticketTypeId: z3.number(), quantity: z3.number().min(1) })).min(1),
+      paymentMethod: z3.enum(["efectivo", "debito", "credito"]),
+      registerId: z3.number().optional(),
+      clientAt: z3.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -4525,20 +6971,20 @@ var appRouter = router({
     listAll: adminProcedure2.query(async () => {
       return listAllOperators();
     }),
-    create: adminProcedure2.input(z2.object({
-      name: z2.string().min(1),
-      pin: z2.string().min(4).max(8),
-      role: z2.enum(["admin", "supervisor", "caja", "barra", "acceso"])
+    create: adminProcedure2.input(z3.object({
+      name: z3.string().min(1),
+      pin: z3.string().min(4).max(8),
+      role: z3.enum(["admin", "supervisor", "caja", "barra", "acceso"])
     })).mutation(async ({ input }) => {
       const id = await createOperator({ name: input.name, pinHash: hashPin(input.pin), role: input.role });
       return { id };
     }),
-    update: adminProcedure2.input(z2.object({
-      id: z2.number(),
-      name: z2.string().min(1).optional(),
-      pin: z2.string().min(4).max(8).optional(),
-      role: z2.enum(["admin", "supervisor", "caja", "barra", "acceso"]).optional(),
-      active: z2.number().min(0).max(1).optional()
+    update: adminProcedure2.input(z3.object({
+      id: z3.number(),
+      name: z3.string().min(1).optional(),
+      pin: z3.string().min(4).max(8).optional(),
+      role: z3.enum(["admin", "supervisor", "caja", "barra", "acceso"]).optional(),
+      active: z3.number().min(0).max(1).optional()
     })).mutation(async ({ input }) => {
       const { id, pin, ...rest } = input;
       await updateOperator(id, { ...rest, ...pin ? { pinHash: hashPin(pin) } : {} });
@@ -4547,37 +6993,121 @@ var appRouter = router({
   }),
   // Base de datos de clientes desde /admin (pedido explícito del usuario).
   customers: router({
-    listAll: adminProcedure2.input(z2.object({
-      search: z2.string().optional(),
-      accessType: z2.string().optional(),
-      tag: z2.string().optional()
+    listAll: adminProcedure2.input(z3.object({
+      search: z3.string().optional(),
+      accessType: z3.string().optional(),
+      tag: z3.string().optional(),
+      excludeTags: z3.array(z3.string()).optional(),
+      eventId: z3.number().optional()
     }).optional()).query(async ({ input }) => {
       return listCustomers(input ?? {});
     }),
-    addTag: adminProcedure2.input(z2.object({ customerId: z2.number(), tag: z2.string().min(1) })).mutation(async ({ input }) => {
+    // Etiquetas existentes con su conteo -- alimenta los selectores de
+    // "incluir/excluir etiqueta" al armar una campaña de mailing, para no
+    // tener que escribir el nombre exacto de memoria.
+    listTags: adminProcedure2.query(async () => {
+      return listCustomerTags();
+    }),
+    addTag: adminProcedure2.input(z3.object({ customerId: z3.number(), tag: z3.string().min(1) })).mutation(async ({ input }) => {
       await addCustomerTag(input.customerId, input.tag);
       return { success: true };
     }),
-    removeTag: adminProcedure2.input(z2.object({ customerId: z2.number(), tag: z2.string() })).mutation(async ({ input }) => {
+    // Marcar como "ya enviado" en masa desde un CSV externo (pedido
+    // explícito del usuario, ej. el reporte de entregados de Resend, que
+    // trae la columna "to") -- no crea clientes nuevos, solo taguea los que
+    // ya existen; los que no matchean se devuelven en notFound.
+    bulkTagFromCsv: adminProcedure2.input(z3.object({
+      csv: z3.string().min(1),
+      tag: z3.string().min(1)
+    })).mutation(async ({ input }) => {
+      const rows = parseCsv(input.csv);
+      const emails = extractEmailColumn(rows, ["to", "email", "correo"]);
+      if (emails.length === 0) {
+        throw new TRPCError3({ code: "BAD_REQUEST", message: 'No se encontr\xF3 una columna "to"/"email" en el CSV.' });
+      }
+      return bulkAddTagByEmails(emails, input.tag);
+    }),
+    removeTag: adminProcedure2.input(z3.object({ customerId: z3.number(), tag: z3.string() })).mutation(async ({ input }) => {
       await removeCustomerTag(input.customerId, input.tag);
       return { success: true };
     }),
-    updateNotes: adminProcedure2.input(z2.object({ customerId: z2.number(), notes: z2.string() })).mutation(async ({ input }) => {
+    updateNotes: adminProcedure2.input(z3.object({ customerId: z3.number(), notes: z3.string() })).mutation(async ({ input }) => {
       await updateCustomerNotes(input.customerId, input.notes);
       return { success: true };
     }),
     // Ajuste manual de Playcoins (pedido explícito del usuario) -- para
     // migrar saldos de Shopify a mano o corregir.
-    adjustPlaycoins: adminProcedure2.input(z2.object({ customerId: z2.number(), delta: z2.number().int(), note: z2.string().optional() })).mutation(async ({ input }) => {
+    adjustPlaycoins: adminProcedure2.input(z3.object({ customerId: z3.number(), delta: z3.number().int(), note: z3.string().optional() })).mutation(async ({ input }) => {
       await adjustPlaycoinsManually(input.customerId, input.delta, input.note ?? "");
       return { success: true };
+    })
+  }),
+  // Mailing masivo desde /admin → Clientes (pedido explícito del usuario):
+  // la IA solo genera texto estructurado (server/mailing.ts), el HTML de
+  // marca se arma siempre acá con buildMailingBlastEmail.
+  mailing: router({
+    generateTemplate: adminProcedure2.input(z3.object({
+      objective: z3.string().min(5).max(1e3),
+      audienceDescription: z3.string()
+    })).mutation(async ({ input }) => {
+      try {
+        return await generateMailingTemplate(input.objective, input.audienceDescription);
+      } catch (err) {
+        throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "No se pudo generar la plantilla." });
+      }
+    }),
+    renderPreview: adminProcedure2.input(z3.object({
+      content: MailingContentSchema,
+      ctaUrl: z3.string(),
+      sampleName: z3.string().optional(),
+      eventSections: mailingEventSectionsSchema
+    })).mutation(async ({ input }) => {
+      const eventInfo = Object.values(input.eventSections).some(Boolean) ? await getMailingEventInfo() : null;
+      return {
+        html: buildMailingBlastEmail({ ...input.content, buyerName: input.sampleName || "Camila", ctaUrl: input.ctaUrl, eventInfo, eventSections: input.eventSections })
+      };
+    }),
+    sendBatch: adminProcedure2.input(z3.object({
+      customerIds: z3.array(z3.number()).min(1).max(MAILING_BATCH_MAX),
+      content: MailingContentSchema,
+      ctaUrl: z3.string(),
+      campaignTag: z3.string().optional(),
+      eventSections: mailingEventSectionsSchema
+    })).mutation(async ({ input }) => {
+      const eventInfo = Object.values(input.eventSections).some(Boolean) ? await getMailingEventInfo() : null;
+      return {
+        results: await sendMailingBatch(input.customerIds, input.content, input.ctaUrl, input.campaignTag, eventInfo, input.eventSections)
+      };
+    }),
+    // Cola de envío automática (pedido explícito del usuario): a diferencia
+    // de sendBatch (manda ya mismo desde el navegador), esto solo guarda la
+    // campaña -- el cron diario (server/cronRoutes.ts) la va drenando.
+    createAutoCampaign: adminProcedure2.input(z3.object({
+      name: z3.string().min(1),
+      audienceDescription: z3.string(),
+      customerIds: z3.array(z3.number()).min(1),
+      content: MailingContentSchema,
+      ctaUrl: z3.string(),
+      eventSections: mailingEventSectionsSchema
+    })).mutation(async ({ input }) => {
+      try {
+        return await createAutoMailingCampaign(input);
+      } catch (err) {
+        throw new TRPCError3({ code: "BAD_REQUEST", message: err instanceof Error ? err.message : "No se pudo crear la campa\xF1a." });
+      }
+    }),
+    listCampaigns: adminProcedure2.query(async () => {
+      return listMailingCampaigns();
+    }),
+    getCampaignRecipients: adminProcedure2.input(z3.object({ campaignId: z3.number() })).query(async ({ input }) => {
+      return getMailingCampaignRecipients(input.campaignId);
     })
   }),
   // Consulta pública de saldo de Playcoins (pedido explícito del usuario) --
   // sin login, igual que referrals.getByCode: el sitio no tiene cuentas de
   // comprador, el email es lo único necesario.
   playcoins: router({
-    getBalanceByEmail: publicProcedure.input(z2.object({ email: z2.string().email() })).query(async ({ input }) => {
+    getBalanceByEmail: publicProcedure.input(z3.object({ email: z3.string().email() })).query(async ({ input }) => {
       return getPlaycoinsBalance(input.email);
     })
   }),
@@ -4589,12 +7119,12 @@ var appRouter = router({
     // Genera un código de un solo uso (vence a las 24h) para enrolar una
     // tablet nueva -- se muestra una sola vez en el admin, no se puede
     // recuperar después (mismo criterio que un PIN).
-    create: adminProcedure2.input(z2.object({ name: z2.string().min(1) })).mutation(async ({ input }) => {
+    create: adminProcedure2.input(z3.object({ name: z3.string().min(1) })).mutation(async ({ input }) => {
       const code = generateEnrollCode();
       const id = await createDeviceEnrollment(input.name, code, enrollCodeExpiry());
       return { id, enrollCode: code };
     }),
-    setActive: adminProcedure2.input(z2.object({ id: z2.number(), active: z2.number().min(0).max(1) })).mutation(async ({ input }) => {
+    setActive: adminProcedure2.input(z3.object({ id: z3.number(), active: z3.number().min(0).max(1) })).mutation(async ({ input }) => {
       await updateDeviceActive(input.id, input.active);
       return { success: true };
     })
@@ -4604,36 +7134,50 @@ var appRouter = router({
     listAll: adminProcedure2.query(async () => {
       return listAllRegisters();
     }),
-    create: adminProcedure2.input(z2.object({ name: z2.string().min(1) })).mutation(async ({ input }) => {
+    create: adminProcedure2.input(z3.object({ name: z3.string().min(1) })).mutation(async ({ input }) => {
       const id = await createRegister(input.name);
       return { id };
     })
   }),
   // Reportes y auditoría de /caja desde /admin (docs/ARQUITECTURA-CAJA.md §11, Fase 4).
   cajaReports: router({
-    profit: adminProcedure2.input(z2.object({ eventId: z2.number() })).query(async ({ input }) => {
+    profit: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
       return getProfitReport(input.eventId);
     }),
     eventComparison: adminProcedure2.query(async () => {
       return getEventComparison();
     }),
-    peakHours: adminProcedure2.input(z2.object({ eventId: z2.number() })).query(async ({ input }) => {
+    peakHours: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
       return getPeakHours(input.eventId);
     }),
-    ledger: adminProcedure2.input(z2.object({
-      eventId: z2.number(),
-      operatorId: z2.number().optional(),
-      type: z2.string().optional(),
-      dateFrom: z2.string().optional(),
-      dateTo: z2.string().optional()
+    ledger: adminProcedure2.input(z3.object({
+      eventId: z3.number(),
+      operatorId: z3.number().optional(),
+      type: z3.string().optional(),
+      dateFrom: z3.string().optional(),
+      dateTo: z3.string().optional()
     })).query(async ({ input }) => {
       const { eventId, ...filters } = input;
       return getLedger(eventId, filters);
     }),
     // Cuadres de caja guardados (pedido explícito del usuario) -- sin
     // eventId trae los de todos los eventos, para comparar entre fiestas.
-    shiftClosings: adminProcedure2.input(z2.object({ eventId: z2.number().optional() }).optional()).query(async ({ input }) => {
+    shiftClosings: adminProcedure2.input(z3.object({ eventId: z3.number().optional() }).optional()).query(async ({ input }) => {
       return listShiftClosings(input?.eventId);
+    }),
+    // Eliminar un cierre de turno (pedido explícito del usuario, para sacar
+    // pruebas/cierres de práctica de los reportes reales) -- doble
+    // verificación: además del diálogo de confirmación en el admin, pide la
+    // misma clave que auth.adminLogin.
+    deleteShiftClosing: adminProcedure2.input(z3.object({
+      shiftId: z3.number(),
+      password: z3.string()
+    })).mutation(async ({ input }) => {
+      const adminPassword = process.env.ADMIN_PASSWORD;
+      if (!adminPassword || input.password !== adminPassword) {
+        throw new TRPCError3({ code: "UNAUTHORIZED", message: "Contrase\xF1a incorrecta" });
+      }
+      return deleteShiftClosing(input.shiftId);
     })
   })
 });
@@ -4680,6 +7224,7 @@ function createApp() {
   app.use(express.urlencoded({ limit: "10mb", extended: true }));
   registerOAuthRoutes(app);
   registerAdminRoutes(app);
+  registerCronRoutes(app);
   registerTicketAssetRoutes(app);
   app.use(webhooksRouter);
   app.use(
