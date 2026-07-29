@@ -736,6 +736,158 @@ export function buildSalesRecordEmail(data: {
 </html>`;
 }
 
+/** Resumen semanal para un embajador VIP (pedido explícito del dueño): sus
+ * números del mes, cuánto le falta para subir de nivel y el material para
+ * publicar esa semana. Lo manda el cron diario, solo el día configurado.
+ *
+ * Todo viene calculado desde server/ambassadorProgram.ts: acá solo se arma el
+ * HTML con variables dinámicas. Si no hay material cargado, esa sección se
+ * omite en vez de mostrar un bloque vacío. */
+export function buildAmbassadorWeeklyEmail(data: {
+  name: string;
+  code: string;
+  monthlySales: number;
+  monthlyExistingSales: number;
+  monthlyCommission: number;
+  totalCommission: number;
+  currentPercent: number;
+  nextTarget: { target: number; salesNeeded: number; nextPercent: number } | null;
+  benefitItems: string[];
+  benefitBonusClp: number;
+  exclusiveClientsCount: number;
+  panelUrl: string;
+  material?: {
+    title?: string | null;
+    storiesText?: string | null;
+    reelText?: string | null;
+    postText?: string | null;
+    countdownText?: string | null;
+    linkUrl?: string | null;
+  } | null;
+}) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+  const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+  const m = data.material;
+  const tieneMaterial = !!m && !!(m.storiesText || m.reelText || m.postText || m.countdownText || m.linkUrl);
+
+  const progreso = data.nextTarget
+    ? Math.min(100, Math.round((data.monthlySales / data.nextTarget.target) * 100))
+    : 100;
+
+  const materialRow = (label: string, value?: string | null) => value
+    ? `<div style="padding:8px 0;border-bottom:1px solid ${BORDER};">
+         <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 3px;">${label}</p>
+         <p style="color:${INK};font-size:14px;margin:0;line-height:1.5;">${value}</p>
+       </div>`
+    : '';
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <!-- HERO -->
+    <div style="background:linear-gradient(160deg,${ACCENT.lilac.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Tu semana como embajador</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">Hola ${data.name}</h1>
+      <p style="color:${MUTED};font-size:15px;margin:0;">
+        ${data.monthlySales === 0
+          ? 'Este mes todavía no registras ventas — cualquier venta que traigas empieza al 30%.'
+          : `Llevas ${data.monthlySales} venta${data.monthlySales === 1 ? '' : 's'} este mes y estás cobrando el ${data.currentPercent}%.`}
+      </p>
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${sectionTitle('📊', 'Tus números del mes')}
+      ${card(`
+        ${grid([
+          `<div style="background:${ACCENT.pink.bg};border-radius:14px;padding:14px;text-align:center;">
+            <p style="color:${ACCENT.pink.text};font-size:24px;font-weight:800;margin:0;">${data.monthlySales}</p>
+            <p style="color:${MUTED};font-size:11px;margin:4px 0 0;">Ventas a tus clientes</p>
+          </div>`,
+          `<div style="background:${ACCENT.blue.bg};border-radius:14px;padding:14px;text-align:center;">
+            <p style="color:${ACCENT.blue.text};font-size:24px;font-weight:800;margin:0;">${data.currentPercent}%</p>
+            <p style="color:${MUTED};font-size:11px;margin:4px 0 0;">Tu comisión actual</p>
+          </div>`,
+        ], 2)}
+        <div style="padding:10px 0 0;">
+          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${BORDER};">
+            <span style="color:${MUTED};font-size:13px;">Comisión de este mes</span>
+            <span style="color:${INK};font-size:14px;font-weight:700;">${money(data.monthlyCommission)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${BORDER};">
+            <span style="color:${MUTED};font-size:13px;">Comisión acumulada (histórica)</span>
+            <span style="color:${ACCENT.pink.text};font-size:14px;font-weight:800;">${money(data.totalCommission)}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:6px 0;">
+            <span style="color:${MUTED};font-size:13px;">Tus clientes exclusivos</span>
+            <span style="color:${INK};font-size:14px;font-weight:700;">${data.exclusiveClientsCount}</span>
+          </div>
+          ${data.monthlyExistingSales > 0 ? `
+          <p style="color:${FAINT};font-size:11px;margin:10px 0 0;line-height:1.5;">
+            Además hiciste ${data.monthlyExistingSales} venta${data.monthlyExistingSales === 1 ? '' : 's'} a clientes que ya estaban
+            en la base: esas pagan 10% y no suben tu nivel.
+          </p>` : ''}
+        </div>
+      `)}
+
+      ${data.nextTarget ? `
+      ${sectionTitle('🎯', 'Tu próximo objetivo')}
+      ${card(`
+        <p style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">${data.monthlySales} / ${data.nextTarget.target} ventas</p>
+        <p style="color:${MUTED};font-size:14px;margin:0 0 12px;">
+          Te faltan <strong>${data.nextTarget.salesNeeded}</strong> para subir al <strong>${data.nextTarget.nextPercent}%</strong>.
+        </p>
+        <div style="background:${BORDER};border-radius:999px;height:10px;overflow:hidden;">
+          <div style="background:${ACCENT.pink.solid};height:10px;width:${progreso}%;border-radius:999px;"></div>
+        </div>
+      `, { bg: ACCENT.lilac.bg, border: false })}
+      ` : `
+      ${sectionTitle('🏆', 'Nivel máximo')}
+      ${card(`<p style="color:${INK};font-size:16px;font-weight:700;margin:0;">Estás en el tramo más alto de la escala. Imposible subir más.</p>`, { bg: ACCENT.yellow.bg, border: false })}
+      `}
+
+      ${data.benefitItems.length > 0 || data.benefitBonusClp > 0 ? `
+      ${sectionTitle('🎁', 'Lo que ya desbloqueaste este mes')}
+      ${card(`
+        ${data.benefitItems.map((b) => `<p style="color:${INK};font-size:15px;font-weight:600;margin:0 0 6px;">• ${b}</p>`).join('')}
+        ${data.benefitBonusClp > 0 ? `<p style="color:${ACCENT.pink.text};font-size:17px;font-weight:800;margin:8px 0 0;">+ Bono de ${money(data.benefitBonusClp)}</p>` : ''}
+        <p style="color:${MUTED};font-size:12px;margin:10px 0 0;">Escríbenos por Instagram para coordinar cómo lo recibes.</p>
+      `, { bg: ACCENT.yellow.bg, border: false })}
+      ` : `
+      ${card(`<p style="color:${MUTED};font-size:14px;margin:0;">Con tu primera venta del mes se activan tus beneficios: entrada liberada y un acompañante.</p>`)}
+      `}
+
+      ${tieneMaterial ? `
+      ${sectionTitle('📱', m?.title || 'Material de la semana')}
+      ${card(`
+        ${materialRow('Historias', m?.storiesText)}
+        ${materialRow('Reel', m?.reelText)}
+        ${materialRow('Publicación', m?.postText)}
+        ${materialRow('Cuenta regresiva', m?.countdownText)}
+        ${m?.linkUrl ? `<p style="margin:12px 0 0;"><a href="${m.linkUrl}" style="color:${ACCENT.pink.text};font-size:13px;font-weight:700;">Descargar el material →</a></p>` : ''}
+      `)}
+      ` : ''}
+
+      <div style="text-align:center;margin-top:28px;">
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Tu código</p>
+        <p style="color:${INK};font-size:26px;font-weight:800;font-family:monospace;margin:0 0 20px;">${data.code}</p>
+        <a href="${data.panelUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;">Ver mi panel</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 /** Resumen de ingresos del día del evento, enviado por el cron de las 3am
  * (server/cronRoutes.ts) -- el mismo número que se ve en vivo en Ajustes,
  * por si el dueño quiere revisarlo sin abrir el celular temprano. */

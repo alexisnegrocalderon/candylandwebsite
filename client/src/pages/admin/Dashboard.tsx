@@ -1796,7 +1796,15 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
 /** Ficha completa que se abre al tocar un embajador: nivel, progreso,
  * beneficios e historial de ventas. Usa el patrón de fila expandible de
  * OrdersView, que es el que ya usa el panel. */
-function AmbassadorProfileRow({ ambassadorId, monthKey }: { ambassadorId: number; monthKey: string }) {
+function AmbassadorProfileRow({ ambassadorId, monthKey, deliveredKeys, onMarkBenefit, onUnmarkBenefit, marking, unmarking }: {
+  ambassadorId: number;
+  monthKey: string;
+  deliveredKeys: Set<string>;
+  onMarkBenefit: (benefitKey: string) => void;
+  onUnmarkBenefit: (benefitKey: string) => void;
+  marking: boolean;
+  unmarking: boolean;
+}) {
   const { data } = trpc.ambassadors.getProfile.useQuery({ id: ambassadorId, monthKey });
   const stats = data?.stats;
   const sales = data?.sales ?? [];
@@ -1845,18 +1853,39 @@ function AmbassadorProfileRow({ ambassadorId, monthKey }: { ambassadorId: number
           </div>
         </div>
 
-        {stats && stats.benefits.items.length > 0 && (
+        {stats && stats.benefits.tiers.length > 0 && (
           <div className="mb-4">
-            <p className="text-xs text-muted-foreground mb-1.5">Beneficios desbloqueados este mes</p>
-            <div className="flex flex-wrap gap-2">
-              {stats.benefits.items.map((b: string, i: number) => (
-                <span key={i} className="px-2 py-1 rounded-lg bg-primary/10 border border-primary/30 text-xs">{b}</span>
-              ))}
-              {stats.benefits.bonusClp > 0 && (
-                <span className="px-2 py-1 rounded-lg bg-green-500/15 border border-green-500/30 text-xs font-semibold text-green-400">
-                  Bono ${stats.benefits.bonusClp.toLocaleString('es-CL')}
-                </span>
-              )}
+            <p className="text-xs text-muted-foreground mb-1.5">Beneficios desbloqueados este mes — marca los que ya le entregaste</p>
+            <div className="space-y-2">
+              {stats.benefits.tiers.map((t: any) => {
+                const key = `tramo-${t.minSales}`;
+                const entregado = deliveredKeys.has(key);
+                return (
+                  <div key={key} className={`flex flex-wrap items-center gap-2 p-2 rounded-xl border ${entregado ? 'bg-green-500/10 border-green-500/30' : 'bg-background border-border'}`}>
+                    <span className="text-xs text-muted-foreground w-24 shrink-0">Desde {t.minSales} venta{t.minSales === 1 ? '' : 's'}</span>
+                    <div className="flex flex-wrap gap-1.5 flex-1">
+                      {t.items.map((b: string, i: number) => (
+                        <span key={i} className="px-2 py-1 rounded-lg bg-primary/10 border border-primary/30 text-xs">{b}</span>
+                      ))}
+                      {t.bonusClp > 0 && (
+                        <span className="px-2 py-1 rounded-lg bg-green-500/15 border border-green-500/30 text-xs font-semibold text-green-400">
+                          Bono ${t.bonusClp.toLocaleString('es-CL')}
+                        </span>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant={entregado ? 'outline' : 'default'}
+                      disabled={marking || unmarking}
+                      onClick={() => entregado
+                        ? onUnmarkBenefit(key)
+                        : onMarkBenefit(key)}
+                    >
+                      {entregado ? '✓ Entregado' : 'Marcar entregado'}
+                    </Button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -1924,6 +1953,7 @@ const AMBASSADOR_TABS = [
   { id: 'embajadores', label: 'Embajadores' },
   { id: 'ranking', label: 'Ranking' },
   { id: 'clientes', label: 'Clientes referidos' },
+  { id: 'material', label: 'Material de la semana' },
   { id: 'config', label: 'Configuración' },
 ] as const;
 
@@ -1943,7 +1973,7 @@ function AmbassadorsView() {
             fijo y no suben el nivel. Todo se calcula solo al aprobarse cada compra.
           </p>
         </div>
-        {tab !== 'config' && tab !== 'clientes' && (
+        {tab !== 'config' && tab !== 'clientes' && tab !== 'material' && (
           <Select value={monthKey} onValueChange={setMonthKey}>
             <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -1971,6 +2001,7 @@ function AmbassadorsView() {
       {tab === 'embajadores' && <AmbassadorsListTab monthKey={monthKey} />}
       {tab === 'ranking' && <AmbassadorRankingTab monthKey={monthKey} />}
       {tab === 'clientes' && <ReferredClientsTab />}
+      {tab === 'material' && <WeeklyMaterialTab />}
       {tab === 'config' && <ProgramConfigTab />}
     </div>
   );
@@ -1988,6 +2019,7 @@ function AmbassadorSummaryTab({ monthKey }: { monthKey: string }) {
         <StatCard icon={Percent} colorClass="bg-[oklch(0.7_0.16_20)]" value={`$${(data?.monthlyCommission ?? 0).toLocaleString('es-CL')}`} label="Comisiones del mes" />
         <StatCard icon={Users} colorClass="bg-[oklch(0.72_0.14_150)]" value={data?.newClients ?? 0} label="Ventas a clientes nuevos" />
         <StatCard icon={Contact} colorClass="bg-[oklch(0.7_0.08_260)]" value={data?.existingClients ?? 0} label="Ventas a clientes existentes" />
+        <StatCard icon={Gift} colorClass="bg-[oklch(0.74_0.13_90)]" value={data?.benefitsDelivered ?? 0} label="Beneficios entregados" />
       </div>
 
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
@@ -2024,6 +2056,24 @@ function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
   });
   const updateAmbassador = trpc.ambassadors.update.useMutation({ onSuccess: refreshAll, onError: onMutationError });
   const deleteAmbassador = trpc.ambassadors.delete.useMutation({ onSuccess: () => { refreshAll(); toast.success('Embajador eliminado'); }, onError: onMutationError });
+
+  // Beneficios entregados del mes: se consultan una vez para toda la tabla y
+  // se reparten por embajador, en vez de una consulta por ficha abierta.
+  const { data: deliveriesData, refetch: refetchDeliveries } = trpc.ambassadors.listBenefitDeliveries.useQuery({ monthKey });
+  const deliveredByAmbassador = new Map<number, Set<string>>();
+  for (const d of deliveriesData ?? []) {
+    const set = deliveredByAmbassador.get(d.ambassadorId) ?? new Set<string>();
+    set.add(d.benefitKey);
+    deliveredByAmbassador.set(d.ambassadorId, set);
+  }
+  const markBenefit = trpc.ambassadors.markBenefitDelivered.useMutation({
+    onSuccess: () => { refetchDeliveries(); toast.success('Beneficio marcado como entregado'); },
+    onError: onMutationError,
+  });
+  const unmarkBenefit = trpc.ambassadors.unmarkBenefitDelivered.useMutation({
+    onSuccess: () => { refetchDeliveries(); toast.success('Se deshizo la entrega'); },
+    onError: onMutationError,
+  });
 
   const [showForm, setShowForm] = useState(false);
   const [newAmbassador, setNewAmbassador] = useState({ name: '', code: '', commissionPercent: '', contact: '', email: '' });
@@ -2127,7 +2177,17 @@ function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
                       onUpdate={(data) => updateAmbassador.mutateAsync({ id: a.id, ...data })}
                       onDelete={() => deleteAmbassador.mutateAsync({ id: a.id })}
                     />
-                    {expandedId === a.id && <AmbassadorProfileRow ambassadorId={a.id} monthKey={monthKey} />}
+                    {expandedId === a.id && (
+                      <AmbassadorProfileRow
+                        ambassadorId={a.id}
+                        monthKey={monthKey}
+                        deliveredKeys={deliveredByAmbassador.get(a.id) ?? new Set()}
+                        onMarkBenefit={(benefitKey) => markBenefit.mutate({ ambassadorId: a.id, monthKey, benefitKey })}
+                        onUnmarkBenefit={(benefitKey) => unmarkBenefit.mutate({ ambassadorId: a.id, monthKey, benefitKey })}
+                        marking={markBenefit.isPending}
+                        unmarking={unmarkBenefit.isPending}
+                      />
+                    )}
                   </Fragment>
                 ))}
                 {visibles.length === 0 && (
@@ -2254,6 +2314,72 @@ function ReferredClientsTab() {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/** Material que va en el correo semanal de los embajadores. Si no hay nada
+ * cargado, el correo omite esa sección en vez de mandar un bloque vacío. */
+function WeeklyMaterialTab() {
+  const { data, refetch } = trpc.ambassadors.getWeeklyMaterial.useQuery();
+  const save = trpc.ambassadors.saveWeeklyMaterial.useMutation({
+    onSuccess: () => { refetch(); toast.success('Material de la semana guardado'); },
+    onError: onMutationError,
+  });
+  const sendNow = trpc.ambassadors.sendWeeklyNow.useMutation({
+    onSuccess: (r: any) => toast.success(`Correos enviados: ${r.sent}. Sin correo cargado: ${r.skipped}. Con error: ${r.failed}.`),
+    onError: onMutationError,
+  });
+
+  const [form, setForm] = useState({ title: '', storiesText: '', reelText: '', postText: '', countdownText: '', linkUrl: '' });
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!data || loaded) return;
+    setForm({
+      title: data.title ?? '',
+      storiesText: data.storiesText ?? '',
+      reelText: data.reelText ?? '',
+      postText: data.postText ?? '',
+      countdownText: data.countdownText ?? '',
+      linkUrl: data.linkUrl ?? '',
+    });
+    setLoaded(true);
+  }, [data, loaded]);
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setForm({ ...form, [k]: e.target.value });
+
+  return (
+    <div className="space-y-6">
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Material de esta semana</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Lo que escribas acá va en el correo semanal de todos los embajadores. Deja en blanco lo que no quieras
+            incluir. Si dejas la cuenta regresiva vacía, el correo la arma solo con los días que faltan para el próximo
+            evento destacado.
+          </p>
+          <div><Label>Título (opcional)</Label><Input value={form.title} onChange={set('title')} className="mt-1" placeholder="Ej: Semana 1 — lanzamiento de Candyland" /></div>
+          <div><Label>Historias</Label><Textarea value={form.storiesText} onChange={set('storiesText')} className="mt-1" rows={2} placeholder="Qué subir en historias esta semana" /></div>
+          <div><Label>Reel</Label><Textarea value={form.reelText} onChange={set('reelText')} className="mt-1" rows={2} placeholder="Idea del reel" /></div>
+          <div><Label>Publicación</Label><Textarea value={form.postText} onChange={set('postText')} className="mt-1" rows={2} placeholder="Texto sugerido para el post" /></div>
+          <div><Label>Cuenta regresiva</Label><Input value={form.countdownText} onChange={set('countdownText')} className="mt-1" placeholder="Se arma sola si lo dejas vacío" /></div>
+          <div><Label>Link del material (opcional)</Label><Input value={form.linkUrl} onChange={set('linkUrl')} className="mt-1" placeholder="Carpeta de Drive con las fotos y videos" /></div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => save.mutate(form)} disabled={save.isPending} className="interactive">
+              {save.isPending ? 'Guardando…' : 'Guardar material'}
+            </Button>
+            <Button variant="outline" onClick={() => sendNow.mutate()} disabled={sendNow.isPending}>
+              {sendNow.isPending ? 'Enviando…' : 'Enviar el correo ahora'}
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            "Enviar ahora" manda el resumen a todos los embajadores activos que tengan correo cargado, sin esperar al
+            día configurado. Sirve para probarlo o para reenviarlo si un envío falló.
+          </p>
         </CardContent>
       </Card>
     </div>
