@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
@@ -2426,9 +2426,93 @@ const ADMIN_SECTIONS = [
   { id: 'mailing-history', label: 'Historial de Mailing', icon: History, render: () => <MailingHistoryView /> },
   { id: 'referrals', label: 'Referidos', icon: Trophy, render: () => <ReferralsView /> },
   { id: 'ambassadors', label: 'Embajadores VIP', icon: Crown, render: () => <AmbassadorsView /> },
+  { id: 'party-gifts', label: 'Tragos de la Fiesta', icon: Martini, render: () => <PartyGiftsView /> },
   { id: 'caja', label: 'Caja', icon: Store, render: () => <CajaAdminView /> },
   { id: 'settings', label: 'Ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },
 ] as const;
+
+/** Tragos que se invitaron durante una fiesta. Lo importante para el local
+ * es la última columna: los "pagado" que nadie retiró son plata cobrada
+ * que todavía se debe en la barra, y siguen válidos para la próxima
+ * fiesta (decisión del dueño). */
+function PartyGiftsView() {
+  const { data: events } = trpc.events.listAll.useQuery();
+  const [eventId, setEventId] = useState<number | null>(null);
+  const activeId = eventId ?? events?.[0]?.id ?? null;
+  const { data: gifts, isLoading } = trpc.party.listGifts.useQuery({ eventId: activeId! }, { enabled: !!activeId });
+
+  const LABELS: Record<string, { text: string; cls: string }> = {
+    invited: { text: 'Invitado', cls: 'bg-muted text-muted-foreground' },
+    accepted: { text: 'Aceptado, sin pagar', cls: 'bg-amber-500/15 text-amber-600' },
+    declined: { text: 'Rechazado', cls: 'bg-muted text-muted-foreground' },
+    expired: { text: 'Vencido', cls: 'bg-muted text-muted-foreground' },
+    paid: { text: 'Pagado — por retirar', cls: 'bg-primary/15 text-primary' },
+    redeemed: { text: 'Retirado', cls: 'bg-emerald-500/15 text-emerald-600' },
+  };
+
+  const paid = gifts?.filter((g) => g.status === 'paid') ?? [];
+  const totalPorRetirar = paid.reduce((s, g) => s + g.priceClp, 0);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-heading text-2xl">Tragos de la Fiesta</h2>
+        <select
+          value={activeId ?? ''}
+          onChange={(e) => setEventId(Number(e.target.value))}
+          className="h-10 px-3 rounded-lg border border-border bg-background text-sm"
+        >
+          {events?.map((ev: any) => <option key={ev.id} value={ev.id}>{ev.title}</option>)}
+        </select>
+      </div>
+
+      {paid.length > 0 && (
+        <div className="p-4 rounded-2xl bg-primary/10 border border-primary/25">
+          <p className="text-sm font-semibold">{paid.length} trago{paid.length === 1 ? '' : 's'} pagado{paid.length === 1 ? '' : 's'} sin retirar</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            ${totalPorRetirar.toLocaleString('es-CL')} ya cobrados que la barra todavía debe. Siguen válidos para la próxima fiesta.
+          </p>
+        </div>
+      )}
+
+      {isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
+      {gifts?.length === 0 && <p className="text-sm text-muted-foreground">Nadie invitó tragos en esta fiesta todavía.</p>}
+
+      {(gifts?.length ?? 0) > 0 && (
+        <div className="overflow-x-auto rounded-2xl border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 text-left">
+              <tr>
+                <th className="p-3 font-semibold">Trago</th>
+                <th className="p-3 font-semibold">De</th>
+                <th className="p-3 font-semibold">Para</th>
+                <th className="p-3 font-semibold">Precio</th>
+                <th className="p-3 font-semibold">Código</th>
+                <th className="p-3 font-semibold">Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gifts!.map((g) => (
+                <tr key={g.id} className="border-t border-border/60">
+                  <td className="p-3">{g.drinkName}</td>
+                  <td className="p-3 text-muted-foreground">{g.fromAlias}</td>
+                  <td className="p-3 text-muted-foreground">{g.toAlias}</td>
+                  <td className="p-3">${g.priceClp.toLocaleString('es-CL')}</td>
+                  <td className="p-3 font-mono text-xs">{g.displayCode ?? '—'}</td>
+                  <td className="p-3">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${LABELS[g.status]?.cls ?? ''}`}>
+                      {LABELS[g.status]?.text ?? g.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AdminDashboard() {
   const { user, loading, isAuthenticated, logout } = useAuth();

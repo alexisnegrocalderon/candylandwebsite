@@ -11,7 +11,10 @@ export interface CajaAttendee {
   buyerName: string;
   buyerEmail: string;
   buyerPhone: string | null;
-  access: { ticketCode: string; status: string; typeName: string }[];
+  /** Nombres de todos los asistentes de la orden -- es lo que el anfitrión
+   * compara contra la cédula en la puerta. */
+  attendeeNames: string[];
+  access: { ticketCode: string; status: string; typeName: string; accesoSlug: string | null }[];
   extras: { displayCode: string | null; status: string; typeName: string }[];
 }
 
@@ -28,8 +31,23 @@ interface CajaCodeIndex {
   orderId: number;
 }
 
+/** Trago que alguien invitó en la fiesta y todavía no se retira de la
+ * barra. Va aparte de `attendees` porque puede venir de un evento ANTERIOR
+ * (el dueño decidió que un trago no cobrado siga válido para la próxima
+ * fiesta) y por lo tanto no pertenece a ninguna orden de esta noche.
+ * Viaja autocontenido para poder cobrarse sin señal. */
+export interface CajaGift {
+  displayCode: string;
+  drinkName: string;
+  toAlias: string;
+  fromAlias: string;
+  eventId: number;
+  status: string;
+}
+
 export type QueuedOp =
   | { opId: string; type: 'redeem'; displayCode: string; clientAt: string }
+  | { opId: string; type: 'checkin'; ticketCode: string; clientAt: string }
   | {
       opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number }[];
       paymentMethod: 'efectivo' | 'debito' | 'credito'; clientAt: string;
@@ -57,6 +75,7 @@ class CajaDexie extends Dexie {
   attendees!: Table<CajaAttendee, number>;
   codes!: Table<CajaCodeIndex, string>;
   catalog!: Table<CajaCatalogItem, number>;
+  gifts!: Table<CajaGift, string>;
   opsQueue!: Table<CajaOpRecord, string>;
   meta!: Table<CajaMetaRow, string>;
 
@@ -69,6 +88,10 @@ class CajaDexie extends Dexie {
       opsQueue: 'opId, status, createdAt',
       meta: 'key',
     });
+    // v2: tragos invitados durante la fiesta, que la barra cobra por código.
+    this.version(2).stores({
+      gifts: 'displayCode, toAlias',
+    });
   }
 }
 
@@ -78,12 +101,14 @@ export async function saveSnapshot(snapshot: {
   event: { id: number; title: string; slug: string };
   attendees: CajaAttendee[];
   catalog: CajaCatalogItem[];
+  gifts?: { displayCode: string; drinkName: string; toAlias: string; fromAlias: string; eventId: number }[];
   serverTime: string;
 }) {
-  await cajaDB.transaction('rw', cajaDB.attendees, cajaDB.codes, cajaDB.catalog, cajaDB.meta, async () => {
+  await cajaDB.transaction('rw', cajaDB.attendees, cajaDB.codes, cajaDB.catalog, cajaDB.gifts, cajaDB.meta, async () => {
     await cajaDB.attendees.clear();
     await cajaDB.codes.clear();
     await cajaDB.catalog.clear();
+    await cajaDB.gifts.clear();
     await cajaDB.attendees.bulkAdd(snapshot.attendees);
 
     const codes: CajaCodeIndex[] = [];
@@ -93,6 +118,7 @@ export async function saveSnapshot(snapshot: {
     }
     await cajaDB.codes.bulkAdd(codes);
     await cajaDB.catalog.bulkAdd(snapshot.catalog);
+    await cajaDB.gifts.bulkAdd((snapshot.gifts ?? []).map((g) => ({ ...g, displayCode: g.displayCode.toUpperCase(), status: 'valid' })));
     await cajaDB.meta.put({ key: 'event', value: snapshot.event });
     // Reloj del dispositivo desviado (docs/ARQUITECTURA-CAJA.md §13, riesgo 5)
     // -- se guarda cuánto se adelanta/atrasa el reloj local respecto al
@@ -114,6 +140,21 @@ export async function correctedNow(): Promise<Date> {
   const row = await cajaDB.meta.get('serverTimeOffsetMs');
   const offset = (row?.value as number) ?? 0;
   return new Date(Date.now() + offset);
+}
+
+/** Tragos invitados que la barra puede cobrar, por código o por el alias
+ * de quien lo recibe -- que es lo que la persona dice al llegar. */
+export async function searchGiftsLocal(query: string): Promise<CajaGift[]> {
+  const q = query.trim();
+  if (!q) return [];
+
+  const exact = await cajaDB.gifts.get(q.toUpperCase());
+  if (exact) return [exact];
+
+  // Por alias: quien llega a la barra dice su alias, no el código.
+  const needle = q.toLowerCase();
+  const all = await cajaDB.gifts.toArray();
+  return all.filter((g) => g.toAlias.toLowerCase().includes(needle)).slice(0, 10);
 }
 
 /** Búsqueda 100% local (<50ms, funciona offline): primero match exacto por
@@ -149,12 +190,32 @@ export async function enqueueOp(op: QueuedOp) {
   await cajaDB.opsQueue.add({ opId: op.opId, op, status: 'pending', createdAt: Date.now() });
 
   if (op.type === 'redeem') {
-    const idx = await cajaDB.codes.get(op.displayCode.toUpperCase());
+    const code = op.displayCode.toUpperCase();
+
+    const idx = await cajaDB.codes.get(code);
     if (idx) {
       const attendee = await cajaDB.attendees.get(idx.orderId);
       if (attendee) {
         attendee.extras = attendee.extras.map((e) =>
-          e.displayCode?.toUpperCase() === op.displayCode.toUpperCase() ? { ...e, status: 'used' } : e
+          e.displayCode?.toUpperCase() === code ? { ...e, status: 'used' } : e
+        );
+        await cajaDB.attendees.put(attendee);
+      }
+    }
+
+    // El mismo código puede ser un trago invitado en la fiesta, que vive en
+    // su propia tabla porque puede venir de un evento anterior.
+    const gift = await cajaDB.gifts.get(code);
+    if (gift) await cajaDB.gifts.update(code, { status: 'used' });
+  }
+
+  if (op.type === 'checkin') {
+    const idx = await cajaDB.codes.get(op.ticketCode.toUpperCase());
+    if (idx) {
+      const attendee = await cajaDB.attendees.get(idx.orderId);
+      if (attendee) {
+        attendee.access = attendee.access.map((a) =>
+          a.ticketCode.toUpperCase() === op.ticketCode.toUpperCase() ? { ...a, status: 'used' } : a
         );
         await cajaDB.attendees.put(attendee);
       }

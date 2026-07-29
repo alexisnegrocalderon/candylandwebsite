@@ -2,7 +2,7 @@ import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS, CAJA_DEVIC
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk, ADMIN_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
@@ -10,6 +10,31 @@ import { getMission300Status, evaluateMission300, processCardPaymentForOrder, co
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
 import { redeemDisplayCode } from "./caja/redeem";
+import { checkInTicket } from "./caja/checkin";
+import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage } from "../shared/party";
+
+/** Puerta de entrada a "Caramelo": resuelve al que llama por su ticketCode
+ * y revalida, en cada llamada, que entró de verdad por la puerta y que la
+ * fiesta está abierta. Todos los endpoints de `party` pasan por acá. */
+async function requirePartyActor(ticketCode: string) {
+  const actor = await db.getPartyActor(ticketCode);
+  const denial = partyEntryDenial(actor?.ticket, actor?.event, new Date());
+  if (denial || !actor) {
+    const message =
+      denial === 'no_ingreso' ? 'Tu entrada todavía no fue escaneada en la puerta'
+      : denial === 'fuera_de_horario' ? 'La fiesta no está abierta en este momento'
+      : 'No encontramos tu entrada';
+    throw new TRPCError({ code: 'FORBIDDEN', message });
+  }
+  return actor;
+}
+
+/** Igual que la anterior, pero además exige tener el perfil creado. */
+async function requirePartyProfile(ticketCode: string) {
+  const actor = await requirePartyActor(ticketCode);
+  if (!actor.profile) throw new TRPCError({ code: 'FORBIDDEN', message: 'Todavía no creaste tu perfil' });
+  return { ...actor, profile: actor.profile };
+}
 import { createCajaSale } from "./caja/sale";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
@@ -32,6 +57,50 @@ const mailingEventSectionsSchema = z.object({
   mission300: z.boolean(),
   venueGrid: z.boolean(),
 });
+
+
+/** Verifica el PIN de un operador aplicando los dos límites que ya existen:
+ * por IP (para que nadie enumere operadores probando pocos intentos en cada
+ * uno) y por operador (5 fallos lo bloquean 5 minutos). Lo comparten el
+ * login de /caja y el de /puerta -- una sola implementación para que un
+ * arreglo de seguridad no se aplique en un lado y se olvide en el otro. */
+async function verifyOperatorPinOrThrow(ctx: any, operatorId: number, pin: string) {
+  const forwardedFor = ctx.req.headers['x-forwarded-for'];
+  const clientIp = (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || 'unknown';
+  const ipKey = `pin-login:${clientIp}`;
+  if (!(await db.checkIpRateLimit(ipKey))) {
+    throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos desde este dispositivo. Intenta de nuevo más tarde.' });
+  }
+
+  const operator = await db.getOperatorById(operatorId);
+  if (!operator || !operator.active) {
+    await db.recordIpFailedAttempt(ipKey);
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'PIN incorrecto' });
+  }
+
+  if (operator.lockedUntil && new Date(operator.lockedUntil).getTime() > Date.now()) {
+    const minutesLeft = Math.ceil((new Date(operator.lockedUntil).getTime() - Date.now()) / 60_000);
+    throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: `Demasiados intentos. Intenta de nuevo en ${minutesLeft} min.` });
+  }
+
+  if (!verifyPin(pin, operator.pinHash)) {
+    await db.recordFailedPinAttempt(operator.id);
+    await db.recordIpFailedAttempt(ipKey);
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'PIN incorrecto' });
+  }
+
+  await db.resetPinAttempts(operator.id);
+  return operator;
+}
+
+/** Igual que la anterior pero solo para quienes trabajan en la puerta. */
+async function verifyDoorPinOrThrow(ctx: any, operatorId: number, pin: string) {
+  const operator = await verifyOperatorPinOrThrow(ctx, operatorId, pin);
+  if (operator.role !== 'acceso' && operator.role !== 'supervisor' && operator.role !== 'admin') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Tu usuario no trabaja en la puerta' });
+  }
+  return operator;
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -295,6 +364,264 @@ export const appRouter = router({
     }),
   }),
 
+  // --- Puerta: el anfitrión en la entrada del estacionamiento ---
+  // Pantalla aparte de /caja a propósito: el anfitrión no es cajero, no
+  // debería ver el menú de venta, y escanea con su propio teléfono. Lo
+  // único que puede hacer con esta sesión es marcar entradas.
+  puerta: router({
+    // Público como el de caja: solo devuelve nombres y roles, nunca PINs.
+    listOperators: publicProcedure.query(async () => {
+      const all = await db.listActiveOperatorsPublic();
+      return all.filter((o: any) => o.role === 'acceso' || o.role === 'supervisor' || o.role === 'admin');
+    }),
+
+    login: publicProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) }))
+      .mutation(async ({ input, ctx }) => {
+        const operator = await verifyDoorPinOrThrow(ctx, input.operatorId, input.pin);
+        const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
+        return { id: operator.id, name: operator.name, role: operator.role };
+      }),
+
+    me: publicProcedure.query(({ ctx }) => ctx.operator),
+
+    activeEvent: doorProcedure.query(async () => {
+      return db.getActiveEventForCaja();
+    }),
+
+    // Mismo snapshot que la caja: la puerta lo guarda en el mismo IndexedDB
+    // y por eso funciona sin señal.
+    snapshot: doorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getCajaSnapshot(input.eventId);
+    }),
+
+    checkin: doorProcedure.input(z.object({
+      opId: z.string(),
+      eventId: z.number(),
+      ticketCode: z.string().min(1),
+      clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      return checkInTicket(rawDb, {
+        opId: input.opId,
+        ticketCode: input.ticketCode,
+        eventId: input.eventId,
+        operatorId: ctx.operator.operatorId,
+        clientAt: new Date(input.clientAt),
+      });
+    }),
+
+    // Vaciado de la cola offline. Solo acepta operaciones de check-in: la
+    // puerta no vende ni canjea, aunque comparta la cola con la caja.
+    sync: doorProcedure.input(z.object({
+      eventId: z.number(),
+      ops: z.array(z.object({
+        type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string(),
+      })).max(50),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+
+      const results: Record<string, { result: string; conflictNote?: string }> = {};
+      for (const op of input.ops) {
+        try {
+          results[op.opId] = await checkInTicket(rawDb, {
+            opId: op.opId, ticketCode: op.ticketCode, eventId: input.eventId,
+            operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
+          });
+        } catch (err) {
+          results[op.opId] = { result: 'rejected', conflictNote: err instanceof Error ? err.message : 'Error al sincronizar' };
+        }
+      }
+      return results;
+    }),
+  }),
+
+  // --- Caramelo: la fiesta dentro del celular ---
+  // Todo público porque el `ticketCode` ES el token (igual que la página de
+  // la entrada): no hay cuentas ni contraseñas. Cada llamada revalida las
+  // tres condiciones desde cero contra la base -- esconder un botón en el
+  // cliente no protege nada.
+  party: router({
+    getSession: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await db.getPartyActor(input.ticketCode);
+      if (!actor) return { denial: 'sin_ticket' as const, event: null, profile: null };
+
+      const denial = partyEntryDenial(actor.ticket, actor.event, new Date());
+      return {
+        denial,
+        event: {
+          id: actor.event.id,
+          title: actor.event.title,
+          eventDate: actor.event.eventDate,
+          doorsOpen: actor.event.doorsOpen,
+          eventEnd: actor.event.eventEnd,
+        },
+        profile: actor.profile
+          ? { id: actor.profile.id, alias: actor.profile.alias, gender: actor.profile.gender, avatarId: actor.profile.avatarId, zone: actor.profile.zone }
+          : null,
+      };
+    }),
+
+    createProfile: publicProcedure.input(z.object({
+      ticketCode: z.string(),
+      alias: z.string(),
+      gender: z.enum(PARTY_GENDERS),
+      avatarId: z.number().int().min(1).max(AVATARS_PER_GENDER),
+      zone: z.enum(PARTY_ZONES),
+    })).mutation(async ({ input }) => {
+      const actor = await requirePartyActor(input.ticketCode);
+      if (actor.profile) return { id: actor.profile.id };
+
+      // El alias lo ve toda la fiesta: se valida en el servidor, no solo en
+      // el formulario.
+      const check = sanitizeAlias(input.alias);
+      if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
+
+      const profile = await db.createPartyProfile({
+        eventId: actor.event.id,
+        ticketId: actor.ticket.id,
+        alias: check.alias,
+        gender: input.gender,
+        avatarId: input.avatarId,
+        zone: input.zone,
+      });
+      return { id: profile!.id };
+    }),
+
+    listMansion: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return db.listPartyMansion(actor.profile.id, actor.event.id);
+    }),
+
+    setZone: publicProcedure.input(z.object({ ticketCode: z.string(), zone: z.enum(PARTY_ZONES) }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        await db.updatePartyProfile(actor.profile.id, { zone: input.zone });
+        return { ok: true };
+      }),
+
+    touch: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number() }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        const res = await db.touchPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
+        if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+        return res;
+      }),
+
+    respondTouch: publicProcedure.input(z.object({ ticketCode: z.string(), connectionId: z.number(), accept: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        const res = await db.respondToPartyTouch(actor.profile.id, input.connectionId, input.accept);
+        if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+        return res;
+      }),
+
+    getMessages: publicProcedure.input(z.object({ ticketCode: z.string(), connectionId: z.number() }))
+      .query(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        const res = await db.listPartyMessages(actor.profile.id, input.connectionId);
+        if (!res) throw new TRPCError({ code: 'FORBIDDEN', message: 'Esta conversación no está abierta' });
+        return res;
+      }),
+
+    sendMessage: publicProcedure.input(z.object({ ticketCode: z.string(), connectionId: z.number(), body: z.string() }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        const check = sanitizeMessage(input.body);
+        if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
+
+        const res = await db.sendPartyMessage(actor.profile.id, input.connectionId, check.body);
+        if (!res.ok) throw new TRPCError({ code: 'FORBIDDEN', message: res.reason });
+        return { ok: true };
+      }),
+
+    block: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number() }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        await db.blockPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
+        return { ok: true };
+      }),
+
+    report: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number(), reason: z.string().min(3).max(500) }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        // Denunciar también bloquea: quien denuncia no debería seguir
+        // viendo a esa persona mientras el equipo revisa.
+        await db.reportPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id, input.reason.trim());
+        await db.blockPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
+        return { ok: true };
+      }),
+
+    // --- Invitar un trago ---
+    // Tres pasos porque el destinatario puede rechazar y nadie paga por un
+    // trago rechazado: invitar (gratis) -> responder -> pagar.
+    listDrinks: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return db.listPartyDrinks(actor.event.id);
+    }),
+
+    sendGift: publicProcedure.input(z.object({
+      ticketCode: z.string(),
+      targetProfileId: z.number(),
+      ticketTypeId: z.number(),
+      message: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+
+      const check = sanitizeGiftMessage(input.message ?? '');
+      if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
+
+      const res = await db.createGiftInvitation({
+        eventId: actor.event.id,
+        fromProfileId: actor.profile.id,
+        toProfileId: input.targetProfileId,
+        ticketTypeId: input.ticketTypeId,
+        message: check.body,
+      });
+      if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+      return res;
+    }),
+
+    respondGift: publicProcedure.input(z.object({ ticketCode: z.string(), giftId: z.number(), accept: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        const res = await db.respondToGiftInvitation(actor.profile.id, input.giftId, input.accept);
+        if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+        return res;
+      }),
+
+    // Crea la orden del regalo y devuelve su número. El cobro después va
+    // por `orders.processCardPayment`, el mismo endpoint que las entradas.
+    payGift: publicProcedure.input(z.object({ ticketCode: z.string(), giftId: z.number() }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        // El comprador es el dueño del acceso con el que entró: su email ya
+        // está en la orden de su entrada, no se le vuelve a pedir nada.
+        const contact = await db.getPartyProfileContact(actor.profile.id);
+        if (!contact?.email) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No pudimos identificar tu correo' });
+
+        const res = await db.createGiftOrder(actor.profile.id, input.giftId, { name: contact.alias, email: contact.email });
+        if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+        return res;
+      }),
+
+    myGifts: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return db.listMyGifts(actor.profile.id);
+    }),
+
+    // Para el equipo del local, durante la fiesta.
+    listReports: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.listPartyReports(input.eventId);
+    }),
+    listGifts: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.listPartyGiftsForEvent(input.eventId);
+    }),
+  }),
+
   discounts: router({
     listAll: adminProcedure.query(async () => {
       return db.getAllDiscountCodes();
@@ -460,38 +787,7 @@ export const appRouter = router({
       return db.listActiveOperatorsPublic();
     }),
     login: deviceProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
-      // Rate limiting por IP (docs/ARQUITECTURA-CAJA.md §13, riesgo 7):
-      // complementa el límite por operador -- sin esto, alguien podría
-      // enumerar operadores (listOperators es público) y probar pocos
-      // intentos en cada uno sin disparar nunca el bloqueo individual.
-      const forwardedFor = ctx.req.headers['x-forwarded-for'];
-      const clientIp = (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || 'unknown';
-      const ipKey = `pin-login:${clientIp}`;
-      if (!(await db.checkIpRateLimit(ipKey))) {
-        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos desde este dispositivo. Intenta de nuevo más tarde.' });
-      }
-
-      const operator = await db.getOperatorById(input.operatorId);
-      if (!operator || !operator.active) {
-        await db.recordIpFailedAttempt(ipKey);
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'PIN incorrecto' });
-      }
-
-      // Rate limiting por operador: 5 intentos fallidos lo bloquean 5
-      // minutos -- el PIN es mucho más débil que una contraseña y la
-      // tablet es compartida.
-      if (operator.lockedUntil && new Date(operator.lockedUntil).getTime() > Date.now()) {
-        const minutesLeft = Math.ceil((new Date(operator.lockedUntil).getTime() - Date.now()) / 60_000);
-        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: `Demasiados intentos. Intenta de nuevo en ${minutesLeft} min.` });
-      }
-
-      if (!verifyPin(input.pin, operator.pinHash)) {
-        await db.recordFailedPinAttempt(operator.id);
-        await db.recordIpFailedAttempt(ipKey);
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'PIN incorrecto' });
-      }
-
-      await db.resetPinAttempts(operator.id);
+      const operator = await verifyOperatorPinOrThrow(ctx, input.operatorId, input.pin);
       const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
@@ -535,6 +831,7 @@ export const appRouter = router({
       registerId: z.number().optional(),
       ops: z.array(z.discriminatedUnion('type', [
         z.object({ type: z.literal('redeem'), opId: z.string(), displayCode: z.string(), clientAt: z.string() }),
+        z.object({ type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string() }),
         z.object({
           type: z.literal('sale'), opId: z.string(),
           items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1),
@@ -554,6 +851,11 @@ export const appRouter = router({
           if (op.type === 'redeem') {
             results[op.opId] = await redeemDisplayCode(rawDb, {
               opId: op.opId, displayCode: op.displayCode, eventId: input.eventId,
+              operatorId: ctx.operator.operatorId, registerId: input.registerId, clientAt: new Date(op.clientAt),
+            });
+          } else if (op.type === 'checkin') {
+            results[op.opId] = await checkInTicket(rawDb, {
+              opId: op.opId, ticketCode: op.ticketCode, eventId: input.eventId,
               operatorId: ctx.operator.operatorId, registerId: input.registerId, clientAt: new Date(op.clientAt),
             });
           } else {
@@ -692,6 +994,26 @@ export const appRouter = router({
       return redeemDisplayCode(rawDb, {
         opId: input.opId,
         displayCode: input.displayCode,
+        eventId: input.eventId,
+        operatorId: ctx.operator.operatorId,
+        registerId: input.registerId,
+        clientAt: new Date(input.clientAt),
+      });
+    }),
+    // Marca la entrada de un acceso en la puerta (mismo ledger idempotente
+    // que `redeem`, pero por ticketCode y solo para category='acceso').
+    checkin: operatorProcedure.input(z.object({
+      opId: z.string(),
+      eventId: z.number(),
+      ticketCode: z.string().min(1),
+      registerId: z.number().optional(),
+      clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      return checkInTicket(rawDb, {
+        opId: input.opId,
+        ticketCode: input.ticketCode,
         eventId: input.eventId,
         operatorId: ctx.operator.operatorId,
         registerId: input.registerId,

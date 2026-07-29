@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { ENV } from "./_core/env";
 import { processMailingCronBatch } from "./mailing";
+import { purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations } from "./db";
 
 /** Vercel manda `Authorization: Bearer <CRON_SECRET>` en cada invocación de
  * un cron job cuando esa variable está seteada en el proyecto -- es el
@@ -30,7 +31,29 @@ export function registerCronRoutes(app: Express) {
     if (!requireCronSecret(req, res)) return;
     try {
       const result = await processMailingCronBatch();
-      res.json({ success: true, ...result });
+
+      // Aprovecha la misma corrida diaria para borrar los chats de fiestas
+      // ya terminadas (Vercel Hobby solo permite crons diarios, así que un
+      // segundo cron no aportaría nada). Va aparte del try del mailing: si
+      // la purga falla, el mailing igual reporta lo que alcanzó a mandar.
+      let partyMessagesPurgedFor = 0;
+      let partyProfilesPurged = 0;
+      let giftInvitationsExpired = 0;
+      try {
+        const purge = await purgeOldPartyMessages();
+        partyMessagesPurgedFor = purge.deletedFor;
+        // Plazo de conservación prometido en la política de privacidad.
+        const profiles = await purgeOldPartyProfiles();
+        partyProfilesPurged = profiles.profilesDeleted;
+        // Invitaciones a un trago que nadie llegó a pagar. Nunca toca un
+        // regalo ya pagado: ese sigue válido para la próxima fiesta.
+        const expired = await expireOldGiftInvitations();
+        giftInvitationsExpired = expired.expired;
+      } catch (err) {
+        console.error('[Cron] Error limpiando datos de fiestas terminadas:', err);
+      }
+
+      res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired });
     } catch (err) {
       console.error('[Cron] Error procesando la cola de mailing:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });

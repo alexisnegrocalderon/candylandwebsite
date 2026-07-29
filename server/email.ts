@@ -948,3 +948,66 @@ export function buildMailingBlastEmail(data: {
 </body>
 </html>`;
 }
+
+/** Se manda al DESTINATARIO cuando alguien le invitó un trago y el pago se
+ * aprobó. Es el respaldo del código: la app de la fiesta se cierra cuando
+ * termina el evento, pero el trago sigue válido para la próxima (decisión
+ * del dueño), así que el código tiene que sobrevivir en algún lado.
+ *
+ * Nunca revela quién es la persona: solo su alias, igual que en la fiesta. */
+export function buildGiftEmail(data: {
+  toAlias: string;
+  fromAlias: string;
+  drinkName: string;
+  displayCode: string;
+  message?: string | null;
+  eventTitle: string;
+}) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <div style="background:linear-gradient(160deg,${ACCENT.pink.bg},${ACCENT.lilac.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:52px;margin:0 0 12px;">🍹</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">${data.fromAlias} te invitó un trago</h1>
+      <p style="color:${MUTED};font-size:15px;margin:0;">${data.drinkName}</p>
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${data.message ? card(
+        `<p style="color:${INK};font-size:15px;font-style:italic;margin:0;text-align:center;">"${data.message}"</p>`,
+        { bg: ACCENT.yellow.bg, border: false },
+      ) : ''}
+
+      ${card(`
+        <p style="color:${FAINT};font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 12px;text-align:center;">Muestra este código en la barra</p>
+        <p style="color:${INK};font-size:32px;font-weight:800;letter-spacing:3px;margin:0;text-align:center;font-family:monospace;">${data.displayCode}</p>
+      `, { bg: ACCENT.pink.bg, border: false })}
+
+      ${card(`
+        <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0;">
+          Es para <strong style="color:${INK};">${data.toAlias}</strong>, en ${data.eventTitle}.
+          Si no alcanzas a cobrarlo esta noche, no se pierde: <strong style="color:${INK};">queda válido para la próxima fiesta</strong>.
+        </p>
+      `)}
+
+      <p style="color:${FAINT};font-size:12px;text-align:center;margin:24px 0 0;line-height:1.6;">
+        Recibiste este correo porque alguien te invitó un trago en la fiesta.<br>
+        Mansion Playroom · Candyland
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
