@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, adminTotp, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug } from '../shared/mission300';
@@ -2932,4 +2932,48 @@ export async function getPartyProfileContact(profileId: number) {
   const [order] = ticket ? await db.select().from(orders).where(eq(orders.id, ticket.orderId)).limit(1) : [null];
 
   return { alias: profile.alias as string, email: (order?.buyerEmail as string | undefined) ?? null };
+}
+
+// --- Segundo factor del panel de administración ---
+
+export async function getAdminTotp() {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(adminTotp).limit(1);
+  return row ?? null;
+}
+
+/** Guarda un secreto nuevo SIN confirmar. Reemplaza cualquiera anterior no
+ * confirmado: si el dueño abandonó la configuración a medias, el intento
+ * viejo no debe quedar dando vueltas. */
+export async function saveUnconfirmedAdminTotp(secret: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await getAdminTotp();
+  if (existing) {
+    await db.update(adminTotp).set({ secret, confirmedAt: null, backupCodes: null, lastUsedStep: null })
+      .where(eq(adminTotp.id, existing.id));
+    return;
+  }
+  await db.insert(adminTotp).values({ secret });
+}
+
+export async function confirmAdminTotp(id: number, hashedBackupCodes: string[], timeStep: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(adminTotp)
+    .set({ confirmedAt: new Date(), backupCodes: hashedBackupCodes, lastUsedStep: timeStep })
+    .where(eq(adminTotp.id, id));
+}
+
+export async function recordAdminTotpStep(id: number, timeStep: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(adminTotp).set({ lastUsedStep: timeStep }).where(eq(adminTotp.id, id));
+}
+
+export async function consumeAdminBackupCodes(id: number, remaining: string[]) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(adminTotp).set({ backupCodes: remaining }).where(eq(adminTotp.id, id));
 }

@@ -2,6 +2,8 @@ User-agent: *
 Allow: /
 Disallow: /admin
 Disallow: /caja
+Disallow: /puerta
+Disallow: /fiesta
 Disallow: /api/
 
 Sitemap: https://mansionplayroom.cl/sitemap.xml

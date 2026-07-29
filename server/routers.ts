@@ -40,6 +40,8 @@ import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
 import { parseCsv, extractEmailColumn } from "./csv";
+import QRCode from "qrcode";
+import { consumeBackupCode, createTotpSecret, generateBackupCodes, safeCompare, totpUri, verifyTotp } from "./adminSecurity";
 
 const SHIFT_CLOSE_REPORT_EMAIL = 'contacto@mansionplayroom.cl';
 
@@ -102,6 +104,43 @@ async function verifyDoorPinOrThrow(ctx: any, operatorId: number, pin: string) {
   return operator;
 }
 
+
+/** Clave de límite por IP del panel de administración, separada de la del
+ * PIN de caja para que un ataque a uno no bloquee al otro. */
+function adminIpKey(ctx: any): string {
+  const forwardedFor = ctx.req.headers['x-forwarded-for'];
+  const ip = (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || 'unknown';
+  return `admin-login:${ip}`;
+}
+
+/** Vale de corta vida que acredita haber pasado el primer paso (la
+ * contraseña). Va firmado y dura 5 minutos: sin él, el segundo paso
+ * tendría que confiar en la palabra del cliente. */
+async function signAdminStepTicket(): Promise<string> {
+  return sdk.signSession({ openId: `${ADMIN_LOCAL_OPEN_ID}:step1`, appId: 'candyland-admin-2fa', name: 'step1' }, { expiresInMs: 5 * 60 * 1000 });
+}
+
+async function requireAdminStepTicket(ticket: string) {
+  try {
+    const payload = await sdk.verifySession(ticket);
+    if (payload?.openId !== `${ADMIN_LOCAL_OPEN_ID}:step1`) throw new Error('bad ticket');
+  } catch {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Vuelve a ingresar tu contraseña' });
+  }
+}
+
+/** La sesión de admin baja de UN AÑO a 7 días. Un año era demasiado para
+ * el panel que puede borrarlo todo, y con segundo factor volver a entrar
+ * cuesta diez segundos. */
+const ADMIN_SESSION_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function issueAdminSession(ctx: any) {
+  await db.upsertUser({ openId: ADMIN_LOCAL_OPEN_ID, name: 'Admin', role: 'admin', lastSignedIn: new Date() });
+  const sessionToken = await sdk.signSession({ openId: ADMIN_LOCAL_OPEN_ID, appId: 'candyland-admin', name: 'Admin' }, { expiresInMs: ADMIN_SESSION_MS });
+  const cookieOptions = getSessionCookieOptions(ctx.req);
+  ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ADMIN_SESSION_MS });
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -113,20 +152,100 @@ export const appRouter = router({
     }),
     // Login simple por contraseña para el panel admin — no depende de ningún
     // OAuth externo, solo de la variable de entorno ADMIN_PASSWORD.
+    // Paso 1 de 2: la contraseña NO entrega sesión por sí sola. Antes
+    // este endpoint firmaba la cookie de una, sin ningún límite de
+    // intentos -- un script podía probar miles de contraseñas por minuto
+    // contra el panel que puede borrar compras y exportar la base entera.
     adminLogin: publicProcedure.input(z.object({ password: z.string() })).mutation(async ({ input, ctx }) => {
+      const ipKey = adminIpKey(ctx);
+      if (!(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+      }
+
       const adminPassword = process.env.ADMIN_PASSWORD;
-      if (!adminPassword || input.password !== adminPassword) {
+      if (!adminPassword || !safeCompare(input.password, adminPassword)) {
+        await db.recordIpFailedAttempt(ipKey);
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Contraseña incorrecta' });
       }
-      await db.upsertUser({ openId: ADMIN_LOCAL_OPEN_ID, name: 'Admin', role: 'admin', lastSignedIn: new Date() });
-      // sdk.createSessionToken() mete ENV.appId (VITE_APP_ID) en el JWT, que no
-      // está configurado en este deploy standalone — firmamos directo con un
-      // appId fijo para no depender de esa variable de la plataforma original.
-      const sessionToken = await sdk.signSession({ openId: ADMIN_LOCAL_OPEN_ID, appId: 'candyland-admin', name: 'Admin' }, { expiresInMs: ONE_YEAR_MS });
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
-      return { success: true } as const;
+
+      // Vale de un solo uso para el segundo paso: sin esto habría que
+      // volver a mandar la contraseña, o peor, confiar en que el cliente
+      // dice la verdad sobre haberla pasado.
+      const ticket = await signAdminStepTicket();
+      const totp = await db.getAdminTotp();
+      return { ticket, needsSetup: !totp?.confirmedAt } as const;
     }),
+
+    // Genera el secreto y el QR para configurar la app de autenticación.
+    // No activa nada todavía: recién se activa cuando el dueño confirma
+    // con un código real (adminConfirmTotp).
+    adminSetupTotp: publicProcedure.input(z.object({ ticket: z.string() })).mutation(async ({ input }) => {
+      await requireAdminStepTicket(input.ticket);
+      const existing = await db.getAdminTotp();
+      if (existing?.confirmedAt) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'El segundo factor ya está configurado' });
+      }
+      const secret = createTotpSecret();
+      await db.saveUnconfirmedAdminTotp(secret);
+      const qrImageUrl = await QRCode.toDataURL(totpUri(secret), { width: 320, margin: 2 });
+      return { secret, qrImageUrl } as const;
+    }),
+
+    // Confirma la configuración y devuelve los códigos de respaldo. Es la
+    // ÚNICA vez que se muestran legibles: después solo queda su hash.
+    adminConfirmTotp: publicProcedure.input(z.object({ ticket: z.string(), code: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        await requireAdminStepTicket(input.ticket);
+        const totp = await db.getAdminTotp();
+        if (!totp) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Primero escanea el código QR' });
+        if (totp.confirmedAt) throw new TRPCError({ code: 'FORBIDDEN', message: 'Ya está configurado' });
+
+        const res = verifyTotp({ secret: totp.secret, token: input.code });
+        if (!res.ok) {
+          await db.recordIpFailedAttempt(adminIpKey(ctx));
+          throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Ese código no coincide. Revisa que el reloj de tu teléfono esté en hora.' });
+        }
+
+        const { plain, hashed } = generateBackupCodes();
+        await db.confirmAdminTotp(totp.id, hashed, res.timeStep);
+        issueAdminSession(ctx);
+        return { backupCodes: plain } as const;
+      }),
+
+    // Paso 2 de 2: el código de la app (o uno de respaldo). Recién acá se
+    // firma la sesión.
+    adminVerifyCode: publicProcedure.input(z.object({ ticket: z.string(), code: z.string() }))
+      .mutation(async ({ input, ctx }) => {
+        const ipKey = adminIpKey(ctx);
+        if (!(await db.checkIpRateLimit(ipKey))) {
+          throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+        }
+        await requireAdminStepTicket(input.ticket);
+
+        const totp = await db.getAdminTotp();
+        if (!totp?.confirmedAt) throw new TRPCError({ code: 'BAD_REQUEST', message: 'El segundo factor no está configurado' });
+
+        const res = verifyTotp({ secret: totp.secret, token: input.code, lastUsedStep: totp.lastUsedStep });
+        if (res.ok) {
+          await db.recordAdminTotpStep(totp.id, res.timeStep);
+          issueAdminSession(ctx);
+          return { success: true } as const;
+        }
+
+        // Si no era un código de la app, puede ser uno de respaldo.
+        const backup = consumeBackupCode((totp.backupCodes as string[] | null) ?? [], input.code);
+        if (backup.ok) {
+          await db.consumeAdminBackupCodes(totp.id, backup.remaining);
+          issueAdminSession(ctx);
+          return { success: true, backupCodeUsed: true, backupCodesLeft: backup.remaining.length } as const;
+        }
+
+        await db.recordIpFailedAttempt(ipKey);
+        throw new TRPCError({
+          code: 'UNAUTHORIZED',
+          message: res.reason === 'reusado' ? 'Ese código ya se usó. Espera al siguiente.' : 'Código incorrecto',
+        });
+      }),
   }),
 
   events: router({
