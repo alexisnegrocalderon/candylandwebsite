@@ -31,6 +31,7 @@ const Ticket = lazy(() => import("./pages/Ticket"));
 const Party = lazy(() => import("./pages/Party"));
 const Prices = lazy(() => import("./pages/Prices"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
+const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
 
 function PageLoader() {
   return (
@@ -78,6 +79,7 @@ function Router() {
           <Route path="/fiesta/:ticketCode" component={Party} />
           <Route path="/entradas" component={Prices} />
           <Route path="/politica-de-reembolso" component={RefundPolicy} />
+          <Route path="/politica-de-privacidad" component={PrivacyPolicy} />
           <Route path="/admin" component={AdminDashboard} />
           <Route path="/admin/print/orders" component={PrintOrders} />
           <Route path="/admin/print/customers" component={PrintCustomers} />

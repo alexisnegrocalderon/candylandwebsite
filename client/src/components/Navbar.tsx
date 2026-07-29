@@ -15,6 +15,7 @@ const navLinks = [
 const secondaryNavLinks = [
   { href: '/mis-referidos', label: 'Hall de la Fama' },
   { href: '/politica-de-reembolso', label: 'Política de reembolso' },
+  { href: '/politica-de-privacidad', label: 'Política de privacidad' },
 ];
 
 export default function Navbar() {

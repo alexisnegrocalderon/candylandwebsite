@@ -2548,8 +2548,8 @@ export async function listPartyReports(eventId: number) {
 }
 
 /** Borra lo que la gente escribió, 24h después de terminada la fiesta. Los
- * perfiles y las conexiones se conservan (sirven para saber si la función
- * funcionó); los mensajes no. Lo corre el cron diario que ya existe. */
+ * perfiles y las conexiones sobreviven un año más (ver
+ * purgeOldPartyProfiles); los mensajes no. Lo corre el cron diario. */
 export async function purgeOldPartyMessages(now: Date = new Date()) {
   const db = await getDb();
   if (!db) return { deletedFor: 0 };
@@ -2565,6 +2565,47 @@ export async function purgeOldPartyMessages(now: Date = new Date()) {
 
   await db.delete(partyMessages).where(inArray(partyMessages.connectionId, conns.map((c: any) => c.id)));
   return { deletedFor: eventIds.length };
+}
+
+/** Plazo de conservación de los perfiles de la fiesta, prometido en la
+ * política de privacidad (client/src/pages/PrivacyPolicy.tsx). Si se cambia
+ * acá, hay que cambiarlo también allá: una política que promete un borrado
+ * que el código no hace es una declaración falsa, no un detalle. */
+export const PARTY_PROFILE_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
+
+/** Borra los perfiles, toques, bloqueos y denuncias de fiestas de hace más
+ * de un año.
+ *
+ * Con una excepción: los perfiles referenciados por un trago pagado y NO
+ * retirado se conservan. Ese trago sigue válido para la próxima fiesta, y
+ * sin el perfil el barman perdería el "para La Reina, de El Rey" que le
+ * permite entregarlo. */
+export async function purgeOldPartyProfiles(now: Date = new Date()) {
+  const db = await getDb();
+  if (!db) return { profilesDeleted: 0 };
+
+  const cutoff = new Date(now.getTime() - PARTY_PROFILE_RETENTION_MS);
+  const oldEvents = await db.select({ id: events.id }).from(events).where(lte(events.eventEnd, cutoff));
+  if (oldEvents.length === 0) return { profilesDeleted: 0 };
+  const eventIds = oldEvents.map((e: any) => e.id);
+
+  // Perfiles que hay que preservar aunque el evento sea viejo.
+  const claimable = await db.select().from(partyGifts).where(eq(partyGifts.status, 'paid'));
+  const keep = new Set<number>(claimable.flatMap((g: any) => [g.fromProfileId, g.toProfileId]));
+
+  const profiles = await db.select({ id: partyProfiles.id }).from(partyProfiles)
+    .where(inArray(partyProfiles.eventId, eventIds));
+  const toDelete = profiles.map((p: any) => p.id).filter((id: number) => !keep.has(id));
+  if (toDelete.length === 0) return { profilesDeleted: 0 };
+
+  // Los mensajes de estos eventos ya no existen (se borran a las 24h), así
+  // que basta con las conexiones y lo que cuelga de los perfiles.
+  await db.delete(partyConnections).where(inArray(partyConnections.eventId, eventIds));
+  await db.delete(partyBlocks).where(inArray(partyBlocks.eventId, eventIds));
+  await db.delete(partyReports).where(inArray(partyReports.eventId, eventIds));
+  await db.delete(partyProfiles).where(inArray(partyProfiles.id, toDelete));
+
+  return { profilesDeleted: toDelete.length };
 }
 
 // --- Invitar un trago ---
