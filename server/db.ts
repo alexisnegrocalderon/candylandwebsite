@@ -1,10 +1,10 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice } from '../shared/mission300';
-import { MAX_TOUCHES_PER_EVENT, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
+import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -1308,10 +1308,19 @@ export async function getCajaSnapshot(eventId: number) {
     .filter((t: any) => t.category === 'extra' && t.status === 'active')
     .map((t: any) => ({ id: t.id, name: t.name, price: Number(t.price), color: t.color as string | null, internalCode: t.internalCode as string | null }));
 
+  // Tragos regalados pendientes de cobrar. Van APARTE de `attendees` a
+  // propósito: se arman desde las órdenes de ESTE evento, así que un regalo
+  // arrastrado desde la fiesta pasada no aparecería por ninguna parte -- y
+  // el dueño decidió que un trago no cobrado siga válido para la próxima.
+  // Cada uno viaja autocontenido (código, trago, para quién, de quién) para
+  // que la tablet pueda cobrarlo sin señal.
+  const gifts = await listClaimableGifts();
+
   return {
     event: { id: event.id, title: event.title, slug: event.slug },
     attendees,
     catalog,
+    gifts,
     serverTime: new Date().toISOString(),
   };
 }
@@ -2556,4 +2565,304 @@ export async function purgeOldPartyMessages(now: Date = new Date()) {
 
   await db.delete(partyMessages).where(inArray(partyMessages.connectionId, conns.map((c: any) => c.id)));
   return { deletedFor: eventIds.length };
+}
+
+// --- Invitar un trago ---
+// El flujo tiene tres pasos porque el dueño decidió que el destinatario
+// pueda rechazar y que nadie pague por un trago rechazado: invitar (gratis)
+// -> responder -> recién ahí pagar. Ver la máquina de estados en
+// shared/party.ts.
+
+/** Tragos que se pueden regalar: los mismos extras activos que la caja ya
+ * vende en la barra. No hay catálogo aparte que mantener. */
+export async function listPartyDrinks(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(ticketTypes)
+    .where(and(eq(ticketTypes.eventId, eventId), eq(ticketTypes.category, 'extra'), eq(ticketTypes.status, 'active')))
+    .orderBy(ticketTypes.sortOrder);
+  return rows.map((t: any) => ({ id: t.id, name: t.name, price: Number(t.price), description: t.description as string | null }));
+}
+
+export async function createGiftInvitation(params: {
+  eventId: number; fromProfileId: number; toProfileId: number; ticketTypeId: number; message: string;
+}) {
+  const db = await getDb();
+  if (!db) return { ok: false as const, reason: 'Base de datos no disponible' };
+  if (params.fromProfileId === params.toProfileId) return { ok: false as const, reason: 'No puedes invitarte un trago a ti mismo' };
+
+  const [target] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, params.toProfileId)).limit(1);
+  if (!target || target.eventId !== params.eventId || target.active !== 1) {
+    return { ok: false as const, reason: 'Esa persona ya no está en la fiesta' };
+  }
+
+  // El bloqueo también corta los regalos: si no, sería una vía para
+  // seguir apareciéndole a alguien que te bloqueó.
+  const hidden = await getPartyHiddenIds(db, params.fromProfileId);
+  if (hidden.has(params.toProfileId)) return { ok: false as const, reason: 'Esa persona ya no está en la fiesta' };
+
+  const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, params.ticketTypeId)).limit(1);
+  if (!tt || tt.eventId !== params.eventId || tt.category !== 'extra' || tt.status !== 'active') {
+    return { ok: false as const, reason: 'Ese trago no está disponible' };
+  }
+
+  // Una invitación viva a la vez por par y por trago -- si no, se puede
+  // spamear a alguien con invitaciones aunque el tope de toques ya se haya
+  // agotado.
+  const existing = await db.select().from(partyGifts).where(and(
+    eq(partyGifts.fromProfileId, params.fromProfileId),
+    eq(partyGifts.toProfileId, params.toProfileId),
+    inArray(partyGifts.status, ['invited', 'accepted']),
+  ));
+  if (existing.some((g: any) => !isGiftExpired(g))) {
+    return { ok: false as const, reason: 'Ya tienes una invitación pendiente con esa persona' };
+  }
+
+  await db.insert(partyGifts).values({
+    eventId: params.eventId,
+    fromProfileId: params.fromProfileId,
+    toProfileId: params.toProfileId,
+    ticketTypeId: tt.id,
+    // Congelados: un regalo se puede cobrar meses después y el precio del
+    // trago va a haber cambiado.
+    drinkName: tt.name,
+    priceClp: String(Number(tt.price)),
+    message: params.message || null,
+    status: 'invited',
+    expiresAt: giftExpiresAt(),
+  });
+
+  const [created] = await db.select().from(partyGifts)
+    .where(and(eq(partyGifts.fromProfileId, params.fromProfileId), eq(partyGifts.toProfileId, params.toProfileId)))
+    .orderBy(desc(partyGifts.id)).limit(1);
+
+  return { ok: true as const, giftId: created.id };
+}
+
+export async function respondToGiftInvitation(profileId: number, giftId: number, accept: boolean) {
+  const db = await getDb();
+  if (!db) return { ok: false as const, reason: 'Base de datos no disponible' };
+
+  const [gift] = await db.select().from(partyGifts).where(eq(partyGifts.id, giftId)).limit(1);
+  if (!gift) return { ok: false as const, reason: 'Esa invitación ya no existe' };
+  if (!canRespondToGift(gift as any, profileId)) return { ok: false as const, reason: 'Esa invitación ya no está disponible' };
+
+  const status = accept ? 'accepted' : 'declined';
+  await db.update(partyGifts).set({ status, respondedAt: new Date() }).where(eq(partyGifts.id, giftId));
+  return { ok: true as const, status };
+}
+
+/** Crea la orden que cobra el regalo. Es una orden web mínima a propósito:
+ * no pasa por `createOrder`, que arrastra Misión 300, códigos de descuento,
+ * recargo por servicio y datos de asistentes -- nada de eso aplica a un
+ * trago, y el dueño pidió cobrarlo al precio de la barra, sin recargo.
+ * El cobro después lo hace `processCardPaymentForOrder`, sin cambios. */
+export async function createGiftOrder(profileId: number, giftId: number, buyer: { name: string; email: string }) {
+  const db = await getDb();
+  if (!db) return { ok: false as const, reason: 'Base de datos no disponible' };
+
+  const [gift] = await db.select().from(partyGifts).where(eq(partyGifts.id, giftId)).limit(1);
+  if (!gift) return { ok: false as const, reason: 'Esa invitación ya no existe' };
+  if (!canPayGift(gift as any, profileId)) return { ok: false as const, reason: 'Esta invitación ya no se puede pagar' };
+
+  // Si ya se había creado una orden pendiente para este regalo, se reusa en
+  // vez de crear otra (el que invita puede recargar la pantalla de pago).
+  if (gift.orderId) {
+    const [existing] = await db.select().from(orders).where(eq(orders.id, gift.orderId)).limit(1);
+    if (existing && existing.paymentStatus === 'pending') {
+      return { ok: true as const, orderNumber: existing.orderNumber, total: Number(existing.total) };
+    }
+  }
+
+  const total = Number(gift.priceClp);
+  const orderNumber = `GIFT-${Date.now().toString(36).toUpperCase()}`;
+
+  const [orderResult] = await db.insert(orders).values({
+    orderNumber,
+    buyerName: buyer.name,
+    buyerEmail: buyer.email,
+    eventId: gift.eventId,
+    subtotal: String(total),
+    discount: '0',
+    serviceFee: '0', // el trago se cobra al precio de la barra (decisión del dueño)
+    total: String(total),
+    paymentStatus: 'pending',
+    channel: 'web',
+  });
+  const orderId = (orderResult as unknown as { insertId: number }).insertId;
+
+  await db.insert(orderItems).values({
+    orderId,
+    ticketTypeId: gift.ticketTypeId,
+    quantity: 1,
+    unitPrice: String(total),
+    totalPrice: String(total),
+  });
+
+  await db.update(partyGifts).set({ orderId }).where(eq(partyGifts.id, giftId));
+
+  return { ok: true as const, orderNumber, total };
+}
+
+/** El regalo asociado a una orden, si la orden es un regalo. Lo usa
+ * processApprovedOrder para decidir a nombre de quién queda el ticket y
+ * qué email mandar. */
+export async function getPartyGiftByOrderId(orderId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [gift] = await db.select().from(partyGifts).where(eq(partyGifts.orderId, orderId)).limit(1);
+  return gift ?? null;
+}
+
+/** Alias del destinatario de un regalo -- es el `holderName` del ticket. */
+export async function getPartyProfileById(profileId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [p] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, profileId)).limit(1);
+  return p ?? null;
+}
+
+export async function markGiftPaid(giftId: number, ticketId: number, displayCode: string | null) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(partyGifts)
+    .set({ status: 'paid', ticketId, displayCode, paidAt: new Date() })
+    .where(eq(partyGifts.id, giftId));
+}
+
+/** Marca el regalo como cobrado en la barra. Lo llama el canje de caja
+ * cuando el ticket resulta ser un regalo. */
+export async function markGiftRedeemedByTicketId(ticketId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(partyGifts).set({ status: 'redeemed', redeemedAt: new Date() }).where(eq(partyGifts.ticketId, ticketId));
+}
+
+/** ¿Este ticket es un regalo? Lo pregunta el canje de caja para saber si
+ * puede aceptarlo aunque venga de un evento anterior. */
+export async function getPartyGiftByTicketId(ticketId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [gift] = await db.select().from(partyGifts).where(eq(partyGifts.ticketId, ticketId)).limit(1);
+  return gift ?? null;
+}
+
+/** Mis regalos: los que recibí y los que mandé. */
+export async function listMyGifts(profileId: number) {
+  const db = await getDb();
+  if (!db) return { received: [], sent: [] };
+
+  const rows = await db.select().from(partyGifts)
+    .where(or(eq(partyGifts.toProfileId, profileId), eq(partyGifts.fromProfileId, profileId)))
+    .orderBy(desc(partyGifts.id));
+
+  const profileIds = Array.from(new Set(rows.flatMap((g: any) => [g.fromProfileId, g.toProfileId])));
+  const profiles = profileIds.length
+    ? await db.select().from(partyProfiles).where(inArray(partyProfiles.id, profileIds))
+    : [];
+  const aliasById = new Map<number, string>(profiles.map((p: any) => [p.id, p.alias]));
+
+  const shape = (g: any) => ({
+    id: g.id,
+    drinkName: g.drinkName,
+    priceClp: Number(g.priceClp),
+    message: g.message as string | null,
+    // Una invitación vencida se muestra como vencida, no como pendiente.
+    status: isGiftExpired(g) ? 'expired' : g.status,
+    // El código solo se muestra cuando ya está pagado.
+    displayCode: g.status === 'paid' ? g.displayCode : null,
+    fromAlias: aliasById.get(g.fromProfileId) ?? '',
+    toAlias: aliasById.get(g.toProfileId) ?? '',
+    createdAt: g.createdAt,
+  });
+
+  return {
+    received: rows.filter((g: any) => g.toProfileId === profileId).map(shape),
+    sent: rows.filter((g: any) => g.fromProfileId === profileId).map(shape),
+  };
+}
+
+/** Regalos pagados y todavía no cobrados, para el snapshot de caja. Van
+ * los de este evento Y los de eventos anteriores: el dueño decidió que un
+ * trago no cobrado siga válido para la próxima fiesta, y sin esto el
+ * barman no podría encontrarlo con la tablet sin señal. */
+export async function listClaimableGifts() {
+  const db = await getDb();
+  if (!db) return [];
+
+  const rows = await db.select().from(partyGifts).where(eq(partyGifts.status, 'paid'));
+  if (rows.length === 0) return [];
+
+  const profileIds = Array.from(new Set(rows.flatMap((g: any) => [g.fromProfileId, g.toProfileId])));
+  const profiles = profileIds.length
+    ? await db.select().from(partyProfiles).where(inArray(partyProfiles.id, profileIds))
+    : [];
+  const aliasById = new Map<number, string>(profiles.map((p: any) => [p.id, p.alias]));
+
+  return rows
+    .filter((g: any) => g.displayCode)
+    .map((g: any) => ({
+      displayCode: g.displayCode as string,
+      drinkName: g.drinkName as string,
+      toAlias: aliasById.get(g.toProfileId) ?? '',
+      fromAlias: aliasById.get(g.fromProfileId) ?? '',
+      eventId: g.eventId as number,
+      paidAt: g.paidAt,
+    }));
+}
+
+/** Vence las invitaciones que nadie pagó. Corre en el cron diario, junto
+ * con el borrado de los chats. Nunca toca un regalo ya pagado. */
+export async function expireOldGiftInvitations(now: Date = new Date()) {
+  const db = await getDb();
+  if (!db) return { expired: 0 };
+
+  const pending = await db.select().from(partyGifts).where(inArray(partyGifts.status, ['invited', 'accepted']));
+  const stale = pending.filter((g: any) => isGiftExpired(g, now));
+  if (stale.length === 0) return { expired: 0 };
+
+  await db.update(partyGifts).set({ status: 'expired' }).where(inArray(partyGifts.id, stale.map((g: any) => g.id)));
+  return { expired: stale.length };
+}
+
+/** Todos los regalos de un evento, para el admin. */
+export async function listPartyGiftsForEvent(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(partyGifts).where(eq(partyGifts.eventId, eventId)).orderBy(desc(partyGifts.id));
+
+  const profileIds = Array.from(new Set(rows.flatMap((g: any) => [g.fromProfileId, g.toProfileId])));
+  const profiles = profileIds.length
+    ? await db.select().from(partyProfiles).where(inArray(partyProfiles.id, profileIds))
+    : [];
+  const aliasById = new Map<number, string>(profiles.map((p: any) => [p.id, p.alias]));
+
+  return rows.map((g: any) => ({
+    id: g.id,
+    drinkName: g.drinkName,
+    priceClp: Number(g.priceClp),
+    status: isGiftExpired(g) ? 'expired' : g.status,
+    fromAlias: aliasById.get(g.fromProfileId) ?? '',
+    toAlias: aliasById.get(g.toProfileId) ?? '',
+    displayCode: g.displayCode as string | null,
+    createdAt: g.createdAt,
+    paidAt: g.paidAt,
+    redeemedAt: g.redeemedAt,
+  }));
+}
+
+/** Alias + email del dueño de un perfil de la fiesta. El email sale de la
+ * orden de su acceso: el perfil no guarda datos de contacto (a propósito),
+ * pero el sistema sí necesita poder mandarle el código de un regalo. */
+export async function getPartyProfileContact(profileId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [profile] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, profileId)).limit(1);
+  if (!profile) return null;
+
+  const [ticket] = await db.select().from(tickets).where(eq(tickets.id, profile.ticketId)).limit(1);
+  const [order] = ticket ? await db.select().from(orders).where(eq(orders.id, ticket.orderId)).limit(1) : [null];
+
+  return { alias: profile.alias as string, email: (order?.buyerEmail as string | undefined) ?? null };
 }

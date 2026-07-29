@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { useRoute, useSearch, Link } from 'wouter';
 import { ArrowLeft, ArrowRight, Tag, Loader2, Check, ShieldCheck, Minus, Plus, MessageCircle } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { PaymentBrick } from '@/components/PaymentBrick';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -129,35 +130,6 @@ function friendlyPregunta(rawKey: string, field: CampoForm): { titulo: string; s
 
 /* Traduce los status_detail más comunes que devuelve Mercado Pago al
  * rechazar un pago — para no mostrarle a la persona un código críptico. */
-function motivoRechazo(detail?: string): string {
-  const mapa: Record<string, string> = {
-    cc_rejected_insufficient_amount: 'Tu tarjeta no tiene fondos suficientes.',
-    cc_rejected_bad_filled_card_number: 'Revisa el número de tarjeta, parece incorrecto.',
-    cc_rejected_bad_filled_date: 'Revisa la fecha de vencimiento de la tarjeta.',
-    cc_rejected_bad_filled_security_code: 'Revisa el código de seguridad (CVV).',
-    cc_rejected_bad_filled_other: 'Revisa los datos de la tarjeta e intenta de nuevo.',
-    cc_rejected_call_for_authorize: 'Tu banco pide que autorices el pago — llámalo o intenta con otra tarjeta.',
-    cc_rejected_card_disabled: 'Tu tarjeta está deshabilitada para pagos online — contacta a tu banco.',
-    cc_rejected_duplicated_payment: 'Ya hiciste un pago por este mismo monto — revisa si ya se procesó.',
-    cc_rejected_high_risk: 'El pago fue rechazado por seguridad. Intenta con otra tarjeta.',
-    cc_rejected_max_attempts: 'Llegaste al máximo de intentos con esta tarjeta. Prueba con otra.',
-    cc_rejected_other_reason: 'Tu banco rechazó el pago. Intenta con otra tarjeta.',
-  };
-  return (detail && mapa[detail]) || 'No pudimos procesar el pago con esa tarjeta. Intenta de nuevo o usa otra tarjeta.';
-}
-
-function loadMercadoPagoSdk(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if ((window as any).MercadoPago) return resolve();
-    const script = document.createElement('script');
-    script.src = 'https://sdk.mercadopago.com/js/v2';
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('No se pudo cargar Mercado Pago'));
-    document.head.appendChild(script);
-  });
-}
-
 function BigOption({
   emoji, titulo, sub, activo, onClick,
 }: { emoji: string; titulo: string; sub?: string; activo?: boolean; onClick: () => void }) {
@@ -266,7 +238,6 @@ export default function Checkout() {
   const validateDiscount = trpc.orders.validateDiscount.useMutation();
   const validateCommunityCode = trpc.communityCodes.validate.useMutation();
   const createOrder = trpc.orders.create.useMutation();
-  const processCardPayment = trpc.orders.processCardPayment.useMutation();
 
   /* ── "¿Cómo vienes?" (Paso 1) + acceso resuelto a partir de la respuesta ── */
   const [groupSize, setGroupSize] = useState<GroupSize | null>(() => {
@@ -403,8 +374,6 @@ export default function Checkout() {
     const advance = window.setTimeout(() => setShowResumenFinal(false), 5000);
     return () => { window.clearInterval(interval); window.clearTimeout(advance); };
   }, [showResumenFinal]);
-  const brickControllerRef = useRef<any>(null);
-  useEffect(() => () => { brickControllerRef.current?.unmount?.(); }, []);
   const addonEstac = CANDYLAND.addons.estacionamiento;
   const covers = CANDYLAND.addons.covers;
   const coversOn = coversDisponibles();
@@ -616,71 +585,6 @@ export default function Checkout() {
     }
   };
 
-  // Monta el Payment Brick (formulario de tarjeta embebido, sin modal ni
-  // redirect de Mercado Pago) recién cuando se pasa la pantalla de resumen final.
-  useEffect(() => {
-    if (!ordenPago || pagoResultado === 'approved' || showResumenFinal) return;
-    const publicKey = import.meta.env.VITE_MERCADOPAGO_PUBLIC_KEY as string | undefined;
-    if (!publicKey) return;
-    let cancelled = false;
-
-    (async () => {
-      await loadMercadoPagoSdk();
-      if (cancelled) return;
-      const mp = new (window as any).MercadoPago(publicKey, { locale: 'es-CL' });
-      const controller = await mp.bricks().create('payment', 'mp-payment-brick', {
-        initialization: { amount: ordenPago.total },
-        customization: {
-          // No incluir `mercadoPago`/`ticket` acá: la Brick los oculta si no
-          // aparecen en el objeto (pasar 'none' no es un valor válido de la API).
-          paymentMethods: { creditCard: 'all', debitCard: 'all', prepaidCard: 'all' },
-        },
-        callbacks: {
-          onReady: () => {},
-          onSubmit: ({ formData }: any) => new Promise<void>((resolve, reject) => {
-            processCardPayment.mutate(
-              {
-                orderNumber: ordenPago.orderNumber,
-                token: formData.token,
-                paymentMethodId: formData.payment_method_id,
-                issuerId: formData.issuer_id,
-                installments: formData.installments,
-                identificationType: formData.payer?.identification?.type,
-                identificationNumber: formData.payer?.identification?.number,
-              },
-              {
-                onSuccess: (res) => {
-                  setPagoResultado(res.status === 'in_process' ? 'pending' : res.status as any);
-                  if (res.status === 'rejected') {
-                    setPagoErrorMsg(motivoRechazo(res.statusDetail));
-                    reject();
-                  } else {
-                    resolve();
-                  }
-                },
-                onError: (e: any) => {
-                  setPagoErrorMsg(e.message || 'No pudimos procesar el pago. Intenta de nuevo.');
-                  reject();
-                },
-              }
-            );
-          }),
-          onError: (error: any) => {
-            console.error('[MP Brick]', error);
-          },
-        },
-      });
-      if (cancelled) { controller.unmount?.(); return; }
-      brickControllerRef.current = controller;
-    })();
-
-    return () => {
-      cancelled = true;
-      brickControllerRef.current?.unmount?.();
-      brickControllerRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ordenPago?.orderNumber, showResumenFinal]);
 
   const err = (key: string) => (errors as any)[key]?.message as string | undefined;
 
@@ -800,7 +704,14 @@ export default function Checkout() {
               {pagoErrorMsg}
             </div>
           )}
-          <div id="mp-payment-brick" />
+          {ordenPago && !showResumenFinal && (
+            <PaymentBrick
+              orderNumber={ordenPago.orderNumber}
+              amount={ordenPago.total}
+              onResult={(status) => setPagoResultado(status === 'in_process' ? 'pending' : status as any)}
+              onError={setPagoErrorMsg}
+            />
+          )}
           <p className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground mt-5">
             <ShieldCheck className="w-3.5 h-3.5" /> Pago procesado de forma segura por Mercado Pago
           </p>

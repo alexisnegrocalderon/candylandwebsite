@@ -633,3 +633,45 @@ export const partyReports = mysqlTable("partyReports", {
 
 export type PartyReport = typeof partyReports.$inferSelect;
 export type InsertPartyReport = typeof partyReports.$inferInsert;
+
+// Invitar un trago: se le puede invitar a cualquiera, pero la otra persona
+// puede rechazarlo, y por eso el cobro va DESPUÉS de la respuesta (ver la
+// máquina de estados en shared/party.ts). Nadie paga por un trago que la
+// otra persona no quiso.
+export const partyGifts = mysqlTable("partyGifts", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  fromProfileId: int("fromProfileId").notNull(),
+  toProfileId: int("toProfileId").notNull(),
+  ticketTypeId: int("ticketTypeId").notNull(),
+  // Nombre y precio CONGELADOS al invitar (misma convención que
+  // orders.serviceFee y ambassadorCommissions): los precios cambian entre
+  // eventos y un regalo puede cobrarse meses después, así que el barman
+  // tiene que ver lo que realmente se compró, no lo que vale hoy.
+  drinkName: varchar("drinkName", { length: 100 }).notNull(),
+  priceClp: decimal("priceClp", { precision: 10, scale: 0 }).notNull(),
+  message: varchar("message", { length: 120 }),
+  status: mysqlEnum("status", ["invited", "accepted", "declined", "paid", "redeemed", "expired"]).default("invited").notNull(),
+  // Se llenan al pagar. La orden es una orden web normal, así que se cobra
+  // con el mismo processCardPaymentForOrder que las entradas.
+  orderId: int("orderId"),
+  ticketId: int("ticketId"),
+  displayCode: varchar("displayCode", { length: 20 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  // Vence la INVITACIÓN sin pagar, nunca el regalo ya pagado.
+  expiresAt: timestamp("expiresAt"),
+  respondedAt: timestamp("respondedAt"),
+  paidAt: timestamp("paidAt"),
+  redeemedAt: timestamp("redeemedAt"),
+}, (table) => ({
+  // "mis regalos" (recibidos y enviados) y "los que la caja puede cobrar".
+  toIdx: index("party_gifts_to_idx").on(table.toProfileId, table.status),
+  fromIdx: index("party_gifts_from_idx").on(table.fromProfileId, table.status),
+  // El snapshot de caja necesita los pagados-no-cobrados de TODOS los
+  // eventos, no solo del actual.
+  statusIdx: index("party_gifts_status_idx").on(table.status),
+  orderIdx: index("party_gifts_order_idx").on(table.orderId),
+}));
+
+export type PartyGift = typeof partyGifts.$inferSelect;
+export type InsertPartyGift = typeof partyGifts.$inferInsert;

@@ -175,3 +175,75 @@ export function sanitizeMessage(raw: string): { ok: true; body: string } | { ok:
   if (body.length > MAX_MESSAGE_LENGTH) return { ok: false, reason: `Máximo ${MAX_MESSAGE_LENGTH} caracteres` };
   return { ok: true, body };
 }
+
+// --- Invitar un trago ---------------------------------------------------
+//
+// Se le puede invitar un trago a cualquiera, sin necesidad de tener el chat
+// abierto: invitar un trago es justamente la forma clásica de acercarse a
+// alguien que todavía no conoces (decisión del dueño). Pero la otra persona
+// puede rechazarlo, y por eso el cobro va DESPUÉS de la respuesta: nadie
+// paga por un trago que la otra persona no quiso.
+
+export type GiftStatus = 'invited' | 'accepted' | 'declined' | 'paid' | 'redeemed' | 'expired';
+
+/** Una invitación sin pagar vence a los 15 minutos. Los dos están en la
+ * misma fiesta con el teléfono en la mano, así que el ida y vuelta normal
+ * es de segundos; el plazo existe para que nadie quede esperando un trago
+ * que el que invitó ya no va a pagar. */
+export const GIFT_INVITE_TTL_MS = 15 * 60 * 1000;
+
+export const MAX_GIFT_MESSAGE_LENGTH = 120;
+
+export function giftExpiresAt(createdAt: Date = new Date()): Date {
+  return new Date(createdAt.getTime() + GIFT_INVITE_TTL_MS);
+}
+
+export function isGiftExpired(gift: { status: GiftStatus; expiresAt?: Date | string | null }, now: Date = new Date()): boolean {
+  // Una vez pagado ya no vence: el trago queda válido incluso para el
+  // próximo evento (decisión del dueño).
+  if (gift.status === 'paid' || gift.status === 'redeemed') return false;
+  if (gift.status === 'declined' || gift.status === 'expired') return false;
+  const t = toTime(gift.expiresAt);
+  if (t === null) return false;
+  return now.getTime() >= t;
+}
+
+/** Solo el destinatario responde, y solo mientras la invitación siga viva. */
+export function canRespondToGift(
+  gift: { status: GiftStatus; toProfileId: number; expiresAt?: Date | string | null },
+  profileId: number,
+  now: Date = new Date()
+): boolean {
+  if (gift.toProfileId !== profileId) return false;
+  if (gift.status !== 'invited') return false;
+  return !isGiftExpired(gift, now);
+}
+
+/** Solo paga quien invitó, y solo después de que le dijeron que sí. */
+export function canPayGift(
+  gift: { status: GiftStatus; fromProfileId: number; expiresAt?: Date | string | null },
+  profileId: number,
+  now: Date = new Date()
+): boolean {
+  if (gift.fromProfileId !== profileId) return false;
+  if (gift.status !== 'accepted') return false;
+  return !isGiftExpired(gift, now);
+}
+
+/** Un regalo pagado y todavía no cobrado en la barra. Es lo que la caja
+ * tiene que poder canjear, sea de esta fiesta o de una anterior. */
+export function isGiftClaimable(gift: { status: GiftStatus }): boolean {
+  return gift.status === 'paid';
+}
+
+/** Qué le mostramos al destinatario de un regalo que sigue `invited` pero
+ * ya venció: nada. La invitación simplemente desaparece. */
+export function visibleGiftStatus(gift: { status: GiftStatus; expiresAt?: Date | string | null }, now: Date = new Date()): GiftStatus {
+  return isGiftExpired(gift, now) ? 'expired' : gift.status;
+}
+
+export function sanitizeGiftMessage(raw: string): { ok: true; body: string } | { ok: false; reason: string } {
+  const body = raw.replace(/\s+/g, ' ').trim();
+  if (body.length > MAX_GIFT_MESSAGE_LENGTH) return { ok: false, reason: `Máximo ${MAX_GIFT_MESSAGE_LENGTH} caracteres` };
+  return { ok: true, body };
+}

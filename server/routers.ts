@@ -11,7 +11,7 @@ import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
 import { redeemDisplayCode } from "./caja/redeem";
 import { checkInTicket } from "./caja/checkin";
-import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeMessage } from "../shared/party";
+import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage } from "../shared/party";
 
 /** Puerta de entrada a "Caramelo": resuelve al que llama por su ticketCode
  * y revalida, en cada llamada, que entró de verdad por la puerta y que la
@@ -436,9 +436,70 @@ export const appRouter = router({
         return { ok: true };
       }),
 
+    // --- Invitar un trago ---
+    // Tres pasos porque el destinatario puede rechazar y nadie paga por un
+    // trago rechazado: invitar (gratis) -> responder -> pagar.
+    listDrinks: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return db.listPartyDrinks(actor.event.id);
+    }),
+
+    sendGift: publicProcedure.input(z.object({
+      ticketCode: z.string(),
+      targetProfileId: z.number(),
+      ticketTypeId: z.number(),
+      message: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+
+      const check = sanitizeGiftMessage(input.message ?? '');
+      if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
+
+      const res = await db.createGiftInvitation({
+        eventId: actor.event.id,
+        fromProfileId: actor.profile.id,
+        toProfileId: input.targetProfileId,
+        ticketTypeId: input.ticketTypeId,
+        message: check.body,
+      });
+      if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+      return res;
+    }),
+
+    respondGift: publicProcedure.input(z.object({ ticketCode: z.string(), giftId: z.number(), accept: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        const res = await db.respondToGiftInvitation(actor.profile.id, input.giftId, input.accept);
+        if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+        return res;
+      }),
+
+    // Crea la orden del regalo y devuelve su número. El cobro después va
+    // por `orders.processCardPayment`, el mismo endpoint que las entradas.
+    payGift: publicProcedure.input(z.object({ ticketCode: z.string(), giftId: z.number() }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        // El comprador es el dueño del acceso con el que entró: su email ya
+        // está en la orden de su entrada, no se le vuelve a pedir nada.
+        const contact = await db.getPartyProfileContact(actor.profile.id);
+        if (!contact?.email) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No pudimos identificar tu correo' });
+
+        const res = await db.createGiftOrder(actor.profile.id, input.giftId, { name: contact.alias, email: contact.email });
+        if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+        return res;
+      }),
+
+    myGifts: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return db.listMyGifts(actor.profile.id);
+    }),
+
     // Para el equipo del local, durante la fiesta.
     listReports: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.listPartyReports(input.eventId);
+    }),
+    listGifts: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.listPartyGiftsForEvent(input.eventId);
     }),
   }),
 

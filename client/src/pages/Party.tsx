@@ -7,6 +7,7 @@ import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { PartyAvatar } from '@/components/party/Avatar';
 import { Mansion, type MansionPerson } from '@/components/party/Mansion';
+import { DrinkPicker, GiftInbox } from '@/components/party/Gifts';
 import {
   AVATARS_PER_GENDER, MAX_ALIAS_LENGTH, MAX_MESSAGE_LENGTH, PARTY_GENDERS, PARTY_ZONES,
   ZONE_LABELS, sanitizeAlias, type PartyGender, type PartyZone,
@@ -36,6 +37,8 @@ export default function Party() {
   const session = trpc.party.getSession.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
   const [openChat, setOpenChat] = useState<{ connectionId: number; alias: string } | null>(null);
   const [selected, setSelected] = useState<MansionPerson | null>(null);
+  const [gifting, setGifting] = useState<{ profileId: number; alias: string } | null>(null);
+  const [inboxOpen, setInboxOpen] = useState(false);
 
   if (session.isLoading) {
     return (
@@ -60,11 +63,23 @@ export default function Party() {
         onPick={setSelected}
         onZoneChanged={() => session.refetch()}
         onOpenChat={(connectionId, alias) => { setSelected(null); setOpenChat({ connectionId, alias }); }}
+        onGift={(profileId, alias) => { setSelected(null); setGifting({ profileId, alias }); }}
+        onOpenInbox={() => setInboxOpen(true)}
         selected={selected}
         onCloseCard={() => setSelected(null)}
       />
 
       <AnimatePresence>
+        {gifting && (
+          <DrinkPicker
+            ticketCode={ticketCode}
+            targetProfileId={gifting.profileId}
+            targetAlias={gifting.alias}
+            onClose={() => setGifting(null)}
+            onSent={() => setGifting(null)}
+          />
+        )}
+        {inboxOpen && <GiftInbox ticketCode={ticketCode} onClose={() => setInboxOpen(false)} />}
         {openChat && (
           <Chat
             ticketCode={ticketCode}
@@ -215,12 +230,14 @@ function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreate
 
 /* --- La mansión ---------------------------------------------------------- */
 
-function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, selected, onCloseCard }: {
+function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, onGift, onOpenInbox, selected, onCloseCard }: {
   ticketCode: string;
   myZone: PartyZone;
   onPick: (p: MansionPerson) => void;
   onZoneChanged: () => void;
   onOpenChat: (connectionId: number, alias: string) => void;
+  onGift: (profileId: number, alias: string) => void;
+  onOpenInbox: () => void;
   selected: MansionPerson | null;
   onCloseCard: () => void;
 }) {
@@ -237,13 +254,34 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, se
   const people = mansion.data?.people ?? [];
   const pending = useMemo(() => people.filter((p) => p.pendingForMe), [people]);
 
+  // Lo que pide acción mía: una invitación por responder, o una que ya me
+  // aceptaron y falta pagar.
+  const myGifts = trpc.party.myGifts.useQuery({ ticketCode }, { refetchInterval: 10_000 });
+  const pendingGifts =
+    (myGifts.data?.received.filter((g) => g.status === 'invited').length ?? 0) +
+    (myGifts.data?.sent.filter((g) => g.status === 'accepted').length ?? 0);
+
   return (
     <div className="max-w-md mx-auto px-4 py-5 pb-24">
-      <header className="flex items-baseline justify-between mb-4">
+      <header className="flex items-center justify-between mb-4">
         <h1 className="font-heading font-extrabold text-2xl tracking-tight">La fiesta 🍬</h1>
-        <p className="text-xs text-white/40">
-          {mansion.data ? `${mansion.data.touchesLeft} toques` : ''}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-xs text-white/40">
+            {mansion.data ? `${mansion.data.touchesLeft} toques` : ''}
+          </p>
+          <button
+            onClick={onOpenInbox}
+            className="relative h-9 px-3 rounded-full border border-white/15 text-sm"
+            aria-label="Mis tragos"
+          >
+            🍹
+            {pendingGifts > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 grid place-items-center rounded-full bg-primary text-[11px] font-bold">
+                {pendingGifts}
+              </span>
+            )}
+          </button>
+        </div>
       </header>
 
       {pending.length > 0 && (
@@ -276,6 +314,7 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, se
             person={selected}
             onClose={onCloseCard}
             onOpenChat={onOpenChat}
+            onGift={onGift}
           />
         )}
       </AnimatePresence>
@@ -285,11 +324,12 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, se
 
 /* --- Tarjeta de una persona ---------------------------------------------- */
 
-function PersonCard({ ticketCode, person, onClose, onOpenChat }: {
+function PersonCard({ ticketCode, person, onClose, onOpenChat, onGift }: {
   ticketCode: string;
   person: MansionPerson;
   onClose: () => void;
   onOpenChat: (connectionId: number, alias: string) => void;
+  onGift: (profileId: number, alias: string) => void;
 }) {
   const utils = trpc.useUtils();
   const [reporting, setReporting] = useState(false);
@@ -393,6 +433,16 @@ function PersonCard({ ticketCode, person, onClose, onOpenChat }: {
             Mandar un toque 👋
           </button>
         )}
+
+        {/* Invitar un trago no exige tener el chat abierto: es justamente
+            la forma clásica de acercarse a alguien que no conoces. La otra
+            persona puede rechazarlo, y ahí no se cobra nada. */}
+        <button
+          onClick={() => onGift(person.id, person.alias)}
+          className="w-full h-13 mt-2.5 rounded-full border border-primary/40 bg-primary/10 font-semibold"
+        >
+          Invitarle un trago 🍹
+        </button>
 
         <div className="mt-6 pt-5 border-t border-white/10">
           {!reporting ? (

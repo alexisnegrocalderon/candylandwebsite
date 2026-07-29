@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
-import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getActiveExclusiveAmbassadorByCode, recordAmbassadorCommission, computeAmbassadorCommissionBase } from './db';
+import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getActiveExclusiveAmbassadorByCode, recordAmbassadorCommission, computeAmbassadorCommissionBase, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid } from './db';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
 import { eq, and, sql, isNotNull, ne, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { generateTicketQR } from './qr';
-import { sendEmail, buildOrderEmail, buildMissionTopupEmail, buildTierUpEmail, buildAlmostTierEmail, buildSalesRecordEmail } from './email';
+import { sendEmail, buildOrderEmail, buildMissionTopupEmail, buildTierUpEmail, buildAlmostTierEmail, buildSalesRecordEmail, buildGiftEmail } from './email';
 import { missionCutoff, missionCapPrice, personasForAccesoSlug, MISSION_300_GOAL } from '../shared/mission300';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
@@ -413,6 +413,16 @@ async function processApprovedOrder(order: any) {
   const [event] = await db.select().from(events).where(eq(events.id, order.eventId)).limit(1);
   if (!event) return;
 
+  // ¿Esta orden es un trago que alguien le invitó a otra persona? Si lo es,
+  // el ticket queda a nombre del DESTINATARIO (no del que pagó) y al final
+  // se manda el correo del regalo en vez del de entrada. Todo lo demás
+  // -- Playcoins a quien pagó, cliente, embajadores -- sigue igual.
+  const gift = await getPartyGiftByOrderId(order.id);
+  const giftRecipient = gift ? await getPartyProfileContact(gift.toProfileId) : null;
+  const giftSender = gift ? await getPartyProfileContact(gift.fromProfileId) : null;
+  let giftTicketId: number | null = null;
+  let giftDisplayCode: string | null = null;
+
   // Ticket types de la orden, para saber category/internalCode al generar
   // displayCode (docs/ARQUITECTURA-CAJA.md §9) — evita una query por item.
   const orderTicketTypeIds = Array.from(new Set(items.map(i => i.ticketTypeId)));
@@ -434,19 +444,27 @@ async function processApprovedOrder(order: any) {
     for (let i = 0; i < item.quantity; i++) {
       const ticketCode = `MP-${nanoid(12).toUpperCase()}`;
       const { qrData, qrImageUrl } = await generateTicketQR(ticketCode, event.title);
+      const displayCode = isRedeemable ? generateDisplayCode(prefix) : null;
 
-      await db.insert(tickets).values({
+      const [inserted] = await db.insert(tickets).values({
         ticketCode,
         orderId: order.id,
         orderItemId: item.id,
         eventId: order.eventId,
         ticketTypeId: item.ticketTypeId,
-        holderName: order.buyerName,
+        // Un regalo va a nombre de quien lo recibe, no de quien lo pagó:
+        // es el alias que el barman ve al canjearlo en la barra.
+        holderName: giftRecipient?.alias ?? order.buyerName,
         qrData,
         qrImageUrl,
         status: 'valid',
-        displayCode: isRedeemable ? generateDisplayCode(prefix) : null,
+        displayCode,
       });
+
+      if (gift && giftTicketId === null) {
+        giftTicketId = (inserted as unknown as { insertId: number }).insertId;
+        giftDisplayCode = displayCode;
+      }
     }
   }
 
@@ -532,6 +550,30 @@ async function processApprovedOrder(order: any) {
 
   await ensureOwnAmbassadorCode(db, order);
   const [refreshedOrder] = await db.select().from(orders).where(eq(orders.id, order.id)).limit(1);
+
+  // Un regalo no manda el correo de entrada: el que pagó ya tiene la suya,
+  // y quien recibe el trago necesita el CÓDIGO, no un acceso. El correo va
+  // al destinatario y es el respaldo del código -- la app de la fiesta se
+  // cierra al terminar el evento, pero el trago sigue valiendo para la
+  // próxima.
+  if (gift && giftTicketId !== null) {
+    await markGiftPaid(gift.id, giftTicketId, giftDisplayCode);
+
+    if (giftRecipient?.email && giftDisplayCode) {
+      const html = buildGiftEmail({
+        toAlias: giftRecipient.alias,
+        fromAlias: giftSender?.alias ?? 'Alguien',
+        drinkName: gift.drinkName,
+        displayCode: giftDisplayCode,
+        message: gift.message,
+        eventTitle: event.title,
+      });
+      await sendEmail({ to: giftRecipient.email, subject: `🍹 ${giftSender?.alias ?? 'Alguien'} te invitó un ${gift.drinkName}`, html });
+    }
+
+    await db.update(orders).set({ emailSent: 1 }).where(eq(orders.id, order.id));
+    return;
+  }
 
   const result = await sendConfirmationEmailForOrder(refreshedOrder ?? order, true);
 

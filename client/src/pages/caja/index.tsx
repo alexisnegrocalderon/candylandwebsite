@@ -4,9 +4,9 @@ import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  saveSnapshot, getLocalEvent, searchLocal, getLocalAttendee, getLocalCatalog,
+  saveSnapshot, getLocalEvent, searchLocal, searchGiftsLocal, getLocalAttendee, getLocalCatalog,
   enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, clearSyncedOps, correctedNow,
-  type CajaAttendee, type CajaCatalogItem, type QueuedOp,
+  type CajaAttendee, type CajaCatalogItem, type CajaGift, type QueuedOp,
 } from './db';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 
@@ -428,6 +428,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const [query, setQuery] = useState('');
   const [manualCode, setManualCode] = useState('');
   const [results, setResults] = useState<CajaAttendee[]>([]);
+  const [giftResults, setGiftResults] = useState<CajaGift[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [sheetVersion, setSheetVersion] = useState(0); // fuerza refresco de la ficha tras un canje local
   const [showCloseForm, setShowCloseForm] = useState(false);
@@ -485,8 +486,11 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   // Búsqueda 100% local (funciona offline, <50ms).
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) { setResults([]); return; }
+    if (q.length < 2) { setResults([]); setGiftResults([]); return; }
     searchLocal(q).then(setResults);
+    // Los tragos invitados se buscan aparte: no pertenecen a una orden de
+    // esta noche (pueden venir de la fiesta anterior).
+    searchGiftsLocal(q).then((gs) => setGiftResults(gs.filter((g) => g.status !== 'used')));
   }, [query, sheetVersion]);
 
   const doRedeem = async (displayCode: string) => {
