@@ -10,6 +10,7 @@ import { getMission300Status, evaluateMission300, processCardPaymentForOrder, co
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
 import { redeemDisplayCode } from "./caja/redeem";
+import { checkInTicket } from "./caja/checkin";
 import { createCajaSale } from "./caja/sale";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
@@ -535,6 +536,7 @@ export const appRouter = router({
       registerId: z.number().optional(),
       ops: z.array(z.discriminatedUnion('type', [
         z.object({ type: z.literal('redeem'), opId: z.string(), displayCode: z.string(), clientAt: z.string() }),
+        z.object({ type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string() }),
         z.object({
           type: z.literal('sale'), opId: z.string(),
           items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1),
@@ -554,6 +556,11 @@ export const appRouter = router({
           if (op.type === 'redeem') {
             results[op.opId] = await redeemDisplayCode(rawDb, {
               opId: op.opId, displayCode: op.displayCode, eventId: input.eventId,
+              operatorId: ctx.operator.operatorId, registerId: input.registerId, clientAt: new Date(op.clientAt),
+            });
+          } else if (op.type === 'checkin') {
+            results[op.opId] = await checkInTicket(rawDb, {
+              opId: op.opId, ticketCode: op.ticketCode, eventId: input.eventId,
               operatorId: ctx.operator.operatorId, registerId: input.registerId, clientAt: new Date(op.clientAt),
             });
           } else {
@@ -692,6 +699,26 @@ export const appRouter = router({
       return redeemDisplayCode(rawDb, {
         opId: input.opId,
         displayCode: input.displayCode,
+        eventId: input.eventId,
+        operatorId: ctx.operator.operatorId,
+        registerId: input.registerId,
+        clientAt: new Date(input.clientAt),
+      });
+    }),
+    // Marca la entrada de un acceso en la puerta (mismo ledger idempotente
+    // que `redeem`, pero por ticketCode y solo para category='acceso').
+    checkin: operatorProcedure.input(z.object({
+      opId: z.string(),
+      eventId: z.number(),
+      ticketCode: z.string().min(1),
+      registerId: z.number().optional(),
+      clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      return checkInTicket(rawDb, {
+        opId: input.opId,
+        ticketCode: input.ticketCode,
         eventId: input.eventId,
         operatorId: ctx.operator.operatorId,
         registerId: input.registerId,

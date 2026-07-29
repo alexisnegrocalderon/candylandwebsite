@@ -497,6 +497,16 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
     runSync();
   };
 
+  // Marcar la entrada en la puerta. Va por la misma cola offline que el
+  // canje, así que la fila avanza aunque la tablet esté sin señal.
+  const doCheckIn = async (ticketCode: string) => {
+    await enqueueOp({ opId: newOpId(), type: 'checkin', ticketCode, clientAt: (await correctedNow()).toISOString() });
+    toast.success('Entrada marcada ✅');
+    refreshPending();
+    setSheetVersion((v) => v + 1);
+    runSync();
+  };
+
   const redeemManual = () => {
     if (!manualCode.trim()) return;
     doRedeem(manualCode.trim());
@@ -628,6 +638,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
             key={sheetVersion}
             orderId={selectedOrderId}
             onRedeem={doRedeem}
+            onCheckIn={doCheckIn}
             canVoid={isSupervisor}
             onVoid={async (displayCode, reason) => voidCode.mutate({ opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined, displayCode, reason, clientAt: (await correctedNow()).toISOString() })}
             voiding={voidCode.isPending}
@@ -654,15 +665,16 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   );
 }
 
-function statusBadge(status: string) {
-  if (status === 'used') return <span className="text-xs px-2.5 py-0.5 rounded-full bg-white/10 text-white/60">Canjeado</span>;
+function statusBadge(status: string, kind: 'acceso' | 'extra' = 'extra') {
+  if (status === 'used') return <span className="text-xs px-2.5 py-0.5 rounded-full bg-white/10 text-white/60">{kind === 'acceso' ? 'Entró' : 'Canjeado'}</span>;
   if (status === 'cancelled') return <span className="text-xs px-2.5 py-0.5 rounded-full bg-red-500/15 text-red-300">Anulado</span>;
   return <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 shadow-[0_0_10px_-4px_rgba(16,185,129,0.7)]">Pendiente</span>;
 }
 
-function CustomerSheet({ orderId, onRedeem, canVoid, onVoid, voiding }: {
+function CustomerSheet({ orderId, onRedeem, onCheckIn, canVoid, onVoid, voiding }: {
   orderId: number;
   onRedeem: (code: string) => void;
+  onCheckIn: (ticketCode: string) => void;
   canVoid: boolean;
   onVoid: (displayCode: string, reason: string) => void;
   voiding: boolean;
@@ -696,9 +708,17 @@ function CustomerSheet({ orderId, onRedeem, canVoid, onVoid, voiding }: {
         <div className="space-y-2">
           {sheet.access.length === 0 && <p className="text-sm text-white/40">Sin accesos en esta orden.</p>}
           {sheet.access.map((a, i) => (
-            <div key={i} className="p-3 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/10 flex items-center justify-between">
-              <span className="text-sm font-medium">{a.typeName}</span>
-              {statusBadge(a.status)}
+            <div key={i} className="p-3 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/10 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{a.typeName}</p>
+                <p className="text-xs text-white/50 font-mono truncate">{a.ticketCode}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {a.status === 'valid' && (
+                  <Button size="sm" className="bg-primary hover:bg-primary/90 h-8" onClick={() => onCheckIn(a.ticketCode)}>Marcar entrada</Button>
+                )}
+                {statusBadge(a.status, 'acceso')}
+              </div>
             </div>
           ))}
         </div>
@@ -910,8 +930,15 @@ function CajaDashboard({ eventId }: { eventId: number }) {
           <p className="text-xs text-white/50"># Ventas</p>
           <p className="text-2xl font-bold">{data.salesCount}</p>
         </div>
+        <div className="p-4 rounded-2xl bg-primary/10 backdrop-blur-sm border border-primary/25 col-span-2">
+          <p className="text-xs text-white/60">Personas adentro ahora</p>
+          <p className="text-3xl font-bold">
+            {data.insideCount}
+            <span className="text-base font-normal text-white/40"> / {data.expectedCount}</span>
+          </p>
+        </div>
         <div className="p-4 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/10 col-span-2">
-          <p className="text-xs text-white/50">Códigos canjeados (total evento)</p>
+          <p className="text-xs text-white/50">Extras canjeados (total evento)</p>
           <p className="text-2xl font-bold">{data.redeemedCount}</p>
         </div>
       </div>

@@ -1330,7 +1330,26 @@ export async function getCajaDashboard(eventId: number) {
   const cajaOrders = await db.select().from(orders).where(and(eq(orders.eventId, eventId), eq(orders.channel, 'caja'), eq(orders.paymentStatus, 'approved')));
   const totalSales = cajaOrders.reduce((s: number, o: any) => s + Number(o.total), 0);
 
-  const [{ count: redeemedCount }] = await db.select({ count: sql<number>`COUNT(*)` }).from(tickets).where(and(eq(tickets.eventId, eventId), eq(tickets.status, 'used')));
+  // Accesos y extras se cuentan por separado: un acceso `used` significa
+  // "esta persona entró a la fiesta", un extra `used` significa "se retiró
+  // en la barra". Mezclarlos daba un número que no servía para ninguna de
+  // las dos cosas.
+  const ticketStats = await db.select({
+    category: ticketTypes.category,
+    status: tickets.status,
+    count: sql<number>`COUNT(*)`,
+  })
+    .from(tickets)
+    .innerJoin(ticketTypes, eq(ticketTypes.id, tickets.ticketTypeId))
+    .where(eq(tickets.eventId, eventId))
+    .groupBy(ticketTypes.category, tickets.status);
+
+  const statOf = (category: string, status: string) =>
+    Number(ticketStats.find((r: any) => r.category === category && r.status === status)?.count ?? 0);
+
+  const insideCount = statOf('acceso', 'used');       // gente adentro ahora
+  const expectedCount = insideCount + statOf('acceso', 'valid'); // accesos vigentes en total
+  const redeemedCount = statOf('extra', 'used');      // extras retirados
 
   const items = await db.select({ ticketTypeId: orderItems.ticketTypeId, quantity: orderItems.quantity })
     .from(orderItems)
@@ -1353,7 +1372,9 @@ export async function getCajaDashboard(eventId: number) {
   return {
     totalSales,
     salesCount: cajaOrders.length,
-    redeemedCount: Number(redeemedCount),
+    redeemedCount,
+    insideCount,
+    expectedCount,
     topProducts,
     recentSales,
   };

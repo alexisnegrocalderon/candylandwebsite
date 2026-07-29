@@ -30,6 +30,7 @@ interface CajaCodeIndex {
 
 export type QueuedOp =
   | { opId: string; type: 'redeem'; displayCode: string; clientAt: string }
+  | { opId: string; type: 'checkin'; ticketCode: string; clientAt: string }
   | {
       opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number }[];
       paymentMethod: 'efectivo' | 'debito' | 'credito'; clientAt: string;
@@ -155,6 +156,19 @@ export async function enqueueOp(op: QueuedOp) {
       if (attendee) {
         attendee.extras = attendee.extras.map((e) =>
           e.displayCode?.toUpperCase() === op.displayCode.toUpperCase() ? { ...e, status: 'used' } : e
+        );
+        await cajaDB.attendees.put(attendee);
+      }
+    }
+  }
+
+  if (op.type === 'checkin') {
+    const idx = await cajaDB.codes.get(op.ticketCode.toUpperCase());
+    if (idx) {
+      const attendee = await cajaDB.attendees.get(idx.orderId);
+      if (attendee) {
+        attendee.access = attendee.access.map((a) =>
+          a.ticketCode.toUpperCase() === op.ticketCode.toUpperCase() ? { ...a, status: 'used' } : a
         );
         await cajaDB.attendees.put(attendee);
       }

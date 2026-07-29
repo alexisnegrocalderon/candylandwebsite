@@ -138,8 +138,8 @@ registers                      -- cajas físicas
 
 ops                            -- LEDGER APPEND-ONLY (§0.3). Nunca UPDATE/DELETE.
   id            CHAR(36) PK   -- UUID generado en el CLIENTE (clave de idempotencia)
-  type          ENUM(redeem, sale, void_code, note, shift_open, shift_close,
-                     manual_adjust, ...)
+  type          ENUM(redeem, checkin, sale, void_code, note, shift_open,
+                     shift_close, manual_adjust, ...)
   eventId · operatorId · registerId
   targetType    VARCHAR       -- 'ticket' | 'order' | 'customer' | ...
   targetId      VARCHAR
@@ -248,6 +248,7 @@ Análisis del dominio: las ventas de caja son **inserciones puras** (no pueden c
   - Generado/Enviado/Pendiente de canje → `tickets.status = 'valid'` (el envío del email ya se registra con `orders.emailSent`; la distinción fina Generado→Enviado→Pendiente vive en el ledger, no en 3 estados de columna — un solo estado "canjeable" simplifica toda la validación)
   - Canjeado → `status = 'used'` + `usedAt` + `usedByOperatorId` + `usedAtRegisterId` + op `redeem` en ledger
   - Anulado → `status = 'cancelled'` + op `void_code` con motivo y supervisor
+- **Accesos: check-in en la puerta.** El mismo `status = 'used'` marca el ingreso de un acceso, pero por `ticketCode` (el del QR) en vez de `displayCode`, con op `checkin` en el ledger (`server/caja/checkin.ts`). Solo aplica a `ticketTypes.category = 'acceso'`: el código de un extra no sirve para marcar entrada, para que el conteo de gente adentro signifique algo. De ahí sale `insideCount` en el dashboard de caja, y es el requisito de acceso a la capa social del evento.
 - **Validación al canjear** (las 6 comprobaciones pedidas): existe (lookup por displayCode) · pertenece al cliente (join a order/email) · corresponde al evento (`tickets.eventId`) · no usado (`status='valid'`) · no anulado (≠`cancelled`) · vigente (evento activo). Online valida contra servidor; offline contra snapshot + resolución §8.
 
 ## 10. Módulo Caja (`/caja`)
