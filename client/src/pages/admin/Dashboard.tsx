@@ -2396,6 +2396,7 @@ function AdminLoginForm() {
   const login = trpc.auth.adminLogin.useMutation({
     onSuccess: (r) => {
       setError('');
+      if (r.skipped2fa) { entrar(); return; }
       setTicket(r.ticket);
       if (r.needsSetup) setupTotp.mutate({ ticket: r.ticket });
     },
@@ -2449,6 +2450,10 @@ function AdminLoginForm() {
             Escanea este código con Google Authenticator (o la app que uses) y escribe el número que aparece.
           </p>
           <img src={setup.qrImageUrl} alt="Código QR para la app de autenticación" className="w-56 h-56 mx-auto rounded-xl mb-3" />
+          <p className="text-xs text-amber-600 mb-4">
+            Escribe el código sin recargar la página ni volver atrás. Si algo sale mal,
+            vuelve a empezar desde la contraseña: el mismo QR sigue sirviendo.
+          </p>
           <details className="mb-5 text-xs text-muted-foreground">
             <summary className="cursor-pointer">¿No puedes escanear?</summary>
             <code className="block mt-2 p-2 rounded bg-muted font-mono break-all">{setup.secret}</code>

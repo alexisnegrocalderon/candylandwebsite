@@ -2946,13 +2946,41 @@ export async function getAdminTotp() {
 /** Guarda un secreto nuevo SIN confirmar. Reemplaza cualquiera anterior no
  * confirmado: si el dueño abandonó la configuración a medias, el intento
  * viejo no debe quedar dando vueltas. */
-export async function saveUnconfirmedAdminTotp(secret: string) {
+/** Devuelve el secreto a configurar. Si ya hay uno sin confirmar, DEVUELVE
+ * ESE en vez de generar otro.
+ *
+ * Esto no es una optimización: la versión anterior generaba un secreto
+ * nuevo cada vez que se abría la pantalla de configuración, y como el
+ * cliente la abre sola cada vez que se ingresa la contraseña mientras no
+ * esté confirmado, bastaba con que el primer intento fallara para que el
+ * QR ya escaneado quedara invalidado. El resultado era un círculo cerrado:
+ * la app mostraba códigos de un secreto que la base ya había reemplazado, y
+ * nunca se podía confirmar. Dejó al dueño fuera de su propio panel. */
+export async function getOrCreateUnconfirmedAdminTotp(newSecret: string): Promise<string> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await getAdminTotp();
+  if (existing) {
+    // Ya confirmado: no se toca. Lo protege además el router.
+    if (existing.confirmedAt) return existing.secret;
+    // Sin confirmar: se reusa, para que el QR escaneado siga sirviendo.
+    return existing.secret;
+  }
+
+  await db.insert(adminTotp).values({ secret: newSecret });
+  return newSecret;
+}
+
+/** Descarta la configuración a medias y empieza de cero. Solo se llama
+ * cuando el dueño lo pide explícitamente ("volver a escanear"). */
+export async function resetUnconfirmedAdminTotp(secret: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const existing = await getAdminTotp();
+  if (existing?.confirmedAt) return;
   if (existing) {
-    await db.update(adminTotp).set({ secret, confirmedAt: null, backupCodes: null, lastUsedStep: null })
-      .where(eq(adminTotp.id, existing.id));
+    await db.update(adminTotp).set({ secret, backupCodes: null, lastUsedStep: null }).where(eq(adminTotp.id, existing.id));
     return;
   }
   await db.insert(adminTotp).values({ secret });
@@ -2976,4 +3004,14 @@ export async function consumeAdminBackupCodes(id: number, remaining: string[]) {
   const db = await getDb();
   if (!db) return;
   await db.update(adminTotp).set({ backupCodes: remaining }).where(eq(adminTotp.id, id));
+}
+
+
+/** Limpia el contador de intentos fallidos de una clave. Sin esto los
+ * fallos se acumulan de por vida y, pasado el umbral, cualquier error
+ * posterior vuelve a bloquear la IP aunque el dueño ya haya entrado bien. */
+export async function resetIpRateLimit(key: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(rateLimits).where(eq(rateLimits.key, key));
 }
