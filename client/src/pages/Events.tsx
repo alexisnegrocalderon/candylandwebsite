@@ -3,12 +3,21 @@ import { Link } from 'wouter';
 import { Calendar, MapPin, Ticket, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
+import { breadcrumbSchema } from '@shared/structuredData';
 
 export default function Events() {
+  // Esta página se queda con la intención de CALENDARIO ("eventos este fin de
+  // semana en Valparaíso"), no con la de experiencia -- ésa es del home.
   useSeo({
-    title: 'Próximos Eventos — Fiestas Liberales en Viña del Mar y Valparaíso | Mansion Playroom',
-    description: 'Calendario de fiestas liberales de Mansion Playroom en la V Región. Encuentra tu próxima salida para bailar en Viña del Mar y Valparaíso.',
+    title: 'Eventos y Fiestas en Valparaíso — Calendario | Mansion Playroom',
+    description: 'Calendario de próximos eventos de Mansion Playroom en la Región de Valparaíso. Fechas, horarios y entradas para tu próxima salida nocturna en Viña del Mar y Valparaíso.',
     path: '/eventos',
+    jsonLd: [
+      breadcrumbSchema([
+        { name: 'Inicio', path: '/' },
+        { name: 'Eventos', path: '/eventos' },
+      ]),
+    ],
   });
 
   const { data: events, isLoading } = trpc.events.listPublished.useQuery();

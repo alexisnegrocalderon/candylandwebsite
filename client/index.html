@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
     <title>Candyland — Fiesta Liberal en Viña del Mar y Valparaíso | Mansion Playroom</title>
     <meta name="description" content="La fiesta liberal más grande de la V Región. Salir a bailar en Viña del Mar y Valparaíso nunca fue tan intenso: 2 pistas, Playground XXL, Kink Room. Candyland, Sábado 08 de Agosto, 21:00 hrs. Evento +18." />
-    <meta name="keywords" content="fiesta liberal, fiestas liberales V Región, salir a bailar en Viña del Mar, salir a bailar en Valparaíso, salir a bailar en Viña, salir a bailar en Valpo, fiestas swinger Chile, vida nocturna Valparaíso, discotecas Viña del Mar, Mansion Playroom" />
     <meta name="robots" content="index, follow" />
     <meta name="theme-color" content="#FF4FC3" />
     <link rel="canonical" href="https://mansionplayroom.cl/" />
@@ -68,18 +67,27 @@
       }
     </style>
 
-    <!-- Datos estructurados: ayuda a Google a mostrar Mansion Playroom como
-         negocio local de vida nocturna en Viña del Mar/Valparaíso (V Región)
-         y el evento Candyland en resultados enriquecidos. -->
+    <!-- Datos estructurados GLOBALES: el negocio y el sitio, que valen para
+         todas las páginas. Lo específico de cada página (el evento, las FAQ,
+         las migas de pan) lo declara la página misma vía `useSeo({ jsonLd })`
+         -- ver shared/structuredData.ts.
+
+         Antes acá vivía también un `Event` con la fecha de Candyland quemada
+         en el HTML: se emitía igual en /nosotros y en la política de
+         privacidad, y habría quedado declarando un evento vencido para
+         siempre. Por eso ahora sale de los datos reales del evento. -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@type": "NightClub",
         "name": "Mansion Playroom",
         "alternateName": "Candyland",
-        "description": "La fiesta liberal más grande de la V Región. Vida nocturna, comunidad y experiencias premium para salir a bailar en Viña del Mar y Valparaíso.",
+        "description": "Vida nocturna, comunidad y experiencias premium para salir a bailar en Viña del Mar y Valparaíso.",
         "url": "https://mansionplayroom.cl/",
         "image": "https://mansionplayroom.cl/candyland/og-candyland.jpg",
+        "telephone": "+56933135140",
+        "priceRange": "$20.000 - $40.000 CLP",
+        "currenciesAccepted": "CLP",
         "address": {
           "@type": "PostalAddress",
           "addressLocality": "Valparaíso",
@@ -96,33 +104,10 @@
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "Event",
-        "name": "Candyland",
-        "description": "Una noche demasiado dulce para olvidar. 2 pistas, Playground XXL, Kink Room. La fiesta liberal más grande de la V Región.",
-        "startDate": "2026-08-08T21:00:00-04:00",
-        "eventAttendanceMode": "https://schema.org/OfflineEventAttendanceMode",
-        "eventStatus": "https://schema.org/EventScheduled",
-        "location": {
-          "@type": "Place",
-          "name": "La Mansión",
-          "address": {
-            "@type": "PostalAddress",
-            "addressLocality": "Valparaíso",
-            "addressRegion": "Región de Valparaíso",
-            "addressCountry": "CL"
-          }
-        },
-        "image": "https://mansionplayroom.cl/candyland/og-candyland.jpg",
-        "organizer": {
-          "@type": "Organization",
-          "name": "Mansion Playroom",
-          "url": "https://mansionplayroom.cl/"
-        },
-        "offers": {
-          "@type": "Offer",
-          "url": "https://mansionplayroom.cl/eventos/candyland-agosto-2026",
-          "availability": "https://schema.org/InStock"
-        }
+        "@type": "WebSite",
+        "name": "Mansion Playroom",
+        "url": "https://mansionplayroom.cl/",
+        "inLanguage": "es-CL"
       }
     </script>
   </head>

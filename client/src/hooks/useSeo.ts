@@ -32,7 +32,17 @@ function setCanonical(path: string) {
  * Google -- se setea siempre un valor explícito (nunca se omite el tag) para
  * que al navegar de una página noindex a una indexable no quede pegado el
  * noindex de la página anterior en el <head> compartido de la SPA. */
-export function useSeo(opts: { title: string; description: string; path: string; image?: string; noindex?: boolean }) {
+export function useSeo(opts: {
+  title: string;
+  description: string;
+  path: string;
+  image?: string;
+  noindex?: boolean;
+  /** Datos estructurados de ESTA página (ver shared/structuredData.ts).
+   * Se limpian al desmontar: en una SPA el <head> es compartido, así que sin
+   * limpieza el schema de una página quedaría declarado en la siguiente. */
+  jsonLd?: object[];
+}) {
   useEffect(() => {
     const { title, description, path, image, noindex } = opts;
     document.title = title;
@@ -50,4 +60,17 @@ export function useSeo(opts: { title: string; description: string; path: string;
     setCanonical(path);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opts.title, opts.description, opts.path, opts.image, opts.noindex]);
+
+  // Efecto aparte: el JSON-LD sí necesita limpieza, el resto de los tags no
+  // (se sobrescriben con el valor de la página nueva).
+  const jsonLdKey = opts.jsonLd ? JSON.stringify(opts.jsonLd) : '';
+  useEffect(() => {
+    if (!jsonLdKey) return;
+    const script = document.createElement('script');
+    script.type = 'application/ld+json';
+    script.setAttribute('data-seo-managed', 'true');
+    script.textContent = jsonLdKey;
+    document.head.appendChild(script);
+    return () => script.remove();
+  }, [jsonLdKey]);
 }

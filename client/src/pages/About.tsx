@@ -2,12 +2,22 @@ import { motion } from 'framer-motion';
 import { Link } from 'wouter';
 import { ArrowRight } from 'lucide-react';
 import { useSeo } from '@/hooks/useSeo';
+import { breadcrumbSchema } from '@shared/structuredData';
 
 export default function About() {
+  // Intención de confianza: comunidad, consentimiento y seguridad. Es la
+  // página que responde "¿puedo confiar en esta gente?", no una segunda
+  // versión del pitch comercial.
   useSeo({
-    title: 'Sobre Nosotros — Mansion Playroom, Fiestas Liberales en la V Región',
-    description: 'Mansion Playroom transforma la vida nocturna de Viña del Mar y Valparaíso con fiestas liberales premium. Conoce nuestra visión y misión.',
+    title: 'Quiénes Somos — Comunidad y Consentimiento | Mansion Playroom',
+    description: 'Cómo cuidamos el espacio: respeto, consentimiento y libertad. Conoce la comunidad detrás de las noches de Mansion Playroom en la Región de Valparaíso.',
     path: '/nosotros',
+    jsonLd: [
+      breadcrumbSchema([
+        { name: 'Inicio', path: '/' },
+        { name: 'Nosotros', path: '/nosotros' },
+      ]),
+    ],
   });
 
   return (

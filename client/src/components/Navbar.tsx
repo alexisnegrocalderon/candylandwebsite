@@ -14,8 +14,11 @@ const navLinks = [
   { href: '/nosotros', label: 'Nosotros' },
 ];
 
+// `/mis-referidos` NO va acá: es `noindex` (muestra datos personales del
+// embajador), así que enlazarla desde todas las páginas solo gastaba fuerza
+// de enlazado interno en una página que Google no puede posicionar. Se sigue
+// llegando por el link de los correos y por URL directa.
 const secondaryNavLinks = [
-  { href: '/mis-referidos', label: 'Hall de la Fama' },
   { href: '/politica-de-reembolso', label: 'Política de reembolso' },
   { href: '/politica-de-privacidad', label: 'Política de privacidad' },
 ];

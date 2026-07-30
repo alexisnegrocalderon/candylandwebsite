@@ -33,8 +33,13 @@ import CandyIntro from '@/components/CandyIntro';
 import { scrollToId, prefersReducedMotion, isFinePointer } from '@/lib/smoothScroll';
 import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 import { useSeo } from '@/hooks/useSeo';
+import { eventSchema, faqSchema } from '@shared/structuredData';
 
 type MissionPricing = { generalPrice: number; depositPrice: number } | null;
+
+/** Precio más bajo entre los accesos: Google exige un `price` concreto en la
+ * oferta del evento, si no descarta el resultado enriquecido. */
+const PRECIO_MINIMO_ACCESO = Math.min(...CANDYLAND.accesos.map((a) => a.precio));
 
 /* ─── Utilidades ───────────────────────────────────────────── */
 
@@ -969,7 +974,6 @@ function Footer() {
             <span className="px-3 py-1 rounded-full border border-cherry/40 text-cherry font-bold text-xs">+{CANDYLAND.edadMinima}</span>
             <Link href="/politica-de-reembolso" className="hover:text-foreground transition-colors">Política de reembolso</Link>
             <Link href="/politica-de-privacidad" className="hover:text-foreground transition-colors">Política de privacidad</Link>
-            <Link href="/mis-referidos" className="hover:text-foreground transition-colors">Hall de la Fama</Link>
             <Link href="/embajadores" className="hover:text-foreground transition-colors">Embajadores</Link>
           </div>
         </div>
@@ -1009,10 +1013,24 @@ function StickyMobileCTA() {
 /* ─── Página ───────────────────────────────────────────────── */
 
 export default function Home() {
+  // El home es la única página que conserva "fiesta liberal" en el título
+  // (junto con la del evento): antes /eventos, /entradas y /eventos/:slug
+  // llevaban todas la misma frase y competían entre ellas por la misma
+  // búsqueda, repartiendo la fuerza en vez de concentrarla.
   useSeo({
-    title: 'Candyland — Fiesta Liberal en Viña del Mar y Valparaíso | Mansion Playroom',
-    description: 'La fiesta liberal más grande de la V Región. Salir a bailar en Viña del Mar y Valparaíso nunca fue tan intenso: 2 pistas, Playground XXL, Kink Room. Sábado 08 de Agosto. Evento +18.',
+    title: 'Mansion Playroom — Fiesta Liberal en Viña del Mar | +18',
+    description: 'La fiesta liberal más grande de la V Región: 2 pistas, Playground XXL y Kink Room. Comunidad, consentimiento y una noche para salir a bailar en Viña del Mar y Valparaíso. Evento +18.',
     path: '/',
+    jsonLd: [
+      faqSchema(CANDYLAND.faqs),
+      eventSchema({
+        name: CANDYLAND.nombre,
+        description: CANDYLAND.heroTitulo,
+        startDate: CANDYLAND.eventDate.toISOString(),
+        slug: CANDYLAND.slug,
+        priceFrom: PRECIO_MINIMO_ACCESO,
+      }),
+    ],
   });
 
   const { data: liveTickets } = trpc.events.getTicketTypes.useQuery(
