@@ -965,15 +965,22 @@ export async function createExclusiveAmbassador(data: {
     .where(eq(exclusiveAmbassadors.code, code)).limit(1);
   if (existing) throw new Error(`El código ${code} ya está en uso por otro embajador`);
 
-  await db.insert(exclusiveAmbassadors).values({
-    eventId: data.eventId ?? null,
-    name: data.name,
-    code,
-    commissionPercent: data.commissionPercent === null || data.commissionPercent === undefined ? null : String(data.commissionPercent),
-    contact: data.contact,
-    email: data.email ? data.email.trim().toLowerCase() : null,
-    instagram: data.instagram,
-  });
+  try {
+    await db.insert(exclusiveAmbassadors).values({
+      eventId: data.eventId ?? null,
+      name: data.name,
+      code,
+      commissionPercent: data.commissionPercent === null || data.commissionPercent === undefined ? null : String(data.commissionPercent),
+      contact: data.contact,
+      email: data.email ? data.email.trim().toLowerCase() : null,
+      instagram: data.instagram,
+    });
+  } catch (err) {
+    // drizzle envuelve el error real de la base en `.cause` y deja en
+    // `.message` solo un volcado del SQL -- sin esto, el admin ve
+    // "Failed query: insert into..." y no tiene forma de saber qué pasó.
+    throw new Error((err as any)?.cause?.message ?? (err as Error).message);
+  }
   return { success: true };
 }
 
@@ -1004,7 +1011,11 @@ export async function updateExclusiveAmbassador(id: number, data: {
     updateData.commissionPercent = data.commissionPercent === null ? null : String(data.commissionPercent);
   }
   if (data.email !== undefined) updateData.email = data.email ? data.email.trim().toLowerCase() : null;
-  await db.update(exclusiveAmbassadors).set(updateData).where(eq(exclusiveAmbassadors.id, id));
+  try {
+    await db.update(exclusiveAmbassadors).set(updateData).where(eq(exclusiveAmbassadors.id, id));
+  } catch (err) {
+    throw new Error((err as any)?.cause?.message ?? (err as Error).message);
+  }
   return { success: true };
 }
 

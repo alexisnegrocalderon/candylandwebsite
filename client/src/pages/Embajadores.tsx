@@ -2,8 +2,8 @@ import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'wouter';
 import { toast } from 'sonner';
-import { Sparkles, Instagram, MessageCircle, Users, TrendingUp, Gift, Trophy, CheckCircle2, Crown, ArrowRight } from 'lucide-react';
-import { prefersReducedMotion } from '@/lib/smoothScroll';
+import { Sparkles, Instagram, MessageCircle, Users, TrendingUp, Gift, Trophy, CheckCircle2, Crown, ArrowDown } from 'lucide-react';
+import { prefersReducedMotion, scrollToId } from '@/lib/smoothScroll';
 import { useSeo } from '@/hooks/useSeo';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
@@ -37,11 +37,11 @@ const STEPS = [
 
 type FieldErrors = Partial<Record<'name' | 'email' | 'whatsapp' | 'instagram' | 'followers' | 'message' | 'acceptedTerms', string>>;
 
-/** Tarjeta VIP holográfica: el acceso al panel del embajador ya existente
- * (`/embajador`), pero destacado arriba de la página en vez de un link chico
- * al final -- reusa el brillo que sigue al mouse de las tarjetas de entrada
- * (`CandyPass.tsx` / `.candy-sheen` + `.candy-holo` en index.css), sin el tilt
- * 3D porque acá es un banner ancho y no una tarjeta tipo carnet. */
+/** Tarjeta VIP: acceso al panel del embajador (`/embajador`) más un atajo al
+ * formulario de postulación, destacados arriba de la página en vez de un link
+ * chico al final -- reusa el brillo que sigue al mouse de las tarjetas de
+ * entrada (`CandyPass.tsx` / `.candy-sheen` + `.candy-holo` en index.css), sin
+ * el tilt 3D porque acá es un banner ancho y no una tarjeta tipo carnet. */
 function AmbassadorPanelBanner() {
   const ref = useRef<HTMLDivElement>(null);
   const rm = prefersReducedMotion();
@@ -62,48 +62,68 @@ function AmbassadorPanelBanner() {
       transition={{ duration: 0.7, delay: 0.15 }}
       className="max-w-4xl mx-auto mb-16"
     >
-      <Link href="/embajador" className="block interactive">
+      <div
+        ref={ref}
+        onPointerMove={handleMove}
+        className="candy-pass relative glass-candy-pastel rounded-3xl p-5 md:p-7 overflow-hidden border border-violet-electric/30 flex flex-col sm:flex-row items-center gap-4 sm:gap-6"
+      >
         <div
-          ref={ref}
-          onPointerMove={handleMove}
-          className="candy-pass relative glass-candy-pastel rounded-3xl p-6 md:p-8 overflow-hidden border border-violet-electric/30 flex flex-col sm:flex-row items-center gap-5 sm:gap-7"
+          aria-hidden
+          className="absolute -inset-6 rounded-[3rem] blur-3xl opacity-45 -z-10"
+          style={{ background: 'radial-gradient(circle, oklch(0.68 0.1 295 / 0.3), transparent 70%)' }}
+        />
+        <div
+          aria-hidden
+          className="absolute inset-0 rounded-3xl pointer-events-none"
+          style={{ background: 'linear-gradient(135deg, oklch(0.68 0.1 295 / 0.14), oklch(0.76 0.13 35 / 0.1) 60%, transparent 100%)' }}
+        />
+        <div className="candy-holo" />
+        <div className="candy-sheen" />
+
+        <div
+          className="relative shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center candy-glow-pulse"
+          style={{ background: 'linear-gradient(135deg, var(--color-violet-electric), var(--color-cherry))' }}
         >
-          <div
-            aria-hidden
-            className="absolute -inset-8 rounded-[3rem] blur-3xl opacity-60 -z-10"
-            style={{ background: 'radial-gradient(circle, oklch(0.68 0.1 295 / 0.35), transparent 70%)' }}
-          />
-          <div
-            aria-hidden
-            className="absolute inset-0 rounded-3xl pointer-events-none"
-            style={{ background: 'linear-gradient(135deg, oklch(0.68 0.1 295 / 0.14), oklch(0.76 0.13 35 / 0.1) 60%, transparent 100%)' }}
-          />
-          <div className="candy-holo" />
-          <div className="candy-sheen" />
-
-          <div
-            className="relative shrink-0 w-16 h-16 rounded-2xl flex items-center justify-center candy-glow-pulse"
-            style={{ background: 'linear-gradient(135deg, var(--color-violet-electric), var(--color-cherry))' }}
-          >
-            <Crown className="w-8 h-8 text-white" />
-          </div>
-
-          <div className="relative flex-1 text-center sm:text-left">
-            <p className="text-xs uppercase tracking-[0.25em] text-violet-electric font-bold mb-1">Acceso Embajador</p>
-            <h3 className="font-heading text-2xl md:text-3xl mb-1">¿Ya eres Embajador VIP?</h3>
-            <p className="text-muted-foreground text-sm">
-              Entra a tu panel y mira tus ventas, tu nivel y tu comisión en vivo.
-            </p>
-          </div>
-
-          <div
-            className="relative btn-jelly shrink-0 inline-flex items-center gap-2 px-7 py-3.5 rounded-full font-bold text-white"
-            style={{ background: 'linear-gradient(135deg, var(--color-violet-electric), var(--color-cherry))' }}
-          >
-            Entrar a mi panel <ArrowRight className="w-4 h-4" />
-          </div>
+          <Crown className="w-6 h-6 text-white" />
         </div>
-      </Link>
+
+        <div className="relative flex-1 text-center sm:text-left">
+          <p className="text-xs uppercase tracking-[0.25em] text-violet-electric font-bold mb-1">Acceso Embajador</p>
+          <h3 className="font-heading text-xl md:text-2xl mb-1">¿Ya eres Embajador VIP?</h3>
+          <p className="text-muted-foreground text-sm">Postula abajo, o entra a tu panel si ya tienes tu código.</p>
+        </div>
+
+        <div className="relative shrink-0 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <button
+            type="button"
+            onClick={() => scrollToId('postular-form')}
+            className="btn-jelly inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-bold interactive"
+          >
+            Postular <ArrowDown className="w-3.5 h-3.5" />
+          </button>
+
+          <Link href="/embajador" className="group interactive">
+            <span
+              className="relative inline-block rounded-full p-[1.5px] bg-left bg-[length:200%_100%] transition-[background-position,transform] duration-700 ease-out group-hover:bg-right group-hover:-translate-y-0.5"
+              style={{ backgroundImage: 'linear-gradient(90deg, var(--color-violet-electric), var(--color-cherry), var(--color-violet-electric))' }}
+            >
+              <span className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-full bg-background/95 backdrop-blur-sm text-sm font-bold whitespace-nowrap">
+                <Crown className="w-3.5 h-3.5 text-violet-electric shrink-0" />
+                <span
+                  style={{
+                    background: 'linear-gradient(90deg, var(--color-violet-electric), var(--color-cherry))',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                  }}
+                >
+                  Entrar a mi panel
+                </span>
+              </span>
+            </span>
+          </Link>
+        </div>
+      </div>
     </motion.div>
   );
 }
@@ -141,8 +161,12 @@ export default function Embajadores() {
     if (!wsp.ok) nextErrors.whatsapp = wsp.reason;
     const ig = sanitizeInstagram(instagram);
     if (!ig.ok) nextErrors.instagram = ig.reason;
-    const seguidores = sanitizeFollowers(followers);
-    if (!seguidores.ok) nextErrors.followers = seguidores.reason;
+    if (!followers.trim()) {
+      nextErrors.followers = 'Escribe tu cantidad de seguidores';
+    } else {
+      const seguidores = sanitizeFollowers(followers);
+      if (!seguidores.ok) nextErrors.followers = seguidores.reason;
+    }
     const mensaje = sanitizeApplicationMessage(message);
     if (!mensaje.ok) nextErrors.message = mensaje.reason;
     if (!acceptedTerms) nextErrors.acceptedTerms = 'Tienes que confirmar que cumples los requisitos y tareas';
@@ -268,11 +292,12 @@ export default function Embajadores() {
 
         {/* Formulario */}
         <motion.div
+          id="postular-form"
           initial={{ opacity: 0, y: 30 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
-          className="max-w-xl mx-auto"
+          className="max-w-xl mx-auto scroll-mt-24"
         >
           <div className="bg-card border border-border/50 rounded-2xl p-6 md:p-8">
             {submitted ? (
@@ -315,7 +340,7 @@ export default function Embajadores() {
                   {errors.instagram && <p className="text-destructive text-xs mt-1">{errors.instagram}</p>}
                 </div>
                 <div>
-                  <label className="text-sm font-semibold mb-1.5 block">Seguidores (opcional)</label>
+                  <label className="text-sm font-semibold mb-1.5 block">Seguidores</label>
                   <Input value={followers} onChange={(e) => setFollowers(e.target.value)} placeholder="1500" inputMode="numeric" />
                   {errors.followers && <p className="text-destructive text-xs mt-1">{errors.followers}</p>}
                 </div>

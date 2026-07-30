@@ -1529,15 +1529,19 @@ async function createExclusiveAmbassador(data) {
   const code = data.code.trim().toUpperCase();
   const [existing] = await db.select({ id: exclusiveAmbassadors.id }).from(exclusiveAmbassadors).where(eq2(exclusiveAmbassadors.code, code)).limit(1);
   if (existing) throw new Error(`El c\xF3digo ${code} ya est\xE1 en uso por otro embajador`);
-  await db.insert(exclusiveAmbassadors).values({
-    eventId: data.eventId ?? null,
-    name: data.name,
-    code,
-    commissionPercent: data.commissionPercent === null || data.commissionPercent === void 0 ? null : String(data.commissionPercent),
-    contact: data.contact,
-    email: data.email ? data.email.trim().toLowerCase() : null,
-    instagram: data.instagram
-  });
+  try {
+    await db.insert(exclusiveAmbassadors).values({
+      eventId: data.eventId ?? null,
+      name: data.name,
+      code,
+      commissionPercent: data.commissionPercent === null || data.commissionPercent === void 0 ? null : String(data.commissionPercent),
+      contact: data.contact,
+      email: data.email ? data.email.trim().toLowerCase() : null,
+      instagram: data.instagram
+    });
+  } catch (err) {
+    throw new Error(err?.cause?.message ?? err.message);
+  }
   return { success: true };
 }
 async function listExclusiveAmbassadors(eventId) {
@@ -1560,7 +1564,11 @@ async function updateExclusiveAmbassador(id, data) {
     updateData.commissionPercent = data.commissionPercent === null ? null : String(data.commissionPercent);
   }
   if (data.email !== void 0) updateData.email = data.email ? data.email.trim().toLowerCase() : null;
-  await db.update(exclusiveAmbassadors).set(updateData).where(eq2(exclusiveAmbassadors.id, id));
+  try {
+    await db.update(exclusiveAmbassadors).set(updateData).where(eq2(exclusiveAmbassadors.id, id));
+  } catch (err) {
+    throw new Error(err?.cause?.message ?? err.message);
+  }
   return { success: true };
 }
 async function deleteExclusiveAmbassador(id) {
@@ -7821,7 +7829,10 @@ var appRouter = router({
       if (!wsp.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: wsp.reason });
       const ig = sanitizeInstagram(input.instagram);
       if (!ig.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: ig.reason });
-      const seguidores = sanitizeFollowers(input.followers ?? null);
+      if (!input.followers?.trim()) {
+        throw new TRPCError3({ code: "BAD_REQUEST", message: "Escribe tu cantidad de seguidores" });
+      }
+      const seguidores = sanitizeFollowers(input.followers);
       if (!seguidores.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: seguidores.reason });
       const mensaje = sanitizeApplicationMessage(input.message ?? "");
       if (!mensaje.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: mensaje.reason });
