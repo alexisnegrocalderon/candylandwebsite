@@ -1064,7 +1064,10 @@ export const appRouter = router({
       if (!wsp.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: wsp.reason });
       const ig = sanitizeInstagram(input.instagram);
       if (!ig.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: ig.reason });
-      const seguidores = sanitizeFollowers(input.followers ?? null);
+      if (!input.followers?.trim()) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Escribe tu cantidad de seguidores' });
+      }
+      const seguidores = sanitizeFollowers(input.followers);
       if (!seguidores.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: seguidores.reason });
       const mensaje = sanitizeApplicationMessage(input.message ?? '');
       if (!mensaje.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: mensaje.reason });
