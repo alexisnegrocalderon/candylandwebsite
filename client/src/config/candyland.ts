@@ -279,6 +279,38 @@ export const CANDYLAND = {
       q: '¿Puedo devolver mi entrada?',
       a: 'Las entradas no tienen devolución, pero sí puedes transferirla a otra persona escribiéndonos por Instagram antes del evento.',
     },
+    // Estas preguntas se agregaron pensando en SEO: el acordeón del home y el
+    // schema FAQPage de Google salen AMBOS de este arreglo, así que cada
+    // pregunta nueva suma contenido indexable sin tocar ningún componente.
+    // Todas se responden con datos que ya existen en este mismo archivo.
+    {
+      q: '¿Puedo ir sin pareja?',
+      a: 'Sí. Hay accesos individuales tanto para ellas como para ellos. El acceso Soltero es exclusivo para miembros validados de la comunidad; si no tienes código, tu opción es el acceso Dúo con una acompañante. Escríbenos por WhatsApp si quieres validarte.',
+    },
+    {
+      q: '¿Qué incluye cada acceso?',
+      a: 'Todos los accesos dan entrada a todas las zonas del recinto: las dos pistas, el Playground XXL, la Kink Room, la barra y la zona de fumadores. La diferencia entre ellos es a cuántas personas cubre cada uno y su valor.',
+    },
+    {
+      q: '¿Qué pasa si llego tarde?',
+      a: 'Puedes entrar en cualquier momento mientras el evento esté abierto. Las puertas abren a las 21:00 y la fiesta va hasta las 04:30, con after hasta el amanecer. Eso sí, si compraste estacionamiento conviene llegar temprano.',
+    },
+    {
+      q: '¿Hay dónde dejar mis cosas?',
+      a: 'Sí, hay guardarropía en el recinto. Te recomendamos usarla apenas llegues en vez de andar cargando bolsos toda la noche.',
+    },
+    {
+      q: '¿Hay barra? ¿Se paga aparte?',
+      a: 'Hay barra completa dentro del recinto y se paga aparte de la entrada. Considera llevar un medio de pago aunque hayas comprado todo por la web.',
+    },
+    {
+      q: '¿Qué son el Playground XXL y la Kink Room?',
+      a: 'Son zonas del recinto separadas de las pistas de baile, con una propuesta más íntima. Entrar a ellas es siempre una decisión tuya: puedes pasar toda la noche solo en las pistas y en la barra, y mucha gente lo hace, sobre todo la primera vez.',
+    },
+    {
+      q: '¿Se puede comprar la entrada en la puerta?',
+      a: 'Te recomendamos comprar con anticipación por la web: los cupos son limitados y los eventos suelen agotarse antes de la fecha. Además, la dirección exacta del recinto llega junto con tu entrada por correo.',
+    },
   ],
 
   // ── Redes ──────────────────────────────────────────────────

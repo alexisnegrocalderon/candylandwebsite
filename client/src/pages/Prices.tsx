@@ -82,6 +82,60 @@ export default function Prices() {
               <Ticket className="w-5 h-5" /> Comprar entrada <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
+
+          {/* Antes esta página era solo la tabla de precios. Este bloque
+              responde las dudas que aparecen justo antes de comprar, que es
+              donde se pierden las ventas. */}
+          <div className="mt-16 space-y-6 text-left">
+            <div className="glass-candy rounded-2xl p-6">
+              <h2 className="font-heading text-xl mb-3">Todos los accesos incluyen lo mismo</h2>
+              <p className="text-muted-foreground leading-relaxed text-sm">
+                Cualquier acceso te da entrada a todas las zonas del recinto: las dos pistas de
+                baile, el Playground XXL, la Kink Room, la barra completa y la zona de fumadores
+                techada. La diferencia entre uno y otro es a cuántas personas cubre y su valor,
+                no a qué puedes entrar.
+              </p>
+            </div>
+
+            <div className="glass-candy rounded-2xl p-6">
+              <h2 className="font-heading text-xl mb-3">Antes de comprar</h2>
+              <ul className="space-y-2.5">
+                {[
+                  'Evento estrictamente +18: se pide carnet en la entrada, sin excepciones.',
+                  'Hay dress code y se revisa en la puerta. Vale la pena leerlo antes.',
+                  'La dirección exacta llega por correo junto con tu entrada.',
+                  'El estacionamiento privado se toma al comprar: los cupos son limitados.',
+                  'La barra se paga aparte de la entrada.',
+                ].map((item) => (
+                  <li
+                    key={item}
+                    className="text-sm text-muted-foreground leading-relaxed pl-5 relative before:content-['•'] before:absolute before:left-0 before:text-primary"
+                  >
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="glass-candy rounded-2xl p-6">
+              <h2 className="font-heading text-xl mb-3">¿Primera vez?</h2>
+              <p className="text-muted-foreground leading-relaxed text-sm mb-4">
+                Si nunca has ido a un evento así, estas guías responden lo que la mayoría se
+                pregunta antes de decidirse.
+              </p>
+              <div className="flex flex-col gap-2">
+                <Link href="/blog/primera-vez-que-esperar" className="text-primary text-sm font-semibold hover:underline">
+                  Qué esperar en tu primera vez →
+                </Link>
+                <Link href="/blog/dress-code-explicado" className="text-primary text-sm font-semibold hover:underline">
+                  Dress code explicado →
+                </Link>
+                <Link href="/blog/como-llegar-y-estacionar" className="text-primary text-sm font-semibold hover:underline">
+                  Cómo llegar y dónde estacionar →
+                </Link>
+              </div>
+            </div>
+          </div>
         </motion.div>
       </div>
     </div>

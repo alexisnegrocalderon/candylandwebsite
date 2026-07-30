@@ -194,10 +194,14 @@ Cómo se retroalimentan:
 ### ✅ Fase 1 — esta entrega
 Títulos por intención (rompe la canibalización) · schema por página con datos reales · `FAQPage` con las 7 preguntas existentes · `BreadcrumbList` · `WebSite` · `Event` con precio y fecha de término · limpieza de enlazado interno · este documento.
 
-### Fase 2 — contenido (el que mueve la aguja)
-Las 3 páginas de panorama · estructura de blog con artículos en archivos del repo · `Article` schema · los primeros 4-5 artículos de la lista · sitemap actualizado.
+### ✅ Fase 2 — contenido (entregada)
+2 guías de panorama (`/panoramas/vina-del-mar`, `/panoramas/valparaiso`) + hub `/panoramas` · blog con 4 artículos · `BlogPosting` schema · FAQ del home ampliada de 7 a 14 preguntas · `/nosotros` y `/entradas` con contenido nuevo · sitemap actualizado.
 
 > Ruta `/blog` en singular **a propósito**: `vercel.json` excluye `blogs/` del rewrite por rutas heredadas de Shopify, así que el plural daría 404.
+
+**Regla de redacción que se siguió**: solo se afirma lo verificable en `client/src/config/candyland.ts`. No se inventaron locales de terceros, barrios, horarios de transporte ni datos de la escena. Contenido genérico inflado es justo lo que penaliza el sistema de contenido útil de Google, y recomendar lugares no verificables es un riesgo para la marca.
+
+**Lo que falta y depende del dueño**: las guías ganarían bastante con material real que solo él tiene — las preguntas que llegan por DM (son literalmente lo que la gente escribe en Google), detalles concretos de transporte de vuelta a esa hora, y cómo se vive la noche por dentro hora a hora. Con eso, cada guía puede duplicar su profundidad sin inventar nada.
 
 ### Fase 3 — pre-renderizado
 HTML generado por ruta en el build, con el `<head>` correcto (incluido el canonical propio, que hoy no se puede arreglar sin esto) y el cuerpo renderizado para las páginas de contenido puro. Las páginas con datos en vivo quedan como están.

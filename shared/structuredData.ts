@@ -147,6 +147,34 @@ export function breadcrumbSchema(items: { name: string; path: string }[]): JsonL
   };
 }
 
+/** Un artículo o guía del blog. `BlogPosting` es el tipo correcto acá (no
+ * `Article` a secas): es lo que Google espera para contenido editorial con
+ * fecha. */
+export function articleSchema(data: {
+  headline: string;
+  description: string;
+  url: string;
+  datePublished: string;
+  dateModified?: string;
+  image?: string;
+}): JsonLd {
+  const schema: JsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    headline: data.headline,
+    description: data.description,
+    mainEntityOfPage: { '@type': 'WebPage', '@id': `${SITE_URL}${data.url}` },
+    datePublished: data.datePublished,
+    // Si nunca se editó, Google acepta que coincida con la publicación.
+    dateModified: data.dateModified ?? data.datePublished,
+    author: { '@type': 'Organization', name: 'Mansion Playroom', url: `${SITE_URL}/` },
+    publisher: { '@type': 'Organization', name: 'Mansion Playroom', url: `${SITE_URL}/` },
+    inLanguage: 'es-CL',
+  };
+  if (data.image) schema.image = data.image;
+  return schema;
+}
+
 /* Nota: acá vivía un `websiteSchema()` con `SearchAction`, que es lo que
  * habilita el cuadro de búsqueda de sitio en Google. Se sacó a propósito: el
  * sitio NO tiene buscador (`/eventos?q=` no filtra nada), y declarar una
