@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { prefersReducedMotion } from '@/lib/smoothScroll';
+import { EVENTO } from '@/config/candyland';
 
 const SEEN_KEY = 'candyland_intro_seen';
 
@@ -107,7 +108,7 @@ export default function CandyIntro() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           role="dialog"
-          aria-label="Entrar a Candyland"
+          aria-label={`Entrar a ${EVENTO.nombre}`}
         >
           {/* Fondo candy */}
           <motion.div

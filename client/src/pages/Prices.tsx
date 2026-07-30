@@ -2,7 +2,7 @@ import { Link } from 'wouter';
 import { motion } from 'framer-motion';
 import { Ticket, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { CANDYLAND, formatCLP } from '@/config/candyland';
+import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
 import { isMissionWindowOpen, missionDepositPrice } from '@shared/mission300';
 import { useSeo } from '@/hooks/useSeo';
 import { breadcrumbSchema } from '@shared/structuredData';
@@ -17,7 +17,7 @@ export default function Prices() {
   // Valparaíso", que antes llevaban cuatro páginas a la vez.
   useSeo({
     title: 'Entradas y Precios — Mansion Playroom',
-    description: 'Valores y tipos de acceso para Candyland: Dúo, Soltera, Dúo Mujeres y Soltero. Compra online con confirmación inmediata por correo. Evento +18.',
+    description: 'Valores y tipos de acceso a las noches de Mansion Playroom: Dúo, Soltera, Dúo Mujeres y Soltero. Compra online con confirmación inmediata por correo. Evento +18.',
     path: '/entradas',
     jsonLd: [
       breadcrumbSchema([
@@ -37,7 +37,7 @@ export default function Prices() {
     <div className="min-h-dvh pt-24 pb-16">
       <div className="container max-w-2xl">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-          <p className="text-sm uppercase tracking-[0.3em] text-primary mb-3 text-center">Candyland</p>
+          <p className="text-sm uppercase tracking-[0.3em] text-primary mb-3 text-center">{EVENTO.nombre}</p>
           <h1 className="font-heading font-extrabold text-3xl md:text-4xl tracking-tight text-center mb-2">Entradas</h1>
           <p className="text-muted-foreground text-sm text-center mb-10">
             {missionOpen
