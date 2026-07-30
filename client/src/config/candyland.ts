@@ -1,7 +1,20 @@
 /**
- * CANDYLAND — Configuración editable del evento.
- * Todo el contenido de la landing sale de este archivo.
- * Cuando el evento exista en la base de datos con el slug de abajo,
+ * Configuración del sitio. Todo el contenido de la landing sale de acá.
+ *
+ * ⚠️ IMPORTANTE — la marca es MANSION PLAYROOM, no el nombre del evento.
+ * "Candyland" es el nombre de UNA fiesta; después vendrá otra. Por eso este
+ * archivo separa dos cosas:
+ *
+ *   • `MARCA`  → lo permanente (recinto, valores, edad mínima, redes, FAQ).
+ *   • `EVENTO` → lo que cambia con cada fiesta (nombre, fecha, dress code,
+ *                accesos, precios, Misión 300, pistas).
+ *
+ * 👉 Para montar el próximo evento se edita `EVENTO` (y `accesos`, `addons`,
+ * `mision`, `pistas`, `lineup`). Los textos del sitio que nombran al evento
+ * leen `EVENTO.nombre`, así que se actualizan solos; los que hablan de la
+ * marca dicen Mansion Playroom y no hay que tocarlos.
+ *
+ * Cuando el evento exista en la base de datos con el slug de `EVENTO.slug`,
  * la sección de entradas usa los datos reales automáticamente.
  */
 
@@ -146,7 +159,7 @@ const ACCESOS: Acceso[] = [
     nombre: 'Cumpleañeros',
     precio: 8000,
     personas: 1,
-    descripcion: 'Si cumples en agosto, Candyland te celebra con acceso especial.',
+    descripcion: 'Si cumples el mes del evento, te celebramos con acceso especial.',
     beneficios: ['1 acceso', 'Sorpresa de cumpleaños', 'Requiere carnet'],
     estado: 'available',
     exclusivoComunidad: false,
@@ -156,7 +169,29 @@ const ACCESOS: Acceso[] = [
   },
 ];
 
-export const CANDYLAND = {
+/* ═══════════════════════════════════════════════════════════════
+ * MARCA — lo permanente de Mansion Playroom.
+ *
+ * "Candyland" es el nombre de UN evento; después vendrá otro. Todo lo que
+ * sobreviva al cambio de evento va acá, y los textos del sitio que hablan de
+ * la marca deben decir Mansion Playroom, no el nombre del evento de turno.
+ * ═══════════════════════════════════════════════════════════════ */
+export const MARCA = {
+  nombre: 'Mansion Playroom',
+  ciudad: 'Valparaíso, Chile',
+  lugar: 'La Mansión — dirección exacta al comprar',
+  valores: ['Respeto', 'Consentimiento', 'Libertad'] as const,
+  edadMinima: 18,
+} as const;
+
+/* ═══════════════════════════════════════════════════════════════
+ * EVENTO — lo que cambia con cada fiesta.
+ *
+ * 👉 PARA MONTAR EL PRÓXIMO EVENTO se edita ESTE bloque (y `accesos`,
+ * `addons`, `mision`, `pistas` y `lineup` más abajo). Los textos del sitio
+ * que nombran el evento leen `EVENTO.nombre`, así que se actualizan solos.
+ * ═══════════════════════════════════════════════════════════════ */
+export const EVENTO = {
   // Debe coincidir con el slug real del evento en la base de datos (lo que
   // el admin le puso al crearlo en /admin) — si no coincide, todos los CTA
   // del sitio apuntan a un evento que no existe y el checkout cae en modo
@@ -171,12 +206,20 @@ export const CANDYLAND = {
   fechaTexto: 'Sábado 08 de Agosto',
   horarioTexto: '21:00 — 04:30 hrs',
   afterTexto: 'After hasta el amanecer',
-  ciudad: 'Valparaíso, Chile',
-  lugar: 'La Mansión — dirección exacta al comprar',
-
-  valores: ['Respeto', 'Consentimiento', 'Libertad'] as const,
-  edadMinima: 18,
+  // Temático del evento: "candy" es de Candyland. El próximo tendrá el suyo.
   dressCode: 'Candy sensual: brillos, rosa, látex, lo que te haga sentir así de rico. Nada de tenida deportiva.',
+} as const;
+
+/* `CANDYLAND` se conserva como objeto compuesto para no romper los archivos
+ * que ya lo importan. El código nuevo puede usar `MARCA` y `EVENTO` directo,
+ * que dicen mucho mejor qué es cada cosa. */
+export const CANDYLAND = {
+  ...MARCA,
+  ...EVENTO,
+  // `MARCA.nombre` es "Mansion Playroom" y `EVENTO.nombre` es el del evento;
+  // en el objeto compuesto gana el del evento porque es lo que esperaban
+  // todos los usos que ya existían.
+  nombre: EVENTO.nombre,
 
   // ── Misión 300 ─────────────────────────────────────────────
   mision: {
@@ -342,6 +385,6 @@ export function whatsappSolteroLink(): string {
 /** Link de WhatsApp genérico para conseguir el código de comunidad (Soltero, Dúo Dos Hombres, etc). */
 export function whatsappComunidadLink(contexto: string): string {
   const num = CANDYLAND.whatsappSoltero.replace(/[^0-9]/g, '');
-  const msg = encodeURIComponent(`Hola! Quiero validarme como miembro de la comunidad para comprar el acceso ${contexto} de Candyland 🍭`);
+  const msg = encodeURIComponent(`Hola! Quiero validarme como miembro de la comunidad para comprar el acceso ${contexto} de ${EVENTO.nombre} 🍭`);
   return `https://wa.me/${num}?text=${msg}`;
 }

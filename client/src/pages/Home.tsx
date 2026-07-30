@@ -28,7 +28,7 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { trpc } from '@/lib/trpc';
-import { CANDYLAND, formatCLP } from '@/config/candyland';
+import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
 import { scrollToId, prefersReducedMotion, isFinePointer } from '@/lib/smoothScroll';
 import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
@@ -669,7 +669,7 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
 
               {soldOut ? (
                 <div className="mt-5 w-full md:w-auto text-center px-6 py-3 rounded-full bg-muted text-muted-foreground text-sm font-bold uppercase tracking-wide" role="status">
-                  Candyland está completo · Sold out
+                  {EVENTO.nombre} está completo · Sold out
                 </div>
               ) : (
                 <Link

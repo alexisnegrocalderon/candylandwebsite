@@ -10,7 +10,7 @@ import { PaymentBrick } from '@/components/PaymentBrick';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { CANDYLAND, CAMPOS_COMPRADOR, formatCLP, coversDisponibles, whatsappComunidadLink, type Acceso, type CampoForm } from '@/config/candyland';
+import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, coversDisponibles, whatsappComunidadLink, type Acceso, type CampoForm } from '@/config/candyland';
 import { isMissionWindowOpen, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
 import { isValidRut, isValidChileanPhone } from '@shared/rut';
 import { useSeo } from '@/hooks/useSeo';
@@ -121,7 +121,7 @@ function friendlyPregunta(rawKey: string, field: CampoForm): { titulo: string; s
     case 'whatsapp': return { titulo: '¿Cuál es tu WhatsApp?', sub: 'Por si necesitamos contactarte antes de la fiesta.' };
     case 'rut': return { titulo: 'Tu RUT, para el carnet', sub: 'Escríbelo con puntos y guion, igual que el ejemplo: 12.345.678-9. Tus datos son 100% privados.' };
     case 'instagram': return { titulo: '¿Nos compartes tu Instagram?', sub: 'Es el único dato opcional — puedes saltarlo.' };
-    case 'mayorEdad': return { titulo: 'Una última confirmación', sub: 'Candyland es un evento estrictamente +18.' };
+    case 'mayorEdad': return { titulo: 'Una última confirmación', sub: `${EVENTO.nombre} es un evento estrictamente +18.` };
     case 'codigo_acceso': return { titulo: 'Tu código de comunidad', sub: field.help };
     case 'fecha_nacimiento': return { titulo: '¿Cuándo es tu cumpleaños?', sub: 'Lo validamos con tu carnet en la puerta.' };
     default: return { titulo: field.label.replace(' (opcional)', ''), sub: field.help };
@@ -397,7 +397,7 @@ export default function Checkout() {
   const pasos: Paso[] = useMemo(() => {
     const p: Paso[] = [];
     if (!skipVibe) {
-      p.push({ id: 'vibe', titulo: '✨ ¿Cómo vienes a vivir Candyland?', sub: 'Selecciona la opción que mejor los representa.', keys: [] });
+      p.push({ id: 'vibe', titulo: `✨ ¿Cómo vienes a vivir ${EVENTO.nombre}?`, sub: 'Selecciona la opción que mejor los representa.', keys: [] });
       if (groupSize === 1) {
         p.push({ id: 'quien', titulo: 'Perfecto.', sub: 'Cuéntanos cómo vienes.', keys: [] });
       }
@@ -621,7 +621,7 @@ export default function Checkout() {
       <div className="min-h-dvh pt-24 pb-16 flex items-center justify-center">
         <div className="container max-w-md text-center">
           <div className="w-16 h-16 rounded-full glass-candy flex items-center justify-center mx-auto mb-5 text-3xl">🍭</div>
-          <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-2">¡Bienvenidx a Candyland!</h1>
+          <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-2">¡Bienvenidx a {EVENTO.nombre}!</h1>
           <p className="text-muted-foreground text-sm mb-3">Tu pago se confirmó y tu acceso ya fue enviado a tu correo. Revisa tu bandeja de entrada.</p>
           <p className="text-muted-foreground text-sm mb-8">
             Si no lo encuentras, revisa tu carpeta de <span className="font-semibold text-foreground">spam o correo no deseado</span> — dependiendo del filtro de tu correo, puede haberse ido para allá.
