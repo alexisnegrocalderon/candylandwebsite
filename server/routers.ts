@@ -392,6 +392,31 @@ export const appRouter = router({
     })).mutation(async ({ input }) => {
       return db.validateDiscountCode(input.code, input.eventId);
     }),
+    /** Un solo campo de código en el checkout: la persona no sabe (ni le
+     * importa) si lo que tiene es un código de descuento o el código de quien
+     * la invitó -- este endpoint decide por ella. Se prueba primero contra
+     * embajadores y después contra descuentos: cuando más adelante un código
+     * de embajador también traiga descuento propio, esta rama es la que va a
+     * empezar a incluirlo, sin tocar la rama de descuento puro. */
+    validateCode: publicProcedure.input(z.object({
+      code: z.string(),
+      eventId: z.number(),
+    })).mutation(async ({ input }) => {
+      const clean = input.code.trim();
+      if (!clean) return { type: 'none' as const, message: 'Escribe un código' };
+
+      const ambassador = await db.getActiveExclusiveAmbassadorByCode(clean);
+      if (ambassador) {
+        return { type: 'ambassador' as const, name: ambassador.name, code: ambassador.code };
+      }
+
+      const discountResult = await db.validateDiscountCode(clean, input.eventId);
+      if (discountResult.valid && discountResult.discount) {
+        return { type: 'discount' as const, discount: discountResult.discount };
+      }
+
+      return { type: 'none' as const, message: 'No encontramos ese código' };
+    }),
     create: publicProcedure.input(z.object({
       eventSlug: z.string(),
       buyerName: z.string(),
