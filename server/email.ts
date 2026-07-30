@@ -184,18 +184,23 @@ export function buildOrderEmail(data: {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- Le dice a los clientes de correo compatibles (Apple Mail, Outlook) que
-       este email está diseñado para verse en claro y que NO lo reprocesen en
-       modo oscuro automático — sin esto, algunos clientes invierten fondos
-       pero no ajustan bien el texto, dejando texto oscuro sobre fondo oscuro. -->
+  <!-- Le dice a los clientes compatibles (Apple Mail, Outlook) que este email
+       está diseñado para verse en claro y que NO lo reprocesen en modo oscuro.
+       Gmail lo ignora y aplica su inversión igual, así que además NO se usan
+       gradientes de fondo en ningún lado: Gmail no sabe invertir un
+       linear-gradient pero sí invierte el color del texto, y esa mezcla dejaba
+       el título del encabezado casi del mismo tono que su fondo (invisible).
+       Con background-color sólido, fondo y texto se invierten juntos y el
+       texto sigue legible tanto en claro como en oscuro. -->
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
 
     <!-- HERO -->
-    <div style="background:linear-gradient(160deg,${ACCENT.pink.bg},${ACCENT.lilac.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+    <div style="background-color:${ACCENT.pink.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="font-size:52px;margin:0 0 12px;">🍭</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Tu compra fue confirmada!</h1>
@@ -418,12 +423,13 @@ export function buildMissionTopupEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
 
     <!-- HERO -->
-    <div style="background:linear-gradient(160deg,${ACCENT.yellow.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+    <div style="background-color:${ACCENT.yellow.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="font-size:52px;margin:0 0 12px;">🍭</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Casi, ${data.buyerName}!</h1>
@@ -485,12 +491,13 @@ export function buildMigrationAnnouncementEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
 
     <!-- HERO -->
-    <div style="background:linear-gradient(160deg,${ACCENT.lilac.bg},${ACCENT.blue.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+    <div style="background-color:${ACCENT.lilac.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="font-size:52px;margin:0 0 12px;">✨</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Tenemos novedades, ${data.buyerName}!</h1>
@@ -563,12 +570,13 @@ export function buildTierUpEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
 
     <!-- HERO -->
-    <div style="background:linear-gradient(160deg,${ACCENT.yellow.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+    <div style="background-color:${ACCENT.yellow.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="font-size:52px;margin:0 0 12px;">${tier.emoji}</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Llegaste a nivel ${tier.name}, ${data.buyerName}!</h1>
@@ -636,12 +644,13 @@ export function buildAlmostTierEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
 
     <!-- HERO -->
-    <div style="background:linear-gradient(160deg,${ACCENT.lilac.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+    <div style="background-color:${ACCENT.lilac.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="font-size:52px;margin:0 0 12px;">🔥</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Estás a 1 venta, ${data.buyerName}!</h1>
@@ -702,6 +711,7 @@ export function buildSalesRecordEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
@@ -764,6 +774,7 @@ export function buildAmbassadorApplicationEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
@@ -820,11 +831,12 @@ export function buildApplicationReceivedEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
 
-    <div style="background:linear-gradient(160deg,${ACCENT.lilac.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+    <div style="background-color:${ACCENT.lilac.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="font-size:44px;margin:0 0 12px;">👑</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">Recibimos tu postulación, ${data.name}</h1>
@@ -872,11 +884,12 @@ export function buildAmbassadorWelcomeEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
 
-    <div style="background:linear-gradient(160deg,${ACCENT.yellow.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+    <div style="background-color:${ACCENT.yellow.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="font-size:48px;margin:0 0 12px;">🎉</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Quedaste, ${data.name}!</h1>
@@ -957,12 +970,13 @@ export function buildAmbassadorWeeklyEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
 
     <!-- HERO -->
-    <div style="background:linear-gradient(160deg,${ACCENT.lilac.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+    <div style="background-color:${ACCENT.lilac.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Tu semana como embajador</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">Hola ${data.name}</h1>
@@ -1075,6 +1089,7 @@ export function buildCheckinSummaryEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
@@ -1137,6 +1152,7 @@ export function buildShiftCloseEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
@@ -1231,6 +1247,7 @@ export function buildMailingBlastEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   ${data.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${data.preheader}</div>` : ''}
@@ -1239,7 +1256,7 @@ export function buildMailingBlastEmail(data: {
     ${eventInfo?.imageUrl && showBanner ? `<img src="${eventInfo.imageUrl}" alt="${eventInfo.title}" style="display:block;width:100%;height:auto;" />` : ''}
 
     <!-- HERO -->
-    <div style="background:linear-gradient(160deg,${ACCENT.pink.bg},${ACCENT.yellow.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+    <div style="background-color:${ACCENT.pink.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="font-size:52px;margin:0 0 12px;">🍬</p>
       <p style="color:${MUTED};font-size:14px;margin:0 0 4px;">${greeting}</p>
@@ -1328,11 +1345,12 @@ export function buildGiftEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
 
-    <div style="background:linear-gradient(160deg,${ACCENT.pink.bg},${ACCENT.lilac.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+    <div style="background-color:${ACCENT.pink.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="font-size:52px;margin:0 0 12px;">🍹</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">${data.fromAlias} te invitó un trago</h1>
@@ -1406,11 +1424,12 @@ export function buildPendingReminderEmail(data: {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light">
   <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
 </head>
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
 
-    <div style="background:linear-gradient(160deg,${ACCENT.pink.bg},${ACCENT.lilac.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+    <div style="background-color:${ACCENT.pink.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="font-size:48px;margin:0 0 12px;">🎟️</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">${primerNombre}, quedó pendiente tu acceso</h1>
