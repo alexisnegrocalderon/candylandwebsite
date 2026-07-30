@@ -14,6 +14,7 @@ import { AMBASSADOR_TASKS } from '../shared/ambassadorApplication';
 import { buildAmbassadorWeeklyEmail, sendEmail } from './email';
 import { invokeLLM } from './_core/llm';
 import { z } from 'zod';
+import { formatChileDate } from '../shared/chileDate';
 
 /* Motor del programa de Embajadores VIP: atribución de cada venta, y las
  * consultas que alimentan el panel del embajador y el admin.
@@ -705,7 +706,7 @@ export async function generateWeeklyMaterial(idea: string): Promise<WeeklyMateri
     partesContexto.push(`Evento: ${evento.title}`);
     if (evento.eventDate) {
       const fecha = new Date(evento.eventDate);
-      partesContexto.push(`Fecha: ${fecha.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}`);
+      partesContexto.push(`Fecha: ${formatChileDate(fecha)}`);
       const dias = Math.ceil((fecha.getTime() - Date.now()) / 86_400_000);
       if (dias > 0) partesContexto.push(`Faltan ${dias} días`);
     }

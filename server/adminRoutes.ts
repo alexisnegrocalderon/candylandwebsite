@@ -1,3 +1,4 @@
+import { formatChileDateTime } from '../shared/chileDate';
 import type { Express, Request, Response } from "express";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
@@ -34,7 +35,7 @@ export function registerAdminRoutes(app: Express) {
     const csv = toCsv(
       rows.map((r) => ({
         ...r,
-        createdAt: r.createdAt ? new Date(r.createdAt).toLocaleString("es-CL") : "",
+        createdAt: r.createdAt ? formatChileDateTime(r.createdAt) : "",
       })),
       [
         { key: "orderNumber", label: "N° Orden" },
@@ -70,8 +71,8 @@ export function registerAdminRoutes(app: Express) {
         ...c,
         accessTypes: Array.isArray(c.accessTypes) ? c.accessTypes.join(";") : "",
         tags: Array.isArray(c.tags) ? c.tags.join(";") : "",
-        firstSeenAt: c.firstSeenAt ? new Date(c.firstSeenAt).toLocaleString("es-CL") : "",
-        lastSeenAt: c.lastSeenAt ? new Date(c.lastSeenAt).toLocaleString("es-CL") : "",
+        firstSeenAt: c.firstSeenAt ? formatChileDateTime(c.firstSeenAt) : "",
+        lastSeenAt: c.lastSeenAt ? formatChileDateTime(c.lastSeenAt) : "",
       })),
       [
         { key: "email", label: "Email" },
@@ -187,8 +188,8 @@ export function registerAdminRoutes(app: Express) {
     const csv = toCsv(
       rows.map((r: any) => ({
         ...r,
-        openedAt: r.openedAt ? new Date(r.openedAt).toLocaleString("es-CL") : "",
-        closedAt: r.closedAt ? new Date(r.closedAt).toLocaleString("es-CL") : "",
+        openedAt: r.openedAt ? formatChileDateTime(r.openedAt) : "",
+        closedAt: r.closedAt ? formatChileDateTime(r.closedAt) : "",
         topCustomers: (r.topCustomers ?? []).map((c: any) => `${c.name} ($${c.total})`).join(" · "),
         topProducts: (r.topProducts ?? []).map((p: any) => `${p.name} (${p.quantity}x)`).join(" · "),
       })),

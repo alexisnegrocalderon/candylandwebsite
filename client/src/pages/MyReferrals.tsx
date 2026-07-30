@@ -289,7 +289,7 @@ export default function MyReferrals() {
                             <span className="text-foreground">{ref.buyerEmail}</span>
                           </td>
                           <td className="py-3 text-muted-foreground">
-                            {new Date(ref.createdAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            {new Date(ref.createdAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'America/Santiago' })}
                           </td>
                           <td className="py-3 text-center">
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs font-medium">

@@ -1,3 +1,4 @@
+import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
 import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid } from './db';
@@ -13,19 +14,11 @@ import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 
 export const webhooksRouter = Router();
 
-/** `toLocaleDateString`/`toLocaleTimeString` con locale "es-CL" solo define el
- * IDIOMA del formato -- la ZONA HORARIA sigue siendo la del runtime, que en
- * Vercel es UTC. Sin `timeZone` explícito, un evento guardado como 21:00
- * hora de Chile (01:00 UTC del día siguiente) se mostraba en los emails
- * como "01:00" (y a veces con la fecha corrida un día) -- de ahí que el
- * correo dijera "1am" en vez de "21:00". */
-const CHILE_TZ = 'America/Santiago';
+/* El porqué de estos formatos vive en shared/chileDate.ts. */
 function formatEventDate(date: Date): string {
-  return date.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: CHILE_TZ });
+  return formatChileDate(date, { withYear: true });
 }
-function formatEventTime(date: Date): string {
-  return date.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: CHILE_TZ });
-}
+const formatEventTime = formatChileTime;
 
 /** Mapea el estado crudo de Mercado Pago a nuestro enum de 3 estados. */
 export function mapPaymentStatus(mpStatus: string | undefined): 'approved' | 'rejected' | 'pending' {

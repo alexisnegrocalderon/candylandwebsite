@@ -1,5 +1,6 @@
 import { Link } from 'wouter';
 import { useAuth } from '@/_core/hooks/useAuth';
+import { formatChileDateTime } from '@shared/chileDate';
 
 /** Layout compartido por los reportes imprimibles (/admin/print/...) --
  * fondo blanco/texto negro fijos (no sigue el tema oscuro del resto del
@@ -29,7 +30,7 @@ export function PrintLayout({
         <div className="mb-6 border-b border-black/20 pb-4">
           <h1 className="text-2xl font-bold">{title}</h1>
           {subtitle && <p className="text-sm text-black/60 mt-1">{subtitle}</p>}
-          <p className="text-xs text-black/40 mt-1">Generado el {new Date().toLocaleString('es-CL')}</p>
+          <p className="text-xs text-black/40 mt-1">Generado el {formatChileDateTime(new Date())}</p>
         </div>
         {children}
       </div>

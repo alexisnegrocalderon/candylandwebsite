@@ -1,17 +1,13 @@
 import { z } from "zod";
+import { formatChileDate, formatChileTime } from "../shared/chileDate";
 import { invokeLLM } from "./_core/llm";
 import { sendEmail, buildMailingBlastEmail, type MailingEventInfo, type MailingEventSections } from "./email";
 import * as db from "./db";
 import { getMission300Status } from "./webhooks";
 import { isMissionWindowOpen, MISSION_300_DEPOSIT_PER_PERSON } from "../shared/mission300";
 
-// Mismo criterio de zona horaria que server/webhooks.ts (formatEventDate) --
-// duplicado a propósito, no exportado desde ahí, para no acoplar módulos.
-const CHILE_TZ = 'America/Santiago';
 function formatEventDateTime(date: Date): string {
-  const dateText = date.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', timeZone: CHILE_TZ });
-  const timeText = date.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: CHILE_TZ });
-  return `${dateText}, ${timeText} hrs`;
+  return `${formatChileDate(date)}, ${formatChileTime(date)} hrs`;
 }
 
 /** Arma la info del "próximo evento destacado" para la tarjeta opcional del
