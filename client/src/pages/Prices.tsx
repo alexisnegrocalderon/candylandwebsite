@@ -5,16 +5,26 @@ import { trpc } from '@/lib/trpc';
 import { CANDYLAND, formatCLP } from '@/config/candyland';
 import { isMissionWindowOpen, missionDepositPrice } from '@shared/mission300';
 import { useSeo } from '@/hooks/useSeo';
+import { breadcrumbSchema } from '@shared/structuredData';
 
 /** Página "Entradas": lista todos los accesos con su precio general y, si la
  * ventana de Misión 300 sigue abierta, el precio de abono al lado tachando
  * el general — mismo gancho de urgencia que ya está en el Hero, pero acá con
  * el detalle completo de cada tipo de acceso. */
 export default function Prices() {
+  // Intención de conversión pura: precios y accesos. No repite el pitch de
+  // experiencia del home ni la frase "fiesta liberal en Viña del Mar y
+  // Valparaíso", que antes llevaban cuatro páginas a la vez.
   useSeo({
-    title: 'Entradas Candyland — Fiesta Liberal en Viña del Mar y Valparaíso',
-    description: 'Precios y tipos de acceso para Candyland, la fiesta liberal de la V Región. Compra tu entrada para salir a bailar en Viña del Mar y Valparaíso.',
+    title: 'Entradas y Precios — Mansion Playroom',
+    description: 'Valores y tipos de acceso para Candyland: Dúo, Soltera, Dúo Mujeres y Soltero. Compra online con confirmación inmediata por correo. Evento +18.',
     path: '/entradas',
+    jsonLd: [
+      breadcrumbSchema([
+        { name: 'Inicio', path: '/' },
+        { name: 'Entradas', path: '/entradas' },
+      ]),
+    ],
   });
 
   const { data: event } = trpc.events.getBySlug.useQuery({ slug: CANDYLAND.slug }, { retry: false });

@@ -4,17 +4,50 @@ import { Calendar, MapPin, Clock, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { useSeo } from '@/hooks/useSeo';
+import { breadcrumbSchema, eventSchema } from '@shared/structuredData';
 
 export default function EventDetail() {
   const [, params] = useRoute('/eventos/:slug');
   const slug = params?.slug ?? '';
   const { data: event, isLoading } = trpc.events.getBySlug.useQuery({ slug });
 
+  // Precio más bajo real del evento: Google exige un `price` concreto en la
+  // oferta, y antes el schema del evento vivía fijo en index.html sin precio
+  // (por eso nunca calificó para resultado enriquecido).
+  const { data: ticketTypes } = trpc.events.getTicketTypes.useQuery(
+    { slug },
+    { enabled: !!slug },
+  );
+  const precioDesde = (() => {
+    const accesos = (ticketTypes ?? []).filter((t: any) => t.category === 'acceso');
+    if (!accesos.length) return null;
+    return Math.min(...accesos.map((t: any) => Number(t.price)));
+  })();
+
   useSeo({
-    title: event ? `${event.title} — Fiesta Liberal en Viña del Mar y Valparaíso` : 'Cargando evento… | Mansion Playroom',
-    description: event?.shortDescription || 'Fiesta liberal en la V Región: salir a bailar en Viña del Mar y Valparaíso con Mansion Playroom.',
+    title: event ? `${event.title} — Fiesta Liberal en Viña del Mar | +18` : 'Cargando evento… | Mansion Playroom',
+    description: event?.shortDescription || 'Fiesta liberal en la Región de Valparaíso: fecha, horario, accesos y entradas para tu próxima noche con Mansion Playroom.',
     path: `/eventos/${slug}`,
     image: event?.imageUrl || undefined,
+    jsonLd: event
+      ? [
+          eventSchema({
+            name: event.title,
+            description: event.shortDescription,
+            startDate: new Date(event.eventDate).toISOString(),
+            endDate: event.eventEnd ? new Date(event.eventEnd).toISOString() : null,
+            slug: event.slug,
+            imageUrl: event.imageUrl,
+            priceFrom: precioDesde,
+            venueName: event.venue ?? undefined,
+          }),
+          breadcrumbSchema([
+            { name: 'Inicio', path: '/' },
+            { name: 'Eventos', path: '/eventos' },
+            { name: event.title, path: `/eventos/${event.slug}` },
+          ]),
+        ]
+      : undefined,
   });
 
   if (isLoading) {
