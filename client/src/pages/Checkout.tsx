@@ -235,9 +235,8 @@ export default function Checkout() {
   const extraTickets = useMemo(() => liveTickets.filter((t: any) => t.category === 'extra'), [liveTickets]);
   const useDbExtras = !useConfig && extraTickets.length > 0;
 
-  const validateDiscount = trpc.orders.validateDiscount.useMutation();
+  const validateCode = trpc.orders.validateCode.useMutation();
   const validateCommunityCode = trpc.communityCodes.validate.useMutation();
-  const validateAmbassador = trpc.ambassadors.validate.useMutation();
   const createOrder = trpc.orders.create.useMutation();
 
   /* ── "¿Cómo vienes?" (Paso 1) + acceso resuelto a partir de la respuesta ── */
@@ -349,15 +348,16 @@ export default function Checkout() {
   const [estacionamiento, setEstacionamiento] = useState(false);
   const [coverQty, setCoverQty] = useState<Record<string, number>>({});
   const [dbExtraQty, setDbExtraQty] = useState<Record<number, number>>({});
-  const [discountCode, setDiscountCode] = useState('');
-  const [ambassadorCode, setAmbassadorCode] = useState('');
-  // El código de embajador se mandaba sin verificar nada: si venía mal
-  // tecleado, la comisión se perdía en silencio y nadie se enteraba.
-  const [ambassadorStatus, setAmbassadorStatus] = useState<'idle' | 'valid' | 'invalid'>('idle');
-  const [ambassadorName, setAmbassadorName] = useState('');
-  const [ambassadorError, setAmbassadorError] = useState('');
-  const [discountApplied, setDiscountApplied] = useState<any>(null);
-  const [discountError, setDiscountError] = useState('');
+  // Un solo campo para código de descuento o de embajador -- la persona no
+  // sabe (ni le importa) cuál de los dos tiene; el servidor decide
+  // (`orders.validateCode`) y acá solo se guarda el resultado ya tipado.
+  const [code, setCode] = useState('');
+  const [codeResult, setCodeResult] = useState<
+    | { type: 'discount'; discount: any }
+    | { type: 'ambassador'; name: string; code: string }
+    | null
+  >(null);
+  const [codeError, setCodeError] = useState('');
   const [communityCodeInput, setCommunityCodeInput] = useState('');
   const [communityCodeStatus, setCommunityCodeStatus] = useState<'idle' | 'valid' | 'invalid'>('idle');
   const [communityCodeError, setCommunityCodeError] = useState('');
@@ -472,10 +472,10 @@ export default function Checkout() {
 
   /* ── Totales ─────────────────────────────────────────────── */
   const subtotal = (acceso?.precio ?? 0) * qty;
-  const discountAmount = discountApplied
-    ? discountApplied.discountType === 'percentage'
-      ? Math.round(subtotal * Number(discountApplied.discountValue) / 100)
-      : Number(discountApplied.discountValue)
+  const discountAmount = codeResult?.type === 'discount'
+    ? codeResult.discount.discountType === 'percentage'
+      ? Math.round(subtotal * Number(codeResult.discount.discountValue) / 100)
+      : Number(codeResult.discount.discountValue)
     : 0;
   const coversTotal = covers.productos.reduce((s, p) => s + (coverQty[p.id] || 0) * p.precio, 0);
   const dbExtrasTotal = extraTickets.reduce((s: number, t: any) => s + (dbExtraQty[t.id] || 0) * Number(t.price), 0);
@@ -483,37 +483,27 @@ export default function Checkout() {
   const serviceFee = serviceFeePercent > 0 ? Math.round(preServiceFeeTotal * serviceFeePercent / 100) : 0;
   const total = preServiceFeeTotal + serviceFee;
 
-  const handleApplyDiscount = async () => {
-    if (!discountCode.trim() || !event?.id) return;
-    setDiscountError('');
+  /** Un solo botón "Aplicar" para el único campo de código: el servidor
+   * (`orders.validateCode`) prueba primero si es un código de embajador y
+   * después si es un código de descuento, y acá solo se pinta lo que
+   * corresponda según lo que haya contestado. A propósito NO bloquea la
+   * compra: un código mal escrito no puede impedir una venta, solo se avisa
+   * para que la persona lo corrija. */
+  const handleApplyCode = async () => {
+    if (!code.trim() || !event?.id) return;
+    setCodeError('');
     try {
-      const result = await validateDiscount.mutateAsync({ code: discountCode, eventId: event.id });
-      if (result.valid) setDiscountApplied(result.discount);
-      else setDiscountError(result.message || 'Código inválido');
-    } catch {
-      setDiscountError('No pudimos validar el código');
-    }
-  };
-
-  /** Valida el código de embajador. A propósito NO bloquea la compra: el
-   * código es opcional y un embajador mal escrito no puede impedir una venta;
-   * solo se avisa para que la persona lo corrija y la comisión llegue. */
-  const handleValidateAmbassador = async () => {
-    const code = ambassadorCode.trim();
-    if (!code) return;
-    setAmbassadorError('');
-    try {
-      const result = await validateAmbassador.mutateAsync({ code });
-      if (result.valid) {
-        setAmbassadorStatus('valid');
-        setAmbassadorName(result.name);
+      const result = await validateCode.mutateAsync({ code: code.trim(), eventId: event.id });
+      if (result.type === 'discount') {
+        setCodeResult({ type: 'discount', discount: result.discount });
+      } else if (result.type === 'ambassador') {
+        setCodeResult({ type: 'ambassador', name: result.name, code: result.code });
       } else {
-        setAmbassadorStatus('invalid');
-        setAmbassadorError(result.message || 'No encontramos ese código');
+        setCodeResult(null);
+        setCodeError(result.message || 'No encontramos ese código');
       }
     } catch {
-      setAmbassadorStatus('invalid');
-      setAmbassadorError('No pudimos validar el código');
+      setCodeError('No pudimos validar el código');
     }
   };
 
@@ -587,8 +577,13 @@ export default function Checkout() {
         buyerEmail: values['buyer__email'],
         buyerPhone: values['buyer__whatsapp'],
         items: [{ ticketTypeId: Number(accesoId), quantity: qty }, ...extraItems],
-        discountCode: discountCode || undefined,
-        ambassadorCode: ambassadorCode || undefined,
+        // Se manda el mismo código en los dos campos: el servidor ya prueba
+        // cada uno contra su propia tabla e ignora en silencio el que no
+        // matchea (createOrder para descuento, referredByCode/atribución
+        // para embajador) -- así funciona aunque la persona nunca haya
+        // apretado "Aplicar".
+        discountCode: code.trim() || undefined,
+        ambassadorCode: code.trim() || undefined,
         communityCode: requiresCommunityCode ? values['acceso__codigo_acceso'] : undefined,
         attendeeData,
       });
@@ -960,57 +955,38 @@ export default function Checkout() {
               {pasoActual.id === 'codigos' && (
                 <div className="space-y-4">
                   <div>
-                    <Label htmlFor="discount" className="text-sm">Código de descuento</Label>
-                    <div className="flex flex-col sm:flex-row gap-2 mt-1.5">
-                      <Input id="discount" value={discountCode} onChange={(e) => setDiscountCode(e.target.value.toUpperCase())} placeholder="CANDY2026" disabled={!!discountApplied} className="h-12 flex-1" />
-                      <Button
-                        type="button"
-                        onClick={handleApplyDiscount}
-                        disabled={!!discountApplied || !discountCode || validateDiscount.isPending}
-                        className="interactive h-12 px-6 rounded-full font-bold whitespace-nowrap"
-                      >
-                        {validateDiscount.isPending
-                          ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Aplicando…</>
-                          : discountApplied
-                            ? <><Check className="w-4 h-4 mr-2" /> Aplicado</>
-                            : <><Tag className="w-4 h-4 mr-2" /> Aplicar descuento</>}
-                      </Button>
-                    </div>
-                    {discountApplied && <p className="text-sm text-green-400 mt-1">Descuento aplicado ✓</p>}
-                    {discountError && <p className="text-sm text-destructive mt-1" role="alert">{discountError}</p>}
-                  </div>
-                  <div>
-                    <Label htmlFor="ambassador" className="text-sm">Código de embajador</Label>
+                    <Label htmlFor="promo-code" className="text-sm">¿Tienes un código?</Label>
                     <div className="flex flex-col sm:flex-row gap-2 mt-1.5">
                       <Input
-                        id="ambassador"
-                        value={ambassadorCode}
+                        id="promo-code"
+                        value={code}
                         onChange={(e) => {
-                          setAmbassadorCode(e.target.value.toUpperCase());
-                          setAmbassadorStatus('idle');
-                          setAmbassadorError('');
+                          setCode(e.target.value.toUpperCase());
+                          setCodeResult(null);
+                          setCodeError('');
                         }}
+                        placeholder="Ingresa tu código"
+                        disabled={!!codeResult}
                         className="h-12 flex-1"
-                        placeholder="Código de quien te invitó"
                       />
                       <Button
                         type="button"
-                        variant="outline"
-                        onClick={handleValidateAmbassador}
-                        disabled={!ambassadorCode.trim() || validateAmbassador.isPending}
+                        onClick={handleApplyCode}
+                        disabled={!!codeResult || !code.trim() || validateCode.isPending}
                         className="interactive h-12 px-6 rounded-full font-bold whitespace-nowrap"
                       >
-                        {validateAmbassador.isPending
-                          ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Verificando…</>
-                          : ambassadorStatus === 'valid'
-                            ? <><Check className="w-4 h-4 mr-2" /> Verificado</>
-                            : 'Verificar'}
+                        {validateCode.isPending
+                          ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Aplicando…</>
+                          : codeResult
+                            ? <><Check className="w-4 h-4 mr-2" /> Aplicado</>
+                            : <><Tag className="w-4 h-4 mr-2" /> Aplicar</>}
                       </Button>
                     </div>
-                    {ambassadorStatus === 'valid' && (
-                      <p className="text-sm text-green-400 mt-1">Le vamos a acreditar la venta a {ambassadorName} ✓</p>
+                    {codeResult?.type === 'discount' && <p className="text-sm text-green-400 mt-1">Descuento aplicado ✓</p>}
+                    {codeResult?.type === 'ambassador' && (
+                      <p className="text-sm text-green-400 mt-1">Le vamos a acreditar la venta a {codeResult.name} ✓</p>
                     )}
-                    {ambassadorError && <p className="text-sm text-amber-400 mt-1" role="alert">{ambassadorError} — puedes seguir igual, pero nadie recibirá el crédito.</p>}
+                    {codeError && <p className="text-sm text-destructive mt-1" role="alert">{codeError}</p>}
                     <p className="text-xs text-muted-foreground mt-2">Si no tienes ningún código, solo aprieta Continuar.</p>
                   </div>
                 </div>
