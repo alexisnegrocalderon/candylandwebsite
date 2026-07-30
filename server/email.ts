@@ -743,6 +743,174 @@ export function buildSalesRecordEmail(data: {
  * Todo viene calculado desde server/ambassadorProgram.ts: acá solo se arma el
  * HTML con variables dinámicas. Si no hay material cargado, esa sección se
  * omite en vez de mostrar un bloque vacío. */
+/** Aviso interno al dueño de que alguien postuló para ser embajador. Asunto
+ * con prefijo entre corchetes, igual que el registro de ventas, para poder
+ * armar un filtro de Gmail una sola vez. */
+export function buildAmbassadorApplicationEmail(data: {
+  name: string;
+  email: string;
+  whatsapp: string;
+  instagram: string;
+  followers: number | null;
+  message: string;
+  whatsappLink: string;
+  instagramLink: string;
+}) {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">👑 Nueva postulación a embajador</h1>
+    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.name}</p>
+
+    ${card(`
+      <div style="padding:6px 0;border-bottom:1px solid ${BORDER};">
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Instagram</p>
+        <p style="margin:0;"><a href="${data.instagramLink}" style="color:${ACCENT.pink.text};font-size:15px;font-weight:700;text-decoration:none;">@${data.instagram}</a>
+        ${data.followers !== null ? `<span style="color:${MUTED};font-size:13px;"> · ${data.followers.toLocaleString('es-CL')} seguidores</span>` : ''}</p>
+      </div>
+      <div style="padding:6px 0;border-bottom:1px solid ${BORDER};">
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">WhatsApp</p>
+        <p style="margin:0;"><a href="${data.whatsappLink}" style="color:${ACCENT.blue.text};font-size:15px;font-weight:700;text-decoration:none;">${data.whatsapp}</a></p>
+      </div>
+      <div style="padding:6px 0;">
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Correo</p>
+        <p style="color:${INK};font-size:14px;margin:0;">${data.email}</p>
+      </div>
+    `)}
+
+    ${data.message ? card(`
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Lo que escribió</p>
+      <p style="color:${INK};font-size:14px;margin:0;line-height:1.6;">${data.message}</p>
+    `) : ''}
+
+    <p style="color:${MUTED};font-size:13px;margin:0;">
+      Revísala en el panel: Embajadores VIP → Postulaciones. Desde ahí la apruebas y se crea el embajador con su código.
+    </p>
+  </div>
+</body>
+</html>`;
+}
+
+/** Confirmación al postulante. Repite requisitos y tareas a propósito: así le
+ * queda por escrito a qué se está comprometiendo, y salen de las mismas
+ * constantes que muestra la página (shared/ambassadorApplication.ts). */
+export function buildApplicationReceivedEmail(data: {
+  name: string;
+  requirements: string[];
+  tasks: string[];
+}) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+  const lista = (items: string[]) => items
+    .map((t) => `<p style="color:${INK};font-size:14px;margin:0 0 6px;">• ${t}</p>`)
+    .join('');
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <div style="background:linear-gradient(160deg,${ACCENT.lilac.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:44px;margin:0 0 12px;">👑</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">Recibimos tu postulación, ${data.name}</h1>
+      <p style="color:${MUTED};font-size:15px;margin:0;">Te vamos a escribir por WhatsApp para contarte cómo sigue.</p>
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${sectionTitle('✅', 'Lo que pedimos')}
+      ${card(lista(data.requirements))}
+
+      ${sectionTitle('📱', 'A lo que te comprometes')}
+      ${card(lista(data.tasks), { bg: ACCENT.yellow.bg, border: false })}
+
+      ${card(`
+        <p style="color:${INK};font-size:14px;margin:0;line-height:1.6;">
+          Si quedas seleccionado te llega tu <strong>código personal</strong> y un panel donde vas a ver, en vivo, cuántas
+          ventas hiciste y cuánto llevas ganado. No tienes que pedirle el número a nadie.
+        </p>
+      `)}
+
+      <p style="color:${FAINT};font-size:12px;text-align:center;margin:24px 0 0;">
+        Si no postulaste tú, ignora este correo y no pasa nada.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+/** Bienvenida al aprobar: su código y el link a su panel. Sin esto el admin
+ * tendría que mandarle el código a mano por WhatsApp. */
+export function buildAmbassadorWelcomeEmail(data: {
+  name: string;
+  code: string;
+  panelUrl: string;
+  tasks: string[];
+}) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <div style="background:linear-gradient(160deg,${ACCENT.yellow.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:48px;margin:0 0 12px;">🎉</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Quedaste, ${data.name}!</h1>
+      <p style="color:${MUTED};font-size:15px;margin:0;">Ya eres embajador de Mansion Playroom.</p>
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${sectionTitle('🎟', 'Tu código')}
+      ${card(`
+        <p style="color:${INK};font-size:32px;font-weight:800;font-family:monospace;margin:0 0 8px;text-align:center;">${data.code}</p>
+        <p style="color:${MUTED};font-size:13px;margin:0;text-align:center;">
+          Cada persona que lo ponga al comprar su entrada te genera comisión, automáticamente.
+        </p>
+      `, { bg: ACCENT.pink.bg, border: false })}
+
+      ${sectionTitle('📱', 'Lo que esperamos de ti')}
+      ${card(data.tasks.map((t) => `<p style="color:${INK};font-size:14px;margin:0 0 6px;">• ${t}</p>`).join(''))}
+
+      ${card(`
+        <p style="color:${INK};font-size:14px;margin:0;line-height:1.6;">
+          Todos los lunes te mandamos un resumen con tus ventas, cuánto llevas ganado y el material para publicar
+          esa semana. No tienes que preguntarle nada a nadie.
+        </p>
+      `)}
+
+      <div style="text-align:center;margin-top:24px;">
+        <a href="${data.panelUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;">Ver mi panel</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
 export function buildAmbassadorWeeklyEmail(data: {
   name: string;
   code: string;

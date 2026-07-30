@@ -970,6 +970,7 @@ function Footer() {
             <Link href="/politica-de-reembolso" className="hover:text-foreground transition-colors">Política de reembolso</Link>
             <Link href="/politica-de-privacidad" className="hover:text-foreground transition-colors">Política de privacidad</Link>
             <Link href="/mis-referidos" className="hover:text-foreground transition-colors">Hall de la Fama</Link>
+            <Link href="/embajadores" className="hover:text-foreground transition-colors">Embajadores</Link>
           </div>
         </div>
       </div>
