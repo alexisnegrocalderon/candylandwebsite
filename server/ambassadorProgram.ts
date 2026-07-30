@@ -560,7 +560,7 @@ export async function saveWeeklyMaterial(data: {
 
 // --- Correo semanal ---
 
-const PANEL_BASE_URL = process.env.APP_URL && process.env.APP_URL !== 'https://mansionplayroom.cl'
+export const PANEL_BASE_URL = process.env.APP_URL && process.env.APP_URL !== 'https://mansionplayroom.cl'
   ? process.env.APP_URL
   : 'https://mansionplayroom.cl';
 

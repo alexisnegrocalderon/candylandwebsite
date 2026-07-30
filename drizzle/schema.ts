@@ -413,6 +413,43 @@ export const ambassadorWeeklyMaterial = mysqlTable("ambassadorWeeklyMaterial", {
 
 export type AmbassadorWeeklyMaterial = typeof ambassadorWeeklyMaterial.$inferSelect;
 
+// Postulaciones para ser embajador, desde la página pública /embajadores.
+// Es la PRIMERA escritura pública del sitio destinada a revisión humana (el
+// resto de las mutaciones públicas son compras o la capa social de la
+// fiesta), así que el handler la protege con límite por IP y validación
+// estricta de WhatsApp/Instagram -- ver shared/ambassadorApplication.ts.
+//
+// SIN único en `email` a propósito: alguien rechazado debe poder volver a
+// postular más adelante. Lo que se impide es tener dos pendientes a la vez
+// del mismo correo, con un chequeo en createApplication que responde amable.
+export const ambassadorApplications = mysqlTable("ambassadorApplications", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  // Normalizado a +569XXXXXXXX por sanitizeWhatsapp, para que todos queden
+  // guardados igual y el link de wa.me funcione siempre.
+  whatsapp: varchar("whatsapp", { length: 20 }).notNull(),
+  // Handle pelado, sin arroba ni URL.
+  instagram: varchar("instagram", { length: 100 }).notNull(),
+  followers: int("followers"),
+  message: text("message"),
+  // Queda registro de que marcó los requisitos y las tareas antes de enviar.
+  acceptedTerms: int("acceptedTerms").default(0).notNull(),
+  status: mysqlEnum("status", ["pendiente", "aprobada", "rechazada"]).default("pendiente").notNull(),
+  reviewNote: text("reviewNote"),
+  reviewedAt: timestamp("reviewedAt"),
+  // A qué embajador dio origen, si se aprobó -- así se puede ir de la
+  // postulación a la persona ya trabajando.
+  createdAmbassadorId: int("createdAmbassadorId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [
+  index("ambassadorApplications_email_idx").on(t.email),
+  index("ambassadorApplications_status_idx").on(t.status),
+]);
+
+export type AmbassadorApplication = typeof ambassadorApplications.$inferSelect;
+
 // --- Módulo /caja (docs/ARQUITECTURA-CAJA.md §4.2) ---
 
 // Operadores de caja: cajera, supervisor, admin (más barra/acceso a futuro).

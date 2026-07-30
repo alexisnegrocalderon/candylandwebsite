@@ -10,6 +10,7 @@ const navLinks = [
   { href: '/eventos', label: 'Eventos' },
   { href: '/entradas', label: 'Entradas' },
   { href: '/playmatch', label: 'Playmatch' },
+  { href: '/embajadores', label: 'Embajadores' },
   { href: '/nosotros', label: 'Nosotros' },
 ];
 

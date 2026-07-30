@@ -10,7 +10,7 @@ var __export = (target, all) => {
 
 // drizzle/schema.ts
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex } from "drizzle-orm/mysql-core";
-var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorBenefitDeliveries, ambassadorWeeklyMaterial, operators, registers, devices, customers, ops, rateLimits, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyGifts, adminTotp;
+var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorBenefitDeliveries, ambassadorWeeklyMaterial, ambassadorApplications, operators, registers, devices, customers, ops, rateLimits, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyGifts, adminTotp;
 var init_schema = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -330,6 +330,31 @@ var init_schema = __esm({
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     });
+    ambassadorApplications = mysqlTable("ambassadorApplications", {
+      id: int("id").autoincrement().primaryKey(),
+      name: varchar("name", { length: 255 }).notNull(),
+      email: varchar("email", { length: 320 }).notNull(),
+      // Normalizado a +569XXXXXXXX por sanitizeWhatsapp, para que todos queden
+      // guardados igual y el link de wa.me funcione siempre.
+      whatsapp: varchar("whatsapp", { length: 20 }).notNull(),
+      // Handle pelado, sin arroba ni URL.
+      instagram: varchar("instagram", { length: 100 }).notNull(),
+      followers: int("followers"),
+      message: text("message"),
+      // Queda registro de que marcó los requisitos y las tareas antes de enviar.
+      acceptedTerms: int("acceptedTerms").default(0).notNull(),
+      status: mysqlEnum("status", ["pendiente", "aprobada", "rechazada"]).default("pendiente").notNull(),
+      reviewNote: text("reviewNote"),
+      reviewedAt: timestamp("reviewedAt"),
+      // A qué embajador dio origen, si se aprobó -- así se puede ir de la
+      // postulación a la persona ya trabajando.
+      createdAmbassadorId: int("createdAmbassadorId"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (t2) => [
+      index("ambassadorApplications_email_idx").on(t2.email),
+      index("ambassadorApplications_status_idx").on(t2.status)
+    ]);
     operators = mysqlTable("operators", {
       id: int("id").autoincrement().primaryKey(),
       name: varchar("name", { length: 255 }).notNull(),
@@ -1654,6 +1679,15 @@ async function recordIpFailedAttempt(key) {
   const [row] = await db.select().from(rateLimits).where(eq2(rateLimits.key, key)).limit(1);
   const attempts = (row?.attempts ?? 0) + 1;
   const lockedUntil = attempts >= IP_RATE_LIMIT_MAX_ATTEMPTS ? new Date(Date.now() + IP_RATE_LIMIT_LOCKOUT_MS) : row?.lockedUntil ?? null;
+  await db.insert(rateLimits).values({ key, attempts, lockedUntil }).onDuplicateKeyUpdate({ set: { attempts, lockedUntil } });
+}
+async function recordIpAttempt(key, maxAttempts, lockoutMs) {
+  const db = await getDb();
+  if (!db) return;
+  const [row] = await db.select().from(rateLimits).where(eq2(rateLimits.key, key)).limit(1);
+  const previoVencido = row?.lockedUntil ? new Date(row.lockedUntil).getTime() <= Date.now() : false;
+  const attempts = previoVencido ? 1 : (row?.attempts ?? 0) + 1;
+  const lockedUntil = attempts >= maxAttempts ? new Date(Date.now() + lockoutMs) : null;
   await db.insert(rateLimits).values({ key, attempts, lockedUntil }).onDuplicateKeyUpdate({ set: { attempts, lockedUntil } });
 }
 async function createDeviceEnrollment(name, enrollCode, enrollCodeExpiresAt) {
@@ -4302,6 +4336,141 @@ function buildSalesRecordEmail(data) {
 </body>
 </html>`;
 }
+function buildAmbassadorApplicationEmail(data) {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">\u{1F451} Nueva postulaci\xF3n a embajador</h1>
+    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.name}</p>
+
+    ${card(`
+      <div style="padding:6px 0;border-bottom:1px solid ${BORDER};">
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Instagram</p>
+        <p style="margin:0;"><a href="${data.instagramLink}" style="color:${ACCENT.pink.text};font-size:15px;font-weight:700;text-decoration:none;">@${data.instagram}</a>
+        ${data.followers !== null ? `<span style="color:${MUTED};font-size:13px;"> \xB7 ${data.followers.toLocaleString("es-CL")} seguidores</span>` : ""}</p>
+      </div>
+      <div style="padding:6px 0;border-bottom:1px solid ${BORDER};">
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">WhatsApp</p>
+        <p style="margin:0;"><a href="${data.whatsappLink}" style="color:${ACCENT.blue.text};font-size:15px;font-weight:700;text-decoration:none;">${data.whatsapp}</a></p>
+      </div>
+      <div style="padding:6px 0;">
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Correo</p>
+        <p style="color:${INK};font-size:14px;margin:0;">${data.email}</p>
+      </div>
+    `)}
+
+    ${data.message ? card(`
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Lo que escribi\xF3</p>
+      <p style="color:${INK};font-size:14px;margin:0;line-height:1.6;">${data.message}</p>
+    `) : ""}
+
+    <p style="color:${MUTED};font-size:13px;margin:0;">
+      Rev\xEDsala en el panel: Embajadores VIP \u2192 Postulaciones. Desde ah\xED la apruebas y se crea el embajador con su c\xF3digo.
+    </p>
+  </div>
+</body>
+</html>`;
+}
+function buildApplicationReceivedEmail(data) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+  const lista = (items) => items.map((t2) => `<p style="color:${INK};font-size:14px;margin:0 0 6px;">\u2022 ${t2}</p>`).join("");
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <div style="background:linear-gradient(160deg,${ACCENT.lilac.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:44px;margin:0 0 12px;">\u{1F451}</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">Recibimos tu postulaci\xF3n, ${data.name}</h1>
+      <p style="color:${MUTED};font-size:15px;margin:0;">Te vamos a escribir por WhatsApp para contarte c\xF3mo sigue.</p>
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${sectionTitle("\u2705", "Lo que pedimos")}
+      ${card(lista(data.requirements))}
+
+      ${sectionTitle("\u{1F4F1}", "A lo que te comprometes")}
+      ${card(lista(data.tasks), { bg: ACCENT.yellow.bg, border: false })}
+
+      ${card(`
+        <p style="color:${INK};font-size:14px;margin:0;line-height:1.6;">
+          Si quedas seleccionado te llega tu <strong>c\xF3digo personal</strong> y un panel donde vas a ver, en vivo, cu\xE1ntas
+          ventas hiciste y cu\xE1nto llevas ganado. No tienes que pedirle el n\xFAmero a nadie.
+        </p>
+      `)}
+
+      <p style="color:${FAINT};font-size:12px;text-align:center;margin:24px 0 0;">
+        Si no postulaste t\xFA, ignora este correo y no pasa nada.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+function buildAmbassadorWelcomeEmail(data) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <div style="background:linear-gradient(160deg,${ACCENT.yellow.bg},${ACCENT.pink.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:48px;margin:0 0 12px;">\u{1F389}</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">\xA1Quedaste, ${data.name}!</h1>
+      <p style="color:${MUTED};font-size:15px;margin:0;">Ya eres embajador de Mansion Playroom.</p>
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${sectionTitle("\u{1F39F}", "Tu c\xF3digo")}
+      ${card(`
+        <p style="color:${INK};font-size:32px;font-weight:800;font-family:monospace;margin:0 0 8px;text-align:center;">${data.code}</p>
+        <p style="color:${MUTED};font-size:13px;margin:0;text-align:center;">
+          Cada persona que lo ponga al comprar su entrada te genera comisi\xF3n, autom\xE1ticamente.
+        </p>
+      `, { bg: ACCENT.pink.bg, border: false })}
+
+      ${sectionTitle("\u{1F4F1}", "Lo que esperamos de ti")}
+      ${card(data.tasks.map((t2) => `<p style="color:${INK};font-size:14px;margin:0 0 6px;">\u2022 ${t2}</p>`).join(""))}
+
+      ${card(`
+        <p style="color:${INK};font-size:14px;margin:0;line-height:1.6;">
+          Todos los lunes te mandamos un resumen con tus ventas, cu\xE1nto llevas ganado y el material para publicar
+          esa semana. No tienes que preguntarle nada a nadie.
+        </p>
+      `)}
+
+      <div style="text-align:center;margin-top:24px;">
+        <a href="${data.panelUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;">Ver mi panel</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
 function buildAmbassadorWeeklyEmail(data) {
   const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
   const money = (n) => `$${Math.round(n).toLocaleString("es-CL")}`;
@@ -6403,10 +6572,167 @@ async function checkInTicket(db, params) {
   return { result, conflictNote };
 }
 
+// server/ambassadorApplications.ts
+import { and as and4, desc as desc3, eq as eq7 } from "drizzle-orm";
+init_schema();
+async function createApplication(data) {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: "sin_base" };
+  const email = data.email.trim().toLowerCase();
+  const [pendiente] = await db.select({ id: ambassadorApplications.id }).from(ambassadorApplications).where(and4(
+    eq7(ambassadorApplications.email, email),
+    eq7(ambassadorApplications.status, "pendiente")
+  )).limit(1);
+  if (pendiente) return { ok: false, reason: "ya_pendiente" };
+  const inserted = await db.insert(ambassadorApplications).values({
+    name: data.name,
+    email,
+    whatsapp: data.whatsapp,
+    instagram: data.instagram,
+    followers: data.followers,
+    message: data.message || null,
+    acceptedTerms: data.acceptedTerms ? 1 : 0
+  });
+  const id = inserted.insertId;
+  console.log(`[Postulaciones] Nueva postulaci\xF3n de ${data.name} (@${data.instagram}, ${email})`);
+  return { ok: true, id };
+}
+async function listApplications(status) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(ambassadorApplications).where(status ? eq7(ambassadorApplications.status, status) : void 0).orderBy(desc3(ambassadorApplications.createdAt));
+}
+async function getApplication(id) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(ambassadorApplications).where(eq7(ambassadorApplications.id, id)).limit(1);
+  return row ?? null;
+}
+async function reviewApplication(params) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(ambassadorApplications).set({
+    status: params.status,
+    reviewNote: params.note ?? null,
+    reviewedAt: /* @__PURE__ */ new Date()
+  }).where(eq7(ambassadorApplications.id, params.id));
+  return { success: true };
+}
+async function approveApplication(params) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const application = await getApplication(params.id);
+  if (!application) throw new Error("No encontramos esa postulaci\xF3n");
+  if (application.status === "aprobada" && application.createdAmbassadorId) {
+    throw new Error("Esa postulaci\xF3n ya fue aprobada");
+  }
+  await createExclusiveAmbassador({
+    name: application.name,
+    code: params.code,
+    commissionPercent: params.commissionPercent ?? null,
+    contact: application.whatsapp,
+    email: application.email,
+    instagram: application.instagram
+  });
+  const [created] = await db.select({ id: exclusiveAmbassadors.id }).from(exclusiveAmbassadors).where(eq7(exclusiveAmbassadors.code, params.code.trim().toUpperCase())).limit(1);
+  await db.update(ambassadorApplications).set({
+    status: "aprobada",
+    reviewedAt: /* @__PURE__ */ new Date(),
+    createdAmbassadorId: created?.id ?? null
+  }).where(eq7(ambassadorApplications.id, params.id));
+  console.log(`[Postulaciones] ${application.name} aprobado como embajador con el c\xF3digo ${params.code.trim().toUpperCase()}`);
+  return {
+    success: true,
+    ambassadorId: created?.id ?? null,
+    code: params.code.trim().toUpperCase(),
+    name: application.name,
+    email: application.email
+  };
+}
+async function countPendingApplications() {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db.select({ id: ambassadorApplications.id }).from(ambassadorApplications).where(eq7(ambassadorApplications.status, "pendiente"));
+  return rows.length;
+}
+
+// shared/ambassadorApplication.ts
+var MIN_INSTAGRAM_FOLLOWERS = 1e3;
+var MIN_APPLICANT_NAME_LENGTH = 3;
+var MAX_APPLICANT_NAME_LENGTH = 80;
+var MAX_APPLICATION_MESSAGE_LENGTH = 500;
+var AMBASSADOR_REQUIREMENTS = [
+  "Ser mayor de 18 a\xF1os",
+  `Tener al menos ${MIN_INSTAGRAM_FOLLOWERS.toLocaleString("es-CL")} seguidores en Instagram`,
+  "Cuenta de Instagram p\xFAblica y activa"
+];
+var AMBASSADOR_TASKS = [
+  "Publicar historias cada semana con el material que te enviamos",
+  "Una publicaci\xF3n en el feed por cada evento",
+  "Difundir tu c\xF3digo personal con tu c\xEDrculo"
+];
+function sanitizeInstagram(raw) {
+  let value = (raw ?? "").trim();
+  if (!value) return { ok: false, reason: "Escribe tu Instagram" };
+  const urlMatch = value.match(/(?:instagram\.com|instagr\.am)\/+([^/?#\s]+)/i);
+  if (urlMatch) value = urlMatch[1];
+  value = value.replace(/^@+/, "").replace(/\/+$/, "").trim();
+  if (!value) return { ok: false, reason: "Escribe tu Instagram" };
+  if (value.length > 30) return { ok: false, reason: "Ese usuario de Instagram es demasiado largo" };
+  if (!/^[A-Za-z0-9._]+$/.test(value)) {
+    return { ok: false, reason: "El usuario de Instagram solo puede tener letras, n\xFAmeros, puntos y guion bajo" };
+  }
+  return { ok: true, value };
+}
+function sanitizeWhatsapp(raw) {
+  const digits = (raw ?? "").replace(/\D/g, "");
+  if (!digits) return { ok: false, reason: "Escribe tu WhatsApp" };
+  let local = digits;
+  if (local.startsWith("56")) local = local.slice(2);
+  if (local.startsWith("0")) local = local.replace(/^0+/, "");
+  if (local.length !== 9) {
+    return { ok: false, reason: "Revisa el n\xFAmero: un m\xF3vil chileno tiene 9 d\xEDgitos y empieza con 9" };
+  }
+  if (!local.startsWith("9")) {
+    return { ok: false, reason: "Tiene que ser un celular, que empieza con 9" };
+  }
+  return { ok: true, value: `+56${local}` };
+}
+function sanitizeApplicantName(raw) {
+  const value = (raw ?? "").replace(/\s+/g, " ").trim();
+  if (value.length < MIN_APPLICANT_NAME_LENGTH) return { ok: false, reason: "Escribe tu nombre completo" };
+  if (value.length > MAX_APPLICANT_NAME_LENGTH) {
+    return { ok: false, reason: `M\xE1ximo ${MAX_APPLICANT_NAME_LENGTH} caracteres` };
+  }
+  return { ok: true, value };
+}
+function sanitizeApplicationMessage(raw) {
+  const value = (raw ?? "").replace(/\s+/g, " ").trim();
+  if (value.length > MAX_APPLICATION_MESSAGE_LENGTH) {
+    return { ok: false, reason: `M\xE1ximo ${MAX_APPLICATION_MESSAGE_LENGTH} caracteres` };
+  }
+  return { ok: true, value };
+}
+function sanitizeFollowers(raw) {
+  if (raw === null || raw === void 0 || raw === "") return { ok: true, value: null };
+  const digits = String(raw).replace(/\D/g, "");
+  if (!digits) return { ok: false, reason: "Escribe solo n\xFAmeros" };
+  const n = Number(digits);
+  if (!Number.isFinite(n)) return { ok: false, reason: "Escribe solo n\xFAmeros" };
+  if (n > 1e8) return { ok: false, reason: "Ese n\xFAmero no parece real" };
+  return { ok: true, value: n };
+}
+function whatsappLinkFor(normalized) {
+  return `https://wa.me/${normalized.replace(/\D/g, "")}`;
+}
+function instagramLinkFor(handle) {
+  return `https://instagram.com/${handle}`;
+}
+
 // server/caja/sale.ts
 init_schema();
 init_ops();
-import { eq as eq7, sql as sql4, inArray as inArray4 } from "drizzle-orm";
+import { eq as eq8, sql as sql4, inArray as inArray4 } from "drizzle-orm";
 async function createCajaSale(db, params) {
   if (params.items.length === 0) throw new Error("La venta necesita al menos un producto");
   const ticketTypeIds = params.items.map((i) => i.ticketTypeId);
@@ -6478,7 +6804,7 @@ async function createCajaSale(db, params) {
           totalPrice: String(item.unitPrice * item.quantity),
           unitCost: item.unitCost != null ? String(item.unitCost) : null
         });
-        await db.update(ticketTypes).set({ soldCount: sql4`soldCount + ${item.quantity}` }).where(eq7(ticketTypes.id, item.ticketTypeId));
+        await db.update(ticketTypes).set({ soldCount: sql4`soldCount + ${item.quantity}` }).where(eq8(ticketTypes.id, item.ticketTypeId));
       }
       if (params.buyerEmail) {
         await awardPlaycoins({ email: params.buyerEmail, totalClp: finalTotal, reason: "earn_caja", opId: params.opId });
@@ -6492,7 +6818,7 @@ async function createCajaSale(db, params) {
 // server/caja/void.ts
 init_schema();
 init_ops();
-import { eq as eq8 } from "drizzle-orm";
+import { eq as eq9 } from "drizzle-orm";
 async function voidTicketCode(db, params) {
   const code = params.displayCode.trim().toUpperCase();
   const { result, conflictNote } = await applyOp(
@@ -6509,11 +6835,11 @@ async function voidTicketCode(db, params) {
       clientAt: params.clientAt
     },
     async () => {
-      const [ticket] = await db.select().from(tickets).where(eq8(tickets.displayCode, code)).limit(1);
+      const [ticket] = await db.select().from(tickets).where(eq9(tickets.displayCode, code)).limit(1);
       if (!ticket) return { result: "rejected", conflictNote: "El c\xF3digo no existe" };
       if (ticket.eventId !== params.eventId) return { result: "rejected", conflictNote: "El c\xF3digo no corresponde a este evento" };
       if (ticket.status === "cancelled") return { result: "rejected", conflictNote: "El c\xF3digo ya estaba anulado" };
-      await db.update(tickets).set({ status: "cancelled" }).where(eq8(tickets.id, ticket.id));
+      await db.update(tickets).set({ status: "cancelled" }).where(eq9(tickets.id, ticket.id));
       return { result: "applied" };
     }
   );
@@ -6613,6 +6939,8 @@ async function requirePartyProfile(ticketCode) {
   return { ...actor, profile: actor.profile };
 }
 var SHIFT_CLOSE_REPORT_EMAIL = "contacto@mansionplayroom.cl";
+var APPLICATIONS_EMAIL = "contacto@mansionplayroom.cl";
+var APPLICATION_MAX_PER_HOUR = 5;
 var adminProcedure2 = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError3({ code: "FORBIDDEN", message: "Admin access required" });
   return next({ ctx });
@@ -6625,8 +6953,8 @@ var mailingEventSectionsSchema = z3.object({
 });
 async function verifyOperatorPinOrThrow(ctx, operatorId, pin) {
   const forwardedFor = ctx.req.headers["x-forwarded-for"];
-  const clientIp = (typeof forwardedFor === "string" ? forwardedFor.split(",")[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || "unknown";
-  const ipKey = `pin-login:${clientIp}`;
+  const clientIp2 = (typeof forwardedFor === "string" ? forwardedFor.split(",")[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || "unknown";
+  const ipKey = `pin-login:${clientIp2}`;
   if (!await checkIpRateLimit(ipKey)) {
     throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: "Demasiados intentos desde este dispositivo. Intenta de nuevo m\xE1s tarde." });
   }
@@ -6658,6 +6986,10 @@ function adminIpKey(ctx) {
   const forwardedFor = ctx.req.headers["x-forwarded-for"];
   const ip = (typeof forwardedFor === "string" ? forwardedFor.split(",")[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || "unknown";
   return `admin-login:${ip}`;
+}
+function clientIp(ctx) {
+  const forwardedFor = ctx.req.headers["x-forwarded-for"];
+  return (typeof forwardedFor === "string" ? forwardedFor.split(",")[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || "unknown";
 }
 async function signAdminStepTicket() {
   return sdk.signSession({ openId: `${ADMIN_LOCAL_OPEN_ID}:step1`, appId: "candyland-admin-2fa", name: "step1" }, { expiresInMs: 5 * 60 * 1e3 });
@@ -7457,6 +7789,124 @@ var appRouter = router({
      * para poder probarlo y para reenviarlo si un lunes falló. */
     sendWeeklyNow: adminProcedure2.mutation(async () => {
       return sendWeeklyAmbassadorEmails();
+    })
+  }),
+  // Postulaciones públicas para ser embajador (página /embajadores).
+  ambassadorApplications: router({
+    /** Único formulario público del sitio que escribe en la base para que
+     * alguien lo revise después, así que es la primera superficie de spam:
+     * va con límite por IP y con la validación pura de
+     * shared/ambassadorApplication.ts, que el cliente también corre pero en
+     * la que no se confía. */
+    submit: publicProcedure.input(z3.object({
+      name: z3.string(),
+      email: z3.string().email("Revisa tu correo"),
+      whatsapp: z3.string(),
+      instagram: z3.string(),
+      followers: z3.string().optional(),
+      message: z3.string().optional(),
+      acceptedTerms: z3.boolean()
+    })).mutation(async ({ input, ctx }) => {
+      const ipKey = `postulacion:${clientIp(ctx)}`;
+      if (!await checkIpRateLimit(ipKey)) {
+        throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: "Ya mandaste varias postulaciones. Espera un rato antes de intentar de nuevo." });
+      }
+      await recordIpAttempt(ipKey, APPLICATION_MAX_PER_HOUR, 60 * 60 * 1e3);
+      if (!input.acceptedTerms) {
+        throw new TRPCError3({ code: "BAD_REQUEST", message: "Tienes que confirmar que cumples los requisitos" });
+      }
+      const nombre = sanitizeApplicantName(input.name);
+      if (!nombre.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: nombre.reason });
+      const wsp = sanitizeWhatsapp(input.whatsapp);
+      if (!wsp.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: wsp.reason });
+      const ig = sanitizeInstagram(input.instagram);
+      if (!ig.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: ig.reason });
+      const seguidores = sanitizeFollowers(input.followers ?? null);
+      if (!seguidores.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: seguidores.reason });
+      const mensaje = sanitizeApplicationMessage(input.message ?? "");
+      if (!mensaje.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: mensaje.reason });
+      const created = await createApplication({
+        name: nombre.value,
+        email: input.email,
+        whatsapp: wsp.value,
+        instagram: ig.value,
+        followers: seguidores.value,
+        message: mensaje.value,
+        acceptedTerms: true
+      });
+      if (!created.ok) {
+        if (created.reason === "ya_pendiente") {
+          return { ok: true, alreadyPending: true };
+        }
+        throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "No pudimos guardar tu postulaci\xF3n. Intenta de nuevo." });
+      }
+      try {
+        await sendEmail({
+          to: APPLICATIONS_EMAIL,
+          subject: `[Postulaciones] ${nombre.value} \u2014 @${ig.value}`,
+          html: buildAmbassadorApplicationEmail({
+            name: nombre.value,
+            email: input.email.trim().toLowerCase(),
+            whatsapp: wsp.value,
+            instagram: ig.value,
+            followers: seguidores.value,
+            message: mensaje.value,
+            whatsappLink: whatsappLinkFor(wsp.value),
+            instagramLink: instagramLinkFor(ig.value)
+          })
+        });
+        await sendEmail({
+          to: input.email.trim().toLowerCase(),
+          subject: "\u{1F451} Recibimos tu postulaci\xF3n \u2014 Mansion Playroom",
+          html: buildApplicationReceivedEmail({
+            name: nombre.value,
+            requirements: [...AMBASSADOR_REQUIREMENTS],
+            tasks: [...AMBASSADOR_TASKS]
+          })
+        });
+      } catch (err) {
+        console.error("[Postulaciones] Fall\xF3 el env\xEDo de correos:", err);
+      }
+      return { ok: true, alreadyPending: false };
+    }),
+    listAll: adminProcedure2.input(z3.object({
+      status: z3.enum(["pendiente", "aprobada", "rechazada"]).optional()
+    }).optional()).query(async ({ input }) => {
+      return listApplications(input?.status);
+    }),
+    countPending: adminProcedure2.query(async () => {
+      return countPendingApplications();
+    }),
+    review: adminProcedure2.input(z3.object({
+      id: z3.number(),
+      status: z3.enum(["pendiente", "aprobada", "rechazada"]),
+      note: z3.string().optional()
+    })).mutation(async ({ input }) => {
+      return reviewApplication(input);
+    }),
+    /** Aprueba y crea al embajador en un solo paso, con el código que escribe
+     * el admin, y le manda su código por correo. */
+    approve: adminProcedure2.input(z3.object({
+      id: z3.number(),
+      code: z3.string().min(1),
+      commissionPercent: z3.number().min(0).max(100).nullable().optional()
+    })).mutation(async ({ input }) => {
+      const result = await approveApplication(input);
+      try {
+        await sendEmail({
+          to: result.email,
+          subject: `\u{1F389} \xA1Quedaste! Tu c\xF3digo es ${result.code}`,
+          html: buildAmbassadorWelcomeEmail({
+            name: result.name,
+            code: result.code,
+            panelUrl: `${PANEL_BASE_URL}/embajador/${result.code}`,
+            tasks: [...AMBASSADOR_TASKS]
+          })
+        });
+      } catch (err) {
+        console.error("[Postulaciones] Fall\xF3 el correo de bienvenida:", err);
+      }
+      return result;
     })
   }),
   // Módulo /caja — login por PIN de operadores (docs/ARQUITECTURA-CAJA.md

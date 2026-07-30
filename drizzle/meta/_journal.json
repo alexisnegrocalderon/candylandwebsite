@@ -183,6 +183,13 @@
       "when": 1785364883550,
       "tag": "0025_chunky_nomad",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "5",
+      "when": 1785390520067,
+      "tag": "0026_easy_mentallo",
+      "breakpoints": true
     }
   ]
 }

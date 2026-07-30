@@ -14,6 +14,12 @@ import { checkInTicket } from "./caja/checkin";
 import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
+import * as applications from "./ambassadorApplications";
+import {
+  AMBASSADOR_REQUIREMENTS, AMBASSADOR_TASKS, instagramLinkFor, sanitizeApplicantName,
+  sanitizeApplicationMessage, sanitizeFollowers, sanitizeInstagram, sanitizeWhatsapp, whatsappLinkFor,
+} from "../shared/ambassadorApplication";
+import { buildAmbassadorApplicationEmail, buildAmbassadorWelcomeEmail, buildApplicationReceivedEmail } from "./email";
 
 /** Puerta de entrada a "Caramelo": resuelve al que llama por su ticketCode
  * y revalida, en cada llamada, que entró de verdad por la puerta y que la
@@ -46,6 +52,8 @@ import QRCode from "qrcode";
 import { consumeBackupCode, createTotpSecret, generateBackupCodes, parseBackupCodes, safeCompare, totpUri, verifyTotp } from "./adminSecurity";
 
 const SHIFT_CLOSE_REPORT_EMAIL = 'contacto@mansionplayroom.cl';
+const APPLICATIONS_EMAIL = 'contacto@mansionplayroom.cl';
+const APPLICATION_MAX_PER_HOUR = 5;
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
@@ -113,6 +121,14 @@ function adminIpKey(ctx: any): string {
   const forwardedFor = ctx.req.headers['x-forwarded-for'];
   const ip = (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || 'unknown';
   return `admin-login:${ip}`;
+}
+
+/** IP del cliente, misma extracción que ya usan adminIpKey y
+ * verifyOperatorPinOrThrow, pero sin el prefijo -- cada llamador arma su
+ * propia clave de rate limit. */
+function clientIp(ctx: any): string {
+  const forwardedFor = ctx.req.headers['x-forwarded-for'];
+  return (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || 'unknown';
 }
 
 /** Vale de corta vida que acredita haber pasado el primer paso (la
@@ -1011,6 +1027,141 @@ export const appRouter = router({
      * para poder probarlo y para reenviarlo si un lunes falló. */
     sendWeeklyNow: adminProcedure.mutation(async () => {
       return ambassadorProgram.sendWeeklyAmbassadorEmails();
+    }),
+  }),
+
+  // Postulaciones públicas para ser embajador (página /embajadores).
+  ambassadorApplications: router({
+    /** Único formulario público del sitio que escribe en la base para que
+     * alguien lo revise después, así que es la primera superficie de spam:
+     * va con límite por IP y con la validación pura de
+     * shared/ambassadorApplication.ts, que el cliente también corre pero en
+     * la que no se confía. */
+    submit: publicProcedure.input(z.object({
+      name: z.string(),
+      email: z.string().email('Revisa tu correo'),
+      whatsapp: z.string(),
+      instagram: z.string(),
+      followers: z.string().optional(),
+      message: z.string().optional(),
+      acceptedTerms: z.boolean(),
+    })).mutation(async ({ input, ctx }) => {
+      const ipKey = `postulacion:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Ya mandaste varias postulaciones. Espera un rato antes de intentar de nuevo.' });
+      }
+      // Se cuenta antes de guardar: si no, alguien podría gastar intentos
+      // fallando la validación y nunca quedar limitado.
+      await db.recordIpAttempt(ipKey, APPLICATION_MAX_PER_HOUR, 60 * 60 * 1000);
+
+      if (!input.acceptedTerms) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Tienes que confirmar que cumples los requisitos' });
+      }
+
+      const nombre = sanitizeApplicantName(input.name);
+      if (!nombre.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: nombre.reason });
+      const wsp = sanitizeWhatsapp(input.whatsapp);
+      if (!wsp.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: wsp.reason });
+      const ig = sanitizeInstagram(input.instagram);
+      if (!ig.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: ig.reason });
+      const seguidores = sanitizeFollowers(input.followers ?? null);
+      if (!seguidores.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: seguidores.reason });
+      const mensaje = sanitizeApplicationMessage(input.message ?? '');
+      if (!mensaje.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: mensaje.reason });
+
+      const created = await applications.createApplication({
+        name: nombre.value,
+        email: input.email,
+        whatsapp: wsp.value,
+        instagram: ig.value,
+        followers: seguidores.value,
+        message: mensaje.value,
+        acceptedTerms: true,
+      });
+
+      if (!created.ok) {
+        if (created.reason === 'ya_pendiente') {
+          return { ok: true as const, alreadyPending: true as const };
+        }
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'No pudimos guardar tu postulación. Intenta de nuevo.' });
+      }
+
+      // Los correos van aparte: si Resend falla, la postulación YA quedó
+      // guardada y el dueño la ve igual en el panel.
+      try {
+        await sendEmail({
+          to: APPLICATIONS_EMAIL,
+          subject: `[Postulaciones] ${nombre.value} — @${ig.value}`,
+          html: buildAmbassadorApplicationEmail({
+            name: nombre.value,
+            email: input.email.trim().toLowerCase(),
+            whatsapp: wsp.value,
+            instagram: ig.value,
+            followers: seguidores.value,
+            message: mensaje.value,
+            whatsappLink: whatsappLinkFor(wsp.value),
+            instagramLink: instagramLinkFor(ig.value),
+          }),
+        });
+        await sendEmail({
+          to: input.email.trim().toLowerCase(),
+          subject: '👑 Recibimos tu postulación — Mansion Playroom',
+          html: buildApplicationReceivedEmail({
+            name: nombre.value,
+            requirements: [...AMBASSADOR_REQUIREMENTS],
+            tasks: [...AMBASSADOR_TASKS],
+          }),
+        });
+      } catch (err) {
+        console.error('[Postulaciones] Falló el envío de correos:', err);
+      }
+
+      return { ok: true as const, alreadyPending: false as const };
+    }),
+
+    listAll: adminProcedure.input(z.object({
+      status: z.enum(['pendiente', 'aprobada', 'rechazada']).optional(),
+    }).optional()).query(async ({ input }) => {
+      return applications.listApplications(input?.status);
+    }),
+
+    countPending: adminProcedure.query(async () => {
+      return applications.countPendingApplications();
+    }),
+
+    review: adminProcedure.input(z.object({
+      id: z.number(),
+      status: z.enum(['pendiente', 'aprobada', 'rechazada']),
+      note: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      return applications.reviewApplication(input);
+    }),
+
+    /** Aprueba y crea al embajador en un solo paso, con el código que escribe
+     * el admin, y le manda su código por correo. */
+    approve: adminProcedure.input(z.object({
+      id: z.number(),
+      code: z.string().min(1),
+      commissionPercent: z.number().min(0).max(100).nullable().optional(),
+    })).mutation(async ({ input }) => {
+      const result = await applications.approveApplication(input);
+
+      try {
+        await sendEmail({
+          to: result.email,
+          subject: `🎉 ¡Quedaste! Tu código es ${result.code}`,
+          html: buildAmbassadorWelcomeEmail({
+            name: result.name,
+            code: result.code,
+            panelUrl: `${ambassadorProgram.PANEL_BASE_URL}/embajador/${result.code}`,
+            tasks: [...AMBASSADOR_TASKS],
+          }),
+        });
+      } catch (err) {
+        console.error('[Postulaciones] Falló el correo de bienvenida:', err);
+      }
+
+      return result;
     }),
   }),
 

@@ -1201,6 +1201,30 @@ export async function recordIpFailedAttempt(key: string) {
     .onDuplicateKeyUpdate({ set: { attempts, lockedUntil } });
 }
 
+/** Cuenta TODOS los intentos, no solo los fallidos.
+ *
+ * `recordIpFailedAttempt` (arriba) existe para los logins: ahí solo interesa
+ * castigar el error, y un acierto limpia el contador. Un formulario público
+ * que se envía bien no tiene "fallo" que contar, así que sin esto no había
+ * forma de frenar a alguien que manda cien postulaciones válidas. El límite
+ * y la ventana se pasan por parámetro porque un formulario público tolera
+ * mucho menos que una tablet compartida escribiendo PINs.
+ *
+ * El chequeo se hace con `checkIpRateLimit`, el mismo de los logins: esto
+ * solo suma y bloquea. */
+export async function recordIpAttempt(key: string, maxAttempts: number, lockoutMs: number) {
+  const db = await getDb();
+  if (!db) return;
+  const [row] = await db.select().from(rateLimits).where(eq(rateLimits.key, key)).limit(1);
+  // Si el bloqueo anterior ya venció, se arranca el conteo de nuevo en vez de
+  // acumular para siempre y dejar la IP castigada de por vida.
+  const previoVencido = row?.lockedUntil ? new Date(row.lockedUntil).getTime() <= Date.now() : false;
+  const attempts = previoVencido ? 1 : (row?.attempts ?? 0) + 1;
+  const lockedUntil = attempts >= maxAttempts ? new Date(Date.now() + lockoutMs) : null;
+  await db.insert(rateLimits).values({ key, attempts, lockedUntil })
+    .onDuplicateKeyUpdate({ set: { attempts, lockedUntil } });
+}
+
 // --- Enrolamiento de dispositivos (pedido explícito del usuario) ---
 
 export async function createDeviceEnrollment(name: string, enrollCode: string, enrollCodeExpiresAt: Date) {

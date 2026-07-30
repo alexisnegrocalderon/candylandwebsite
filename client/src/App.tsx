@@ -31,6 +31,7 @@ const Ticket = lazy(() => import("./pages/Ticket"));
 const Party = lazy(() => import("./pages/Party"));
 const Playmatch = lazy(() => import("./pages/Playmatch"));
 const Ambassador = lazy(() => import("./pages/Ambassador"));
+const Embajadores = lazy(() => import("./pages/Embajadores"));
 const Puerta = lazy(() => import("./pages/Puerta"));
 const Prices = lazy(() => import("./pages/Prices"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
@@ -81,6 +82,7 @@ function Router() {
           <Route path="/verificar/:ticketCode" component={Ticket} />
           <Route path="/fiesta/:ticketCode" component={Party} />
           <Route path="/playmatch" component={Playmatch} />
+          <Route path="/embajadores" component={Embajadores} />
           <Route path="/embajador" component={Ambassador} />
           <Route path="/embajador/:code" component={Ambassador} />
           <Route path="/puerta" component={Puerta} />

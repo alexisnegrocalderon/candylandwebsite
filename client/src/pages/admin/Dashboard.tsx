@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus } from 'lucide-react';
+import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
@@ -1951,6 +1952,7 @@ function monthOptions(): { value: string; label: string }[] {
 const AMBASSADOR_TABS = [
   { id: 'resumen', label: 'Resumen' },
   { id: 'embajadores', label: 'Embajadores' },
+  { id: 'postulaciones', label: 'Postulaciones' },
   { id: 'ranking', label: 'Ranking' },
   { id: 'clientes', label: 'Clientes referidos' },
   { id: 'material', label: 'Material de la semana' },
@@ -1961,6 +1963,7 @@ function AmbassadorsView() {
   const [tab, setTab] = useState<typeof AMBASSADOR_TABS[number]['id']>('resumen');
   const meses = monthOptions();
   const [monthKey, setMonthKey] = useState(meses[0].value);
+  const { data: pendingApplications } = trpc.ambassadorApplications.countPending.useQuery(undefined, { refetchInterval: 60_000 });
 
   return (
     <div className="space-y-6">
@@ -1973,7 +1976,7 @@ function AmbassadorsView() {
             fijo y no suben el nivel. Todo se calcula solo al aprobarse cada compra.
           </p>
         </div>
-        {tab !== 'config' && tab !== 'clientes' && tab !== 'material' && (
+        {tab !== 'config' && tab !== 'clientes' && tab !== 'material' && tab !== 'postulaciones' && (
           <Select value={monthKey} onValueChange={setMonthKey}>
             <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -1988,17 +1991,23 @@ function AmbassadorsView() {
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors interactive ${
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors interactive flex items-center gap-2 ${
               tab === t.id ? 'bg-primary text-primary-foreground' : 'bg-muted/40 text-muted-foreground hover:text-foreground'
             }`}
           >
             {t.label}
+            {t.id === 'postulaciones' && !!pendingApplications && (
+              <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${tab === t.id ? 'bg-primary-foreground/20' : 'bg-primary/15 text-primary'}`}>
+                {pendingApplications}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
       {tab === 'resumen' && <AmbassadorSummaryTab monthKey={monthKey} />}
       {tab === 'embajadores' && <AmbassadorsListTab monthKey={monthKey} />}
+      {tab === 'postulaciones' && <AmbassadorApplicationsTab />}
       {tab === 'ranking' && <AmbassadorRankingTab monthKey={monthKey} />}
       {tab === 'clientes' && <ReferredClientsTab />}
       {tab === 'material' && <WeeklyMaterialTab />}
@@ -2206,6 +2215,131 @@ function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
                   </tr>
                 </tfoot>
               )}
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+const APPLICATION_STATUS_LABEL: Record<string, string> = { pendiente: 'Pendiente', aprobada: 'Aprobada', rechazada: 'Rechazada' };
+
+/** Postulaciones públicas de /embajadores. Aprobar crea al embajador ahí
+ * mismo con el código que escribe el admin (reusa createExclusiveAmbassador
+ * en el servidor); rechazar deja una nota opcional y no borra la fila, para
+ * que esa persona pueda volver a postular más adelante. */
+function AmbassadorApplicationsTab() {
+  const { data, refetch } = trpc.ambassadorApplications.listAll.useQuery();
+  const applications = data ?? [];
+  const [estado, setEstado] = useState<'pendiente' | 'aprobada' | 'rechazada' | 'all'>('pendiente');
+  const [approvingId, setApprovingId] = useState<number | null>(null);
+  const [code, setCode] = useState('');
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [rejectNote, setRejectNote] = useState('');
+
+  const review = trpc.ambassadorApplications.review.useMutation({
+    onSuccess: () => { refetch(); toast.success('Postulación rechazada'); setRejectingId(null); setRejectNote(''); },
+    onError: onMutationError,
+  });
+  const approve = trpc.ambassadorApplications.approve.useMutation({
+    onSuccess: () => { refetch(); toast.success('Embajador creado y correo de bienvenida enviado'); setApprovingId(null); setCode(''); },
+    onError: onMutationError,
+  });
+
+  const visibles = applications.filter((a: any) => estado === 'all' || a.status === estado);
+
+  return (
+    <div className="space-y-4">
+      <Select value={estado} onValueChange={(v) => setEstado(v as typeof estado)}>
+        <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="pendiente">Pendientes</SelectItem>
+          <SelectItem value="aprobada">Aprobadas</SelectItem>
+          <SelectItem value="rechazada">Rechazadas</SelectItem>
+          <SelectItem value="all">Todas</SelectItem>
+        </SelectContent>
+      </Select>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 px-3">Nombre</th>
+                  <th className="text-left py-2 px-3">Contacto</th>
+                  <th className="text-left py-2 px-3">Seguidores</th>
+                  <th className="text-left py-2 px-3">Mensaje</th>
+                  <th className="text-left py-2 px-3">Fecha</th>
+                  <th className="text-left py-2 px-3">Estado</th>
+                  <th className="text-left py-2 px-3">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibles.map((a: any) => (
+                  <tr key={a.id} className="border-b border-border/50 align-top">
+                    <td className="py-2 px-3">
+                      <p className="font-medium">{a.name}</p>
+                      <p className="text-xs text-muted-foreground">{a.email}</p>
+                    </td>
+                    <td className="py-2 px-3">
+                      <a href={whatsappLinkFor(a.whatsapp)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-primary hover:underline">
+                        <MessageCircle className="w-3.5 h-3.5" /> {a.whatsapp}
+                      </a>
+                      <a href={instagramLinkFor(a.instagram)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-primary hover:underline mt-1">
+                        <Instagram className="w-3.5 h-3.5" /> @{a.instagram}
+                      </a>
+                    </td>
+                    <td className="py-2 px-3">{a.followers ?? '—'}</td>
+                    <td className="py-2 px-3 max-w-xs text-muted-foreground">{a.message || '—'}</td>
+                    <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{new Date(a.createdAt).toLocaleDateString('es-CL')}</td>
+                    <td className="py-2 px-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${
+                        a.status === 'pendiente' ? 'bg-amber-500/15 text-amber-600' :
+                        a.status === 'aprobada' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+                      }`}>
+                        {APPLICATION_STATUS_LABEL[a.status]}
+                      </span>
+                      {a.reviewNote && <p className="text-xs text-muted-foreground mt-1 max-w-[10rem]">{a.reviewNote}</p>}
+                    </td>
+                    <td className="py-2 px-3">
+                      {a.status === 'pendiente' && (
+                        approvingId === a.id ? (
+                          <div className="flex items-center gap-1">
+                            <Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="CODIGO" className="h-8 w-28 font-mono" />
+                            <Button size="sm" className="h-8" disabled={!code.trim() || approve.isPending} onClick={() => approve.mutate({ id: a.id, code: code.trim() })}>
+                              {approve.isPending ? '...' : 'OK'}
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-8" onClick={() => { setApprovingId(null); setCode(''); }}><X className="w-3 h-3" /></Button>
+                          </div>
+                        ) : rejectingId === a.id ? (
+                          <div className="flex items-center gap-1">
+                            <Input value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} placeholder="Nota (opcional)" className="h-8 w-36" />
+                            <Button size="sm" variant="destructive" className="h-8" disabled={review.isPending} onClick={() => review.mutate({ id: a.id, status: 'rechazada', note: rejectNote.trim() || undefined })}>
+                              {review.isPending ? '...' : 'OK'}
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-8" onClick={() => { setRejectingId(null); setRejectNote(''); }}><X className="w-3 h-3" /></Button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <Button size="sm" className="h-8" onClick={() => setApprovingId(a.id)}><UserPlus className="w-3.5 h-3.5 mr-1" /> Aprobar</Button>
+                            <Button size="sm" variant="outline" className="h-8 text-destructive" onClick={() => setRejectingId(a.id)}>Rechazar</Button>
+                          </div>
+                        )
+                      )}
+                      {a.status === 'aprobada' && a.createdAmbassadorId && (
+                        <span className="text-xs text-muted-foreground font-mono">Ya es embajador</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {visibles.length === 0 && (
+                  <tr><td colSpan={7} className="py-8 text-center text-muted-foreground">
+                    {estado === 'all' ? 'Sin postulaciones todavía.' : `Sin postulaciones en estado "${APPLICATION_STATUS_LABEL[estado] ?? estado}".`}
+                  </td></tr>
+                )}
+              </tbody>
             </table>
           </div>
         </CardContent>
