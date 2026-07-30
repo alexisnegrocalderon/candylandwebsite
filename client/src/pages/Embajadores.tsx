@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'wouter';
 import { toast } from 'sonner';
-import { Sparkles, Instagram, MessageCircle, Users, TrendingUp, Gift, Trophy, CheckCircle2 } from 'lucide-react';
+import { Sparkles, Instagram, MessageCircle, Users, TrendingUp, Gift, Trophy, CheckCircle2, Crown, ArrowRight } from 'lucide-react';
+import { prefersReducedMotion } from '@/lib/smoothScroll';
 import { useSeo } from '@/hooks/useSeo';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
@@ -35,6 +36,77 @@ const STEPS = [
 ];
 
 type FieldErrors = Partial<Record<'name' | 'email' | 'whatsapp' | 'instagram' | 'followers' | 'message' | 'acceptedTerms', string>>;
+
+/** Tarjeta VIP holográfica: el acceso al panel del embajador ya existente
+ * (`/embajador`), pero destacado arriba de la página en vez de un link chico
+ * al final -- reusa el brillo que sigue al mouse de las tarjetas de entrada
+ * (`CandyPass.tsx` / `.candy-sheen` + `.candy-holo` en index.css), sin el tilt
+ * 3D porque acá es un banner ancho y no una tarjeta tipo carnet. */
+function AmbassadorPanelBanner() {
+  const ref = useRef<HTMLDivElement>(null);
+  const rm = prefersReducedMotion();
+
+  const handleMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (rm || !ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    const px = ((e.clientX - r.left) / r.width) * 100;
+    const py = ((e.clientY - r.top) / r.height) * 100;
+    ref.current.style.setProperty('--mx', `${px}%`);
+    ref.current.style.setProperty('--my', `${py}%`);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.7, delay: 0.15 }}
+      className="max-w-4xl mx-auto mb-16"
+    >
+      <Link href="/embajador" className="block interactive">
+        <div
+          ref={ref}
+          onPointerMove={handleMove}
+          className="candy-pass relative glass-candy-pastel rounded-3xl p-6 md:p-8 overflow-hidden border border-violet-electric/30 flex flex-col sm:flex-row items-center gap-5 sm:gap-7"
+        >
+          <div
+            aria-hidden
+            className="absolute -inset-8 rounded-[3rem] blur-3xl opacity-60 -z-10"
+            style={{ background: 'radial-gradient(circle, oklch(0.68 0.1 295 / 0.35), transparent 70%)' }}
+          />
+          <div
+            aria-hidden
+            className="absolute inset-0 rounded-3xl pointer-events-none"
+            style={{ background: 'linear-gradient(135deg, oklch(0.68 0.1 295 / 0.14), oklch(0.76 0.13 35 / 0.1) 60%, transparent 100%)' }}
+          />
+          <div className="candy-holo" />
+          <div className="candy-sheen" />
+
+          <div
+            className="relative shrink-0 w-16 h-16 rounded-2xl flex items-center justify-center candy-glow-pulse"
+            style={{ background: 'linear-gradient(135deg, var(--color-violet-electric), var(--color-cherry))' }}
+          >
+            <Crown className="w-8 h-8 text-white" />
+          </div>
+
+          <div className="relative flex-1 text-center sm:text-left">
+            <p className="text-xs uppercase tracking-[0.25em] text-violet-electric font-bold mb-1">Acceso Embajador</p>
+            <h3 className="font-heading text-2xl md:text-3xl mb-1">¿Ya eres Embajador VIP?</h3>
+            <p className="text-muted-foreground text-sm">
+              Entra a tu panel y mira tus ventas, tu nivel y tu comisión en vivo.
+            </p>
+          </div>
+
+          <div
+            className="relative btn-jelly shrink-0 inline-flex items-center gap-2 px-7 py-3.5 rounded-full font-bold text-white"
+            style={{ background: 'linear-gradient(135deg, var(--color-violet-electric), var(--color-cherry))' }}
+          >
+            Entrar a mi panel <ArrowRight className="w-4 h-4" />
+          </div>
+        </div>
+      </Link>
+    </motion.div>
+  );
+}
 
 export default function Embajadores() {
   useSeo({
@@ -108,6 +180,8 @@ export default function Embajadores() {
             datos y te contactamos.
           </p>
         </motion.div>
+
+        <AmbassadorPanelBanner />
 
         {/* Qué ganas */}
         <motion.div
@@ -269,13 +343,6 @@ export default function Embajadores() {
               </form>
             )}
           </div>
-
-          <p className="text-center text-sm text-muted-foreground mt-6">
-            ¿Ya eres embajador?{' '}
-            <Link href="/embajador" className="text-primary hover:underline">
-              Entra a tu panel
-            </Link>
-          </p>
         </motion.div>
       </div>
     </div>
