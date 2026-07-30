@@ -47,6 +47,7 @@ import { createCajaSale } from "./caja/sale";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
+import { sendPendingReminders, generateReminderCopy } from "./orderReminders";
 import { parseCsv, extractEmailColumn } from "./csv";
 import QRCode from "qrcode";
 import { consumeBackupCode, createTotpSecret, generateBackupCodes, parseBackupCodes, safeCompare, totpUri, verifyTotp } from "./adminSecurity";
@@ -482,6 +483,26 @@ export const appRouter = router({
     }),
     resendConfirmation: adminProcedure.input(z.object({ orderNumber: z.string() })).mutation(async ({ input }) => {
       return resendConfirmationEmail(input.orderNumber);
+    }),
+
+    // Recordatorio a quien dejó la compra a medio camino (server/orderReminders.ts).
+    // La selección es manual a propósito: nunca "mandar a todos".
+    // No hace falta un `listPending`: `listAll` con status='pending' ya trae
+    // todas las columnas de la orden, incluidas reminderSentAt/reminderCount.
+    sendReminders: adminProcedure.input(z.object({
+      orderIds: z.array(z.number()).min(1).max(200),
+      customBody: z.string().max(4000).optional(),
+    })).mutation(async ({ input }) => {
+      return sendPendingReminders(input);
+    }),
+    generateReminderCopy: adminProcedure.input(z.object({
+      idea: z.string().min(5).max(1000),
+    })).mutation(async ({ input }) => {
+      try {
+        return await generateReminderCopy(input.idea);
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar el texto.' });
+      }
     }),
     // Accesos manuales desde /admin (pedido explícito del usuario):
     // invitaciones gratis o accesos ya pagados por transferencia/efectivo
@@ -1046,6 +1067,17 @@ export const appRouter = router({
       linkUrl: z.string().optional(),
     })).mutation(async ({ input }) => {
       return ambassadorProgram.saveWeeklyMaterial(input);
+    }),
+    /** Rellena los 5 campos del material a partir de una idea. NO guarda: el
+     * dueño revisa y edita antes de apretar "Guardar", igual que en mailing. */
+    generateWeeklyMaterial: adminProcedure.input(z.object({
+      idea: z.string().min(5).max(1000),
+    })).mutation(async ({ input }) => {
+      try {
+        return await ambassadorProgram.generateWeeklyMaterial(input.idea);
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar el material.' });
+      }
     }),
 
     /** Manda el resumen semanal ahora mismo, sin esperar al día configurado --

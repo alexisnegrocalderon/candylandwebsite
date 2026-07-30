@@ -118,6 +118,11 @@ export const orders = mysqlTable("orders", {
   paymentMethod: varchar("paymentMethod", { length: 64 }),
   mercadoPagoPreferenceId: varchar("mercadoPagoPreferenceId", { length: 255 }),
   emailSent: int("emailSent").default(0).notNull(),
+  // Recordatorio a quien dejó la compra a medio camino (admin → Ventas web).
+  // Se guarda para poder avisar antes de reenviar: sin esto es fácil que la
+  // misma persona reciba el mismo correo cuatro veces y marque como spam.
+  reminderSentAt: timestamp("reminderSentAt"),
+  reminderCount: int("reminderCount").default(0).notNull(),
   // Misión 300: preventa donde se paga un abono de $10.000/persona hasta 3
   // días antes del evento. Si se junta la meta, nadie paga más y se entrega
   // el ticket con el abono. Si no se junta, cada quien completa hasta el

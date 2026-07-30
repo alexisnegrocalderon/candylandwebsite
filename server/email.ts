@@ -1366,3 +1366,72 @@ export function buildGiftEmail(data: {
 </body>
 </html>`;
 }
+
+/** Recordatorio a quien dejó la compra a medio camino.
+ *
+ * Tono definido por el dueño: recordar y motivar, NO vender de forma
+ * agresiva. Por eso no hay cuenta regresiva, ni "última oportunidad", ni
+ * descuentos -- solo el recordatorio y el camino de vuelta al checkout.
+ *
+ * `customBody` permite reemplazar los párrafos por los que generó la IA
+ * manteniendo intacta la estructura visual del correo. */
+export function buildPendingReminderEmail(data: {
+  buyerName: string;
+  eventTitle: string;
+  eventDate: Date | null;
+  total: number;
+  checkoutUrl: string;
+  customBody?: string;
+}) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+  const primerNombre = data.buyerName.split(' ')[0];
+
+  const fechaTexto = data.eventDate
+    ? data.eventDate.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })
+    : null;
+
+  const parrafosPorDefecto = [
+    `Vimos que empezaste a sacar tu acceso para ${data.eventTitle} y quedó a medio camino. Puede pasar 🍬`,
+    'Tu lugar todavía no está confirmado, pero retomar toma menos de un minuto: el formulario te espera con todo lo que ya habías llenado.',
+  ];
+  const cuerpo = data.customBody
+    ? data.customBody.split('\n').filter((p) => p.trim())
+    : parrafosPorDefecto;
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <div style="background:linear-gradient(160deg,${ACCENT.pink.bg},${ACCENT.lilac.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:48px;margin:0 0 12px;">🎟️</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">${primerNombre}, quedó pendiente tu acceso</h1>
+      ${fechaTexto ? `<p style="color:${MUTED};font-size:15px;margin:0;">${data.eventTitle} · ${fechaTexto}</p>` : ''}
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${cuerpo.map((p) => `<p style="color:${INK};font-size:15px;line-height:1.6;margin:0 0 16px;">${p}</p>`).join('')}
+
+      <div style="text-align:center;margin:28px 0 8px;">
+        <a href="${data.checkoutUrl}" style="display:inline-block;background:${ACCENT.pink.text};color:#FFFFFF;font-size:16px;font-weight:700;text-decoration:none;padding:16px 36px;border-radius:999px;">
+          Completar mi compra
+        </a>
+      </div>
+
+      <p style="color:${FAINT};font-size:12px;text-align:center;margin:16px 0 0;line-height:1.5;">
+        Si ya compraste o cambiaste de idea, puedes ignorar este correo.
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>`;
+}

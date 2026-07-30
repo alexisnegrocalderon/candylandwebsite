@@ -867,6 +867,128 @@ function ManualAccessSection() {
   );
 }
 
+/** Párrafos que manda el correo si no se escribe nada -- copia literal de
+ * `parrafosPorDefecto` en server/email.ts, solo para mostrarlos acá. El correo
+ * real los toma del servidor: esto es una vista previa, no la fuente. */
+const RECORDATORIO_POR_DEFECTO = [
+  'Vimos que empezaste a sacar tu acceso para [evento] y quedó a medio camino. Puede pasar 🍬',
+  'Tu lugar todavía no está confirmado, pero retomar toma menos de un minuto: el formulario te espera con todo lo que ya habías llenado.',
+];
+
+/** Recordatorio a las órdenes que quedaron sin pagar.
+ *
+ * La plantilla por defecto funciona sola; la IA es opcional y solo reescribe
+ * el cuerpo. Antes de confirmar avisa a cuántos ya se les mandó uno, porque
+ * insistirle cuatro veces a la misma persona es la forma más rápida de que
+ * marque el correo como spam. */
+function ReminderDialog({ orders, open, onOpenChange, onSent }: {
+  orders: any[];
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSent: () => void;
+}) {
+  const [idea, setIdea] = useState('');
+  const [cuerpo, setCuerpo] = useState('');
+
+  const yaAvisados = orders.filter((o) => (o.reminderCount ?? 0) > 0);
+
+  const generar = trpc.orders.generateReminderCopy.useMutation({
+    onSuccess: (data) => {
+      setCuerpo(data.paragraphs.join('\n'));
+      toast.success('Texto generado — revísalo antes de enviar');
+    },
+    onError: onMutationError,
+  });
+
+  const enviar = trpc.orders.sendReminders.useMutation({
+    onSuccess: (r) => {
+      const partes = [`${r.sent} recordatorio${r.sent === 1 ? '' : 's'} enviado${r.sent === 1 ? '' : 's'}`];
+      if (r.skipped.length) partes.push(`${r.skipped.length} omitido${r.skipped.length === 1 ? '' : 's'} (${r.skipped.map((s) => `${s.orderNumber}: ${s.motivo}`).join(', ')})`);
+      if (r.failed.length) partes.push(`${r.failed.length} con error`);
+      toast.success(partes.join(' · '));
+      setIdea('');
+      setCuerpo('');
+      onOpenChange(false);
+      onSent();
+    },
+    onError: onMutationError,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Enviar recordatorio a {orders.length} orden{orders.length === 1 ? '' : 'es'}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {yaAvisados.length > 0 && (
+            <div className="rounded-xl bg-yellow-500/10 border border-yellow-500/30 p-3 text-sm">
+              <p className="font-medium text-yellow-600">
+                ⚠️ A {yaAvisados.length} de {orders.length} ya se le mandó un recordatorio antes.
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {yaAvisados.map((o) => `${o.buyerName} (${o.reminderCount})`).join(' · ')}
+              </p>
+            </div>
+          )}
+
+          <div>
+            <Label className="text-sm">Cuerpo del correo</Label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Déjalo vacío para usar la plantilla por defecto. El saludo, el botón "Completar mi compra" y el pie los pone el sistema.
+            </p>
+            <Textarea
+              rows={6}
+              value={cuerpo}
+              onChange={(e) => setCuerpo(e.target.value)}
+              placeholder={RECORDATORIO_POR_DEFECTO.join('\n\n')}
+            />
+            <p className="text-xs text-muted-foreground mt-1">Un párrafo por línea.</p>
+          </div>
+
+          <div className="rounded-xl border border-border p-3 space-y-2">
+            <Label className="text-sm">¿Quieres otro ángulo? Escríbelo y la IA lo redacta</Label>
+            <div className="flex gap-2">
+              <Input
+                value={idea}
+                onChange={(e) => setIdea(e.target.value)}
+                placeholder="Ej: recordarles que el line-up ya está confirmado"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="interactive shrink-0"
+                disabled={idea.trim().length < 5 || generar.isPending}
+                onClick={() => generar.mutate({ idea: idea.trim() })}
+              >
+                {generar.isPending ? 'Generando...' : 'Generar con IA'}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              El tono siempre es de recordatorio, no de venta agresiva. Revisa el texto antes de enviar.
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="outline" className="interactive" onClick={() => onOpenChange(false)}>Cancelar</Button>
+            <Button
+              className="interactive"
+              disabled={enviar.isPending || orders.length === 0}
+              onClick={() => enviar.mutate({
+                orderIds: orders.map((o) => o.id),
+                customBody: cuerpo.trim() || undefined,
+              })}
+            >
+              {enviar.isPending ? 'Enviando...' : `Enviar a ${orders.length}`}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState('');
@@ -895,6 +1017,27 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
 
   const ordersList = ordersData?.orders ?? [];
   const pendingCount = ordersList.filter((o: any) => o.paymentStatus === 'pending').length;
+
+  // Recordatorios: solo con el filtro "Sin pagar" puesto. La selección es
+  // manual a propósito -- no hay "mandar a todos", para no escribirle a quien
+  // abandonó hace cinco minutos o ya está hablando por WhatsApp.
+  const remindersMode = statusFilter === 'pending';
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [reminderOpen, setReminderOpen] = useState(false);
+
+  const toggleSelected = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const allSelected = ordersList.length > 0 && ordersList.every((o: any) => selectedIds.has(o.id));
+  const selectedOrders = ordersList.filter((o: any) => selectedIds.has(o.id));
+
+  // Al cambiar de filtro la selección deja de tener sentido (y podría arrastrar
+  // ids de órdenes que ya no están en pantalla).
+  useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, channel]);
 
   const filterParams = () => {
     const params = new URLSearchParams();
@@ -933,9 +1076,34 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         </div>
       </div>
 
-      {pendingCount > 0 && (
-        <p className="text-sm text-yellow-500">⚠️ {pendingCount} orden{pendingCount > 1 ? 'es' : ''} sin pagar — usa el filtro "Sin pagar" para exportar sus emails y contactarlos.</p>
+      {pendingCount > 0 && !remindersMode && (
+        <p className="text-sm text-yellow-500">⚠️ {pendingCount} orden{pendingCount > 1 ? 'es' : ''} sin pagar — usa el filtro "Sin pagar" para seleccionarlas y mandarles un recordatorio.</p>
       )}
+
+      {remindersMode && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted/20 p-3">
+          <span className="text-sm text-muted-foreground">
+            {selectedIds.size === 0
+              ? 'Marca las órdenes a las que quieras mandarles un recordatorio.'
+              : `${selectedIds.size} seleccionada${selectedIds.size === 1 ? '' : 's'}`}
+          </span>
+          <Button
+            size="sm"
+            className="interactive ml-auto"
+            disabled={selectedIds.size === 0}
+            onClick={() => setReminderOpen(true)}
+          >
+            <Mail className="w-4 h-4 mr-1" /> Enviar recordatorio ({selectedIds.size})
+          </Button>
+        </div>
+      )}
+
+      <ReminderDialog
+        orders={selectedOrders}
+        open={reminderOpen}
+        onOpenChange={setReminderOpen}
+        onSent={() => { setSelectedIds(new Set()); refetchOrders(); }}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard icon={DollarSign} colorClass="bg-[oklch(0.68_0.16_340)]" value={`$${Number(stats?.totalRevenue ?? 0).toLocaleString('es-CL')}`} label="Ingresos Totales" />
@@ -949,11 +1117,21 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
+                  {remindersMode && (
+                    <th className="text-left py-2 px-3 w-10">
+                      <Checkbox
+                        checked={allSelected}
+                        onCheckedChange={(v) => setSelectedIds(v ? new Set(ordersList.map((o: any) => o.id)) : new Set())}
+                        aria-label="Seleccionar todas"
+                      />
+                    </th>
+                  )}
                   <th className="text-left py-2 px-3">Orden</th>
                   <th className="text-left py-2 px-3">Comprador</th>
                   <th className="text-left py-2 px-3">Total</th>
                   <th className="text-left py-2 px-3">Estado</th>
                   <th className="text-left py-2 px-3">Fecha</th>
+                  {remindersMode && <th className="text-left py-2 px-3">Recordatorio</th>}
                   <th className="text-left py-2 px-3">Contacto</th>
                   <th className="text-left py-2 px-3">Acciones</th>
                 </tr>
@@ -962,6 +1140,15 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                 {ordersList.map((order: any) => (
                   <Fragment key={order.id}>
                     <tr className="border-b border-border/50">
+                      {remindersMode && (
+                        <td className="py-2 px-3">
+                          <Checkbox
+                            checked={selectedIds.has(order.id)}
+                            onCheckedChange={() => toggleSelected(order.id)}
+                            aria-label={`Seleccionar ${order.orderNumber}`}
+                          />
+                        </td>
+                      )}
                       <td className="py-2 px-3 font-mono text-xs">{order.orderNumber}</td>
                       <td className="py-2 px-3">{order.buyerName}<br/><span className="text-muted-foreground text-xs">{order.buyerEmail}</span></td>
                       <td className="py-2 px-3">${Number(order.total).toLocaleString('es-CL')}</td>
@@ -971,6 +1158,17 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                         </span>
                       </td>
                       <td className="py-2 px-3 text-muted-foreground">{new Date(order.createdAt).toLocaleDateString('es-CL')}</td>
+                      {remindersMode && (
+                        <td className="py-2 px-3 text-xs">
+                          {order.reminderCount > 0 ? (
+                            <span className="text-yellow-500">
+                              {order.reminderCount}× · {order.reminderSentAt ? new Date(order.reminderSentAt).toLocaleDateString('es-CL') : ''}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      )}
                       <td className="py-2 px-3">
                         <div className="flex gap-2">
                           <a href={`mailto:${order.buyerEmail}`} className="text-primary text-xs underline">Email</a>
@@ -1008,7 +1206,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                     </tr>
                     {expandedOrderId === order.id && (
                       <tr className="border-b border-border/50 bg-muted/10">
-                        <td colSpan={7} className="py-3 px-3">
+                        <td colSpan={remindersMode ? 9 : 7} className="py-3 px-3">
                           {loadingTickets ? (
                             <p className="text-xs text-muted-foreground">Cargando tickets...</p>
                           ) : orderTickets && orderTickets.length > 0 ? (
@@ -2486,6 +2684,25 @@ function WeeklyMaterialTab() {
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm({ ...form, [k]: e.target.value });
 
+  // Generación con IA: rellena los campos pero NO guarda -- el dueño revisa y
+  // edita antes de apretar "Guardar", igual que en el compositor de mailing.
+  const [idea, setIdea] = useState('');
+  const generar = trpc.ambassadors.generateWeeklyMaterial.useMutation({
+    onSuccess: (c) => {
+      setForm((prev) => ({
+        ...prev,
+        title: c.title,
+        storiesText: c.storiesText,
+        reelText: c.reelText,
+        postText: c.postText,
+        countdownText: c.countdownText,
+      }));
+      setLoaded(true); // que la carga del material guardado no pise lo generado
+      toast.success('Material generado — revísalo y edita lo que quieras antes de guardar');
+    },
+    onError: onMutationError,
+  });
+
   return (
     <div className="space-y-6">
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
@@ -2496,6 +2713,30 @@ function WeeklyMaterialTab() {
             incluir. Si dejas la cuenta regresiva vacía, el correo la arma solo con los días que faltan para el próximo
             evento destacado.
           </p>
+
+          <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
+            <Label>¿De qué va la semana?</Label>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                value={idea}
+                onChange={(e) => setIdea(e.target.value)}
+                placeholder="Ej: se confirmó el line-up y quedan pocas entradas de preventa"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="interactive shrink-0"
+                disabled={idea.trim().length < 5 || generar.isPending}
+                onClick={() => generar.mutate({ idea: idea.trim() })}
+              >
+                {generar.isPending ? 'Generando…' : 'Generar con IA'}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Rellena los campos de abajo con la fecha del evento y las tareas del programa. No guarda nada:
+              revisa el texto y aprieta "Guardar material".
+            </p>
+          </div>
           <div><Label>Título (opcional)</Label><Input value={form.title} onChange={set('title')} className="mt-1" placeholder="Ej: Semana 1 — lanzamiento de Candyland" /></div>
           <div><Label>Historias</Label><Textarea value={form.storiesText} onChange={set('storiesText')} className="mt-1" rows={2} placeholder="Qué subir en historias esta semana" /></div>
           <div><Label>Reel</Label><Textarea value={form.reelText} onChange={set('reelText')} className="mt-1" rows={2} placeholder="Idea del reel" /></div>

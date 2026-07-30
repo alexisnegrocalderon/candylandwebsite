@@ -10,7 +10,10 @@ import {
   nextTierTarget, resolveAttribution, tierForSales, unlockedBenefits,
   type BenefitTier, type CommissionTier,
 } from '../shared/ambassadorProgram';
+import { AMBASSADOR_TASKS } from '../shared/ambassadorApplication';
 import { buildAmbassadorWeeklyEmail, sendEmail } from './email';
+import { invokeLLM } from './_core/llm';
+import { z } from 'zod';
 
 /* Motor del programa de Embajadores VIP: atribución de cada venta, y las
  * consultas que alimentan el panel del embajador y el admin.
@@ -626,4 +629,109 @@ export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
 
   console.log(`[Embajadores] Correo semanal: ${sent} enviados, ${skipped} sin correo, ${failed} con error.`);
   return { sent, skipped, failed };
+}
+
+/* ── Material de la semana generado con IA ────────────────────
+ *
+ * Mismo molde que `generateMailingTemplate` (server/mailing.ts): prompt de
+ * sistema + json_schema + validación con zod. La diferencia clave está en
+ * PARA QUIÉN se escribe: esto no lo lee el público, lo lee un embajador que
+ * necesita saber qué contenido crear esta semana. Por eso cada campo tiene un
+ * trabajo distinto y el prompt lo explica. */
+
+export const WeeklyMaterialContentSchema = z.object({
+  title: z.string().min(4).max(80),
+  storiesText: z.string().min(20).max(600),
+  reelText: z.string().min(20).max(600),
+  postText: z.string().min(20).max(800),
+  countdownText: z.string().min(4).max(200),
+});
+export type WeeklyMaterialContent = z.infer<typeof WeeklyMaterialContentSchema>;
+
+const WEEKLY_MATERIAL_JSON_SCHEMA = {
+  name: 'weekly_material',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['title', 'storiesText', 'reelText', 'postText', 'countdownText'],
+    properties: {
+      title: { type: 'string', description: 'Cómo se llama la semana. Corto y con energía, ej: "Semana 2 — cuenta regresiva".' },
+      storiesText: { type: 'string', description: 'Qué subir en historias esta semana. Accionable y concreto: qué mostrar, qué decir, qué stickers usar.' },
+      reelText: { type: 'string', description: 'La idea del reel: el gancho de los primeros 3 segundos, qué se ve y cómo cierra.' },
+      postText: { type: 'string', description: 'Texto sugerido para la publicación del feed, listo para copiar y pegar. Incluye hashtags si aportan.' },
+      countdownText: { type: 'string', description: 'Frase de cuenta regresiva al evento, corta y con urgencia genuina.' },
+    },
+  },
+} as const;
+
+const WEEKLY_MATERIAL_SYSTEM_PROMPT = `Preparas el material semanal que Mansion Playroom (productora de fiestas en Viña del Mar y Valparaíso, Chile) le envía a sus embajadores.
+
+QUIÉN LO LEE: no es el público. Lo lee un embajador o embajadora que tiene que crear contenido esta semana para promocionar el evento con su código personal. Tu trabajo es que abra el correo y sepa exactamente qué hacer, sin tener que pensarlo.
+
+Por eso el material es una INSTRUCCIÓN CLARA, no un texto bonito. Nada de "comparte con entusiasmo": di qué grabar, qué mostrar y qué decir.
+
+Cada campo cumple una función distinta y NO se repiten entre sí:
+- "title": cómo se llama la semana. Corto, da el tema.
+- "storiesText": qué subir en historias. Concreto y accionable — qué mostrar, qué texto poner, qué sticker usar. Es lo que más se usa, hazlo fácil.
+- "reelText": la idea del reel. Parte por el gancho de los primeros 3 segundos, después qué se ve, y cómo cierra con llamado a la acción.
+- "postText": el texto de la publicación del feed, LISTO PARA COPIAR Y PEGAR. Escríbelo en primera persona como si lo publicara el embajador, no en tercera. Puedes cerrar con hashtags si aportan.
+- "countdownText": una frase de cuenta regresiva, corta.
+
+Tono: chileno neutro, tuteo, cercano y con energía de fiesta. Emojis con moderación (🍬✨🔥), nunca más de dos por campo.
+
+REGLAS DURAS:
+- El evento es estrictamente +18, pero el contenido que se publica en redes debe ser apto para las normas de Instagram y TikTok: sugerente está bien, explícito NO. Si el material hace que le bajen el post al embajador, no sirve.
+- No inventes datos que no te dieron: nada de precios, direcciones, artistas ni horarios que no aparezcan en el contexto.
+- Recuérdale usar su código personal, pero sin repetirlo en los cinco campos.
+
+Responde ÚNICAMENTE con el JSON pedido, sin explicaciones.`;
+
+function extractWeeklyContent(message: { content: string | Array<{ type: string; text?: string }> }): string {
+  if (typeof message.content === 'string') return message.content;
+  return message.content.map((p) => (p.type === 'text' ? p.text ?? '' : '')).join('');
+}
+
+/** Rellena los 5 campos del material semanal a partir de una idea.
+ *
+ * El contexto (evento, fecha, días que faltan, tareas del programa) se arma
+ * acá desde datos reales para que la IA no invente y para que el material
+ * siempre pida lo que el embajador se comprometió a hacer. */
+export async function generateWeeklyMaterial(idea: string): Promise<WeeklyMaterialContent> {
+  const evento = await getFeaturedEvent();
+
+  const partesContexto: string[] = [];
+  if (evento) {
+    partesContexto.push(`Evento: ${evento.title}`);
+    if (evento.eventDate) {
+      const fecha = new Date(evento.eventDate);
+      partesContexto.push(`Fecha: ${fecha.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}`);
+      const dias = Math.ceil((fecha.getTime() - Date.now()) / 86_400_000);
+      if (dias > 0) partesContexto.push(`Faltan ${dias} días`);
+    }
+    if (evento.shortDescription) partesContexto.push(`Sobre el evento: ${evento.shortDescription}`);
+  }
+  partesContexto.push(`Tareas a las que se comprometieron los embajadores: ${AMBASSADOR_TASKS.join('; ')}`);
+
+  const result = await invokeLLM({
+    messages: [
+      { role: 'system', content: WEEKLY_MATERIAL_SYSTEM_PROMPT },
+      { role: 'user', content: `Idea para el material de esta semana: ${idea}\n\nContexto:\n${partesContexto.join('\n')}` },
+    ],
+    responseFormat: { type: 'json_schema', json_schema: WEEKLY_MATERIAL_JSON_SCHEMA },
+  });
+
+  const raw = extractWeeklyContent(result.choices[0]?.message ?? { content: '' });
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('La IA no devolvió un JSON válido. Intenta de nuevo con una idea más clara.');
+  }
+
+  const validated = WeeklyMaterialContentSchema.safeParse(parsed);
+  if (!validated.success) {
+    throw new Error(`El material generado no tiene el formato esperado: ${validated.error.issues[0]?.message ?? 'error desconocido'}.`);
+  }
+  return validated.data;
 }
