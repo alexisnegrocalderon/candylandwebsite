@@ -2,6 +2,7 @@ import { useSearch } from 'wouter';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { trpc } from '@/lib/trpc';
 import { PrintLayout, PrintAuthGuard, PrintTable } from './PrintLayout';
+import { formatChileDateTime } from '@shared/chileDate';
 
 const COLUMNS = [
   { key: 'eventTitle', label: 'Evento' },
@@ -46,8 +47,8 @@ function PrintShiftsContent() {
 
   const tableRows = rows.map((r: any) => ({
     ...r,
-    openedAt: r.openedAt ? new Date(r.openedAt).toLocaleString('es-CL') : '',
-    closedAt: r.closedAt ? new Date(r.closedAt).toLocaleString('es-CL') : '',
+    openedAt: r.openedAt ? formatChileDateTime(r.openedAt) : '',
+    closedAt: r.closedAt ? formatChileDateTime(r.closedAt) : '',
     openingCash: `$${Number(r.openingCash).toLocaleString('es-CL')}`,
     countedCash: `$${Number(r.countedCash).toLocaleString('es-CL')}`,
     expectedCash: `$${(Number(r.expectedCash) + Number(r.openingCash)).toLocaleString('es-CL')}`,

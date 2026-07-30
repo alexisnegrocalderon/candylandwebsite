@@ -6,6 +6,7 @@ import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatChileShortDate } from '@shared/chileDate';
 
 /* Panel del embajador VIP: /embajador/<CODIGO>.
  *
@@ -229,7 +230,7 @@ export default function Ambassador() {
                   <tbody>
                     {data.sales.map((s: any) => (
                       <tr key={s.id} className="border-b border-border/40">
-                        <td className="py-2 pr-3">{new Date(s.createdAt).toLocaleDateString('es-CL')}</td>
+                        <td className="py-2 pr-3">{formatChileShortDate(s.createdAt)}</td>
                         <td className="py-2 pr-3">{s.eventTitle}</td>
                         <td className="py-2 pr-3 text-muted-foreground text-xs">{s.customerName || s.customerEmail}</td>
                         <td className="py-2 pr-3">

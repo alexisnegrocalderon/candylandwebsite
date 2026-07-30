@@ -3310,6 +3310,27 @@ function registerOAuthRoutes(app) {
   });
 }
 
+// shared/chileDate.ts
+var CHILE_TZ = "America/Santiago";
+function formatChileDate(date, opts = {}) {
+  const d = date instanceof Date ? date : new Date(date);
+  return d.toLocaleDateString("es-CL", {
+    ...opts.withWeekday === false ? {} : { weekday: "long" },
+    day: "numeric",
+    month: "long",
+    ...opts.withYear ? { year: "numeric" } : {},
+    timeZone: CHILE_TZ
+  });
+}
+function formatChileTime(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  return d.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: CHILE_TZ });
+}
+function formatChileDateTime(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  return d.toLocaleString("es-CL", { timeZone: CHILE_TZ });
+}
+
 // server/csv.ts
 function csvEscape(value) {
   const s = value === null || value === void 0 ? "" : String(value);
@@ -3409,7 +3430,7 @@ function registerAdminRoutes(app) {
     const csv = toCsv(
       rows.map((r) => ({
         ...r,
-        createdAt: r.createdAt ? new Date(r.createdAt).toLocaleString("es-CL") : ""
+        createdAt: r.createdAt ? formatChileDateTime(r.createdAt) : ""
       })),
       [
         { key: "orderNumber", label: "N\xB0 Orden" },
@@ -3439,8 +3460,8 @@ function registerAdminRoutes(app) {
         ...c,
         accessTypes: Array.isArray(c.accessTypes) ? c.accessTypes.join(";") : "",
         tags: Array.isArray(c.tags) ? c.tags.join(";") : "",
-        firstSeenAt: c.firstSeenAt ? new Date(c.firstSeenAt).toLocaleString("es-CL") : "",
-        lastSeenAt: c.lastSeenAt ? new Date(c.lastSeenAt).toLocaleString("es-CL") : ""
+        firstSeenAt: c.firstSeenAt ? formatChileDateTime(c.firstSeenAt) : "",
+        lastSeenAt: c.lastSeenAt ? formatChileDateTime(c.lastSeenAt) : ""
       })),
       [
         { key: "email", label: "Email" },
@@ -3523,8 +3544,8 @@ function registerAdminRoutes(app) {
     const csv = toCsv(
       rows.map((r) => ({
         ...r,
-        openedAt: r.openedAt ? new Date(r.openedAt).toLocaleString("es-CL") : "",
-        closedAt: r.closedAt ? new Date(r.closedAt).toLocaleString("es-CL") : "",
+        openedAt: r.openedAt ? formatChileDateTime(r.openedAt) : "",
+        closedAt: r.closedAt ? formatChileDateTime(r.closedAt) : "",
         topCustomers: (r.topCustomers ?? []).map((c) => `${c.name} ($${c.total})`).join(" \xB7 "),
         topProducts: (r.topProducts ?? []).map((p) => `${p.name} (${p.quantity}x)`).join(" \xB7 ")
       })),
@@ -4612,7 +4633,7 @@ function buildAmbassadorWeeklyEmail(data) {
 </html>`;
 }
 function buildCheckinSummaryEmail(data) {
-  const fecha = new Date(data.eventDate).toLocaleDateString("es-CL", { day: "numeric", month: "long", year: "numeric" });
+  const fecha = formatChileDate(data.eventDate, { withYear: true, withWeekday: false });
   const pct = data.expectedCount > 0 ? Math.round(data.insideCount / data.expectedCount * 100) : 0;
   return `
 <!DOCTYPE html>
@@ -4664,7 +4685,7 @@ function buildShiftCloseEmail(data) {
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
     <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">\u{1F512} Turno cerrado \u2014 ${data.eventTitle}</h1>
-    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.registerName} \xB7 ${data.operatorName} \xB7 ${data.closedAt.toLocaleString("es-CL", { timeZone: "America/Santiago" })}</p>
+    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.registerName} \xB7 ${data.operatorName} \xB7 ${formatChileDateTime(data.closedAt)}</p>
 
     ${card(`
       <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Cuadre de caja</p>
@@ -4838,7 +4859,7 @@ function buildGiftEmail(data) {
 function buildPendingReminderEmail(data) {
   const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
   const primerNombre = data.buyerName.split(" ")[0];
-  const fechaTexto = data.eventDate ? data.eventDate.toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long" }) : null;
+  const fechaTexto = data.eventDate ? formatChileDate(data.eventDate) : null;
   const parrafosPorDefecto = [
     `Vimos que empezaste a sacar tu acceso para ${data.eventTitle} y qued\xF3 a medio camino. Puede pasar \u{1F36C}`,
     "Tu lugar todav\xEDa no est\xE1 confirmado, pero retomar toma menos de un minuto: el formulario te espera con todo lo que ya hab\xEDas llenado."
@@ -5611,7 +5632,7 @@ async function generateWeeklyMaterial(idea) {
     partesContexto.push(`Evento: ${evento.title}`);
     if (evento.eventDate) {
       const fecha = new Date(evento.eventDate);
-      partesContexto.push(`Fecha: ${fecha.toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long" })}`);
+      partesContexto.push(`Fecha: ${formatChileDate(fecha)}`);
       const dias = Math.ceil((fecha.getTime() - Date.now()) / 864e5);
       if (dias > 0) partesContexto.push(`Faltan ${dias} d\xEDas`);
     }
@@ -5684,13 +5705,10 @@ function generateDisplayCode(prefix) {
 
 // server/webhooks.ts
 var webhooksRouter = Router();
-var CHILE_TZ = "America/Santiago";
 function formatEventDate(date) {
-  return date.toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: CHILE_TZ });
+  return formatChileDate(date, { withYear: true });
 }
-function formatEventTime(date) {
-  return date.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", timeZone: CHILE_TZ });
-}
+var formatEventTime = formatChileTime;
 function mapPaymentStatus(mpStatus) {
   if (mpStatus === "approved") return "approved";
   if (mpStatus === "rejected" || mpStatus === "cancelled") return "rejected";
@@ -6133,11 +6151,8 @@ async function evaluateMission300(eventId) {
 }
 
 // server/mailing.ts
-var CHILE_TZ2 = "America/Santiago";
 function formatEventDateTime(date) {
-  const dateText = date.toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long", timeZone: CHILE_TZ2 });
-  const timeText = date.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", timeZone: CHILE_TZ2 });
-  return `${dateText}, ${timeText} hrs`;
+  return `${formatChileDate(date)}, ${formatChileTime(date)} hrs`;
 }
 async function getMailingEventInfo() {
   const event = await getFeaturedEvent();

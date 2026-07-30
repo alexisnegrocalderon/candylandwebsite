@@ -1,3 +1,4 @@
+import { formatChileDate, formatChileDateTime } from '../shared/chileDate';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
 
 interface SendEmailInput {
@@ -1079,7 +1080,7 @@ export function buildCheckinSummaryEmail(data: {
   insideCount: number;
   expectedCount: number;
 }) {
-  const fecha = new Date(data.eventDate).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' });
+  const fecha = formatChileDate(data.eventDate, { withYear: true, withWeekday: false });
   const pct = data.expectedCount > 0 ? Math.round((data.insideCount / data.expectedCount) * 100) : 0;
   return `
 <!DOCTYPE html>
@@ -1157,7 +1158,7 @@ export function buildShiftCloseEmail(data: {
 <body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
     <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">🔒 Turno cerrado — ${data.eventTitle}</h1>
-    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.registerName} · ${data.operatorName} · ${data.closedAt.toLocaleString('es-CL', { timeZone: 'America/Santiago' })}</p>
+    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.registerName} · ${data.operatorName} · ${formatChileDateTime(data.closedAt)}</p>
 
     ${card(`
       <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Cuadre de caja</p>
@@ -1405,7 +1406,7 @@ export function buildPendingReminderEmail(data: {
   const primerNombre = data.buyerName.split(' ')[0];
 
   const fechaTexto = data.eventDate
-    ? data.eventDate.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })
+    ? formatChileDate(data.eventDate)
     : null;
 
   const parrafosPorDefecto = [

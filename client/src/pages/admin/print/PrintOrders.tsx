@@ -2,6 +2,7 @@ import { useSearch } from 'wouter';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { trpc } from '@/lib/trpc';
 import { PrintLayout, PrintAuthGuard, PrintTable } from './PrintLayout';
+import { formatChileDateTime } from '@shared/chileDate';
 
 const COLUMNS = [
   { key: 'orderNumber', label: 'N° Orden' },
@@ -59,7 +60,7 @@ function PrintOrdersContent() {
 
   const tableRows = rows.map((r: any) => ({
     ...r,
-    createdAt: r.createdAt ? new Date(r.createdAt).toLocaleString('es-CL') : '',
+    createdAt: r.createdAt ? formatChileDateTime(r.createdAt) : '',
     subtotal: `$${Number(r.subtotal).toLocaleString('es-CL')}`,
     discount: `$${Number(r.discount).toLocaleString('es-CL')}`,
     total: `$${Number(r.total).toLocaleString('es-CL')}`,

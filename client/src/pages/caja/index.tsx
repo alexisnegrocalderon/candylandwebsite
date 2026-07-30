@@ -13,6 +13,7 @@ import {
   type CajaAttendee, type CajaCatalogItem, type CajaGift, type QueuedOp,
 } from './db';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
+import { formatChileDateTime } from '@shared/chileDate';
 
 /* Módulo /caja (docs/ARQUITECTURA-CAJA.md Fase 3) -- offline-first: la
  * búsqueda, la ficha y el catálogo se leen siempre de IndexedDB (Dexie), no
@@ -1043,7 +1044,7 @@ function ConflictQueue({ eventId }: { eventId: number }) {
         {(conflicts ?? []).map((c: any) => (
           <div key={c.opId} className="p-4 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-amber-500/30">
             <p className="font-mono text-sm">{c.displayCode}</p>
-            <p className="text-xs text-white/50 mt-1">{c.operatorName} · {new Date(c.serverAt).toLocaleString('es-CL')}</p>
+            <p className="text-xs text-white/50 mt-1">{c.operatorName} · {formatChileDateTime(c.serverAt)}</p>
             <p className="text-xs text-amber-300 mt-1">{c.conflictNote}</p>
             <Button
               size="sm"

@@ -22,6 +22,7 @@ import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { isMissionWindowOpen, missionDepositPrice } from '@shared/mission300';
 import { monthKeyFor } from '@shared/ambassadorProgram';
+import { formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
 import {
   SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
   SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarTrigger,
@@ -141,7 +142,7 @@ function Mission300Panel({ eventId }: { eventId: number }) {
           <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Misión 300</span>
           <p className="text-sm mt-0.5">
             <strong>{status.totalPersonas}</strong> / {status.goal} personas · {status.ordersCount} orden(es) con abono pendiente de resolver
-            · vence {cutoff.toLocaleDateString('es-CL')}
+            · vence {formatChileShortDate(cutoff)}
           </p>
         </div>
         {!confirming ? (
@@ -1157,12 +1158,12 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                           {order.paymentStatus}
                         </span>
                       </td>
-                      <td className="py-2 px-3 text-muted-foreground">{new Date(order.createdAt).toLocaleDateString('es-CL')}</td>
+                      <td className="py-2 px-3 text-muted-foreground">{formatChileShortDate(order.createdAt)}</td>
                       {remindersMode && (
                         <td className="py-2 px-3 text-xs">
                           {order.reminderCount > 0 ? (
                             <span className="text-yellow-500">
-                              {order.reminderCount}× · {order.reminderSentAt ? new Date(order.reminderSentAt).toLocaleDateString('es-CL') : ''}
+                              {order.reminderCount}× · {order.reminderSentAt ? formatChileShortDate(order.reminderSentAt) : ''}
                             </span>
                           ) : (
                             <span className="text-muted-foreground">—</span>
@@ -2110,7 +2111,7 @@ function AmbassadorProfileRow({ ambassadorId, monthKey, deliveredKeys, onMarkBen
               <tbody>
                 {sales.map((s: any) => (
                   <tr key={s.id} className="border-b border-border/40">
-                    <td className="py-1.5 px-2">{new Date(s.createdAt).toLocaleDateString('es-CL')}</td>
+                    <td className="py-1.5 px-2">{formatChileShortDate(s.createdAt)}</td>
                     <td className="py-1.5 px-2">{s.eventTitle}</td>
                     <td className="py-1.5 px-2">{s.customerName || s.customerEmail || '—'}</td>
                     <td className="py-1.5 px-2">
@@ -2491,7 +2492,7 @@ function AmbassadorApplicationsTab() {
                     </td>
                     <td className="py-2 px-3">{a.followers ?? '—'}</td>
                     <td className="py-2 px-3 max-w-xs text-muted-foreground">{a.message || '—'}</td>
-                    <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{new Date(a.createdAt).toLocaleDateString('es-CL')}</td>
+                    <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{formatChileShortDate(a.createdAt)}</td>
                     <td className="py-2 px-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${
                         a.status === 'pendiente' ? 'bg-amber-500/15 text-amber-600' :
@@ -2630,7 +2631,7 @@ function ReferredClientsTab() {
                   <tr key={`${c.customerEmail}-${i}`} className="border-b border-border/50">
                     <td className="py-2 px-3">{c.customerEmail}</td>
                     <td className="py-2 px-3">{c.ambassadorName}</td>
-                    <td className="py-2 px-3">{new Date(c.firstPurchaseAt).toLocaleDateString('es-CL')}</td>
+                    <td className="py-2 px-3">{formatChileShortDate(c.firstPurchaseAt)}</td>
                     <td className="py-2 px-3">{c.ordersCount}</td>
                     <td className="py-2 px-3">${c.totalSpent.toLocaleString('es-CL')}</td>
                     <td className="py-2 px-3">
@@ -3156,7 +3157,7 @@ function LedgerView({ eventId }: { eventId: number }) {
           <tbody>
             {rows.slice(0, 100).map((r: any) => (
               <tr key={r.id} className="border-b border-border/30">
-                <td className="py-2">{new Date(r.serverAt).toLocaleString('es-CL')}</td>
+                <td className="py-2">{formatChileDateTime(r.serverAt)}</td>
                 <td className="capitalize">{r.type}</td>
                 <td>{r.operatorName}</td>
                 <td className="font-mono text-xs">{r.targetId}</td>
@@ -3225,14 +3226,14 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
                 <p className="font-semibold">{r.eventTitle} · {r.registerName}</p>
                 <p className="text-xs text-muted-foreground">
                   {r.operatorName}{r.closedByName && r.closedByName !== r.operatorName ? ` (cerró ${r.closedByName})` : ''} ·{' '}
-                  {new Date(r.openedAt).toLocaleString('es-CL')} → {r.closedAt ? new Date(r.closedAt).toLocaleString('es-CL') : '—'}
+                  {formatChileDateTime(r.openedAt)} → {r.closedAt ? formatChileDateTime(r.closedAt) : '—'}
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="ghost" size="sm" onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}>
                   {expandedId === r.id ? 'Ocultar detalle' : 'Ver detalle'}
                 </Button>
-                <DeleteShiftClosingButton shiftId={r.id} label={`${r.eventTitle} · ${r.registerName} (${new Date(r.openedAt).toLocaleString('es-CL')})`} onDeleted={refetch} />
+                <DeleteShiftClosingButton shiftId={r.id} label={`${r.eventTitle} · ${r.registerName} (${formatChileDateTime(r.openedAt)})`} onDeleted={refetch} />
               </div>
             </div>
 
