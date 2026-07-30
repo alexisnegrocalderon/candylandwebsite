@@ -119,6 +119,11 @@ var init_schema = __esm({
       paymentMethod: varchar("paymentMethod", { length: 64 }),
       mercadoPagoPreferenceId: varchar("mercadoPagoPreferenceId", { length: 255 }),
       emailSent: int("emailSent").default(0).notNull(),
+      // Recordatorio a quien dejó la compra a medio camino (admin → Ventas web).
+      // Se guarda para poder avisar antes de reenviar: sin esto es fácil que la
+      // misma persona reciba el mismo correo cuatro veces y marque como spam.
+      reminderSentAt: timestamp("reminderSentAt"),
+      reminderCount: int("reminderCount").default(0).notNull(),
       // Misión 300: preventa donde se paga un abono de $10.000/persona hasta 3
       // días antes del evento. Si se junta la meta, nadie paga más y se entrega
       // el ticket con el abono. Si no se junta, cada quien completa hasta el
@@ -3553,7 +3558,7 @@ function registerAdminRoutes(app) {
 }
 
 // server/mailing.ts
-import { z } from "zod";
+import { z as z2 } from "zod";
 
 // server/_core/llm.ts
 var ensureArray = (value) => Array.isArray(value) ? value : [value];
@@ -4813,6 +4818,52 @@ function buildGiftEmail(data) {
 </body>
 </html>`;
 }
+function buildPendingReminderEmail(data) {
+  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
+  const primerNombre = data.buyerName.split(" ")[0];
+  const fechaTexto = data.eventDate ? data.eventDate.toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long" }) : null;
+  const parrafosPorDefecto = [
+    `Vimos que empezaste a sacar tu acceso para ${data.eventTitle} y qued\xF3 a medio camino. Puede pasar \u{1F36C}`,
+    "Tu lugar todav\xEDa no est\xE1 confirmado, pero retomar toma menos de un minuto: el formulario te espera con todo lo que ya hab\xEDas llenado."
+  ];
+  const cuerpo = data.customBody ? data.customBody.split("\n").filter((p) => p.trim()) : parrafosPorDefecto;
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+
+    <div style="background:linear-gradient(160deg,${ACCENT.pink.bg},${ACCENT.lilac.bg});padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <p style="font-size:48px;margin:0 0 12px;">\u{1F39F}\uFE0F</p>
+      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">${primerNombre}, qued\xF3 pendiente tu acceso</h1>
+      ${fechaTexto ? `<p style="color:${MUTED};font-size:15px;margin:0;">${data.eventTitle} \xB7 ${fechaTexto}</p>` : ""}
+    </div>
+
+    <div style="padding:32px 24px 0;">
+      ${cuerpo.map((p) => `<p style="color:${INK};font-size:15px;line-height:1.6;margin:0 0 16px;">${p}</p>`).join("")}
+
+      <div style="text-align:center;margin:28px 0 8px;">
+        <a href="${data.checkoutUrl}" style="display:inline-block;background:${ACCENT.pink.text};color:#FFFFFF;font-size:16px;font-weight:700;text-decoration:none;padding:16px 36px;border-radius:999px;">
+          Completar mi compra
+        </a>
+      </div>
+
+      <p style="color:${FAINT};font-size:12px;text-align:center;margin:16px 0 0;line-height:1.5;">
+        Si ya compraste o cambiaste de idea, puedes ignorar este correo.
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>`;
+}
 
 // server/webhooks.ts
 import { Router } from "express";
@@ -4986,7 +5037,81 @@ function isWeeklyEmailDay(now, weekday = DEFAULT_WEEKLY_EMAIL_WEEKDAY, offsetHou
   return shifted.getUTCDay() === weekday;
 }
 
+// shared/ambassadorApplication.ts
+var MIN_INSTAGRAM_FOLLOWERS = 1e3;
+var MIN_APPLICANT_NAME_LENGTH = 3;
+var MAX_APPLICANT_NAME_LENGTH = 80;
+var MAX_APPLICATION_MESSAGE_LENGTH = 500;
+var AMBASSADOR_REQUIREMENTS = [
+  "Ser mayor de 18 a\xF1os",
+  `Tener al menos ${MIN_INSTAGRAM_FOLLOWERS.toLocaleString("es-CL")} seguidores en Instagram`,
+  "Cuenta de Instagram p\xFAblica y activa"
+];
+var AMBASSADOR_TASKS = [
+  "Publicar historias cada semana con el material que te enviamos",
+  "Una publicaci\xF3n en el feed por cada evento",
+  "Difundir tu c\xF3digo personal con tu c\xEDrculo"
+];
+function sanitizeInstagram(raw) {
+  let value = (raw ?? "").trim();
+  if (!value) return { ok: false, reason: "Escribe tu Instagram" };
+  const urlMatch = value.match(/(?:instagram\.com|instagr\.am)\/+([^/?#\s]+)/i);
+  if (urlMatch) value = urlMatch[1];
+  value = value.replace(/^@+/, "").replace(/\/+$/, "").trim();
+  if (!value) return { ok: false, reason: "Escribe tu Instagram" };
+  if (value.length > 30) return { ok: false, reason: "Ese usuario de Instagram es demasiado largo" };
+  if (!/^[A-Za-z0-9._]+$/.test(value)) {
+    return { ok: false, reason: "El usuario de Instagram solo puede tener letras, n\xFAmeros, puntos y guion bajo" };
+  }
+  return { ok: true, value };
+}
+function sanitizeWhatsapp(raw) {
+  const digits = (raw ?? "").replace(/\D/g, "");
+  if (!digits) return { ok: false, reason: "Escribe tu WhatsApp" };
+  let local = digits;
+  if (local.startsWith("56")) local = local.slice(2);
+  if (local.startsWith("0")) local = local.replace(/^0+/, "");
+  if (local.length !== 9) {
+    return { ok: false, reason: "Revisa el n\xFAmero: un m\xF3vil chileno tiene 9 d\xEDgitos y empieza con 9" };
+  }
+  if (!local.startsWith("9")) {
+    return { ok: false, reason: "Tiene que ser un celular, que empieza con 9" };
+  }
+  return { ok: true, value: `+56${local}` };
+}
+function sanitizeApplicantName(raw) {
+  const value = (raw ?? "").replace(/\s+/g, " ").trim();
+  if (value.length < MIN_APPLICANT_NAME_LENGTH) return { ok: false, reason: "Escribe tu nombre completo" };
+  if (value.length > MAX_APPLICANT_NAME_LENGTH) {
+    return { ok: false, reason: `M\xE1ximo ${MAX_APPLICANT_NAME_LENGTH} caracteres` };
+  }
+  return { ok: true, value };
+}
+function sanitizeApplicationMessage(raw) {
+  const value = (raw ?? "").replace(/\s+/g, " ").trim();
+  if (value.length > MAX_APPLICATION_MESSAGE_LENGTH) {
+    return { ok: false, reason: `M\xE1ximo ${MAX_APPLICATION_MESSAGE_LENGTH} caracteres` };
+  }
+  return { ok: true, value };
+}
+function sanitizeFollowers(raw) {
+  if (raw === null || raw === void 0 || raw === "") return { ok: true, value: null };
+  const digits = String(raw).replace(/\D/g, "");
+  if (!digits) return { ok: false, reason: "Escribe solo n\xFAmeros" };
+  const n = Number(digits);
+  if (!Number.isFinite(n)) return { ok: false, reason: "Escribe solo n\xFAmeros" };
+  if (n > 1e8) return { ok: false, reason: "Ese n\xFAmero no parece real" };
+  return { ok: true, value: n };
+}
+function whatsappLinkFor(normalized) {
+  return `https://wa.me/${normalized.replace(/\D/g, "")}`;
+}
+function instagramLinkFor(handle) {
+  return `https://instagram.com/${handle}`;
+}
+
 // server/ambassadorProgram.ts
+import { z } from "zod";
 function parseJsonArray(raw, fallback) {
   if (Array.isArray(raw)) return raw;
   if (typeof raw === "string") {
@@ -5412,6 +5537,91 @@ async function sendWeeklyAmbassadorEmails(now = /* @__PURE__ */ new Date()) {
   }
   console.log(`[Embajadores] Correo semanal: ${sent} enviados, ${skipped} sin correo, ${failed} con error.`);
   return { sent, skipped, failed };
+}
+var WeeklyMaterialContentSchema = z.object({
+  title: z.string().min(4).max(80),
+  storiesText: z.string().min(20).max(600),
+  reelText: z.string().min(20).max(600),
+  postText: z.string().min(20).max(800),
+  countdownText: z.string().min(4).max(200)
+});
+var WEEKLY_MATERIAL_JSON_SCHEMA = {
+  name: "weekly_material",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["title", "storiesText", "reelText", "postText", "countdownText"],
+    properties: {
+      title: { type: "string", description: 'C\xF3mo se llama la semana. Corto y con energ\xEDa, ej: "Semana 2 \u2014 cuenta regresiva".' },
+      storiesText: { type: "string", description: "Qu\xE9 subir en historias esta semana. Accionable y concreto: qu\xE9 mostrar, qu\xE9 decir, qu\xE9 stickers usar." },
+      reelText: { type: "string", description: "La idea del reel: el gancho de los primeros 3 segundos, qu\xE9 se ve y c\xF3mo cierra." },
+      postText: { type: "string", description: "Texto sugerido para la publicaci\xF3n del feed, listo para copiar y pegar. Incluye hashtags si aportan." },
+      countdownText: { type: "string", description: "Frase de cuenta regresiva al evento, corta y con urgencia genuina." }
+    }
+  }
+};
+var WEEKLY_MATERIAL_SYSTEM_PROMPT = `Preparas el material semanal que Mansion Playroom (productora de fiestas en Vi\xF1a del Mar y Valpara\xEDso, Chile) le env\xEDa a sus embajadores.
+
+QUI\xC9N LO LEE: no es el p\xFAblico. Lo lee un embajador o embajadora que tiene que crear contenido esta semana para promocionar el evento con su c\xF3digo personal. Tu trabajo es que abra el correo y sepa exactamente qu\xE9 hacer, sin tener que pensarlo.
+
+Por eso el material es una INSTRUCCI\xD3N CLARA, no un texto bonito. Nada de "comparte con entusiasmo": di qu\xE9 grabar, qu\xE9 mostrar y qu\xE9 decir.
+
+Cada campo cumple una funci\xF3n distinta y NO se repiten entre s\xED:
+- "title": c\xF3mo se llama la semana. Corto, da el tema.
+- "storiesText": qu\xE9 subir en historias. Concreto y accionable \u2014 qu\xE9 mostrar, qu\xE9 texto poner, qu\xE9 sticker usar. Es lo que m\xE1s se usa, hazlo f\xE1cil.
+- "reelText": la idea del reel. Parte por el gancho de los primeros 3 segundos, despu\xE9s qu\xE9 se ve, y c\xF3mo cierra con llamado a la acci\xF3n.
+- "postText": el texto de la publicaci\xF3n del feed, LISTO PARA COPIAR Y PEGAR. Escr\xEDbelo en primera persona como si lo publicara el embajador, no en tercera. Puedes cerrar con hashtags si aportan.
+- "countdownText": una frase de cuenta regresiva, corta.
+
+Tono: chileno neutro, tuteo, cercano y con energ\xEDa de fiesta. Emojis con moderaci\xF3n (\u{1F36C}\u2728\u{1F525}), nunca m\xE1s de dos por campo.
+
+REGLAS DURAS:
+- El evento es estrictamente +18, pero el contenido que se publica en redes debe ser apto para las normas de Instagram y TikTok: sugerente est\xE1 bien, expl\xEDcito NO. Si el material hace que le bajen el post al embajador, no sirve.
+- No inventes datos que no te dieron: nada de precios, direcciones, artistas ni horarios que no aparezcan en el contexto.
+- Recu\xE9rdale usar su c\xF3digo personal, pero sin repetirlo en los cinco campos.
+
+Responde \xDANICAMENTE con el JSON pedido, sin explicaciones.`;
+function extractWeeklyContent(message) {
+  if (typeof message.content === "string") return message.content;
+  return message.content.map((p) => p.type === "text" ? p.text ?? "" : "").join("");
+}
+async function generateWeeklyMaterial(idea) {
+  const evento = await getFeaturedEvent();
+  const partesContexto = [];
+  if (evento) {
+    partesContexto.push(`Evento: ${evento.title}`);
+    if (evento.eventDate) {
+      const fecha = new Date(evento.eventDate);
+      partesContexto.push(`Fecha: ${fecha.toLocaleDateString("es-CL", { weekday: "long", day: "numeric", month: "long" })}`);
+      const dias = Math.ceil((fecha.getTime() - Date.now()) / 864e5);
+      if (dias > 0) partesContexto.push(`Faltan ${dias} d\xEDas`);
+    }
+    if (evento.shortDescription) partesContexto.push(`Sobre el evento: ${evento.shortDescription}`);
+  }
+  partesContexto.push(`Tareas a las que se comprometieron los embajadores: ${AMBASSADOR_TASKS.join("; ")}`);
+  const result = await invokeLLM({
+    messages: [
+      { role: "system", content: WEEKLY_MATERIAL_SYSTEM_PROMPT },
+      { role: "user", content: `Idea para el material de esta semana: ${idea}
+
+Contexto:
+${partesContexto.join("\n")}` }
+    ],
+    responseFormat: { type: "json_schema", json_schema: WEEKLY_MATERIAL_JSON_SCHEMA }
+  });
+  const raw = extractWeeklyContent(result.choices[0]?.message ?? { content: "" });
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("La IA no devolvi\xF3 un JSON v\xE1lido. Intenta de nuevo con una idea m\xE1s clara.");
+  }
+  const validated = WeeklyMaterialContentSchema.safeParse(parsed);
+  if (!validated.success) {
+    throw new Error(`El material generado no tiene el formato esperado: ${validated.error.issues[0]?.message ?? "error desconocido"}.`);
+  }
+  return validated.data;
 }
 
 // server/webhooks.ts
@@ -5930,14 +6140,14 @@ async function getMailingEventInfo() {
     mission300
   };
 }
-var MailingContentSchema = z.object({
-  subject: z.string().min(4).max(90),
-  preheader: z.string().max(140).optional(),
-  headline: z.string().min(4).max(80),
-  paragraphs: z.array(z.string().min(4).max(500)).min(1).max(4),
-  ctaText: z.string().max(40).optional(),
-  highlightLabel: z.string().max(60).optional(),
-  highlightValue: z.string().max(60).optional()
+var MailingContentSchema = z2.object({
+  subject: z2.string().min(4).max(90),
+  preheader: z2.string().max(140).optional(),
+  headline: z2.string().min(4).max(80),
+  paragraphs: z2.array(z2.string().min(4).max(500)).min(1).max(4),
+  ctaText: z2.string().max(40).optional(),
+  highlightLabel: z2.string().max(60).optional(),
+  highlightValue: z2.string().max(60).optional()
 });
 var MAILING_JSON_SCHEMA = {
   name: "mailing_template",
@@ -6217,7 +6427,7 @@ function registerTicketAssetRoutes(app) {
 }
 
 // server/_core/systemRouter.ts
-import { z as z2 } from "zod";
+import { z as z3 } from "zod";
 
 // server/_core/notification.ts
 import { TRPCError } from "@trpc/server";
@@ -6395,16 +6605,16 @@ var supervisorProcedure = operatorProcedure.use(
 // server/_core/systemRouter.ts
 var systemRouter = router({
   health: publicProcedure.input(
-    z2.object({
-      timestamp: z2.number().min(0, "timestamp cannot be negative")
+    z3.object({
+      timestamp: z3.number().min(0, "timestamp cannot be negative")
     })
   ).query(() => ({
     ok: true
   })),
   notifyOwner: adminProcedure.input(
-    z2.object({
-      title: z2.string().min(1, "title is required"),
-      content: z2.string().min(1, "content is required")
+    z3.object({
+      title: z3.string().min(1, "title is required"),
+      content: z3.string().min(1, "content is required")
     })
   ).mutation(async ({ input }) => {
     const delivered = await notifyOwner(input);
@@ -6415,7 +6625,7 @@ var systemRouter = router({
 });
 
 // server/routers.ts
-import { z as z3 } from "zod";
+import { z as z5 } from "zod";
 import { TRPCError as TRPCError3 } from "@trpc/server";
 
 // server/caja/auth.ts
@@ -6664,79 +6874,6 @@ async function countPendingApplications() {
   return rows.length;
 }
 
-// shared/ambassadorApplication.ts
-var MIN_INSTAGRAM_FOLLOWERS = 1e3;
-var MIN_APPLICANT_NAME_LENGTH = 3;
-var MAX_APPLICANT_NAME_LENGTH = 80;
-var MAX_APPLICATION_MESSAGE_LENGTH = 500;
-var AMBASSADOR_REQUIREMENTS = [
-  "Ser mayor de 18 a\xF1os",
-  `Tener al menos ${MIN_INSTAGRAM_FOLLOWERS.toLocaleString("es-CL")} seguidores en Instagram`,
-  "Cuenta de Instagram p\xFAblica y activa"
-];
-var AMBASSADOR_TASKS = [
-  "Publicar historias cada semana con el material que te enviamos",
-  "Una publicaci\xF3n en el feed por cada evento",
-  "Difundir tu c\xF3digo personal con tu c\xEDrculo"
-];
-function sanitizeInstagram(raw) {
-  let value = (raw ?? "").trim();
-  if (!value) return { ok: false, reason: "Escribe tu Instagram" };
-  const urlMatch = value.match(/(?:instagram\.com|instagr\.am)\/+([^/?#\s]+)/i);
-  if (urlMatch) value = urlMatch[1];
-  value = value.replace(/^@+/, "").replace(/\/+$/, "").trim();
-  if (!value) return { ok: false, reason: "Escribe tu Instagram" };
-  if (value.length > 30) return { ok: false, reason: "Ese usuario de Instagram es demasiado largo" };
-  if (!/^[A-Za-z0-9._]+$/.test(value)) {
-    return { ok: false, reason: "El usuario de Instagram solo puede tener letras, n\xFAmeros, puntos y guion bajo" };
-  }
-  return { ok: true, value };
-}
-function sanitizeWhatsapp(raw) {
-  const digits = (raw ?? "").replace(/\D/g, "");
-  if (!digits) return { ok: false, reason: "Escribe tu WhatsApp" };
-  let local = digits;
-  if (local.startsWith("56")) local = local.slice(2);
-  if (local.startsWith("0")) local = local.replace(/^0+/, "");
-  if (local.length !== 9) {
-    return { ok: false, reason: "Revisa el n\xFAmero: un m\xF3vil chileno tiene 9 d\xEDgitos y empieza con 9" };
-  }
-  if (!local.startsWith("9")) {
-    return { ok: false, reason: "Tiene que ser un celular, que empieza con 9" };
-  }
-  return { ok: true, value: `+56${local}` };
-}
-function sanitizeApplicantName(raw) {
-  const value = (raw ?? "").replace(/\s+/g, " ").trim();
-  if (value.length < MIN_APPLICANT_NAME_LENGTH) return { ok: false, reason: "Escribe tu nombre completo" };
-  if (value.length > MAX_APPLICANT_NAME_LENGTH) {
-    return { ok: false, reason: `M\xE1ximo ${MAX_APPLICANT_NAME_LENGTH} caracteres` };
-  }
-  return { ok: true, value };
-}
-function sanitizeApplicationMessage(raw) {
-  const value = (raw ?? "").replace(/\s+/g, " ").trim();
-  if (value.length > MAX_APPLICATION_MESSAGE_LENGTH) {
-    return { ok: false, reason: `M\xE1ximo ${MAX_APPLICATION_MESSAGE_LENGTH} caracteres` };
-  }
-  return { ok: true, value };
-}
-function sanitizeFollowers(raw) {
-  if (raw === null || raw === void 0 || raw === "") return { ok: true, value: null };
-  const digits = String(raw).replace(/\D/g, "");
-  if (!digits) return { ok: false, reason: "Escribe solo n\xFAmeros" };
-  const n = Number(digits);
-  if (!Number.isFinite(n)) return { ok: false, reason: "Escribe solo n\xFAmeros" };
-  if (n > 1e8) return { ok: false, reason: "Ese n\xFAmero no parece real" };
-  return { ok: true, value: n };
-}
-function whatsappLinkFor(normalized) {
-  return `https://wa.me/${normalized.replace(/\D/g, "")}`;
-}
-function instagramLinkFor(handle) {
-  return `https://instagram.com/${handle}`;
-}
-
 // server/caja/sale.ts
 init_schema();
 init_ops();
@@ -6854,6 +6991,120 @@ async function voidTicketCode(db, params) {
   return { result, conflictNote };
 }
 
+// server/orderReminders.ts
+import { z as z4 } from "zod";
+import { eq as eq10, inArray as inArray5 } from "drizzle-orm";
+init_schema();
+var APP_URL = process.env.APP_URL && process.env.APP_URL !== "https://mansionplayroom.cl" ? process.env.APP_URL : "https://mansionplayroom.cl";
+async function sendPendingReminders(params) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const resultado = { sent: 0, skipped: [], failed: [] };
+  if (!params.orderIds.length) return resultado;
+  const filas = await db.select({
+    id: orders.id,
+    orderNumber: orders.orderNumber,
+    buyerName: orders.buyerName,
+    buyerEmail: orders.buyerEmail,
+    total: orders.total,
+    paymentStatus: orders.paymentStatus,
+    reminderCount: orders.reminderCount,
+    eventTitle: events.title,
+    eventSlug: events.slug,
+    eventDate: events.eventDate
+  }).from(orders).leftJoin(events, eq10(orders.eventId, events.id)).where(inArray5(orders.id, params.orderIds));
+  for (const orden of filas) {
+    if (orden.paymentStatus !== "pending") {
+      resultado.skipped.push({
+        orderNumber: orden.orderNumber,
+        motivo: orden.paymentStatus === "approved" ? "ya pag\xF3" : `estado: ${orden.paymentStatus}`
+      });
+      continue;
+    }
+    try {
+      await sendEmail({
+        to: orden.buyerEmail,
+        subject: `${orden.buyerName.split(" ")[0]}, tu acceso te est\xE1 esperando \u{1F36C}`,
+        html: buildPendingReminderEmail({
+          buyerName: orden.buyerName,
+          eventTitle: orden.eventTitle ?? "nuestra pr\xF3xima fiesta",
+          eventDate: orden.eventDate ? new Date(orden.eventDate) : null,
+          total: Number(orden.total),
+          checkoutUrl: orden.eventSlug ? `${APP_URL}/checkout/${orden.eventSlug}` : `${APP_URL}/eventos`,
+          customBody: params.customBody
+        })
+      });
+      await db.update(orders).set({ reminderSentAt: /* @__PURE__ */ new Date(), reminderCount: (orden.reminderCount ?? 0) + 1 }).where(eq10(orders.id, orden.id));
+      resultado.sent++;
+    } catch (err) {
+      resultado.failed.push({
+        orderNumber: orden.orderNumber,
+        error: err.message ?? "error desconocido"
+      });
+    }
+  }
+  console.log(`[Recordatorios] Enviados: ${resultado.sent} \xB7 Omitidos: ${resultado.skipped.length} \xB7 Con error: ${resultado.failed.length}`);
+  return resultado;
+}
+var ReminderCopySchema = z4.object({
+  paragraphs: z4.array(z4.string().min(10).max(400)).min(1).max(3)
+});
+var REMINDER_JSON_SCHEMA = {
+  name: "reminder_copy",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["paragraphs"],
+    properties: {
+      paragraphs: {
+        type: "array",
+        minItems: 1,
+        maxItems: 3,
+        items: { type: "string", description: "Un p\xE1rrafo del cuerpo del correo." },
+        description: "Entre 1 y 3 p\xE1rrafos cortos. Sin saludo inicial ni firma: eso ya lo pone la plantilla."
+      }
+    }
+  }
+};
+var REMINDER_SYSTEM_PROMPT = `Escribes el cuerpo de un correo de Mansion Playroom, una productora de fiestas en Vi\xF1a del Mar y Valpara\xEDso (Chile), dirigido a alguien que empez\xF3 a comprar su entrada y no termin\xF3 de pagar.
+
+REGLA M\xC1S IMPORTANTE: es un recordatorio amable, NO una venta agresiva.
+- Nada de "\xFAltima oportunidad", "no te quedes fuera", cuentas regresivas falsas ni presi\xF3n artificial.
+- Nada de descuentos ni promesas que no puedes cumplir: no sabes si quedan cupos ni a qu\xE9 precio.
+- Da por hecho que la persona simplemente se distrajo o qued\xF3 a medias, porque casi siempre es eso.
+
+Tono: cercano, chileno neutro, tuteo. C\xE1lido y relajado, como quien avisa "oye, qued\xF3 pendiente esto". Puedes usar alg\xFAn emoji con moderaci\xF3n (\u{1F36C}\u2728), nunca m\xE1s de uno por p\xE1rrafo.
+
+Estructura: entre 1 y 3 p\xE1rrafos cortos. El primero recuerda que la compra qued\xF3 a medio camino. El resto puede recordar por qu\xE9 vale la pena la noche o facilitar retomar. NO escribas saludo ("Hola X") ni despedida ni firma: la plantilla del correo ya los pone.
+
+Responde \xDANICAMENTE con el JSON pedido, sin explicaciones.`;
+function extractContent2(message) {
+  if (typeof message.content === "string") return message.content;
+  return message.content.map((p) => p.type === "text" ? p.text ?? "" : "").join("");
+}
+async function generateReminderCopy(idea) {
+  const result = await invokeLLM({
+    messages: [
+      { role: "system", content: REMINDER_SYSTEM_PROMPT },
+      { role: "user", content: `\xC1ngulo que quiero para este recordatorio: ${idea}` }
+    ],
+    responseFormat: { type: "json_schema", json_schema: REMINDER_JSON_SCHEMA }
+  });
+  const raw = extractContent2(result.choices[0]?.message ?? { content: "" });
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("La IA no devolvi\xF3 un JSON v\xE1lido. Intenta de nuevo con una idea m\xE1s clara.");
+  }
+  const validated = ReminderCopySchema.safeParse(parsed);
+  if (!validated.success) {
+    throw new Error(`El texto generado no tiene el formato esperado: ${validated.error.issues[0]?.message ?? "error desconocido"}.`);
+  }
+  return validated.data;
+}
+
 // server/routers.ts
 import QRCode2 from "qrcode";
 
@@ -6953,11 +7204,11 @@ var adminProcedure2 = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError3({ code: "FORBIDDEN", message: "Admin access required" });
   return next({ ctx });
 });
-var mailingEventSectionsSchema = z3.object({
-  banner: z3.boolean(),
-  details: z3.boolean(),
-  mission300: z3.boolean(),
-  venueGrid: z3.boolean()
+var mailingEventSectionsSchema = z5.object({
+  banner: z5.boolean(),
+  details: z5.boolean(),
+  mission300: z5.boolean(),
+  venueGrid: z5.boolean()
 });
 async function verifyOperatorPinOrThrow(ctx, operatorId, pin) {
   const forwardedFor = ctx.req.headers["x-forwarded-for"];
@@ -7032,7 +7283,7 @@ var appRouter = router({
     // este endpoint firmaba la cookie de una, sin ningún límite de
     // intentos -- un script podía probar miles de contraseñas por minuto
     // contra el panel que puede borrar compras y exportar la base entera.
-    adminLogin: publicProcedure.input(z3.object({ password: z3.string() })).mutation(async ({ input, ctx }) => {
+    adminLogin: publicProcedure.input(z5.object({ password: z5.string() })).mutation(async ({ input, ctx }) => {
       const ipKey = adminIpKey(ctx);
       if (!await checkIpRateLimit(ipKey)) {
         throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: "Demasiados intentos. Espera unos minutos." });
@@ -7054,7 +7305,7 @@ var appRouter = router({
     // Genera el secreto y el QR para configurar la app de autenticación.
     // No activa nada todavía: recién se activa cuando el dueño confirma
     // con un código real (adminConfirmTotp).
-    adminSetupTotp: publicProcedure.input(z3.object({ ticket: z3.string() })).mutation(async ({ input }) => {
+    adminSetupTotp: publicProcedure.input(z5.object({ ticket: z5.string() })).mutation(async ({ input }) => {
       await requireAdminStepTicket(input.ticket);
       const existing = await getAdminTotp();
       if (existing?.confirmedAt) {
@@ -7066,7 +7317,7 @@ var appRouter = router({
     }),
     // Confirma la configuración y devuelve los códigos de respaldo. Es la
     // ÚNICA vez que se muestran legibles: después solo queda su hash.
-    adminConfirmTotp: publicProcedure.input(z3.object({ ticket: z3.string(), code: z3.string() })).mutation(async ({ input, ctx }) => {
+    adminConfirmTotp: publicProcedure.input(z5.object({ ticket: z5.string(), code: z5.string() })).mutation(async ({ input, ctx }) => {
       await requireAdminStepTicket(input.ticket);
       const totp = await getAdminTotp();
       if (!totp) throw new TRPCError3({ code: "BAD_REQUEST", message: "Primero escanea el c\xF3digo QR" });
@@ -7083,7 +7334,7 @@ var appRouter = router({
     }),
     // Paso 2 de 2: el código de la app (o uno de respaldo). Recién acá se
     // firma la sesión.
-    adminVerifyCode: publicProcedure.input(z3.object({ ticket: z3.string(), code: z3.string() })).mutation(async ({ input, ctx }) => {
+    adminVerifyCode: publicProcedure.input(z5.object({ ticket: z5.string(), code: z5.string() })).mutation(async ({ input, ctx }) => {
       const ipKey = adminIpKey(ctx);
       if (!await checkIpRateLimit(ipKey)) {
         throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: "Demasiados intentos. Espera unos minutos." });
@@ -7121,10 +7372,10 @@ var appRouter = router({
     listForHome: publicProcedure.query(async () => {
       return getHomeEvents();
     }),
-    getBySlug: publicProcedure.input(z3.object({ slug: z3.string() })).query(async ({ input }) => {
+    getBySlug: publicProcedure.input(z5.object({ slug: z5.string() })).query(async ({ input }) => {
       return getEventBySlug(input.slug);
     }),
-    getTicketTypes: publicProcedure.input(z3.object({ slug: z3.string() })).query(async ({ input }) => {
+    getTicketTypes: publicProcedure.input(z5.object({ slug: z5.string() })).query(async ({ input }) => {
       const event = await getEventBySlug(input.slug);
       if (!event) return [];
       return getTicketTypesByEventId(event.id);
@@ -7133,92 +7384,92 @@ var appRouter = router({
     listAll: adminProcedure2.query(async () => {
       return getAllEvents();
     }),
-    create: adminProcedure2.input(z3.object({
-      title: z3.string(),
-      slug: z3.string(),
-      description: z3.string().optional(),
-      shortDescription: z3.string().optional(),
-      imageUrl: z3.string().optional(),
-      venue: z3.string().optional(),
-      address: z3.string().optional(),
-      mapsUrl: z3.string().optional(),
-      eventDate: z3.string(),
-      doorsOpen: z3.string().optional(),
-      status: z3.enum(["draft", "published", "soldout", "cancelled", "past"]).optional(),
-      featured: z3.number().optional()
+    create: adminProcedure2.input(z5.object({
+      title: z5.string(),
+      slug: z5.string(),
+      description: z5.string().optional(),
+      shortDescription: z5.string().optional(),
+      imageUrl: z5.string().optional(),
+      venue: z5.string().optional(),
+      address: z5.string().optional(),
+      mapsUrl: z5.string().optional(),
+      eventDate: z5.string(),
+      doorsOpen: z5.string().optional(),
+      status: z5.enum(["draft", "published", "soldout", "cancelled", "past"]).optional(),
+      featured: z5.number().optional()
     })).mutation(async ({ input }) => {
       return createEvent(input);
     }),
-    update: adminProcedure2.input(z3.object({
-      id: z3.number(),
-      title: z3.string().optional(),
-      slug: z3.string().optional(),
-      description: z3.string().optional(),
-      shortDescription: z3.string().optional(),
-      imageUrl: z3.string().optional(),
-      venue: z3.string().optional(),
-      address: z3.string().optional(),
-      mapsUrl: z3.string().optional(),
-      eventDate: z3.string().optional(),
-      doorsOpen: z3.string().optional(),
-      status: z3.enum(["draft", "published", "soldout", "cancelled", "past"]).optional(),
-      featured: z3.number().optional()
+    update: adminProcedure2.input(z5.object({
+      id: z5.number(),
+      title: z5.string().optional(),
+      slug: z5.string().optional(),
+      description: z5.string().optional(),
+      shortDescription: z5.string().optional(),
+      imageUrl: z5.string().optional(),
+      venue: z5.string().optional(),
+      address: z5.string().optional(),
+      mapsUrl: z5.string().optional(),
+      eventDate: z5.string().optional(),
+      doorsOpen: z5.string().optional(),
+      status: z5.enum(["draft", "published", "soldout", "cancelled", "past"]).optional(),
+      featured: z5.number().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateEvent(id, data);
     }),
-    delete: adminProcedure2.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
+    delete: adminProcedure2.input(z5.object({ id: z5.number() })).mutation(async ({ input }) => {
       return deleteEvent(input.id);
     }),
     // Ticket types management
-    listTicketTypes: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+    listTicketTypes: adminProcedure2.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
       return getTicketTypesByEventId(input.eventId);
     }),
-    createTicketType: adminProcedure2.input(z3.object({
-      eventId: z3.number(),
-      name: z3.string(),
-      accesoSlug: z3.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
-      category: z3.enum(["acceso", "extra"]).optional(),
-      description: z3.string().optional(),
-      price: z3.number(),
-      originalPrice: z3.number().optional(),
-      totalStock: z3.number(),
-      maxPerOrder: z3.number().optional(),
-      sortOrder: z3.number().optional(),
-      status: z3.enum(["active", "soldout", "hidden"]).optional(),
-      costPrice: z3.number().optional(),
-      color: z3.string().optional(),
-      internalCode: z3.string().optional()
+    createTicketType: adminProcedure2.input(z5.object({
+      eventId: z5.number(),
+      name: z5.string(),
+      accesoSlug: z5.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
+      category: z5.enum(["acceso", "extra"]).optional(),
+      description: z5.string().optional(),
+      price: z5.number(),
+      originalPrice: z5.number().optional(),
+      totalStock: z5.number(),
+      maxPerOrder: z5.number().optional(),
+      sortOrder: z5.number().optional(),
+      status: z5.enum(["active", "soldout", "hidden"]).optional(),
+      costPrice: z5.number().optional(),
+      color: z5.string().optional(),
+      internalCode: z5.string().optional()
     })).mutation(async ({ input }) => {
       return createTicketType(input);
     }),
-    updateTicketType: adminProcedure2.input(z3.object({
-      id: z3.number(),
-      name: z3.string().optional(),
-      accesoSlug: z3.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
-      category: z3.enum(["acceso", "extra"]).optional(),
-      description: z3.string().optional(),
-      price: z3.number().optional(),
-      originalPrice: z3.number().optional(),
-      totalStock: z3.number().optional(),
-      maxPerOrder: z3.number().optional(),
-      sortOrder: z3.number().optional(),
-      status: z3.enum(["active", "soldout", "hidden"]).optional(),
-      costPrice: z3.number().optional(),
-      color: z3.string().optional(),
-      internalCode: z3.string().optional()
+    updateTicketType: adminProcedure2.input(z5.object({
+      id: z5.number(),
+      name: z5.string().optional(),
+      accesoSlug: z5.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
+      category: z5.enum(["acceso", "extra"]).optional(),
+      description: z5.string().optional(),
+      price: z5.number().optional(),
+      originalPrice: z5.number().optional(),
+      totalStock: z5.number().optional(),
+      maxPerOrder: z5.number().optional(),
+      sortOrder: z5.number().optional(),
+      status: z5.enum(["active", "soldout", "hidden"]).optional(),
+      costPrice: z5.number().optional(),
+      color: z5.string().optional(),
+      internalCode: z5.string().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateTicketType(id, data);
     }),
-    deleteTicketType: adminProcedure2.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
+    deleteTicketType: adminProcedure2.input(z5.object({ id: z5.number() })).mutation(async ({ input }) => {
       return deleteTicketType(input.id);
     })
   }),
   orders: router({
-    validateDiscount: publicProcedure.input(z3.object({
-      code: z3.string(),
-      eventId: z3.number()
+    validateDiscount: publicProcedure.input(z5.object({
+      code: z5.string(),
+      eventId: z5.number()
     })).mutation(async ({ input }) => {
       return validateDiscountCode(input.code, input.eventId);
     }),
@@ -7228,9 +7479,9 @@ var appRouter = router({
      * embajadores y después contra descuentos: cuando más adelante un código
      * de embajador también traiga descuento propio, esta rama es la que va a
      * empezar a incluirlo, sin tocar la rama de descuento puro. */
-    validateCode: publicProcedure.input(z3.object({
-      code: z3.string(),
-      eventId: z3.number()
+    validateCode: publicProcedure.input(z5.object({
+      code: z5.string(),
+      eventId: z5.number()
     })).mutation(async ({ input }) => {
       const clean = input.code.trim();
       if (!clean) return { type: "none", message: "Escribe un c\xF3digo" };
@@ -7244,21 +7495,21 @@ var appRouter = router({
       }
       return { type: "none", message: "No encontramos ese c\xF3digo" };
     }),
-    create: publicProcedure.input(z3.object({
-      eventSlug: z3.string(),
-      buyerName: z3.string(),
-      buyerEmail: z3.string().email(),
-      buyerPhone: z3.string().optional(),
-      items: z3.array(z3.object({
-        ticketTypeId: z3.number(),
-        quantity: z3.number().min(1)
+    create: publicProcedure.input(z5.object({
+      eventSlug: z5.string(),
+      buyerName: z5.string(),
+      buyerEmail: z5.string().email(),
+      buyerPhone: z5.string().optional(),
+      items: z5.array(z5.object({
+        ticketTypeId: z5.number(),
+        quantity: z5.number().min(1)
       })),
-      discountCode: z3.string().optional(),
-      ambassadorCode: z3.string().optional(),
-      communityCode: z3.string().optional(),
+      discountCode: z5.string().optional(),
+      ambassadorCode: z5.string().optional(),
+      communityCode: z5.string().optional(),
       // Datos por asistente/tipo de acceso (JSON serializado). Se adjunta a la
       // preferencia de Mercado Pago como metadata; no requiere migración de schema.
-      attendeeData: z3.string().optional()
+      attendeeData: z5.string().optional()
     })).mutation(async ({ input }) => {
       const result = await createOrder(input);
       if (result.isFree) await confirmFreeOrder(result.orderNumber);
@@ -7267,68 +7518,87 @@ var appRouter = router({
     // Cobra una orden ya creada con el Payment Brick (tarjeta embebida, sin
     // modal/redirect de Mercado Pago). El monto se calcula server-side a
     // partir de la orden guardada, nunca del cliente.
-    processCardPayment: publicProcedure.input(z3.object({
-      orderNumber: z3.string(),
-      token: z3.string(),
-      paymentMethodId: z3.string(),
-      issuerId: z3.union([z3.string(), z3.number()]).optional(),
-      installments: z3.number().optional(),
-      identificationType: z3.string().optional(),
-      identificationNumber: z3.string().optional()
+    processCardPayment: publicProcedure.input(z5.object({
+      orderNumber: z5.string(),
+      token: z5.string(),
+      paymentMethodId: z5.string(),
+      issuerId: z5.union([z5.string(), z5.number()]).optional(),
+      installments: z5.number().optional(),
+      identificationType: z5.string().optional(),
+      identificationNumber: z5.string().optional()
     })).mutation(async ({ input }) => {
       return processCardPaymentForOrder(input);
     }),
     // Admin
-    listAll: adminProcedure2.input(z3.object({
-      page: z3.number().optional(),
-      limit: z3.number().optional(),
-      status: z3.string().optional(),
-      channel: z3.enum(["web", "caja"]).optional()
+    listAll: adminProcedure2.input(z5.object({
+      page: z5.number().optional(),
+      limit: z5.number().optional(),
+      status: z5.string().optional(),
+      channel: z5.enum(["web", "caja"]).optional()
     }).optional()).query(async ({ input }) => {
       return getAllOrders(input?.page ?? 1, input?.limit ?? 50, input?.status, input?.channel);
     }),
-    getStats: adminProcedure2.input(z3.object({ channel: z3.enum(["web", "caja"]).optional() }).optional()).query(async ({ input }) => {
+    getStats: adminProcedure2.input(z5.object({ channel: z5.enum(["web", "caja"]).optional() }).optional()).query(async ({ input }) => {
       return getOrderStats(input?.channel);
     }),
     // Mismos filtros y mismas columnas que el CSV (server/adminRoutes.ts) --
     // alimenta la vista de impresión/PDF, para que ambos formatos muestren
     // exactamente lo mismo.
-    forPrint: adminProcedure2.input(z3.object({
-      eventId: z3.number().optional(),
-      dateFrom: z3.string().optional(),
-      dateTo: z3.string().optional(),
-      status: z3.string().optional(),
-      channel: z3.enum(["web", "caja"]).optional()
+    forPrint: adminProcedure2.input(z5.object({
+      eventId: z5.number().optional(),
+      dateFrom: z5.string().optional(),
+      dateTo: z5.string().optional(),
+      status: z5.string().optional(),
+      channel: z5.enum(["web", "caja"]).optional()
     }).optional()).query(async ({ input }) => {
       return getOrdersForExport(input ?? {});
     }),
-    getTickets: adminProcedure2.input(z3.object({ orderId: z3.number() })).query(async ({ input }) => {
+    getTickets: adminProcedure2.input(z5.object({ orderId: z5.number() })).query(async ({ input }) => {
       return getOrderTickets(input.orderId);
     }),
-    resendConfirmation: adminProcedure2.input(z3.object({ orderNumber: z3.string() })).mutation(async ({ input }) => {
+    resendConfirmation: adminProcedure2.input(z5.object({ orderNumber: z5.string() })).mutation(async ({ input }) => {
       return resendConfirmationEmail(input.orderNumber);
+    }),
+    // Recordatorio a quien dejó la compra a medio camino (server/orderReminders.ts).
+    // La selección es manual a propósito: nunca "mandar a todos".
+    // No hace falta un `listPending`: `listAll` con status='pending' ya trae
+    // todas las columnas de la orden, incluidas reminderSentAt/reminderCount.
+    sendReminders: adminProcedure2.input(z5.object({
+      orderIds: z5.array(z5.number()).min(1).max(200),
+      customBody: z5.string().max(4e3).optional()
+    })).mutation(async ({ input }) => {
+      return sendPendingReminders(input);
+    }),
+    generateReminderCopy: adminProcedure2.input(z5.object({
+      idea: z5.string().min(5).max(1e3)
+    })).mutation(async ({ input }) => {
+      try {
+        return await generateReminderCopy(input.idea);
+      } catch (err) {
+        throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "No se pudo generar el texto." });
+      }
     }),
     // Accesos manuales desde /admin (pedido explícito del usuario):
     // invitaciones gratis o accesos ya pagados por transferencia/efectivo
     // directo, sin pasar por Mercado Pago -- misma info del comprador que el
     // checkout público, y el mismo mail final con QR (confirmFreeOrder ya lo
     // usa el checkout público para el caso de descuento 100%).
-    createManual: adminProcedure2.input(z3.object({
-      eventSlug: z3.string(),
-      buyerName: z3.string().min(1),
-      buyerEmail: z3.string().email(),
-      buyerPhone: z3.string().optional(),
-      items: z3.array(z3.object({
-        ticketTypeId: z3.number(),
-        quantity: z3.number().min(1),
+    createManual: adminProcedure2.input(z5.object({
+      eventSlug: z5.string(),
+      buyerName: z5.string().min(1),
+      buyerEmail: z5.string().email(),
+      buyerPhone: z5.string().optional(),
+      items: z5.array(z5.object({
+        ticketTypeId: z5.number(),
+        quantity: z5.number().min(1),
         // Monto que el admin escribió a mano para este tipo de entrada
         // (pedido explícito del usuario) -- si no viene, se usa el precio de
         // catálogo/abono Misión 300 por defecto (ver priceManualOrderItems).
-        unitPrice: z3.number().min(0).optional()
+        unitPrice: z5.number().min(0).optional()
       })).min(1),
-      kind: z3.enum(["invitation", "paid"]),
-      paymentMethod: z3.string().optional(),
-      attendeeData: z3.string().optional()
+      kind: z5.enum(["invitation", "paid"]),
+      paymentMethod: z5.string().optional(),
+      attendeeData: z5.string().optional()
     })).mutation(async ({ input }) => {
       try {
         const result = await createManualOrder(input);
@@ -7344,22 +7614,22 @@ var appRouter = router({
     // Eliminar una compra (pedido explícito del usuario): irreversible, la
     // confirmación con ventana de diálogo vive en el admin, acá solo se
     // ejecuta el borrado en cascada.
-    delete: adminProcedure2.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
+    delete: adminProcedure2.input(z5.object({ id: z5.number() })).mutation(async ({ input }) => {
       return deleteOrderCascade(input.id);
     })
   }),
   mission300: router({
-    status: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+    status: adminProcedure2.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
       return getMission300Status(input.eventId);
     }),
-    evaluate: adminProcedure2.input(z3.object({ eventId: z3.number() })).mutation(async ({ input }) => {
+    evaluate: adminProcedure2.input(z5.object({ eventId: z5.number() })).mutation(async ({ input }) => {
       return evaluateMission300(input.eventId);
     })
   }),
   tickets: router({
     // Página pública "Mi entrada" (/verificar/:ticketCode) — de solo lectura,
     // el ticketCode ya funciona como token portador (viene del QR/email).
-    getByCode: publicProcedure.input(z3.object({ ticketCode: z3.string() })).query(async ({ input }) => {
+    getByCode: publicProcedure.input(z5.object({ ticketCode: z5.string() })).query(async ({ input }) => {
       return getTicketByCode(input.ticketCode);
     })
   }),
@@ -7373,7 +7643,7 @@ var appRouter = router({
       const all = await listActiveOperatorsPublic();
       return all.filter((o) => o.role === "acceso" || o.role === "supervisor" || o.role === "admin");
     }),
-    login: publicProcedure.input(z3.object({ operatorId: z3.number(), pin: z3.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
+    login: publicProcedure.input(z5.object({ operatorId: z5.number(), pin: z5.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
       const operator = await verifyDoorPinOrThrow(ctx, input.operatorId, input.pin);
       const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -7386,14 +7656,14 @@ var appRouter = router({
     }),
     // Mismo snapshot que la caja: la puerta lo guarda en el mismo IndexedDB
     // y por eso funciona sin señal.
-    snapshot: doorProcedure.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+    snapshot: doorProcedure.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
       return getCajaSnapshot(input.eventId);
     }),
-    checkin: doorProcedure.input(z3.object({
-      opId: z3.string(),
-      eventId: z3.number(),
-      ticketCode: z3.string().min(1),
-      clientAt: z3.string()
+    checkin: doorProcedure.input(z5.object({
+      opId: z5.string(),
+      eventId: z5.number(),
+      ticketCode: z5.string().min(1),
+      clientAt: z5.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -7407,13 +7677,13 @@ var appRouter = router({
     }),
     // Vaciado de la cola offline. Solo acepta operaciones de check-in: la
     // puerta no vende ni canjea, aunque comparta la cola con la caja.
-    sync: doorProcedure.input(z3.object({
-      eventId: z3.number(),
-      ops: z3.array(z3.object({
-        type: z3.literal("checkin"),
-        opId: z3.string(),
-        ticketCode: z3.string(),
-        clientAt: z3.string()
+    sync: doorProcedure.input(z5.object({
+      eventId: z5.number(),
+      ops: z5.array(z5.object({
+        type: z5.literal("checkin"),
+        opId: z5.string(),
+        ticketCode: z5.string(),
+        clientAt: z5.string()
       })).max(50)
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
@@ -7441,7 +7711,7 @@ var appRouter = router({
   // tres condiciones desde cero contra la base -- esconder un botón en el
   // cliente no protege nada.
   party: router({
-    getSession: publicProcedure.input(z3.object({ ticketCode: z3.string() })).query(async ({ input }) => {
+    getSession: publicProcedure.input(z5.object({ ticketCode: z5.string() })).query(async ({ input }) => {
       const actor = await getPartyActor(input.ticketCode);
       if (!actor) return { denial: "sin_ticket", event: null, profile: null };
       const denial = partyEntryDenial(actor.ticket, actor.event, /* @__PURE__ */ new Date());
@@ -7457,12 +7727,12 @@ var appRouter = router({
         profile: actor.profile ? { id: actor.profile.id, alias: actor.profile.alias, gender: actor.profile.gender, avatarId: actor.profile.avatarId, zone: actor.profile.zone } : null
       };
     }),
-    createProfile: publicProcedure.input(z3.object({
-      ticketCode: z3.string(),
-      alias: z3.string(),
-      gender: z3.enum(PARTY_GENDERS),
-      avatarId: z3.number().int().min(1).max(AVATARS_PER_GENDER),
-      zone: z3.enum(PARTY_ZONES)
+    createProfile: publicProcedure.input(z5.object({
+      ticketCode: z5.string(),
+      alias: z5.string(),
+      gender: z5.enum(PARTY_GENDERS),
+      avatarId: z5.number().int().min(1).max(AVATARS_PER_GENDER),
+      zone: z5.enum(PARTY_ZONES)
     })).mutation(async ({ input }) => {
       const actor = await requirePartyActor(input.ticketCode);
       if (actor.profile) return { id: actor.profile.id };
@@ -7478,34 +7748,34 @@ var appRouter = router({
       });
       return { id: profile.id };
     }),
-    listMansion: publicProcedure.input(z3.object({ ticketCode: z3.string() })).query(async ({ input }) => {
+    listMansion: publicProcedure.input(z5.object({ ticketCode: z5.string() })).query(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       return listPartyMansion(actor.profile.id, actor.event.id);
     }),
-    setZone: publicProcedure.input(z3.object({ ticketCode: z3.string(), zone: z3.enum(PARTY_ZONES) })).mutation(async ({ input }) => {
+    setZone: publicProcedure.input(z5.object({ ticketCode: z5.string(), zone: z5.enum(PARTY_ZONES) })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       await updatePartyProfile(actor.profile.id, { zone: input.zone });
       return { ok: true };
     }),
-    touch: publicProcedure.input(z3.object({ ticketCode: z3.string(), targetProfileId: z3.number() })).mutation(async ({ input }) => {
+    touch: publicProcedure.input(z5.object({ ticketCode: z5.string(), targetProfileId: z5.number() })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const res = await touchPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
       if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
       return res;
     }),
-    respondTouch: publicProcedure.input(z3.object({ ticketCode: z3.string(), connectionId: z3.number(), accept: z3.boolean() })).mutation(async ({ input }) => {
+    respondTouch: publicProcedure.input(z5.object({ ticketCode: z5.string(), connectionId: z5.number(), accept: z5.boolean() })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const res = await respondToPartyTouch(actor.profile.id, input.connectionId, input.accept);
       if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
       return res;
     }),
-    getMessages: publicProcedure.input(z3.object({ ticketCode: z3.string(), connectionId: z3.number() })).query(async ({ input }) => {
+    getMessages: publicProcedure.input(z5.object({ ticketCode: z5.string(), connectionId: z5.number() })).query(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const res = await listPartyMessages(actor.profile.id, input.connectionId);
       if (!res) throw new TRPCError3({ code: "FORBIDDEN", message: "Esta conversaci\xF3n no est\xE1 abierta" });
       return res;
     }),
-    sendMessage: publicProcedure.input(z3.object({ ticketCode: z3.string(), connectionId: z3.number(), body: z3.string() })).mutation(async ({ input }) => {
+    sendMessage: publicProcedure.input(z5.object({ ticketCode: z5.string(), connectionId: z5.number(), body: z5.string() })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const check = sanitizeMessage(input.body);
       if (!check.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: check.reason });
@@ -7513,12 +7783,12 @@ var appRouter = router({
       if (!res.ok) throw new TRPCError3({ code: "FORBIDDEN", message: res.reason });
       return { ok: true };
     }),
-    block: publicProcedure.input(z3.object({ ticketCode: z3.string(), targetProfileId: z3.number() })).mutation(async ({ input }) => {
+    block: publicProcedure.input(z5.object({ ticketCode: z5.string(), targetProfileId: z5.number() })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       await blockPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
       return { ok: true };
     }),
-    report: publicProcedure.input(z3.object({ ticketCode: z3.string(), targetProfileId: z3.number(), reason: z3.string().min(3).max(500) })).mutation(async ({ input }) => {
+    report: publicProcedure.input(z5.object({ ticketCode: z5.string(), targetProfileId: z5.number(), reason: z5.string().min(3).max(500) })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       await reportPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id, input.reason.trim());
       await blockPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
@@ -7527,15 +7797,15 @@ var appRouter = router({
     // --- Invitar un trago ---
     // Tres pasos porque el destinatario puede rechazar y nadie paga por un
     // trago rechazado: invitar (gratis) -> responder -> pagar.
-    listDrinks: publicProcedure.input(z3.object({ ticketCode: z3.string() })).query(async ({ input }) => {
+    listDrinks: publicProcedure.input(z5.object({ ticketCode: z5.string() })).query(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       return listPartyDrinks(actor.event.id);
     }),
-    sendGift: publicProcedure.input(z3.object({
-      ticketCode: z3.string(),
-      targetProfileId: z3.number(),
-      ticketTypeId: z3.number(),
-      message: z3.string().optional()
+    sendGift: publicProcedure.input(z5.object({
+      ticketCode: z5.string(),
+      targetProfileId: z5.number(),
+      ticketTypeId: z5.number(),
+      message: z5.string().optional()
     })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const check = sanitizeGiftMessage(input.message ?? "");
@@ -7550,7 +7820,7 @@ var appRouter = router({
       if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
       return res;
     }),
-    respondGift: publicProcedure.input(z3.object({ ticketCode: z3.string(), giftId: z3.number(), accept: z3.boolean() })).mutation(async ({ input }) => {
+    respondGift: publicProcedure.input(z5.object({ ticketCode: z5.string(), giftId: z5.number(), accept: z5.boolean() })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const res = await respondToGiftInvitation(actor.profile.id, input.giftId, input.accept);
       if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
@@ -7558,7 +7828,7 @@ var appRouter = router({
     }),
     // Crea la orden del regalo y devuelve su número. El cobro después va
     // por `orders.processCardPayment`, el mismo endpoint que las entradas.
-    payGift: publicProcedure.input(z3.object({ ticketCode: z3.string(), giftId: z3.number() })).mutation(async ({ input }) => {
+    payGift: publicProcedure.input(z5.object({ ticketCode: z5.string(), giftId: z5.number() })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const contact = await getPartyProfileContact(actor.profile.id);
       if (!contact?.email) throw new TRPCError3({ code: "BAD_REQUEST", message: "No pudimos identificar tu correo" });
@@ -7566,15 +7836,15 @@ var appRouter = router({
       if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
       return res;
     }),
-    myGifts: publicProcedure.input(z3.object({ ticketCode: z3.string() })).query(async ({ input }) => {
+    myGifts: publicProcedure.input(z5.object({ ticketCode: z5.string() })).query(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       return listMyGifts(actor.profile.id);
     }),
     // Para el equipo del local, durante la fiesta.
-    listReports: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+    listReports: adminProcedure2.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
       return listPartyReports(input.eventId);
     }),
-    listGifts: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+    listGifts: adminProcedure2.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
       return listPartyGiftsForEvent(input.eventId);
     })
   }),
@@ -7582,33 +7852,33 @@ var appRouter = router({
     listAll: adminProcedure2.query(async () => {
       return getAllDiscountCodes();
     }),
-    create: adminProcedure2.input(z3.object({
-      code: z3.string(),
-      description: z3.string().optional(),
-      discountType: z3.enum(["percentage", "fixed"]),
-      discountValue: z3.number(),
-      minPurchase: z3.number().optional(),
-      maxUses: z3.number().optional(),
-      eventId: z3.number().optional(),
-      validFrom: z3.string().optional(),
-      validUntil: z3.string().optional()
+    create: adminProcedure2.input(z5.object({
+      code: z5.string(),
+      description: z5.string().optional(),
+      discountType: z5.enum(["percentage", "fixed"]),
+      discountValue: z5.number(),
+      minPurchase: z5.number().optional(),
+      maxUses: z5.number().optional(),
+      eventId: z5.number().optional(),
+      validFrom: z5.string().optional(),
+      validUntil: z5.string().optional()
     })).mutation(async ({ input }) => {
       return createDiscountCode(input);
     }),
-    update: adminProcedure2.input(z3.object({
-      id: z3.number(),
-      code: z3.string().optional(),
-      description: z3.string().optional(),
-      discountType: z3.enum(["percentage", "fixed"]).optional(),
-      discountValue: z3.number().optional(),
-      maxUses: z3.number().optional(),
-      isActive: z3.number().optional(),
-      validUntil: z3.string().optional()
+    update: adminProcedure2.input(z5.object({
+      id: z5.number(),
+      code: z5.string().optional(),
+      description: z5.string().optional(),
+      discountType: z5.enum(["percentage", "fixed"]).optional(),
+      discountValue: z5.number().optional(),
+      maxUses: z5.number().optional(),
+      isActive: z5.number().optional(),
+      validUntil: z5.string().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateDiscountCode(id, data);
     }),
-    delete: adminProcedure2.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
+    delete: adminProcedure2.input(z5.object({ id: z5.number() })).mutation(async ({ input }) => {
       return deleteDiscountCode(input.id);
     })
   }),
@@ -7616,10 +7886,10 @@ var appRouter = router({
     get: publicProcedure.query(async () => {
       return getSiteSettings();
     }),
-    update: adminProcedure2.input(z3.object({
-      instagramFollowers: z3.number().optional(),
-      instagramPosts: z3.number().optional(),
-      serviceFeePercent: z3.number().min(0).max(100).optional()
+    update: adminProcedure2.input(z5.object({
+      instagramFollowers: z5.number().optional(),
+      instagramPosts: z5.number().optional(),
+      serviceFeePercent: z5.number().min(0).max(100).optional()
     })).mutation(async ({ input }) => {
       return updateSiteSettings(input);
     }),
@@ -7634,8 +7904,8 @@ var appRouter = router({
     })
   }),
   communityCodes: router({
-    validate: publicProcedure.input(z3.object({
-      code: z3.string()
+    validate: publicProcedure.input(z5.object({
+      code: z5.string()
     })).mutation(async ({ input }) => {
       return validateCommunityCode(input.code);
     }),
@@ -7643,24 +7913,24 @@ var appRouter = router({
     listAll: adminProcedure2.query(async () => {
       return getAllCommunityCodes();
     }),
-    create: adminProcedure2.input(z3.object({
-      code: z3.string(),
-      label: z3.string().optional(),
-      maxUses: z3.number().optional()
+    create: adminProcedure2.input(z5.object({
+      code: z5.string(),
+      label: z5.string().optional(),
+      maxUses: z5.number().optional()
     })).mutation(async ({ input }) => {
       return createCommunityCode(input);
     }),
-    update: adminProcedure2.input(z3.object({
-      id: z3.number(),
-      code: z3.string().optional(),
-      label: z3.string().optional(),
-      maxUses: z3.number().optional(),
-      isActive: z3.number().optional()
+    update: adminProcedure2.input(z5.object({
+      id: z5.number(),
+      code: z5.string().optional(),
+      label: z5.string().optional(),
+      maxUses: z5.number().optional(),
+      isActive: z5.number().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateCommunityCode(id, data);
     }),
-    delete: adminProcedure2.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
+    delete: adminProcedure2.input(z5.object({ id: z5.number() })).mutation(async ({ input }) => {
       return deleteCommunityCode(input.id);
     })
   }),
@@ -7673,12 +7943,12 @@ var appRouter = router({
     }),
     // Público, sin login: el mismo código de embajador que llega por email
     // es lo que valida el acceso a las propias estadísticas.
-    getByCode: publicProcedure.input(z3.object({ code: z3.string() })).query(async ({ input }) => {
+    getByCode: publicProcedure.input(z5.object({ code: z5.string() })).query(async ({ input }) => {
       return getReferralsByCode(input.code);
     }),
     // Público, para el Hall de la Fama -- solo primer nombre + código +
     // cantidad de ventas, nunca montos ni apellido (ver db.getReferralLeaderboard).
-    getLeaderboard: publicProcedure.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+    getLeaderboard: publicProcedure.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
       return getReferralLeaderboard(input.eventId);
     })
   }),
@@ -7686,48 +7956,48 @@ var appRouter = router({
   // tab aparte de "Referidos" (arriba), para embajadores dados de alta a
   // mano que cobran una comisión en plata por venta, no descuento.
   ambassadors: router({
-    listAll: adminProcedure2.input(z3.object({ eventId: z3.number().optional() }).optional()).query(async ({ input }) => {
+    listAll: adminProcedure2.input(z5.object({ eventId: z5.number().optional() }).optional()).query(async ({ input }) => {
       return listExclusiveAmbassadors(input?.eventId);
     }),
-    create: adminProcedure2.input(z3.object({
+    create: adminProcedure2.input(z5.object({
       // Opcional: el código es permanente y de la persona, no del evento.
-      eventId: z3.number().optional(),
-      name: z3.string().min(1),
-      code: z3.string().min(1),
+      eventId: z5.number().optional(),
+      name: z5.string().min(1),
+      code: z5.string().min(1),
       // `null` = usar la escala global del programa (lo normal).
-      commissionPercent: z3.number().min(0).max(100).nullable().optional(),
-      contact: z3.string().optional(),
-      email: z3.string().email().optional(),
-      instagram: z3.string().optional()
+      commissionPercent: z5.number().min(0).max(100).nullable().optional(),
+      contact: z5.string().optional(),
+      email: z5.string().email().optional(),
+      instagram: z5.string().optional()
     })).mutation(async ({ input }) => {
       return createExclusiveAmbassador(input);
     }),
-    update: adminProcedure2.input(z3.object({
-      id: z3.number(),
-      name: z3.string().optional(),
-      code: z3.string().optional(),
-      commissionPercent: z3.number().min(0).max(100).nullable().optional(),
-      contact: z3.string().optional(),
-      email: z3.string().email().optional(),
-      instagram: z3.string().optional(),
-      active: z3.number().optional()
+    update: adminProcedure2.input(z5.object({
+      id: z5.number(),
+      name: z5.string().optional(),
+      code: z5.string().optional(),
+      commissionPercent: z5.number().min(0).max(100).nullable().optional(),
+      contact: z5.string().optional(),
+      email: z5.string().email().optional(),
+      instagram: z5.string().optional(),
+      active: z5.number().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateExclusiveAmbassador(id, data);
     }),
-    delete: adminProcedure2.input(z3.object({ id: z3.number() })).mutation(async ({ input }) => {
+    delete: adminProcedure2.input(z5.object({ id: z5.number() })).mutation(async ({ input }) => {
       return deleteExclusiveAmbassador(input.id);
     }),
     // Reporte histórico por evento (el del PR original). Se conserva porque
     // sigue siendo la forma de saber cuánto se pagó en una fiesta puntual.
-    getReport: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+    getReport: adminProcedure2.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
       return getAmbassadorCommissionReport(input.eventId);
     }),
     // --- Programa VIP automatizado ---
     /** Valida el código en el checkout. Público, igual que
      * communityCodes.validate: hasta ahora el campo se mandaba sin verificar
      * nada, así que un código mal tecleado se perdía en silencio. */
-    validate: publicProcedure.input(z3.object({ code: z3.string() })).mutation(async ({ input }) => {
+    validate: publicProcedure.input(z5.object({ code: z5.string() })).mutation(async ({ input }) => {
       const clean = input.code.trim().toUpperCase();
       if (!clean) return { valid: false, message: "Escribe un c\xF3digo" };
       const ambassador = await getActiveExclusiveAmbassadorByCode(clean);
@@ -7736,28 +8006,28 @@ var appRouter = router({
     }),
     /** Panel público del embajador (/embajador/<CODIGO>). El código hace de
      * llave -- no hay login de embajadores, mismo criterio que /mis-referidos. */
-    getPanelByCode: publicProcedure.input(z3.object({ code: z3.string() })).query(async ({ input }) => {
+    getPanelByCode: publicProcedure.input(z5.object({ code: z5.string() })).query(async ({ input }) => {
       return getAmbassadorPanel(input.code);
     }),
     getConfig: adminProcedure2.query(async () => {
       return getProgramConfig();
     }),
-    updateConfig: adminProcedure2.input(z3.object({
-      launchDate: z3.string().optional(),
-      commissionScale: z3.array(z3.object({
-        minSales: z3.number().int().min(1),
-        maxSales: z3.number().int().min(1).nullable(),
-        percent: z3.number().min(0).max(100)
+    updateConfig: adminProcedure2.input(z5.object({
+      launchDate: z5.string().optional(),
+      commissionScale: z5.array(z5.object({
+        minSales: z5.number().int().min(1),
+        maxSales: z5.number().int().min(1).nullable(),
+        percent: z5.number().min(0).max(100)
       })).optional(),
-      existingClientPercent: z3.number().min(0).max(100).optional(),
-      benefits: z3.array(z3.object({
-        minSales: z3.number().int().min(1),
-        items: z3.array(z3.string()),
-        bonusClp: z3.number().min(0)
+      existingClientPercent: z5.number().min(0).max(100).optional(),
+      benefits: z5.array(z5.object({
+        minSales: z5.number().int().min(1),
+        items: z5.array(z5.string()),
+        bonusClp: z5.number().min(0)
       })).optional(),
-      weeklyEmailEnabled: z3.boolean().optional(),
-      weeklyEmailWeekday: z3.number().int().min(0).max(6).optional(),
-      weeklyEmailHourChile: z3.number().int().min(0).max(23).optional()
+      weeklyEmailEnabled: z5.boolean().optional(),
+      weeklyEmailWeekday: z5.number().int().min(0).max(6).optional(),
+      weeklyEmailHourChile: z5.number().int().min(0).max(23).optional()
     })).mutation(async ({ input }) => {
       const { launchDate, ...rest } = input;
       return updateProgramConfig({
@@ -7766,13 +8036,13 @@ var appRouter = router({
       });
     }),
     /** `monthKey` en formato "2026-08"; si no viene, el mes actual de Chile. */
-    getSummary: adminProcedure2.input(z3.object({ monthKey: z3.string().optional() }).optional()).query(async ({ input }) => {
+    getSummary: adminProcedure2.input(z5.object({ monthKey: z5.string().optional() }).optional()).query(async ({ input }) => {
       return getAmbassadorAdminSummary(input?.monthKey || monthKeyFor(/* @__PURE__ */ new Date()));
     }),
-    getRanking: adminProcedure2.input(z3.object({ monthKey: z3.string().optional() }).optional()).query(async ({ input }) => {
+    getRanking: adminProcedure2.input(z5.object({ monthKey: z5.string().optional() }).optional()).query(async ({ input }) => {
       return getAmbassadorRanking(input?.monthKey || monthKeyFor(/* @__PURE__ */ new Date()));
     }),
-    getProfile: adminProcedure2.input(z3.object({ id: z3.number(), monthKey: z3.string().optional() })).query(async ({ input }) => {
+    getProfile: adminProcedure2.input(z5.object({ id: z5.number(), monthKey: z5.string().optional() })).query(async ({ input }) => {
       const monthKey = input.monthKey || monthKeyFor(/* @__PURE__ */ new Date());
       return {
         stats: await getAmbassadorStats(input.id, monthKey),
@@ -7783,21 +8053,21 @@ var appRouter = router({
       return listReferredClients();
     }),
     // --- Beneficios entregados ---
-    listBenefitDeliveries: adminProcedure2.input(z3.object({ monthKey: z3.string().optional() }).optional()).query(async ({ input }) => {
+    listBenefitDeliveries: adminProcedure2.input(z5.object({ monthKey: z5.string().optional() }).optional()).query(async ({ input }) => {
       return listBenefitDeliveries(input?.monthKey || monthKeyFor(/* @__PURE__ */ new Date()));
     }),
-    markBenefitDelivered: adminProcedure2.input(z3.object({
-      ambassadorId: z3.number(),
-      monthKey: z3.string(),
-      benefitKey: z3.string(),
-      note: z3.string().optional()
+    markBenefitDelivered: adminProcedure2.input(z5.object({
+      ambassadorId: z5.number(),
+      monthKey: z5.string(),
+      benefitKey: z5.string(),
+      note: z5.string().optional()
     })).mutation(async ({ input }) => {
       return markBenefitDelivered(input);
     }),
-    unmarkBenefitDelivered: adminProcedure2.input(z3.object({
-      ambassadorId: z3.number(),
-      monthKey: z3.string(),
-      benefitKey: z3.string()
+    unmarkBenefitDelivered: adminProcedure2.input(z5.object({
+      ambassadorId: z5.number(),
+      monthKey: z5.string(),
+      benefitKey: z5.string()
     })).mutation(async ({ input }) => {
       return unmarkBenefitDelivered(input);
     }),
@@ -7805,15 +8075,26 @@ var appRouter = router({
     getWeeklyMaterial: adminProcedure2.query(async () => {
       return getWeeklyMaterial();
     }),
-    saveWeeklyMaterial: adminProcedure2.input(z3.object({
-      title: z3.string().optional(),
-      storiesText: z3.string().optional(),
-      reelText: z3.string().optional(),
-      postText: z3.string().optional(),
-      countdownText: z3.string().optional(),
-      linkUrl: z3.string().optional()
+    saveWeeklyMaterial: adminProcedure2.input(z5.object({
+      title: z5.string().optional(),
+      storiesText: z5.string().optional(),
+      reelText: z5.string().optional(),
+      postText: z5.string().optional(),
+      countdownText: z5.string().optional(),
+      linkUrl: z5.string().optional()
     })).mutation(async ({ input }) => {
       return saveWeeklyMaterial(input);
+    }),
+    /** Rellena los 5 campos del material a partir de una idea. NO guarda: el
+     * dueño revisa y edita antes de apretar "Guardar", igual que en mailing. */
+    generateWeeklyMaterial: adminProcedure2.input(z5.object({
+      idea: z5.string().min(5).max(1e3)
+    })).mutation(async ({ input }) => {
+      try {
+        return await generateWeeklyMaterial(input.idea);
+      } catch (err) {
+        throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "No se pudo generar el material." });
+      }
     }),
     /** Manda el resumen semanal ahora mismo, sin esperar al día configurado --
      * para poder probarlo y para reenviarlo si un lunes falló. */
@@ -7828,14 +8109,14 @@ var appRouter = router({
      * va con límite por IP y con la validación pura de
      * shared/ambassadorApplication.ts, que el cliente también corre pero en
      * la que no se confía. */
-    submit: publicProcedure.input(z3.object({
-      name: z3.string(),
-      email: z3.string().email("Revisa tu correo"),
-      whatsapp: z3.string(),
-      instagram: z3.string(),
-      followers: z3.string().optional(),
-      message: z3.string().optional(),
-      acceptedTerms: z3.boolean()
+    submit: publicProcedure.input(z5.object({
+      name: z5.string(),
+      email: z5.string().email("Revisa tu correo"),
+      whatsapp: z5.string(),
+      instagram: z5.string(),
+      followers: z5.string().optional(),
+      message: z5.string().optional(),
+      acceptedTerms: z5.boolean()
     })).mutation(async ({ input, ctx }) => {
       const ipKey = `postulacion:${clientIp(ctx)}`;
       if (!await checkIpRateLimit(ipKey)) {
@@ -7902,27 +8183,27 @@ var appRouter = router({
       }
       return { ok: true, alreadyPending: false };
     }),
-    listAll: adminProcedure2.input(z3.object({
-      status: z3.enum(["pendiente", "aprobada", "rechazada"]).optional()
+    listAll: adminProcedure2.input(z5.object({
+      status: z5.enum(["pendiente", "aprobada", "rechazada"]).optional()
     }).optional()).query(async ({ input }) => {
       return listApplications(input?.status);
     }),
     countPending: adminProcedure2.query(async () => {
       return countPendingApplications();
     }),
-    review: adminProcedure2.input(z3.object({
-      id: z3.number(),
-      status: z3.enum(["pendiente", "aprobada", "rechazada"]),
-      note: z3.string().optional()
+    review: adminProcedure2.input(z5.object({
+      id: z5.number(),
+      status: z5.enum(["pendiente", "aprobada", "rechazada"]),
+      note: z5.string().optional()
     })).mutation(async ({ input }) => {
       return reviewApplication(input);
     }),
     /** Aprueba y crea al embajador en un solo paso, con el código que escribe
      * el admin, y le manda su código por correo. */
-    approve: adminProcedure2.input(z3.object({
-      id: z3.number(),
-      code: z3.string().min(1),
-      commissionPercent: z3.number().min(0).max(100).nullable().optional()
+    approve: adminProcedure2.input(z5.object({
+      id: z5.number(),
+      code: z5.string().min(1),
+      commissionPercent: z5.number().min(0).max(100).nullable().optional()
     })).mutation(async ({ input }) => {
       const result = await approveApplication(input);
       try {
@@ -7951,7 +8232,7 @@ var appRouter = router({
     deviceStatus: publicProcedure.query(({ ctx }) => {
       return ctx.device ? { enrolled: true, deviceName: ctx.device.name } : { enrolled: false };
     }),
-    enrollDevice: publicProcedure.input(z3.object({ code: z3.string().min(1) })).mutation(async ({ input, ctx }) => {
+    enrollDevice: publicProcedure.input(z5.object({ code: z5.string().min(1) })).mutation(async ({ input, ctx }) => {
       const code = input.code.trim().toUpperCase();
       const device = await getDeviceByEnrollCode(code);
       if (!device || device.enrolled || !device.enrollCodeExpiresAt || new Date(device.enrollCodeExpiresAt).getTime() < Date.now()) {
@@ -7969,7 +8250,7 @@ var appRouter = router({
     listOperators: deviceProcedure.query(async () => {
       return listActiveOperatorsPublic();
     }),
-    login: deviceProcedure.input(z3.object({ operatorId: z3.number(), pin: z3.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
+    login: deviceProcedure.input(z5.object({ operatorId: z5.number(), pin: z5.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
       const operator = await verifyOperatorPinOrThrow(ctx, input.operatorId, input.pin);
       const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -7987,41 +8268,41 @@ var appRouter = router({
     activeEvent: operatorProcedure.query(async () => {
       return getActiveEventForCaja();
     }),
-    search: operatorProcedure.input(z3.object({ eventId: z3.number(), query: z3.string() })).query(async ({ input }) => {
+    search: operatorProcedure.input(z5.object({ eventId: z5.number(), query: z5.string() })).query(async ({ input }) => {
       return searchCajaCustomers(input.eventId, input.query);
     }),
-    customerSheet: operatorProcedure.input(z3.object({ orderId: z3.number() })).query(async ({ input }) => {
+    customerSheet: operatorProcedure.input(z5.object({ orderId: z5.number() })).query(async ({ input }) => {
       return getCajaCustomerSheet(input.orderId);
     }),
-    catalog: operatorProcedure.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+    catalog: operatorProcedure.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
       return getCajaCatalog(input.eventId);
     }),
-    dashboard: operatorProcedure.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+    dashboard: operatorProcedure.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
       return getCajaDashboard(input.eventId);
     }),
     // Descarga completa para el modo offline (docs/ARQUITECTURA-CAJA.md
     // §6.2) -- la tablet la guarda en IndexedDB al abrir turno y la
     // refresca cada 60s cuando hay conexión.
-    snapshot: operatorProcedure.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+    snapshot: operatorProcedure.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
       return getCajaSnapshot(input.eventId);
     }),
     // Procesa un lote de operaciones encoladas offline (§7) -- reutiliza
     // exactamente la misma lógica idempotente (applyOp) que los endpoints
     // online `redeem`/`sale`, así que reenviar el mismo opId nunca duplica nada.
-    sync: operatorProcedure.input(z3.object({
-      eventId: z3.number(),
-      registerId: z3.number().optional(),
-      ops: z3.array(z3.discriminatedUnion("type", [
-        z3.object({ type: z3.literal("redeem"), opId: z3.string(), displayCode: z3.string(), clientAt: z3.string() }),
-        z3.object({ type: z3.literal("checkin"), opId: z3.string(), ticketCode: z3.string(), clientAt: z3.string() }),
-        z3.object({
-          type: z3.literal("sale"),
-          opId: z3.string(),
-          items: z3.array(z3.object({ ticketTypeId: z3.number(), quantity: z3.number().min(1) })).min(1),
-          paymentMethod: z3.enum(["efectivo", "debito", "credito"]),
-          buyerEmail: z3.string().email().optional(),
-          redeemPlaycoins: z3.number().int().min(0).optional(),
-          clientAt: z3.string()
+    sync: operatorProcedure.input(z5.object({
+      eventId: z5.number(),
+      registerId: z5.number().optional(),
+      ops: z5.array(z5.discriminatedUnion("type", [
+        z5.object({ type: z5.literal("redeem"), opId: z5.string(), displayCode: z5.string(), clientAt: z5.string() }),
+        z5.object({ type: z5.literal("checkin"), opId: z5.string(), ticketCode: z5.string(), clientAt: z5.string() }),
+        z5.object({
+          type: z5.literal("sale"),
+          opId: z5.string(),
+          items: z5.array(z5.object({ ticketTypeId: z5.number(), quantity: z5.number().min(1) })).min(1),
+          paymentMethod: z5.enum(["efectivo", "debito", "credito"]),
+          buyerEmail: z5.string().email().optional(),
+          redeemPlaycoins: z5.number().int().min(0).optional(),
+          clientAt: z5.string()
         })
       ])).max(50)
     })).mutation(async ({ input, ctx }) => {
@@ -8074,12 +8355,12 @@ var appRouter = router({
     // Apertura de turno con cuadre de caja (pedido explícito del usuario):
     // pide el efectivo inicial declarado por la cajera. Idempotente por
     // evento+caja (un refresh de página no duplica el turno abierto).
-    shiftOpen: operatorProcedure.input(z3.object({
-      opId: z3.string(),
-      eventId: z3.number(),
-      registerId: z3.number().optional(),
-      openingCash: z3.number().min(0),
-      clientAt: z3.string()
+    shiftOpen: operatorProcedure.input(z5.object({
+      opId: z5.string(),
+      eventId: z5.number(),
+      registerId: z5.number().optional(),
+      openingCash: z5.number().min(0),
+      clientAt: z5.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -8110,14 +8391,14 @@ var appRouter = router({
     // Pide efectivo TOTAL contado (no la diferencia) + totales de débito y
     // crédito de las máquinas, hace el cuadre contra las ventas registradas
     // (solo canal caja, nunca web) y manda el informe final por correo.
-    shiftClose: operatorProcedure.input(z3.object({
-      opId: z3.string(),
-      eventId: z3.number(),
-      registerId: z3.number().optional(),
-      countedCash: z3.number().min(0),
-      countedDebit: z3.number().min(0),
-      countedCredit: z3.number().min(0),
-      clientAt: z3.string()
+    shiftClose: operatorProcedure.input(z5.object({
+      opId: z5.string(),
+      eventId: z5.number(),
+      registerId: z5.number().optional(),
+      countedCash: z5.number().min(0),
+      countedDebit: z5.number().min(0),
+      countedCredit: z5.number().min(0),
+      clientAt: z5.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -8155,13 +8436,13 @@ var appRouter = router({
       return report;
     }),
     // Anulación con motivo -- solo supervisor/admin (docs/ARQUITECTURA-CAJA.md §3.2).
-    voidCode: supervisorProcedure.input(z3.object({
-      opId: z3.string(),
-      eventId: z3.number(),
-      displayCode: z3.string().min(1),
-      reason: z3.string().min(3, "El motivo es obligatorio"),
-      registerId: z3.number().optional(),
-      clientAt: z3.string()
+    voidCode: supervisorProcedure.input(z5.object({
+      opId: z5.string(),
+      eventId: z5.number(),
+      displayCode: z5.string().min(1),
+      reason: z5.string().min(3, "El motivo es obligatorio"),
+      registerId: z5.number().optional(),
+      clientAt: z5.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -8178,15 +8459,15 @@ var appRouter = router({
     }),
     // Cola de conflictos para el supervisor (§8): canjes dobles todavía sin
     // revisar. "Resuelto" = existe un op manual_adjust posterior que lo referencia.
-    conflictQueue: supervisorProcedure.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+    conflictQueue: supervisorProcedure.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
       return getConflictQueue(input.eventId);
     }),
-    resolveConflict: supervisorProcedure.input(z3.object({
-      opId: z3.string(),
-      eventId: z3.number(),
-      conflictOpId: z3.string(),
-      note: z3.string().optional(),
-      clientAt: z3.string()
+    resolveConflict: supervisorProcedure.input(z5.object({
+      opId: z5.string(),
+      eventId: z5.number(),
+      conflictOpId: z5.string(),
+      note: z5.string().optional(),
+      clientAt: z5.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -8200,12 +8481,12 @@ var appRouter = router({
         clientAt: new Date(input.clientAt)
       });
     }),
-    redeem: operatorProcedure.input(z3.object({
-      opId: z3.string(),
-      eventId: z3.number(),
-      displayCode: z3.string().min(1),
-      registerId: z3.number().optional(),
-      clientAt: z3.string()
+    redeem: operatorProcedure.input(z5.object({
+      opId: z5.string(),
+      eventId: z5.number(),
+      displayCode: z5.string().min(1),
+      registerId: z5.number().optional(),
+      clientAt: z5.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -8220,12 +8501,12 @@ var appRouter = router({
     }),
     // Marca la entrada de un acceso en la puerta (mismo ledger idempotente
     // que `redeem`, pero por ticketCode y solo para category='acceso').
-    checkin: operatorProcedure.input(z3.object({
-      opId: z3.string(),
-      eventId: z3.number(),
-      ticketCode: z3.string().min(1),
-      registerId: z3.number().optional(),
-      clientAt: z3.string()
+    checkin: operatorProcedure.input(z5.object({
+      opId: z5.string(),
+      eventId: z5.number(),
+      ticketCode: z5.string().min(1),
+      registerId: z5.number().optional(),
+      clientAt: z5.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -8238,13 +8519,13 @@ var appRouter = router({
         clientAt: new Date(input.clientAt)
       });
     }),
-    sale: operatorProcedure.input(z3.object({
-      opId: z3.string(),
-      eventId: z3.number(),
-      items: z3.array(z3.object({ ticketTypeId: z3.number(), quantity: z3.number().min(1) })).min(1),
-      paymentMethod: z3.enum(["efectivo", "debito", "credito"]),
-      registerId: z3.number().optional(),
-      clientAt: z3.string()
+    sale: operatorProcedure.input(z5.object({
+      opId: z5.string(),
+      eventId: z5.number(),
+      items: z5.array(z5.object({ ticketTypeId: z5.number(), quantity: z5.number().min(1) })).min(1),
+      paymentMethod: z5.enum(["efectivo", "debito", "credito"]),
+      registerId: z5.number().optional(),
+      clientAt: z5.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -8268,20 +8549,20 @@ var appRouter = router({
     listAll: adminProcedure2.query(async () => {
       return listAllOperators();
     }),
-    create: adminProcedure2.input(z3.object({
-      name: z3.string().min(1),
-      pin: z3.string().min(4).max(8),
-      role: z3.enum(["admin", "supervisor", "caja", "barra", "acceso"])
+    create: adminProcedure2.input(z5.object({
+      name: z5.string().min(1),
+      pin: z5.string().min(4).max(8),
+      role: z5.enum(["admin", "supervisor", "caja", "barra", "acceso"])
     })).mutation(async ({ input }) => {
       const id = await createOperator({ name: input.name, pinHash: hashPin(input.pin), role: input.role });
       return { id };
     }),
-    update: adminProcedure2.input(z3.object({
-      id: z3.number(),
-      name: z3.string().min(1).optional(),
-      pin: z3.string().min(4).max(8).optional(),
-      role: z3.enum(["admin", "supervisor", "caja", "barra", "acceso"]).optional(),
-      active: z3.number().min(0).max(1).optional()
+    update: adminProcedure2.input(z5.object({
+      id: z5.number(),
+      name: z5.string().min(1).optional(),
+      pin: z5.string().min(4).max(8).optional(),
+      role: z5.enum(["admin", "supervisor", "caja", "barra", "acceso"]).optional(),
+      active: z5.number().min(0).max(1).optional()
     })).mutation(async ({ input }) => {
       const { id, pin, ...rest } = input;
       await updateOperator(id, { ...rest, ...pin ? { pinHash: hashPin(pin) } : {} });
@@ -8290,12 +8571,12 @@ var appRouter = router({
   }),
   // Base de datos de clientes desde /admin (pedido explícito del usuario).
   customers: router({
-    listAll: adminProcedure2.input(z3.object({
-      search: z3.string().optional(),
-      accessType: z3.string().optional(),
-      tag: z3.string().optional(),
-      excludeTags: z3.array(z3.string()).optional(),
-      eventId: z3.number().optional()
+    listAll: adminProcedure2.input(z5.object({
+      search: z5.string().optional(),
+      accessType: z5.string().optional(),
+      tag: z5.string().optional(),
+      excludeTags: z5.array(z5.string()).optional(),
+      eventId: z5.number().optional()
     }).optional()).query(async ({ input }) => {
       return listCustomers(input ?? {});
     }),
@@ -8305,7 +8586,7 @@ var appRouter = router({
     listTags: adminProcedure2.query(async () => {
       return listCustomerTags();
     }),
-    addTag: adminProcedure2.input(z3.object({ customerId: z3.number(), tag: z3.string().min(1) })).mutation(async ({ input }) => {
+    addTag: adminProcedure2.input(z5.object({ customerId: z5.number(), tag: z5.string().min(1) })).mutation(async ({ input }) => {
       await addCustomerTag(input.customerId, input.tag);
       return { success: true };
     }),
@@ -8313,9 +8594,9 @@ var appRouter = router({
     // explícito del usuario, ej. el reporte de entregados de Resend, que
     // trae la columna "to") -- no crea clientes nuevos, solo taguea los que
     // ya existen; los que no matchean se devuelven en notFound.
-    bulkTagFromCsv: adminProcedure2.input(z3.object({
-      csv: z3.string().min(1),
-      tag: z3.string().min(1)
+    bulkTagFromCsv: adminProcedure2.input(z5.object({
+      csv: z5.string().min(1),
+      tag: z5.string().min(1)
     })).mutation(async ({ input }) => {
       const rows = parseCsv(input.csv);
       const emails = extractEmailColumn(rows, ["to", "email", "correo"]);
@@ -8324,17 +8605,17 @@ var appRouter = router({
       }
       return bulkAddTagByEmails(emails, input.tag);
     }),
-    removeTag: adminProcedure2.input(z3.object({ customerId: z3.number(), tag: z3.string() })).mutation(async ({ input }) => {
+    removeTag: adminProcedure2.input(z5.object({ customerId: z5.number(), tag: z5.string() })).mutation(async ({ input }) => {
       await removeCustomerTag(input.customerId, input.tag);
       return { success: true };
     }),
-    updateNotes: adminProcedure2.input(z3.object({ customerId: z3.number(), notes: z3.string() })).mutation(async ({ input }) => {
+    updateNotes: adminProcedure2.input(z5.object({ customerId: z5.number(), notes: z5.string() })).mutation(async ({ input }) => {
       await updateCustomerNotes(input.customerId, input.notes);
       return { success: true };
     }),
     // Ajuste manual de Playcoins (pedido explícito del usuario) -- para
     // migrar saldos de Shopify a mano o corregir.
-    adjustPlaycoins: adminProcedure2.input(z3.object({ customerId: z3.number(), delta: z3.number().int(), note: z3.string().optional() })).mutation(async ({ input }) => {
+    adjustPlaycoins: adminProcedure2.input(z5.object({ customerId: z5.number(), delta: z5.number().int(), note: z5.string().optional() })).mutation(async ({ input }) => {
       await adjustPlaycoinsManually(input.customerId, input.delta, input.note ?? "");
       return { success: true };
     })
@@ -8343,9 +8624,9 @@ var appRouter = router({
   // la IA solo genera texto estructurado (server/mailing.ts), el HTML de
   // marca se arma siempre acá con buildMailingBlastEmail.
   mailing: router({
-    generateTemplate: adminProcedure2.input(z3.object({
-      objective: z3.string().min(5).max(1e3),
-      audienceDescription: z3.string()
+    generateTemplate: adminProcedure2.input(z5.object({
+      objective: z5.string().min(5).max(1e3),
+      audienceDescription: z5.string()
     })).mutation(async ({ input }) => {
       try {
         return await generateMailingTemplate(input.objective, input.audienceDescription);
@@ -8353,10 +8634,10 @@ var appRouter = router({
         throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "No se pudo generar la plantilla." });
       }
     }),
-    renderPreview: adminProcedure2.input(z3.object({
+    renderPreview: adminProcedure2.input(z5.object({
       content: MailingContentSchema,
-      ctaUrl: z3.string(),
-      sampleName: z3.string().optional(),
+      ctaUrl: z5.string(),
+      sampleName: z5.string().optional(),
       eventSections: mailingEventSectionsSchema
     })).mutation(async ({ input }) => {
       const eventInfo = Object.values(input.eventSections).some(Boolean) ? await getMailingEventInfo() : null;
@@ -8364,11 +8645,11 @@ var appRouter = router({
         html: buildMailingBlastEmail({ ...input.content, buyerName: input.sampleName || "Camila", ctaUrl: input.ctaUrl, eventInfo, eventSections: input.eventSections })
       };
     }),
-    sendBatch: adminProcedure2.input(z3.object({
-      customerIds: z3.array(z3.number()).min(1).max(MAILING_BATCH_MAX),
+    sendBatch: adminProcedure2.input(z5.object({
+      customerIds: z5.array(z5.number()).min(1).max(MAILING_BATCH_MAX),
       content: MailingContentSchema,
-      ctaUrl: z3.string(),
-      campaignTag: z3.string().optional(),
+      ctaUrl: z5.string(),
+      campaignTag: z5.string().optional(),
       eventSections: mailingEventSectionsSchema
     })).mutation(async ({ input }) => {
       const eventInfo = Object.values(input.eventSections).some(Boolean) ? await getMailingEventInfo() : null;
@@ -8379,12 +8660,12 @@ var appRouter = router({
     // Cola de envío automática (pedido explícito del usuario): a diferencia
     // de sendBatch (manda ya mismo desde el navegador), esto solo guarda la
     // campaña -- el cron diario (server/cronRoutes.ts) la va drenando.
-    createAutoCampaign: adminProcedure2.input(z3.object({
-      name: z3.string().min(1),
-      audienceDescription: z3.string(),
-      customerIds: z3.array(z3.number()).min(1),
+    createAutoCampaign: adminProcedure2.input(z5.object({
+      name: z5.string().min(1),
+      audienceDescription: z5.string(),
+      customerIds: z5.array(z5.number()).min(1),
       content: MailingContentSchema,
-      ctaUrl: z3.string(),
+      ctaUrl: z5.string(),
       eventSections: mailingEventSectionsSchema
     })).mutation(async ({ input }) => {
       try {
@@ -8396,7 +8677,7 @@ var appRouter = router({
     listCampaigns: adminProcedure2.query(async () => {
       return listMailingCampaigns();
     }),
-    getCampaignRecipients: adminProcedure2.input(z3.object({ campaignId: z3.number() })).query(async ({ input }) => {
+    getCampaignRecipients: adminProcedure2.input(z5.object({ campaignId: z5.number() })).query(async ({ input }) => {
       return getMailingCampaignRecipients(input.campaignId);
     })
   }),
@@ -8404,7 +8685,7 @@ var appRouter = router({
   // sin login, igual que referrals.getByCode: el sitio no tiene cuentas de
   // comprador, el email es lo único necesario.
   playcoins: router({
-    getBalanceByEmail: publicProcedure.input(z3.object({ email: z3.string().email() })).query(async ({ input }) => {
+    getBalanceByEmail: publicProcedure.input(z5.object({ email: z5.string().email() })).query(async ({ input }) => {
       return getPlaycoinsBalance(input.email);
     })
   }),
@@ -8416,12 +8697,12 @@ var appRouter = router({
     // Genera un código de un solo uso (vence a las 24h) para enrolar una
     // tablet nueva -- se muestra una sola vez en el admin, no se puede
     // recuperar después (mismo criterio que un PIN).
-    create: adminProcedure2.input(z3.object({ name: z3.string().min(1) })).mutation(async ({ input }) => {
+    create: adminProcedure2.input(z5.object({ name: z5.string().min(1) })).mutation(async ({ input }) => {
       const code = generateEnrollCode();
       const id = await createDeviceEnrollment(input.name, code, enrollCodeExpiry());
       return { id, enrollCode: code };
     }),
-    setActive: adminProcedure2.input(z3.object({ id: z3.number(), active: z3.number().min(0).max(1) })).mutation(async ({ input }) => {
+    setActive: adminProcedure2.input(z5.object({ id: z5.number(), active: z5.number().min(0).max(1) })).mutation(async ({ input }) => {
       await updateDeviceActive(input.id, input.active);
       return { success: true };
     })
@@ -8431,44 +8712,44 @@ var appRouter = router({
     listAll: adminProcedure2.query(async () => {
       return listAllRegisters();
     }),
-    create: adminProcedure2.input(z3.object({ name: z3.string().min(1) })).mutation(async ({ input }) => {
+    create: adminProcedure2.input(z5.object({ name: z5.string().min(1) })).mutation(async ({ input }) => {
       const id = await createRegister(input.name);
       return { id };
     })
   }),
   // Reportes y auditoría de /caja desde /admin (docs/ARQUITECTURA-CAJA.md §11, Fase 4).
   cajaReports: router({
-    profit: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+    profit: adminProcedure2.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
       return getProfitReport(input.eventId);
     }),
     eventComparison: adminProcedure2.query(async () => {
       return getEventComparison();
     }),
-    peakHours: adminProcedure2.input(z3.object({ eventId: z3.number() })).query(async ({ input }) => {
+    peakHours: adminProcedure2.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
       return getPeakHours(input.eventId);
     }),
-    ledger: adminProcedure2.input(z3.object({
-      eventId: z3.number(),
-      operatorId: z3.number().optional(),
-      type: z3.string().optional(),
-      dateFrom: z3.string().optional(),
-      dateTo: z3.string().optional()
+    ledger: adminProcedure2.input(z5.object({
+      eventId: z5.number(),
+      operatorId: z5.number().optional(),
+      type: z5.string().optional(),
+      dateFrom: z5.string().optional(),
+      dateTo: z5.string().optional()
     })).query(async ({ input }) => {
       const { eventId, ...filters } = input;
       return getLedger(eventId, filters);
     }),
     // Cuadres de caja guardados (pedido explícito del usuario) -- sin
     // eventId trae los de todos los eventos, para comparar entre fiestas.
-    shiftClosings: adminProcedure2.input(z3.object({ eventId: z3.number().optional() }).optional()).query(async ({ input }) => {
+    shiftClosings: adminProcedure2.input(z5.object({ eventId: z5.number().optional() }).optional()).query(async ({ input }) => {
       return listShiftClosings(input?.eventId);
     }),
     // Eliminar un cierre de turno (pedido explícito del usuario, para sacar
     // pruebas/cierres de práctica de los reportes reales) -- doble
     // verificación: además del diálogo de confirmación en el admin, pide la
     // misma clave que auth.adminLogin.
-    deleteShiftClosing: adminProcedure2.input(z3.object({
-      shiftId: z3.number(),
-      password: z3.string()
+    deleteShiftClosing: adminProcedure2.input(z5.object({
+      shiftId: z5.number(),
+      password: z5.string()
     })).mutation(async ({ input }) => {
       const adminPassword = process.env.ADMIN_PASSWORD;
       if (!adminPassword || input.password !== adminPassword) {
