@@ -9,16 +9,21 @@ const navLinks = [
   { href: '/', label: 'Inicio' },
   { href: '/eventos', label: 'Eventos' },
   { href: '/entradas', label: 'Entradas' },
+  { href: '/panoramas', label: 'Panoramas' },
   { href: '/playmatch', label: 'Playmatch' },
   { href: '/embajadores', label: 'Embajadores' },
-  { href: '/nosotros', label: 'Nosotros' },
 ];
 
 // `/mis-referidos` NO va acá: es `noindex` (muestra datos personales del
 // embajador), así que enlazarla desde todas las páginas solo gastaba fuerza
 // de enlazado interno en una página que Google no puede posicionar. Se sigue
 // llegando por el link de los correos y por URL directa.
+// "Nosotros" baja acá para hacerle lugar a "Panoramas" en el menú principal:
+// con 7 ítems el navbar de escritorio se aprieta, y la guía de panoramas capta
+// mucha más búsqueda que la página institucional.
 const secondaryNavLinks = [
+  { href: '/blog', label: 'Blog' },
+  { href: '/nosotros', label: 'Nosotros' },
   { href: '/politica-de-reembolso', label: 'Política de reembolso' },
   { href: '/politica-de-privacidad', label: 'Política de privacidad' },
 ];

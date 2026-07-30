@@ -32,6 +32,8 @@ const Party = lazy(() => import("./pages/Party"));
 const Playmatch = lazy(() => import("./pages/Playmatch"));
 const Ambassador = lazy(() => import("./pages/Ambassador"));
 const Embajadores = lazy(() => import("./pages/Embajadores"));
+const Panoramas = lazy(() => import("./pages/Panoramas"));
+const Blog = lazy(() => import("./pages/Blog"));
 const Puerta = lazy(() => import("./pages/Puerta"));
 const Prices = lazy(() => import("./pages/Prices"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
@@ -82,6 +84,10 @@ function Router() {
           <Route path="/verificar/:ticketCode" component={Ticket} />
           <Route path="/fiesta/:ticketCode" component={Party} />
           <Route path="/playmatch" component={Playmatch} />
+          <Route path="/panoramas" component={Panoramas} />
+          <Route path="/panoramas/:slug" component={Panoramas} />
+          <Route path="/blog" component={Blog} />
+          <Route path="/blog/:slug" component={Blog} />
           <Route path="/embajadores" component={Embajadores} />
           <Route path="/embajador" component={Ambassador} />
           <Route path="/embajador/:code" component={Ambassador} />
