@@ -1,12 +1,14 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useRoute, useLocation, Link } from 'wouter';
-import { Check, Copy, KeyRound, Crown } from 'lucide-react';
+import { Check, Copy, KeyRound, Crown, Calculator, PartyPopper } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { formatChileShortDate } from '@shared/chileDate';
+import { estimateAdditionalCommission, type CommissionTier } from '@shared/ambassadorProgram';
 
 /* Panel del embajador VIP: /embajador/<CODIGO>.
  *
@@ -130,6 +132,32 @@ export default function Ambassador() {
             </p>
           </div>
 
+          {/* Comisión exacta de este evento -- plata ya generada, no una
+              estimación. A diferencia de "comisión del mes" (mes calendario)
+              o "acumulada histórica" (todos los eventos), esto responde
+              justo lo que más le importa antes de una fiesta cuyas ventas se
+              repartieron en varios meses: cuánto va a recibir cuando termine. */}
+          {data.eventStats && (
+            <div className="bg-gradient-to-br from-primary/15 to-secondary/10 border border-primary/30 rounded-2xl p-6 mb-6 text-center">
+              <div className="flex items-center justify-center gap-2 mb-1">
+                <PartyPopper className="w-5 h-5 text-primary" />
+                <p className="text-sm uppercase tracking-[0.2em] text-primary font-semibold">{data.eventStats.eventTitle}</p>
+              </div>
+              {data.eventStats.sales > 0 ? (
+                <>
+                  <p className="font-heading text-4xl md:text-5xl mt-2">${data.eventStats.commission.toLocaleString('es-CL')}</p>
+                  <p className="text-muted-foreground text-sm mt-2">
+                    Es lo que vas a recibir cuando termine el evento, por {data.eventStats.sales} venta{data.eventStats.sales === 1 ? '' : 's'}. Plata real, ya generada.
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-sm mt-2">
+                  Todavía no tienes ventas para este evento. Comparte tu código y este monto se va a ir sumando solo.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Números del mes */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
             <StatBox value={String(stats?.monthlySales ?? 0)} label="Ventas del mes" />
@@ -138,38 +166,93 @@ export default function Ambassador() {
             <StatBox value={`$${(stats?.totalCommission ?? 0).toLocaleString('es-CL')}`} label="Acumulada histórica" />
           </div>
 
-          {/* Progreso al siguiente nivel */}
-          <div className="bg-card border border-border/50 rounded-2xl p-6 mb-6">
-            {stats?.nextTarget ? (
-              <>
-                <div className="flex items-baseline justify-between mb-2">
-                  <h2 className="font-heading text-xl">Próximo objetivo</h2>
-                  <p className="font-heading text-2xl">{stats.monthlySales} / {stats.nextTarget.target}</p>
-                </div>
-                <div className="w-full h-3 bg-muted rounded-full overflow-hidden mb-3">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${progreso}%` }}
-                    transition={{ duration: 0.8, ease: 'easeOut' }}
-                    className="h-full bg-gradient-to-r from-primary to-secondary rounded-full"
-                  />
-                </div>
-                <p className="text-muted-foreground text-sm">
-                  Te faltan <strong className="text-foreground">{stats.nextTarget.salesNeeded} venta{stats.nextTarget.salesNeeded === 1 ? '' : 's'}</strong> para
-                  subir al <strong className="text-primary">{stats.nextTarget.nextPercent}%</strong>.
+          {/* Progreso al siguiente nivel -- no aplica si tiene un % fijo
+              acordado: ese % no depende de la escala, así que "subir de
+              nivel" no le cambiaría nada. */}
+          {data.overridePercent !== null ? (
+            <div className="bg-card border border-border/50 rounded-2xl p-6 mb-6">
+              <h2 className="font-heading text-xl mb-1">Tu comisión es fija</h2>
+              <p className="text-muted-foreground text-sm">
+                Tienes un <strong className="text-primary">{data.overridePercent}%</strong> acordado en cada venta,
+                sin importar cuántas hagas en el mes. No depende de ningún nivel.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="bg-card border border-border/50 rounded-2xl p-6 mb-6">
+                {stats?.nextTarget ? (
+                  <>
+                    <div className="flex items-baseline justify-between mb-2">
+                      <h2 className="font-heading text-xl">Próximo objetivo</h2>
+                      <p className="font-heading text-2xl">{stats.monthlySales} / {stats.nextTarget.target}</p>
+                    </div>
+                    <div className="w-full h-3 bg-muted rounded-full overflow-hidden mb-3">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${progreso}%` }}
+                        transition={{ duration: 0.8, ease: 'easeOut' }}
+                        className="h-full bg-gradient-to-r from-primary to-secondary rounded-full"
+                      />
+                    </div>
+                    <p className="text-muted-foreground text-sm">
+                      Te faltan <strong className="text-foreground">{stats.nextTarget.salesNeeded} venta{stats.nextTarget.salesNeeded === 1 ? '' : 's'}</strong> para
+                      subir al <strong className="text-primary">{stats.nextTarget.nextPercent}%</strong>.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="font-heading text-xl mb-1">Nivel máximo 🏆</h2>
+                    <p className="text-muted-foreground text-sm">Estás en el tramo más alto de la escala. No se puede subir más.</p>
+                  </>
+                )}
+                <p className="text-xs text-muted-foreground mt-4 pt-4 border-t border-border/40">
+                  El nivel se cuenta por mes y solo con ventas a tus propios clientes. Las ventas a clientes que ya estaban
+                  en la base pagan {data.existingClientPercent}% y no suben el nivel.
                 </p>
-              </>
-            ) : (
-              <>
-                <h2 className="font-heading text-xl mb-1">Nivel máximo 🏆</h2>
-                <p className="text-muted-foreground text-sm">Estás en el tramo más alto de la escala. No se puede subir más.</p>
-              </>
-            )}
-            <p className="text-xs text-muted-foreground mt-4 pt-4 border-t border-border/40">
-              El nivel se cuenta por mes y solo con ventas a tus propios clientes. Las ventas a clientes que ya estaban
-              en la base pagan 10% y no suben el nivel.
-            </p>
-          </div>
+              </div>
+
+              {/* Escala completa: hoy solo se veía el tramo actual y el
+                  próximo -- acá está toda la tabla para que sepan qué les
+                  espera más adelante. */}
+              <div className="bg-card border border-border/50 rounded-2xl p-6 mb-6">
+                <h2 className="font-heading text-xl mb-4">Así sube tu comisión</h2>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-muted-foreground">
+                        <th className="text-left py-2 pr-3 font-medium">Ventas del mes</th>
+                        <th className="text-left py-2 font-medium">Comisión</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.commissionScale.map((tier: CommissionTier) => {
+                        const esTuTramo = (stats?.monthlySales ?? 0) >= tier.minSales
+                          && (tier.maxSales === null || (stats?.monthlySales ?? 0) <= tier.maxSales);
+                        return (
+                          <tr key={tier.minSales} className={`border-b border-border/40 ${esTuTramo ? 'bg-primary/10' : ''}`}>
+                            <td className="py-2 pr-3">
+                              {tier.minSales}{tier.maxSales === null ? '+' : `–${tier.maxSales}`} ventas
+                              {esTuTramo && <span className="ml-2 text-xs text-primary font-semibold">← estás acá</span>}
+                            </td>
+                            <td className="py-2 font-semibold">{tier.percent}%</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Calculadora: cada entrada vendida cuenta como una venta, sin
+              importar cuántas personas cubra -- así paga el sistema hoy. */}
+          <CommissionCalculator
+            monthlySales={stats?.monthlySales ?? 0}
+            avgSalePrice={data.avgSalePrice}
+            commissionScale={data.commissionScale}
+            overridePercent={data.overridePercent}
+          />
 
           {/* Beneficios */}
           <div className="bg-card border border-border/50 rounded-2xl p-6 mb-6">
@@ -262,6 +345,97 @@ function StatBox({ value, label, highlight }: { value: string; label: string; hi
     <div className={`rounded-2xl p-4 border text-center ${highlight ? 'bg-primary/10 border-primary/30' : 'bg-card border-border/50'}`}>
       <p className={`font-heading text-2xl leading-none ${highlight ? 'text-primary' : ''}`}>{value}</p>
       <p className="text-muted-foreground text-xs mt-1.5">{label}</p>
+    </div>
+  );
+}
+
+const AVG_SALE_PRICE_SOURCE_LABEL: Record<string, string> = {
+  propio: 'tu propio promedio de venta',
+  programa: 'el promedio general del programa (todavía no tienes ventas propias)',
+  referencia: 'un precio de referencia (el programa recién está arrancando)',
+};
+
+/** "Si vendo N entradas más este mes, cuánto me llevo" -- corre entero en el
+ * navegador con `estimateAdditionalCommission` (misma función pura que usa
+ * el servidor para calcular cada comisión real), sin pegarle al backend en
+ * cada tecla. Es una estimación en el sentido de que el embajador todavía no
+ * hizo esas ventas, pero el cálculo en sí es exacto: suma venta por venta
+ * con la escala real, no aplica el % final a todas de un tirón. */
+function CommissionCalculator({ monthlySales, avgSalePrice, commissionScale, overridePercent }: {
+  monthlySales: number;
+  avgSalePrice: { amount: number; source: 'propio' | 'programa' | 'referencia' };
+  commissionScale: CommissionTier[];
+  overridePercent: number | null;
+}) {
+  const [cantidad, setCantidad] = useState('5');
+  const additionalSales = Math.max(0, Math.min(200, Math.floor(Number(cantidad) || 0)));
+
+  const estimate = useMemo(
+    () => estimateAdditionalCommission({
+      currentMonthlySales: monthlySales,
+      additionalSales,
+      avgSalePrice: avgSalePrice.amount,
+      scale: commissionScale,
+      overridePercent,
+    }),
+    [monthlySales, additionalSales, avgSalePrice.amount, commissionScale, overridePercent],
+  );
+
+  const primerPorcentaje = estimate.breakdown[0]?.percent;
+  const ultimoPorcentaje = estimate.breakdown[estimate.breakdown.length - 1]?.percent;
+  const cruzaDeTramo = primerPorcentaje !== undefined && ultimoPorcentaje !== undefined && primerPorcentaje !== ultimoPorcentaje;
+
+  return (
+    <div className="bg-card border border-border/50 rounded-2xl p-6 mb-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Calculator className="w-5 h-5 text-primary" />
+        <h2 className="font-heading text-xl">Calculadora de comisión</h2>
+      </div>
+
+      <Label htmlFor="calc-entradas" className="text-sm text-muted-foreground">
+        ¿Cuántas entradas más crees que vas a vender este mes?
+      </Label>
+      <div className="flex gap-3 mt-2 mb-3">
+        <Input
+          id="calc-entradas"
+          type="number"
+          min={0}
+          max={200}
+          value={cantidad}
+          onChange={(e) => setCantidad(e.target.value)}
+          className="w-28 text-center font-heading text-lg"
+        />
+        <div className="flex-1 flex items-center">
+          <input
+            type="range"
+            min={0}
+            max={40}
+            value={Math.min(additionalSales, 40)}
+            onChange={(e) => setCantidad(e.target.value)}
+            className="w-full accent-primary"
+          />
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground mb-4">
+        Cada entrada que vendes cuenta como una venta, sin importar cuántas personas cubra. Calculado con{' '}
+        {AVG_SALE_PRICE_SOURCE_LABEL[avgSalePrice.source]}: ${avgSalePrice.amount.toLocaleString('es-CL')} por venta.
+      </p>
+
+      <div className="bg-primary/10 border border-primary/30 rounded-xl p-4 text-center">
+        <p className="font-heading text-3xl text-primary">${estimate.total.toLocaleString('es-CL')}</p>
+        <p className="text-muted-foreground text-xs mt-1">
+          {additionalSales === 0
+            ? 'Comisión adicional aproximada'
+            : cruzaDeTramo
+              ? `Comisión adicional aproximada -- empieza al ${primerPorcentaje}% y sube al ${ultimoPorcentaje}% en el camino`
+              : `Comisión adicional aproximada, al ${primerPorcentaje}%`}
+        </p>
+      </div>
+
+      <p className="text-xs text-muted-foreground text-center mt-3">
+        Es un aproximado con tu precio promedio de venta -- el monto exacto depende del precio real de cada entrada que vendas.
+      </p>
     </div>
   );
 }

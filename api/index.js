@@ -5353,6 +5353,29 @@ function maskEmail(email) {
   const visible = user.slice(0, 2);
   return `${visible}${"*".repeat(Math.max(2, user.length - 2))}@${domain}`;
 }
+var AVG_SALE_PRICE_FALLBACK_CLP = 3e4;
+async function getAmbassadorAvgSalePrice(ambassadorId) {
+  const db = await getDb();
+  if (!db) return { amount: AVG_SALE_PRICE_FALLBACK_CLP, source: "referencia" };
+  const [propio] = await db.select({ avg: sql2`AVG(${ambassadorCommissions.baseAmount})`, n: sql2`COUNT(*)` }).from(ambassadorCommissions).where(eq3(ambassadorCommissions.ambassadorId, ambassadorId));
+  if (Number(propio?.n ?? 0) > 0) return { amount: Math.round(Number(propio.avg)), source: "propio" };
+  const [programa] = await db.select({ avg: sql2`AVG(${ambassadorCommissions.baseAmount})`, n: sql2`COUNT(*)` }).from(ambassadorCommissions);
+  if (Number(programa?.n ?? 0) > 0) return { amount: Math.round(Number(programa.avg)), source: "programa" };
+  return { amount: AVG_SALE_PRICE_FALLBACK_CLP, source: "referencia" };
+}
+async function getAmbassadorEventStats(ambassadorId, eventId) {
+  const db = await getDb();
+  if (!db) return null;
+  const [event] = await db.select({ id: events.id, title: events.title }).from(events).where(eq3(events.id, eventId)).limit(1);
+  if (!event) return null;
+  const rows = await db.select().from(ambassadorCommissions).where(and2(eq3(ambassadorCommissions.ambassadorId, ambassadorId), eq3(ambassadorCommissions.eventId, eventId)));
+  return {
+    eventId: event.id,
+    eventTitle: event.title,
+    sales: rows.length,
+    commission: rows.reduce((s, c) => s + Number(c.commissionAmount), 0)
+  };
+}
 async function getAmbassadorPanel(code, now = /* @__PURE__ */ new Date()) {
   const db = await getDb();
   if (!db) return null;
@@ -5363,13 +5386,24 @@ async function getAmbassadorPanel(code, now = /* @__PURE__ */ new Date()) {
   const monthKey = monthKeyFor(now);
   const stats = await getAmbassadorStats(ambassador.id, monthKey);
   const sales = await getAmbassadorSales(ambassador.id, 50);
+  const config = await getProgramConfig();
+  const overridePercent = ambassador.commissionPercent === null || ambassador.commissionPercent === void 0 ? null : Number(ambassador.commissionPercent);
+  if (stats && overridePercent !== null) stats.currentPercent = overridePercent;
+  const avgSalePrice = await getAmbassadorAvgSalePrice(ambassador.id);
+  const featuredEvent = await getFeaturedEvent();
+  const eventStats = featuredEvent ? await getAmbassadorEventStats(ambassador.id, featuredEvent.id) : null;
   return {
     name: ambassador.name,
     code: ambassador.code,
     active: ambassador.active === 1,
     instagram: ambassador.instagram,
     stats,
-    sales: sales.map((s) => ({ ...s, customerEmail: maskEmail(s.customerEmail), customerName: s.customerName }))
+    sales: sales.map((s) => ({ ...s, customerEmail: maskEmail(s.customerEmail), customerName: s.customerName })),
+    commissionScale: config.commissionScale,
+    existingClientPercent: config.existingClientPercent,
+    overridePercent,
+    avgSalePrice,
+    eventStats
   };
 }
 async function getAmbassadorRanking(monthKey) {
