@@ -54,6 +54,8 @@ export default function Navbar() {
             <img
               src="/candyland/logo-wordmark.webp"
               alt="Mansion Playroom"
+              width={300}
+              height={300}
               className="h-12 w-auto"
             />
           </Link>
@@ -117,6 +119,8 @@ export default function Navbar() {
             <button
               onClick={() => setMobileOpen(!mobileOpen)}
               className="p-2 text-foreground interactive"
+              aria-label={mobileOpen ? 'Cerrar menú' : 'Abrir menú'}
+              aria-expanded={mobileOpen}
             >
               {mobileOpen ? <X size={24} /> : <Menu size={24} />}
             </button>

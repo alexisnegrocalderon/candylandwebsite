@@ -2,7 +2,7 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Mansion Playroom — Fiesta Liberal en Viña del Mar | +18</title>
     <meta name="description" content="La fiesta liberal más grande de la V Región: 2 pistas, Playground XXL y Kink Room. Comunidad, consentimiento y una noche para salir a bailar en Viña del Mar y Valparaíso. Evento +18." />
     <meta name="robots" content="index, follow" />
@@ -39,6 +39,14 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+    <!-- Precarga de la imagen del hero (poster del video de portada): el Home
+         se carga por JS (code-splitting), así que sin esto el navegador no
+         sabe que tiene que pedirla hasta que el chunk de la página corre. La
+         mayoría de las visitas entran por el Home (links de Instagram/
+         WhatsApp), así que vale la pena pedirla siempre aunque en el resto de
+         las rutas no se use. -->
+    <link rel="preload" as="image" href="/candyland/poster-hero.webp" fetchpriority="high" />
 
     <!-- Loader inicial: inline y sin depender de React/Tailwind, así pinta
          en el primer frame (nunca hay un instante en blanco mientras carga
@@ -106,9 +114,8 @@
     </script>
   </head>
   <body>
-    <div id="initial-loader"><img src="/candyland/favicon-192.png" alt="" width="56" height="56" /></div>
+    <div id="initial-loader"><img src="/candyland/favicon-112.png" alt="" width="56" height="56" /></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script defer src="%VITE_ANALYTICS_ENDPOINT%/umami" data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
   </body>
 </html>
