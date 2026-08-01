@@ -8,6 +8,21 @@ import App from "./App";
 import { startLogin } from "./const";
 import "./index.css";
 
+// Analítica (Umami) opcional: se inyecta solo si el deploy tiene las env vars
+// configuradas. Antes era un <script src="%VITE_ANALYTICS_ENDPOINT%/umami">
+// literal en index.html -- si la env var no estaba seteada, Vite dejaba el
+// placeholder sin reemplazar y el navegador pedía esa URL inválida en cada
+// visita (400 en la consola, en todas las páginas).
+const analyticsEndpoint = import.meta.env.VITE_ANALYTICS_ENDPOINT;
+const analyticsWebsiteId = import.meta.env.VITE_ANALYTICS_WEBSITE_ID;
+if (analyticsEndpoint && analyticsWebsiteId) {
+  const script = document.createElement("script");
+  script.defer = true;
+  script.src = `${analyticsEndpoint}/umami`;
+  script.dataset.websiteId = analyticsWebsiteId;
+  document.body.appendChild(script);
+}
+
 const queryClient = new QueryClient();
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
