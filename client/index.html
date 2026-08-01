@@ -36,15 +36,35 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/candyland/favicon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/candyland/favicon-180.png" />
 
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- display=optional (no swap): si la fuente de marca no llega a tiempo
-         (~100ms) para el primer render, el navegador se queda con la fuente
-         de reemplazo para toda la carga de esa página en vez de cambiarla
-         después -- con swap, el <h1> gigante del hero (letras animadas una
-         por una) cambia de ancho al llegar la fuente y corre todo lo de
-         abajo (esto salía como CLS alto en PageSpeed Mobile). -->
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Syne:wght@400;500;600;700;800&display=optional" rel="stylesheet" />
+    <!-- Fuentes autohospedadas (antes: Google Fonts). Cada una es un único
+         archivo variable (cubre todos los pesos usados, 300-700 y 400-800)
+         para el subset "latin" -- alcanza para español (incluye ñ, tildes).
+         Esto saca de la ruta crítica el viaje a fonts.googleapis.com +
+         fonts.gstatic.com (DNS/TLS + 2 hops), que quedaba bloqueando el
+         primer render aunque ya tuviera preconnect. display=optional se
+         mantiene: si el archivo no llega a tiempo (~100ms), el navegador se
+         queda con la fuente de reemplazo para toda la carga en vez de
+         cambiarla después -- el <h1> gigante del hero (letras animadas una
+         por una) cambiaba de ancho al hacer swap, y eso salía como CLS alto
+         en PageSpeed Mobile. -->
+    <link rel="preload" as="font" type="font/woff2" href="/fonts/space-grotesk-variable.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="/fonts/syne-variable.woff2" crossorigin />
+    <style>
+      @font-face {
+        font-family: 'Space Grotesk';
+        font-style: normal;
+        font-weight: 300 700;
+        font-display: optional;
+        src: url('/fonts/space-grotesk-variable.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'Syne';
+        font-style: normal;
+        font-weight: 400 800;
+        font-display: optional;
+        src: url('/fonts/syne-variable.woff2') format('woff2');
+      }
+    </style>
 
     <!-- Precarga del fondo borroso del hero (NO el poster nítido del video,
          que es un archivo aparte y más pesado): el Home se carga por JS
