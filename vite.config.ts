@@ -217,16 +217,25 @@ export default defineConfig(({ command }) => {
           // Framer Motion, Radix) en su propio chunk -- el navegador las
           // cachea aparte del código propio del sitio, así que un deploy
           // nuevo no obliga a re-descargar todo de nuevo.
-          manualChunks: {
-            "vendor-react": ["react", "react-dom", "wouter"],
-            "vendor-motion": ["framer-motion"],
-            "vendor-radix": [
-              "@radix-ui/react-dialog",
-              "@radix-ui/react-dropdown-menu",
-              "@radix-ui/react-select",
-              "@radix-ui/react-tabs",
-              "@radix-ui/react-tooltip",
-            ],
+          //
+          // ⚠️ Con la sintaxis de objeto (`{ "vendor-react": ["react", ...] }`)
+          // Rollup solo agarra el paquete exacto por nombre -- pero React se
+          // reparte en subpaquetes propios (`react/jsx-runtime`, `scheduler`)
+          // que NO calzan con ese nombre exacto, así que quedaban afuera del
+          // chunk "vendor-react" (que terminaba con 17KB, casi vacío) y el
+          // peso real de React se colaba en el chunk de entrada (403KB,
+          // el que carga TODA página antes de poder pintar algo). Por eso
+          // acá se matchea por ruta dentro de node_modules, no por nombre de
+          // paquete, para agarrar los subpaquetes también. `react-hook-form`,
+          // `react-day-picker` y `react-resizable-panels` quedan afuera a
+          // propósito: si entraran, inflarían este chunk con código que no
+          // toda página necesita.
+          manualChunks(id: string) {
+            if (!id.includes('node_modules')) return undefined;
+            if (/node_modules\/(react|react-dom|scheduler|wouter)\//.test(id)) return 'vendor-react';
+            if (id.includes('node_modules/framer-motion')) return 'vendor-motion';
+            if (id.includes('node_modules/@radix-ui')) return 'vendor-radix';
+            return undefined;
           },
         },
       },

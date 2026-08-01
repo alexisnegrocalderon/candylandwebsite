@@ -11,6 +11,26 @@
     { "source": "/api/:path*", "destination": "/api" },
     { "source": "/((?!assets/|candyland/|api/|robots\\.txt|sitemap\\.xml|favicon\\.ico|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)", "destination": "/index.html" }
   ],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/candyland/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400, stale-while-revalidate=604800"
+        }
+      ]
+    }
+  ],
   "crons": [
     { "path": "/api/cron/mailing-queue", "schedule": "0 13 * * *" },
     { "path": "/api/cron/checkin-summary", "schedule": "0 6 * * *" }
