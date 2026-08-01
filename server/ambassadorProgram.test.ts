@@ -3,6 +3,7 @@ import {
   DEFAULT_BENEFITS,
   DEFAULT_COMMISSION_SCALE,
   commissionPercentForSale,
+  estimateAdditionalCommission,
   isWeeklyEmailDay,
   monthKeyFor,
   nextBenefit,
@@ -305,5 +306,45 @@ describe("valores por defecto", () => {
   it("los beneficios por defecto arrancan en 1 venta y el bono está en 20", () => {
     expect(DEFAULT_BENEFITS[0].minSales).toBe(1);
     expect(DEFAULT_BENEFITS.find((b) => b.bonusClp > 0)?.minSales).toBe(20);
+  });
+});
+
+describe("estimateAdditionalCommission", () => {
+  it("sin ventas previas, suma correctamente dentro de un mismo tramo", () => {
+    // 3 ventas más, arrancando de 0 -> ventas 1,2,3, todas al 30%
+    const r = estimateAdditionalCommission({ currentMonthlySales: 0, additionalSales: 3, avgSalePrice: 30_000 });
+    expect(r.breakdown.map((b) => b.percent)).toEqual([30, 30, 30]);
+    expect(r.total).toBe(3 * Math.round(30_000 * 0.3));
+  });
+
+  it("cruza de tramo a mitad de la simulación: no aplica el % final a todas", () => {
+    // Ya lleva 4 ventas este mes, simula 3 más -> ventas 5 (30%), 6 y 7 (35%)
+    const r = estimateAdditionalCommission({ currentMonthlySales: 4, additionalSales: 3, avgSalePrice: 40_000 });
+    expect(r.breakdown.map((b) => ({ saleNumber: b.saleNumber, percent: b.percent }))).toEqual([
+      { saleNumber: 5, percent: 30 },
+      { saleNumber: 6, percent: 35 },
+      { saleNumber: 7, percent: 35 },
+    ]);
+    const esperado = Math.round(40_000 * 0.3) + Math.round(40_000 * 0.35) * 2;
+    expect(r.total).toBe(esperado);
+    // La forma incorrecta (aplicar 35% a las 3) sobrestimaría el total.
+    expect(r.total).toBeLessThan(Math.round(3 * 40_000 * 0.35));
+  });
+
+  it("con override, paga el % fijo en todas las ventas simuladas sin mirar la escala", () => {
+    const r = estimateAdditionalCommission({
+      currentMonthlySales: 0, additionalSales: 2, avgSalePrice: 50_000, overridePercent: 20,
+    });
+    expect(r.breakdown.every((b) => b.percent === 20)).toBe(true);
+    expect(r.total).toBe(2 * Math.round(50_000 * 0.2));
+  });
+
+  it("con 0 ventas adicionales, no hay nada que estimar", () => {
+    expect(estimateAdditionalCommission({ currentMonthlySales: 5, additionalSales: 0, avgSalePrice: 30_000 })).toEqual({ total: 0, breakdown: [] });
+  });
+
+  it("con precio promedio inválido, no revienta", () => {
+    expect(estimateAdditionalCommission({ currentMonthlySales: 0, additionalSales: 3, avgSalePrice: 0 })).toEqual({ total: 0, breakdown: [] });
+    expect(estimateAdditionalCommission({ currentMonthlySales: 0, additionalSales: -1, avgSalePrice: 30_000 })).toEqual({ total: 0, breakdown: [] });
   });
 });

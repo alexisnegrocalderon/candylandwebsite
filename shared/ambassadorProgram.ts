@@ -187,6 +187,58 @@ export function monthKeyFor(date: Date | string, offsetHours: number = CHILE_OFF
   return new Date(t + offsetHours * 60 * 60 * 1000).toISOString().slice(0, 7);
 }
 
+export type CommissionEstimateBreakdown = { saleNumber: number; percent: number; amount: number };
+export type CommissionEstimate = { total: number; breakdown: CommissionEstimateBreakdown[] };
+
+/** Calculadora del panel del embajador: "si vendo N entradas más este mes,
+ * cuánto me llevo". Cada entrada vendida cuenta como UNA venta -- así paga el
+ * sistema hoy, sin importar cuántas personas cubra esa entrada.
+ *
+ * No aplica el % del tramo final a todas las ventas simuladas: eso
+ * sobrestimaría la comisión de cualquiera que esté por cruzar de tramo. Suma
+ * venta por venta con `percentForSaleNumber`, exactamente como se calcula
+ * cada comisión real, arrancando desde las ventas que ya lleva este mes. */
+export function estimateAdditionalCommission(params: {
+  /** Ventas exclusivas que ya lleva este mes (`stats.monthlySales`). */
+  currentMonthlySales: number;
+  /** Cuántas ventas más simula el embajador. */
+  additionalSales: number;
+  /** Precio promedio por venta. */
+  avgSalePrice: number;
+  scale?: CommissionTier[];
+  /** Override por embajador: si viene, manda sobre la escala en todas las ventas simuladas. */
+  overridePercent?: number | null;
+}): CommissionEstimate {
+  const { currentMonthlySales, additionalSales, avgSalePrice, scale = DEFAULT_COMMISSION_SCALE, overridePercent } = params;
+  if (!Number.isFinite(additionalSales) || additionalSales < 1 || !Number.isFinite(avgSalePrice) || avgSalePrice <= 0) {
+    return { total: 0, breakdown: [] };
+  }
+
+  const base = Math.max(0, Math.floor(currentMonthlySales));
+  const n = Math.floor(additionalSales);
+
+  if (overridePercent !== null && overridePercent !== undefined) {
+    const amount = Math.round(n * avgSalePrice * overridePercent / 100);
+    const breakdown: CommissionEstimateBreakdown[] = Array.from({ length: n }, (_, i) => ({
+      saleNumber: base + i + 1,
+      percent: overridePercent,
+      amount: Math.round(avgSalePrice * overridePercent / 100),
+    }));
+    return { total: amount, breakdown };
+  }
+
+  const breakdown: CommissionEstimateBreakdown[] = [];
+  let total = 0;
+  for (let i = 1; i <= n; i++) {
+    const saleNumber = base + i;
+    const percent = percentForSaleNumber(saleNumber, scale);
+    const amount = Math.round(avgSalePrice * percent / 100);
+    breakdown.push({ saleNumber, percent, amount });
+    total += amount;
+  }
+  return { total, breakdown };
+}
+
 /** Si hoy toca el correo semanal, en hora de Chile. El cron corre todos los
  * días (Vercel Hobby no permite un cron aparte), así que esto es lo que
  * decide si manda o se queda callado. */

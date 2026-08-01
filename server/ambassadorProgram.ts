@@ -344,6 +344,52 @@ export function maskEmail(email: string | null): string {
   return `${visible}${'*'.repeat(Math.max(2, user.length - 2))}@${domain}`;
 }
 
+/** Precio promedio de venta para la calculadora del panel, con caída en
+ * cascada: el propio promedio del embajador (ya incluye descuentos reales,
+ * es el dato más fiel) → si nunca vendió, el promedio de todo el programa →
+ * si el programa recién arranca y no hay ninguna venta, una constante de
+ * referencia documentada, para que la calculadora nunca quede en blanco ni
+ * use un número inventado sin decirlo. */
+const AVG_SALE_PRICE_FALLBACK_CLP = 30_000;
+
+export async function getAmbassadorAvgSalePrice(ambassadorId: number): Promise<{ amount: number; source: 'propio' | 'programa' | 'referencia' }> {
+  const db = await getDb();
+  if (!db) return { amount: AVG_SALE_PRICE_FALLBACK_CLP, source: 'referencia' };
+
+  const [propio] = await db.select({ avg: sql<number>`AVG(${ambassadorCommissions.baseAmount})`, n: sql<number>`COUNT(*)` })
+    .from(ambassadorCommissions).where(eq(ambassadorCommissions.ambassadorId, ambassadorId));
+  if (Number(propio?.n ?? 0) > 0) return { amount: Math.round(Number(propio.avg)), source: 'propio' };
+
+  const [programa] = await db.select({ avg: sql<number>`AVG(${ambassadorCommissions.baseAmount})`, n: sql<number>`COUNT(*)` })
+    .from(ambassadorCommissions);
+  if (Number(programa?.n ?? 0) > 0) return { amount: Math.round(Number(programa.avg)), source: 'programa' };
+
+  return { amount: AVG_SALE_PRICE_FALLBACK_CLP, source: 'referencia' };
+}
+
+/** Comisión EXACTA y ya generada para un evento puntual -- a diferencia de
+ * `monthlyCommission` (mes calendario) o `totalCommission` (histórico de
+ * todos los eventos), esto es "cuánto va a recibir cuando termine ESTE
+ * evento", que es lo que de verdad le importa a un embajador antes de una
+ * fiesta cuyas ventas se repartieron en varios meses. */
+export async function getAmbassadorEventStats(ambassadorId: number, eventId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [event] = await db.select({ id: events.id, title: events.title }).from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) return null;
+
+  const rows = await db.select().from(ambassadorCommissions)
+    .where(and(eq(ambassadorCommissions.ambassadorId, ambassadorId), eq(ambassadorCommissions.eventId, eventId)));
+
+  return {
+    eventId: event.id,
+    eventTitle: event.title,
+    sales: rows.length,
+    commission: rows.reduce((s: number, c: any) => s + Number(c.commissionAmount), 0),
+  };
+}
+
 /** Panel público en /embajador/<CODIGO>. El código hace de llave: no hay
  * login de embajadores (mismo criterio que /mis-referidos). */
 export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
@@ -360,6 +406,21 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
   const monthKey = monthKeyFor(now);
   const stats = await getAmbassadorStats(ambassador.id, monthKey);
   const sales = await getAmbassadorSales(ambassador.id, 50);
+  const config = await getProgramConfig();
+
+  // `getAmbassadorStats` calcula el % siempre con la escala por tramos, sin
+  // mirar el override manual -- correcto para embajadores normales, pero
+  // engañoso para quien tiene un % fijo acordado (gana sobre la escala en
+  // TODAS sus ventas, ver commissionPercentForSale en shared/ambassadorProgram.ts).
+  // Se corrige acá, en el único lugar que sí tiene el embajador completo.
+  const overridePercent = ambassador.commissionPercent === null || ambassador.commissionPercent === undefined
+    ? null
+    : Number(ambassador.commissionPercent);
+  if (stats && overridePercent !== null) stats.currentPercent = overridePercent;
+
+  const avgSalePrice = await getAmbassadorAvgSalePrice(ambassador.id);
+  const featuredEvent = await getFeaturedEvent();
+  const eventStats = featuredEvent ? await getAmbassadorEventStats(ambassador.id, featuredEvent.id) : null;
 
   return {
     name: ambassador.name,
@@ -368,6 +429,11 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
     instagram: ambassador.instagram,
     stats,
     sales: sales.map((s) => ({ ...s, customerEmail: maskEmail(s.customerEmail), customerName: s.customerName })),
+    commissionScale: config.commissionScale,
+    existingClientPercent: config.existingClientPercent,
+    overridePercent,
+    avgSalePrice,
+    eventStats,
   };
 }
 
