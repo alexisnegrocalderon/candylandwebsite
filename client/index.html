@@ -38,15 +38,23 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <!-- display=optional (no swap): si la fuente de marca no llega a tiempo
+         (~100ms) para el primer render, el navegador se queda con la fuente
+         de reemplazo para toda la carga de esa página en vez de cambiarla
+         después -- con swap, el <h1> gigante del hero (letras animadas una
+         por una) cambia de ancho al llegar la fuente y corre todo lo de
+         abajo (esto salía como CLS alto en PageSpeed Mobile). -->
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Syne:wght@400;500;600;700;800&display=optional" rel="stylesheet" />
 
-    <!-- Precarga de la imagen del hero (poster del video de portada): el Home
-         se carga por JS (code-splitting), así que sin esto el navegador no
-         sabe que tiene que pedirla hasta que el chunk de la página corre. La
-         mayoría de las visitas entran por el Home (links de Instagram/
-         WhatsApp), así que vale la pena pedirla siempre aunque en el resto de
-         las rutas no se use. -->
-    <link rel="preload" as="image" href="/candyland/poster-hero.webp" fetchpriority="high" />
+    <!-- Precarga del fondo borroso del hero (NO el poster nítido del video,
+         que es un archivo aparte y más pesado): el Home se carga por JS
+         (code-splitting), así que sin esto el navegador no sabe que tiene
+         que pedirla hasta que el chunk de la página corre. Es liviana (~18KB,
+         480x270) a propósito -- se muestra siempre con blur-3xl, así que no
+         hace falta más resolución, y en conexiones lentas (mobile) una
+         precarga pesada con fetchpriority=high competía por ancho de banda
+         con el CSS crítico y empeoraba el FCP/LCP real en vez de ayudar. -->
+    <link rel="preload" as="image" href="/candyland/poster-hero-bg.webp" fetchpriority="high" />
 
     <!-- Loader inicial: inline y sin depender de React/Tailwind, así pinta
          en el primer frame (nunca hay un instante en blanco mientras carga

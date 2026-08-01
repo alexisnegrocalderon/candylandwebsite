@@ -260,11 +260,11 @@ function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
           suficiente para que el texto se lea sin taparle el color. */}
       <motion.div className="absolute inset-0" style={pointerFine ? { y: bgY } : undefined}>
         <img
-          src="/candyland/poster-hero.webp"
+          src="/candyland/poster-hero-bg.webp"
           alt=""
           aria-hidden
-          width={1920}
-          height={1080}
+          width={480}
+          height={270}
           fetchPriority="high"
           className="absolute inset-0 w-full h-full object-cover opacity-30 blur-3xl scale-125"
         />
@@ -877,11 +877,11 @@ function FinalCTASection() {
   return (
     <section className="relative py-28 md:py-40 overflow-hidden">
       <img
-        src="/candyland/poster-hero.webp"
+        src="/candyland/poster-hero-bg.webp"
         alt=""
         aria-hidden
-        width={1920}
-        height={1080}
+        width={480}
+        height={270}
         loading="lazy"
         className="absolute inset-0 w-full h-full object-cover opacity-25 blur-2xl scale-110"
       />
