@@ -263,6 +263,9 @@ function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
           src="/candyland/poster-hero.webp"
           alt=""
           aria-hidden
+          width={1920}
+          height={1080}
+          fetchPriority="high"
           className="absolute inset-0 w-full h-full object-cover opacity-30 blur-3xl scale-125"
         />
         {/* preload="metadata" (no "auto"): en móvil con conexión lenta, pedir
@@ -303,6 +306,8 @@ function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
         <motion.img
           src="/candyland/logo-wordmark.webp"
           alt="Mansion Playroom"
+          width={300}
+          height={300}
           className="h-16 md:h-20 w-auto mx-auto mb-6 drop-shadow-[0_0_25px_oklch(0.68_0.16_340_/_0.3)]"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -875,6 +880,9 @@ function FinalCTASection() {
         src="/candyland/poster-hero.webp"
         alt=""
         aria-hidden
+        width={1920}
+        height={1080}
+        loading="lazy"
         className="absolute inset-0 w-full h-full object-cover opacity-25 blur-2xl scale-110"
       />
       <div className="absolute inset-0 bg-gradient-to-b from-background via-background/70 to-background" />
@@ -887,6 +895,9 @@ function FinalCTASection() {
           src="/candyland/logo-wordmark.webp"
           alt=""
           aria-hidden
+          width={300}
+          height={300}
+          loading="lazy"
           className="h-24 w-auto mx-auto mb-8 candy-float drop-shadow-[0_0_25px_oklch(0.68_0.16_340_/_0.3)]"
         />
         <h2 className="font-heading font-bold text-4xl md:text-7xl tracking-tight leading-[1.02] mb-6">
@@ -943,7 +954,7 @@ function Footer() {
     <footer className="border-t border-primary/15 py-14">
       <div className="container">
         <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-          <img src="/candyland/logo-wordmark.webp" alt="Mansion Playroom" className="h-12 w-auto" />
+          <img src="/candyland/logo-wordmark.webp" alt="Mansion Playroom" width={300} height={300} loading="lazy" className="h-12 w-auto" />
 
           <div className="flex items-center gap-5">
             <InstagramBar />

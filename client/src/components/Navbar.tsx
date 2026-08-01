@@ -54,6 +54,8 @@ export default function Navbar() {
             <img
               src="/candyland/logo-wordmark.webp"
               alt="Mansion Playroom"
+              width={300}
+              height={300}
               className="h-12 w-auto"
             />
           </Link>
