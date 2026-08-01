@@ -5,15 +5,24 @@ import { Route, Switch, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import CustomCursor from "./components/CustomCursor";
-import SmoothScroll from "./components/SmoothScroll";
 import Navbar from "./components/Navbar";
+import { isFinePointer } from "./lib/smoothScroll";
 
 // Lazy load pages -- Home incluida: antes se importaba eager y arrastraba
 // las 7 secciones + trpc/react-query al chunk de entrada, que quedaba tan
 // pesado que la página se sentía en blanco unos segundos al cargar.
+//
+// CustomCursor y SmoothScroll también van lazy, y encima solo se PIDEN si
+// hay puntero fino -- ambos ya se apagaban solos en touch por dentro (ver los
+// propios componentes), pero antes se importaban eager en App.tsx, así que su
+// código (Lenis incluido, una librería completa) se descargaba igual para
+// todo el mundo aunque nunca fuera a correr. La mayoría de quien entra al
+// sitio lo hace desde el celular (tráfico de Instagram/WhatsApp), así que
+// era peso muerto para la mayoría de las visitas.
 import { lazy, Suspense, useEffect } from "react";
 const Home = lazy(() => import("./pages/Home"));
+const CustomCursor = lazy(() => import("./components/CustomCursor"));
+const SmoothScroll = lazy(() => import("./components/SmoothScroll"));
 const Events = lazy(() => import("./pages/Events"));
 const EventDetail = lazy(() => import("./pages/EventDetail"));
 const Checkout = lazy(() => import("./pages/Checkout"));
@@ -125,6 +134,10 @@ function App() {
   // completa, sin nada del sitio público alrededor.
   const isPuerta = location.startsWith('/puerta');
   const hideChrome = isCaja || isAdmin || isParty || isPuerta;
+  // Ni el cursor ni el scroll suave hacen nada en touch (ver isFinePointer),
+  // así que en celular no se pide su chunk -- antes se importaban eager en
+  // App.tsx y Lenis viajaba igual aunque nunca fuera a correr.
+  const showDesktopExtras = !hideChrome && isFinePointer();
 
   // Saca el loader estático de client/index.html (pintado antes de que
   // React exista, para que nunca haya un instante en blanco) apenas React
@@ -138,8 +151,12 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
-          {!hideChrome && <SmoothScroll />}
-          {!hideChrome && <CustomCursor />}
+          {showDesktopExtras && (
+            <Suspense fallback={null}>
+              <SmoothScroll />
+              <CustomCursor />
+            </Suspense>
+          )}
           {!hideChrome && <Navbar />}
           <Toaster />
           <Router />
