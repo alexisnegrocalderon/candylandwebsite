@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ops, orders, orderItems, ticketTypes, lockerItems, discountCodes } from "../../drizzle/schema";
+import { ops, orders, orderItems, ticketTypes, lockerItems, discountCodes, kitchenTickets } from "../../drizzle/schema";
 
 // `createCajaSale` toca Playcoins y descuentos vía ../db, que abre conexión
 // real. Acá solo se prueba la lógica de la venta (precio, stock,
@@ -28,6 +28,7 @@ function makeFakeDb(state: {
     items: [] as Record<string, unknown>[],
     op: null as Record<string, unknown> | null,
     lockerInsert: null as Record<string, unknown> | null,
+    kitchenInsert: null as Record<string, unknown> | null,
     discountUsedCountUpdates: 0,
     soldCountUpdates: 0,
   };
@@ -57,6 +58,7 @@ function makeFakeDb(state: {
         if (table === orderItems) { calls.items.push(values); return [{ insertId: 1 }]; }
         if (table === ops) { calls.op = values; return [{ insertId: 1 }]; }
         if (table === lockerItems) { calls.lockerInsert = values; return [{ insertId: 1 }]; }
+        if (table === kitchenTickets) { calls.kitchenInsert = values; return [{ insertId: 1 }]; }
         return [{ insertId: 0 }];
       },
     }),
@@ -201,5 +203,42 @@ describe("createCajaSale", () => {
     await expect(
       createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 1 }], lockerTag: "42" })
     ).rejects.toThrow(/ya está en uso/);
+  });
+
+  it("una venta con tragos y comida genera una comanda SOLO con la comida", async () => {
+    const cerveza = { id: 2, name: "Cerveza", price: "4000", costPrice: null, category: "consumo", totalStock: 50, soldCount: 0, toKitchen: 0 };
+    const papas = { id: 4, name: "Papas fritas", price: "3000", costPrice: null, category: "consumo", totalStock: 50, soldCount: 0, toKitchen: 1 };
+    const { db, calls } = makeFakeDb({ products: [cerveza, papas] });
+
+    const res = await createCajaSale(db, {
+      ...baseParams,
+      items: [{ ticketTypeId: 2, quantity: 2 }, { ticketTypeId: 4, quantity: 1 }],
+      kitchenTicketNumber: "1-003",
+    });
+
+    expect(res.result).toBe("applied");
+    expect(calls.kitchenInsert).toMatchObject({
+      ticketNumber: "1-003", orderId: 777,
+      items: [{ name: "Papas fritas", quantity: 1 }],
+    });
+  });
+
+  it("una venta sin ítems toKitchen no genera comanda", async () => {
+    const cerveza = { id: 2, name: "Cerveza", price: "4000", costPrice: null, category: "consumo", totalStock: 50, soldCount: 0, toKitchen: 0 };
+    const { db, calls } = makeFakeDb({ products: [cerveza] });
+
+    const res = await createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 2, quantity: 1 }] });
+
+    expect(res.result).toBe("applied");
+    expect(calls.kitchenInsert).toBeNull();
+  });
+
+  it("rechaza vender algo de cocina sin número de comanda", async () => {
+    const papas = { id: 4, name: "Papas fritas", price: "3000", costPrice: null, category: "consumo", totalStock: 50, soldCount: 0, toKitchen: 1 };
+    const { db } = makeFakeDb({ products: [papas] });
+
+    await expect(
+      createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 4, quantity: 1 }] })
+    ).rejects.toThrow(/número de comanda/);
   });
 });

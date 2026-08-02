@@ -11,6 +11,7 @@ import { parseTicketCodeFromQr } from '@shared/qr';
 import {
   saveSnapshot, getLocalEvent, searchLocal, searchGiftsLocal, getLocalAttendee, getLocalCatalog,
   enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, clearSyncedOps, correctedNow,
+  nextKitchenTicketNumber,
   type CajaAttendee, type CajaCatalogItem, type CajaGift, type QueuedOp,
 } from './db';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
@@ -443,6 +444,9 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pending, setPending] = useState(0);
   const [view, setView] = useState<View>('menu');
+  // Confirmación de comanda: el número gigante que la cajera dicta -- si la
+  // venta se encoló sin señal, avisa que cocina todavía no lo ve.
+  const [kitchenConfirm, setKitchenConfirm] = useState<{ number: string; offline: boolean } | null>(null);
   const [query, setQuery] = useState('');
   const [manualCode, setManualCode] = useState('');
   const [results, setResults] = useState<CajaAttendee[]>([]);
@@ -712,12 +716,17 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         {view === 'sale' && (
           <NewSale
             eventId={localEvent.id}
-            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag) => {
+            registerId={registerId}
+            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, kitchenTicketNumber) => {
               await enqueueOp({
                 opId: newOpId(), type: 'sale', items, paymentMethod, buyerEmail, redeemPlaycoins,
-                discountCode, lockerTag, clientAt: (await correctedNow()).toISOString(),
+                discountCode, lockerTag, kitchenTicketNumber, clientAt: (await correctedNow()).toISOString(),
               });
-              toast.success('Venta registrada ✅');
+              if (kitchenTicketNumber) {
+                setKitchenConfirm({ number: kitchenTicketNumber, offline: !isOnline });
+              } else {
+                toast.success('Venta registrada ✅');
+              }
               refreshPending();
               runSync();
               setView('menu');
@@ -727,6 +736,24 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
 
         {view === 'dashboard' && <CajaDashboard eventId={localEvent.id} />}
       </main>
+
+      {kitchenConfirm && (
+        <div className="fixed inset-0 z-30 bg-black/85 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-4">
+            <p className="text-sm text-white/60 uppercase tracking-wide">Número de pedido</p>
+            <p className="font-heading font-extrabold text-6xl tracking-tight text-primary">{kitchenConfirm.number}</p>
+            <p className="text-white/70">Díctaselo a la persona -- lo va a necesitar para retirar en cocina.</p>
+            {kitchenConfirm.offline && (
+              <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+                Sin señal ahora mismo: la cocina todavía no ve este pedido. Avísales a mano y se va a sincronizar solo cuando vuelva la conexión.
+              </p>
+            )}
+            <Button className="w-full h-12 bg-primary hover:bg-primary/90" onClick={() => setKitchenConfirm(null)}>
+              Listo
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -844,8 +871,9 @@ const CATEGORY_META: Record<string, { label: string; emoji: string }> = {
   extra: { label: 'Extras', emoji: '🎫' },
 };
 
-function NewSale({ eventId, onSale }: {
+function NewSale({ eventId, registerId, onSale }: {
   eventId: number;
+  registerId: number | null;
   onSale: (
     items: { ticketTypeId: number; quantity: number }[],
     paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr',
@@ -853,6 +881,7 @@ function NewSale({ eventId, onSale }: {
     redeemPlaycoins?: number,
     discountCode?: string,
     lockerTag?: string,
+    kitchenTicketNumber?: string,
   ) => void;
 }) {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
@@ -908,6 +937,7 @@ function NewSale({ eventId, onSale }: {
   const lockerQty = lockerLines.reduce((sum, p) => sum + (cart[p.id] || 0), 0);
   const needsLockerTag = lockerQty > 0;
   const tooManyLockers = lockerQty > 1;
+  const hasKitchenItems = cartLines.some((p) => p.toKitchen);
 
   const add = (id: number) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
   const remove = (id: number) => setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] || 0) - 1) }));
@@ -930,15 +960,19 @@ function NewSale({ eventId, onSale }: {
     }
   };
 
-  const confirm = () => {
+  const confirm = async () => {
     if (tooManyLockers) { toast.error('Cobra los abrigos de a uno para poder asignar un número a cada uno'); return; }
     if (needsLockerTag && !lockerTag.trim()) { toast.error('Falta el número de la percha'); return; }
     const cartItems = Object.entries(cart).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId: Number(ticketTypeId), quantity }));
     const redeemAmount = balance != null ? clampRedeemAmount(Number(redeemInput || 0), Math.min(balance, total)) : 0;
+    // El número de comanda se genera ACÁ, en la tablet, antes de encolar la
+    // venta -- así funciona sin señal (ver nextKitchenTicketNumber).
+    const kitchenTicketNumber = hasKitchenItems ? await nextKitchenTicketNumber(registerId) : undefined;
     onSale(
       cartItems, paymentMethod, buyerEmail.trim() || undefined, redeemAmount || undefined,
       discountResult?.valid ? discountCode.trim() : undefined,
       needsLockerTag ? lockerTag.trim() : undefined,
+      kitchenTicketNumber,
     );
     setCart({});
     setBuyerEmail('');

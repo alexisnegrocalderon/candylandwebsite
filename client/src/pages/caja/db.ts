@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import { formatKitchenTicketNumber } from '@shared/kitchen';
 
 /* Snapshot local + cola de operaciones para el modo offline de /caja
  * (docs/ARQUITECTURA-CAJA.md §6.2-§6.3). Todo lo que la tablet necesita para
@@ -75,6 +76,9 @@ export type QueuedOp =
       // Número de la percha física de guardarropía, si el carrito tiene un
       // producto category='locker'.
       lockerTag?: string;
+      // Número de comanda de cocina (ver `nextKitchenTicketNumber`), si el
+      // carrito tiene algún producto `toKitchen`.
+      kitchenTicketNumber?: string;
     };
 
 export interface CajaOpRecord {
@@ -270,4 +274,16 @@ export async function markOpSynced(opId: string, result: string, conflictNote?: 
 
 export async function clearSyncedOps() {
   await cajaDB.opsQueue.where('status').equals('synced').delete();
+}
+
+/** Número de comanda de cocina, generado EN LA TABLET al confirmar la venta
+ * (nunca por el servidor -- así funciona sin señal). El correlativo se lleva
+ * acá, en `meta`, por caja física: dos tablets nunca chocan porque cada una
+ * prefija con su propio `registerId` (ver shared/kitchen.ts). */
+export async function nextKitchenTicketNumber(registerId: number | null): Promise<string> {
+  const key = `kitchenCounter:${registerId ?? 0}`;
+  const row = await cajaDB.meta.get(key);
+  const next = (Number(row?.value) || 0) + 1;
+  await cajaDB.meta.put({ key, value: next });
+  return formatKitchenTicketNumber(registerId, next);
 }

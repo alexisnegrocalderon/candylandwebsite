@@ -2,7 +2,7 @@ import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS, CAJA_DEVIC
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk, ADMIN_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
@@ -44,6 +44,7 @@ async function requirePartyProfile(ticketCode: string) {
   return { ...actor, profile: actor.profile };
 }
 import { createCajaSale } from "./caja/sale";
+import { listKitchenTickets, updateKitchenTicket } from "./kitchen";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
@@ -111,6 +112,15 @@ async function verifyDoorPinOrThrow(ctx: any, operatorId: number, pin: string) {
   const operator = await verifyOperatorPinOrThrow(ctx, operatorId, pin);
   if (operator.role !== 'acceso' && operator.role !== 'supervisor' && operator.role !== 'admin') {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Tu usuario no trabaja en la puerta' });
+  }
+  return operator;
+}
+
+/** Igual que las anteriores pero solo para quienes trabajan en cocina. */
+async function verifyKitchenPinOrThrow(ctx: any, operatorId: number, pin: string) {
+  const operator = await verifyOperatorPinOrThrow(ctx, operatorId, pin);
+  if (operator.role !== 'cocina' && operator.role !== 'supervisor' && operator.role !== 'admin') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Tu usuario no trabaja en cocina' });
   }
   return operator;
 }
@@ -644,6 +654,59 @@ export const appRouter = router({
         }
       }
       return results;
+    }),
+  }),
+
+  // --- Cocina: la pantalla que recibe los pedidos de comida de /caja ---
+  // Pantalla propia, aparte de /caja y /puerta: el equipo de cocina no
+  // vende ni marca entradas, solo prepara y entrega. A diferencia de esas
+  // dos, esta pantalla SÍ necesita red -- el pedido nace en otra tablet
+  // (la caja) y no hay forma de que cocina se entere sin consultar al
+  // servidor, así que no tiene sentido una cola offline acá.
+  cocina: router({
+    listOperators: publicProcedure.query(async () => {
+      const all = await db.listActiveOperatorsPublic();
+      return all.filter((o: any) => o.role === 'cocina' || o.role === 'supervisor' || o.role === 'admin');
+    }),
+
+    login: publicProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) }))
+      .mutation(async ({ input, ctx }) => {
+        const operator = await verifyKitchenPinOrThrow(ctx, input.operatorId, input.pin);
+        const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
+        return { id: operator.id, name: operator.name, role: operator.role };
+      }),
+
+    me: publicProcedure.query(({ ctx }) => ctx.operator),
+
+    activeEvent: kitchenProcedure.query(async () => {
+      return db.getActiveEventForCaja();
+    }),
+
+    // Polling cada 4s desde el cliente -- pendientes/aprobadas más viejas
+    // primero, y las entregadas de la última hora aparte (para "deshacer").
+    list: kitchenProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return listKitchenTickets(input.eventId);
+    }),
+
+    update: kitchenProcedure.input(z.object({
+      opId: z.string(),
+      eventId: z.number(),
+      ticketNumber: z.string(),
+      to: z.enum(['pendiente', 'aprobado', 'entregado']),
+      clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      return updateKitchenTicket(rawDb, {
+        opId: input.opId,
+        eventId: input.eventId,
+        ticketNumber: input.ticketNumber,
+        operatorId: ctx.operator.operatorId,
+        clientAt: new Date(input.clientAt),
+        to: input.to,
+      });
     }),
   }),
 
@@ -1317,6 +1380,7 @@ export const appRouter = router({
           redeemPlaycoins: z.number().int().min(0).optional(),
           discountCode: z.string().optional(),
           lockerTag: z.string().max(16).optional(),
+          kitchenTicketNumber: z.string().max(12).optional(),
           clientAt: z.string(),
         }),
       ])).max(50),
@@ -1342,7 +1406,7 @@ export const appRouter = router({
               opId: op.opId, eventId: input.eventId, operatorId: ctx.operator.operatorId, registerId: input.registerId,
               items: op.items, paymentMethod: op.paymentMethod, clientAt: new Date(op.clientAt),
               buyerEmail: op.buyerEmail, redeemPlaycoins: op.redeemPlaycoins,
-              discountCode: op.discountCode, lockerTag: op.lockerTag,
+              discountCode: op.discountCode, lockerTag: op.lockerTag, kitchenTicketNumber: op.kitchenTicketNumber,
             });
           }
         } catch (err) {
@@ -1512,6 +1576,7 @@ export const appRouter = router({
       redeemPlaycoins: z.number().int().min(0).optional(),
       discountCode: z.string().optional(),
       lockerTag: z.string().max(16).optional(),
+      kitchenTicketNumber: z.string().max(12).optional(),
       clientAt: z.string(),
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await db.getDb();
@@ -1528,6 +1593,7 @@ export const appRouter = router({
           redeemPlaycoins: input.redeemPlaycoins,
           discountCode: input.discountCode,
           lockerTag: input.lockerTag,
+          kitchenTicketNumber: input.kitchenTicketNumber,
           clientAt: new Date(input.clientAt),
         });
       } catch (err) {

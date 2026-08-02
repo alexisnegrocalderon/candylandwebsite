@@ -1,9 +1,10 @@
 /* Hoja de Tailwind separada para las pantallas de operación interna (admin,
  * caja, puerta, fiesta) -- nunca las ve un visitante público, así que su CSS
  * no tiene por qué viajar en el bundle que carga cada visita del Home.
- * Se importa solo desde los 5 archivos que arman esas rutas (todas ya
+ * Se importa solo desde los archivos que arman esas rutas (todas ya
  * React.lazy() en App.tsx): Dashboard.tsx, PrintLayout.tsx (cubre las 3
- * rutas /admin/print/*), caja/index.tsx, Party.tsx y Puerta.tsx -- así el
+ * rutas /admin/print/*), caja/index.tsx, Party.tsx, Puerta.tsx y
+ * Cocina.tsx -- así el
  * cssCodeSplit de Vite (default) genera un chunk aparte que solo se pide al
  * navegar a esas rutas. Ver client/src/index.css para la hoja pública. */
 @import "tailwindcss" source(none);
@@ -18,6 +19,7 @@
 @source "./pages/caja/**";
 @source "./pages/Party.tsx";
 @source "./pages/Puerta.tsx";
+@source "./pages/Cocina.tsx";
 @source "./components/admin/**";
 @source "./components/party/**";
 @source "./components/QrScanner.tsx";

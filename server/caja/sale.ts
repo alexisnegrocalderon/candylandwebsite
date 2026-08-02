@@ -1,5 +1,5 @@
 import { eq, sql, inArray, and } from "drizzle-orm";
-import { orders, orderItems, ticketTypes, discountCodes, lockerItems } from "../../drizzle/schema";
+import { orders, orderItems, ticketTypes, discountCodes, lockerItems, kitchenTickets } from "../../drizzle/schema";
 import { applyOp } from "./ops";
 import { awardPlaycoins, redeemPlaycoinsAuthoritative, validateDiscountCode } from "../db";
 
@@ -35,6 +35,10 @@ export async function createCajaSale(
     // cobrar (no lo genera el sistema -- ver drizzle/schema.ts `lockerItems`
     // para el porqué). Requerido si algún ítem es category='locker'.
     lockerTag?: string;
+    // Número de comanda para cocina, generado EN LA TABLET (no acá) --
+    // `<nº de caja>-<correlativo local>`, ver client/src/pages/caja/db.ts
+    // `nextKitchenTicketNumber`. Requerido si algún ítem es `toKitchen`.
+    kitchenTicketNumber?: string;
   }
 ) {
   if (params.items.length === 0) throw new Error("La venta necesita al menos un producto");
@@ -63,6 +67,15 @@ export async function createCajaSale(
     const unitPrice = Number(tt.price);
     total += unitPrice * item.quantity;
     lineItems.push({ ticketTypeId: tt.id, quantity: item.quantity, unitPrice, unitCost: tt.costPrice != null ? Number(tt.costPrice) : null, name: tt.name });
+  }
+
+  // Comanda de cocina: solo los ítems marcados `toKitchen` -- los tragos de
+  // la misma venta no van a la comanda, se entregan directo en la barra.
+  const kitchenItems = params.items
+    .filter((i) => Number(ttById.get(i.ticketTypeId)?.toKitchen ?? 0) === 1)
+    .map((i) => ({ name: ttById.get(i.ticketTypeId)!.name as string, quantity: i.quantity }));
+  if (kitchenItems.length > 0 && !params.kitchenTicketNumber?.trim()) {
+    throw new Error("Falta el número de comanda para cocina");
   }
 
   // Guardarropía: el número ya está en la ficha física, la cajera lo teclea
@@ -112,6 +125,7 @@ export async function createCajaSale(
         ...(stockWarnings.length > 0 ? { stockWarnings } : {}),
         ...(appliedDiscountId ? { discountCode: params.discountCode!.trim().toUpperCase(), discountAmount } : {}),
         ...(params.lockerTag ? { lockerTag: params.lockerTag.trim() } : {}),
+        ...(kitchenItems.length > 0 ? { kitchenTicketNumber: params.kitchenTicketNumber!.trim(), kitchenItems } : {}),
       },
       clientAt: params.clientAt,
     },
@@ -180,6 +194,17 @@ export async function createCajaSale(
           orderId,
           opId: params.opId,
           tagNumber: params.lockerTag.trim(),
+        });
+      }
+
+      if (kitchenItems.length > 0) {
+        await db.insert(kitchenTickets).values({
+          eventId: params.eventId,
+          orderId,
+          opId: params.opId,
+          registerId: params.registerId ?? null,
+          ticketNumber: params.kitchenTicketNumber!.trim(),
+          items: kitchenItems,
         });
       }
 
