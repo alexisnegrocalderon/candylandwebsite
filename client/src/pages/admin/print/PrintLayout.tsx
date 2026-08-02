@@ -1,3 +1,4 @@
+import '@/admin.css';
 import { Link } from 'wouter';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { formatChileDateTime } from '@shared/chileDate';
@@ -5,7 +6,7 @@ import { formatChileDateTime } from '@shared/chileDate';
 /** Layout compartido por los reportes imprimibles (/admin/print/...) --
  * fondo blanco/texto negro fijos (no sigue el tema oscuro del resto del
  * sitio) para que la hoja impresa/PDF salga limpia. El botón de imprimir y
- * el link de volver se ocultan solos al imprimir (.print-hide, ver index.css). */
+ * el link de volver se ocultan solos al imprimir (.print-hide, ver admin.css). */
 export function PrintLayout({
   title,
   subtitle,

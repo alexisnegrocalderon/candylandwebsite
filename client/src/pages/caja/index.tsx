@@ -1,3 +1,4 @@
+import '@/admin.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Camera, X } from 'lucide-react';

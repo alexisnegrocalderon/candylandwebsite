@@ -1,75 +1,25 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./theme.css";
+
+/* Rutas/componentes de operación interna (admin, caja, puerta, fiesta):
+ * nunca los ve un visitante público, así que no hace falta que su CSS viaje
+ * en el bundle de entrada -- tienen su propia hoja, client/src/admin.css,
+ * cargada solo al navegar a esas rutas. Si se agrega una página PÚBLICA
+ * nueva no hay que tocar nada acá (el auto-scan la detecta sola); solo hay
+ * que tocar esta lista si se agrega una carpeta o archivo *interno* nuevo. */
+@source not "./pages/admin/**";
+@source not "./pages/caja/**";
+@source not "./pages/Party.tsx";
+@source not "./pages/Puerta.tsx";
+@source not "./components/admin/**";
+@source not "./components/party/**";
+@source not "./components/QrScanner.tsx";
 
 @custom-variant dark (&:is(.dark *));
 
 /* Gliker no está disponible localmente (era un asset de manus-storage);
    Syne cumple el mismo rol editorial expandido y ya se carga desde Google Fonts. */
-
-@theme inline {
-  /* Candy Pastel Matte — inspirado en el video hero (fondo magenta/violeta,
-     dulces gomosos naranja/coral/celeste/amarillo). Fondo claro, mate,
-     minimalista; el color vive en los acentos, no en el fondo. */
-  --color-background: oklch(0.97 0.014 340);
-  --color-foreground: oklch(0.3 0.05 335);
-  --color-card: oklch(0.995 0.006 340);
-  --color-card-foreground: oklch(0.3 0.05 335);
-  --color-popover: oklch(0.995 0.006 340);
-  --color-popover-foreground: oklch(0.3 0.05 335);
-  --color-primary: oklch(0.68 0.16 340);
-  --color-primary-foreground: oklch(0.99 0.005 340);
-  --color-secondary: oklch(0.72 0.1 300);
-  --color-secondary-foreground: oklch(0.3 0.05 335);
-  --color-muted: oklch(0.94 0.016 330);
-  --color-muted-foreground: oklch(0.5 0.04 330);
-  --color-accent: oklch(0.68 0.16 340);
-  --color-accent-foreground: oklch(0.99 0.005 340);
-  --color-destructive: oklch(0.58 0.19 25);
-  --color-destructive-foreground: oklch(0.99 0.005 340);
-  --color-border: oklch(0.88 0.025 335);
-  --color-input: oklch(0.92 0.02 335);
-  --color-ring: oklch(0.68 0.16 340);
-  --color-chart-1: oklch(0.68 0.16 340);
-  --color-chart-2: oklch(0.72 0.1 300);
-  --color-chart-3: oklch(0.7 0.1 235);
-  --color-chart-4: oklch(0.78 0.12 70);
-  --color-chart-5: oklch(0.72 0.13 25);
-  --color-sidebar: oklch(0.98 0.01 340);
-  --color-sidebar-foreground: oklch(0.3 0.05 335);
-  --color-sidebar-primary: oklch(0.68 0.16 340);
-  --color-sidebar-primary-foreground: oklch(0.99 0.005 340);
-  --color-sidebar-accent: oklch(0.94 0.016 330);
-  --color-sidebar-accent-foreground: oklch(0.3 0.05 335);
-  --color-sidebar-border: oklch(0.88 0.025 335);
-  --color-sidebar-ring: oklch(0.68 0.16 340);
-  --radius: 0.625rem;
-  --font-sans: 'Space Grotesk', system-ui, sans-serif;
-  --font-heading: 'Syne', sans-serif;
-
-  /* Candy Pastel Matte — acentos */
-  --color-cherry: oklch(0.76 0.13 35);
-  --color-violet-electric: oklch(0.68 0.1 295);
-  --color-candy-blue: oklch(0.76 0.09 235);
-  --color-candy-cream: oklch(0.98 0.012 90);
-}
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-    font-family: var(--font-sans);
-    overflow-x: hidden;
-  }
-  .container {
-    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
-  }
-  .flex {
-    min-width: 0;
-    min-height: 0;
-  }
-}
 
 /* Custom cursor */
 .custom-cursor {
@@ -296,14 +246,6 @@ html {
   }
 }
 
-/* Interactive button */
-.interactive {
-  transition: transform 0.16s cubic-bezier(0.23, 1, 0.32, 1);
-}
-.interactive:active {
-  transform: scale(0.97);
-}
-
 /* Mobile responsive hero text */
 @media (max-width: 640px) {
   .font-heading {
@@ -457,18 +399,5 @@ html {
   .candy-sheen,
   .candy-holo {
     animation: none !important;
-  }
-}
-
-/* Reportes imprimibles del admin (/admin/print/...) -- pedido explícito del
- * usuario, PDF vía impresión del navegador en vez de una librería nueva.
- * .print-hide oculta controles (botón de imprimir, filtros) que no tienen
- * sentido en la hoja impresa. */
-@media print {
-  .print-hide {
-    display: none !important;
-  }
-  body {
-    background: #fff;
   }
 }
