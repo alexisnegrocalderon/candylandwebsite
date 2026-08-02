@@ -66,20 +66,25 @@
       }
     </style>
 
-    <!-- Precarga de las dos capas del fondo del hero -- el fondo borroso
-         (liviana, ~18KB, 480x270, se muestra siempre con blur-3xl) Y el
-         poster nítido del <video> (achicado a 960x540/~41KB en una vuelta
-         anterior). Hacen falta las DOS: en Mobile (más throttling de red/CPU
-         en el preset de Lighthouse) el navegador no llega a pintar el poster
-         del video a tiempo y el <img> de fondo gana como LCP; en Escritorio
-         (menos throttling) el poster del video SÍ llega a pintar a tiempo y
-         gana él -- sin este segundo preload, PageSpeed Desktop marcaba el
-         LCP como "no descubrible" pese a que el otro ya estaba precargado.
-         Juntos son ~60KB, bastante menos que los 117.9KB que se precargaban
-         antes de achicar el poster, así que no reintroduce el problema de
-         ancho de banda en mobile que motivó sacar el preload pesado original. -->
+    <!-- Precarga del fondo borroso del hero (liviana, ~18KB, 480x270, se
+         muestra siempre con blur-3xl) -- para todos los anchos. -->
     <link rel="preload" as="image" href="/candyland/poster-hero-bg.webp" fetchpriority="high" />
-    <link rel="preload" as="image" href="/candyland/poster-hero.webp" fetchpriority="high" />
+
+    <!-- Precarga del poster nítido del <video> (960x540/~41KB) -- SOLO desde
+         768px (el breakpoint `md:` que ya usa el resto del sitio). En
+         Escritorio (menos throttling que Mobile en el preset de Lighthouse)
+         el navegador SÍ llega a pintar el poster del video a tiempo y gana
+         como LCP sobre el fondo borroso, así que sin precargarlo PageSpeed
+         Desktop marcaba el LCP como "no descubrible". Pero en Mobile el
+         video no llega a tiempo igual (gana el fondo borroso, que ya está
+         precargado arriba) -- ahí este segundo preload no aporta nada y solo
+         suma ~41KB compitiendo por ancho de banda con el CSS/fuentes
+         críticos en una conexión 4G lenta, que fue justo lo que hundió el
+         puntaje de Mobile (89 -> 51) cuando este preload no tenía el filtro
+         de `media`. El atributo `media` hace que el navegador ni siquiera
+         pida el archivo si el viewport no matchea, así que en Mobile el
+         comportamiento vuelve a ser exactamente el de antes de este link. -->
+    <link rel="preload" as="image" href="/candyland/poster-hero.webp" fetchpriority="high" media="(min-width: 768px)" />
 
     <!-- Loader inicial: inline y sin depender de React/Tailwind, así pinta
          en el primer frame (nunca hay un instante en blanco mientras carga
