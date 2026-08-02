@@ -3385,7 +3385,7 @@ function SettingsManager() {
                   <p className="text-muted-foreground text-sm">Ya ingresaron a la fiesta</p>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">Se actualiza solo cada 30 segundos. "Entrada comprada" cuenta personas, no órdenes -- un Dúo suma 2, un Grupo suma 4.</p>
+              <p className="text-xs text-muted-foreground">Se actualiza solo cada 30 segundos. "Entrada comprada" cuenta personas, no órdenes -- un Dúo suma 2, un Grupo suma 4 -- e incluye abonos de Misión 300 ya pagados aunque su ticket todavía no se haya generado.</p>
             </>
           ) : (
             <p className="text-muted-foreground text-sm">No hay un evento activo con datos de puerta todavía.</p>

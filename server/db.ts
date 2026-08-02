@@ -1520,6 +1520,30 @@ export async function getCajaDashboard(eventId: number) {
     if (t.status === 'used') insideCount += personas;
   }
 
+  // Abonos de Misión 300 ya aprobados cuyo ticket todavía no existe: el pago
+  // está aprobado, pero `tickets` se genera recién al liquidar la misión
+  // (evaluateMission300, server/webhooks.ts) -- y eso pasa en dos pasos.
+  // `missionTopupStatus` distingue tres momentos: 'none' = todavía sin
+  // liquidar; 'pending' = no se llegó a la meta, esperando que la persona
+  // pague la diferencia; 'paid' = ya tiene ticket generado (ver
+  // processApprovedOrder, llamado en el mismo bloque que pone 'paid'). Se
+  // cuentan los dos primeros -- son personas que ya pagaron y cuyas
+  // entradas se van a crear igual (pedido explícito del dueño). No suman a
+  // `insideCount`: sin ticket todavía no hay código para marcar entrada.
+  const unresolvedDeposits = await db.select().from(orders).where(and(
+    eq(orders.eventId, eventId),
+    eq(orders.missionDeposit, 1),
+    eq(orders.paymentStatus, 'approved'),
+    ne(orders.missionTopupStatus, 'paid'),
+  ));
+  for (const order of unresolvedDeposits) {
+    const depositItems = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+    for (const item of depositItems) {
+      const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, item.ticketTypeId)).limit(1);
+      if (tt?.category === 'acceso') expectedCount += personasForAccesoSlug(tt.accesoSlug) * item.quantity;
+    }
+  }
+
   const items = await db.select({ ticketTypeId: orderItems.ticketTypeId, quantity: orderItems.quantity })
     .from(orderItems)
     .innerJoin(orders, eq(orders.id, orderItems.orderId))
