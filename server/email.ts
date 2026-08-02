@@ -1121,12 +1121,15 @@ export function buildShiftCloseEmail(data: {
   countedCash: number;
   countedDebit: number;
   countedCredit: number;
+  countedQr?: number;
   expectedCash: number;
   expectedDebit: number;
   expectedCredit: number;
+  expectedQr?: number;
   cashDiff: number;
   debitDiff: number;
   creditDiff: number;
+  qrDiff?: number;
   salesCount: number;
   redeemsCount: number;
   topCustomers: { name: string; email: string; total: number }[];
@@ -1166,6 +1169,7 @@ export function buildShiftCloseEmail(data: {
       ${diffRow('💵 Efectivo', data.countedCash, data.expectedCash + data.openingCash, data.cashDiff)}
       ${diffRow('💳 Débito', data.countedDebit, data.expectedDebit, data.debitDiff)}
       ${diffRow('💳 Crédito', data.countedCredit, data.expectedCredit, data.creditDiff)}
+      ${data.expectedQr || data.countedQr ? diffRow('📲 QR / Transferencia', data.countedQr ?? 0, data.expectedQr ?? 0, data.qrDiff ?? 0) : ''}
     `)}
 
     ${card(`

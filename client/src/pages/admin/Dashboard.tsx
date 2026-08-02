@@ -2947,7 +2947,7 @@ function OperatorsManager() {
   const { data: operators, refetch } = trpc.operators.listAll.useQuery();
   const create = trpc.operators.create.useMutation({ onSuccess: () => { refetch(); toast.success('Operador creado'); setForm({ name: '', pin: '', role: 'caja' }); }, onError: onMutationError });
   const update = trpc.operators.update.useMutation({ onSuccess: () => { refetch(); toast.success('Actualizado'); }, onError: onMutationError });
-  const [form, setForm] = useState({ name: '', pin: '', role: 'caja' as 'admin' | 'supervisor' | 'caja' | 'barra' | 'acceso' });
+  const [form, setForm] = useState({ name: '', pin: '', role: 'caja' as 'admin' | 'supervisor' | 'caja' | 'barra' | 'acceso' | 'cocina' });
 
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
@@ -2966,6 +2966,7 @@ function OperatorsManager() {
                 <SelectItem value="admin">Admin</SelectItem>
                 <SelectItem value="barra">Barra</SelectItem>
                 <SelectItem value="acceso">Control acceso</SelectItem>
+                <SelectItem value="cocina">Cocina</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -3584,8 +3585,302 @@ function AdminLoginForm() {
   );
 }
 
+/* ─── Carta de la fiesta ──────────────────────────────────────────────────
+ * Los tragos, la comida, la guardarropía y el merch son `ticketTypes` con
+ * categoría propia (consumo/locker/merch) del evento -- no una tabla nueva
+ * (docs/ARQUITECTURA-CAJA.md §12). La ventaja concreta de reusar esa tabla:
+ * la venta queda como `orders` con channel='caja', así que el reporte, el
+ * CSV y el PDF del admin ya las ven sin tocar nada.
+ *
+ * Y la ventaja de que sean categorías propias en vez de 'extra': el checkout
+ * de la web lista addons filtrando `category === 'extra'`, así que un trago
+ * NO aparece en el sitio, no emite ticket y no manda correo. Se vende solo
+ * en la barra, que es lo que corresponde. */
+
+const CARTA_CATEGORIES = [
+  { id: 'consumo', label: 'Tragos y comida', emoji: '🍹', color: '#f472b6', help: 'Todo lo que se consume en la fiesta: tragos, cervezas, bebidas, comida.' },
+  { id: 'locker', label: 'Guardarropía', emoji: '🧥', color: '#818cf8', help: 'Se cobra igual que un producto; al confirmar, la caja pide el número de la percha.' },
+  { id: 'merch', label: 'Merch', emoji: '🎁', color: '#fbbf24', help: 'Poleras, stickers, lo que se venda de recuerdo.' },
+  { id: 'extra', label: 'Extras de la web', emoji: '🎫', color: '#34d399', help: 'Estacionamiento, covers y demás addons que TAMBIÉN se ofrecen en el checkout del sitio.' },
+] as const;
+
+type CartaCategory = typeof CARTA_CATEGORIES[number]['id'];
+
+// Emojis sugeridos para no tener que ir a buscarlos a otro lado. El dueño
+// eligió emoji + color en vez de fotos: se lee mejor que una miniatura en una
+// tablet a oscuras, y no obliga a construir subida de imágenes (que hoy no
+// existe en el proyecto).
+const EMOJI_SUGGESTIONS: Record<CartaCategory, string[]> = {
+  consumo: ['🍹', '🍺', '🍷', '🥃', '🍸', '🥤', '💧', '⚡', '🍔', '🌭', '🍕', '🌮', '🍟', '🍫'],
+  locker: ['🧥', '🎒', '👜', '🧣', '☂️'],
+  merch: ['👕', '🧢', '🩲', '🏷️', '💿', '✨'],
+  extra: ['🅿️', '⭐', '🎫', '🎟️', '🛋️'],
+};
+
+const COLOR_PALETTE = ['#f472b6', '#fb7185', '#f59e0b', '#fbbf24', '#34d399', '#22d3ee', '#60a5fa', '#818cf8', '#a78bfa', '#e879f9'];
+
+const emptyProduct = (category: CartaCategory) => ({
+  name: '',
+  category,
+  groupName: '',
+  emoji: EMOJI_SUGGESTIONS[category][0],
+  color: CARTA_CATEGORIES.find((c) => c.id === category)!.color as string,
+  price: 0,
+  costPrice: 0,
+  totalStock: 100,
+  sortOrder: 0,
+  toKitchen: category === 'consumo' ? 0 : 0,
+});
+
+function CartaManager() {
+  const { data: events } = trpc.events.listAll.useQuery();
+  const [eventId, setEventId] = useState<number | null>(null);
+  const activeId = eventId ?? events?.[0]?.id ?? null;
+
+  const utils = trpc.useUtils();
+  const { data: allTypes, refetch } = trpc.events.listTicketTypes.useQuery({ eventId: activeId! }, { enabled: !!activeId });
+
+  const [tab, setTab] = useState<CartaCategory>('consumo');
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState(emptyProduct('consumo'));
+
+  const onSaved = (msg: string) => {
+    utils.events.listTicketTypes.invalidate();
+    refetch();
+    toast.success(msg);
+    setShowForm(false);
+    setEditingId(null);
+  };
+  const createType = trpc.events.createTicketType.useMutation({ onSuccess: () => onSaved('Producto creado'), onError: onMutationError });
+  const updateType = trpc.events.updateTicketType.useMutation({ onSuccess: () => onSaved('Producto actualizado'), onError: onMutationError });
+  const deleteType = trpc.events.deleteTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+
+  const products = (allTypes ?? []).filter((t: any) => t.category === tab);
+  const meta = CARTA_CATEGORIES.find((c) => c.id === tab)!;
+
+  const openNew = () => { setForm(emptyProduct(tab)); setEditingId(null); setShowForm(true); };
+  const openEdit = (p: any) => {
+    setForm({
+      name: p.name,
+      category: p.category,
+      groupName: p.groupName ?? '',
+      emoji: p.emoji ?? EMOJI_SUGGESTIONS[tab][0],
+      color: p.color ?? meta.color,
+      price: Number(p.price),
+      costPrice: p.costPrice != null ? Number(p.costPrice) : 0,
+      totalStock: Number(p.totalStock),
+      sortOrder: Number(p.sortOrder ?? 0),
+      toKitchen: Number(p.toKitchen ?? 0),
+    });
+    setEditingId(p.id);
+    setShowForm(true);
+  };
+
+  const save = async () => {
+    if (!activeId) return;
+    if (!form.name.trim()) { toast.error('Ponle un nombre al producto'); return; }
+    if (form.price <= 0) { toast.error('El precio tiene que ser mayor a 0'); return; }
+    const payload = {
+      name: form.name.trim(),
+      category: form.category,
+      groupName: form.groupName.trim() || undefined,
+      emoji: form.emoji || undefined,
+      color: form.color,
+      price: form.price,
+      costPrice: form.costPrice || undefined,
+      totalStock: form.totalStock,
+      sortOrder: form.sortOrder,
+      toKitchen: form.toKitchen,
+    };
+    try {
+      if (editingId) await updateType.mutateAsync({ id: editingId, ...payload });
+      else await createType.mutateAsync({ eventId: activeId, ...payload });
+    } catch {
+      // onMutationError ya avisó; se deja el formulario abierto para reintentar
+    }
+  };
+
+  // Agrupadas por sección para que la lista se lea como la carta de verdad.
+  const groups = products.reduce((acc: Record<string, any[]>, p: any) => {
+    const key = p.groupName || 'Sin sección';
+    (acc[key] ||= []).push(p);
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap justify-between items-start gap-3">
+        <div>
+          <h2 className="font-heading text-2xl">Carta de la fiesta</h2>
+          <p className="text-muted-foreground text-sm mt-1">
+            Lo que se vende en la barra: tragos, comida, guardarropía y merch. Aparece como botón en /caja y <strong>no</strong> se muestra en el sitio web.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={activeId ? String(activeId) : ''} onValueChange={(v) => setEventId(Number(v))}>
+            <SelectTrigger className="w-[220px]"><SelectValue placeholder="Evento" /></SelectTrigger>
+            <SelectContent>
+              {(events ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Button onClick={openNew} className="interactive"><Plus className="w-4 h-4 mr-2" /> Nuevo producto</Button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {CARTA_CATEGORIES.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => { setTab(c.id); setShowForm(false); }}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors interactive ${tab === c.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:bg-muted/70'}`}
+          >
+            {c.emoji} {c.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-muted-foreground text-xs -mt-3">{meta.help}</p>
+
+      {showForm && (
+        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+          <CardContent className="pt-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2">
+                <Label>Nombre</Label>
+                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="Ej: Piscola" />
+              </div>
+              <div>
+                <Label>Sección</Label>
+                <Input value={form.groupName} onChange={(e) => setForm({ ...form, groupName: e.target.value })} className="mt-1" placeholder="Ej: Tragos" />
+                <p className="text-muted-foreground text-xs mt-1">Arma las pestañas de la grilla en /caja.</p>
+              </div>
+            </div>
+
+            <div>
+              <Label>Ícono</Label>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {EMOJI_SUGGESTIONS[form.category].map((em) => (
+                  <button
+                    key={em}
+                    onClick={() => setForm({ ...form, emoji: em })}
+                    className={`w-11 h-11 rounded-xl text-2xl leading-none flex items-center justify-center border transition-colors interactive ${form.emoji === em ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted'}`}
+                  >
+                    {em}
+                  </button>
+                ))}
+                <Input
+                  value={form.emoji}
+                  onChange={(e) => setForm({ ...form, emoji: e.target.value.slice(0, 4) })}
+                  className="w-20 h-11 text-center text-xl"
+                  aria-label="Otro emoji"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label>Color del botón</Label>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {COLOR_PALETTE.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setForm({ ...form, color: c })}
+                    style={{ backgroundColor: c }}
+                    className={`w-9 h-9 rounded-full transition-transform interactive ${form.color === c ? 'ring-2 ring-offset-2 ring-foreground scale-110' : ''}`}
+                    aria-label={`Color ${c}`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div><Label>Precio</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} className="mt-1" /></div>
+              <div>
+                <Label>Costo</Label>
+                <Input type="number" value={form.costPrice} onChange={(e) => setForm({ ...form, costPrice: Number(e.target.value) })} className="mt-1" />
+                <p className="text-muted-foreground text-xs mt-1">Para ver el margen. Si no se carga, ese dato se pierde para siempre.</p>
+              </div>
+              <div>
+                <Label>Stock</Label>
+                <Input type="number" value={form.totalStock} onChange={(e) => setForm({ ...form, totalStock: Number(e.target.value) })} className="mt-1" />
+                <p className="text-muted-foreground text-xs mt-1">Solo avisa: nunca impide vender.</p>
+              </div>
+              <div>
+                <Label>Orden</Label>
+                <Input type="number" value={form.sortOrder} onChange={(e) => setForm({ ...form, sortOrder: Number(e.target.value) })} className="mt-1" />
+                <p className="text-muted-foreground text-xs mt-1">Menor = más arriba. Pon los más vendidos primero.</p>
+              </div>
+            </div>
+
+            <label className="flex items-start gap-3 cursor-pointer">
+              <Checkbox checked={form.toKitchen === 1} onCheckedChange={(v) => setForm({ ...form, toKitchen: v ? 1 : 0 })} className="mt-0.5" />
+              <span className="text-sm">
+                Lo prepara la cocina
+                <span className="block text-muted-foreground text-xs">Al venderse genera una comanda en la pantalla de cocina con el número de pedido.</span>
+              </span>
+            </label>
+
+            <div className="flex gap-2">
+              <Button onClick={save} disabled={createType.isPending || updateType.isPending}>
+                {editingId ? 'Guardar cambios' : 'Crear producto'}
+              </Button>
+              <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {products.length === 0 && !showForm && (
+        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+          <CardContent className="pt-6 text-center text-muted-foreground text-sm">
+            Todavía no hay nada cargado en «{meta.label}». Apreta «Nuevo producto» para empezar la carta.
+          </CardContent>
+        </Card>
+      )}
+
+      {Object.entries(groups).map(([groupName, items]) => (
+        <div key={groupName} className="space-y-2">
+          <h3 className="font-heading text-lg">{groupName}</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {(items as any[]).map((p) => {
+              const left = Number(p.totalStock) - Number(p.soldCount);
+              return (
+                <Card key={p.id} className="rounded-2xl border-0 shadow-md shadow-black/5">
+                  <CardContent className="pt-4 flex items-center gap-3">
+                    <div
+                      className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0"
+                      style={{ backgroundColor: (p.color || meta.color) + '22' }}
+                    >
+                      {p.emoji || meta.emoji}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold truncate">{p.name}</p>
+                      <p className="text-muted-foreground text-sm">
+                        ${Number(p.price).toLocaleString('es-CL')}
+                        {p.costPrice != null && <span className="ml-2 text-xs">margen ${(Number(p.price) - Number(p.costPrice)).toLocaleString('es-CL')}</span>}
+                      </p>
+                      <p className={`text-xs mt-0.5 ${left <= 0 ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
+                        {left <= 0 ? 'Sin stock (igual se puede vender)' : `Quedan ${left}`}
+                        {Number(p.toKitchen) === 1 && <span className="ml-2">· va a cocina</span>}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button variant="outline" size="sm" onClick={() => openEdit(p)}><Edit className="w-3 h-3" /></Button>
+                      <ConfirmDeleteButton description={`Vas a eliminar "${p.name}" de la carta.`} onConfirm={() => deleteType.mutateAsync({ id: p.id })} />
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const ADMIN_SECTIONS = [
   { id: 'events', label: 'Eventos', icon: Calendar, render: () => <EventsManager /> },
+  { id: 'carta', label: 'Carta de la Fiesta', icon: Martini, render: () => <CartaManager /> },
   { id: 'orders-web', label: 'Ventas Web', icon: Ticket, render: () => <OrdersView channel="web" /> },
   { id: 'orders-caja', label: 'Ventas Caja', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
   { id: 'manual-access', label: 'Accesos Manuales', icon: Gift, render: () => <ManualAccessSection /> },

@@ -63,7 +63,16 @@ export const ticketTypes = mysqlTable("ticketTypes", {
   // por persona/grupo). "extra" = addon opcional que se ofrece después
   // (estacionamiento, cover, etc.) — el checkout los lista automáticamente
   // en el paso de extras, con su propio stock y precio.
-  category: mysqlEnum("category", ["acceso", "extra"]).default("acceso").notNull(),
+  //
+  // Las tres últimas son la CARTA DE LA FIESTA, que solo se vende en /caja
+  // (docs/ARQUITECTURA-CAJA.md §12): "consumo" = tragos y comida, "locker" =
+  // guardarropía, "merch" = productos. Que sean categorías propias y no
+  // "extra" es justamente lo que las mantiene fuera del sitio web: el
+  // checkout lista addons filtrando `category === 'extra'`, y webhooks.ts
+  // genera `displayCode` solo para 'extra' — así un trago no aparece en la
+  // web, no emite ticket y no manda correo, sin necesidad de ningún filtro
+  // extra en esos archivos.
+  category: mysqlEnum("category", ["acceso", "extra", "consumo", "locker", "merch"]).default("acceso").notNull(),
   description: varchar("description", { length: 500 }),
   price: decimal("price", { precision: 10, scale: 0 }).notNull(),
   originalPrice: decimal("originalPrice", { precision: 10, scale: 0 }),
@@ -77,6 +86,16 @@ export const ticketTypes = mysqlTable("ticketTypes", {
   // --- Módulo /caja (docs/ARQUITECTURA-CAJA.md §4.3) ---
   costPrice: decimal("costPrice", { precision: 10, scale: 0 }), // para cálculo de margen (§12)
   color: varchar("color", { length: 20 }), // color del botón en la grilla de caja
+  emoji: varchar("emoji", { length: 8 }), // ícono grande del botón en /caja (en vez de foto)
+  // Sección de la carta dentro de la categoría ("Tragos", "Cervezas", "Sin
+  // alcohol", "Comida"). Es lo que arma las pestañas de la grilla de /caja
+  // sin necesitar una tabla de categorías.
+  groupName: varchar("groupName", { length: 50 }),
+  // "este producto lo prepara la cocina" -> genera comanda en /cocina. Es una
+  // casilla explícita y no una regla adivinada por categoría o nombre: puede
+  // haber un trago que sí va a cocina, o una comida envasada que se entrega
+  // directo en la barra.
+  toKitchen: int("toKitchen").default(0).notNull(),
   internalCode: varchar("internalCode", { length: 10 }), // prefijo del código de canje, ej. 'PIS'
   barcode: varchar("barcode", { length: 64 }), // preparado para lector de código de barras futuro
   metadata: json("metadata"), // atributos extensibles sin migración (talla, duración, etc.)
@@ -463,7 +482,7 @@ export const operators = mysqlTable("operators", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
   pinHash: varchar("pinHash", { length: 255 }).notNull(),
-  role: mysqlEnum("role", ["admin", "supervisor", "caja", "barra", "acceso"]).notNull(),
+  role: mysqlEnum("role", ["admin", "supervisor", "caja", "barra", "acceso", "cocina"]).notNull(),
   active: int("active").default(1).notNull(),
   // Rate limiting del login por PIN (docs/ARQUITECTURA-CAJA.md §13, riesgo 7)
   // -- el PIN es mucho más débil que una contraseña y la tablet es compartida.
@@ -603,9 +622,15 @@ export const shifts = mysqlTable("shifts", {
   countedCash: decimal("countedCash", { precision: 10, scale: 0 }),
   countedDebit: decimal("countedDebit", { precision: 10, scale: 0 }),
   countedCredit: decimal("countedCredit", { precision: 10, scale: 0 }),
+  countedQr: decimal("countedQr", { precision: 10, scale: 0 }),
   expectedCash: decimal("expectedCash", { precision: 10, scale: 0 }),
   expectedDebit: decimal("expectedDebit", { precision: 10, scale: 0 }),
   expectedCredit: decimal("expectedCredit", { precision: 10, scale: 0 }),
+  // Transferencia / QR de Mercado Pago. Va aparte de débito y crédito porque
+  // no pasa por la máquina: el voucher no existe y hay que cuadrarlo contra
+  // la app del banco. Sin esta columna, la plata cobrada por QR simplemente
+  // desaparecería del arqueo del turno.
+  expectedQr: decimal("expectedQr", { precision: 10, scale: 0 }),
   salesCount: int("salesCount"),
   redeemsCount: int("redeemsCount"),
   topCustomers: json("topCustomers"), // [{ name, email, total }]
@@ -616,6 +641,64 @@ export const shifts = mysqlTable("shifts", {
 
 export type Shift = typeof shifts.$inferSelect;
 export type InsertShift = typeof shifts.$inferInsert;
+
+// Guardarropía: una fila por prenda dejada. `tagNumber` es el número de la
+// PERCHA FÍSICA, tecleado por la cajera al cobrar -- no lo genera el sistema.
+// Es a propósito: un correlativo asignado por el servidor no puede funcionar
+// sin señal (dos tablets desconectadas asignarían las dos el #42), y además
+// el número impreso en la ficha es justamente el que la persona lleva en la
+// mano. El único de abajo es la red de seguridad: si alguien teclea un
+// número ya usado esta noche, la caja avisa en vez de dejar dos abrigos con
+// el mismo número.
+export const lockerItems = mysqlTable("lockerItems", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  orderId: int("orderId").notNull(),
+  opId: varchar("opId", { length: 64 }).notNull(),
+  tagNumber: varchar("tagNumber", { length: 16 }).notNull(),
+  status: mysqlEnum("status", ["guardado", "retirado"]).default("guardado").notNull(),
+  chargedAt: timestamp("chargedAt").defaultNow().notNull(),
+  retrievedAt: timestamp("retrievedAt"),
+  retrievedByOperatorId: int("retrievedByOperatorId"),
+}, (t) => [
+  uniqueIndex("lockerItems_event_tag_unique").on(t.eventId, t.tagNumber),
+]);
+
+export type LockerItem = typeof lockerItems.$inferSelect;
+export type InsertLockerItem = typeof lockerItems.$inferInsert;
+
+// Comanda de cocina. Se crea sola al vender cualquier producto con
+// `ticketTypes.toKitchen`, dentro del mismo applyOp de la venta -- así la
+// idempotencia por `opId` que ya existe cubre también la comanda: una venta
+// reenviada por la cola offline no genera dos pedidos en cocina.
+//
+// `ticketNumber` es `<nº de caja>-<correlativo local>` (ej. "1-042"): el
+// correlativo lo lleva la propia tablet en su base local, y el prefijo de
+// caja (registers.id) es lo que garantiza que dos cajas sin señal NUNCA
+// asignen el mismo número. `items` va congelado (nombre + cantidad) porque
+// si mañana se renombra o borra el producto, la comanda vieja tiene que
+// seguir diciendo qué era.
+export const kitchenTickets = mysqlTable("kitchenTickets", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  orderId: int("orderId").notNull(),
+  opId: varchar("opId", { length: 64 }).notNull(),
+  registerId: int("registerId"),
+  ticketNumber: varchar("ticketNumber", { length: 12 }).notNull(),
+  status: mysqlEnum("status", ["pendiente", "aprobado", "entregado"]).default("pendiente").notNull(),
+  items: json("items").notNull(), // [{ name, quantity }]
+  note: varchar("note", { length: 200 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  approvedAt: timestamp("approvedAt"),
+  approvedByOperatorId: int("approvedByOperatorId"),
+  deliveredAt: timestamp("deliveredAt"),
+  deliveredByOperatorId: int("deliveredByOperatorId"),
+}, (t) => [
+  uniqueIndex("kitchenTickets_event_number_unique").on(t.eventId, t.ticketNumber),
+]);
+
+export type KitchenTicket = typeof kitchenTickets.$inferSelect;
+export type InsertKitchenTicket = typeof kitchenTickets.$inferInsert;
 
 // Ledger append-only de Playcoins (pedido explícito del usuario), mismo
 // patrón que `ops`: nunca se actualiza ni se borra una fila -- toda

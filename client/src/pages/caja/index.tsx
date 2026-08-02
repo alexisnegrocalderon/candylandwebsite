@@ -11,6 +11,7 @@ import { parseTicketCodeFromQr } from '@shared/qr';
 import {
   saveSnapshot, getLocalEvent, searchLocal, searchGiftsLocal, getLocalAttendee, getLocalCatalog,
   enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, clearSyncedOps, correctedNow,
+  nextKitchenTicketNumber,
   type CajaAttendee, type CajaCatalogItem, type CajaGift, type QueuedOp,
 } from './db';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
@@ -272,7 +273,7 @@ function OpeningCashPrompt({ onSubmit, loading, onBack }: { onSubmit: (cash: num
  * crédito de los vouchers de las máquinas. El servidor compara contra las
  * ventas registradas y manda el informe final por correo. */
 function ShiftCloseForm({ onSubmit, onCancel, loading }: {
-  onSubmit: (counts: { countedCash: number; countedDebit: number; countedCredit: number }) => void;
+  onSubmit: (counts: { countedCash: number; countedDebit: number; countedCredit: number; countedQr: number }) => void;
   onCancel: () => void;
   loading: boolean;
 }) {
@@ -281,6 +282,7 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
   const [countedCash, setCountedCash] = useState(0);
   const [debit, setDebit] = useState('');
   const [credit, setCredit] = useState('');
+  const [qr, setQr] = useState('');
 
   if (phase === 'cash') {
     return (
@@ -298,7 +300,7 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
   }
 
   const parse = (v: string) => (v.trim() === '' ? 0 : Number(v));
-  const valid = [debit, credit].every((v) => v.trim() === '' || Number.isFinite(Number(v)));
+  const valid = [debit, credit, qr].every((v) => v.trim() === '' || Number.isFinite(Number(v)));
 
   return (
     <div className="fixed inset-0 z-20 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -325,6 +327,14 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
               className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
             />
           </div>
+          <div>
+            <label className="text-xs text-white/50 uppercase tracking-wide">📲 Total QR / transferencia (app del banco)</label>
+            <input
+              type="number" inputMode="numeric" min={0} value={qr} onChange={(e) => setQr(e.target.value)}
+              placeholder="$0"
+              className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
+            />
+          </div>
         </div>
 
         <div className="flex gap-3">
@@ -334,7 +344,7 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
           <Button
             className="flex-1 bg-primary hover:bg-primary/90"
             disabled={!valid || loading}
-            onClick={() => onSubmit({ countedCash, countedDebit: parse(debit), countedCredit: parse(credit) })}
+            onClick={() => onSubmit({ countedCash, countedDebit: parse(debit), countedCredit: parse(credit), countedQr: parse(qr) })}
           >
             {loading ? 'Cerrando…' : 'Cerrar turno'}
           </Button>
@@ -434,6 +444,9 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pending, setPending] = useState(0);
   const [view, setView] = useState<View>('menu');
+  // Confirmación de comanda: el número gigante que la cajera dicta -- si la
+  // venta se encoló sin señal, avisa que cocina todavía no lo ve.
+  const [kitchenConfirm, setKitchenConfirm] = useState<{ number: string; offline: boolean } | null>(null);
   const [query, setQuery] = useState('');
   const [manualCode, setManualCode] = useState('');
   const [results, setResults] = useState<CajaAttendee[]>([]);
@@ -615,7 +628,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
               opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined,
               ...counts, clientAt: (await correctedNow()).toISOString(),
             });
-            const cuadra = Math.abs(report.cashDiff) < 1 && Math.abs(report.debitDiff) < 1 && Math.abs(report.creditDiff) < 1;
+            const cuadra = Math.abs(report.cashDiff) < 1 && Math.abs(report.debitDiff) < 1 && Math.abs(report.creditDiff) < 1 && Math.abs(report.qrDiff) < 1;
             toast.success(cuadra ? '✅ Turno cerrado — la caja cuadra perfecto' : '⚠️ Turno cerrado — revisa el correo, hay diferencias en el cuadre');
             onCloseShift();
             logout.mutate();
@@ -702,9 +715,18 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
 
         {view === 'sale' && (
           <NewSale
-            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins) => {
-              await enqueueOp({ opId: newOpId(), type: 'sale', items, paymentMethod, buyerEmail, redeemPlaycoins, clientAt: (await correctedNow()).toISOString() });
-              toast.success('Venta registrada ✅');
+            eventId={localEvent.id}
+            registerId={registerId}
+            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, kitchenTicketNumber) => {
+              await enqueueOp({
+                opId: newOpId(), type: 'sale', items, paymentMethod, buyerEmail, redeemPlaycoins,
+                discountCode, lockerTag, kitchenTicketNumber, clientAt: (await correctedNow()).toISOString(),
+              });
+              if (kitchenTicketNumber) {
+                setKitchenConfirm({ number: kitchenTicketNumber, offline: !isOnline });
+              } else {
+                toast.success('Venta registrada ✅');
+              }
               refreshPending();
               runSync();
               setView('menu');
@@ -714,6 +736,24 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
 
         {view === 'dashboard' && <CajaDashboard eventId={localEvent.id} />}
       </main>
+
+      {kitchenConfirm && (
+        <div className="fixed inset-0 z-30 bg-black/85 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-4">
+            <p className="text-sm text-white/60 uppercase tracking-wide">Número de pedido</p>
+            <p className="font-heading font-extrabold text-6xl tracking-tight text-primary">{kitchenConfirm.number}</p>
+            <p className="text-white/70">Díctaselo a la persona -- lo va a necesitar para retirar en cocina.</p>
+            {kitchenConfirm.offline && (
+              <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+                Sin señal ahora mismo: la cocina todavía no ve este pedido. Avísales a mano y se va a sincronizar solo cuando vuelva la conexión.
+              </p>
+            )}
+            <Button className="w-full h-12 bg-primary hover:bg-primary/90" onClick={() => setKitchenConfirm(null)}>
+              Listo
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -821,17 +861,33 @@ function CustomerSheet({ orderId, onRedeem, onCheckIn, canVoid, onVoid, voiding 
   );
 }
 
-function NewSale({ onSale }: {
+// Mismo agrupado que el admin (Dashboard.tsx CARTA_CATEGORIES): la cajera ve
+// las mismas categorías con las que se cargó la carta. `extra` son los
+// addons que TAMBIÉN se venden en la web (estacionamiento, covers).
+const CATEGORY_META: Record<string, { label: string; emoji: string }> = {
+  consumo: { label: 'Tragos y comida', emoji: '🍹' },
+  locker: { label: 'Guardarropía', emoji: '🧥' },
+  merch: { label: 'Merch', emoji: '🎁' },
+  extra: { label: 'Extras', emoji: '🎫' },
+};
+
+function NewSale({ eventId, registerId, onSale }: {
+  eventId: number;
+  registerId: number | null;
   onSale: (
     items: { ticketTypeId: number; quantity: number }[],
-    paymentMethod: 'efectivo' | 'debito' | 'credito',
+    paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr',
     buyerEmail?: string,
     redeemPlaycoins?: number,
+    discountCode?: string,
+    lockerTag?: string,
+    kitchenTicketNumber?: string,
   ) => void;
 }) {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
-  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito'>('debito');
+  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito' | 'qr'>('debito');
+  const [tab, setTab] = useState<string | null>(null);
 
   // Playcoins (pedido explícito del usuario): paso opcional/omisible para
   // que la venta también gane puntos, y para canjear puntos ya ganados.
@@ -840,15 +896,56 @@ function NewSale({ onSale }: {
   const [balance, setBalance] = useState<number | null>(null);
   const [checkingBalance, setCheckingBalance] = useState(false);
   const [redeemInput, setRedeemInput] = useState('');
+  const [associatedName, setAssociatedName] = useState<string | null>(null);
+  const [scanningCustomer, setScanningCustomer] = useState(false);
   const utils = trpc.useUtils();
 
-  useEffect(() => { getLocalCatalog().then(setCatalog); }, []);
+  // Código de descuento (opcional): se PREVISUALIZA acá contra el mismo
+  // endpoint que usa el checkout web, pero el monto real que se cobra lo
+  // recalcula el servidor al aplicar la venta -- nunca se confía en este
+  // preview para el cobro final.
+  const [discountCode, setDiscountCode] = useState('');
+  const [discountResult, setDiscountResult] = useState<{ valid: boolean; message?: string; discount?: any } | null>(null);
+  const validateDiscount = trpc.orders.validateDiscount.useMutation();
+  const applyDiscount = async () => {
+    if (!discountCode.trim()) return;
+    try {
+      const r = await validateDiscount.mutateAsync({ code: discountCode.trim(), eventId });
+      setDiscountResult(r);
+      if (!r.valid) toast.error(r.message || 'Código no válido');
+    } catch {
+      setDiscountResult({ valid: false, message: 'No se pudo validar (¿sin conexión?)' });
+    }
+  };
+
+  // Guardarropía: el número de la percha física, tecleado por la cajera --
+  // no lo genera el sistema (ver drizzle/schema.ts `lockerItems`).
+  const [lockerTag, setLockerTag] = useState('');
+
+  useEffect(() => {
+    getLocalCatalog().then((c) => {
+      const sorted = [...c].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+      setCatalog(sorted);
+      if (sorted.length > 0) setTab((prev) => prev ?? (sorted[0].groupName || sorted[0].category));
+    });
+  }, []);
 
   const total = catalog.reduce((sum, p) => sum + p.price * (cart[p.id] || 0), 0);
-  const hasItems = Object.values(cart).some((q) => q > 0);
+  const cartLines = catalog.filter((p) => (cart[p.id] || 0) > 0);
+  const hasItems = cartLines.length > 0;
+  const lockerLines = cartLines.filter((p) => p.category === 'locker');
+  const lockerQty = lockerLines.reduce((sum, p) => sum + (cart[p.id] || 0), 0);
+  const needsLockerTag = lockerQty > 0;
+  const tooManyLockers = lockerQty > 1;
+  const hasKitchenItems = cartLines.some((p) => p.toKitchen);
 
   const add = (id: number) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
   const remove = (id: number) => setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] || 0) - 1) }));
+
+  // Pestañas por sección (groupName), con la categoría como respaldo para
+  // productos sin sección asignada -- así nunca desaparecen de la grilla.
+  const tabs = Array.from(new Set(catalog.map((p) => p.groupName || p.category)));
+  const productsInTab = catalog.filter((p) => (p.groupName || p.category) === tab);
 
   const checkBalance = async () => {
     if (!buyerEmail.trim()) return;
@@ -863,58 +960,174 @@ function NewSale({ onSale }: {
     }
   };
 
-  const confirm = () => {
+  const confirm = async () => {
+    if (tooManyLockers) { toast.error('Cobra los abrigos de a uno para poder asignar un número a cada uno'); return; }
+    if (needsLockerTag && !lockerTag.trim()) { toast.error('Falta el número de la percha'); return; }
     const cartItems = Object.entries(cart).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId: Number(ticketTypeId), quantity }));
     const redeemAmount = balance != null ? clampRedeemAmount(Number(redeemInput || 0), Math.min(balance, total)) : 0;
-    onSale(cartItems, paymentMethod, buyerEmail.trim() || undefined, redeemAmount || undefined);
+    // El número de comanda se genera ACÁ, en la tablet, antes de encolar la
+    // venta -- así funciona sin señal (ver nextKitchenTicketNumber).
+    const kitchenTicketNumber = hasKitchenItems ? await nextKitchenTicketNumber(registerId) : undefined;
+    onSale(
+      cartItems, paymentMethod, buyerEmail.trim() || undefined, redeemAmount || undefined,
+      discountResult?.valid ? discountCode.trim() : undefined,
+      needsLockerTag ? lockerTag.trim() : undefined,
+      kitchenTicketNumber,
+    );
     setCart({});
     setBuyerEmail('');
     setBalance(null);
     setRedeemInput('');
     setShowEmailStep(false);
+    setAssociatedName(null);
+    setDiscountCode('');
+    setDiscountResult(null);
+    setLockerTag('');
+  };
+
+  const handleCustomerScan = async (raw: string) => {
+    const code = parseTicketCodeFromQr(raw);
+    setScanningCustomer(false);
+    if (!code) return;
+    const found = await searchLocal(code);
+    const attendee = found[0];
+    if (!attendee) { toast.error('No encontramos ese código.'); return; }
+    setBuyerEmail(attendee.buyerEmail);
+    setAssociatedName(attendee.buyerName);
+    setShowEmailStep(true);
+    setBalance(null);
+    setRedeemInput('');
   };
 
   return (
     <div className="space-y-5">
       <h2 className="text-xl font-bold">Nueva venta</h2>
-      <div className="grid grid-cols-2 gap-3">
-        {catalog.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => add(p.id)}
-            className="rounded-3xl p-4 text-left border active:scale-95 transition-transform backdrop-blur-sm"
-            style={{ backgroundColor: (p.color || '#f472b6') + '14', borderColor: (p.color || '#f472b6') + '50', boxShadow: `0 0 20px -10px ${p.color || '#f472b6'}` }}
-          >
-            <p className="font-semibold">{p.name}</p>
-            <p className="text-sm text-white/60">${p.price.toLocaleString('es-CL')}</p>
-            {cart[p.id] > 0 && (
-              <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => remove(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">−</button>
-                <span className="font-bold">{cart[p.id]}</span>
-                <button onClick={() => add(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">+</button>
-              </div>
-            )}
-          </button>
-        ))}
-        {catalog.length === 0 && <p className="col-span-2 text-white/50 text-sm">No hay productos "extra" activos para este evento.</p>}
-      </div>
+
+      {catalog.length === 0 ? (
+        <p className="text-white/50 text-sm">Todavía no hay productos cargados para este evento. Se cargan desde Admin → Carta de la Fiesta.</p>
+      ) : (
+        <>
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+            {tabs.map((t) => {
+              const meta = CATEGORY_META[t] ?? { label: t, emoji: '🛍️' };
+              return (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`shrink-0 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${tab === t ? 'bg-primary text-white' : 'bg-white/5 text-white/60'}`}
+                >
+                  {meta.emoji} {meta.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {productsInTab.map((p) => {
+              const left = p.totalStock - p.soldCount;
+              const noStock = left <= 0;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => add(p.id)}
+                  className="relative rounded-3xl p-4 min-h-[88px] text-left border active:scale-95 transition-transform backdrop-blur-sm"
+                  style={{ backgroundColor: (p.color || '#f472b6') + '14', borderColor: (p.color || '#f472b6') + '50', boxShadow: `0 0 20px -10px ${p.color || '#f472b6'}` }}
+                >
+                  {noStock && (
+                    <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide bg-red-500/90 text-white px-2 py-0.5 rounded-full">
+                      Sin stock
+                    </span>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <span className="text-3xl leading-none">{p.emoji || CATEGORY_META[p.category]?.emoji || '🛍️'}</span>
+                    <div className="min-w-0">
+                      <p className="font-semibold truncate">{p.name}</p>
+                      <p className="text-sm text-white/60">${p.price.toLocaleString('es-CL')}</p>
+                    </div>
+                  </div>
+                  {cart[p.id] > 0 && (
+                    <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      <button onClick={() => remove(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">−</button>
+                      <span className="font-bold">{cart[p.id]}</span>
+                      <button onClick={() => add(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">+</button>
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+            {productsInTab.length === 0 && <p className="col-span-2 text-white/50 text-sm">Nada cargado en esta sección todavía.</p>}
+          </div>
+        </>
+      )}
 
       {hasItems && (
         <div className="sticky bottom-4 bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-2xl p-4 space-y-3">
-          <div className="flex justify-between text-lg font-bold">
+          <div className="space-y-1 max-h-32 overflow-y-auto">
+            {cartLines.map((p) => (
+              <div key={p.id} className="flex justify-between text-sm text-white/70">
+                <span>{p.emoji ? `${p.emoji} ` : ''}{p.name} × {cart[p.id]}</span>
+                <span>${(p.price * cart[p.id]).toLocaleString('es-CL')}</span>
+              </div>
+            ))}
+          </div>
+          {/* Código de descuento -- solo vista previa, el servidor lo
+              revalida al cobrar. Sin señal simplemente no se puede aplicar. */}
+          <div className="space-y-1">
+            <div className="flex gap-2">
+              <Input
+                value={discountCode}
+                onChange={(e) => { setDiscountCode(e.target.value.toUpperCase()); setDiscountResult(null); }}
+                placeholder="Código de descuento (opcional)"
+                className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+              />
+              <Button size="sm" variant="outline" className="border-white/15 text-white shrink-0" disabled={!discountCode.trim() || validateDiscount.isPending} onClick={applyDiscount}>
+                {validateDiscount.isPending ? '…' : 'Aplicar'}
+              </Button>
+            </div>
+            {discountResult?.valid && discountResult.discount && (
+              <p className="text-xs text-green-400">✓ Descuento aplicado: {discountResult.discount.discountType === 'percentage' ? `${discountResult.discount.discountValue}%` : `$${Number(discountResult.discount.discountValue).toLocaleString('es-CL')}`}</p>
+            )}
+            {discountResult && !discountResult.valid && (
+              <p className="text-xs text-red-400">{discountResult.message || 'Código no válido'}</p>
+            )}
+          </div>
+
+          {/* Guardarropía: el número YA está en la ficha física que se le
+              entrega a la persona -- la cajera solo lo teclea acá. */}
+          {needsLockerTag && (
+            <div className="space-y-1">
+              <label className="text-xs text-white/50 uppercase tracking-wide">🧥 Número de la percha</label>
+              <Input
+                value={lockerTag}
+                onChange={(e) => setLockerTag(e.target.value)}
+                placeholder="Ej: 42"
+                inputMode="numeric"
+                className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+              />
+              {tooManyLockers && <p className="text-xs text-red-400">Cobra los abrigos de a uno para poder asignar un número a cada uno.</p>}
+            </div>
+          )}
+
+          <div className="flex justify-between text-lg font-bold border-t border-white/10 pt-2">
             <span>Total</span>
             <span>${total.toLocaleString('es-CL')}</span>
           </div>
 
           {!showEmailStep ? (
-            <button onClick={() => setShowEmailStep(true)} className="text-sm text-white/50 underline">
-              + Registrar email del cliente (gana Playcoins) — opcional
-            </button>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button onClick={() => setShowEmailStep(true)} className="text-sm text-white/50 underline">
+                + Registrar email del cliente (gana Playcoins) — opcional
+              </button>
+              <button onClick={() => setScanningCustomer(true)} className="text-sm text-white/50 underline">
+                📷 Asociar a un cliente
+              </button>
+            </div>
           ) : (
             <div className="space-y-2">
+              {associatedName && <p className="text-xs text-white/50">Asociado a: <b className="text-white/80">{associatedName}</b></p>}
               <Input
                 value={buyerEmail}
-                onChange={(e) => { setBuyerEmail(e.target.value); setBalance(null); setRedeemInput(''); }}
+                onChange={(e) => { setBuyerEmail(e.target.value); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
                 placeholder="email@cliente.cl"
                 className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
               />
@@ -923,7 +1136,7 @@ function NewSale({ onSale }: {
                   {checkingBalance ? 'Consultando…' : 'Consultar saldo'}
                 </Button>
                 <button
-                  onClick={() => { setShowEmailStep(false); setBuyerEmail(''); setBalance(null); setRedeemInput(''); }}
+                  onClick={() => { setShowEmailStep(false); setBuyerEmail(''); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
                   className="text-xs text-white/40 underline"
                 >
                   Omitir
@@ -947,20 +1160,34 @@ function NewSale({ onSale }: {
             </div>
           )}
 
-          <div className="flex gap-2">
-            {(['efectivo', 'debito', 'credito'] as const).map((m) => (
+          <div className="grid grid-cols-4 gap-2">
+            {(['efectivo', 'debito', 'credito', 'qr'] as const).map((m) => (
               <button
                 key={m}
                 onClick={() => setPaymentMethod(m)}
-                className={`flex-1 h-10 rounded-lg text-sm font-medium capitalize ${paymentMethod === m ? 'bg-primary text-white' : 'bg-white/5 text-white/50'}`}
+                className={`h-10 rounded-lg text-xs font-medium capitalize ${paymentMethod === m ? 'bg-primary text-white' : 'bg-white/5 text-white/50'}`}
               >
-                {m}
+                {m === 'qr' ? '📲 QR' : m}
               </button>
             ))}
           </div>
-          <Button className="w-full h-12 bg-primary hover:bg-primary/90" onClick={confirm}>
+          <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={tooManyLockers} onClick={confirm}>
             Cobrado en terminal — Confirmar
           </Button>
+        </div>
+      )}
+
+      {scanningCustomer && (
+        <div className="fixed inset-0 z-30 bg-black flex flex-col">
+          <div className="flex items-center justify-between p-4 shrink-0">
+            <p className="text-sm text-white/70">Escanea el QR de la entrada del cliente</p>
+            <button onClick={() => setScanningCustomer(false)} className="p-2 text-white/50" aria-label="Cerrar"><X className="w-6 h-6" /></button>
+          </div>
+          <QrScanner onDecode={handleCustomerScan} className="flex-1">
+            <div className="absolute inset-0 grid place-items-center pointer-events-none">
+              <div className="w-56 h-56 rounded-3xl border-2 border-primary/70 shadow-[0_0_0_100vmax_rgba(0,0,0,0.45)]" />
+            </div>
+          </QrScanner>
         </div>
       )}
     </div>

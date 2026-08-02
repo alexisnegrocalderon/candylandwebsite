@@ -3,6 +3,7 @@ Allow: /
 Disallow: /admin
 Disallow: /caja
 Disallow: /puerta
+Disallow: /cocina
 Disallow: /fiesta
 Disallow: /api/
 

@@ -23,7 +23,7 @@ export function verifyPin(pin: string, storedHash: string): boolean {
 
 export type OperatorSessionPayload = {
   operatorId: number;
-  role: "admin" | "supervisor" | "caja" | "barra" | "acceso";
+  role: "admin" | "supervisor" | "caja" | "barra" | "acceso" | "cocina";
   name: string;
 };
 

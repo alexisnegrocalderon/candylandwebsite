@@ -44,6 +44,7 @@ const Embajadores = lazy(() => import("./pages/Embajadores"));
 const Panoramas = lazy(() => import("./pages/Panoramas"));
 const Blog = lazy(() => import("./pages/Blog"));
 const Puerta = lazy(() => import("./pages/Puerta"));
+const Cocina = lazy(() => import("./pages/Cocina"));
 const Prices = lazy(() => import("./pages/Prices"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
@@ -101,6 +102,7 @@ function Router() {
           <Route path="/embajador" component={Ambassador} />
           <Route path="/embajador/:code" component={Ambassador} />
           <Route path="/puerta" component={Puerta} />
+          <Route path="/cocina" component={Cocina} />
           <Route path="/entradas" component={Prices} />
           <Route path="/politica-de-reembolso" component={RefundPolicy} />
           <Route path="/politica-de-privacidad" component={PrivacyPolicy} />
@@ -133,7 +135,10 @@ function App() {
   // /puerta es la pantalla del anfitrión en la entrada: cámara a pantalla
   // completa, sin nada del sitio público alrededor.
   const isPuerta = location.startsWith('/puerta');
-  const hideChrome = isCaja || isAdmin || isParty || isPuerta;
+  // /cocina es el tablero de pedidos: misma lógica, pantalla de operación
+  // interna, no una página del sitio.
+  const isCocina = location.startsWith('/cocina');
+  const hideChrome = isCaja || isAdmin || isParty || isPuerta || isCocina;
   // Ni el cursor ni el scroll suave hacen nada en touch (ver isFinePointer),
   // así que en celular no se pide su chunk -- antes se importaban eager en
   // App.tsx y Lenis viajaba igual aunque nunca fuera a correr.

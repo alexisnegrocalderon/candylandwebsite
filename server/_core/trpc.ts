@@ -92,6 +92,29 @@ export const doorProcedure = t.procedure.use(
   }),
 );
 
+/** Pantalla de cocina (/cocina): sesión de operador con rol de cocina,
+ * SIN exigir dispositivo enrolado -- mismo trade-off que `doorProcedure`
+ * (§13 del doc de arquitectura, ya asumido ahí): el equipo de cocina usa la
+ * pantalla que haya, y forzar enrolamiento con pedidos entrando garantiza
+ * que la pantalla no se use. El riesgo queda acotado porque esta sesión
+ * SOLO puede cambiar el estado de un pedido de comida: no vende, no cobra,
+ * no anula, y cada cambio queda firmado en el ledger `ops`. */
+export const kitchenProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+
+    if (!ctx.operator) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: "Sesión de cocina requerida" });
+    }
+    const role = ctx.operator.role;
+    if (role !== 'cocina' && role !== 'supervisor' && role !== 'admin') {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Tu usuario no tiene acceso a la pantalla de cocina" });
+    }
+
+    return next({ ctx: { ...ctx, operator: ctx.operator } });
+  }),
+);
+
 // Requiere una sesión de operador de /caja válida (login por PIN, no admin)
 // EN un dispositivo enrolado -- ambos, no solo uno. Una sesión de operador
 // robada no sirve de nada sin también tener el dispositivo enrolado.

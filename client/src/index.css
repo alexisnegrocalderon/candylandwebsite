@@ -12,6 +12,7 @@
 @source not "./pages/caja/**";
 @source not "./pages/Party.tsx";
 @source not "./pages/Puerta.tsx";
+@source not "./pages/Cocina.tsx";
 @source not "./components/admin/**";
 @source not "./components/party/**";
 @source not "./components/QrScanner.tsx";
