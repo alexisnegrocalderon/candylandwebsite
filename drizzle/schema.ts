@@ -210,6 +210,11 @@ export const tickets = mysqlTable("tickets", {
   usedAtRegisterId: int("usedAtRegisterId"),
   displayCode: varchar("displayCode", { length: 20 }).unique(), // código legible PIS-XXXX-XXXX
   createdAt: timestamp("createdAt").defaultNow().notNull(),
+  // Personas cubiertas por ESTE ticket cuando no es 1:1 vía accesoSlug (ver
+  // shared/mission300.ts personasForAccesoSlug) -- hoy solo lo usa la
+  // invitación especial instantánea del admin: un solo QR/ticket que
+  // representa a varias personas, en vez de generar un ticket por persona.
+  groupSize: int("groupSize"),
 });
 
 export type Ticket = typeof tickets.$inferSelect;

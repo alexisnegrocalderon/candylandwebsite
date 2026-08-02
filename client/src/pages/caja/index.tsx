@@ -9,10 +9,10 @@ import { Input } from '@/components/ui/input';
 import { QrScanner } from '@/components/QrScanner';
 import { parseTicketCodeFromQr } from '@shared/qr';
 import {
-  saveSnapshot, getLocalEvent, searchLocal, searchGiftsLocal, getLocalAttendee, getLocalCatalog,
+  saveSnapshot, getLocalEvent, searchLocal, searchGiftsLocal, searchStaffCompsLocal, getLocalAttendee, getLocalCatalog,
   enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, clearSyncedOps, correctedNow,
   nextKitchenTicketNumber,
-  type CajaAttendee, type CajaCatalogItem, type CajaGift, type QueuedOp,
+  type CajaAttendee, type CajaCatalogItem, type CajaGift, type CajaStaffComp, type QueuedOp,
 } from './db';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { formatChileDateTime } from '@shared/chileDate';
@@ -451,6 +451,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const [manualCode, setManualCode] = useState('');
   const [results, setResults] = useState<CajaAttendee[]>([]);
   const [giftResults, setGiftResults] = useState<CajaGift[]>([]);
+  const [staffCompResults, setStaffCompResults] = useState<CajaStaffComp[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [sheetVersion, setSheetVersion] = useState(0); // fuerza refresco de la ficha tras un canje local
   const [showCloseForm, setShowCloseForm] = useState(false);
@@ -509,11 +510,13 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   // Búsqueda 100% local (funciona offline, <50ms).
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) { setResults([]); setGiftResults([]); return; }
+    if (q.length < 2) { setResults([]); setGiftResults([]); setStaffCompResults([]); return; }
     searchLocal(q).then(setResults);
     // Los tragos invitados se buscan aparte: no pertenecen a una orden de
     // esta noche (pueden venir de la fiesta anterior).
     searchGiftsLocal(q).then((gs) => setGiftResults(gs.filter((g) => g.status !== 'used')));
+    // Consumos gratis de staff: tampoco pertenecen a una orden con asistentes.
+    searchStaffCompsLocal(q).then((cs) => setStaffCompResults(cs.filter((c) => c.status !== 'used')));
   }, [query, sheetVersion]);
 
   const doRedeem = async (displayCode: string) => {
@@ -648,7 +651,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
               />
               {query.trim().length >= 2 && (
                 <div className="mt-2 space-y-2">
-                  {results.length === 0 && <p className="text-white/50 text-sm px-1">Sin resultados.</p>}
+                  {results.length === 0 && staffCompResults.length === 0 && <p className="text-white/50 text-sm px-1">Sin resultados.</p>}
                   {results.map((r) => (
                     <button
                       key={r.orderId}
@@ -658,6 +661,22 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
                       <p className="font-semibold">{r.buyerName}</p>
                       <p className="text-sm text-white/50">{r.buyerEmail}{r.buyerPhone ? ` · ${r.buyerPhone}` : ''}</p>
                     </button>
+                  ))}
+                  {/* Consumos gratis invitados al staff (Accesos Manuales) --
+                      no pertenecen a una orden con ficha, se canjean directo. */}
+                  {staffCompResults.map((c) => (
+                    <div
+                      key={c.displayCode}
+                      className="w-full p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-between gap-3"
+                    >
+                      <div>
+                        <p className="font-semibold">🎁 {c.productName}</p>
+                        <p className="text-sm text-white/50">Para {c.staffName} · {c.displayCode}</p>
+                      </div>
+                      <Button className="h-10 bg-primary hover:bg-primary/90 shrink-0" onClick={() => doRedeem(c.displayCode)}>
+                        Canjear
+                      </Button>
+                    </div>
                   ))}
                 </div>
               )}

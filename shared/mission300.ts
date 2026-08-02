@@ -39,6 +39,15 @@ export function personasForAccesoSlug(accesoSlug: string | null | undefined): nu
   return ACCESO_PERSONAS[accesoSlug] ?? 1;
 }
 
+/** Personas cubiertas por UN ticket. `groupSize` (columna `tickets.groupSize`)
+ * gana sobre la tabla fija de slugs cuando está seteado -- lo usa la
+ * invitación especial instantánea del admin: un solo ticket que representa a
+ * varias personas, en vez de un ticket por persona (server/db.ts
+ * createInstantInvite). Sin `groupSize`, es exactamente personasForAccesoSlug. */
+export function personasForTicket(groupSize: number | null | undefined, accesoSlug: string | null | undefined): number {
+  return groupSize ?? personasForAccesoSlug(accesoSlug);
+}
+
 function depositUnitsForAccesoSlug(accesoSlug: string | null | undefined): number {
   if (!accesoSlug) return 1;
   return ACCESO_DEPOSIT_UNITS[accesoSlug] ?? personasForAccesoSlug(accesoSlug);
