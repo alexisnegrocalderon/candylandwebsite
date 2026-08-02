@@ -37,11 +37,21 @@ export async function createCajaSale(
 
   let total = 0;
   const lineItems: { ticketTypeId: number; quantity: number; unitPrice: number; unitCost: number | null; name: string }[] = [];
+  // El stock AVISA pero nunca bloquea (docs/ARQUITECTURA-CAJA.md §8 y decisión
+  // explícita del dueño). Antes acá se lanzaba "Sin stock suficiente" y eso
+  // era un problema real, no teórico: el inventario cargado en el admin
+  // siempre termina desincronizado de lo que hay de verdad en la barra, y
+  // con el throw la cajera quedaba trabada a mitad de fiesta con gente en la
+  // fila. Ahora la venta se aplica igual y la discrepancia queda registrada
+  // en el ledger `ops` para poder auditarla después.
+  const stockWarnings: { ticketTypeId: number; name: string; requested: number; available: number }[] = [];
   for (const item of params.items) {
     const tt = ttById.get(item.ticketTypeId);
     if (!tt) throw new Error(`Producto ${item.ticketTypeId} no encontrado`);
     const available = tt.totalStock - tt.soldCount;
-    if (item.quantity > available) throw new Error(`Sin stock suficiente de ${tt.name}`);
+    if (item.quantity > available) {
+      stockWarnings.push({ ticketTypeId: tt.id, name: tt.name, requested: item.quantity, available });
+    }
     const unitPrice = Number(tt.price);
     total += unitPrice * item.quantity;
     lineItems.push({ ticketTypeId: tt.id, quantity: item.quantity, unitPrice, unitCost: tt.costPrice != null ? Number(tt.costPrice) : null, name: tt.name });
@@ -57,7 +67,11 @@ export async function createCajaSale(
       registerId: params.registerId,
       targetType: "order",
       targetId: params.opId, // la orden todavía no existe al momento de armar el op -- se referencia por el mismo opId
-      payload: { items: lineItems, paymentMethod: params.paymentMethod, total, buyerEmail: params.buyerEmail ?? null, redeemRequested: params.redeemPlaycoins ?? 0 },
+      payload: {
+        items: lineItems, paymentMethod: params.paymentMethod, total,
+        buyerEmail: params.buyerEmail ?? null, redeemRequested: params.redeemPlaycoins ?? 0,
+        ...(stockWarnings.length > 0 ? { stockWarnings } : {}),
+      },
       clientAt: params.clientAt,
     },
     async () => {
@@ -116,7 +130,15 @@ export async function createCajaSale(
         await awardPlaycoins({ email: params.buyerEmail, totalClp: finalTotal, reason: 'earn_caja', opId: params.opId });
       }
 
-      return { result: "applied" as const, conflictNote: redeemConflictNote };
+      // El aviso de stock viaja junto al de Playcoins en el mismo campo: son
+      // las dos cosas que la cajera tiene que ver DESPUÉS de haber cobrado,
+      // sin que ninguna le haya impedido cobrar.
+      const stockNote = stockWarnings.length > 0
+        ? `Vendido sin stock: ${stockWarnings.map(w => `${w.name} (quedaban ${w.available}, se vendieron ${w.requested})`).join('; ')}`
+        : undefined;
+      const notes = [redeemConflictNote, stockNote].filter(Boolean);
+
+      return { result: "applied" as const, conflictNote: notes.length > 0 ? notes.join(' · ') : undefined };
     }
   );
 

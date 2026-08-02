@@ -348,7 +348,7 @@ export const appRouter = router({
       eventId: z.number(),
       name: z.string(),
       accesoSlug: z.enum(['duo', 'duo_mujeres', 'soltera', 'soltero', 'trio', 'grupo', 'cumpleaneros']).optional(),
-      category: z.enum(['acceso', 'extra']).optional(),
+      category: z.enum(['acceso', 'extra', 'consumo', 'locker', 'merch']).optional(),
       description: z.string().optional(),
       price: z.number(),
       originalPrice: z.number().optional(),
@@ -359,6 +359,11 @@ export const appRouter = router({
       costPrice: z.number().optional(),
       color: z.string().optional(),
       internalCode: z.string().optional(),
+      // Carta de la fiesta (tragos/comida/guardarropía): emoji en vez de foto,
+      // sección para agrupar en la grilla de /caja, y si va a cocina.
+      emoji: z.string().max(8).optional(),
+      groupName: z.string().max(50).optional(),
+      toKitchen: z.number().min(0).max(1).optional(),
     })).mutation(async ({ input }) => {
       return db.createTicketType(input);
     }),
@@ -366,7 +371,7 @@ export const appRouter = router({
       id: z.number(),
       name: z.string().optional(),
       accesoSlug: z.enum(['duo', 'duo_mujeres', 'soltera', 'soltero', 'trio', 'grupo', 'cumpleaneros']).optional(),
-      category: z.enum(['acceso', 'extra']).optional(),
+      category: z.enum(['acceso', 'extra', 'consumo', 'locker', 'merch']).optional(),
       description: z.string().optional(),
       price: z.number().optional(),
       originalPrice: z.number().optional(),
@@ -377,6 +382,11 @@ export const appRouter = router({
       costPrice: z.number().optional(),
       color: z.string().optional(),
       internalCode: z.string().optional(),
+      // Carta de la fiesta (tragos/comida/guardarropía): emoji en vez de foto,
+      // sección para agrupar en la grilla de /caja, y si va a cocina.
+      emoji: z.string().max(8).optional(),
+      groupName: z.string().max(50).optional(),
+      toKitchen: z.number().min(0).max(1).optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return db.updateTicketType(id, data);
@@ -1521,7 +1531,7 @@ export const appRouter = router({
     create: adminProcedure.input(z.object({
       name: z.string().min(1),
       pin: z.string().min(4).max(8),
-      role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso']),
+      role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso', 'cocina']),
     })).mutation(async ({ input }) => {
       const id = await db.createOperator({ name: input.name, pinHash: hashPin(input.pin), role: input.role });
       return { id };
@@ -1530,7 +1540,7 @@ export const appRouter = router({
       id: z.number(),
       name: z.string().min(1).optional(),
       pin: z.string().min(4).max(8).optional(),
-      role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso']).optional(),
+      role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso', 'cocina']).optional(),
       active: z.number().min(0).max(1).optional(),
     })).mutation(async ({ input }) => {
       const { id, pin, ...rest } = input;

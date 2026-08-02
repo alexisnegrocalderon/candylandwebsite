@@ -27,6 +27,18 @@ export interface CajaCatalogItem {
   price: number;
   color: string | null;
   internalCode: string | null;
+  /** Ícono grande del botón. El dueño eligió emoji + color en vez de fotos:
+   *  se lee mejor que una miniatura en una tablet a oscuras, y no obliga a
+   *  construir subida de imágenes (que hoy no existe en el proyecto). */
+  emoji: string | null;
+  /** Sección de la carta ("Tragos", "Comida", ...) -- arma las pestañas. */
+  groupName: string | null;
+  category: string;
+  totalStock: number;
+  soldCount: number;
+  /** Genera comanda en /cocina al venderse. */
+  toKitchen: boolean;
+  sortOrder: number;
 }
 
 interface CajaCodeIndex {
@@ -221,6 +233,19 @@ export async function enqueueOp(op: QueuedOp) {
           a.ticketCode.toUpperCase() === op.ticketCode.toUpperCase() ? { ...a, status: 'used' } : a
         );
         await cajaDB.attendees.put(attendee);
+      }
+    }
+  }
+
+  // La venta descuenta el stock local. Sin esto, sin señal el aviso de "sin
+  // stock" se congela en el valor del último snapshot (que se re-descarga
+  // cada 60s, o nunca si no hay red) y la cajera no ve que algo se está
+  // acabando durante la noche. El aviso igual nunca bloquea la venta.
+  if (op.type === 'sale') {
+    for (const item of op.items) {
+      const product = await cajaDB.catalog.get(item.ticketTypeId);
+      if (product) {
+        await cajaDB.catalog.update(item.ticketTypeId, { soldCount: product.soldCount + item.quantity });
       }
     }
   }

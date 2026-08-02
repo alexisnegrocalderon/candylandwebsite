@@ -1429,9 +1429,28 @@ export async function getCajaSnapshot(eventId: number) {
     };
   });
 
+  // La carta que ve la cajera: los addons de la web ('extra') MÁS la carta de
+  // la fiesta ('consumo' = tragos y comida, 'locker' = guardarropía, 'merch').
+  // Los accesos quedan fuera a propósito: no se venden en la barra.
+  // Viajan `totalStock`/`soldCount` para poder pintar el "sin stock" en rojo
+  // sin conexión (avisa, no bloquea -- ver server/caja/sale.ts).
+  const CATALOG_CATEGORIES = ['extra', 'consumo', 'locker', 'merch'];
   const catalog = allTicketTypes
-    .filter((t: any) => t.category === 'extra' && t.status === 'active')
-    .map((t: any) => ({ id: t.id, name: t.name, price: Number(t.price), color: t.color as string | null, internalCode: t.internalCode as string | null }));
+    .filter((t: any) => CATALOG_CATEGORIES.includes(t.category) && t.status === 'active')
+    .map((t: any) => ({
+      id: t.id,
+      name: t.name,
+      price: Number(t.price),
+      color: t.color as string | null,
+      internalCode: t.internalCode as string | null,
+      emoji: (t.emoji as string | null) ?? null,
+      groupName: (t.groupName as string | null) ?? null,
+      category: t.category as string,
+      totalStock: Number(t.totalStock),
+      soldCount: Number(t.soldCount),
+      toKitchen: Number(t.toKitchen ?? 0) === 1,
+      sortOrder: Number(t.sortOrder ?? 0),
+    }));
 
   // Tragos regalados pendientes de cobrar. Van APARTE de `attendees` a
   // propósito: se arman desde las órdenes de ESTE evento, así que un regalo

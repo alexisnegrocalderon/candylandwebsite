@@ -821,6 +821,16 @@ function CustomerSheet({ orderId, onRedeem, onCheckIn, canVoid, onVoid, voiding 
   );
 }
 
+// Mismo agrupado que el admin (Dashboard.tsx CARTA_CATEGORIES): la cajera ve
+// las mismas categorías con las que se cargó la carta. `extra` son los
+// addons que TAMBIÉN se venden en la web (estacionamiento, covers).
+const CATEGORY_META: Record<string, { label: string; emoji: string }> = {
+  consumo: { label: 'Tragos y comida', emoji: '🍹' },
+  locker: { label: 'Guardarropía', emoji: '🧥' },
+  merch: { label: 'Merch', emoji: '🎁' },
+  extra: { label: 'Extras', emoji: '🎫' },
+};
+
 function NewSale({ onSale }: {
   onSale: (
     items: { ticketTypeId: number; quantity: number }[],
@@ -832,6 +842,7 @@ function NewSale({ onSale }: {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito'>('debito');
+  const [tab, setTab] = useState<string | null>(null);
 
   // Playcoins (pedido explícito del usuario): paso opcional/omisible para
   // que la venta también gane puntos, y para canjear puntos ya ganados.
@@ -842,13 +853,25 @@ function NewSale({ onSale }: {
   const [redeemInput, setRedeemInput] = useState('');
   const utils = trpc.useUtils();
 
-  useEffect(() => { getLocalCatalog().then(setCatalog); }, []);
+  useEffect(() => {
+    getLocalCatalog().then((c) => {
+      const sorted = [...c].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+      setCatalog(sorted);
+      if (sorted.length > 0) setTab((prev) => prev ?? (sorted[0].groupName || sorted[0].category));
+    });
+  }, []);
 
   const total = catalog.reduce((sum, p) => sum + p.price * (cart[p.id] || 0), 0);
-  const hasItems = Object.values(cart).some((q) => q > 0);
+  const cartLines = catalog.filter((p) => (cart[p.id] || 0) > 0);
+  const hasItems = cartLines.length > 0;
 
   const add = (id: number) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
   const remove = (id: number) => setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] || 0) - 1) }));
+
+  // Pestañas por sección (groupName), con la categoría como respaldo para
+  // productos sin sección asignada -- así nunca desaparecen de la grilla.
+  const tabs = Array.from(new Set(catalog.map((p) => p.groupName || p.category)));
+  const productsInTab = catalog.filter((p) => (p.groupName || p.category) === tab);
 
   const checkBalance = async () => {
     if (!buyerEmail.trim()) return;
@@ -877,31 +900,75 @@ function NewSale({ onSale }: {
   return (
     <div className="space-y-5">
       <h2 className="text-xl font-bold">Nueva venta</h2>
-      <div className="grid grid-cols-2 gap-3">
-        {catalog.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => add(p.id)}
-            className="rounded-3xl p-4 text-left border active:scale-95 transition-transform backdrop-blur-sm"
-            style={{ backgroundColor: (p.color || '#f472b6') + '14', borderColor: (p.color || '#f472b6') + '50', boxShadow: `0 0 20px -10px ${p.color || '#f472b6'}` }}
-          >
-            <p className="font-semibold">{p.name}</p>
-            <p className="text-sm text-white/60">${p.price.toLocaleString('es-CL')}</p>
-            {cart[p.id] > 0 && (
-              <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => remove(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">−</button>
-                <span className="font-bold">{cart[p.id]}</span>
-                <button onClick={() => add(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">+</button>
-              </div>
-            )}
-          </button>
-        ))}
-        {catalog.length === 0 && <p className="col-span-2 text-white/50 text-sm">No hay productos "extra" activos para este evento.</p>}
-      </div>
+
+      {catalog.length === 0 ? (
+        <p className="text-white/50 text-sm">Todavía no hay productos cargados para este evento. Se cargan desde Admin → Carta de la Fiesta.</p>
+      ) : (
+        <>
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+            {tabs.map((t) => {
+              const meta = CATEGORY_META[t] ?? { label: t, emoji: '🛍️' };
+              return (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`shrink-0 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${tab === t ? 'bg-primary text-white' : 'bg-white/5 text-white/60'}`}
+                >
+                  {meta.emoji} {meta.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {productsInTab.map((p) => {
+              const left = p.totalStock - p.soldCount;
+              const noStock = left <= 0;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => add(p.id)}
+                  className="relative rounded-3xl p-4 min-h-[88px] text-left border active:scale-95 transition-transform backdrop-blur-sm"
+                  style={{ backgroundColor: (p.color || '#f472b6') + '14', borderColor: (p.color || '#f472b6') + '50', boxShadow: `0 0 20px -10px ${p.color || '#f472b6'}` }}
+                >
+                  {noStock && (
+                    <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide bg-red-500/90 text-white px-2 py-0.5 rounded-full">
+                      Sin stock
+                    </span>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <span className="text-3xl leading-none">{p.emoji || CATEGORY_META[p.category]?.emoji || '🛍️'}</span>
+                    <div className="min-w-0">
+                      <p className="font-semibold truncate">{p.name}</p>
+                      <p className="text-sm text-white/60">${p.price.toLocaleString('es-CL')}</p>
+                    </div>
+                  </div>
+                  {cart[p.id] > 0 && (
+                    <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      <button onClick={() => remove(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">−</button>
+                      <span className="font-bold">{cart[p.id]}</span>
+                      <button onClick={() => add(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">+</button>
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+            {productsInTab.length === 0 && <p className="col-span-2 text-white/50 text-sm">Nada cargado en esta sección todavía.</p>}
+          </div>
+        </>
+      )}
 
       {hasItems && (
         <div className="sticky bottom-4 bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-2xl p-4 space-y-3">
-          <div className="flex justify-between text-lg font-bold">
+          <div className="space-y-1 max-h-32 overflow-y-auto">
+            {cartLines.map((p) => (
+              <div key={p.id} className="flex justify-between text-sm text-white/70">
+                <span>{p.emoji ? `${p.emoji} ` : ''}{p.name} × {cart[p.id]}</span>
+                <span>${(p.price * cart[p.id]).toLocaleString('es-CL')}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-between text-lg font-bold border-t border-white/10 pt-2">
             <span>Total</span>
             <span>${total.toLocaleString('es-CL')}</span>
           </div>
