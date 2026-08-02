@@ -1,3 +1,4 @@
+import '@/admin.css';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';

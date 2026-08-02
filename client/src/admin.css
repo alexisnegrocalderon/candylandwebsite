@@ -1,0 +1,45 @@
+/* Hoja de Tailwind separada para las pantallas de operación interna (admin,
+ * caja, puerta, fiesta) -- nunca las ve un visitante público, así que su CSS
+ * no tiene por qué viajar en el bundle que carga cada visita del Home.
+ * Se importa solo desde los 5 archivos que arman esas rutas (todas ya
+ * React.lazy() en App.tsx): Dashboard.tsx, PrintLayout.tsx (cubre las 3
+ * rutas /admin/print/*), caja/index.tsx, Party.tsx y Puerta.tsx -- así el
+ * cssCodeSplit de Vite (default) genera un chunk aparte que solo se pide al
+ * navegar a esas rutas. Ver client/src/index.css para la hoja pública. */
+@import "tailwindcss" source(none);
+@import "./theme.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* source(none) apaga el auto-scan, así que acá hay que declarar a mano cada
+ * carpeta/archivo cuyas clases de Tailwind hacen falta compilar. Si se
+ * agrega una pantalla interna nueva fuera de estas carpetas, agregarla acá. */
+@source "./pages/admin/**";
+@source "./pages/caja/**";
+@source "./pages/Party.tsx";
+@source "./pages/Puerta.tsx";
+@source "./components/admin/**";
+@source "./components/party/**";
+@source "./components/QrScanner.tsx";
+
+/* Compartido con la hoja pública (components/ui/** y PaymentBrick.tsx se
+ * usan desde ambos lados) -- que sus clases aparezcan también acá es
+ * esperado, no un bug: la ganancia de esta separación viene de que la hoja
+ * pública deja de cargar Dashboard.tsx/caja/index.tsx completos, no de
+ * deduplicar los primitivos de ui/. */
+@source "./components/ui/**";
+@source "./components/PaymentBrick.tsx";
+
+/* Reportes imprimibles del admin (/admin/print/...) -- pedido explícito del
+ * usuario, PDF vía impresión del navegador en vez de una librería nueva.
+ * .print-hide oculta controles (botón de imprimir, filtros) que no tienen
+ * sentido en la hoja impresa. Movido acá desde index.css: no aplica a
+ * ninguna página pública. */
+@media print {
+  .print-hide {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+}

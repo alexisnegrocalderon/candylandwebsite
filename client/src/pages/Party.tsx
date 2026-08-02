@@ -1,3 +1,4 @@
+import '@/admin.css';
 import { useEffect, useMemo, useState } from 'react';
 import { useRoute, Link } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
