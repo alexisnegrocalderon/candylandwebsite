@@ -5,6 +5,21 @@ import { EVENTO } from '@/config/candyland';
 
 const SEEN_KEY = 'candyland_intro_seen';
 
+// ─── Duración del intro ──────────────────────────────────────────────
+// Estos dos números son TODO lo que controla cuánto dura el intro. Subirlos
+// alarga el momento de marca; bajarlos deja ver antes el sitio. Ojo: mientras
+// el intro está en pantalla, el sitio de atrás no se puede ver ni medir, así
+// que cada milisegundo de más acá se paga en el puntaje de PageSpeed (que
+// mide sin tocar la pantalla, así que ve el intro completo).
+
+/** Piso mínimo con el medallón de carga, para que no parpadee en conexiones
+ *  rápidas. El intro igual espera a que el poster del hero termine de cargar. */
+const MIN_LOADING_MS = 600;
+
+/** Cuánto se queda "CANDYLAND · toca para entrar" antes de disolverse solo.
+ *  Quien toque antes, entra antes. */
+const AUTO_ENTER_MS = 900;
+
 /** Dulces orbitando alrededor del medallón mientras carga la página. */
 const ORBIT_CANDIES = ['🍬', '🍭', '🍒', '🍥', '🫧', '🍡'];
 
@@ -44,16 +59,21 @@ function LoadingMedallion() {
 }
 
 /**
- * Intro tipo juego: un caramelo que "se desenvuelve" al tocar para entrar.
+ * Intro tipo juego: un caramelo que "se desenvuelve" al entrar.
  * Se muestra 1 vez por sesión. No se monta con prefers-reduced-motion.
  *
- * Antes el botón "Toca para entrar" aparecía de inmediato aunque la página
- * (video del hero, imágenes) todavía estuviera cargando — si alguien
- * entraba rápido, se encontraba con contenido a medio cargar detrás. Ahora
- * primero se muestra un medallón de carga real: espera a que el poster del
- * hero termine de cargar + un piso mínimo de 1.2s (para que no parpadee en
- * conexiones rápidas), con un techo de 6s por si la conexión es lenta —
- * nunca deja a nadie atascado esperando.
+ * Primero muestra un medallón de carga real: espera a que el poster del hero
+ * termine de cargar + un piso mínimo (MIN_LOADING_MS, para que no parpadee en
+ * conexiones rápidas), con un techo de 6s por si la conexión es lenta — nunca
+ * deja a nadie atascado esperando.
+ *
+ * ⚠️ El intro SE CIERRA SOLO (ver el efecto de auto-entrada más abajo). Antes
+ * solo se cerraba con un clic, y eso tenía un costo grande que no se veía a
+ * simple vista: PageSpeed/Lighthouse nunca hacen clic, así que medían esta
+ * pantalla durante toda la prueba — con el scroll bloqueado y todas las
+ * animaciones de acá corriendo en bucle infinito, la CPU nunca llegaba a
+ * idle. El sitio real casi no se llegaba a medir. Si algún día se vuelve a
+ * exigir el clic, ese problema vuelve.
  */
 export default function CandyIntro() {
   const [show, setShow] = useState(false);
@@ -75,7 +95,7 @@ export default function CandyIntro() {
     img.onload = img.onerror = () => { imgLoaded = true; checkReady(); };
     img.src = '/candyland/poster-hero.webp';
 
-    const minTimer = window.setTimeout(() => { minElapsed = true; checkReady(); }, 2000);
+    const minTimer = window.setTimeout(() => { minElapsed = true; checkReady(); }, MIN_LOADING_MS);
     const maxTimer = window.setTimeout(() => setReady(true), 6000);
 
     return () => {
@@ -98,6 +118,22 @@ export default function CandyIntro() {
     document.body.style.overflow = '';
     closeTimeoutRef.current = window.setTimeout(() => setShow(false), 900);
   };
+
+  // El ref siempre apunta al `enter` de la última renderización, así el timer
+  // de auto-entrada de abajo no se queda con una versión vieja (que leería un
+  // `opening`/`ready` desactualizado) sin tener que re-armar el timer en cada
+  // render.
+  const enterRef = useRef(enter);
+  useEffect(() => { enterRef.current = enter; });
+
+  // Auto-entrada: apenas está listo, se muestra "CANDYLAND · toca para entrar"
+  // un momento y el intro se disuelve solo. Tocar antes sigue funcionando y
+  // entra al toque -- `enter()` se protege sola contra ejecutarse dos veces.
+  useEffect(() => {
+    if (!ready) return;
+    const autoTimer = window.setTimeout(() => enterRef.current(), AUTO_ENTER_MS);
+    return () => window.clearTimeout(autoTimer);
+  }, [ready]);
 
   return (
     <AnimatePresence>

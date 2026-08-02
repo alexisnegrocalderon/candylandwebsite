@@ -1032,6 +1032,13 @@ function StickyMobileCTA() {
 /* ─── Página ───────────────────────────────────────────────── */
 
 export default function Home() {
+  // La textura de ruido es una capa fija a pantalla completa (un SVG de
+  // turbulencia) a opacity 0.03: en celular es prácticamente invisible y
+  // cuesta una capa de composición del tamaño de toda la ventana. Se apaga
+  // en touch con el mismo criterio que ya usan ScrollCandies, los caramelos
+  // arrastrables y el parallax del hero.
+  const [showNoise] = useState(() => isFinePointer());
+
   // El home es la única página que conserva "fiesta liberal" en el título
   // (junto con la del evento): antes /eventos, /entradas y /eventos/:slug
   // llevaban todas la misma frase y competían entre ellas por la misma
@@ -1094,7 +1101,7 @@ export default function Home() {
     <MotionConfig reducedMotion="user">
       <CandyIntro />
       <ScrollCandies />
-      <div className="noise-overlay" />
+      {showNoise && <div className="noise-overlay" />}
       <Hero missionPricing={missionPricing} />
       <UpcomingEventsSection />
       <UrgencySection vendidos={vendidos} missionPricing={missionPricing} />
