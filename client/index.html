@@ -66,15 +66,20 @@
       }
     </style>
 
-    <!-- Precarga del fondo borroso del hero (NO el poster nítido del video,
-         que es un archivo aparte y más pesado): el Home se carga por JS
-         (code-splitting), así que sin esto el navegador no sabe que tiene
-         que pedirla hasta que el chunk de la página corre. Es liviana (~18KB,
-         480x270) a propósito -- se muestra siempre con blur-3xl, así que no
-         hace falta más resolución, y en conexiones lentas (mobile) una
-         precarga pesada con fetchpriority=high competía por ancho de banda
-         con el CSS crítico y empeoraba el FCP/LCP real en vez de ayudar. -->
+    <!-- Precarga de las dos capas del fondo del hero -- el fondo borroso
+         (liviana, ~18KB, 480x270, se muestra siempre con blur-3xl) Y el
+         poster nítido del <video> (achicado a 960x540/~41KB en una vuelta
+         anterior). Hacen falta las DOS: en Mobile (más throttling de red/CPU
+         en el preset de Lighthouse) el navegador no llega a pintar el poster
+         del video a tiempo y el <img> de fondo gana como LCP; en Escritorio
+         (menos throttling) el poster del video SÍ llega a pintar a tiempo y
+         gana él -- sin este segundo preload, PageSpeed Desktop marcaba el
+         LCP como "no descubrible" pese a que el otro ya estaba precargado.
+         Juntos son ~60KB, bastante menos que los 117.9KB que se precargaban
+         antes de achicar el poster, así que no reintroduce el problema de
+         ancho de banda en mobile que motivó sacar el preload pesado original. -->
     <link rel="preload" as="image" href="/candyland/poster-hero-bg.webp" fetchpriority="high" />
+    <link rel="preload" as="image" href="/candyland/poster-hero.webp" fetchpriority="high" />
 
     <!-- Loader inicial: inline y sin depender de React/Tailwind, así pinta
          en el primer frame (nunca hay un instante en blanco mientras carga

@@ -364,26 +364,31 @@ function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
           </span>
         </motion.div>
 
-        {missionPricing && (
-          <motion.div
-            initial={{ opacity: 0, y: 16, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.7, delay: 0.78, ease: [0.23, 1, 0.32, 1] }}
-            className="mt-6 flex justify-center"
+        {/* invisible (no hidden/desmontado) mientras missionPricing no resuelve
+         * -- reserva el espacio del bloque desde el primer render para que no
+         * salte el layout cuando la query de tRPC llega (el texto no depende
+         * del VALOR de missionPricing, MISSION_300_DEPOSIT_PER_PERSON es una
+         * constante -- missionPricing solo indica si la preventa sigue
+         * vigente). Esto salía como "Causantes del cambio de diseño" en
+         * PageSpeed Desktop. */}
+        <motion.div
+          initial={{ opacity: 0, y: 16, scale: 0.9 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.7, delay: 0.78, ease: [0.23, 1, 0.32, 1] }}
+          className={`mt-6 flex justify-center ${missionPricing ? '' : 'invisible'}`}
+        >
+          <Link
+            href={`/checkout/${CANDYLAND.slug}`}
+            className="btn-mission300 interactive flex flex-col items-center gap-0.5 px-10 py-5 sm:px-12 sm:py-6 rounded-[2rem] text-white"
           >
-            <Link
-              href={`/checkout/${CANDYLAND.slug}`}
-              className="btn-mission300 interactive flex flex-col items-center gap-0.5 px-10 py-5 sm:px-12 sm:py-6 rounded-[2rem] text-white"
-            >
-              <span className="text-xs sm:text-sm uppercase tracking-[0.25em] font-extrabold drop-shadow-sm">🔥 Misión 300</span>
-              <span className="font-heading font-black text-4xl sm:text-5xl leading-none drop-shadow-sm">
-                {formatCLP(MISSION_300_DEPOSIT_PER_PERSON)}
-              </span>
-              <span className="text-[10px] sm:text-xs uppercase tracking-wide font-semibold text-white/85">por persona</span>
-              <span className="mt-1.5 text-sm sm:text-base font-bold">Reserva tu lugar hoy</span>
-            </Link>
-          </motion.div>
-        )}
+            <span className="text-xs sm:text-sm uppercase tracking-[0.25em] font-extrabold drop-shadow-sm">🔥 Misión 300</span>
+            <span className="font-heading font-black text-4xl sm:text-5xl leading-none drop-shadow-sm">
+              {formatCLP(MISSION_300_DEPOSIT_PER_PERSON)}
+            </span>
+            <span className="text-[10px] sm:text-xs uppercase tracking-wide font-semibold text-white/85">por persona</span>
+            <span className="mt-1.5 text-sm sm:text-base font-bold">Reserva tu lugar hoy</span>
+          </Link>
+        </motion.div>
 
         <motion.div
           initial={{ opacity: 0, y: 24 }}
@@ -638,13 +643,14 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
               </div>
               <p className="text-xs md:text-sm text-muted-foreground mt-1">{copy}</p>
 
-              {missionPricing && (
-                <p className="mt-2.5 inline-flex flex-wrap items-baseline justify-center md:justify-start gap-x-2 gap-y-0.5 text-sm md:text-base">
-                  <span className="font-heading font-extrabold text-gradient-candy text-lg md:text-xl">{formatCLP(MISSION_300_DEPOSIT_PER_PERSON)}</span>
-                  <span className="text-muted-foreground">por persona ·</span>
-                  <span className="font-bold text-cherry">Reserva tu lugar hoy</span>
-                </p>
-              )}
+              {/* invisible mientras missionPricing no resuelve -- mismo criterio
+               * que en Hero(), reserva el espacio para no correr la barra de
+               * progreso de abajo cuando llega la query. */}
+              <p className={`mt-2.5 inline-flex flex-wrap items-baseline justify-center md:justify-start gap-x-2 gap-y-0.5 text-sm md:text-base ${missionPricing ? '' : 'invisible'}`}>
+                <span className="font-heading font-extrabold text-gradient-candy text-lg md:text-xl">{formatCLP(MISSION_300_DEPOSIT_PER_PERSON)}</span>
+                <span className="text-muted-foreground">por persona ·</span>
+                <span className="font-bold text-cherry">Reserva tu lugar hoy</span>
+              </p>
 
               <AnimatePresence>
                 {burstId > 0 && (
