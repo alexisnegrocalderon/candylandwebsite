@@ -10,7 +10,7 @@ var __export = (target, all) => {
 
 // drizzle/schema.ts
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex } from "drizzle-orm/mysql-core";
-var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorBenefitDeliveries, ambassadorWeeklyMaterial, ambassadorApplications, operators, registers, devices, customers, ops, rateLimits, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyGifts, adminTotp;
+var users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, siteSettings, referrals, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorBenefitDeliveries, ambassadorWeeklyMaterial, ambassadorApplications, operators, registers, devices, customers, ops, rateLimits, shifts, lockerItems, kitchenTickets, playcoinsLedger, mailingCampaigns, mailingRecipients, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyGifts, adminTotp;
 var init_schema = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -64,7 +64,16 @@ var init_schema = __esm({
       // por persona/grupo). "extra" = addon opcional que se ofrece después
       // (estacionamiento, cover, etc.) — el checkout los lista automáticamente
       // en el paso de extras, con su propio stock y precio.
-      category: mysqlEnum("category", ["acceso", "extra"]).default("acceso").notNull(),
+      //
+      // Las tres últimas son la CARTA DE LA FIESTA, que solo se vende en /caja
+      // (docs/ARQUITECTURA-CAJA.md §12): "consumo" = tragos y comida, "locker" =
+      // guardarropía, "merch" = productos. Que sean categorías propias y no
+      // "extra" es justamente lo que las mantiene fuera del sitio web: el
+      // checkout lista addons filtrando `category === 'extra'`, y webhooks.ts
+      // genera `displayCode` solo para 'extra' — así un trago no aparece en la
+      // web, no emite ticket y no manda correo, sin necesidad de ningún filtro
+      // extra en esos archivos.
+      category: mysqlEnum("category", ["acceso", "extra", "consumo", "locker", "merch"]).default("acceso").notNull(),
       description: varchar("description", { length: 500 }),
       price: decimal("price", { precision: 10, scale: 0 }).notNull(),
       originalPrice: decimal("originalPrice", { precision: 10, scale: 0 }),
@@ -80,6 +89,17 @@ var init_schema = __esm({
       // para cálculo de margen (§12)
       color: varchar("color", { length: 20 }),
       // color del botón en la grilla de caja
+      emoji: varchar("emoji", { length: 8 }),
+      // ícono grande del botón en /caja (en vez de foto)
+      // Sección de la carta dentro de la categoría ("Tragos", "Cervezas", "Sin
+      // alcohol", "Comida"). Es lo que arma las pestañas de la grilla de /caja
+      // sin necesitar una tabla de categorías.
+      groupName: varchar("groupName", { length: 50 }),
+      // "este producto lo prepara la cocina" -> genera comanda en /cocina. Es una
+      // casilla explícita y no una regla adivinada por categoría o nombre: puede
+      // haber un trago que sí va a cocina, o una comida envasada que se entrega
+      // directo en la barra.
+      toKitchen: int("toKitchen").default(0).notNull(),
       internalCode: varchar("internalCode", { length: 10 }),
       // prefijo del código de canje, ej. 'PIS'
       barcode: varchar("barcode", { length: 64 }),
@@ -185,7 +205,12 @@ var init_schema = __esm({
       usedAtRegisterId: int("usedAtRegisterId"),
       displayCode: varchar("displayCode", { length: 20 }).unique(),
       // código legible PIS-XXXX-XXXX
-      createdAt: timestamp("createdAt").defaultNow().notNull()
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      // Personas cubiertas por ESTE ticket cuando no es 1:1 vía accesoSlug (ver
+      // shared/mission300.ts personasForAccesoSlug) -- hoy solo lo usa la
+      // invitación especial instantánea del admin: un solo QR/ticket que
+      // representa a varias personas, en vez de generar un ticket por persona.
+      groupSize: int("groupSize")
     });
     discountCodes = mysqlTable("discountCodes", {
       id: int("id").autoincrement().primaryKey(),
@@ -364,7 +389,7 @@ var init_schema = __esm({
       id: int("id").autoincrement().primaryKey(),
       name: varchar("name", { length: 255 }).notNull(),
       pinHash: varchar("pinHash", { length: 255 }).notNull(),
-      role: mysqlEnum("role", ["admin", "supervisor", "caja", "barra", "acceso"]).notNull(),
+      role: mysqlEnum("role", ["admin", "supervisor", "caja", "barra", "acceso", "cocina"]).notNull(),
       active: int("active").default(1).notNull(),
       // Rate limiting del login por PIN (docs/ARQUITECTURA-CAJA.md §13, riesgo 7)
       // -- el PIN es mucho más débil que una contraseña y la tablet es compartida.
@@ -458,9 +483,15 @@ var init_schema = __esm({
       countedCash: decimal("countedCash", { precision: 10, scale: 0 }),
       countedDebit: decimal("countedDebit", { precision: 10, scale: 0 }),
       countedCredit: decimal("countedCredit", { precision: 10, scale: 0 }),
+      countedQr: decimal("countedQr", { precision: 10, scale: 0 }),
       expectedCash: decimal("expectedCash", { precision: 10, scale: 0 }),
       expectedDebit: decimal("expectedDebit", { precision: 10, scale: 0 }),
       expectedCredit: decimal("expectedCredit", { precision: 10, scale: 0 }),
+      // Transferencia / QR de Mercado Pago. Va aparte de débito y crédito porque
+      // no pasa por la máquina: el voucher no existe y hay que cuadrarlo contra
+      // la app del banco. Sin esta columna, la plata cobrada por QR simplemente
+      // desaparecería del arqueo del turno.
+      expectedQr: decimal("expectedQr", { precision: 10, scale: 0 }),
       salesCount: int("salesCount"),
       redeemsCount: int("redeemsCount"),
       topCustomers: json("topCustomers"),
@@ -470,6 +501,38 @@ var init_schema = __esm({
       status: mysqlEnum("status", ["open", "closed"]).default("open").notNull(),
       createdAt: timestamp("createdAt").defaultNow().notNull()
     });
+    lockerItems = mysqlTable("lockerItems", {
+      id: int("id").autoincrement().primaryKey(),
+      eventId: int("eventId").notNull(),
+      orderId: int("orderId").notNull(),
+      opId: varchar("opId", { length: 64 }).notNull(),
+      tagNumber: varchar("tagNumber", { length: 16 }).notNull(),
+      status: mysqlEnum("status", ["guardado", "retirado"]).default("guardado").notNull(),
+      chargedAt: timestamp("chargedAt").defaultNow().notNull(),
+      retrievedAt: timestamp("retrievedAt"),
+      retrievedByOperatorId: int("retrievedByOperatorId")
+    }, (t2) => [
+      uniqueIndex("lockerItems_event_tag_unique").on(t2.eventId, t2.tagNumber)
+    ]);
+    kitchenTickets = mysqlTable("kitchenTickets", {
+      id: int("id").autoincrement().primaryKey(),
+      eventId: int("eventId").notNull(),
+      orderId: int("orderId").notNull(),
+      opId: varchar("opId", { length: 64 }).notNull(),
+      registerId: int("registerId"),
+      ticketNumber: varchar("ticketNumber", { length: 12 }).notNull(),
+      status: mysqlEnum("status", ["pendiente", "aprobado", "entregado"]).default("pendiente").notNull(),
+      items: json("items").notNull(),
+      // [{ name, quantity }]
+      note: varchar("note", { length: 200 }),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      approvedAt: timestamp("approvedAt"),
+      approvedByOperatorId: int("approvedByOperatorId"),
+      deliveredAt: timestamp("deliveredAt"),
+      deliveredByOperatorId: int("deliveredByOperatorId")
+    }, (t2) => [
+      uniqueIndex("kitchenTickets_event_number_unique").on(t2.eventId, t2.ticketNumber)
+    ]);
     playcoinsLedger = mysqlTable("playcoinsLedger", {
       id: int("id").autoincrement().primaryKey(),
       customerId: int("customerId").notNull(),
@@ -751,6 +814,9 @@ function personasForAccesoSlug(accesoSlug) {
   if (!accesoSlug) return 1;
   return ACCESO_PERSONAS[accesoSlug] ?? 1;
 }
+function personasForTicket(groupSize, accesoSlug) {
+  return groupSize ?? personasForAccesoSlug(accesoSlug);
+}
 function depositUnitsForAccesoSlug(accesoSlug) {
   if (!accesoSlug) return 1;
   return ACCESO_DEPOSIT_UNITS[accesoSlug] ?? personasForAccesoSlug(accesoSlug);
@@ -878,6 +944,41 @@ function isEventToday(eventDate, now, offsetHours = CHILE_OFFSET_HOURS) {
   const d = eventDate instanceof Date ? eventDate : new Date(eventDate);
   if (Number.isNaN(d.getTime())) return false;
   return dateKey(d, offsetHours) === dateKey(now, offsetHours);
+}
+
+// server/qr.ts
+import QRCode from "qrcode";
+async function generateTicketQR(ticketCode, eventTitle) {
+  const baseUrl = process.env.APP_URL || "https://mansionplayroom.cl";
+  const qrData = `${baseUrl}/verificar/${ticketCode}`;
+  const qrImageUrl = await QRCode.toDataURL(qrData, {
+    type: "image/png",
+    width: 400,
+    margin: 2,
+    color: {
+      dark: "#000000",
+      light: "#FFFFFF"
+    },
+    errorCorrectionLevel: "H"
+  });
+  return { qrData, qrImageUrl };
+}
+
+// server/caja/displayCode.ts
+import { randomInt } from "crypto";
+var ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
+function randomGroup(length) {
+  let out = "";
+  for (let i = 0; i < length; i++) out += ALPHABET[randomInt(ALPHABET.length)];
+  return out;
+}
+function fallbackInternalCode(name) {
+  const letters = name.replace(/[^a-zA-Z]/g, "").toUpperCase();
+  return (letters.slice(0, 3) || "EXT").padEnd(3, "X");
+}
+function generateDisplayCode(prefix) {
+  const cleanPrefix = prefix.trim().toUpperCase().slice(0, 6) || "EXT";
+  return `${cleanPrefix}-${randomGroup(4)}-${randomGroup(4)}`;
 }
 
 // server/db.ts
@@ -1353,6 +1454,136 @@ async function createManualOrder(input) {
     await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq2(ticketTypes.id, item.ticketTypeId));
   }
   return { orderId, orderNumber, total };
+}
+var ADMIN_PLACEHOLDER_EMAIL = "invitacion@mansionplayroom.cl";
+async function getOrCreateInstantInviteTicketType(eventId) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [existing] = await db.select().from(ticketTypes).where(and(eq2(ticketTypes.eventId, eventId), eq2(ticketTypes.name, "Invitaci\xF3n Especial"))).limit(1);
+  if (existing) return existing;
+  const [result] = await db.insert(ticketTypes).values({
+    eventId,
+    name: "Invitaci\xF3n Especial",
+    category: "acceso",
+    accesoSlug: null,
+    price: "0",
+    totalStock: 999999,
+    status: "hidden",
+    emoji: "\u{1F39F}\uFE0F"
+  });
+  const [created] = await db.select().from(ticketTypes).where(eq2(ticketTypes.id, result.insertId)).limit(1);
+  return created;
+}
+async function createInstantInvite({ eventSlug, personas }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const event = await getEventBySlug(eventSlug);
+  if (!event) throw new Error("Event not found");
+  const tt = await getOrCreateInstantInviteTicketType(event.id);
+  const orderNumber = `MP-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`;
+  const [orderResult] = await db.insert(orders).values({
+    orderNumber,
+    buyerName: "Invitaci\xF3n especial",
+    buyerEmail: ADMIN_PLACEHOLDER_EMAIL,
+    eventId: event.id,
+    subtotal: "0",
+    discount: "0",
+    serviceFee: "0",
+    total: "0",
+    paymentStatus: "approved",
+    paymentId: `MANUAL-${orderNumber}`,
+    paymentMethod: "Manual: Invitaci\xF3n especial"
+  });
+  const orderId = orderResult.insertId;
+  const [itemResult] = await db.insert(orderItems).values({
+    orderId,
+    ticketTypeId: tt.id,
+    quantity: personas,
+    unitPrice: "0",
+    totalPrice: "0"
+  });
+  await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${personas}` }).where(eq2(ticketTypes.id, tt.id));
+  const ticketCode = `MP-${nanoid(12).toUpperCase()}`;
+  const { qrData, qrImageUrl } = await generateTicketQR(ticketCode, event.title);
+  await db.insert(tickets).values({
+    ticketCode,
+    orderId,
+    orderItemId: itemResult.insertId,
+    eventId: event.id,
+    ticketTypeId: tt.id,
+    holderName: "Invitaci\xF3n especial",
+    qrData,
+    qrImageUrl,
+    status: "valid",
+    groupSize: personas
+  });
+  return { ticketCode, qrImageUrl, personas };
+}
+async function createStaffComp({ eventSlug, ticketTypeId, quantity, staffName }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const event = await getEventBySlug(eventSlug);
+  if (!event) throw new Error("Event not found");
+  const [tt] = await db.select().from(ticketTypes).where(eq2(ticketTypes.id, ticketTypeId)).limit(1);
+  if (!tt || tt.eventId !== event.id) throw new Error("Ese producto no existe en este evento");
+  if (!["consumo", "locker", "merch"].includes(tt.category)) throw new Error("Elige un producto de la Carta de la Fiesta");
+  const orderNumber = `MP-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`;
+  const [orderResult] = await db.insert(orders).values({
+    orderNumber,
+    buyerName: staffName,
+    buyerEmail: ADMIN_PLACEHOLDER_EMAIL,
+    eventId: event.id,
+    subtotal: "0",
+    discount: "0",
+    serviceFee: "0",
+    total: "0",
+    paymentStatus: "approved",
+    paymentId: `MANUAL-${orderNumber}`,
+    paymentMethod: "Manual: Consumo Staff"
+  });
+  const orderId = orderResult.insertId;
+  const [itemResult] = await db.insert(orderItems).values({
+    orderId,
+    ticketTypeId: tt.id,
+    quantity,
+    unitPrice: "0",
+    totalPrice: "0"
+  });
+  await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${quantity}` }).where(eq2(ticketTypes.id, tt.id));
+  const prefix = tt.internalCode || fallbackInternalCode(tt.name);
+  const displayCodes = [];
+  for (let i = 0; i < quantity; i++) {
+    const ticketCode = `MP-${nanoid(12).toUpperCase()}`;
+    const { qrData, qrImageUrl } = await generateTicketQR(ticketCode, event.title);
+    const displayCode = generateDisplayCode(prefix);
+    await db.insert(tickets).values({
+      ticketCode,
+      orderId,
+      orderItemId: itemResult.insertId,
+      eventId: event.id,
+      ticketTypeId: tt.id,
+      holderName: staffName,
+      qrData,
+      qrImageUrl,
+      status: "valid",
+      displayCode
+    });
+    displayCodes.push(displayCode);
+  }
+  return { displayCodes, productName: tt.name };
+}
+async function listStaffComps(eventId) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    ticketCode: tickets.ticketCode,
+    displayCode: tickets.displayCode,
+    status: tickets.status,
+    staffName: tickets.holderName,
+    createdAt: tickets.createdAt,
+    productName: ticketTypes.name
+  }).from(tickets).innerJoin(orders, eq2(orders.id, tickets.orderId)).innerJoin(ticketTypes, eq2(ticketTypes.id, tickets.ticketTypeId)).where(and(eq2(orders.eventId, eventId), eq2(orders.paymentMethod, "Manual: Consumo Staff"))).orderBy(desc(tickets.createdAt));
+  return rows;
 }
 async function listManualOrders() {
   const db = await getDb();
@@ -1838,18 +2069,48 @@ async function getCajaSnapshot(eventId) {
         status: t2.status,
         typeName: ttById.get(t2.ticketTypeId)?.name,
         // Para contar personas reales en el aforo (un Duo son 2).
-        accesoSlug: ttById.get(t2.ticketTypeId)?.accesoSlug ?? null
+        accesoSlug: ttById.get(t2.ticketTypeId)?.accesoSlug ?? null,
+        // Personas cubiertas por ESTE ticket cuando gana sobre accesoSlug --
+        // la invitación especial instantánea (ver createInstantInvite).
+        groupSize: t2.groupSize ?? null
       })),
       extras: ts.filter((t2) => ttById.get(t2.ticketTypeId)?.category === "extra").map((t2) => ({ displayCode: t2.displayCode, status: t2.status, typeName: ttById.get(t2.ticketTypeId)?.name }))
     };
   });
-  const catalog = allTicketTypes.filter((t2) => t2.category === "extra" && t2.status === "active").map((t2) => ({ id: t2.id, name: t2.name, price: Number(t2.price), color: t2.color, internalCode: t2.internalCode }));
+  const CATALOG_CATEGORIES = ["extra", "consumo", "locker", "merch"];
+  const catalog = allTicketTypes.filter((t2) => CATALOG_CATEGORIES.includes(t2.category) && t2.status === "active").map((t2) => ({
+    id: t2.id,
+    name: t2.name,
+    price: Number(t2.price),
+    color: t2.color,
+    internalCode: t2.internalCode,
+    emoji: t2.emoji ?? null,
+    groupName: t2.groupName ?? null,
+    category: t2.category,
+    totalStock: Number(t2.totalStock),
+    soldCount: Number(t2.soldCount),
+    toKitchen: Number(t2.toKitchen ?? 0) === 1,
+    sortOrder: Number(t2.sortOrder ?? 0)
+  }));
   const gifts = await listClaimableGifts();
+  const staffCompRows = await db.select({
+    displayCode: tickets.displayCode,
+    status: tickets.status,
+    staffName: tickets.holderName,
+    productName: ticketTypes.name
+  }).from(tickets).innerJoin(orders, eq2(orders.id, tickets.orderId)).innerJoin(ticketTypes, eq2(ticketTypes.id, tickets.ticketTypeId)).where(and(eq2(orders.eventId, eventId), eq2(orders.paymentMethod, "Manual: Consumo Staff"), eq2(tickets.status, "valid")));
+  const staffComps = staffCompRows.map((r) => ({
+    displayCode: r.displayCode,
+    status: r.status,
+    staffName: r.staffName,
+    productName: r.productName
+  }));
   return {
     event: { id: event.id, title: event.title, slug: event.slug },
     attendees,
     catalog,
     gifts,
+    staffComps,
     serverTime: (/* @__PURE__ */ new Date()).toISOString()
   };
 }
@@ -1870,14 +2131,27 @@ async function getCajaDashboard(eventId) {
   }).from(tickets).innerJoin(ticketTypes, eq2(ticketTypes.id, tickets.ticketTypeId)).where(eq2(tickets.eventId, eventId)).groupBy(ticketTypes.category, tickets.status);
   const statOf = (category, status) => Number(ticketStats.find((r) => r.category === category && r.status === status)?.count ?? 0);
   const redeemedCount = statOf("extra", "used");
-  const accesoTickets = await db.select({ accesoSlug: ticketTypes.accesoSlug, status: tickets.status }).from(tickets).innerJoin(ticketTypes, eq2(ticketTypes.id, tickets.ticketTypeId)).where(and(eq2(tickets.eventId, eventId), eq2(ticketTypes.category, "acceso")));
+  const accesoTickets = await db.select({ accesoSlug: ticketTypes.accesoSlug, status: tickets.status, groupSize: tickets.groupSize }).from(tickets).innerJoin(ticketTypes, eq2(ticketTypes.id, tickets.ticketTypeId)).where(and(eq2(tickets.eventId, eventId), eq2(ticketTypes.category, "acceso")));
   let insideCount = 0;
   let expectedCount = 0;
   for (const t2 of accesoTickets) {
     if (t2.status === "cancelled") continue;
-    const personas = personasForAccesoSlug(t2.accesoSlug);
+    const personas = personasForTicket(t2.groupSize, t2.accesoSlug);
     expectedCount += personas;
     if (t2.status === "used") insideCount += personas;
+  }
+  const unresolvedDeposits = await db.select().from(orders).where(and(
+    eq2(orders.eventId, eventId),
+    eq2(orders.missionDeposit, 1),
+    eq2(orders.paymentStatus, "approved"),
+    ne(orders.missionTopupStatus, "paid")
+  ));
+  for (const order of unresolvedDeposits) {
+    const depositItems = await db.select().from(orderItems).where(eq2(orderItems.orderId, order.id));
+    for (const item of depositItems) {
+      const [tt] = await db.select().from(ticketTypes).where(eq2(ticketTypes.id, item.ticketTypeId)).limit(1);
+      if (tt?.category === "acceso") expectedCount += personasForAccesoSlug(tt.accesoSlug) * item.quantity;
+    }
   }
   const items = await db.select({ ticketTypeId: orderItems.ticketTypeId, quantity: orderItems.quantity }).from(orderItems).innerJoin(orders, eq2(orders.id, orderItems.orderId)).where(and(eq2(orders.eventId, eventId), eq2(orders.channel, "caja"), eq2(orders.paymentStatus, "approved")));
   const qtyByType = /* @__PURE__ */ new Map();
@@ -2083,12 +2357,13 @@ async function closeShift(params) {
   ];
   if (shift.registerId) shiftSalesConditions.push(eq2(orders.registerId, shift.registerId));
   const shiftSales = await db.select({ total: orders.total, paymentMethod: orders.paymentMethod }).from(orders).where(and(...shiftSalesConditions));
-  let expectedCash = 0, expectedDebit = 0, expectedCredit = 0;
+  let expectedCash = 0, expectedDebit = 0, expectedCredit = 0, expectedQr = 0;
   for (const s of shiftSales) {
     const amount = Number(s.total);
     if (s.paymentMethod === "efectivo") expectedCash += amount;
     else if (s.paymentMethod === "debito") expectedDebit += amount;
     else if (s.paymentMethod === "credito") expectedCredit += amount;
+    else if (s.paymentMethod === "qr") expectedQr += amount;
   }
   const redeemsCount = await db.select({ count: sql`count(*)` }).from(ops).where(and(
     eq2(ops.eventId, shift.eventId),
@@ -2122,9 +2397,11 @@ async function closeShift(params) {
     countedCash: String(params.countedCash),
     countedDebit: String(params.countedDebit),
     countedCredit: String(params.countedCredit),
+    countedQr: params.countedQr != null ? String(params.countedQr) : null,
     expectedCash: String(expectedCash),
     expectedDebit: String(expectedDebit),
     expectedCredit: String(expectedCredit),
+    expectedQr: String(expectedQr),
     salesCount: shiftSales.length,
     redeemsCount: Number(redeemsCount[0]?.count ?? 0),
     topCustomers,
@@ -2145,12 +2422,15 @@ async function closeShift(params) {
     countedCash: params.countedCash,
     countedDebit: params.countedDebit,
     countedCredit: params.countedCredit,
+    countedQr: params.countedQr ?? 0,
     expectedCash,
     expectedDebit,
     expectedCredit,
+    expectedQr,
     cashDiff: params.countedCash - expectedCash - Number(shift.openingCash),
     debitDiff: params.countedDebit - expectedDebit,
     creditDiff: params.countedCredit - expectedCredit,
+    qrDiff: (params.countedQr ?? 0) - expectedQr,
     salesCount: shiftSales.length,
     redeemsCount: Number(redeemsCount[0]?.count ?? 0),
     topCustomers,
@@ -4693,6 +4973,7 @@ function buildShiftCloseEmail(data) {
       ${diffRow("\u{1F4B5} Efectivo", data.countedCash, data.expectedCash + data.openingCash, data.cashDiff)}
       ${diffRow("\u{1F4B3} D\xE9bito", data.countedDebit, data.expectedDebit, data.debitDiff)}
       ${diffRow("\u{1F4B3} Cr\xE9dito", data.countedCredit, data.expectedCredit, data.creditDiff)}
+      ${data.expectedQr || data.countedQr ? diffRow("\u{1F4F2} QR / Transferencia", data.countedQr ?? 0, data.expectedQr ?? 0, data.qrDiff ?? 0) : ""}
     `)}
 
     ${card(`
@@ -5701,43 +5982,6 @@ ${partesContexto.join("\n")}` }
 init_schema();
 import { eq as eq4, and as and3, sql as sql3, isNotNull, ne as ne2, inArray as inArray3 } from "drizzle-orm";
 import { nanoid as nanoid2 } from "nanoid";
-
-// server/qr.ts
-import QRCode from "qrcode";
-async function generateTicketQR(ticketCode, eventTitle) {
-  const baseUrl = process.env.APP_URL || "https://mansionplayroom.cl";
-  const qrData = `${baseUrl}/verificar/${ticketCode}`;
-  const qrImageUrl = await QRCode.toDataURL(qrData, {
-    type: "image/png",
-    width: 400,
-    margin: 2,
-    color: {
-      dark: "#000000",
-      light: "#FFFFFF"
-    },
-    errorCorrectionLevel: "H"
-  });
-  return { qrData, qrImageUrl };
-}
-
-// server/caja/displayCode.ts
-import { randomInt } from "crypto";
-var ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
-function randomGroup(length) {
-  let out = "";
-  for (let i = 0; i < length; i++) out += ALPHABET[randomInt(ALPHABET.length)];
-  return out;
-}
-function fallbackInternalCode(name) {
-  const letters = name.replace(/[^a-zA-Z]/g, "").toUpperCase();
-  return (letters.slice(0, 3) || "EXT").padEnd(3, "X");
-}
-function generateDisplayCode(prefix) {
-  const cleanPrefix = prefix.trim().toUpperCase().slice(0, 6) || "EXT";
-  return `${cleanPrefix}-${randomGroup(4)}-${randomGroup(4)}`;
-}
-
-// server/webhooks.ts
 var webhooksRouter = Router();
 function formatEventDate(date) {
   return formatChileDate(date, { withYear: true });
@@ -6640,6 +6884,19 @@ var doorProcedure = t.procedure.use(
     return next({ ctx: { ...ctx, operator: ctx.operator } });
   })
 );
+var kitchenProcedure = t.procedure.use(
+  t.middleware(async (opts) => {
+    const { ctx, next } = opts;
+    if (!ctx.operator) {
+      throw new TRPCError2({ code: "UNAUTHORIZED", message: "Sesi\xF3n de cocina requerida" });
+    }
+    const role = ctx.operator.role;
+    if (role !== "cocina" && role !== "supervisor" && role !== "admin") {
+      throw new TRPCError2({ code: "FORBIDDEN", message: "Tu usuario no tiene acceso a la pantalla de cocina" });
+    }
+    return next({ ctx: { ...ctx, operator: ctx.operator } });
+  })
+);
 var operatorProcedure = deviceProcedure.use(
   t.middleware(async (opts) => {
     const { ctx, next } = opts;
@@ -6944,7 +7201,7 @@ async function countPendingApplications() {
 // server/caja/sale.ts
 init_schema();
 init_ops();
-import { eq as eq8, sql as sql4, inArray as inArray4 } from "drizzle-orm";
+import { eq as eq8, sql as sql4, inArray as inArray4, and as and5 } from "drizzle-orm";
 async function createCajaSale(db, params) {
   if (params.items.length === 0) throw new Error("La venta necesita al menos un producto");
   const ticketTypeIds = params.items.map((i) => i.ticketTypeId);
@@ -6952,14 +7209,37 @@ async function createCajaSale(db, params) {
   const ttById = new Map(tts.map((t2) => [t2.id, t2]));
   let total = 0;
   const lineItems = [];
+  const stockWarnings = [];
   for (const item of params.items) {
     const tt = ttById.get(item.ticketTypeId);
     if (!tt) throw new Error(`Producto ${item.ticketTypeId} no encontrado`);
     const available = tt.totalStock - tt.soldCount;
-    if (item.quantity > available) throw new Error(`Sin stock suficiente de ${tt.name}`);
+    if (item.quantity > available) {
+      stockWarnings.push({ ticketTypeId: tt.id, name: tt.name, requested: item.quantity, available });
+    }
     const unitPrice = Number(tt.price);
     total += unitPrice * item.quantity;
     lineItems.push({ ticketTypeId: tt.id, quantity: item.quantity, unitPrice, unitCost: tt.costPrice != null ? Number(tt.costPrice) : null, name: tt.name });
+  }
+  const kitchenItems = params.items.filter((i) => Number(ttById.get(i.ticketTypeId)?.toKitchen ?? 0) === 1).map((i) => ({ name: ttById.get(i.ticketTypeId).name, quantity: i.quantity }));
+  if (kitchenItems.length > 0 && !params.kitchenTicketNumber?.trim()) {
+    throw new Error("Falta el n\xFAmero de comanda para cocina");
+  }
+  const hasLocker = params.items.some((i) => ttById.get(i.ticketTypeId)?.category === "locker");
+  if (hasLocker) {
+    const lockerQty = params.items.filter((i) => ttById.get(i.ticketTypeId)?.category === "locker").reduce((sum, i) => sum + i.quantity, 0);
+    if (lockerQty > 1) throw new Error("Cobra los abrigos de a uno para poder asignar un n\xFAmero a cada uno");
+    if (!params.lockerTag?.trim()) throw new Error("Falta el n\xFAmero de la percha");
+  }
+  let discountAmount = 0;
+  let appliedDiscountId = null;
+  if (params.discountCode?.trim()) {
+    const validation = await validateDiscountCode(params.discountCode.trim(), params.eventId);
+    if (validation.valid && validation.discount) {
+      const disc = validation.discount;
+      appliedDiscountId = disc.id;
+      discountAmount = disc.discountType === "percentage" ? Math.round(total * Number(disc.discountValue) / 100) : Math.min(Number(disc.discountValue), total);
+    }
   }
   const { result, conflictNote } = await applyOp(
     db,
@@ -6972,22 +7252,41 @@ async function createCajaSale(db, params) {
       targetType: "order",
       targetId: params.opId,
       // la orden todavía no existe al momento de armar el op -- se referencia por el mismo opId
-      payload: { items: lineItems, paymentMethod: params.paymentMethod, total, buyerEmail: params.buyerEmail ?? null, redeemRequested: params.redeemPlaycoins ?? 0 },
+      payload: {
+        items: lineItems,
+        paymentMethod: params.paymentMethod,
+        total,
+        buyerEmail: params.buyerEmail ?? null,
+        redeemRequested: params.redeemPlaycoins ?? 0,
+        ...stockWarnings.length > 0 ? { stockWarnings } : {},
+        ...appliedDiscountId ? { discountCode: params.discountCode.trim().toUpperCase(), discountAmount } : {},
+        ...params.lockerTag ? { lockerTag: params.lockerTag.trim() } : {},
+        ...kitchenItems.length > 0 ? { kitchenTicketNumber: params.kitchenTicketNumber.trim(), kitchenItems } : {}
+      },
       clientAt: params.clientAt
     },
     async () => {
+      const totalAfterDiscount = Math.max(0, total - discountAmount);
+      if (params.lockerTag?.trim()) {
+        const tagNumber = params.lockerTag.trim();
+        const existing = await db.select().from(lockerItems).where(and5(eq8(lockerItems.eventId, params.eventId), eq8(lockerItems.tagNumber, tagNumber))).limit(1);
+        if (existing.length > 0) throw new Error(`El n\xFAmero ${tagNumber} ya est\xE1 en uso esta noche`);
+      }
       let redeemedAmount = 0;
       let redeemConflictNote;
       if (params.redeemPlaycoins && params.redeemPlaycoins > 0 && params.buyerEmail) {
         const redemption = await redeemPlaycoinsAuthoritative({
           email: params.buyerEmail,
-          requestedAmount: params.redeemPlaycoins,
+          requestedAmount: Math.min(params.redeemPlaycoins, totalAfterDiscount),
           opId: params.opId
         });
         if (redemption.ok) redeemedAmount = redemption.redeemed;
         else redeemConflictNote = redemption.conflictNote;
       }
-      const finalTotal = total - redeemedAmount;
+      if (appliedDiscountId) {
+        await db.update(discountCodes).set({ usedCount: sql4`usedCount + 1` }).where(eq8(discountCodes.id, appliedDiscountId));
+      }
+      const finalTotal = totalAfterDiscount - redeemedAmount;
       const orderNumber = `CAJA-${Date.now().toString(36).toUpperCase()}`;
       const [orderResult] = await db.insert(orders).values({
         orderNumber,
@@ -6995,7 +7294,7 @@ async function createCajaSale(db, params) {
         buyerEmail: params.buyerEmail?.trim().toLowerCase() || "caja@mansionplayroom.cl",
         eventId: params.eventId,
         subtotal: String(total),
-        discount: String(redeemedAmount),
+        discount: String(discountAmount + redeemedAmount),
         total: String(finalTotal),
         paymentStatus: "approved",
         paymentId: `CAJA-${params.opId}`,
@@ -7007,6 +7306,24 @@ async function createCajaSale(db, params) {
         // no corresponde email al cliente en una venta presencial
       });
       const orderId = orderResult.insertId;
+      if (params.lockerTag?.trim()) {
+        await db.insert(lockerItems).values({
+          eventId: params.eventId,
+          orderId,
+          opId: params.opId,
+          tagNumber: params.lockerTag.trim()
+        });
+      }
+      if (kitchenItems.length > 0) {
+        await db.insert(kitchenTickets).values({
+          eventId: params.eventId,
+          orderId,
+          opId: params.opId,
+          registerId: params.registerId ?? null,
+          ticketNumber: params.kitchenTicketNumber.trim(),
+          items: kitchenItems
+        });
+      }
       for (const item of lineItems) {
         await db.insert(orderItems).values({
           orderId,
@@ -7021,7 +7338,72 @@ async function createCajaSale(db, params) {
       if (params.buyerEmail) {
         await awardPlaycoins({ email: params.buyerEmail, totalClp: finalTotal, reason: "earn_caja", opId: params.opId });
       }
-      return { result: "applied", conflictNote: redeemConflictNote };
+      const stockNote = stockWarnings.length > 0 ? `Vendido sin stock: ${stockWarnings.map((w) => `${w.name} (quedaban ${w.available}, se vendieron ${w.requested})`).join("; ")}` : void 0;
+      const notes = [redeemConflictNote, stockNote].filter(Boolean);
+      return { result: "applied", conflictNote: notes.length > 0 ? notes.join(" \xB7 ") : void 0 };
+    }
+  );
+  return { result, conflictNote };
+}
+
+// server/kitchen.ts
+import { and as and6, asc, desc as desc4, eq as eq9, gte as gte2, inArray as inArray5 } from "drizzle-orm";
+init_schema();
+init_ops();
+
+// shared/kitchen.ts
+function canTransitionKitchenTicket(from, to) {
+  if (from === "pendiente") return to === "aprobado" || to === "entregado";
+  if (from === "aprobado") return to === "entregado";
+  if (from === "entregado") return to === "aprobado";
+  return false;
+}
+
+// server/kitchen.ts
+async function listKitchenTickets(eventId) {
+  const db = await getDb();
+  if (!db) return { active: [], recentlyDelivered: [] };
+  const active = await db.select().from(kitchenTickets).where(and6(eq9(kitchenTickets.eventId, eventId), inArray5(kitchenTickets.status, ["pendiente", "aprobado"]))).orderBy(asc(kitchenTickets.createdAt));
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1e3);
+  const recentlyDelivered = await db.select().from(kitchenTickets).where(and6(eq9(kitchenTickets.eventId, eventId), eq9(kitchenTickets.status, "entregado"), gte2(kitchenTickets.deliveredAt, oneHourAgo))).orderBy(desc4(kitchenTickets.deliveredAt));
+  return { active, recentlyDelivered };
+}
+async function updateKitchenTicket(rawDb, params) {
+  const { result, conflictNote } = await applyOp(
+    rawDb,
+    {
+      id: params.opId,
+      type: "kitchen_update",
+      eventId: params.eventId,
+      operatorId: params.operatorId,
+      registerId: params.registerId,
+      targetType: "kitchenTicket",
+      targetId: params.ticketNumber,
+      payload: { ticketNumber: params.ticketNumber, to: params.to },
+      clientAt: params.clientAt
+    },
+    async () => {
+      const [ticket] = await rawDb.select().from(kitchenTickets).where(and6(eq9(kitchenTickets.eventId, params.eventId), eq9(kitchenTickets.ticketNumber, params.ticketNumber))).limit(1);
+      if (!ticket) return { result: "rejected", conflictNote: "No existe esa comanda" };
+      if (!canTransitionKitchenTicket(ticket.status, params.to)) {
+        return { result: "conflict", conflictNote: `La comanda ya est\xE1 en estado "${ticket.status}"` };
+      }
+      const now = /* @__PURE__ */ new Date();
+      const patch = { status: params.to };
+      if (params.to === "aprobado") {
+        patch.approvedAt = now;
+        patch.approvedByOperatorId = params.operatorId;
+        if (ticket.status === "entregado") {
+          patch.deliveredAt = null;
+          patch.deliveredByOperatorId = null;
+        }
+      }
+      if (params.to === "entregado") {
+        patch.deliveredAt = now;
+        patch.deliveredByOperatorId = params.operatorId;
+      }
+      await rawDb.update(kitchenTickets).set(patch).where(eq9(kitchenTickets.id, ticket.id));
+      return { result: "applied" };
     }
   );
   return { result, conflictNote };
@@ -7030,7 +7412,7 @@ async function createCajaSale(db, params) {
 // server/caja/void.ts
 init_schema();
 init_ops();
-import { eq as eq9 } from "drizzle-orm";
+import { eq as eq10 } from "drizzle-orm";
 async function voidTicketCode(db, params) {
   const code = params.displayCode.trim().toUpperCase();
   const { result, conflictNote } = await applyOp(
@@ -7047,11 +7429,11 @@ async function voidTicketCode(db, params) {
       clientAt: params.clientAt
     },
     async () => {
-      const [ticket] = await db.select().from(tickets).where(eq9(tickets.displayCode, code)).limit(1);
+      const [ticket] = await db.select().from(tickets).where(eq10(tickets.displayCode, code)).limit(1);
       if (!ticket) return { result: "rejected", conflictNote: "El c\xF3digo no existe" };
       if (ticket.eventId !== params.eventId) return { result: "rejected", conflictNote: "El c\xF3digo no corresponde a este evento" };
       if (ticket.status === "cancelled") return { result: "rejected", conflictNote: "El c\xF3digo ya estaba anulado" };
-      await db.update(tickets).set({ status: "cancelled" }).where(eq9(tickets.id, ticket.id));
+      await db.update(tickets).set({ status: "cancelled" }).where(eq10(tickets.id, ticket.id));
       return { result: "applied" };
     }
   );
@@ -7060,7 +7442,7 @@ async function voidTicketCode(db, params) {
 
 // server/orderReminders.ts
 import { z as z4 } from "zod";
-import { eq as eq10, inArray as inArray5 } from "drizzle-orm";
+import { eq as eq11, inArray as inArray6 } from "drizzle-orm";
 init_schema();
 var APP_URL = process.env.APP_URL && process.env.APP_URL !== "https://mansionplayroom.cl" ? process.env.APP_URL : "https://mansionplayroom.cl";
 async function sendPendingReminders(params) {
@@ -7079,7 +7461,7 @@ async function sendPendingReminders(params) {
     eventTitle: events.title,
     eventSlug: events.slug,
     eventDate: events.eventDate
-  }).from(orders).leftJoin(events, eq10(orders.eventId, events.id)).where(inArray5(orders.id, params.orderIds));
+  }).from(orders).leftJoin(events, eq11(orders.eventId, events.id)).where(inArray6(orders.id, params.orderIds));
   for (const orden of filas) {
     if (orden.paymentStatus !== "pending") {
       resultado.skipped.push({
@@ -7101,7 +7483,7 @@ async function sendPendingReminders(params) {
           customBody: params.customBody
         })
       });
-      await db.update(orders).set({ reminderSentAt: /* @__PURE__ */ new Date(), reminderCount: (orden.reminderCount ?? 0) + 1 }).where(eq10(orders.id, orden.id));
+      await db.update(orders).set({ reminderSentAt: /* @__PURE__ */ new Date(), reminderCount: (orden.reminderCount ?? 0) + 1 }).where(eq11(orders.id, orden.id));
       resultado.sent++;
     } catch (err) {
       resultado.failed.push({
@@ -7308,6 +7690,13 @@ async function verifyDoorPinOrThrow(ctx, operatorId, pin) {
   }
   return operator;
 }
+async function verifyKitchenPinOrThrow(ctx, operatorId, pin) {
+  const operator = await verifyOperatorPinOrThrow(ctx, operatorId, pin);
+  if (operator.role !== "cocina" && operator.role !== "supervisor" && operator.role !== "admin") {
+    throw new TRPCError3({ code: "FORBIDDEN", message: "Tu usuario no trabaja en cocina" });
+  }
+  return operator;
+}
 function adminIpKey(ctx) {
   const forwardedFor = ctx.req.headers["x-forwarded-for"];
   const ip = (typeof forwardedFor === "string" ? forwardedFor.split(",")[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || "unknown";
@@ -7496,7 +7885,7 @@ var appRouter = router({
       eventId: z5.number(),
       name: z5.string(),
       accesoSlug: z5.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
-      category: z5.enum(["acceso", "extra"]).optional(),
+      category: z5.enum(["acceso", "extra", "consumo", "locker", "merch"]).optional(),
       description: z5.string().optional(),
       price: z5.number(),
       originalPrice: z5.number().optional(),
@@ -7506,7 +7895,12 @@ var appRouter = router({
       status: z5.enum(["active", "soldout", "hidden"]).optional(),
       costPrice: z5.number().optional(),
       color: z5.string().optional(),
-      internalCode: z5.string().optional()
+      internalCode: z5.string().optional(),
+      // Carta de la fiesta (tragos/comida/guardarropía): emoji en vez de foto,
+      // sección para agrupar en la grilla de /caja, y si va a cocina.
+      emoji: z5.string().max(8).optional(),
+      groupName: z5.string().max(50).optional(),
+      toKitchen: z5.number().min(0).max(1).optional()
     })).mutation(async ({ input }) => {
       return createTicketType(input);
     }),
@@ -7514,7 +7908,7 @@ var appRouter = router({
       id: z5.number(),
       name: z5.string().optional(),
       accesoSlug: z5.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
-      category: z5.enum(["acceso", "extra"]).optional(),
+      category: z5.enum(["acceso", "extra", "consumo", "locker", "merch"]).optional(),
       description: z5.string().optional(),
       price: z5.number().optional(),
       originalPrice: z5.number().optional(),
@@ -7524,7 +7918,12 @@ var appRouter = router({
       status: z5.enum(["active", "soldout", "hidden"]).optional(),
       costPrice: z5.number().optional(),
       color: z5.string().optional(),
-      internalCode: z5.string().optional()
+      internalCode: z5.string().optional(),
+      // Carta de la fiesta (tragos/comida/guardarropía): emoji en vez de foto,
+      // sección para agrupar en la grilla de /caja, y si va a cocina.
+      emoji: z5.string().max(8).optional(),
+      groupName: z5.string().max(50).optional(),
+      toKitchen: z5.number().min(0).max(1).optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateTicketType(id, data);
@@ -7678,6 +8077,38 @@ var appRouter = router({
     listManual: adminProcedure2.query(async () => {
       return listManualOrders();
     }),
+    // "Invitación especial instantánea" de Accesos Manuales (pedido explícito
+    // del usuario): sin ningún dato salvo la cantidad de personas -- para
+    // cuando llega un invitado del dueño a la puerta sin QR. Un solo
+    // ticket/QR representa a todas las personas (ver createInstantInvite).
+    createInstantInvite: adminProcedure2.input(z5.object({
+      eventSlug: z5.string(),
+      personas: z5.number().int().min(1).max(20)
+    })).mutation(async ({ input }) => {
+      try {
+        return await createInstantInvite(input);
+      } catch (err) {
+        throw new TRPCError3({ code: "BAD_REQUEST", message: err instanceof Error ? err.message : "No se pudo crear la invitaci\xF3n." });
+      }
+    }),
+    // "Invitar consumo gratis a staff" de Accesos Manuales (pedido explícito
+    // del usuario): el dueño elige un producto de la Carta de la Fiesta,
+    // cuántas unidades y para quién es -- la cajera lo ve y lo canjea en /caja.
+    createStaffComp: adminProcedure2.input(z5.object({
+      eventSlug: z5.string(),
+      ticketTypeId: z5.number(),
+      quantity: z5.number().int().min(1).max(20),
+      staffName: z5.string().min(1)
+    })).mutation(async ({ input }) => {
+      try {
+        return await createStaffComp(input);
+      } catch (err) {
+        throw new TRPCError3({ code: "BAD_REQUEST", message: err instanceof Error ? err.message : "No se pudo crear la invitaci\xF3n de consumo." });
+      }
+    }),
+    listStaffComps: adminProcedure2.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
+      return listStaffComps(input.eventId);
+    }),
     // Eliminar una compra (pedido explícito del usuario): irreversible, la
     // confirmación con ventana de diálogo vive en el admin, acá solo se
     // ejecuta el borrado en cascada.
@@ -7770,6 +8201,52 @@ var appRouter = router({
         }
       }
       return results;
+    })
+  }),
+  // --- Cocina: la pantalla que recibe los pedidos de comida de /caja ---
+  // Pantalla propia, aparte de /caja y /puerta: el equipo de cocina no
+  // vende ni marca entradas, solo prepara y entrega. A diferencia de esas
+  // dos, esta pantalla SÍ necesita red -- el pedido nace en otra tablet
+  // (la caja) y no hay forma de que cocina se entere sin consultar al
+  // servidor, así que no tiene sentido una cola offline acá.
+  cocina: router({
+    listOperators: publicProcedure.query(async () => {
+      const all = await listActiveOperatorsPublic();
+      return all.filter((o) => o.role === "cocina" || o.role === "supervisor" || o.role === "admin");
+    }),
+    login: publicProcedure.input(z5.object({ operatorId: z5.number(), pin: z5.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
+      const operator = await verifyKitchenPinOrThrow(ctx, input.operatorId, input.pin);
+      const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
+      return { id: operator.id, name: operator.name, role: operator.role };
+    }),
+    me: publicProcedure.query(({ ctx }) => ctx.operator),
+    activeEvent: kitchenProcedure.query(async () => {
+      return getActiveEventForCaja();
+    }),
+    // Polling cada 4s desde el cliente -- pendientes/aprobadas más viejas
+    // primero, y las entregadas de la última hora aparte (para "deshacer").
+    list: kitchenProcedure.input(z5.object({ eventId: z5.number() })).query(async ({ input }) => {
+      return listKitchenTickets(input.eventId);
+    }),
+    update: kitchenProcedure.input(z5.object({
+      opId: z5.string(),
+      eventId: z5.number(),
+      ticketNumber: z5.string(),
+      to: z5.enum(["pendiente", "aprobado", "entregado"]),
+      clientAt: z5.string()
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await getDb();
+      if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
+      return updateKitchenTicket(rawDb, {
+        opId: input.opId,
+        eventId: input.eventId,
+        ticketNumber: input.ticketNumber,
+        operatorId: ctx.operator.operatorId,
+        clientAt: new Date(input.clientAt),
+        to: input.to
+      });
     })
   }),
   // --- Caramelo: la fiesta dentro del celular ---
@@ -8366,9 +8843,12 @@ var appRouter = router({
           type: z5.literal("sale"),
           opId: z5.string(),
           items: z5.array(z5.object({ ticketTypeId: z5.number(), quantity: z5.number().min(1) })).min(1),
-          paymentMethod: z5.enum(["efectivo", "debito", "credito"]),
+          paymentMethod: z5.enum(["efectivo", "debito", "credito", "qr"]),
           buyerEmail: z5.string().email().optional(),
           redeemPlaycoins: z5.number().int().min(0).optional(),
+          discountCode: z5.string().optional(),
+          lockerTag: z5.string().max(16).optional(),
+          kitchenTicketNumber: z5.string().max(12).optional(),
           clientAt: z5.string()
         })
       ])).max(50)
@@ -8406,7 +8886,10 @@ var appRouter = router({
               paymentMethod: op.paymentMethod,
               clientAt: new Date(op.clientAt),
               buyerEmail: op.buyerEmail,
-              redeemPlaycoins: op.redeemPlaycoins
+              redeemPlaycoins: op.redeemPlaycoins,
+              discountCode: op.discountCode,
+              lockerTag: op.lockerTag,
+              kitchenTicketNumber: op.kitchenTicketNumber
             });
           }
         } catch (err) {
@@ -8465,6 +8948,7 @@ var appRouter = router({
       countedCash: z5.number().min(0),
       countedDebit: z5.number().min(0),
       countedCredit: z5.number().min(0),
+      countedQr: z5.number().min(0).optional(),
       clientAt: z5.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
@@ -8477,7 +8961,8 @@ var appRouter = router({
         closedByOperatorId: ctx.operator.operatorId,
         countedCash: input.countedCash,
         countedDebit: input.countedDebit,
-        countedCredit: input.countedCredit
+        countedCredit: input.countedCredit,
+        countedQr: input.countedQr
       });
       const { applyOp: applyOp2 } = await Promise.resolve().then(() => (init_ops(), ops_exports));
       await applyOp2(rawDb, {
@@ -8590,8 +9075,13 @@ var appRouter = router({
       opId: z5.string(),
       eventId: z5.number(),
       items: z5.array(z5.object({ ticketTypeId: z5.number(), quantity: z5.number().min(1) })).min(1),
-      paymentMethod: z5.enum(["efectivo", "debito", "credito"]),
+      paymentMethod: z5.enum(["efectivo", "debito", "credito", "qr"]),
       registerId: z5.number().optional(),
+      buyerEmail: z5.string().email().optional(),
+      redeemPlaycoins: z5.number().int().min(0).optional(),
+      discountCode: z5.string().optional(),
+      lockerTag: z5.string().max(16).optional(),
+      kitchenTicketNumber: z5.string().max(12).optional(),
       clientAt: z5.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
@@ -8604,6 +9094,11 @@ var appRouter = router({
           registerId: input.registerId,
           items: input.items,
           paymentMethod: input.paymentMethod,
+          buyerEmail: input.buyerEmail,
+          redeemPlaycoins: input.redeemPlaycoins,
+          discountCode: input.discountCode,
+          lockerTag: input.lockerTag,
+          kitchenTicketNumber: input.kitchenTicketNumber,
           clientAt: new Date(input.clientAt)
         });
       } catch (err) {
@@ -8619,7 +9114,7 @@ var appRouter = router({
     create: adminProcedure2.input(z5.object({
       name: z5.string().min(1),
       pin: z5.string().min(4).max(8),
-      role: z5.enum(["admin", "supervisor", "caja", "barra", "acceso"])
+      role: z5.enum(["admin", "supervisor", "caja", "barra", "acceso", "cocina"])
     })).mutation(async ({ input }) => {
       const id = await createOperator({ name: input.name, pinHash: hashPin(input.pin), role: input.role });
       return { id };
@@ -8628,7 +9123,7 @@ var appRouter = router({
       id: z5.number(),
       name: z5.string().min(1).optional(),
       pin: z5.string().min(4).max(8).optional(),
-      role: z5.enum(["admin", "supervisor", "caja", "barra", "acceso"]).optional(),
+      role: z5.enum(["admin", "supervisor", "caja", "barra", "acceso", "cocina"]).optional(),
       active: z5.number().min(0).max(1).optional()
     })).mutation(async ({ input }) => {
       const { id, pin, ...rest } = input;

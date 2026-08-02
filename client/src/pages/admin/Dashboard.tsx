@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2 } from 'lucide-react';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import {
@@ -705,6 +705,13 @@ function ManualAccessSection() {
         <p className="text-sm text-muted-foreground">Invitaciones gratis o accesos ya pagados por transferencia/efectivo, sin pasar por Mercado Pago -- se manda el mismo mail con el ticket y QR.</p>
       </div>
 
+      {selectedEvent && (
+        <div className="flex flex-col sm:flex-row gap-3">
+          <InstantInviteButton eventSlug={eventSlug} />
+          <StaffCompButton eventSlug={eventSlug} products={ticketTypesList.filter((t: any) => ['consumo', 'locker', 'merch'].includes(t.category))} />
+        </div>
+      )}
+
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardContent className="pt-6 space-y-4">
           <div className="space-y-2 max-w-md">
@@ -865,7 +872,171 @@ function ManualAccessSection() {
           {history.length === 0 && <p className="text-sm text-muted-foreground px-3 py-4">Todavía no se creó ningún acceso manual.</p>}
         </div>
       </div>
+
+      {selectedEvent && <StaffCompHistory eventId={selectedEvent.id} />}
     </div>
+  );
+}
+
+/** Historial de "Invitar consumo gratis a staff" -- visibilidad para el
+ * dueño de qué se invitó y si ya se canjeó (ver createStaffComp). */
+function StaffCompHistory({ eventId }: { eventId: number }) {
+  const { data } = trpc.orders.listStaffComps.useQuery({ eventId });
+  const comps = data ?? [];
+  if (comps.length === 0) return null;
+
+  return (
+    <div>
+      <h3 className="font-heading text-lg mb-3">Consumos gratis de staff</h3>
+      <div className="rounded-lg border border-border/50 divide-y">
+        {comps.map((c: any) => (
+          <div key={c.ticketCode} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm">
+            <div className="min-w-0">
+              <p className="font-medium truncate">{c.productName} · para {c.staffName}</p>
+              <p className="text-xs text-muted-foreground truncate font-mono">{c.displayCode}</p>
+            </div>
+            <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${c.status === 'used' ? 'bg-muted text-muted-foreground' : 'bg-emerald-500/10 text-emerald-600'}`}>
+              {c.status === 'used' ? 'Canjeado' : 'Pendiente'}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Botón "Invitación especial instantánea" (pedido explícito del usuario):
+ * cero datos salvo la cantidad de personas -- para un invitado que llega a
+ * la puerta sin QR. El QR queda listo al instante para mandar por WhatsApp. */
+function InstantInviteButton({ eventSlug }: { eventSlug: string }) {
+  const [open, setOpen] = useState(false);
+  const [personas, setPersonas] = useState(1);
+  const [result, setResult] = useState<{ ticketCode: string; qrImageUrl: string; personas: number } | null>(null);
+
+  const create = trpc.orders.createInstantInvite.useMutation({
+    onSuccess: (data) => setResult(data),
+    onError: onMutationError,
+  });
+
+  const reset = () => { setPersonas(1); setResult(null); };
+
+  const shareUrl = result ? `${result.qrImageUrl}` : '';
+
+  const compartir = async () => {
+    if (!result) return;
+    try {
+      const res = await fetch(result.qrImageUrl);
+      const blob = await res.blob();
+      const file = new File([blob], `invitacion-${result.ticketCode}.png`, { type: 'image/png' });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Invitación especial', text: `Invitación especial para ${result.personas} persona${result.personas === 1 ? '' : 's'}` });
+        return;
+      }
+    } catch {
+      // Sin soporte de compartir archivos -- se usa el botón de descarga.
+    }
+    toast.info('Tu navegador no soporta compartir la imagen directo -- descárgala y compártela desde tus fotos.');
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset(); }}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" className="flex-1 interactive">
+          <QrCode className="w-4 h-4 mr-2" /> Invitación especial instantánea
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Invitación especial instantánea</DialogTitle>
+        </DialogHeader>
+        {!result ? (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">Sin ningún dato más -- solo cuántas personas van a entrar con este QR. Al anfitrión en la puerta le va a aparecer "Invitación Especial" con esta cantidad.</p>
+            <div className="space-y-2">
+              <Label>¿Cuántas personas son?</Label>
+              <Input type="number" min={1} max={20} value={personas} onChange={(e) => setPersonas(Math.min(20, Math.max(1, Number(e.target.value) || 1)))} className="w-24" />
+            </div>
+            <Button className="w-full interactive" disabled={create.isPending} onClick={() => create.mutate({ eventSlug, personas })}>
+              {create.isPending ? 'Generando…' : 'Generar QR'}
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4 text-center">
+            <p className="text-sm text-muted-foreground">Acceso para {result.personas} {result.personas === 1 ? 'persona' : 'personas'}. Envíalo por WhatsApp -- se ocupa igual que cualquier otra entrada.</p>
+            <img src={result.qrImageUrl} alt="QR de invitación especial" className="mx-auto w-56 h-56 rounded-xl border border-border/50" />
+            <div className="flex gap-2">
+              <Button type="button" className="flex-1 interactive" onClick={compartir}>
+                <Share2 className="w-4 h-4 mr-2" /> Compartir por WhatsApp
+              </Button>
+              <a href={shareUrl} download={`invitacion-${result.ticketCode}.png`} className="flex-1">
+                <Button type="button" variant="outline" className="w-full interactive">
+                  <Download className="w-4 h-4 mr-2" /> Descargar
+                </Button>
+              </a>
+            </div>
+            <Button type="button" variant="ghost" className="w-full" onClick={reset}>Crear otra</Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Botón "Invitar consumo gratis a staff" (pedido explícito del usuario):
+ * elige un producto de la Carta de la Fiesta, cuántas unidades y para quién
+ * es -- queda visible/canjeable para la cajera en /caja (ver createStaffComp). */
+function StaffCompButton({ eventSlug, products }: { eventSlug: string; products: any[] }) {
+  const [open, setOpen] = useState(false);
+  const [ticketTypeId, setTicketTypeId] = useState<number | null>(null);
+  const [quantity, setQuantity] = useState(1);
+  const [staffName, setStaffName] = useState('');
+
+  const create = trpc.orders.createStaffComp.useMutation({
+    onSuccess: (data) => {
+      toast.success(`${data.displayCodes.length} código${data.displayCodes.length === 1 ? '' : 's'} de "${data.productName}" listo${data.displayCodes.length === 1 ? '' : 's'} en /caja para ${staffName}.`);
+      setTicketTypeId(null); setQuantity(1); setStaffName('');
+      setOpen(false);
+    },
+    onError: onMutationError,
+  });
+
+  const canSubmit = !!ticketTypeId && quantity > 0 && staffName.trim().length > 0;
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" className="flex-1 interactive" disabled={products.length === 0}>
+          <Martini className="w-4 h-4 mr-2" /> Invitar consumo gratis a staff
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Invitar consumo gratis a staff</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Producto de la carta</Label>
+            <Select value={ticketTypeId ? String(ticketTypeId) : ''} onValueChange={(v) => setTicketTypeId(Number(v))}>
+              <SelectTrigger><SelectValue placeholder="Elige un producto" /></SelectTrigger>
+              <SelectContent>
+                {products.map((p: any) => <SelectItem key={p.id} value={String(p.id)}>{p.emoji ? `${p.emoji} ` : ''}{p.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Cantidad</Label>
+            <Input type="number" min={1} max={20} value={quantity} onChange={(e) => setQuantity(Math.min(20, Math.max(1, Number(e.target.value) || 1)))} className="w-24" />
+          </div>
+          <div className="space-y-2">
+            <Label>¿Para quién es?</Label>
+            <Input value={staffName} onChange={(e) => setStaffName(e.target.value)} placeholder="Nombre de la persona del staff" />
+          </div>
+          <Button className="w-full interactive" disabled={!canSubmit || create.isPending} onClick={() => ticketTypeId && create.mutate({ eventSlug, ticketTypeId, quantity, staffName: staffName.trim() })}>
+            {create.isPending ? 'Creando…' : 'Crear invitación'}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

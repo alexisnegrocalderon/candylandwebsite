@@ -6,7 +6,7 @@ import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { QrScanner } from '@/components/QrScanner';
 import { parseTicketCodeFromQr } from '@shared/qr';
-import { personasForAccesoSlug } from '@shared/mission300';
+import { personasForTicket } from '@shared/mission300';
 import {
   saveSnapshot, getLocalEvent, searchLocal, enqueueOp, getPendingOps,
   markOpSynced, clearSyncedOps, pendingOpsCount, correctedNow,
@@ -26,6 +26,9 @@ type Ficha = {
   ticketCode: string;
   typeName: string;
   accesoSlug: string | null;
+  /** Personas cubiertas por ESTE ticket cuando gana sobre accesoSlug -- la
+   * invitación especial instantánea (un solo QR para todo un grupo). */
+  groupSize: number | null;
   status: string;
   attendeeNames: string[];
   /** RUT de quien compró -- no hay uno por asistente, ver `caja/db.ts`. */
@@ -193,6 +196,7 @@ function Scanner({ operatorName }: { operatorName: string }) {
       ticketCode: acc.ticketCode,
       typeName: acc.typeName,
       accesoSlug: acc.accesoSlug,
+      groupSize: acc.groupSize ?? null,
       status: acc.status,
       attendeeNames: attendee.attendeeNames ?? [attendee.buyerName],
       rut: attendee.rut ?? null,
@@ -209,7 +213,7 @@ function Scanner({ operatorName }: { operatorName: string }) {
     if (!f) {
       // Sin ficha local: puede ser de otro evento o de una compra hecha
       // en el último minuto, todavía no descargada.
-      setFicha({ ticketCode: code, typeName: '', accesoSlug: null, status: 'desconocido', attendeeNames: [], rut: null, extras: [], buyerName: '' });
+      setFicha({ ticketCode: code, typeName: '', accesoSlug: null, groupSize: null, status: 'desconocido', attendeeNames: [], rut: null, extras: [], buyerName: '' });
     } else {
       setFicha(f);
     }
@@ -294,7 +298,7 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar }: {
   onAceptar: () => void;
   onCerrar: () => void;
 }) {
-  const personas = personasForAccesoSlug(ficha.accesoSlug);
+  const personas = personasForTicket(ficha.groupSize, ficha.accesoSlug);
   const puedeEntrar = ficha.status === 'valid';
 
   // El estacionamiento es lo primero que el anfitrión necesita saber para

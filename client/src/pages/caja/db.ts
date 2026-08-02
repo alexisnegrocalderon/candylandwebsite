@@ -18,7 +18,7 @@ export interface CajaAttendee {
   /** Nombres de todos los asistentes de la orden -- es lo que el anfitrión
    * compara contra la cédula en la puerta. */
   attendeeNames: string[];
-  access: { ticketCode: string; status: string; typeName: string; accesoSlug: string | null }[];
+  access: { ticketCode: string; status: string; typeName: string; accesoSlug: string | null; groupSize: number | null }[];
   extras: { displayCode: string | null; status: string; typeName: string }[];
 }
 
@@ -61,6 +61,16 @@ export interface CajaGift {
   status: string;
 }
 
+/** Consumo gratis invitado a alguien del staff (Accesos Manuales →
+ * "Invitar consumo gratis a staff"), pendiente de canjear en /caja. Igual
+ * que `CajaGift`: autocontenido, para buscar y canjear sin señal. */
+export interface CajaStaffComp {
+  displayCode: string;
+  productName: string;
+  staffName: string;
+  status: string;
+}
+
 export type QueuedOp =
   | { opId: string; type: 'redeem'; displayCode: string; clientAt: string }
   | { opId: string; type: 'checkin'; ticketCode: string; clientAt: string }
@@ -100,6 +110,7 @@ class CajaDexie extends Dexie {
   codes!: Table<CajaCodeIndex, string>;
   catalog!: Table<CajaCatalogItem, number>;
   gifts!: Table<CajaGift, string>;
+  staffComps!: Table<CajaStaffComp, string>;
   opsQueue!: Table<CajaOpRecord, string>;
   meta!: Table<CajaMetaRow, string>;
 
@@ -116,6 +127,10 @@ class CajaDexie extends Dexie {
     this.version(2).stores({
       gifts: 'displayCode, toAlias',
     });
+    // v3: consumos gratis invitados al staff.
+    this.version(3).stores({
+      staffComps: 'displayCode, staffName',
+    });
   }
 }
 
@@ -126,13 +141,15 @@ export async function saveSnapshot(snapshot: {
   attendees: CajaAttendee[];
   catalog: CajaCatalogItem[];
   gifts?: { displayCode: string; drinkName: string; toAlias: string; fromAlias: string; eventId: number }[];
+  staffComps?: { displayCode: string; productName: string; staffName: string; status: string }[];
   serverTime: string;
 }) {
-  await cajaDB.transaction('rw', cajaDB.attendees, cajaDB.codes, cajaDB.catalog, cajaDB.gifts, cajaDB.meta, async () => {
+  await cajaDB.transaction('rw', [cajaDB.attendees, cajaDB.codes, cajaDB.catalog, cajaDB.gifts, cajaDB.staffComps, cajaDB.meta], async () => {
     await cajaDB.attendees.clear();
     await cajaDB.codes.clear();
     await cajaDB.catalog.clear();
     await cajaDB.gifts.clear();
+    await cajaDB.staffComps.clear();
     await cajaDB.attendees.bulkAdd(snapshot.attendees);
 
     const codes: CajaCodeIndex[] = [];
@@ -143,6 +160,7 @@ export async function saveSnapshot(snapshot: {
     await cajaDB.codes.bulkAdd(codes);
     await cajaDB.catalog.bulkAdd(snapshot.catalog);
     await cajaDB.gifts.bulkAdd((snapshot.gifts ?? []).map((g) => ({ ...g, displayCode: g.displayCode.toUpperCase(), status: 'valid' })));
+    await cajaDB.staffComps.bulkAdd((snapshot.staffComps ?? []).map((c) => ({ ...c, displayCode: c.displayCode.toUpperCase() })));
     await cajaDB.meta.put({ key: 'event', value: snapshot.event });
     // Reloj del dispositivo desviado (docs/ARQUITECTURA-CAJA.md §13, riesgo 5)
     // -- se guarda cuánto se adelanta/atrasa el reloj local respecto al
@@ -179,6 +197,20 @@ export async function searchGiftsLocal(query: string): Promise<CajaGift[]> {
   const needle = q.toLowerCase();
   const all = await cajaDB.gifts.toArray();
   return all.filter((g) => g.toAlias.toLowerCase().includes(needle)).slice(0, 10);
+}
+
+/** Consumos gratis de staff, por código o por el nombre de la persona a la
+ * que corresponde -- que es lo que dice al llegar a la caja. */
+export async function searchStaffCompsLocal(query: string): Promise<CajaStaffComp[]> {
+  const q = query.trim();
+  if (!q) return [];
+
+  const exact = await cajaDB.staffComps.get(q.toUpperCase());
+  if (exact) return [exact];
+
+  const needle = q.toLowerCase();
+  const all = await cajaDB.staffComps.toArray();
+  return all.filter((c) => c.staffName.toLowerCase().includes(needle)).slice(0, 10);
 }
 
 /** Búsqueda 100% local (<50ms, funciona offline): primero match exacto por
@@ -231,6 +263,10 @@ export async function enqueueOp(op: QueuedOp) {
     // su propia tabla porque puede venir de un evento anterior.
     const gift = await cajaDB.gifts.get(code);
     if (gift) await cajaDB.gifts.update(code, { status: 'used' });
+
+    // O un consumo gratis invitado a alguien del staff.
+    const comp = await cajaDB.staffComps.get(code);
+    if (comp) await cajaDB.staffComps.update(code, { status: 'used' });
   }
 
   if (op.type === 'checkin') {

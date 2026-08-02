@@ -3,10 +3,12 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
-import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug } from '../shared/mission300';
+import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
 import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
+import { generateTicketQR } from './qr';
+import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -655,6 +657,200 @@ export async function createManualOrder(input: {
   }
 
   return { orderId, orderNumber, total };
+}
+
+/** Correo placeholder para órdenes que el admin crea sin comprador real
+ * (invitación especial instantánea, consumo gratis de staff) -- nunca se usa
+ * para enviar nada: estas dos funciones no pasan por processApprovedOrder
+ * (server/webhooks.ts), así que no disparan el correo de confirmación ni
+ * registran cliente/Playcoins. Solo existe para satisfacer el NOT NULL de
+ * orders.buyerEmail. */
+const ADMIN_PLACEHOLDER_EMAIL = 'invitacion@mansionplayroom.cl';
+
+/** El ticketType fijo que usa la invitación especial instantánea: uno por
+ * evento, creado la primera vez que se usa el botón. `accesoSlug: null` hace
+ * que personasForAccesoSlug() devuelva 1 por defecto (shared/mission300.ts),
+ * así que el conteo de personas de cada invitación vive en `tickets.groupSize`
+ * y no en la tabla fija de slugs. `status: 'hidden'` lo saca de /entradas; el
+ * wizard de Checkout tampoco lo alcanza porque solo reconoce los 7 slugs fijos
+ * de CANDYLAND.accesos (client/src/config/candyland.ts). */
+async function getOrCreateInstantInviteTicketType(eventId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [existing] = await db.select().from(ticketTypes)
+    .where(and(eq(ticketTypes.eventId, eventId), eq(ticketTypes.name, 'Invitación Especial')))
+    .limit(1);
+  if (existing) return existing;
+
+  const [result] = await db.insert(ticketTypes).values({
+    eventId,
+    name: 'Invitación Especial',
+    category: 'acceso',
+    accesoSlug: null,
+    price: '0',
+    totalStock: 999999,
+    status: 'hidden',
+    emoji: '🎟️',
+  });
+  const [created] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, result.insertId)).limit(1);
+  return created;
+}
+
+/** Botón "Invitación especial instantánea" de Accesos Manuales: el dueño solo
+ * escribe cuántas personas son, sin ningún otro dato. Deliberadamente NO
+ * reusa createManualOrder/processApprovedOrder (server/webhooks.ts) -- esa
+ * ruta exige un comprador real y siempre intenta mandar el correo de
+ * confirmación, que acá no tiene destinatario. Genera un solo ticket/QR para
+ * las N personas (en vez de N tickets, uno por persona) porque el pedido es
+ * "un solo QR, escaneado una vez, que muestre la cantidad de personas" -- ver
+ * `tickets.groupSize` y su uso en getCajaDashboard/getTicketByCode/
+ * getCajaSnapshot y en Puerta.tsx. */
+export async function createInstantInvite({ eventSlug, personas }: { eventSlug: string; personas: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const event = await getEventBySlug(eventSlug);
+  if (!event) throw new Error("Event not found");
+
+  const tt = await getOrCreateInstantInviteTicketType(event.id);
+
+  const orderNumber = `MP-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`;
+  const [orderResult] = await db.insert(orders).values({
+    orderNumber,
+    buyerName: 'Invitación especial',
+    buyerEmail: ADMIN_PLACEHOLDER_EMAIL,
+    eventId: event.id,
+    subtotal: '0',
+    discount: '0',
+    serviceFee: '0',
+    total: '0',
+    paymentStatus: 'approved',
+    paymentId: `MANUAL-${orderNumber}`,
+    paymentMethod: 'Manual: Invitación especial',
+  });
+  const orderId = orderResult.insertId;
+
+  const [itemResult] = await db.insert(orderItems).values({
+    orderId,
+    ticketTypeId: tt.id,
+    quantity: personas,
+    unitPrice: '0',
+    totalPrice: '0',
+  });
+  await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${personas}` }).where(eq(ticketTypes.id, tt.id));
+
+  const ticketCode = `MP-${nanoid(12).toUpperCase()}`;
+  const { qrData, qrImageUrl } = await generateTicketQR(ticketCode, event.title);
+  await db.insert(tickets).values({
+    ticketCode,
+    orderId,
+    orderItemId: itemResult.insertId,
+    eventId: event.id,
+    ticketTypeId: tt.id,
+    holderName: 'Invitación especial',
+    qrData,
+    qrImageUrl,
+    status: 'valid',
+    groupSize: personas,
+  });
+
+  return { ticketCode, qrImageUrl, personas };
+}
+
+/** Botón "Invitar consumo gratis a staff" de Accesos Manuales: el dueño elige
+ * un producto de la Carta de la Fiesta, cuántas unidades y para quién es.
+ * Tampoco pasa por createManualOrder/processApprovedOrder (mismo motivo que
+ * createInstantInvite). Genera `quantity` tickets separados -- uno por
+ * unidad, cada uno con su propio displayCode -- para que la cajera pueda
+ * canjearlos de a uno a medida que la persona va pidiendo, igual que ya
+ * funciona hoy con los extras comprados por la web. No se valida stock
+ * (mismo criterio "nunca bloquear la venta" ya aplicado en la Carta de la
+ * Fiesta, PR Y1). */
+export async function createStaffComp({ eventSlug, ticketTypeId, quantity, staffName }: {
+  eventSlug: string; ticketTypeId: number; quantity: number; staffName: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const event = await getEventBySlug(eventSlug);
+  if (!event) throw new Error("Event not found");
+
+  const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, ticketTypeId)).limit(1);
+  if (!tt || tt.eventId !== event.id) throw new Error("Ese producto no existe en este evento");
+  if (!['consumo', 'locker', 'merch'].includes(tt.category)) throw new Error("Elige un producto de la Carta de la Fiesta");
+
+  const orderNumber = `MP-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`;
+  const [orderResult] = await db.insert(orders).values({
+    orderNumber,
+    buyerName: staffName,
+    buyerEmail: ADMIN_PLACEHOLDER_EMAIL,
+    eventId: event.id,
+    subtotal: '0',
+    discount: '0',
+    serviceFee: '0',
+    total: '0',
+    paymentStatus: 'approved',
+    paymentId: `MANUAL-${orderNumber}`,
+    paymentMethod: 'Manual: Consumo Staff',
+  });
+  const orderId = orderResult.insertId;
+
+  const [itemResult] = await db.insert(orderItems).values({
+    orderId,
+    ticketTypeId: tt.id,
+    quantity,
+    unitPrice: '0',
+    totalPrice: '0',
+  });
+  await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${quantity}` }).where(eq(ticketTypes.id, tt.id));
+
+  const prefix = tt.internalCode || fallbackInternalCode(tt.name);
+  const displayCodes: string[] = [];
+  for (let i = 0; i < quantity; i++) {
+    const ticketCode = `MP-${nanoid(12).toUpperCase()}`;
+    const { qrData, qrImageUrl } = await generateTicketQR(ticketCode, event.title);
+    const displayCode = generateDisplayCode(prefix);
+    await db.insert(tickets).values({
+      ticketCode,
+      orderId,
+      orderItemId: itemResult.insertId,
+      eventId: event.id,
+      ticketTypeId: tt.id,
+      holderName: staffName,
+      qrData,
+      qrImageUrl,
+      status: 'valid',
+      displayCode,
+    });
+    displayCodes.push(displayCode);
+  }
+
+  return { displayCodes, productName: tt.name };
+}
+
+/** Consumos de staff creados desde Accesos Manuales (pendientes y canjeados),
+ * para que el dueño tenga visibilidad -- misma distinción por prefijo fijo en
+ * paymentMethod que ya usa listManualOrders(). */
+export async function listStaffComps(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const rows = await db.select({
+    ticketCode: tickets.ticketCode,
+    displayCode: tickets.displayCode,
+    status: tickets.status,
+    staffName: tickets.holderName,
+    createdAt: tickets.createdAt,
+    productName: ticketTypes.name,
+  })
+    .from(tickets)
+    .innerJoin(orders, eq(orders.id, tickets.orderId))
+    .innerJoin(ticketTypes, eq(ticketTypes.id, tickets.ticketTypeId))
+    .where(and(eq(orders.eventId, eventId), eq(orders.paymentMethod, 'Manual: Consumo Staff')))
+    .orderBy(desc(tickets.createdAt));
+
+  return rows;
 }
 
 /** Historial de accesos manuales para el admin (server/routers.ts
@@ -1424,6 +1620,9 @@ export async function getCajaSnapshot(eventId: number) {
         typeName: ttById.get(t.ticketTypeId)?.name,
         // Para contar personas reales en el aforo (un Duo son 2).
         accesoSlug: ttById.get(t.ticketTypeId)?.accesoSlug ?? null,
+        // Personas cubiertas por ESTE ticket cuando gana sobre accesoSlug --
+        // la invitación especial instantánea (ver createInstantInvite).
+        groupSize: t.groupSize ?? null,
       })),
       extras: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'extra').map((t: any) => ({ displayCode: t.displayCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name })),
     };
@@ -1460,11 +1659,32 @@ export async function getCajaSnapshot(eventId: number) {
   // que la tablet pueda cobrarlo sin señal.
   const gifts = await listClaimableGifts();
 
+  // Consumos gratis invitados al staff, pendientes de canjear. Mismo motivo
+  // que `gifts`: autocontenidos, para que la búsqueda y el canje en /caja
+  // funcionen sin señal (ver createStaffComp).
+  const staffCompRows = await db.select({
+    displayCode: tickets.displayCode,
+    status: tickets.status,
+    staffName: tickets.holderName,
+    productName: ticketTypes.name,
+  })
+    .from(tickets)
+    .innerJoin(orders, eq(orders.id, tickets.orderId))
+    .innerJoin(ticketTypes, eq(ticketTypes.id, tickets.ticketTypeId))
+    .where(and(eq(orders.eventId, eventId), eq(orders.paymentMethod, 'Manual: Consumo Staff'), eq(tickets.status, 'valid')));
+  const staffComps = staffCompRows.map((r: any) => ({
+    displayCode: r.displayCode as string,
+    status: r.status as string,
+    staffName: r.staffName as string,
+    productName: r.productName as string,
+  }));
+
   return {
     event: { id: event.id, title: event.title, slug: event.slug },
     attendees,
     catalog,
     gifts,
+    staffComps,
     serverTime: new Date().toISOString(),
   };
 }
@@ -1506,7 +1726,7 @@ export async function getCajaDashboard(eventId: number) {
   // Aforo en PERSONAS, no en entradas: un Duo son 2 personas y un Grupo 4.
   // Contar tickets daria un numero muy por debajo del real, y este numero
   // existe justamente para saber cuanta gente hay dentro del recinto.
-  const accesoTickets = await db.select({ accesoSlug: ticketTypes.accesoSlug, status: tickets.status })
+  const accesoTickets = await db.select({ accesoSlug: ticketTypes.accesoSlug, status: tickets.status, groupSize: tickets.groupSize })
     .from(tickets)
     .innerJoin(ticketTypes, eq(ticketTypes.id, tickets.ticketTypeId))
     .where(and(eq(tickets.eventId, eventId), eq(ticketTypes.category, 'acceso')));
@@ -1515,7 +1735,7 @@ export async function getCajaDashboard(eventId: number) {
   let expectedCount = 0;
   for (const t of accesoTickets) {
     if (t.status === 'cancelled') continue;
-    const personas = personasForAccesoSlug(t.accesoSlug);
+    const personas = personasForTicket(t.groupSize, t.accesoSlug);
     expectedCount += personas;
     if (t.status === 'used') insideCount += personas;
   }

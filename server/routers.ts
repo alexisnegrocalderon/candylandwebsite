@@ -557,6 +557,38 @@ export const appRouter = router({
     listManual: adminProcedure.query(async () => {
       return db.listManualOrders();
     }),
+    // "Invitación especial instantánea" de Accesos Manuales (pedido explícito
+    // del usuario): sin ningún dato salvo la cantidad de personas -- para
+    // cuando llega un invitado del dueño a la puerta sin QR. Un solo
+    // ticket/QR representa a todas las personas (ver createInstantInvite).
+    createInstantInvite: adminProcedure.input(z.object({
+      eventSlug: z.string(),
+      personas: z.number().int().min(1).max(20),
+    })).mutation(async ({ input }) => {
+      try {
+        return await db.createInstantInvite(input);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear la invitación.' });
+      }
+    }),
+    // "Invitar consumo gratis a staff" de Accesos Manuales (pedido explícito
+    // del usuario): el dueño elige un producto de la Carta de la Fiesta,
+    // cuántas unidades y para quién es -- la cajera lo ve y lo canjea en /caja.
+    createStaffComp: adminProcedure.input(z.object({
+      eventSlug: z.string(),
+      ticketTypeId: z.number(),
+      quantity: z.number().int().min(1).max(20),
+      staffName: z.string().min(1),
+    })).mutation(async ({ input }) => {
+      try {
+        return await db.createStaffComp(input);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear la invitación de consumo.' });
+      }
+    }),
+    listStaffComps: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.listStaffComps(input.eventId);
+    }),
     // Eliminar una compra (pedido explícito del usuario): irreversible, la
     // confirmación con ventana de diálogo vive en el admin, acá solo se
     // ejecuta el borrado en cascada.
