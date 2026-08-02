@@ -65,11 +65,16 @@ export type QueuedOp =
   | { opId: string; type: 'checkin'; ticketCode: string; clientAt: string }
   | {
       opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number }[];
-      paymentMethod: 'efectivo' | 'debito' | 'credito'; clientAt: string;
+      paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr'; clientAt: string;
       // Playcoins (pedido explícito del usuario): captura opcional del email
       // del cliente para que la venta también gane puntos, y canje opcional
       // de puntos ya ganados como descuento.
       buyerEmail?: string; redeemPlaycoins?: number;
+      // Código de descuento aplicado en el carrito (se revalida server-side).
+      discountCode?: string;
+      // Número de la percha física de guardarropía, si el carrito tiene un
+      // producto category='locker'.
+      lockerTag?: string;
     };
 
 export interface CajaOpRecord {

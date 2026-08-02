@@ -1788,6 +1788,9 @@ export async function closeShift(params: {
   countedCash: number;
   countedDebit: number;
   countedCredit: number;
+  // Transferencia / QR de Mercado Pago -- no pasa por la máquina de tarjetas,
+  // así que se cuadra aparte contra la app del banco.
+  countedQr?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1808,12 +1811,13 @@ export async function closeShift(params: {
   const shiftSales = await db.select({ total: orders.total, paymentMethod: orders.paymentMethod })
     .from(orders).where(and(...shiftSalesConditions));
 
-  let expectedCash = 0, expectedDebit = 0, expectedCredit = 0;
+  let expectedCash = 0, expectedDebit = 0, expectedCredit = 0, expectedQr = 0;
   for (const s of shiftSales) {
     const amount = Number(s.total);
     if (s.paymentMethod === 'efectivo') expectedCash += amount;
     else if (s.paymentMethod === 'debito') expectedDebit += amount;
     else if (s.paymentMethod === 'credito') expectedCredit += amount;
+    else if (s.paymentMethod === 'qr') expectedQr += amount;
   }
 
   const redeemsCount = await db.select({ count: sql<number>`count(*)` }).from(ops).where(and(
@@ -1853,9 +1857,11 @@ export async function closeShift(params: {
     countedCash: String(params.countedCash),
     countedDebit: String(params.countedDebit),
     countedCredit: String(params.countedCredit),
+    countedQr: params.countedQr != null ? String(params.countedQr) : null,
     expectedCash: String(expectedCash),
     expectedDebit: String(expectedDebit),
     expectedCredit: String(expectedCredit),
+    expectedQr: String(expectedQr),
     salesCount: shiftSales.length,
     redeemsCount: Number(redeemsCount[0]?.count ?? 0),
     topCustomers,
@@ -1878,12 +1884,15 @@ export async function closeShift(params: {
     countedCash: params.countedCash,
     countedDebit: params.countedDebit,
     countedCredit: params.countedCredit,
+    countedQr: params.countedQr ?? 0,
     expectedCash,
     expectedDebit,
     expectedCredit,
+    expectedQr,
     cashDiff: params.countedCash - expectedCash - Number(shift.openingCash),
     debitDiff: params.countedDebit - expectedDebit,
     creditDiff: params.countedCredit - expectedCredit,
+    qrDiff: (params.countedQr ?? 0) - expectedQr,
     salesCount: shiftSales.length,
     redeemsCount: Number(redeemsCount[0]?.count ?? 0),
     topCustomers,

@@ -272,7 +272,7 @@ function OpeningCashPrompt({ onSubmit, loading, onBack }: { onSubmit: (cash: num
  * crédito de los vouchers de las máquinas. El servidor compara contra las
  * ventas registradas y manda el informe final por correo. */
 function ShiftCloseForm({ onSubmit, onCancel, loading }: {
-  onSubmit: (counts: { countedCash: number; countedDebit: number; countedCredit: number }) => void;
+  onSubmit: (counts: { countedCash: number; countedDebit: number; countedCredit: number; countedQr: number }) => void;
   onCancel: () => void;
   loading: boolean;
 }) {
@@ -281,6 +281,7 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
   const [countedCash, setCountedCash] = useState(0);
   const [debit, setDebit] = useState('');
   const [credit, setCredit] = useState('');
+  const [qr, setQr] = useState('');
 
   if (phase === 'cash') {
     return (
@@ -298,7 +299,7 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
   }
 
   const parse = (v: string) => (v.trim() === '' ? 0 : Number(v));
-  const valid = [debit, credit].every((v) => v.trim() === '' || Number.isFinite(Number(v)));
+  const valid = [debit, credit, qr].every((v) => v.trim() === '' || Number.isFinite(Number(v)));
 
   return (
     <div className="fixed inset-0 z-20 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -325,6 +326,14 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
               className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
             />
           </div>
+          <div>
+            <label className="text-xs text-white/50 uppercase tracking-wide">📲 Total QR / transferencia (app del banco)</label>
+            <input
+              type="number" inputMode="numeric" min={0} value={qr} onChange={(e) => setQr(e.target.value)}
+              placeholder="$0"
+              className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
+            />
+          </div>
         </div>
 
         <div className="flex gap-3">
@@ -334,7 +343,7 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
           <Button
             className="flex-1 bg-primary hover:bg-primary/90"
             disabled={!valid || loading}
-            onClick={() => onSubmit({ countedCash, countedDebit: parse(debit), countedCredit: parse(credit) })}
+            onClick={() => onSubmit({ countedCash, countedDebit: parse(debit), countedCredit: parse(credit), countedQr: parse(qr) })}
           >
             {loading ? 'Cerrando…' : 'Cerrar turno'}
           </Button>
@@ -615,7 +624,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
               opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined,
               ...counts, clientAt: (await correctedNow()).toISOString(),
             });
-            const cuadra = Math.abs(report.cashDiff) < 1 && Math.abs(report.debitDiff) < 1 && Math.abs(report.creditDiff) < 1;
+            const cuadra = Math.abs(report.cashDiff) < 1 && Math.abs(report.debitDiff) < 1 && Math.abs(report.creditDiff) < 1 && Math.abs(report.qrDiff) < 1;
             toast.success(cuadra ? '✅ Turno cerrado — la caja cuadra perfecto' : '⚠️ Turno cerrado — revisa el correo, hay diferencias en el cuadre');
             onCloseShift();
             logout.mutate();
@@ -702,8 +711,12 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
 
         {view === 'sale' && (
           <NewSale
-            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins) => {
-              await enqueueOp({ opId: newOpId(), type: 'sale', items, paymentMethod, buyerEmail, redeemPlaycoins, clientAt: (await correctedNow()).toISOString() });
+            eventId={localEvent.id}
+            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag) => {
+              await enqueueOp({
+                opId: newOpId(), type: 'sale', items, paymentMethod, buyerEmail, redeemPlaycoins,
+                discountCode, lockerTag, clientAt: (await correctedNow()).toISOString(),
+              });
               toast.success('Venta registrada ✅');
               refreshPending();
               runSync();
@@ -831,17 +844,20 @@ const CATEGORY_META: Record<string, { label: string; emoji: string }> = {
   extra: { label: 'Extras', emoji: '🎫' },
 };
 
-function NewSale({ onSale }: {
+function NewSale({ eventId, onSale }: {
+  eventId: number;
   onSale: (
     items: { ticketTypeId: number; quantity: number }[],
-    paymentMethod: 'efectivo' | 'debito' | 'credito',
+    paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr',
     buyerEmail?: string,
     redeemPlaycoins?: number,
+    discountCode?: string,
+    lockerTag?: string,
   ) => void;
 }) {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
-  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito'>('debito');
+  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito' | 'qr'>('debito');
   const [tab, setTab] = useState<string | null>(null);
 
   // Playcoins (pedido explícito del usuario): paso opcional/omisible para
@@ -851,7 +867,31 @@ function NewSale({ onSale }: {
   const [balance, setBalance] = useState<number | null>(null);
   const [checkingBalance, setCheckingBalance] = useState(false);
   const [redeemInput, setRedeemInput] = useState('');
+  const [associatedName, setAssociatedName] = useState<string | null>(null);
+  const [scanningCustomer, setScanningCustomer] = useState(false);
   const utils = trpc.useUtils();
+
+  // Código de descuento (opcional): se PREVISUALIZA acá contra el mismo
+  // endpoint que usa el checkout web, pero el monto real que se cobra lo
+  // recalcula el servidor al aplicar la venta -- nunca se confía en este
+  // preview para el cobro final.
+  const [discountCode, setDiscountCode] = useState('');
+  const [discountResult, setDiscountResult] = useState<{ valid: boolean; message?: string; discount?: any } | null>(null);
+  const validateDiscount = trpc.orders.validateDiscount.useMutation();
+  const applyDiscount = async () => {
+    if (!discountCode.trim()) return;
+    try {
+      const r = await validateDiscount.mutateAsync({ code: discountCode.trim(), eventId });
+      setDiscountResult(r);
+      if (!r.valid) toast.error(r.message || 'Código no válido');
+    } catch {
+      setDiscountResult({ valid: false, message: 'No se pudo validar (¿sin conexión?)' });
+    }
+  };
+
+  // Guardarropía: el número de la percha física, tecleado por la cajera --
+  // no lo genera el sistema (ver drizzle/schema.ts `lockerItems`).
+  const [lockerTag, setLockerTag] = useState('');
 
   useEffect(() => {
     getLocalCatalog().then((c) => {
@@ -864,6 +904,10 @@ function NewSale({ onSale }: {
   const total = catalog.reduce((sum, p) => sum + p.price * (cart[p.id] || 0), 0);
   const cartLines = catalog.filter((p) => (cart[p.id] || 0) > 0);
   const hasItems = cartLines.length > 0;
+  const lockerLines = cartLines.filter((p) => p.category === 'locker');
+  const lockerQty = lockerLines.reduce((sum, p) => sum + (cart[p.id] || 0), 0);
+  const needsLockerTag = lockerQty > 0;
+  const tooManyLockers = lockerQty > 1;
 
   const add = (id: number) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
   const remove = (id: number) => setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] || 0) - 1) }));
@@ -887,14 +931,38 @@ function NewSale({ onSale }: {
   };
 
   const confirm = () => {
+    if (tooManyLockers) { toast.error('Cobra los abrigos de a uno para poder asignar un número a cada uno'); return; }
+    if (needsLockerTag && !lockerTag.trim()) { toast.error('Falta el número de la percha'); return; }
     const cartItems = Object.entries(cart).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId: Number(ticketTypeId), quantity }));
     const redeemAmount = balance != null ? clampRedeemAmount(Number(redeemInput || 0), Math.min(balance, total)) : 0;
-    onSale(cartItems, paymentMethod, buyerEmail.trim() || undefined, redeemAmount || undefined);
+    onSale(
+      cartItems, paymentMethod, buyerEmail.trim() || undefined, redeemAmount || undefined,
+      discountResult?.valid ? discountCode.trim() : undefined,
+      needsLockerTag ? lockerTag.trim() : undefined,
+    );
     setCart({});
     setBuyerEmail('');
     setBalance(null);
     setRedeemInput('');
     setShowEmailStep(false);
+    setAssociatedName(null);
+    setDiscountCode('');
+    setDiscountResult(null);
+    setLockerTag('');
+  };
+
+  const handleCustomerScan = async (raw: string) => {
+    const code = parseTicketCodeFromQr(raw);
+    setScanningCustomer(false);
+    if (!code) return;
+    const found = await searchLocal(code);
+    const attendee = found[0];
+    if (!attendee) { toast.error('No encontramos ese código.'); return; }
+    setBuyerEmail(attendee.buyerEmail);
+    setAssociatedName(attendee.buyerName);
+    setShowEmailStep(true);
+    setBalance(null);
+    setRedeemInput('');
   };
 
   return (
@@ -968,20 +1036,64 @@ function NewSale({ onSale }: {
               </div>
             ))}
           </div>
+          {/* Código de descuento -- solo vista previa, el servidor lo
+              revalida al cobrar. Sin señal simplemente no se puede aplicar. */}
+          <div className="space-y-1">
+            <div className="flex gap-2">
+              <Input
+                value={discountCode}
+                onChange={(e) => { setDiscountCode(e.target.value.toUpperCase()); setDiscountResult(null); }}
+                placeholder="Código de descuento (opcional)"
+                className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+              />
+              <Button size="sm" variant="outline" className="border-white/15 text-white shrink-0" disabled={!discountCode.trim() || validateDiscount.isPending} onClick={applyDiscount}>
+                {validateDiscount.isPending ? '…' : 'Aplicar'}
+              </Button>
+            </div>
+            {discountResult?.valid && discountResult.discount && (
+              <p className="text-xs text-green-400">✓ Descuento aplicado: {discountResult.discount.discountType === 'percentage' ? `${discountResult.discount.discountValue}%` : `$${Number(discountResult.discount.discountValue).toLocaleString('es-CL')}`}</p>
+            )}
+            {discountResult && !discountResult.valid && (
+              <p className="text-xs text-red-400">{discountResult.message || 'Código no válido'}</p>
+            )}
+          </div>
+
+          {/* Guardarropía: el número YA está en la ficha física que se le
+              entrega a la persona -- la cajera solo lo teclea acá. */}
+          {needsLockerTag && (
+            <div className="space-y-1">
+              <label className="text-xs text-white/50 uppercase tracking-wide">🧥 Número de la percha</label>
+              <Input
+                value={lockerTag}
+                onChange={(e) => setLockerTag(e.target.value)}
+                placeholder="Ej: 42"
+                inputMode="numeric"
+                className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+              />
+              {tooManyLockers && <p className="text-xs text-red-400">Cobra los abrigos de a uno para poder asignar un número a cada uno.</p>}
+            </div>
+          )}
+
           <div className="flex justify-between text-lg font-bold border-t border-white/10 pt-2">
             <span>Total</span>
             <span>${total.toLocaleString('es-CL')}</span>
           </div>
 
           {!showEmailStep ? (
-            <button onClick={() => setShowEmailStep(true)} className="text-sm text-white/50 underline">
-              + Registrar email del cliente (gana Playcoins) — opcional
-            </button>
+            <div className="flex items-center gap-3 flex-wrap">
+              <button onClick={() => setShowEmailStep(true)} className="text-sm text-white/50 underline">
+                + Registrar email del cliente (gana Playcoins) — opcional
+              </button>
+              <button onClick={() => setScanningCustomer(true)} className="text-sm text-white/50 underline">
+                📷 Asociar a un cliente
+              </button>
+            </div>
           ) : (
             <div className="space-y-2">
+              {associatedName && <p className="text-xs text-white/50">Asociado a: <b className="text-white/80">{associatedName}</b></p>}
               <Input
                 value={buyerEmail}
-                onChange={(e) => { setBuyerEmail(e.target.value); setBalance(null); setRedeemInput(''); }}
+                onChange={(e) => { setBuyerEmail(e.target.value); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
                 placeholder="email@cliente.cl"
                 className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
               />
@@ -990,7 +1102,7 @@ function NewSale({ onSale }: {
                   {checkingBalance ? 'Consultando…' : 'Consultar saldo'}
                 </Button>
                 <button
-                  onClick={() => { setShowEmailStep(false); setBuyerEmail(''); setBalance(null); setRedeemInput(''); }}
+                  onClick={() => { setShowEmailStep(false); setBuyerEmail(''); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
                   className="text-xs text-white/40 underline"
                 >
                   Omitir
@@ -1014,20 +1126,34 @@ function NewSale({ onSale }: {
             </div>
           )}
 
-          <div className="flex gap-2">
-            {(['efectivo', 'debito', 'credito'] as const).map((m) => (
+          <div className="grid grid-cols-4 gap-2">
+            {(['efectivo', 'debito', 'credito', 'qr'] as const).map((m) => (
               <button
                 key={m}
                 onClick={() => setPaymentMethod(m)}
-                className={`flex-1 h-10 rounded-lg text-sm font-medium capitalize ${paymentMethod === m ? 'bg-primary text-white' : 'bg-white/5 text-white/50'}`}
+                className={`h-10 rounded-lg text-xs font-medium capitalize ${paymentMethod === m ? 'bg-primary text-white' : 'bg-white/5 text-white/50'}`}
               >
-                {m}
+                {m === 'qr' ? '📲 QR' : m}
               </button>
             ))}
           </div>
-          <Button className="w-full h-12 bg-primary hover:bg-primary/90" onClick={confirm}>
+          <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={tooManyLockers} onClick={confirm}>
             Cobrado en terminal — Confirmar
           </Button>
+        </div>
+      )}
+
+      {scanningCustomer && (
+        <div className="fixed inset-0 z-30 bg-black flex flex-col">
+          <div className="flex items-center justify-between p-4 shrink-0">
+            <p className="text-sm text-white/70">Escanea el QR de la entrada del cliente</p>
+            <button onClick={() => setScanningCustomer(false)} className="p-2 text-white/50" aria-label="Cerrar"><X className="w-6 h-6" /></button>
+          </div>
+          <QrScanner onDecode={handleCustomerScan} className="flex-1">
+            <div className="absolute inset-0 grid place-items-center pointer-events-none">
+              <div className="w-56 h-56 rounded-3xl border-2 border-primary/70 shadow-[0_0_0_100vmax_rgba(0,0,0,0.45)]" />
+            </div>
+          </QrScanner>
         </div>
       )}
     </div>

@@ -1312,9 +1312,11 @@ export const appRouter = router({
         z.object({
           type: z.literal('sale'), opId: z.string(),
           items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1),
-          paymentMethod: z.enum(['efectivo', 'debito', 'credito']),
+          paymentMethod: z.enum(['efectivo', 'debito', 'credito', 'qr']),
           buyerEmail: z.string().email().optional(),
           redeemPlaycoins: z.number().int().min(0).optional(),
+          discountCode: z.string().optional(),
+          lockerTag: z.string().max(16).optional(),
           clientAt: z.string(),
         }),
       ])).max(50),
@@ -1340,6 +1342,7 @@ export const appRouter = router({
               opId: op.opId, eventId: input.eventId, operatorId: ctx.operator.operatorId, registerId: input.registerId,
               items: op.items, paymentMethod: op.paymentMethod, clientAt: new Date(op.clientAt),
               buyerEmail: op.buyerEmail, redeemPlaycoins: op.redeemPlaycoins,
+              discountCode: op.discountCode, lockerTag: op.lockerTag,
             });
           }
         } catch (err) {
@@ -1384,6 +1387,7 @@ export const appRouter = router({
     shiftClose: operatorProcedure.input(z.object({
       opId: z.string(), eventId: z.number(), registerId: z.number().optional(),
       countedCash: z.number().min(0), countedDebit: z.number().min(0), countedCredit: z.number().min(0),
+      countedQr: z.number().min(0).optional(),
       clientAt: z.string(),
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await db.getDb();
@@ -1396,6 +1400,7 @@ export const appRouter = router({
       const report = await db.closeShift({
         shiftId: openShift.id, closedByOperatorId: ctx.operator.operatorId,
         countedCash: input.countedCash, countedDebit: input.countedDebit, countedCredit: input.countedCredit,
+        countedQr: input.countedQr,
       });
 
       const { applyOp } = await import('./caja/ops');
@@ -1501,8 +1506,12 @@ export const appRouter = router({
       opId: z.string(),
       eventId: z.number(),
       items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1),
-      paymentMethod: z.enum(['efectivo', 'debito', 'credito']),
+      paymentMethod: z.enum(['efectivo', 'debito', 'credito', 'qr']),
       registerId: z.number().optional(),
+      buyerEmail: z.string().email().optional(),
+      redeemPlaycoins: z.number().int().min(0).optional(),
+      discountCode: z.string().optional(),
+      lockerTag: z.string().max(16).optional(),
       clientAt: z.string(),
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await db.getDb();
@@ -1515,6 +1524,10 @@ export const appRouter = router({
           registerId: input.registerId,
           items: input.items,
           paymentMethod: input.paymentMethod,
+          buyerEmail: input.buyerEmail,
+          redeemPlaycoins: input.redeemPlaycoins,
+          discountCode: input.discountCode,
+          lockerTag: input.lockerTag,
           clientAt: new Date(input.clientAt),
         });
       } catch (err) {

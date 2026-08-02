@@ -1,27 +1,34 @@
 import { describe, expect, it, vi } from "vitest";
-import { ops, orders, orderItems, ticketTypes } from "../../drizzle/schema";
+import { ops, orders, orderItems, ticketTypes, lockerItems, discountCodes } from "../../drizzle/schema";
 
-// `createCajaSale` toca Playcoins vía ../db, que abre conexión real. Acá solo
-// se prueba la lógica de la venta (precio, stock, idempotencia), así que se
-// reemplazan por dobles que no hacen nada.
+// `createCajaSale` toca Playcoins y descuentos vía ../db, que abre conexión
+// real. Acá solo se prueba la lógica de la venta (precio, stock,
+// idempotencia, descuento, guardarropía), así que se reemplazan por dobles.
+const validateDiscountCode = vi.fn(async (_code: string, _eventId: number) => ({ valid: false, message: "Código no encontrado" }));
 vi.mock("../db", () => ({
   awardPlaycoins: vi.fn(async () => {}),
   redeemPlaycoinsAuthoritative: vi.fn(async () => ({ ok: true, redeemed: 0 })),
+  validateDiscountCode: (...args: [string, number]) => validateDiscountCode(...args),
 }));
 
 const { createCajaSale } = await import("./sale");
 
 /* Doble de la cadena de drizzle. El orden de consultas de `createCajaSale`
- * es fijo: tipos de producto -> ledger de ops -> insert de la orden ->
- * insert de cada ítem + update de soldCount -> insert de la op. */
+ * es fijo: tipos de producto -> ledger de ops -> [si hay percha: lockerItems]
+ * -> [si hay descuento válido: update discountCodes] -> insert de la orden
+ * -> [insert de lockerItems] -> insert de cada ítem + update de soldCount ->
+ * insert de la op. */
 function makeFakeDb(state: {
   products: Record<string, unknown>[];
   existingOp?: { result: string; conflictNote?: string | null };
+  existingLockerTag?: boolean;
 }) {
   const calls = {
     order: null as Record<string, unknown> | null,
     items: [] as Record<string, unknown>[],
     op: null as Record<string, unknown> | null,
+    lockerInsert: null as Record<string, unknown> | null,
+    discountUsedCountUpdates: 0,
     soldCountUpdates: 0,
   };
 
@@ -38,6 +45,7 @@ function makeFakeDb(state: {
         },
         limit: async () => {
           if (table === ops) return state.existingOp ? [state.existingOp] : [];
+          if (table === lockerItems) return state.existingLockerTag ? [{ id: 1 }] : [];
           return [];
         },
       };
@@ -48,11 +56,17 @@ function makeFakeDb(state: {
         if (table === orders) { calls.order = values; return [{ insertId: 777 }]; }
         if (table === orderItems) { calls.items.push(values); return [{ insertId: 1 }]; }
         if (table === ops) { calls.op = values; return [{ insertId: 1 }]; }
+        if (table === lockerItems) { calls.lockerInsert = values; return [{ insertId: 1 }]; }
         return [{ insertId: 0 }];
       },
     }),
-    update: () => ({
-      set: () => ({ where: async () => { calls.soldCountUpdates += 1; } }),
+    update: (table: unknown) => ({
+      set: () => ({
+        where: async () => {
+          if (table === discountCodes) calls.discountUsedCountUpdates += 1;
+          else calls.soldCountUpdates += 1;
+        },
+      }),
     }),
   };
 
@@ -128,5 +142,64 @@ describe("createCajaSale", () => {
     await expect(
       createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 99, quantity: 1 }] })
     ).rejects.toThrow(/no encontrado/);
+  });
+
+  it("aplica un código de descuento válido y suma usedCount una sola vez", async () => {
+    validateDiscountCode.mockResolvedValueOnce({ valid: true, discount: { id: 5, discountType: "percentage", discountValue: "10" } });
+    const { db, calls } = makeFakeDb({ products: [piscola] });
+
+    const res = await createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 1, quantity: 1 }], discountCode: "PROMO10" });
+
+    expect(res.result).toBe("applied");
+    expect(calls.order).toMatchObject({ subtotal: "5000", discount: "500", total: "4500" });
+    expect(calls.discountUsedCountUpdates).toBe(1);
+  });
+
+  it("ignora un código de descuento inválido sin tumbar la venta", async () => {
+    validateDiscountCode.mockResolvedValueOnce({ valid: false, message: "Código no encontrado" });
+    const { db, calls } = makeFakeDb({ products: [piscola] });
+
+    const res = await createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 1, quantity: 1 }], discountCode: "NOEXISTE" });
+
+    expect(res.result).toBe("applied");
+    expect(calls.order).toMatchObject({ total: "5000" });
+    expect(calls.discountUsedCountUpdates).toBe(0);
+  });
+
+  it("guardarropía: cobra y registra la percha con el número tecleado", async () => {
+    const abrigo = { id: 3, name: "Guardarropía", price: "2000", costPrice: null, category: "locker", totalStock: 999, soldCount: 0 };
+    const { db, calls } = makeFakeDb({ products: [abrigo] });
+
+    const res = await createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 1 }], lockerTag: "42" });
+
+    expect(res.result).toBe("applied");
+    expect(calls.lockerInsert).toMatchObject({ tagNumber: "42", orderId: 777 });
+  });
+
+  it("guardarropía: rechaza sin número de percha", async () => {
+    const abrigo = { id: 3, name: "Guardarropía", price: "2000", costPrice: null, category: "locker", totalStock: 999, soldCount: 0 };
+    const { db } = makeFakeDb({ products: [abrigo] });
+
+    await expect(
+      createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 1 }] })
+    ).rejects.toThrow(/número de la percha/);
+  });
+
+  it("guardarropía: rechaza más de un abrigo por venta", async () => {
+    const abrigo = { id: 3, name: "Guardarropía", price: "2000", costPrice: null, category: "locker", totalStock: 999, soldCount: 0 };
+    const { db } = makeFakeDb({ products: [abrigo] });
+
+    await expect(
+      createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 2 }], lockerTag: "42" })
+    ).rejects.toThrow(/de a uno/);
+  });
+
+  it("guardarropía: rechaza un número ya usado esta noche", async () => {
+    const abrigo = { id: 3, name: "Guardarropía", price: "2000", costPrice: null, category: "locker", totalStock: 999, soldCount: 0 };
+    const { db } = makeFakeDb({ products: [abrigo], existingLockerTag: true });
+
+    await expect(
+      createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 1 }], lockerTag: "42" })
+    ).rejects.toThrow(/ya está en uso/);
   });
 });
