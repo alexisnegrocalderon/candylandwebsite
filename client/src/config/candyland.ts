@@ -232,10 +232,12 @@ export const CANDYLAND = {
     // normal con cada venta nueva.
     //
     // Ajustado el 2026-08-02 (pedido explícito del dueño): con las ventas
-    // web reales de ese momento, el total debía marcar 102 personas. Si
-    // hay que volver a calibrar el número mostrado, es este el valor a
-    // subir o bajar -- no toques la fórmula de Home.tsx.
-    baseline: 56,
+    // web reales confirmadas ese día (39 personas, ya con la migración de
+    // schema aplicada y la consulta real funcionando), el total debía
+    // marcar 102 personas. Si hay que volver a calibrar el número
+    // mostrado, es este el valor a subir o bajar -- no toques la fórmula
+    // de Home.tsx.
+    baseline: 63,
     // Fallback manual para cuando la consulta a la base de datos falla
     // (ej. una migración de schema pendiente de aplicar en producción).
     // Con DB funcionando, se usa baseline + la suma real de PERSONAS
