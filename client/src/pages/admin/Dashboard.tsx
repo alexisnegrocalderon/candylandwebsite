@@ -3370,16 +3370,22 @@ function SettingsManager() {
     <div className="space-y-6">
       <h2 className="font-heading text-2xl">Ajustes</h2>
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-        <CardHeader><CardTitle>Personas adentro</CardTitle></CardHeader>
-        <CardContent className="space-y-2">
+        <CardHeader><CardTitle>Personas y entradas</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
           {checkin ? (
             <>
               <p className="text-muted-foreground text-sm">{checkin.eventTitle}</p>
-              <p className="text-4xl font-heading font-extrabold">
-                {checkin.insideCount.toLocaleString('es-CL')}
-                <span className="text-muted-foreground text-lg font-semibold"> / {checkin.expectedCount.toLocaleString('es-CL')}</span>
-              </p>
-              <p className="text-xs text-muted-foreground">Se actualiza solo cada 30 segundos.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-4xl font-heading font-extrabold">{checkin.expectedCount.toLocaleString('es-CL')}</p>
+                  <p className="text-muted-foreground text-sm">Personas con entrada comprada</p>
+                </div>
+                <div>
+                  <p className="text-4xl font-heading font-extrabold">{checkin.insideCount.toLocaleString('es-CL')}</p>
+                  <p className="text-muted-foreground text-sm">Ya ingresaron a la fiesta</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">Se actualiza solo cada 30 segundos. "Entrada comprada" cuenta personas, no órdenes -- un Dúo suma 2, un Grupo suma 4.</p>
             </>
           ) : (
             <p className="text-muted-foreground text-sm">No hay un evento activo con datos de puerta todavía.</p>
