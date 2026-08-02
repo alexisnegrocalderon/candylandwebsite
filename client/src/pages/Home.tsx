@@ -47,11 +47,27 @@ const AMENITY_ICONS: Record<string, typeof Music> = {
   Music, Car, Shirt, Gamepad2, VenetianMask, Martini, Cigarette, ShieldCheck,
 };
 
+// Todas las secciones de abajo del hero arrancan en opacity 0 y aparecen al
+// entrar en pantalla. El margen es POSITIVO a propósito: agranda la caja de
+// detección, así cada bloque empieza a aparecer 400px ANTES de que llegues y
+// para cuando lo mirás ya terminó de animar. 400px alcanza para que la
+// primera sección de abajo del hero (que arranca ~300px bajo el pliegue) ya
+// esté resuelta sin scrollear nada.
+//
+// Antes era '-80px' (negativo), que ENCOGE la caja: el bloque tenía que
+// entrar 80px dentro de la pantalla para recién ahí empezar a aparecer. En
+// iPad eso se veía como una franja del fondo del sitio sin contenido durante
+// un par de segundos -- el contenido ya estaba en el DOM, pero invisible.
+// Pasa justo ahí porque el iPad es touch (así que no le aplican las
+// optimizaciones gateadas por isFinePointer: parallax, ScrollCandies,
+// caramelos, textura de ruido) pero es ancho (así que SÍ le aplican los blur
+// `md:` grandes y las tarjetas glass a todo el ancho). El hilo principal
+// llega tarde a disparar la animación y el hueco se hace visible.
 const reveal = {
   initial: { opacity: 0, y: 40 },
   whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true, margin: '-80px' },
-  transition: { duration: 0.7, ease: [0.23, 1, 0.32, 1] as const },
+  viewport: { once: true, margin: '400px' },
+  transition: { duration: 0.5, ease: [0.23, 1, 0.32, 1] as const },
 };
 
 function useCountdown(target: Date) {
@@ -441,10 +457,17 @@ function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'f
         isFeatured ? 'aspect-[16/10] md:aspect-[21/9]' : isSmall ? 'aspect-square' : 'aspect-[4/5]'
       }`}
     >
+      {/* width/height declarados aunque el contenedor ya reserve el espacio
+       * con `aspect-*`: le permiten al navegador reservar memoria y empezar
+       * a decodificar antes, así la imagen no "aparece de golpe" sobre una
+       * tarjeta glass casi blanca. Son las proporciones nominales, no un
+       * tamaño fijo -- el `object-cover` manda igual. */}
       <img
         src={event.imageUrl}
         alt={event.title}
         loading="lazy"
+        width={1060}
+        height={1413}
         className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${
           event.isPast ? 'grayscale group-hover:grayscale-0 opacity-80 group-hover:opacity-100' : 'group-hover:scale-105'
         }`}
@@ -599,10 +622,17 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
 
       <div className="container relative space-y-6 md:space-y-8">
         {/* Countdown — tarjeta propia, grande y con urgencia visual: borde
-         * pulsante tipo alerta, tiles grandes con degradé candy. */}
+         * de alerta, tiles grandes con degradé candy.
+         *
+         * La tarjeta ya NO lleva `candy-pulse`: esa clase anima `box-shadow`
+         * en bucle infinito, y acá iba encima de un `glass-candy`
+         * (backdrop-filter) del ancho de la pantalla en tablet/escritorio.
+         * Eso obliga a WebKit a rehacer el desenfoque de fondo en cada
+         * frame, para siempre. El latido se mantiene en el puntito rojo de
+         * abajo, que es donde se lee y no cuesta nada. */}
         <motion.div
           {...reveal}
-          className="candy-pulse relative glass-candy rounded-3xl px-5 py-6 md:px-10 md:py-8 flex flex-col items-center gap-4 md:gap-5 overflow-hidden border-2 border-cherry/50"
+          className="relative glass-candy rounded-3xl px-5 py-6 md:px-10 md:py-8 flex flex-col items-center gap-4 md:gap-5 overflow-hidden border-2 border-cherry/50"
         >
           <div aria-hidden className="absolute -top-16 left-1/4 w-64 h-64 rounded-full bg-cherry/25 blur-[90px]" />
           <div aria-hidden className="absolute -bottom-16 right-1/4 w-64 h-64 rounded-full bg-primary/20 blur-[90px]" />
@@ -722,11 +752,14 @@ function ExperienceSection() {
           </p>
         </motion.div>
 
+        {/* Mismo criterio que `reveal`: margen positivo para anticiparse, y
+         * escalonado más corto -- con 0.08s × 8 amenities + 0.5s cada una,
+         * la última tardaba ~1.1s en aparecer desde que disparaba. */}
         <motion.div
           initial="hidden"
           whileInView="show"
-          viewport={{ once: true, margin: '-60px' }}
-          variants={{ hidden: {}, show: { transition: { staggerChildren: 0.08 } } }}
+          viewport={{ once: true, margin: '400px' }}
+          variants={{ hidden: {}, show: { transition: { staggerChildren: 0.04 } } }}
           className="grid grid-cols-2 md:grid-cols-4 gap-4"
         >
           {CANDYLAND.amenities.map((a) => {
@@ -736,7 +769,7 @@ function ExperienceSection() {
                 key={a.texto}
                 variants={{
                   hidden: { opacity: 0, y: 26, scale: 0.92 },
-                  show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.5, ease: [0.23, 1, 0.32, 1] } },
+                  show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.35, ease: [0.23, 1, 0.32, 1] } },
                 }}
                 whileHover={{ y: -4, scale: 1.03 }}
                 className="glass-candy rounded-2xl p-5 flex items-center gap-3 hover:border-primary/40 transition-colors"
