@@ -224,14 +224,24 @@ export const CANDYLAND = {
   // ── Misión 300 ─────────────────────────────────────────────
   mision: {
     meta: 300,
-    // Personas que ya estaban confirmadas ANTES de esta web (vendidas por la
-    // ticketera anterior, no existen como orden en esta base de datos). Se
-    // suma siempre por encima del conteo real de la DB, así el contador no
-    // "retrocede" al migrar y sigue creciendo normal con cada venta nueva.
-    baseline: 52,
-    // Fallback manual mientras no hay base de datos conectada.
-    // Con DB, se usa baseline + la suma real de PERSONAS vendidas (dúo=2, trío=3, etc.).
-    confirmadosFallback: 48,
+    // Personas que ya estaban confirmadas ANTES de esta web: vendidas por la
+    // ticketera anterior (no existen como orden en esta base de datos) más
+    // amigos/invitados que el dueño cuenta a mano y tampoco quedan
+    // registrados como compra. Se suma siempre por encima del conteo real
+    // de la DB, así el contador no "retrocede" al migrar y sigue creciendo
+    // normal con cada venta nueva.
+    //
+    // Ajustado el 2026-08-02 (pedido explícito del dueño): con las ventas
+    // web reales de ese momento, el total debía marcar 102 personas. Si
+    // hay que volver a calibrar el número mostrado, es este el valor a
+    // subir o bajar -- no toques la fórmula de Home.tsx.
+    baseline: 56,
+    // Fallback manual para cuando la consulta a la base de datos falla
+    // (ej. una migración de schema pendiente de aplicar en producción).
+    // Con DB funcionando, se usa baseline + la suma real de PERSONAS
+    // vendidas (dúo=2, trío=3, etc.) -- mantenido igual al total de arriba
+    // para que una falla temporal no muestre un número viejo o al azar.
+    confirmadosFallback: 102,
     titulo: 'Misión 300',
     copy: 'Cada dulce representa una entrada confirmada.',
     // EDITAR: cuando generes el loop ambiental en Higgsfield (corto, sin audio),
