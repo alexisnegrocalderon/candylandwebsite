@@ -336,15 +336,23 @@ html {
   }
 }
 
-/* Móvil (sin hover): shimmer automático sutil, escalonado por letra */
+/* Móvil (sin hover): shimmer automático sutil, escalonado por letra.
+ *
+ * Solo anima `transform`, que el navegador compone en GPU sin repintar. La
+ * versión anterior también animaba `filter: drop-shadow(...)` -- un blur que
+ * se recalcula en CADA frame, multiplicado por las 9 letras de "CANDYLAND",
+ * justo en el dispositivo más débil. Era el mayor aporte al hallazgo
+ * "animaciones no compuestas" de PageSpeed y mantenía ocupado al hilo
+ * principal sin parar. El latido se mantiene; lo que se fue es el brillo
+ * que costaba caro y casi no se notaba. */
 @media (hover: none) {
   .candy-letter {
     animation: candy-letter-shimmer 5.5s ease-in-out infinite;
   }
 }
 @keyframes candy-letter-shimmer {
-  0%, 100% { filter: none; transform: translateY(0); }
-  50% { filter: brightness(1.1) saturate(1.15) drop-shadow(0 0 10px oklch(0.68 0.16 340 / 0.3)); transform: translateY(-3%); }
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-3%) scale(1.03); }
 }
 
 @media (prefers-reduced-motion: reduce) {
