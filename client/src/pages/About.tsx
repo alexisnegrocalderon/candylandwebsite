@@ -1,8 +1,11 @@
 import { motion } from 'framer-motion';
 import { Link } from 'wouter';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Instagram } from 'lucide-react';
 import { useSeo } from '@/hooks/useSeo';
 import { breadcrumbSchema } from '@shared/structuredData';
+import { CANDYLAND } from '@/config/candyland';
+
+const INSTAGRAM_HANDLE = CANDYLAND.redes.instagram.split('/').filter(Boolean).pop();
 
 /* Los tres valores de CANDYLAND.valores (Respeto, Consentimiento, Libertad),
  * explicados en concreto. En el config son solo tres palabras; acá se dice qué
@@ -155,6 +158,16 @@ export default function About() {
           >
             Ver Eventos <ArrowRight className="w-5 h-5" />
           </Link>
+          <div className="mt-5">
+            <a
+              href={CANDYLAND.redes.instagram}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors interactive"
+            >
+              <Instagram className="w-4 h-4" /> Síguenos en Instagram @{INSTAGRAM_HANDLE}
+            </a>
+          </div>
         </motion.div>
       </div>
     </div>
