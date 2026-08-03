@@ -238,13 +238,22 @@ export const CANDYLAND = {
     //
     // Reajustado el 2026-08-03: se corrigió un bug donde el conteo real de
     // la DB incluía abonos de Misión 300 sin resolver (ver PR #54) -- con
-    // el bug arreglado, el conteo real bajó a 70 (confirmado por el dueño
-    // como el número correcto). El dueño pidió sumar 42 personas más de un
-    // grupo de antes de este sistema (ticketera anterior / contadas a mano,
-    // que todavía no había agregado), para que el total público quede en
-    // 112. Si hay que volver a calibrar el número mostrado, es este el
-    // valor a subir o bajar -- no toques la fórmula de Home.tsx.
-    baseline: 42,
+    // el bug arreglado, el conteo real de la DB (vendidasDb) bajó a 7
+    // (verificado en vivo contra producción: 51 personas en accesos vendidos
+    // en bruto, menos 44 personas de abonos todavía sin resolver). El dueño
+    // pidió sumar un grupo de antes de este sistema (ticketera anterior /
+    // contadas a mano, que todavía no había agregado) para que el total
+    // público quede en 112 -- baseline = 112 - 7 = 105.
+    //
+    // ⚠️ Ojo con este cálculo la próxima vez: el número que reporta el dueño
+    // mirando la Home es el TOTAL YA MOSTRADO (baseline + vendidasDb), no
+    // vendidasDb sola -- un primer intento restó mal (112 - 70, tratando el
+    // 70 reportado como si fuera solo la parte de la DB) y dejó el total en
+    // 49 en vez de 112. Para recalibrar: pedir/confirmar el valor real de
+    // vendidasDb (o consultar `/api/trpc/events.getTicketTypes` +
+    // `/api/trpc/mission300.pendingPersonas` en vivo) y restar ESO al total
+    // deseado, no el número que aparece en pantalla.
+    baseline: 105,
     // Fallback manual para cuando la consulta a la base de datos falla
     // (ej. una migración de schema pendiente de aplicar en producción).
     // Con DB funcionando, se usa baseline + la suma real de PERSONAS
