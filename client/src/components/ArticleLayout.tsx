@@ -1,9 +1,12 @@
 import { motion } from 'framer-motion';
 import { Link } from 'wouter';
-import { ArrowRight, Clock } from 'lucide-react';
+import { ArrowRight, Clock, Instagram } from 'lucide-react';
 import { useSeo } from '@/hooks/useSeo';
 import { articleSchema, breadcrumbSchema } from '@shared/structuredData';
 import { getRelated, articlePath, type Article } from '@/content';
+import { CANDYLAND } from '@/config/candyland';
+
+const INSTAGRAM_HANDLE = CANDYLAND.redes.instagram.split('/').filter(Boolean).pop();
 
 /* Layout compartido por guías (/panoramas/:slug) y artículos (/blog/:slug).
  * Sigue el molde de RefundPolicy.tsx -- secciones armadas desde un arreglo de
@@ -109,6 +112,16 @@ export default function ArticleLayout({ article }: { article: Article }) {
             >
               {article.cta.label} <ArrowRight className="w-4 h-4" />
             </Link>
+            <div className="mt-5">
+              <a
+                href={CANDYLAND.redes.instagram}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors interactive"
+              >
+                <Instagram className="w-4 h-4" /> Síguenos en Instagram @{INSTAGRAM_HANDLE}
+              </a>
+            </div>
           </div>
 
           {related.length > 0 && (
