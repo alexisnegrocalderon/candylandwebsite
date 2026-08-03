@@ -23,6 +23,20 @@ if (analyticsEndpoint && analyticsWebsiteId) {
   document.body.appendChild(script);
 }
 
+// Adelanta la descarga del chunk de Home apenas arranca el script, en
+// paralelo con el resto del entry -- si no, el navegador recién descubre que
+// lo necesita DESPUÉS de parsear/ejecutar el entry y que React.lazy() lo
+// pida (App.tsx), perdiendo una vuelta de red completa antes de poder
+// mostrar el intro. Sigue siendo un chunk aparte -- no se vuelve a meter en
+// el entry, así que no repite el problema ya resuelto de "Home eager hacía
+// el bundle de entrada pesado" (ver el comentario en App.tsx). Solo se
+// adelanta CUÁNDO se pide, no qué tan grande es. Acotado a "/" porque es la
+// ruta a la que llega la enorme mayoría del tráfico (Instagram/WhatsApp);
+// quien entra directo a otra ruta (ticket, checkout) no paga estos bytes de más.
+if (window.location.pathname === '/') {
+  import('./pages/Home');
+}
+
 const queryClient = new QueryClient();
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
