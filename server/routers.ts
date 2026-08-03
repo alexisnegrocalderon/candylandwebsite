@@ -604,6 +604,15 @@ export const appRouter = router({
     evaluate: adminProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input }) => {
       return evaluateMission300(input.eventId);
     }),
+    // Contador público de Home (pedido explícito del usuario): cuántas
+    // personas de abonos de Misión 300 todavía NO están resueltas (ni
+    // "aprobadas del todo"), para que el contador público las reste y solo
+    // muestre lo que ya está confirmado -- sin datos sensibles, solo un número.
+    pendingPersonas: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input }) => {
+      const event = await db.getEventBySlug(input.slug);
+      if (!event) return { personas: 0 };
+      return { personas: await db.getUnresolvedDepositPersonas(event.id) };
+    }),
   }),
 
   tickets: router({

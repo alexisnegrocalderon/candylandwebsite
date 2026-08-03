@@ -1696,6 +1696,42 @@ export async function getCajaCatalog(eventId: number) {
   return db.select().from(ticketTypes).where(and(eq(ticketTypes.eventId, eventId), eq(ticketTypes.category, 'extra'), eq(ticketTypes.status, 'active')));
 }
 
+/** Personas de abonos de Misión 300 ya aprobados cuyo ticket todavía no
+ * existe: el pago está aprobado, pero `tickets` se genera recién al liquidar
+ * la misión (evaluateMission300, server/webhooks.ts) -- y eso pasa en dos
+ * pasos. `missionTopupStatus` distingue tres momentos: 'none' = todavía sin
+ * liquidar; 'pending' = no se llegó a la meta, esperando que la persona
+ * pague la diferencia; 'paid' = ya tiene ticket generado (ver
+ * processApprovedOrder, llamado en el mismo bloque que pone 'paid'). Se
+ * cuentan los dos primeros -- son personas que ya pagaron el abono pero cuya
+ * entrada TODAVÍA NO está resuelta (puede depender de que el grupo junte la
+ * meta, o de que paguen una diferencia pendiente). Lo usan getCajaDashboard
+ * (que sí las cuenta como "personas con entrada comprada", pedido explícito
+ * del dueño) y el contador público de Home (que las RESTA -- ver
+ * mission300.pendingPersonas en routers.ts -- porque ahí solo debe mostrarse
+ * lo que ya está resuelto, no lo que todavía puede caer). */
+export async function getUnresolvedDepositPersonas(eventId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  const unresolvedDeposits = await db.select().from(orders).where(and(
+    eq(orders.eventId, eventId),
+    eq(orders.missionDeposit, 1),
+    eq(orders.paymentStatus, 'approved'),
+    ne(orders.missionTopupStatus, 'paid'),
+  ));
+
+  let personas = 0;
+  for (const order of unresolvedDeposits) {
+    const depositItems = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+    for (const item of depositItems) {
+      const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, item.ticketTypeId)).limit(1);
+      if (tt?.category === 'acceso') personas += personasForAccesoSlug(tt.accesoSlug) * item.quantity;
+    }
+  }
+  return personas;
+}
+
 /** Dashboard de caja (§10.2.5): ventas del día, top productos, últimas ventas, canjes. */
 export async function getCajaDashboard(eventId: number) {
   const db = await getDb();
@@ -1740,29 +1776,11 @@ export async function getCajaDashboard(eventId: number) {
     if (t.status === 'used') insideCount += personas;
   }
 
-  // Abonos de Misión 300 ya aprobados cuyo ticket todavía no existe: el pago
-  // está aprobado, pero `tickets` se genera recién al liquidar la misión
-  // (evaluateMission300, server/webhooks.ts) -- y eso pasa en dos pasos.
-  // `missionTopupStatus` distingue tres momentos: 'none' = todavía sin
-  // liquidar; 'pending' = no se llegó a la meta, esperando que la persona
-  // pague la diferencia; 'paid' = ya tiene ticket generado (ver
-  // processApprovedOrder, llamado en el mismo bloque que pone 'paid'). Se
-  // cuentan los dos primeros -- son personas que ya pagaron y cuyas
-  // entradas se van a crear igual (pedido explícito del dueño). No suman a
-  // `insideCount`: sin ticket todavía no hay código para marcar entrada.
-  const unresolvedDeposits = await db.select().from(orders).where(and(
-    eq(orders.eventId, eventId),
-    eq(orders.missionDeposit, 1),
-    eq(orders.paymentStatus, 'approved'),
-    ne(orders.missionTopupStatus, 'paid'),
-  ));
-  for (const order of unresolvedDeposits) {
-    const depositItems = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
-    for (const item of depositItems) {
-      const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, item.ticketTypeId)).limit(1);
-      if (tt?.category === 'acceso') expectedCount += personasForAccesoSlug(tt.accesoSlug) * item.quantity;
-    }
-  }
+  // Abonos de Misión 300 ya aprobados cuyo ticket todavía no existe -- son
+  // personas que ya pagaron y cuyas entradas se van a crear igual (pedido
+  // explícito del dueño). No suman a `insideCount`: sin ticket todavía no hay
+  // código para marcar entrada.
+  expectedCount += await getUnresolvedDepositPersonas(eventId);
 
   const items = await db.select({ ticketTypeId: orderItems.ticketTypeId, quantity: orderItems.quantity })
     .from(orderItems)

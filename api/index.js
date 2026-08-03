@@ -2119,6 +2119,25 @@ async function getCajaCatalog(eventId) {
   if (!db) return [];
   return db.select().from(ticketTypes).where(and(eq2(ticketTypes.eventId, eventId), eq2(ticketTypes.category, "extra"), eq2(ticketTypes.status, "active")));
 }
+async function getUnresolvedDepositPersonas(eventId) {
+  const db = await getDb();
+  if (!db) return 0;
+  const unresolvedDeposits = await db.select().from(orders).where(and(
+    eq2(orders.eventId, eventId),
+    eq2(orders.missionDeposit, 1),
+    eq2(orders.paymentStatus, "approved"),
+    ne(orders.missionTopupStatus, "paid")
+  ));
+  let personas = 0;
+  for (const order of unresolvedDeposits) {
+    const depositItems = await db.select().from(orderItems).where(eq2(orderItems.orderId, order.id));
+    for (const item of depositItems) {
+      const [tt] = await db.select().from(ticketTypes).where(eq2(ticketTypes.id, item.ticketTypeId)).limit(1);
+      if (tt?.category === "acceso") personas += personasForAccesoSlug(tt.accesoSlug) * item.quantity;
+    }
+  }
+  return personas;
+}
 async function getCajaDashboard(eventId) {
   const db = await getDb();
   if (!db) return null;
@@ -2140,19 +2159,7 @@ async function getCajaDashboard(eventId) {
     expectedCount += personas;
     if (t2.status === "used") insideCount += personas;
   }
-  const unresolvedDeposits = await db.select().from(orders).where(and(
-    eq2(orders.eventId, eventId),
-    eq2(orders.missionDeposit, 1),
-    eq2(orders.paymentStatus, "approved"),
-    ne(orders.missionTopupStatus, "paid")
-  ));
-  for (const order of unresolvedDeposits) {
-    const depositItems = await db.select().from(orderItems).where(eq2(orderItems.orderId, order.id));
-    for (const item of depositItems) {
-      const [tt] = await db.select().from(ticketTypes).where(eq2(ticketTypes.id, item.ticketTypeId)).limit(1);
-      if (tt?.category === "acceso") expectedCount += personasForAccesoSlug(tt.accesoSlug) * item.quantity;
-    }
-  }
+  expectedCount += await getUnresolvedDepositPersonas(eventId);
   const items = await db.select({ ticketTypeId: orderItems.ticketTypeId, quantity: orderItems.quantity }).from(orderItems).innerJoin(orders, eq2(orders.id, orderItems.orderId)).where(and(eq2(orders.eventId, eventId), eq2(orders.channel, "caja"), eq2(orders.paymentStatus, "approved")));
   const qtyByType = /* @__PURE__ */ new Map();
   for (const i of items) qtyByType.set(i.ticketTypeId, (qtyByType.get(i.ticketTypeId) || 0) + i.quantity);
@@ -8122,6 +8129,15 @@ var appRouter = router({
     }),
     evaluate: adminProcedure2.input(z5.object({ eventId: z5.number() })).mutation(async ({ input }) => {
       return evaluateMission300(input.eventId);
+    }),
+    // Contador público de Home (pedido explícito del usuario): cuántas
+    // personas de abonos de Misión 300 todavía NO están resueltas (ni
+    // "aprobadas del todo"), para que el contador público las reste y solo
+    // muestre lo que ya está confirmado -- sin datos sensibles, solo un número.
+    pendingPersonas: publicProcedure.input(z5.object({ slug: z5.string() })).query(async ({ input }) => {
+      const event = await getEventBySlug(input.slug);
+      if (!event) return { personas: 0 };
+      return { personas: await getUnresolvedDepositPersonas(event.id) };
     })
   }),
   tickets: router({
