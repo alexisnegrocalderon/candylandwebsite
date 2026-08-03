@@ -1098,6 +1098,15 @@ export default function Home() {
     // cuando entran compras aprobadas (webhook MP → soldCount). Sin DB, no-op.
     { retry: false, refetchInterval: 30_000, refetchIntervalInBackground: false },
   );
+  // Personas de abonos de Misión 300 que todavía NO están resueltas (ni el
+  // grupo juntó la meta, ni pagaron la diferencia) -- soldCount ya las cuenta
+  // apenas se aprueba el abono (para que el stock no se sobrevenda), pero acá
+  // hay que restarlas: el contador público solo debe mostrar entradas ya
+  // confirmadas, no las que todavía dependen de que se resuelva la misión.
+  const { data: pendingMission } = trpc.mission300.pendingPersonas.useQuery(
+    { slug: CANDYLAND.slug },
+    { retry: false, refetchInterval: 30_000, refetchIntervalInBackground: false },
+  );
 
   const vendidos = useMemo(() => {
     if (liveTickets && liveTickets.length > 0) {
@@ -1108,11 +1117,11 @@ export default function Home() {
       const vendidasDb = liveTickets.reduce((s, t: any) => {
         if (t.category !== 'acceso') return s;
         return s + (t.soldCount ?? 0) * personasForAccesoSlug(t.accesoSlug);
-      }, 0);
+      }, 0) - (pendingMission?.personas ?? 0);
       return CANDYLAND.mision.baseline + vendidasDb;
     }
     return CANDYLAND.mision.confirmadosFallback;
-  }, [liveTickets]);
+  }, [liveTickets, pendingMission]);
 
   // Precio "gancho" para publicitar la preventa Misión 300 en el Hero y en su
   // propia sección: prioriza el acceso Dúo (el que se usa en toda la
