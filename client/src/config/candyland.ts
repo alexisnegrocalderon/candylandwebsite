@@ -234,16 +234,23 @@ export const CANDYLAND = {
     // Ajustado el 2026-08-02 (pedido explícito del dueño): con las ventas
     // web reales confirmadas ese día (39 personas, ya con la migración de
     // schema aplicada y la consulta real funcionando), el total debía
-    // marcar 102 personas. Si hay que volver a calibrar el número
-    // mostrado, es este el valor a subir o bajar -- no toques la fórmula
-    // de Home.tsx.
-    baseline: 63,
+    // marcar 102 personas.
+    //
+    // Reajustado el 2026-08-03: se corrigió un bug donde el conteo real de
+    // la DB incluía abonos de Misión 300 sin resolver (ver PR #54) -- con
+    // el bug arreglado, el conteo real bajó a 70 (confirmado por el dueño
+    // como el número correcto). El dueño pidió sumar 42 personas más de un
+    // grupo de antes de este sistema (ticketera anterior / contadas a mano,
+    // que todavía no había agregado), para que el total público quede en
+    // 112. Si hay que volver a calibrar el número mostrado, es este el
+    // valor a subir o bajar -- no toques la fórmula de Home.tsx.
+    baseline: 42,
     // Fallback manual para cuando la consulta a la base de datos falla
     // (ej. una migración de schema pendiente de aplicar en producción).
     // Con DB funcionando, se usa baseline + la suma real de PERSONAS
     // vendidas (dúo=2, trío=3, etc.) -- mantenido igual al total de arriba
     // para que una falla temporal no muestre un número viejo o al azar.
-    confirmadosFallback: 102,
+    confirmadosFallback: 112,
     titulo: 'Misión 300',
     copy: 'Cada dulce representa una entrada confirmada.',
     // EDITAR: cuando generes el loop ambiental en Higgsfield (corto, sin audio),
