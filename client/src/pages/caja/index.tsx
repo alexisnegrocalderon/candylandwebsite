@@ -446,7 +446,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const [view, setView] = useState<View>('menu');
   // Confirmación de comanda: el número gigante que la cajera dicta -- si la
   // venta se encoló sin señal, avisa que cocina todavía no lo ve.
-  const [kitchenConfirm, setKitchenConfirm] = useState<{ number: string; offline: boolean } | null>(null);
+  const [kitchenConfirm, setKitchenConfirm] = useState<{ number: string; name: string; offline: boolean } | null>(null);
   const [query, setQuery] = useState('');
   const [manualCode, setManualCode] = useState('');
   const [results, setResults] = useState<CajaAttendee[]>([]);
@@ -736,13 +736,13 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
           <NewSale
             eventId={localEvent.id}
             registerId={registerId}
-            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, kitchenTicketNumber) => {
+            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, kitchenTicketNumber, customerName) => {
               await enqueueOp({
                 opId: newOpId(), type: 'sale', items, paymentMethod, buyerEmail, redeemPlaycoins,
-                discountCode, lockerTag, kitchenTicketNumber, clientAt: (await correctedNow()).toISOString(),
+                discountCode, lockerTag, kitchenTicketNumber, customerName, clientAt: (await correctedNow()).toISOString(),
               });
               if (kitchenTicketNumber) {
-                setKitchenConfirm({ number: kitchenTicketNumber, offline: !isOnline });
+                setKitchenConfirm({ number: kitchenTicketNumber, name: customerName || kitchenTicketNumber, offline: !isOnline });
               } else {
                 toast.success('Venta registrada ✅');
               }
@@ -759,9 +759,10 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
       {kitchenConfirm && (
         <div className="fixed inset-0 z-30 bg-black/85 backdrop-blur-sm flex items-center justify-center p-6">
           <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-4">
-            <p className="text-sm text-white/60 uppercase tracking-wide">Número de pedido</p>
-            <p className="font-heading font-extrabold text-6xl tracking-tight text-primary">{kitchenConfirm.number}</p>
-            <p className="text-white/70">Díctaselo a la persona -- lo va a necesitar para retirar en cocina.</p>
+            <p className="text-sm text-white/60 uppercase tracking-wide">Nombre del pedido</p>
+            <p className="font-heading font-extrabold text-5xl tracking-tight text-primary">{kitchenConfirm.name}</p>
+            <p className="text-xs text-white/40 font-mono">Comanda {kitchenConfirm.number}</p>
+            <p className="text-white/70">Díctale su nombre a la persona -- lo va a necesitar para retirar en cocina.</p>
             {kitchenConfirm.offline && (
               <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
                 Sin señal ahora mismo: la cocina todavía no ve este pedido. Avísales a mano y se va a sincronizar solo cuando vuelva la conexión.
@@ -901,6 +902,7 @@ function NewSale({ eventId, registerId, onSale }: {
     discountCode?: string,
     lockerTag?: string,
     kitchenTicketNumber?: string,
+    customerName?: string,
   ) => void;
 }) {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
@@ -940,6 +942,10 @@ function NewSale({ eventId, registerId, onSale }: {
   // Guardarropía: el número de la percha física, tecleado por la cajera --
   // no lo genera el sistema (ver drizzle/schema.ts `lockerItems`).
   const [lockerTag, setLockerTag] = useState('');
+
+  // Nombre que ve cocina en pantalla en vez del número de comanda (pedido
+  // explícito del dueño: el número es difícil de memorizar para ir a buscarlo).
+  const [customerName, setCustomerName] = useState('');
 
   useEffect(() => {
     getLocalCatalog().then((c) => {
@@ -982,6 +988,7 @@ function NewSale({ eventId, registerId, onSale }: {
   const confirm = async () => {
     if (tooManyLockers) { toast.error('Cobra los abrigos de a uno para poder asignar un número a cada uno'); return; }
     if (needsLockerTag && !lockerTag.trim()) { toast.error('Falta el número de la percha'); return; }
+    if (hasKitchenItems && !customerName.trim()) { toast.error('Falta el nombre para cocina'); return; }
     const cartItems = Object.entries(cart).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId: Number(ticketTypeId), quantity }));
     const redeemAmount = balance != null ? clampRedeemAmount(Number(redeemInput || 0), Math.min(balance, total)) : 0;
     // El número de comanda se genera ACÁ, en la tablet, antes de encolar la
@@ -992,6 +999,7 @@ function NewSale({ eventId, registerId, onSale }: {
       discountResult?.valid ? discountCode.trim() : undefined,
       needsLockerTag ? lockerTag.trim() : undefined,
       kitchenTicketNumber,
+      hasKitchenItems ? customerName.trim() : undefined,
     );
     setCart({});
     setBuyerEmail('');
@@ -1002,6 +1010,7 @@ function NewSale({ eventId, registerId, onSale }: {
     setDiscountCode('');
     setDiscountResult(null);
     setLockerTag('');
+    setCustomerName('');
   };
 
   const handleCustomerScan = async (raw: string) => {
@@ -1124,6 +1133,20 @@ function NewSale({ eventId, registerId, onSale }: {
                 className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
               />
               {tooManyLockers && <p className="text-xs text-red-400">Cobra los abrigos de a uno para poder asignar un número a cada uno.</p>}
+            </div>
+          )}
+
+          {/* Nombre para cocina (pedido explícito del dueño): un número de
+              comanda es difícil de memorizar para ir a buscarlo, un nombre no. */}
+          {hasKitchenItems && (
+            <div className="space-y-1">
+              <label className="text-xs text-white/50 uppercase tracking-wide">🍽️ ¿A nombre de quién?</label>
+              <Input
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                placeholder="Cualquier nombre, para que cocina lo llame"
+                className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+              />
             </div>
           )}
 

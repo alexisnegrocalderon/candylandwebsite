@@ -223,6 +223,34 @@ describe("createCajaSale", () => {
     });
   });
 
+  it("guarda el nombre del cliente en la comanda cuando se manda", async () => {
+    const papas = { id: 4, name: "Papas fritas", price: "3000", costPrice: null, category: "consumo", totalStock: 50, soldCount: 0, toKitchen: 1 };
+    const { db, calls } = makeFakeDb({ products: [papas] });
+
+    await createCajaSale(db, {
+      ...baseParams,
+      items: [{ ticketTypeId: 4, quantity: 1 }],
+      kitchenTicketNumber: "1-004",
+      customerName: "  Camila  ",
+    });
+
+    expect(calls.kitchenInsert).toMatchObject({ customerName: "Camila" });
+  });
+
+  it("sin customerName, la comanda queda con customerName null", async () => {
+    const papas = { id: 4, name: "Papas fritas", price: "3000", costPrice: null, category: "consumo", totalStock: 50, soldCount: 0, toKitchen: 1 };
+    const { db, calls } = makeFakeDb({ products: [papas] });
+
+    const res = await createCajaSale(db, {
+      ...baseParams,
+      items: [{ ticketTypeId: 4, quantity: 1 }],
+      kitchenTicketNumber: "1-005",
+    });
+
+    expect(res.result).toBe("applied");
+    expect(calls.kitchenInsert).toMatchObject({ customerName: null });
+  });
+
   it("una venta sin ítems toKitchen no genera comanda", async () => {
     const cerveza = { id: 2, name: "Cerveza", price: "4000", costPrice: null, category: "consumo", totalStock: 50, soldCount: 0, toKitchen: 0 };
     const { db, calls } = makeFakeDb({ products: [cerveza] });

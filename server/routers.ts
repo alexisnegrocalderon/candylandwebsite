@@ -1422,6 +1422,7 @@ export const appRouter = router({
           discountCode: z.string().optional(),
           lockerTag: z.string().max(16).optional(),
           kitchenTicketNumber: z.string().max(12).optional(),
+          customerName: z.string().max(60).optional(),
           clientAt: z.string(),
         }),
       ])).max(50),
@@ -1448,6 +1449,7 @@ export const appRouter = router({
               items: op.items, paymentMethod: op.paymentMethod, clientAt: new Date(op.clientAt),
               buyerEmail: op.buyerEmail, redeemPlaycoins: op.redeemPlaycoins,
               discountCode: op.discountCode, lockerTag: op.lockerTag, kitchenTicketNumber: op.kitchenTicketNumber,
+              customerName: op.customerName,
             });
           }
         } catch (err) {
@@ -1618,6 +1620,7 @@ export const appRouter = router({
       discountCode: z.string().optional(),
       lockerTag: z.string().max(16).optional(),
       kitchenTicketNumber: z.string().max(12).optional(),
+      customerName: z.string().max(60).optional(),
       clientAt: z.string(),
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await db.getDb();
@@ -1635,6 +1638,7 @@ export const appRouter = router({
           discountCode: input.discountCode,
           lockerTag: input.lockerTag,
           kitchenTicketNumber: input.kitchenTicketNumber,
+          customerName: input.customerName,
           clientAt: new Date(input.clientAt),
         });
       } catch (err) {

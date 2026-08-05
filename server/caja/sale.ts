@@ -39,6 +39,10 @@ export async function createCajaSale(
     // `<nº de caja>-<correlativo local>`, ver client/src/pages/caja/db.ts
     // `nextKitchenTicketNumber`. Requerido si algún ítem es `toKitchen`.
     kitchenTicketNumber?: string;
+    // Nombre que la cajera le pide al cliente al vender algo `toKitchen`
+    // (pedido explícito del dueño) -- lo que ve cocina en pantalla en vez
+    // del número, que es difícil de memorizar para ir a buscarlo.
+    customerName?: string;
   }
 ) {
   if (params.items.length === 0) throw new Error("La venta necesita al menos un producto");
@@ -205,6 +209,7 @@ export async function createCajaSale(
           registerId: params.registerId ?? null,
           ticketNumber: params.kitchenTicketNumber!.trim(),
           items: kitchenItems,
+          customerName: params.customerName?.trim() || null,
         });
       }
 

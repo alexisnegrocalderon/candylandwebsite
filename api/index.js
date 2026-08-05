@@ -525,6 +525,12 @@ var init_schema = __esm({
       items: json("items").notNull(),
       // [{ name, quantity }]
       note: varchar("note", { length: 200 }),
+      // Nombre que la cajera le pide al cliente al cobrar un producto toKitchen
+      // (pedido explícito del dueño): un número de comanda es difícil de
+      // memorizar para ir a buscarlo, un nombre no. Se exige en la aplicación
+      // (client/src/pages/caja/index.tsx), no acá -- mismo criterio que el resto
+      // de la tabla.
+      customerName: varchar("customerName", { length: 60 }),
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       approvedAt: timestamp("approvedAt"),
       approvedByOperatorId: int("approvedByOperatorId"),
@@ -7328,7 +7334,8 @@ async function createCajaSale(db, params) {
           opId: params.opId,
           registerId: params.registerId ?? null,
           ticketNumber: params.kitchenTicketNumber.trim(),
-          items: kitchenItems
+          items: kitchenItems,
+          customerName: params.customerName?.trim() || null
         });
       }
       for (const item of lineItems) {
@@ -8865,6 +8872,7 @@ var appRouter = router({
           discountCode: z5.string().optional(),
           lockerTag: z5.string().max(16).optional(),
           kitchenTicketNumber: z5.string().max(12).optional(),
+          customerName: z5.string().max(60).optional(),
           clientAt: z5.string()
         })
       ])).max(50)
@@ -8905,7 +8913,8 @@ var appRouter = router({
               redeemPlaycoins: op.redeemPlaycoins,
               discountCode: op.discountCode,
               lockerTag: op.lockerTag,
-              kitchenTicketNumber: op.kitchenTicketNumber
+              kitchenTicketNumber: op.kitchenTicketNumber,
+              customerName: op.customerName
             });
           }
         } catch (err) {
@@ -9098,6 +9107,7 @@ var appRouter = router({
       discountCode: z5.string().optional(),
       lockerTag: z5.string().max(16).optional(),
       kitchenTicketNumber: z5.string().max(12).optional(),
+      customerName: z5.string().max(60).optional(),
       clientAt: z5.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
@@ -9115,6 +9125,7 @@ var appRouter = router({
           discountCode: input.discountCode,
           lockerTag: input.lockerTag,
           kitchenTicketNumber: input.kitchenTicketNumber,
+          customerName: input.customerName,
           clientAt: new Date(input.clientAt)
         });
       } catch (err) {
