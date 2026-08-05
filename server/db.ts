@@ -152,10 +152,38 @@ export async function deleteEvent(id: number) {
   return { success: true };
 }
 
+/** Estacionamiento/covers por defecto: antes vivían hardcodeados en
+ * client/src/config/candyland.ts y el checkout los cobraba "a mano" (sin
+ * mandarlos como orderItems reales) cuando el evento no tenía sus propios
+ * extras cargados -- por eso el total mostrado nunca coincidía con lo que
+ * de verdad se guardaba/cobraba. Ahora cualquier evento que ya tenga accesos
+ * pero cero extras se autorepara con estos dos, así el checkout siempre
+ * cobra por un ticketType real (ver getOrCreateInstantInviteTicketType, que
+ * usa el mismo patrón de "crear la primera vez que se necesita"). Si el
+ * admin ya cargó sus propios extras para el evento, esto no toca nada.
+ * Ajustar precios a futuro se hace desde Admin → Entradas, no acá. */
+async function ensureDefaultExtraTicketTypes(eventId: number, existing: (typeof ticketTypes.$inferSelect)[]) {
+  const hasAcceso = existing.some((tt) => tt.category === 'acceso');
+  const hasExtra = existing.some((tt) => tt.category === 'extra');
+  if (!hasAcceso || hasExtra) return false;
+
+  const db = await getDb();
+  if (!db) return false;
+
+  await db.insert(ticketTypes).values([
+    { eventId, name: 'Estacionamiento', category: 'extra', price: '5000', totalStock: 999999, status: 'active' },
+    { eventId, name: 'Piscolón', category: 'extra', price: '5000', totalStock: 999999, status: 'active' },
+  ]);
+  return true;
+}
+
 // Ticket Types
 export async function getTicketTypesByEventId(eventId: number) {
   const db = await getDb();
   if (!db) return [];
+  const existing = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId)).orderBy(ticketTypes.sortOrder);
+  const created = await ensureDefaultExtraTicketTypes(eventId, existing);
+  if (!created) return existing;
   return db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId)).orderBy(ticketTypes.sortOrder);
 }
 
@@ -257,7 +285,7 @@ export async function validateDiscountCode(code: string, eventId: number) {
   const db = await getDb();
   if (!db) return { valid: false, message: 'Service unavailable' };
 
-  const result = await db.select().from(discountCodes).where(eq(discountCodes.code, code)).limit(1);
+  const result = await db.select().from(discountCodes).where(eq(discountCodes.code, code.trim().toUpperCase())).limit(1);
   if (result.length === 0) return { valid: false, message: 'Código no encontrado' };
 
   const discount = result[0];
@@ -311,7 +339,7 @@ export async function validateCommunityCode(code: string) {
   const db = await getDb();
   if (!db) return { valid: false, message: 'Service unavailable' };
 
-  const result = await db.select().from(communityCodes).where(eq(communityCodes.code, code)).limit(1);
+  const result = await db.select().from(communityCodes).where(eq(communityCodes.code, code.trim().toUpperCase())).limit(1);
   if (result.length === 0) return { valid: false, message: 'Código no encontrado' };
 
   const entry = result[0];

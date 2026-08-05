@@ -45,7 +45,7 @@ describe('CANDYLAND (objeto compuesto, compatibilidad)', () => {
       'slug', 'nombre', 'tagline', 'heroTitulo', 'eventDate', 'fechaTexto',
       'horarioTexto', 'afterTexto', 'ciudad', 'lugar', 'valores', 'edadMinima',
       'dressCode', 'mision', 'pistas', 'lineup', 'amenities', 'accesos',
-      'addons', 'faqs', 'redes',
+      'faqs', 'redes',
     ]) {
       expect(CANDYLAND, `falta "${clave}"`).toHaveProperty(clave);
     }

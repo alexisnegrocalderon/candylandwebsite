@@ -10,7 +10,7 @@ import { PaymentBrick } from '@/components/PaymentBrick';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, coversDisponibles, whatsappComunidadLink, type Acceso, type CampoForm } from '@/config/candyland';
+import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, whatsappComunidadLink, type Acceso, type CampoForm } from '@/config/candyland';
 import { isMissionWindowOpen, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
 import { isValidRut, isValidChileanPhone } from '@shared/rut';
 import { useSeo } from '@/hooks/useSeo';
@@ -126,29 +126,6 @@ function friendlyPregunta(rawKey: string, field: CampoForm): { titulo: string; s
     case 'fecha_nacimiento': return { titulo: '¿Cuándo es tu cumpleaños?', sub: 'Lo validamos con tu carnet en la puerta.' };
     default: return { titulo: field.label.replace(' (opcional)', ''), sub: field.help };
   }
-}
-
-/* Traduce los status_detail más comunes que devuelve Mercado Pago al
- * rechazar un pago — para no mostrarle a la persona un código críptico. */
-function BigOption({
-  emoji, titulo, sub, activo, onClick,
-}: { emoji: string; titulo: string; sub?: string; activo?: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={!!activo}
-      className={`w-full flex items-center gap-3 rounded-2xl border p-4 text-left transition-all interactive ${
-        activo ? 'border-primary bg-primary/10 shadow-[0_0_20px_oklch(0.68_0.16_340_/_0.2)]' : 'border-border/50 glass-candy hover:border-primary/40'
-      }`}
-    >
-      <span className="text-2xl">{emoji}</span>
-      <span>
-        <span className="block font-heading font-bold text-base">{titulo}</span>
-        {sub && <span className="block text-xs text-muted-foreground">{sub}</span>}
-      </span>
-    </button>
-  );
 }
 
 function SquareImageOption({
@@ -345,8 +322,6 @@ export default function Checkout() {
   const requiresCommunityCode = accesoSlug === 'soltero' || (accesoSlug === 'duo' && duoComposicion === 'dos_hombres');
 
   /* ── Extras / códigos ────────────────────────────────────── */
-  const [estacionamiento, setEstacionamiento] = useState(false);
-  const [coverQty, setCoverQty] = useState<Record<string, number>>({});
   const [dbExtraQty, setDbExtraQty] = useState<Record<number, number>>({});
   // Un solo campo para código de descuento o de embajador -- la persona no
   // sabe (ni le importa) cuál de los dos tiene; el servidor decide
@@ -380,9 +355,6 @@ export default function Checkout() {
     const advance = window.setTimeout(() => setShowResumenFinal(false), 5000);
     return () => { window.clearInterval(interval); window.clearTimeout(advance); };
   }, [showResumenFinal]);
-  const addonEstac = CANDYLAND.addons.estacionamiento;
-  const covers = CANDYLAND.addons.covers;
-  const coversOn = coversDisponibles();
 
   /* ── Pasos: una sola pregunta por pantalla ───────────────── */
   const camposAcceso = useMemo(() => {
@@ -421,16 +393,11 @@ export default function Checkout() {
     }
     if (useDbExtras) {
       p.push({ id: 'extras-db', titulo: '✨ ¿Agregamos algo más?', sub: 'Estacionamiento, covers y otros extras — todo opcional.', keys: [] });
-    } else {
-      p.push({ id: 'extras-estacionamiento', titulo: '🚗 ¿Aseguramos tu estacionamiento?', sub: addonEstac.descripcion, keys: [] });
-      if (coversOn && covers.productos.length > 0) {
-        p.push({ id: 'extras-covers', titulo: '🍹 ¿Compras tus covers anticipados?', sub: covers.descripcion, keys: [] });
-      }
     }
     p.push({ id: 'codigos', titulo: '🎟️ ¿Tienes un código?', sub: 'De descuento o de quien te invitó — o sáltalo no más.', keys: [] });
     p.push({ id: 'resumen', titulo: '✨ Tu experiencia', sub: 'Revisa todo antes de continuar.', keys: [] });
     return p;
-  }, [camposAcceso, skipVibe, groupSize, requiresCommunityCode, coversOn, covers.productos.length, addonEstac.descripcion, covers.descripcion, useDbExtras]);
+  }, [camposAcceso, skipVibe, groupSize, requiresCommunityCode, useDbExtras]);
 
   const [paso, setPaso] = useState(0);
   const total_pasos = pasos.length;
@@ -477,9 +444,8 @@ export default function Checkout() {
       ? Math.round(subtotal * Number(codeResult.discount.discountValue) / 100)
       : Number(codeResult.discount.discountValue)
     : 0;
-  const coversTotal = covers.productos.reduce((s, p) => s + (coverQty[p.id] || 0) * p.precio, 0);
   const dbExtrasTotal = extraTickets.reduce((s: number, t: any) => s + (dbExtraQty[t.id] || 0) * Number(t.price), 0);
-  const preServiceFeeTotal = Math.max(0, subtotal - discountAmount) + (useDbExtras ? dbExtrasTotal : (estacionamiento ? addonEstac.precio : 0) + coversTotal);
+  const preServiceFeeTotal = Math.max(0, subtotal - discountAmount) + (useDbExtras ? dbExtrasTotal : 0);
   const serviceFee = serviceFeePercent > 0 ? Math.round(preServiceFeeTotal * serviceFeePercent / 100) : 0;
   const total = preServiceFeeTotal + serviceFee;
 
@@ -550,10 +516,7 @@ export default function Checkout() {
   const onSubmit = async (values: Record<string, any>) => {
     const extrasElegidos = useDbExtras
       ? extraTickets.filter((t: any) => (dbExtraQty[t.id] || 0) > 0).map((t: any) => ({ nombre: t.name, cantidad: dbExtraQty[t.id] }))
-      : [
-          ...(estacionamiento ? [{ nombre: addonEstac.nombre, cantidad: 1 }] : []),
-          ...covers.productos.filter((p) => (coverQty[p.id] || 0) > 0).map((p) => ({ nombre: p.nombre, cantidad: coverQty[p.id] })),
-        ];
+      : [];
     const attendeeData = JSON.stringify({
       acceso: acceso?.nombre, cantidad: qty, grupoTipo: accesoSlug,
       extras: extrasElegidos,
@@ -614,7 +577,7 @@ export default function Checkout() {
   /* Pasos que avanzan solos con un clic (sin botón "Continuar" fijo) */
   const soloFieldKey = pasoActual.keys[0];
   const soloField = soloFieldKey ? allFields.find((x) => x.key === soloFieldKey)?.field : undefined;
-  const isAutoAdvance = pasoActual.id === 'vibe' || pasoActual.id === 'quien' || pasoActual.id === 'pareja-composicion' || pasoActual.id === 'extras-estacionamiento' || soloField?.type === 'checkbox';
+  const isAutoAdvance = pasoActual.id === 'vibe' || pasoActual.id === 'quien' || pasoActual.id === 'pareja-composicion' || soloField?.type === 'checkbox';
 
   if (ordenPago && pagoResultado === 'approved') {
     return (
@@ -666,7 +629,7 @@ export default function Checkout() {
             {discountAmount > 0 && (
               <div className="flex justify-between text-sm text-green-400 mb-2"><span>Descuento</span><span>-{formatCLP(discountAmount)}</span></div>
             )}
-            {useDbExtras ? (
+            {useDbExtras && (
               <>
                 {extraTickets.some((t: any) => (dbExtraQty[t.id] || 0) > 0) && (
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-3 mb-1.5">Extras</p>
@@ -675,20 +638,6 @@ export default function Checkout() {
                   const q = dbExtraQty[t.id] || 0;
                   if (q <= 0) return null;
                   return <div key={t.id} className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {q}× {t.name}</span><span>+{formatCLP(q * Number(t.price))}</span></div>;
-                })}
-              </>
-            ) : (
-              <>
-                {(estacionamiento || covers.productos.some((p) => (coverQty[p.id] || 0) > 0)) && (
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-3 mb-1.5">Extras</p>
-                )}
-                {estacionamiento && (
-                  <div className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {addonEstac.nombre}</span><span>+{formatCLP(addonEstac.precio)}</span></div>
-                )}
-                {covers.productos.map((p) => {
-                  const q = coverQty[p.id] || 0;
-                  if (q <= 0) return null;
-                  return <div key={p.id} className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {q}× {p.nombre}</span><span>+{formatCLP(q * p.precio)}</span></div>;
                 })}
               </>
             )}
@@ -902,34 +851,6 @@ export default function Checkout() {
                 </div>
               )}
 
-              {/* Paso: estacionamiento */}
-              {pasoActual.id === 'extras-estacionamiento' && (
-                <div className="space-y-3">
-                  <BigOption emoji="✅" titulo={`Sí, la aseguro · +${formatCLP(addonEstac.precio)}`} activo={estacionamiento === true} onClick={() => { setEstacionamiento(true); continuar(); }} />
-                  <BigOption emoji="🙅" titulo="No, gracias" activo={estacionamiento === false} onClick={() => { setEstacionamiento(false); continuar(); }} />
-                </div>
-              )}
-
-              {/* Paso: covers anticipados */}
-              {pasoActual.id === 'extras-covers' && (
-                <div className="space-y-3">
-                  {covers.productos.map((p) => {
-                    const q = coverQty[p.id] || 0;
-                    const set = (d: number) => setCoverQty((prev) => ({ ...prev, [p.id]: Math.max(0, Math.min(20, (prev[p.id] || 0) + d)) }));
-                    return (
-                      <div key={p.id} className="flex items-center justify-between glass-candy rounded-2xl p-4">
-                        <span className="text-sm font-semibold">{p.nombre} <span className="text-muted-foreground font-normal">· {formatCLP(p.precio)}</span></span>
-                        <div className="flex items-center gap-4">
-                          <button type="button" onClick={() => set(-1)} aria-label={`Quitar ${p.nombre}`} className="w-11 h-11 rounded-full border border-primary/40 flex items-center justify-center hover:bg-primary/10 interactive"><Minus className="w-4 h-4" /></button>
-                          <span className="w-6 text-center font-bold text-lg tabular-nums">{q}</span>
-                          <button type="button" onClick={() => set(1)} aria-label={`Agregar ${p.nombre}`} className="w-11 h-11 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:scale-105 transition-transform interactive"><Plus className="w-4 h-4" /></button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
               {/* Paso: extras reales del evento (category="extra" en el admin) */}
               {pasoActual.id === 'extras-db' && (
                 <div className="space-y-3">
@@ -1013,7 +934,7 @@ export default function Checkout() {
                     {discountAmount > 0 && (
                       <div className="flex justify-between text-sm text-green-400 mb-2"><span>Descuento</span><span>-{formatCLP(discountAmount)}</span></div>
                     )}
-                    {useDbExtras ? (
+                    {useDbExtras && (
                       <>
                         {extraTickets.some((t: any) => (dbExtraQty[t.id] || 0) > 0) && (
                           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-3 mb-1.5">Extras</p>
@@ -1022,20 +943,6 @@ export default function Checkout() {
                           const q = dbExtraQty[t.id] || 0;
                           if (q <= 0) return null;
                           return <div key={t.id} className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {q}× {t.name}</span><span>+{formatCLP(q * Number(t.price))}</span></div>;
-                        })}
-                      </>
-                    ) : (
-                      <>
-                        {(estacionamiento || covers.productos.some((p) => (coverQty[p.id] || 0) > 0)) && (
-                          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mt-3 mb-1.5">Extras</p>
-                        )}
-                        {estacionamiento && (
-                          <div className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {addonEstac.nombre}</span><span>+{formatCLP(addonEstac.precio)}</span></div>
-                        )}
-                        {covers.productos.map((p) => {
-                          const q = coverQty[p.id] || 0;
-                          if (q <= 0) return null;
-                          return <div key={p.id} className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {q}× {p.nombre}</span><span>+{formatCLP(q * p.precio)}</span></div>;
                         })}
                       </>
                     )}
