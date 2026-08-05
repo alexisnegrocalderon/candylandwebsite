@@ -693,6 +693,12 @@ export const kitchenTickets = mysqlTable("kitchenTickets", {
   status: mysqlEnum("status", ["pendiente", "aprobado", "entregado"]).default("pendiente").notNull(),
   items: json("items").notNull(), // [{ name, quantity }]
   note: varchar("note", { length: 200 }),
+  // Nombre que la cajera le pide al cliente al cobrar un producto toKitchen
+  // (pedido explícito del dueño): un número de comanda es difícil de
+  // memorizar para ir a buscarlo, un nombre no. Se exige en la aplicación
+  // (client/src/pages/caja/index.tsx), no acá -- mismo criterio que el resto
+  // de la tabla.
+  customerName: varchar("customerName", { length: 60 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   approvedAt: timestamp("approvedAt"),
   approvedByOperatorId: int("approvedByOperatorId"),

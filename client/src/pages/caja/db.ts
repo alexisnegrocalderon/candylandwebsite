@@ -89,6 +89,9 @@ export type QueuedOp =
       // Número de comanda de cocina (ver `nextKitchenTicketNumber`), si el
       // carrito tiene algún producto `toKitchen`.
       kitchenTicketNumber?: string;
+      // Nombre que la cajera le pide al cliente al vender algo `toKitchen` --
+      // lo que ve cocina en pantalla en vez del número de comanda.
+      customerName?: string;
     };
 
 export interface CajaOpRecord {

@@ -1,0 +1,1 @@
+ALTER TABLE `kitchenTickets` ADD `customerName` varchar(60);

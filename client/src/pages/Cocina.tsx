@@ -123,6 +123,7 @@ function Login({ onDone }: { onDone: () => void }) {
 type KitchenTicketRow = {
   id: number;
   ticketNumber: string;
+  customerName: string | null;
   status: 'pendiente' | 'aprobado' | 'entregado';
   items: { name: string; quantity: number }[];
   note: string | null;
@@ -132,7 +133,7 @@ type KitchenTicketRow = {
 
 function Board({ operatorName }: { operatorName: string }) {
   const [muted, setMuted] = useState(() => localStorage.getItem(SOUND_MUTED_KEY) === '1');
-  const [lastOkAt, setLastOkAt] = useState(Date.now());
+  const lastOkAtRef = useRef(Date.now());
   const knownNumbers = useRef<Set<string>>(new Set());
   const firstLoad = useRef(true);
 
@@ -144,17 +145,23 @@ function Board({ operatorName }: { operatorName: string }) {
   const update = trpc.cocina.update.useMutation();
 
   useEffect(() => {
-    if (listQuery.isSuccess) setLastOkAt(Date.now());
+    if (listQuery.isSuccess) lastOkAtRef.current = Date.now();
   }, [listQuery.isSuccess, listQuery.dataUpdatedAt]);
 
   // Banner de "no me estoy enterando": se distingue de "no hay pedidos" --
   // confundir las dos cosas es exactamente lo que hace que a alguien no le
-  // llegue su comida.
+  // llegue su comida. Un solo intervalo creado UNA vez (deps vacías) -- si
+  // dependiera de `lastOkAtRef`/estado que cambia en cada poll exitoso (cada
+  // 4s), el intervalo se destruía y recreaba antes de llegar a dispararse
+  // (su período es 5s, más que los 4s entre polls), y `stale` quedaba
+  // pegado en el último valor que tuvo -- si se puso en `true` una vez
+  // (ej. mientras `event` todavía cargaba, antes de que `listQuery` pudiera
+  // arrancar), nunca se volvía a bajar aunque los pedidos siguieran llegando.
   const [stale, setStale] = useState(false);
   useEffect(() => {
-    const id = setInterval(() => setStale(Date.now() - lastOkAt > 30_000), 5000);
+    const id = setInterval(() => setStale(Date.now() - lastOkAtRef.current > 30_000), 5000);
     return () => clearInterval(id);
-  }, [lastOkAt]);
+  }, []);
 
   // `items` es una columna `json`, drizzle la infiere como `unknown` -- acá
   // se sabe que siempre es `{ name, quantity }[]` (lo arma `createCajaSale`).
@@ -234,7 +241,8 @@ function Board({ operatorName }: { operatorName: string }) {
               {recentlyDelivered.map((t) => (
                 <div key={t.id} className="flex items-center justify-between p-3 rounded-xl bg-white/[0.03] border border-white/10">
                   <div>
-                    <span className="font-bold">{t.ticketNumber}</span>
+                    <span className="font-bold">{t.customerName || t.ticketNumber}</span>
+                    <span className="text-white/30 text-xs ml-2 font-mono">{t.ticketNumber}</span>
                     <span className="text-white/40 text-sm ml-2">{t.items.map((i) => `${i.quantity}× ${i.name}`).join(', ')}</span>
                   </div>
                   <button onClick={() => doUpdate(t.ticketNumber, 'aprobado')} className="text-xs text-white/50 underline shrink-0">
@@ -271,7 +279,10 @@ function TicketCard({ ticket, onApprove, onDeliver }: { ticket: KitchenTicketRow
   return (
     <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 space-y-3">
       <div className="flex items-start justify-between">
-        <p className="font-heading font-extrabold text-4xl tracking-tight">{ticket.ticketNumber}</p>
+        <div>
+          <p className="font-heading font-extrabold text-4xl tracking-tight">{ticket.customerName || ticket.ticketNumber}</p>
+          {ticket.customerName && <p className="text-xs text-white/30 font-mono mt-0.5">{ticket.ticketNumber}</p>}
+        </div>
         <span className={`text-sm font-mono ${tone}`}>{label}</span>
       </div>
       <div className="space-y-1">
