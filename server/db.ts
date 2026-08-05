@@ -892,7 +892,31 @@ export async function getAllOrders(page: number = 1, limit: number = 50, status?
     .orderBy(desc(orders.createdAt)).limit(limit).offset(offset);
 
   const allOrders = await query;
-  return { orders: allOrders, total: allOrders.length };
+
+  // Resumen de extras (estacionamiento, cover, etc.) por orden, para
+  // mostrarlos de un vistazo en la tabla del admin sin tener que abrir
+  // "Ver tickets" -- un solo query con IN(...), no N+1.
+  const orderIds = allOrders.map((o) => o.id);
+  const extrasByOrderId = new Map<number, { name: string; quantity: number }[]>();
+  if (orderIds.length > 0) {
+    const extraItems = await db.select({
+      orderId: orderItems.orderId,
+      name: ticketTypes.name,
+      quantity: orderItems.quantity,
+    })
+      .from(orderItems)
+      .innerJoin(ticketTypes, eq(orderItems.ticketTypeId, ticketTypes.id))
+      .where(and(inArray(orderItems.orderId, orderIds), eq(ticketTypes.category, 'extra')));
+
+    for (const item of extraItems) {
+      const list = extrasByOrderId.get(item.orderId) ?? [];
+      list.push({ name: item.name, quantity: item.quantity });
+      extrasByOrderId.set(item.orderId, list);
+    }
+  }
+
+  const ordersWithExtras = allOrders.map((o) => ({ ...o, extras: extrasByOrderId.get(o.id) ?? [] }));
+  return { orders: ordersWithExtras, total: ordersWithExtras.length };
 }
 
 /** Todos los tickets (entrada principal + extras) de una orden, para el
