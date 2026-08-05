@@ -1166,6 +1166,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [search, setSearch] = useState('');
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
 
   const { data: ordersData, refetch: refetchOrders } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter, channel });
@@ -1189,6 +1190,13 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   });
 
   const ordersList = ordersData?.orders ?? [];
+  const visibleOrders = ordersList.filter((o: any) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (o.buyerName ?? '').toLowerCase().includes(q)
+      || (o.buyerEmail ?? '').toLowerCase().includes(q)
+      || (o.orderNumber ?? '').toLowerCase().includes(q);
+  });
   const pendingCount = ordersList.filter((o: any) => o.paymentStatus === 'pending').length;
 
   // Recordatorios: solo con el filtro "Sin pagar" puesto. La selección es
@@ -1205,12 +1213,12 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
       return next;
     });
   };
-  const allSelected = ordersList.length > 0 && ordersList.every((o: any) => selectedIds.has(o.id));
+  const allSelected = visibleOrders.length > 0 && visibleOrders.every((o: any) => selectedIds.has(o.id));
   const selectedOrders = ordersList.filter((o: any) => selectedIds.has(o.id));
 
   // Al cambiar de filtro la selección deja de tener sentido (y podría arrastrar
   // ids de órdenes que ya no están en pantalla).
-  useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, channel]);
+  useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, channel, search]);
 
   const filterParams = () => {
     const params = new URLSearchParams();
@@ -1228,6 +1236,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-heading text-2xl">{channel === 'caja' ? 'Ventas en Caja' : 'Ventas Web'}</h2>
         <div className="flex flex-wrap items-center gap-2">
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, email o N° de orden…" className="max-w-xs" />
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -1302,6 +1311,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                   <th className="text-left py-2 px-3">Orden</th>
                   <th className="text-left py-2 px-3">Comprador</th>
                   <th className="text-left py-2 px-3">Total</th>
+                  <th className="text-left py-2 px-3">Extras</th>
                   <th className="text-left py-2 px-3">Estado</th>
                   <th className="text-left py-2 px-3">Fecha</th>
                   {remindersMode && <th className="text-left py-2 px-3">Recordatorio</th>}
@@ -1310,7 +1320,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                 </tr>
               </thead>
               <tbody>
-                {ordersList.map((order: any) => (
+                {visibleOrders.map((order: any) => (
                   <Fragment key={order.id}>
                     <tr className="border-b border-border/50">
                       {remindersMode && (
@@ -1325,6 +1335,19 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                       <td className="py-2 px-3 font-mono text-xs">{order.orderNumber}</td>
                       <td className="py-2 px-3">{order.buyerName}<br/><span className="text-muted-foreground text-xs">{order.buyerEmail}</span></td>
                       <td className="py-2 px-3">${Number(order.total).toLocaleString('es-CL')}</td>
+                      <td className="py-2 px-3">
+                        {order.extras && order.extras.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {order.extras.map((ex: { name: string; quantity: number }, i: number) => (
+                              <span key={i} className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs whitespace-nowrap">
+                                {ex.name}{ex.quantity > 1 ? ` ×${ex.quantity}` : ''}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </td>
                       <td className="py-2 px-3">
                         <span className={`px-2 py-0.5 rounded-full text-xs ${order.paymentStatus === 'approved' ? 'bg-green-500/20 text-green-400' : order.paymentStatus === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
                           {order.paymentStatus}
@@ -1379,16 +1402,27 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                     </tr>
                     {expandedOrderId === order.id && (
                       <tr className="border-b border-border/50 bg-muted/10">
-                        <td colSpan={remindersMode ? 9 : 7} className="py-3 px-3">
+                        <td colSpan={remindersMode ? 10 : 8} className="py-3 px-3">
                           {loadingTickets ? (
                             <p className="text-xs text-muted-foreground">Cargando tickets...</p>
                           ) : orderTickets && orderTickets.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {orderTickets.map((t: any) => (
-                                <span key={t.ticketCode} className="px-2 py-1 rounded-lg bg-background border border-border text-xs font-mono">
-                                  {t.ticketTypeName} · {t.ticketCode} · <span className="text-muted-foreground">{t.status}</span>
-                                </span>
-                              ))}
+                            <div className="space-y-2">
+                              {['acceso', 'extra'].map((cat) => {
+                                const items = orderTickets.filter((t: any) => t.category === cat);
+                                if (items.length === 0) return null;
+                                return (
+                                  <div key={cat}>
+                                    <p className="text-xs font-medium text-muted-foreground mb-1">{cat === 'acceso' ? 'Entradas' : 'Extras'}</p>
+                                    <div className="flex flex-wrap gap-2">
+                                      {items.map((t: any) => (
+                                        <span key={t.ticketCode} className="px-2 py-1 rounded-lg bg-background border border-border text-xs font-mono">
+                                          {t.ticketTypeName} · {t.ticketCode} · <span className="text-muted-foreground">{t.status}</span>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           ) : (
                             <p className="text-xs text-muted-foreground">Sin tickets generados.</p>
