@@ -420,7 +420,7 @@ function DiscountsManager() {
       await createDiscount.mutateAsync({
         ...newDiscount,
         maxUses: newDiscount.maxUses || undefined,
-        validUntil: newDiscount.validUntil || undefined,
+        validUntil: newDiscount.validUntil ? fromChileInputValue(newDiscount.validUntil) : undefined,
       });
       setNewDiscount({ code: '', description: '', discountType: 'percentage', discountValue: 0, maxUses: 0, validUntil: '' });
       setShowForm(false);

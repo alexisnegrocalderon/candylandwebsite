@@ -9,10 +9,12 @@
  *   • `EVENTO` → lo que cambia con cada fiesta (nombre, fecha, dress code,
  *                accesos, precios, Misión 300, pistas).
  *
- * 👉 Para montar el próximo evento se edita `EVENTO` (y `accesos`, `addons`,
- * `mision`, `pistas`, `lineup`). Los textos del sitio que nombran al evento
- * leen `EVENTO.nombre`, así que se actualizan solos; los que hablan de la
- * marca dicen Mansion Playroom y no hay que tocarlos.
+ * 👉 Para montar el próximo evento se edita `EVENTO` (y `accesos`, `mision`,
+ * `pistas`, `lineup`). Los textos del sitio que nombran al evento leen
+ * `EVENTO.nombre`, así que se actualizan solos; los que hablan de la marca
+ * dicen Mansion Playroom y no hay que tocarlos. Los extras (estacionamiento,
+ * covers, etc.) ya no se configuran acá — se cargan desde Admin → Entradas
+ * como `ticketTypes` con `category='extra'`.
  *
  * Cuando el evento exista en la base de datos con el slug de `EVENTO.slug`,
  * la sección de entradas usa los datos reales automáticamente.
@@ -188,8 +190,8 @@ export const MARCA = {
  * EVENTO — lo que cambia con cada fiesta.
  *
  * 👉 PARA MONTAR EL PRÓXIMO EVENTO se edita ESTE bloque (y `accesos`,
- * `addons`, `mision`, `pistas` y `lineup` más abajo). Los textos del sitio
- * que nombran el evento leen `EVENTO.nombre`, así que se actualizan solos.
+ * `mision`, `pistas` y `lineup` más abajo). Los textos del sitio que
+ * nombran el evento leen `EVENTO.nombre`, así que se actualizan solos.
  * ═══════════════════════════════════════════════════════════════ */
 export const EVENTO = {
   // Debe coincidir con el slug real del evento en la base de datos (lo que
@@ -292,31 +294,6 @@ export const CANDYLAND = {
   // ── Accesos ────────────────────────────────────────────────
   accesos: ACCESOS,
 
-  // ── Add-ons (se suman al total en el checkout) ─────────────
-  // estacionamiento: cupo asegurado. covers: consumos anticipados con precio
-  // early-bird (más barato antes) y tope de días antes del evento.
-  addons: {
-    estacionamiento: {
-      id: 'estacionamiento',
-      nombre: 'Estacionamiento',
-      descripcion: 'Asegura tu cupo de estacionamiento privado.',
-      precio: 5000,
-      tipo: 'checkbox' as const, // uno por compra
-    },
-    // covers: consumos anticipados. Se compran por cantidad y se suman al total.
-    // Solo disponibles hasta `maxDiasAntes` días antes del evento.
-    covers: {
-      activo: true,
-      maxDiasAntes: 3,
-      titulo: 'Covers anticipados',
-      descripcion: 'Compra tus consumos ahora y ahórrate la fila. Precio anticipado.',
-      // EDITAR: agrega más productos o cambia precios
-      productos: [
-        { id: 'piscolon', nombre: 'Piscolón', precio: 5000 },
-      ],
-    },
-  },
-
   // WhatsApp para validación del acceso Soltero (comunidad)
   whatsappSoltero: '+56933135140',
 
@@ -395,14 +372,6 @@ export const CANDYLAND = {
 
 export function formatCLP(value: number): string {
   return value.toLocaleString('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 });
-}
-
-/** ¿Los covers todavía se pueden comprar? (hasta maxDiasAntes días antes del evento) */
-export function coversDisponibles(now: Date = new Date()): boolean {
-  const c = CANDYLAND.addons.covers;
-  if (!c.activo) return false;
-  const limite = CANDYLAND.eventDate.getTime() - c.maxDiasAntes * 86_400_000;
-  return now.getTime() < limite;
 }
 
 /** Link de WhatsApp con mensaje para validar el acceso Soltero. */
