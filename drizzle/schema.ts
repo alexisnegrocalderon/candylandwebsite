@@ -47,6 +47,12 @@ export const events = mysqlTable("events", {
   // fecha -- se usa cuando la preventa se cierra antes de los 3 días de
   // corte automático.
   missionForceClosed: int("missionForceClosed").default(0).notNull(),
+  // ¿Este evento se declara al SII? Los que van "sin movimiento" no generan
+  // débito fiscal ni permiten usar el crédito de las facturas de sus gastos
+  // (ahí el IVA pagado al proveedor es costo puro, no algo recuperable), así
+  // que su resultado se calcula 100% bruto. Es una decisión por FIESTA, no
+  // global -- mismo patrón int-como-booleano que `featured`.
+  ivaApplies: int("ivaApplies").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -985,3 +991,92 @@ export const adminTotp = mysqlTable("adminTotp", {
 });
 
 export type AdminTotp = typeof adminTotp.$inferSelect;
+
+// Egresos de la productora (módulo /gastos). Una fila = una compra real, con
+// el monto TAL COMO SE PAGÓ (IVA incluido, que es como vienen los precios en
+// Chile). El neto y el IVA se derivan al guardar y quedan congelados: si
+// mañana cambia la tasa, el historial no se reescribe -- misma convención que
+// orderItems.unitCost.
+//
+// Sin foreign keys, igual que el resto del schema: acá no se usa references()
+// en ninguna tabla.
+export const expenses = mysqlTable("expenses", {
+  id: int("id").autoincrement().primaryKey(),
+
+  // 'evento' = gasto atribuible a UNA fiesta (decoración, DJ, hielo).
+  // 'general' = gasto de la empresa (apps, contador, bodega) que se PRORRATEA
+  // entre los eventos del mes según cuánto ingreso hizo cada uno.
+  scope: mysqlEnum("scope", ["evento", "general"]).notNull(),
+  eventId: int("eventId"), // solo cuando scope='evento'
+  // Mes calendario en hora de Chile ("2026-08"), congelado con monthKeyFor()
+  // en el servidor al guardar. Se llena SIEMPRE (también en gastos de evento)
+  // para que agrupar por mes no dependa de la zona horaria del runtime: TiDB
+  // corre en UTC, y una compra de las 22:00 del 31 en Chile ya es día 1 allá.
+  periodMonth: varchar("periodMonth", { length: 7 }).notNull(),
+  // Fecha real del gasto/documento, que no es la fecha de carga: la boleta del
+  // sábado se sube el lunes.
+  expenseDate: timestamp("expenseDate").notNull(),
+
+  category: mysqlEnum("category", [
+    "decoracion", "barra", "merch", "staff", "produccion", "arriendo",
+    "marketing", "transporte", "suscripciones", "comisiones", "otros",
+  ]).notNull(),
+  description: varchar("description", { length: 255 }).notNull(),
+  supplier: varchar("supplier", { length: 160 }),
+  supplierRut: varchar("supplierRut", { length: 16 }),
+
+  // Regla del SII: SOLO la factura da crédito fiscal. La boleta no, y la
+  // boleta de honorarios tampoco (no lleva IVA, lleva retención). Por eso son
+  // valores distintos y no un booleano "¿tiene documento?".
+  documentType: mysqlEnum("documentType", ["boleta", "factura", "boleta_honorarios", "sin_documento"]).notNull(),
+  documentNumber: varchar("documentNumber", { length: 32 }),
+  // Factura EXENTA (pasajes, servicios exentos): no da crédito aunque sea
+  // factura. Sin esta marca se inventaría un crédito que el SII rechaza.
+  ivaExempt: int("ivaExempt").default(0).notNull(),
+
+  // Lo que efectivamente salió de la caja o de la cuenta, IVA incluido.
+  amountTotal: decimal("amountTotal", { precision: 10, scale: 0 }).notNull(),
+  // Derivados y congelados al guardar (ver shared/expenses.ts deriveAmounts).
+  // Quedan editables porque hay facturas donde el proveedor redondea distinto.
+  netAmount: decimal("netAmount", { precision: 10, scale: 0 }).notNull(),
+  ivaAmount: decimal("ivaAmount", { precision: 10, scale: 0 }).default("0").notNull(),
+
+  paymentMethod: mysqlEnum("paymentMethod", ["efectivo", "tarjeta", "transferencia", "otro"]).notNull(),
+  // Efectivo sacado de la caja registradora DURANTE el evento (pagarle al DJ,
+  // mandar por hielo). Sin esto, closeShift lo lee como plata faltante.
+  paidFromShiftId: int("paidFromShiftId"),
+
+  // Suscripciones y gastos fijos: la fila con recurrence='mensual' es la
+  // PLANTILLA, y las copias de cada mes apuntan a ella con recurringParentId.
+  // Se materializan solas al pedir el reporte de ese mes, sin cron.
+  recurrence: mysqlEnum("recurrence", ["none", "mensual"]).default("none").notNull(),
+  recurrenceEndsAt: timestamp("recurrenceEndsAt"),
+  recurringParentId: int("recurringParentId"),
+
+  // Escotilla contra el DOBLE CONTEO: si la mercadería ya está costeada en
+  // orderItems.unitCost (la carta de la fiesta), la compra al proveedor no
+  // debe volver a restarse del resultado. Se registra igual -- hace falta para
+  // el libro de compras y el crédito fiscal -- pero marcada con esto en 1.
+  excludeFromPnl: int("excludeFromPnl").default(0).notNull(),
+  // Gasto general que NO se reparte entre eventos (una multa, un gasto
+  // personal del socio): entra al resumen del mes pero no ensucia el margen
+  // de ninguna fiesta.
+  prorate: int("prorate").default(1).notNull(),
+
+  receiptUrl: text("receiptUrl"),
+  notes: varchar("notes", { length: 500 }),
+  createdByUserId: int("createdByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  eventIdx: index("expenses_event_idx").on(table.eventId),
+  periodIdx: index("expenses_period_idx").on(table.periodMonth, table.scope),
+  shiftIdx: index("expenses_shift_idx").on(table.paidFromShiftId),
+  // Hace idempotente la materialización de los gastos recurrentes: una sola
+  // copia por plantilla y por mes, aunque dos pestañas pidan el reporte al
+  // mismo tiempo.
+  recurringMonthUnique: uniqueIndex("expenses_recurring_month_unique").on(table.recurringParentId, table.periodMonth),
+}));
+
+export type Expense = typeof expenses.$inferSelect;
+export type InsertExpense = typeof expenses.$inferInsert;

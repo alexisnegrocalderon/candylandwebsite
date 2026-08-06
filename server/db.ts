@@ -1,12 +1,14 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, orders, orderItems, tickets, discountCodes, communityCodes, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, orders, orderItems, tickets, discountCodes, communityCodes, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
 import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
+import { monthKeyFor } from '../shared/ambassadorProgram';
+import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, type PnlExpense } from '../shared/expenses';
 import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
@@ -149,6 +151,13 @@ export async function updateEvent(id: number, data: any) {
 export async function deleteEvent(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  // Los gastos del evento pasan a ser de la empresa en vez de quedar
+  // apuntando a un evento que ya no existe: el schema no usa foreign keys, así
+  // que nadie los limpiaría, y desaparecerían de todos los reportes sin
+  // avisar. Conservan su periodMonth, o sea que siguen contando en el mes.
+  await db.update(expenses)
+    .set({ scope: 'general', eventId: null })
+    .where(eq(expenses.eventId, id));
   await db.delete(events).where(eq(events.id, id));
   return { success: true };
 }
@@ -2091,6 +2100,473 @@ export async function getEventComparison() {
       profit: agg?.hasCost ? agg.revenue - agg.cost : null,
     };
   });
+}
+
+// --- Módulo /gastos: egresos de la productora y resultado por evento ---
+
+const CASH_COLLECTED_COLUMNS = {
+  eventId: orders.eventId,
+  total: orders.total,
+  missionTopupStatus: orders.missionTopupStatus,
+  missionTopupAmount: orders.missionTopupAmount,
+};
+
+/** Materializa las copias del mes de los gastos recurrentes (suscripciones).
+ *
+ * La fila con `recurrence='mensual'` es la plantilla; acá se crea, si falta, la
+ * copia de ese mes. Es idempotente por el único (recurringParentId,
+ * periodMonth), así que dos pestañas pidiendo el reporte al mismo tiempo no
+ * duplican nada -- por eso no hace falta un cron. */
+export async function materializeRecurringExpenses(monthKey: string) {
+  const db = await getDb();
+  if (!db) return;
+
+  const [year, month] = monthKey.split('-').map(Number);
+  if (!year || !month) return;
+  // Primer y último instante del mes, en la misma convención de hora de Chile
+  // que usa monthKeyFor (UTC-4 fijo).
+  const monthStart = new Date(Date.UTC(year, month - 1, 1, 4, 0, 0));
+  const monthEnd = new Date(Date.UTC(year, month, 1, 4, 0, 0) - 1);
+
+  const templates = await db.select().from(expenses).where(and(
+    eq(expenses.recurrence, 'mensual'),
+    lte(expenses.expenseDate, monthEnd),
+  ));
+
+  for (const t of templates as any[]) {
+    if (t.recurrenceEndsAt && new Date(t.recurrenceEndsAt) < monthStart) continue;
+    // El propio mes de la plantilla ya está representado por la plantilla.
+    if (t.periodMonth === monthKey) continue;
+
+    await db.insert(expenses).values({
+      scope: t.scope,
+      eventId: t.eventId,
+      periodMonth: monthKey,
+      expenseDate: monthStart,
+      category: t.category,
+      description: t.description,
+      supplier: t.supplier,
+      supplierRut: t.supplierRut,
+      documentType: t.documentType,
+      documentNumber: t.documentNumber,
+      ivaExempt: t.ivaExempt,
+      amountTotal: t.amountTotal,
+      netAmount: t.netAmount,
+      ivaAmount: t.ivaAmount,
+      paymentMethod: t.paymentMethod,
+      recurrence: 'none',
+      recurringParentId: t.id,
+      excludeFromPnl: t.excludeFromPnl,
+      prorate: t.prorate,
+      notes: t.notes,
+      createdByUserId: t.createdByUserId,
+    }).onDuplicateKeyUpdate({ set: { id: sql`id` } });
+  }
+}
+
+export async function listExpenses(filters: {
+  eventId?: number;
+  monthKey?: string;
+  scope?: 'evento' | 'general';
+  category?: string;
+} = {}) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const conditions = [];
+  if (filters.eventId) conditions.push(eq(expenses.eventId, filters.eventId));
+  if (filters.monthKey) conditions.push(eq(expenses.periodMonth, filters.monthKey));
+  if (filters.scope) conditions.push(eq(expenses.scope, filters.scope));
+  if (filters.category) conditions.push(eq(expenses.category, filters.category as any));
+
+  const rows = await db.select().from(expenses)
+    .where(conditions.length ? and(...conditions) : undefined)
+    .orderBy(desc(expenses.expenseDate))
+    .limit(500);
+
+  const eventIds = Array.from(new Set(rows.map((r: any) => r.eventId).filter(Boolean))) as number[];
+  const evRows = eventIds.length ? await db.select().from(events).where(inArray(events.id, eventIds)) : [];
+  const evById = new Map<number, any>(evRows.map((e: any) => [e.id, e]));
+
+  return rows.map((r: any) => ({
+    ...r,
+    amountTotal: Number(r.amountTotal),
+    netAmount: Number(r.netAmount),
+    ivaAmount: Number(r.ivaAmount),
+    eventTitle: r.eventId ? (evById.get(r.eventId)?.title ?? 'Evento eliminado') : null,
+  }));
+}
+
+/** El neto, el IVA y el mes contable los calcula SIEMPRE el servidor -- nunca
+ * llegan del cliente, para que no se pueda inventar crédito fiscal desde el
+ * navegador. `ivaAmount` sí se puede sobreescribir a mano (facturas donde el
+ * proveedor redondeó distinto), pero solo si el documento da crédito. */
+function buildExpenseValues(input: any) {
+  const amountTotal = Math.round(Number(input.amountTotal));
+  const expenseDate = input.expenseDate ? new Date(input.expenseDate) : new Date();
+  const derived = deriveAmounts({
+    amountTotal,
+    documentType: input.documentType,
+    ivaExempt: input.ivaExempt,
+  });
+  const ivaAmount = input.ivaAmountOverride != null && derived.ivaAmount > 0
+    ? Math.round(Number(input.ivaAmountOverride))
+    : derived.ivaAmount;
+
+  return {
+    scope: input.scope,
+    eventId: input.scope === 'evento' ? input.eventId : null,
+    periodMonth: monthKeyFor(expenseDate),
+    expenseDate,
+    category: input.category,
+    description: input.description,
+    supplier: input.supplier || null,
+    supplierRut: input.supplierRut ? normalizeRut(input.supplierRut) : null,
+    documentType: input.documentType,
+    documentNumber: input.documentNumber || null,
+    ivaExempt: input.ivaExempt ? 1 : 0,
+    amountTotal: String(amountTotal),
+    netAmount: String(amountTotal - ivaAmount),
+    ivaAmount: String(ivaAmount),
+    paymentMethod: input.paymentMethod,
+    paidFromShiftId: input.paidFromShiftId ?? null,
+    recurrence: input.recurrence ?? 'none',
+    recurrenceEndsAt: input.recurrenceEndsAt ? new Date(input.recurrenceEndsAt) : null,
+    excludeFromPnl: input.excludeFromPnl ? 1 : 0,
+    prorate: input.prorate === false || input.prorate === 0 ? 0 : 1,
+    receiptUrl: input.receiptUrl || null,
+    notes: input.notes || null,
+  };
+}
+
+export async function createExpense(input: any) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(expenses).values({
+    ...buildExpenseValues(input),
+    createdByUserId: input.createdByUserId ?? null,
+  });
+  return { success: true };
+}
+
+export async function updateExpense(id: number, input: any) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [current] = await db.select().from(expenses).where(eq(expenses.id, id)).limit(1);
+  if (!current) throw new Error("Gasto no encontrado");
+  // Se reconstruye sobre la fila actual para que un update parcial no borre
+  // los campos que no vinieron en el formulario.
+  const merged = { ...current, ...input, amountTotal: input.amountTotal ?? Number(current.amountTotal) };
+  await db.update(expenses).set(buildExpenseValues(merged)).where(eq(expenses.id, id));
+  return { success: true };
+}
+
+export async function deleteExpense(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(expenses).where(eq(expenses.id, id));
+  return { success: true };
+}
+
+/** Convierte una fila de la base al shape que espera computePnl. */
+function toPnlExpense(r: any): PnlExpense {
+  return {
+    amountTotal: Number(r.amountTotal),
+    netAmount: Number(r.netAmount),
+    ivaAmount: Number(r.ivaAmount),
+    documentType: r.documentType,
+    ivaExempt: r.ivaExempt,
+    category: r.category,
+  };
+}
+
+/** Resultado completo de un evento: de la plata que entró a la utilidad neta,
+ * pasando por IVA, costo de mercadería, gastos directos, la parte que le toca
+ * de los gastos fijos del mes, y las comisiones de embajadores. */
+export async function getEventPnl(eventId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) return null;
+
+  const monthKey = monthKeyFor(event.eventDate);
+  await materializeRecurringExpenses(monthKey);
+
+  // Ingreso del evento y de todos los eventos del mismo mes (para el peso del
+  // prorrateo). Se traen las órdenes aprobadas una sola vez y se agrupa acá:
+  // el mes se resuelve con monthKeyFor y no en SQL, porque TiDB corre en UTC.
+  const monthEvents = (await db.select().from(events))
+    .filter((e: any) => monthKeyFor(e.eventDate) === monthKey);
+  const monthEventIds = monthEvents.map((e: any) => e.id);
+
+  const incomeRows = monthEventIds.length
+    ? await db.select(CASH_COLLECTED_COLUMNS).from(orders)
+      .where(and(inArray(orders.eventId, monthEventIds), eq(orders.paymentStatus, 'approved')))
+    : [];
+  const incomeByEvent = new Map<number, typeof incomeRows>();
+  for (const r of incomeRows as any[]) {
+    const list = incomeByEvent.get(r.eventId) ?? [];
+    list.push(r);
+    incomeByEvent.set(r.eventId, list);
+  }
+  const monthIncomes = monthEvents.map((e: any) => ({
+    eventId: e.id,
+    grossIncome: cashCollectedFromOrders((incomeByEvent.get(e.id) ?? []) as any),
+  }));
+  const grossIncome = monthIncomes.find((i) => i.eventId === eventId)?.grossIncome ?? 0;
+  const prorationWeight = prorationWeights(monthIncomes).get(eventId) ?? 0;
+
+  // Costo de mercadería vendida. `cogsCoverage` dice qué porcentaje de las
+  // unidades tenía costo cargado: sin ese dato el margen mentiría en silencio.
+  const itemRows = await db.select({
+    quantity: orderItems.quantity,
+    unitCost: orderItems.unitCost,
+  }).from(orderItems)
+    .innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved')));
+  let cogs = 0, unitsWithCost = 0, unitsTotal = 0;
+  for (const r of itemRows as any[]) {
+    unitsTotal += r.quantity;
+    if (r.unitCost != null) { cogs += Number(r.unitCost) * r.quantity; unitsWithCost += r.quantity; }
+  }
+  const cogsCoverage = unitsTotal > 0 ? Math.round((unitsWithCost / unitsTotal) * 100) : 0;
+
+  // Comisiones de embajadores: un costo real que hasta ahora no se restaba en
+  // ningún reporte.
+  const commissionRows = await db.select({ amount: ambassadorCommissions.commissionAmount })
+    .from(ambassadorCommissions).where(eq(ambassadorCommissions.eventId, eventId));
+  const commissionsTotal = (commissionRows as any[]).reduce((s, c) => s + Number(c.amount), 0);
+
+  const directRows = await db.select().from(expenses).where(and(
+    eq(expenses.scope, 'evento'),
+    eq(expenses.eventId, eventId),
+    eq(expenses.excludeFromPnl, 0),
+    ne(expenses.recurrence, 'mensual'),
+  ));
+  const generalRows = await db.select().from(expenses).where(and(
+    eq(expenses.scope, 'general'),
+    eq(expenses.periodMonth, monthKey),
+    eq(expenses.excludeFromPnl, 0),
+    eq(expenses.prorate, 1),
+    ne(expenses.recurrence, 'mensual'),
+  ));
+
+  const pnl = computePnl({
+    ivaApplies: event.ivaApplies === 1,
+    grossIncome,
+    cogs,
+    ambassadorCommissions: commissionsTotal,
+    directExpenses: (directRows as any[]).map(toPnlExpense),
+    generalExpenses: (generalRows as any[]).map(toPnlExpense),
+    prorationWeight,
+  });
+
+  return {
+    eventId,
+    title: event.title,
+    eventDate: event.eventDate,
+    monthKey,
+    ivaApplies: event.ivaApplies === 1,
+    cogsCoverage,
+    ...pnl,
+    warnings: await buildPnlWarnings({ eventId, cogs, directRows: directRows as any[], monthKey, grossIncome }),
+  };
+}
+
+/** Avisos de "este número puede estar mal" que se muestran arriba del reporte.
+ * Es parte del entregable, no un extra: casi todos los errores de este módulo
+ * son silenciosos. */
+async function buildPnlWarnings(params: {
+  eventId: number; cogs: number; directRows: any[]; monthKey: string; grossIncome: number;
+}): Promise<string[]> {
+  const db = await getDb();
+  const warnings: string[] = [];
+
+  // Doble conteo: la mercadería ya está costeada en unitCost Y además se cargó
+  // la compra al proveedor como gasto.
+  const merchandiseExpenses = params.directRows.filter((e) => e.category === 'barra' || e.category === 'merch');
+  if (params.cogs > 0 && merchandiseExpenses.length > 0) {
+    warnings.push(
+      `Hay ${merchandiseExpenses.length} gasto(s) de barra/merch y además costo de producto cargado en la carta. ` +
+      `Si es la misma mercadería la estás contando dos veces: marcá esos gastos como "ya contado en el costo del producto".`,
+    );
+  }
+
+  if (db) {
+    // Órdenes devueltas con comisión de embajador: la comisión no se revierte
+    // en ningún lado, así que queda restando plata de una venta que no existió.
+    const refunded = await db.select({ id: orders.id }).from(orders)
+      .where(and(eq(orders.eventId, params.eventId), eq(orders.paymentStatus, 'refunded')));
+    if ((refunded as any[]).length > 0) {
+      const refundedIds = (refunded as any[]).map((r) => r.id);
+      const withCommission = await db.select({ id: ambassadorCommissions.id })
+        .from(ambassadorCommissions).where(inArray(ambassadorCommissions.orderId, refundedIds));
+      if ((withCommission as any[]).length > 0) {
+        warnings.push(
+          `Hay ${(withCommission as any[]).length} comisión(es) de embajador sobre órdenes reembolsadas. ` +
+          `El sistema no las revierte solo: revisalas a mano.`,
+        );
+      }
+    }
+
+    // Comisiones de Mercado Pago: no se pueden calcular solas, hay que cargar
+    // la liquidación. Si el mes tuvo ventas web y no hay ningún gasto de
+    // comisiones, la utilidad está inflada.
+    if (params.grossIncome > 0) {
+      const commissionExpenses = await db.select({ id: expenses.id }).from(expenses)
+        .where(and(eq(expenses.periodMonth, params.monthKey), eq(expenses.category, 'comisiones')));
+      if ((commissionExpenses as any[]).length === 0) {
+        warnings.push(
+          `No hay ningún gasto de categoría "Comisiones" en ${params.monthKey}. ` +
+          `Las comisiones de Mercado Pago (~3,5%) no se calculan solas: cargalas desde la liquidación o la utilidad queda inflada.`,
+        );
+      }
+    }
+  }
+
+  return warnings;
+}
+
+/** Comparativa de resultado entre todos los eventos. Se resuelve en consultas
+ * agregadas y el prorrateo se arma en memoria: llamar getEventPnl en un loop
+ * sería N+1 contra TiDB, y la función de Vercel corta a los 60 segundos. */
+export async function getPnlComparison() {
+  const db = await getDb();
+  if (!db) return [];
+
+  const allEvents = await db.select().from(events).orderBy(desc(events.eventDate));
+  if (allEvents.length === 0) return [];
+
+  const monthsNeeded = Array.from(new Set(allEvents.map((e: any) => monthKeyFor(e.eventDate))));
+  for (const m of monthsNeeded) await materializeRecurringExpenses(m);
+
+  const incomeRows = await db.select(CASH_COLLECTED_COLUMNS).from(orders)
+    .where(eq(orders.paymentStatus, 'approved'));
+  const incomeByEvent = new Map<number, any[]>();
+  for (const r of incomeRows as any[]) {
+    const list = incomeByEvent.get(r.eventId) ?? [];
+    list.push(r);
+    incomeByEvent.set(r.eventId, list);
+  }
+
+  const itemRows = await db.select({
+    eventId: orders.eventId, quantity: orderItems.quantity, unitCost: orderItems.unitCost,
+  }).from(orderItems)
+    .innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .where(eq(orders.paymentStatus, 'approved'));
+  const cogsByEvent = new Map<number, number>();
+  for (const r of itemRows as any[]) {
+    if (r.unitCost == null) continue;
+    cogsByEvent.set(r.eventId, (cogsByEvent.get(r.eventId) ?? 0) + Number(r.unitCost) * r.quantity);
+  }
+
+  const commissionRows = await db.select({
+    eventId: ambassadorCommissions.eventId, amount: ambassadorCommissions.commissionAmount,
+  }).from(ambassadorCommissions);
+  const commissionsByEvent = new Map<number, number>();
+  for (const r of commissionRows as any[]) {
+    commissionsByEvent.set(r.eventId, (commissionsByEvent.get(r.eventId) ?? 0) + Number(r.amount));
+  }
+
+  const allExpenses = await db.select().from(expenses).where(and(
+    eq(expenses.excludeFromPnl, 0),
+    ne(expenses.recurrence, 'mensual'),
+  ));
+  const directByEvent = new Map<number, any[]>();
+  const generalByMonth = new Map<string, any[]>();
+  for (const e of allExpenses as any[]) {
+    if (e.scope === 'evento' && e.eventId) {
+      const list = directByEvent.get(e.eventId) ?? [];
+      list.push(e);
+      directByEvent.set(e.eventId, list);
+    } else if (e.scope === 'general' && e.prorate === 1) {
+      const list = generalByMonth.get(e.periodMonth) ?? [];
+      list.push(e);
+      generalByMonth.set(e.periodMonth, list);
+    }
+  }
+
+  // Peso del prorrateo por mes, con los ingresos ya calculados.
+  const incomeOf = (id: number) => cashCollectedFromOrders((incomeByEvent.get(id) ?? []) as any);
+  const eventsByMonth = new Map<string, any[]>();
+  for (const e of allEvents as any[]) {
+    const m = monthKeyFor(e.eventDate);
+    const list = eventsByMonth.get(m) ?? [];
+    list.push(e);
+    eventsByMonth.set(m, list);
+  }
+  const weightByEvent = new Map<number, number>();
+  for (const evs of Array.from(eventsByMonth.values())) {
+    const weights = prorationWeights(evs.map((e: any) => ({ eventId: e.id, grossIncome: incomeOf(e.id) })));
+    for (const [id, w] of Array.from(weights.entries())) weightByEvent.set(id, w);
+  }
+
+  return (allEvents as any[]).map((e) => {
+    const monthKey = monthKeyFor(e.eventDate);
+    const pnl = computePnl({
+      ivaApplies: e.ivaApplies === 1,
+      grossIncome: incomeOf(e.id),
+      cogs: cogsByEvent.get(e.id) ?? 0,
+      ambassadorCommissions: commissionsByEvent.get(e.id) ?? 0,
+      directExpenses: (directByEvent.get(e.id) ?? []).map(toPnlExpense),
+      generalExpenses: (generalByMonth.get(monthKey) ?? []).map(toPnlExpense),
+      prorationWeight: weightByEvent.get(e.id) ?? 0,
+    });
+    return {
+      eventId: e.id,
+      title: e.title,
+      eventDate: e.eventDate,
+      monthKey,
+      ivaApplies: e.ivaApplies === 1,
+      grossIncome: pnl.grossIncome,
+      totalExpenses: pnl.cogs + pnl.directExpensesTotal + pnl.generalExpensesAssigned + pnl.ambassadorCommissions,
+      netProfit: pnl.netProfit,
+      marginPercent: pnl.marginPercent,
+    };
+  });
+}
+
+/** Resumen del mes: totales por categoría y por medio de pago, IVA acumulado,
+ * y el balde `sinAsignar` con los gastos generales de meses que no tienen
+ * ningún evento -- esa plata no puede desaparecer del reporte. */
+export async function getMonthlyExpenseSummary(monthKey: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  await materializeRecurringExpenses(monthKey);
+
+  const rows = await db.select().from(expenses).where(and(
+    eq(expenses.periodMonth, monthKey),
+    ne(expenses.recurrence, 'mensual'),
+  ));
+
+  const byCategory = new Map<string, number>();
+  const byPaymentMethod = new Map<string, number>();
+  let total = 0, ivaCreditoTotal = 0;
+  for (const r of rows as any[]) {
+    const amount = Number(r.amountTotal);
+    total += amount;
+    byCategory.set(r.category, (byCategory.get(r.category) ?? 0) + amount);
+    byPaymentMethod.set(r.paymentMethod, (byPaymentMethod.get(r.paymentMethod) ?? 0) + amount);
+    if (r.documentType === 'factura' && !r.ivaExempt) ivaCreditoTotal += Number(r.ivaAmount);
+  }
+
+  const monthHasEvents = (await db.select().from(events))
+    .some((e: any) => monthKeyFor(e.eventDate) === monthKey);
+  const sinAsignar = monthHasEvents ? 0 : (rows as any[])
+    .filter((r) => r.scope === 'general' && r.prorate === 1 && !r.excludeFromPnl)
+    .reduce((s, r) => s + Number(r.amountTotal), 0);
+
+  return {
+    monthKey,
+    total,
+    ivaCreditoTotal,
+    sinAsignar,
+    expenseCount: rows.length,
+    byCategory: Array.from(byCategory.entries()).map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount),
+    byPaymentMethod: Array.from(byPaymentMethod.entries()).map(([method, amount]) => ({ method, amount })).sort((a, b) => b.amount - a.amount),
+  };
 }
 
 /** Histograma de operaciones por hora del día (0-23), del ledger completo

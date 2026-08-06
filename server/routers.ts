@@ -72,6 +72,40 @@ const mailingEventSectionsSchema = z.object({
   venueGrid: z.boolean(),
 });
 
+// Alta/edición de un gasto. `netAmount`, `ivaAmount` y `periodMonth` NO están
+// acá a propósito: los deriva el servidor del monto total y del tipo de
+// documento (shared/expenses.ts). Lo único que se puede forzar a mano es el
+// IVA de una factura, con ivaAmountOverride, para las que vienen redondeadas
+// distinto por el proveedor.
+const expenseInputSchema = z.object({
+  scope: z.enum(['evento', 'general']),
+  eventId: z.number().nullable().optional(),
+  expenseDate: z.string(),
+  category: z.enum([
+    'decoracion', 'barra', 'merch', 'staff', 'produccion', 'arriendo',
+    'marketing', 'transporte', 'suscripciones', 'comisiones', 'otros',
+  ]),
+  description: z.string().min(1).max(255),
+  supplier: z.string().max(160).optional(),
+  supplierRut: z.string().max(16).optional(),
+  documentType: z.enum(['boleta', 'factura', 'boleta_honorarios', 'sin_documento']),
+  documentNumber: z.string().max(32).optional(),
+  ivaExempt: z.boolean().optional(),
+  amountTotal: z.number().int().positive(),
+  ivaAmountOverride: z.number().int().nonnegative().optional(),
+  paymentMethod: z.enum(['efectivo', 'tarjeta', 'transferencia', 'otro']),
+  paidFromShiftId: z.number().nullable().optional(),
+  recurrence: z.enum(['none', 'mensual']).optional(),
+  recurrenceEndsAt: z.string().nullable().optional(),
+  excludeFromPnl: z.boolean().optional(),
+  prorate: z.boolean().optional(),
+  receiptUrl: z.string().optional(),
+  notes: z.string().max(500).optional(),
+}).refine((v) => v.scope !== 'evento' || !!v.eventId, {
+  message: 'Un gasto de evento necesita que elijas a qué evento va',
+  path: ['eventId'],
+});
+
 
 /** Verifica el PIN de un operador aplicando los dos límites que ya existen:
  * por IP (para que nadie enumere operadores probando pocos intentos en cada
@@ -327,6 +361,7 @@ export const appRouter = router({
       status: z.enum(['draft', 'published', 'soldout', 'cancelled', 'past']).optional(),
       featured: z.number().optional(),
       missionForceClosed: z.number().optional(),
+      ivaApplies: z.number().optional(),
     })).mutation(async ({ input }) => {
       return db.createEvent(input);
     }),
@@ -345,6 +380,7 @@ export const appRouter = router({
       status: z.enum(['draft', 'published', 'soldout', 'cancelled', 'past']).optional(),
       featured: z.number().optional(),
       missionForceClosed: z.number().optional(),
+      ivaApplies: z.number().optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return db.updateEvent(id, data);
@@ -1025,6 +1061,35 @@ export const appRouter = router({
     }),
     delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       return db.deleteCommunityCode(input.id);
+    }),
+  }),
+
+  // Gastos de la productora (módulo /gastos). El neto, el IVA y el mes
+  // contable NO se reciben del cliente: los calcula el servidor en
+  // buildExpenseValues, para que no se pueda inventar crédito fiscal desde el
+  // navegador.
+  expenses: router({
+    listAll: adminProcedure.input(z.object({
+      eventId: z.number().optional(),
+      monthKey: z.string().optional(),
+      scope: z.enum(['evento', 'general']).optional(),
+      category: z.string().optional(),
+    }).optional()).query(async ({ input }) => {
+      return db.listExpenses(input ?? {});
+    }),
+    create: adminProcedure.input(expenseInputSchema).mutation(async ({ input, ctx }) => {
+      return db.createExpense({ ...input, createdByUserId: ctx.user.id });
+    }),
+    update: adminProcedure.input(expenseInputSchema.partial().extend({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        return db.updateExpense(id, data);
+      }),
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      return db.deleteExpense(input.id);
+    }),
+    monthSummary: adminProcedure.input(z.object({ monthKey: z.string() })).query(async ({ input }) => {
+      return db.getMonthlyExpenseSummary(input.monthKey);
     }),
   }),
 
@@ -1866,6 +1931,15 @@ export const appRouter = router({
     }),
     eventComparison: adminProcedure.query(async () => {
       return db.getEventComparison();
+    }),
+    // Resultado REAL de un evento: a diferencia de `profit` (que es margen por
+    // producto, sobre precios de lista), acá el ingreso es la plata que entró
+    // de verdad y se restan todos los gastos, el IVA y las comisiones.
+    eventPnl: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getEventPnl(input.eventId);
+    }),
+    pnlComparison: adminProcedure.query(async () => {
+      return db.getPnlComparison();
     }),
     peakHours: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getPeakHours(input.eventId);
