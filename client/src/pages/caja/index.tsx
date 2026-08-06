@@ -1114,7 +1114,7 @@ function NewSale({ eventId, registerId, onSale }: {
                   <div className="flex items-center gap-2">
                     <span className="text-3xl leading-none">{p.emoji || CATEGORY_META[p.category]?.emoji || '🛍️'}</span>
                     <div className="min-w-0">
-                      <p className="font-semibold truncate">{p.name}</p>
+                      <p className="font-semibold break-words">{p.name}</p>
                       <p className="text-sm text-white/60">${p.price.toLocaleString('es-CL')}</p>
                     </div>
                   </div>
