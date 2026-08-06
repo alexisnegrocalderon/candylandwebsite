@@ -209,7 +209,7 @@ export async function createTicketType(data: any) {
   return { success: true };
 }
 
-export async function updateTicketType(id: number, data: any, changedByUserId?: number) {
+export async function updateTicketType(id: number, data: any, changedByUserId?: number, changedByOperatorId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const updateData: any = { ...data };
@@ -218,9 +218,9 @@ export async function updateTicketType(id: number, data: any, changedByUserId?: 
   if (data.costPrice !== undefined) updateData.costPrice = String(data.costPrice);
 
   // Deja registro de auditoría cuando cambia el stock (ej. subir el cupo de
-  // "soltero" al entrar más solteros aceptados) -- se compara contra el
-  // valor actual en vez de asumir, para no loguear "cambios" cuando el admin
-  // reenvía el mismo número.
+  // "soltero" al entrar más solteros aceptados, o cocina cargando porciones
+  // del día) -- se compara contra el valor actual en vez de asumir, para no
+  // loguear "cambios" cuando se reenvía el mismo número.
   if (data.totalStock !== undefined) {
     const [current] = await db.select({ totalStock: ticketTypes.totalStock, eventId: ticketTypes.eventId }).from(ticketTypes).where(eq(ticketTypes.id, id)).limit(1);
     if (current && current.totalStock !== data.totalStock) {
@@ -230,6 +230,7 @@ export async function updateTicketType(id: number, data: any, changedByUserId?: 
         previousStock: current.totalStock,
         newStock: data.totalStock,
         changedByUserId: changedByUserId ?? null,
+        changedByOperatorId: changedByOperatorId ?? null,
       });
     }
   }
@@ -249,8 +250,11 @@ export async function getTicketStockHistory(ticketTypeId: number) {
     changedByUserId: ticketStockHistory.changedByUserId,
     changedByName: users.name,
     changedByEmail: users.email,
+    changedByOperatorId: ticketStockHistory.changedByOperatorId,
+    changedByOperatorName: operators.name,
   }).from(ticketStockHistory)
     .leftJoin(users, eq(users.id, ticketStockHistory.changedByUserId))
+    .leftJoin(operators, eq(operators.id, ticketStockHistory.changedByOperatorId))
     .where(eq(ticketStockHistory.ticketTypeId, ticketTypeId))
     .orderBy(desc(ticketStockHistory.createdAt));
   return rows;
@@ -1805,6 +1809,10 @@ export async function getCajaSnapshot(eventId: number) {
       internalCode: t.internalCode as string | null,
       emoji: (t.emoji as string | null) ?? null,
       groupName: (t.groupName as string | null) ?? null,
+      // Ingredientes/sabores especiales, para que la cajera pueda responder
+      // preguntas del cliente sin ir a buscarlo -- reusa el campo de
+      // descripción que ya existe, cargado desde la Carta de la Fiesta.
+      description: (t.description as string | null) ?? null,
       category: t.category as string,
       totalStock: Number(t.totalStock),
       soldCount: Number(t.soldCount),

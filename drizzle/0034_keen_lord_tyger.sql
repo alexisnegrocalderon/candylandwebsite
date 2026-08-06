@@ -1,0 +1,1 @@
+ALTER TABLE `lockerItems` ADD `customerName` varchar(120);

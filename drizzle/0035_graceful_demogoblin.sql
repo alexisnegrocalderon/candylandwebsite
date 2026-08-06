@@ -1,0 +1,1 @@
+ALTER TABLE `ticketStockHistory` ADD `changedByOperatorId` int;

@@ -132,6 +132,7 @@ type KitchenTicketRow = {
 };
 
 function Board({ operatorName }: { operatorName: string }) {
+  const [tab, setTab] = useState<'pedidos' | 'stock'>('pedidos');
   const [muted, setMuted] = useState(() => localStorage.getItem(SOUND_MUTED_KEY) === '1');
   const lastOkAtRef = useRef(Date.now());
   const knownNumbers = useRef<Set<string>>(new Set());
@@ -217,6 +218,25 @@ function Board({ operatorName }: { operatorName: string }) {
         </button>
       </header>
 
+      <div className="flex border-b border-white/10 shrink-0">
+        <button
+          onClick={() => setTab('pedidos')}
+          className={`flex-1 h-11 text-sm font-bold ${tab === 'pedidos' ? 'text-white border-b-2 border-primary' : 'text-white/40'}`}
+        >
+          Pedidos
+        </button>
+        <button
+          onClick={() => setTab('stock')}
+          className={`flex-1 h-11 text-sm font-bold ${tab === 'stock' ? 'text-white border-b-2 border-primary' : 'text-white/40'}`}
+        >
+          Porciones disponibles
+        </button>
+      </div>
+
+      {tab === 'stock' ? (
+        <StockPanel eventId={event?.id} />
+      ) : (
+        <>
       {stale && (
         <div className="px-4 py-2 bg-red-500/15 border-b border-red-500/30 text-red-200 text-sm flex items-center gap-2 shrink-0">
           <WifiOff className="w-4 h-4" /> No me estoy enterando de pedidos nuevos hace rato -- revisa la conexión.
@@ -254,7 +274,97 @@ function Board({ operatorName }: { operatorName: string }) {
           </div>
         )}
       </main>
+        </>
+      )}
     </div>
+  );
+}
+
+/* --- Porciones disponibles ---------------------------------------------------------------- */
+
+type KitchenProductRow = {
+  id: number;
+  name: string;
+  groupName: string | null;
+  emoji: string | null;
+  totalStock: number;
+  soldCount: number;
+  status: 'active' | 'soldout' | 'hidden';
+};
+
+function StockPanel({ eventId }: { eventId: number | undefined }) {
+  const productsQuery = trpc.cocina.products.useQuery({ eventId: eventId ?? 0 }, { enabled: !!eventId });
+  const updateStock = trpc.cocina.updateStock.useMutation();
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+
+  const products = (productsQuery.data ?? []) as unknown as KitchenProductRow[];
+  const groups = new Map<string, KitchenProductRow[]>();
+  for (const p of products) {
+    const key = p.groupName || 'Sin sección';
+    const list = groups.get(key) ?? [];
+    list.push(p);
+    groups.set(key, list);
+  }
+
+  const save = (p: KitchenProductRow) => {
+    if (!eventId) return;
+    const raw = drafts[p.id];
+    if (raw === undefined) return;
+    const value = parseInt(raw, 10);
+    if (!Number.isFinite(value) || value < 0) { toast.error('Ingresa un número válido'); return; }
+    updateStock.mutate(
+      { productId: p.id, eventId, totalStock: value },
+      {
+        onSuccess: () => {
+          toast.success(`${p.name}: ${value} porciones`);
+          setDrafts((d) => { const next = { ...d }; delete next[p.id]; return next; });
+          productsQuery.refetch();
+        },
+        onError: (e) => toast.error(e.message),
+      }
+    );
+  };
+
+  return (
+    <main className="flex-1 overflow-y-auto p-3">
+      {products.length === 0 ? (
+        <p className="text-center text-white/40 py-16">No hay productos configurados para cocina.</p>
+      ) : (
+        Array.from(groups.entries()).map(([groupName, items]) => (
+          <div key={groupName} className="mb-6">
+            <p className="text-xs uppercase tracking-widest text-white/40 mb-2">{groupName}</p>
+            <div className="space-y-2">
+              {items.map((p) => {
+                const available = Math.max(0, p.totalStock - p.soldCount);
+                const draft = drafts[p.id];
+                return (
+                  <div key={p.id} className="flex items-center gap-3 p-3 rounded-2xl bg-white/[0.04] border border-white/10">
+                    <span className="text-2xl shrink-0">{p.emoji || '🍽️'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold truncate">{p.name}</p>
+                      <p className="text-xs text-white/40">Disponibles ahora: {available} · Vendidos: {p.soldCount}</p>
+                    </div>
+                    <input
+                      value={draft ?? String(p.totalStock)}
+                      onChange={(e) => setDrafts((d) => ({ ...d, [p.id]: e.target.value.replace(/\D/g, '') }))}
+                      inputMode="numeric"
+                      className="w-16 h-11 rounded-xl bg-white/[0.06] border border-white/15 text-white text-center focus:border-primary/60 focus:outline-none shrink-0"
+                    />
+                    <button
+                      onClick={() => save(p)}
+                      disabled={draft === undefined || draft === String(p.totalStock) || updateStock.isPending}
+                      className="h-11 px-4 rounded-full bg-primary font-bold text-sm disabled:opacity-30 shrink-0"
+                    >
+                      Guardar
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))
+      )}
+    </main>
   );
 }
 

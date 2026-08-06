@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import { formatKitchenTicketNumber } from '@shared/kitchen';
+import { formatLockerTagNumber } from '@shared/locker';
 
 /* Snapshot local + cola de operaciones para el modo offline de /caja
  * (docs/ARQUITECTURA-CAJA.md §6.2-§6.3). Todo lo que la tablet necesita para
@@ -34,6 +35,10 @@ export interface CajaCatalogItem {
   emoji: string | null;
   /** Sección de la carta ("Tragos", "Comida", ...) -- arma las pestañas. */
   groupName: string | null;
+  /** Ingredientes/sabores especiales, para responder preguntas del cliente
+   * al mantener presionada la tarjeta -- mismo campo `description` que ya
+   * carga el admin en la Carta de la Fiesta. */
+  description: string | null;
   category: string;
   totalStock: number;
   soldCount: number;
@@ -83,9 +88,12 @@ export type QueuedOp =
       buyerEmail?: string; redeemPlaycoins?: number;
       // Código de descuento aplicado en el carrito (se revalida server-side).
       discountCode?: string;
-      // Número de la percha física de guardarropía, si el carrito tiene un
-      // producto category='locker'.
+      // Número de percha de guardarropía (ver `nextLockerTagNumber`), si el
+      // carrito tiene un producto category='locker'.
       lockerTag?: string;
+      // Nombre que la cajera le pide al cliente al vender guardarropía --
+      // para poder ubicar la prenda por nombre en vez de por número.
+      lockerCustomerName?: string;
       // Número de comanda de cocina (ver `nextKitchenTicketNumber`), si el
       // carrito tiene algún producto `toKitchen`.
       kitchenTicketNumber?: string;
@@ -239,6 +247,22 @@ export async function getLocalAttendee(orderId: number): Promise<CajaAttendee | 
   return cajaDB.attendees.get(orderId);
 }
 
+/** Búsqueda por nombre entre los clientes que YA ENTRARON a la fiesta (al
+ * menos un acceso con status 'used' -- activado con su QR en la puerta), para
+ * asociar la venta a un Playcoins sin depender de que el cliente traiga a
+ * mano el email o el código. 100% local, funciona sin señal: no hace falta
+ * un endpoint nuevo, el snapshot ya trae el status de cada acceso. */
+export async function searchInsideAttendeesLocal(query: string): Promise<CajaAttendee[]> {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+
+  const all = await cajaDB.attendees.toArray();
+  return all
+    .filter((a) => a.access.some((acc) => acc.status === 'used'))
+    .filter((a) => a.buyerName.toLowerCase().includes(q) || a.attendeeNames.some((n) => n.toLowerCase().includes(q)))
+    .slice(0, 20);
+}
+
 export async function getLocalCatalog(): Promise<CajaCatalogItem[]> {
   return cajaDB.catalog.toArray();
 }
@@ -325,4 +349,15 @@ export async function nextKitchenTicketNumber(registerId: number | null): Promis
   const next = (Number(row?.value) || 0) + 1;
   await cajaDB.meta.put({ key, value: next });
   return formatKitchenTicketNumber(registerId, next);
+}
+
+/** Número de percha de guardarropía, generado EN LA TABLET al confirmar la
+ * venta -- mismo patrón que `nextKitchenTicketNumber` (contador propio en
+ * `meta`, distinto del de cocina, prefijado por caja física). */
+export async function nextLockerTagNumber(registerId: number | null): Promise<string> {
+  const key = `lockerCounter:${registerId ?? 0}`;
+  const row = await cajaDB.meta.get(key);
+  const next = (Number(row?.value) || 0) + 1;
+  await cajaDB.meta.put({ key, value: next });
+  return formatLockerTagNumber(registerId, next);
 }

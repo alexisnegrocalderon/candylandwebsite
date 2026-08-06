@@ -31,10 +31,13 @@ export async function createCajaSale(
     // la misma función que usa el checkout web (nunca se confía en el monto
     // que calculó la tablet).
     discountCode?: string;
-    // Número de la percha física de guardarropía, tecleado por la cajera al
-    // cobrar (no lo genera el sistema -- ver drizzle/schema.ts `lockerItems`
-    // para el porqué). Requerido si algún ítem es category='locker'.
+    // Número de percha, generado EN LA TABLET (no acá) -- `<nº de caja>-
+    // <correlativo local>`, ver client/src/pages/caja/db.ts
+    // `nextLockerTagNumber`. Requerido si algún ítem es category='locker'.
     lockerTag?: string;
+    // Nombre que la cajera le pide al cliente al vender guardarropía --
+    // requerido junto con lockerTag, para poder ubicar la prenda por nombre.
+    lockerCustomerName?: string;
     // Número de comanda para cocina, generado EN LA TABLET (no acá) --
     // `<nº de caja>-<correlativo local>`, ver client/src/pages/caja/db.ts
     // `nextKitchenTicketNumber`. Requerido si algún ítem es `toKitchen`.
@@ -82,11 +85,10 @@ export async function createCajaSale(
     throw new Error("Falta el número de comanda para cocina");
   }
 
-  // Guardarropía: el número ya está en la ficha física, la cajera lo teclea
-  // -- un correlativo generado por el servidor no puede funcionar sin señal
-  // (dos tablets desconectadas asignarían las dos el mismo número). Solo se
-  // admite cobrar UN abrigo por venta: con varios en el mismo carrito no
-  // habría forma de saber qué número va con cuál ítem.
+  // Guardarropía: el número lo genera la tablet (nextLockerTagNumber), acá
+  // solo se valida que haya llegado. Solo se admite cobrar UN abrigo por
+  // venta: con varios en el mismo carrito no habría forma de saber qué
+  // número va con cuál ítem.
   const hasLocker = params.items.some((i) => ttById.get(i.ticketTypeId)?.category === 'locker');
   if (hasLocker) {
     const lockerQty = params.items
@@ -94,6 +96,7 @@ export async function createCajaSale(
       .reduce((sum, i) => sum + i.quantity, 0);
     if (lockerQty > 1) throw new Error("Cobra los abrigos de a uno para poder asignar un número a cada uno");
     if (!params.lockerTag?.trim()) throw new Error("Falta el número de la percha");
+    if (!params.lockerCustomerName?.trim()) throw new Error("Falta el nombre del cliente para guardarropía");
   }
 
   // Descuento: se REVALIDA acá, nunca se confía en lo que calculó la tablet.
@@ -128,7 +131,7 @@ export async function createCajaSale(
         buyerEmail: params.buyerEmail ?? null, redeemRequested: params.redeemPlaycoins ?? 0,
         ...(stockWarnings.length > 0 ? { stockWarnings } : {}),
         ...(appliedDiscountId ? { discountCode: params.discountCode!.trim().toUpperCase(), discountAmount } : {}),
-        ...(params.lockerTag ? { lockerTag: params.lockerTag.trim() } : {}),
+        ...(params.lockerTag ? { lockerTag: params.lockerTag.trim(), lockerCustomerName: params.lockerCustomerName?.trim() } : {}),
         ...(kitchenItems.length > 0 ? { kitchenTicketNumber: params.kitchenTicketNumber!.trim(), kitchenItems } : {}),
       },
       clientAt: params.clientAt,
@@ -198,6 +201,7 @@ export async function createCajaSale(
           orderId,
           opId: params.opId,
           tagNumber: params.lockerTag.trim(),
+          customerName: params.lockerCustomerName?.trim() || null,
         });
       }
 
