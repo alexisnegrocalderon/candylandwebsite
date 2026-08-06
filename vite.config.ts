@@ -185,7 +185,15 @@ export default defineConfig(({ command }) => {
     // Service-Worker-Allowed, porque /caja/ es un subcamino de /.
     VitePWA({
       injectRegister: null,
-      registerType: "prompt",
+      // "autoUpdate" (no "prompt"): con "prompt", cuando hay una versión
+      // nueva del service worker, Workbox la descarga y la deja ESPERANDO --
+      // nunca toma el control sola, necesita que la app llame a
+      // updateServiceWorker() en respuesta a un aviso que acá nunca se
+      // muestra (no hay UI para eso). Un teléfono puede quedar atascado en la
+      // versión vieja indefinidamente, con cualquier bug que ya se haya
+      // corregido en el código, sin ninguna forma de salir solo. "autoUpdate"
+      // activa la versión nueva y recarga la página apenas está lista.
+      registerType: "autoUpdate",
       scope: "/caja/",
       manifest: {
         name: "Mansion Playroom · Caja",
