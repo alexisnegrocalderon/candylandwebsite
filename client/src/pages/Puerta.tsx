@@ -46,7 +46,7 @@ export default function Puerta() {
   useSeo({ title: 'Puerta — Mansion Playroom', description: 'Control de acceso.', path: '/puerta', noindex: true });
   // Instalable en la pantalla de inicio: el anfitrión escanea de pie, sin la
   // barra del navegador ocupando espacio.
-  useInstallableApp('/puerta.webmanifest', '/puerta/sw.js', '/puerta/');
+  useInstallableApp('/puerta.webmanifest', '/puerta/sw.js', '/puerta/', 'Puerta');
 
   const me = trpc.puerta.me.useQuery();
   if (me.isLoading) {
