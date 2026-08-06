@@ -34,10 +34,18 @@ export default function GastosApp() {
   // viva. El SW es network-only (no cachea nada): existe únicamente porque
   // Chrome no ofrece "instalar" sin uno. iOS instala solo con el manifest.
   useEffect(() => {
-    const link = document.createElement('link');
-    link.rel = 'manifest';
-    link.href = '/gastos.webmanifest';
-    document.head.appendChild(link);
+    // vite-plugin-pwa inyecta un <link rel="manifest"> apuntando al manifest
+    // de Caja en el ÚNICO index.html que comparte todo el sitio (es una SPA
+    // con ruteo en el cliente) -- está SIEMPRE presente, en cada ruta, no solo
+    // en /caja. Si acá se agrega uno nuevo en vez de reemplazarlo, quedan DOS
+    // en el DOM y el navegador usa el primero -- el de Caja -- así que
+    // "agregar a inicio" desde /gastos terminaba instalando /caja. Por eso se
+    // MUTA el existente en vez de agregar uno nuevo, y se restaura su valor
+    // original al salir de esta pantalla.
+    const existing = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
+    const originalHref = existing?.getAttribute('href') ?? null;
+    const link = existing ?? document.head.appendChild(Object.assign(document.createElement('link'), { rel: 'manifest' }));
+    link.setAttribute('href', '/gastos.webmanifest');
 
     const meta = document.createElement('meta');
     meta.name = 'apple-mobile-web-app-capable';
@@ -47,7 +55,11 @@ export default function GastosApp() {
     if (import.meta.env.PROD && 'serviceWorker' in navigator) {
       navigator.serviceWorker.register('/gastos/sw.js', { scope: '/gastos/' }).catch(() => {});
     }
-    return () => { link.remove(); meta.remove(); };
+    return () => {
+      if (originalHref !== null) link.setAttribute('href', originalHref);
+      else link.remove();
+      meta.remove();
+    };
   }, []);
 
   const { data: user, isLoading } = trpc.auth.me.useQuery();
