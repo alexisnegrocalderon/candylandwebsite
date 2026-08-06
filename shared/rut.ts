@@ -1,8 +1,14 @@
+/** Sin puntos/espacios, con guion, en mayúsculas -- para comparar dos RUT
+ * escritos distinto (con o sin puntos, minúscula la "k") como el mismo. */
+export function normalizeRut(rutInput: string): string {
+  return rutInput.trim().replace(/[.\s]/g, '').toUpperCase();
+}
+
 /** Validación de RUT chileno (dígito verificador, algoritmo módulo 11).
  * Solo confirma que el RUT esté bien escrito -- no que exista o sea de esa
  * persona (eso requeriría un servicio externo pago, fuera de alcance). */
 export function isValidRut(rutInput: string): boolean {
-  const clean = rutInput.trim().replace(/[.\s]/g, '').toUpperCase();
+  const clean = normalizeRut(rutInput);
   if (!/^\d{7,8}-[0-9K]$/.test(clean)) return false;
 
   const [num, dv] = clean.split('-');
