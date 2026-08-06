@@ -131,6 +131,10 @@ type KitchenTicketRow = {
   deliveredAt: string | null;
 };
 
+function inventoryDoneKey(eventId: number) {
+  return `kitchen_inventory_done:${eventId}`;
+}
+
 function Board({ operatorName }: { operatorName: string }) {
   const [tab, setTab] = useState<'pedidos' | 'stock'>('pedidos');
   const [muted, setMuted] = useState(() => localStorage.getItem(SOUND_MUTED_KEY) === '1');
@@ -144,6 +148,21 @@ function Board({ operatorName }: { operatorName: string }) {
     { enabled: !!event, refetchInterval: 4000 },
   );
   const update = trpc.cocina.update.useMutation();
+
+  // Asistente de inventario inicial: solo la PRIMERA vez que esta tablet ve
+  // este evento (pedido explícito del dueño) -- los ajustes de ahí en
+  // adelante se hacen desde la pestaña "Porciones disponibles". `null`
+  // mientras no se sabe todavía (evita el parpadeo del asistente antes de
+  // confirmar que ya se hizo).
+  const [inventoryDone, setInventoryDone] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!event) return;
+    setInventoryDone(localStorage.getItem(inventoryDoneKey(event.id)) === '1');
+  }, [event?.id]);
+  const markInventoryDone = () => {
+    if (event) localStorage.setItem(inventoryDoneKey(event.id), '1');
+    setInventoryDone(true);
+  };
 
   useEffect(() => {
     if (listQuery.isSuccess) lastOkAtRef.current = Date.now();
@@ -205,6 +224,10 @@ function Board({ operatorName }: { operatorName: string }) {
       }
     );
   };
+
+  if (event && inventoryDone === false) {
+    return <InventorySetupWizard eventId={event.id} onDone={markInventoryDone} />;
+  }
 
   return (
     <div className="min-h-dvh bg-[#0d0810] text-white flex flex-col">
@@ -292,10 +315,112 @@ type KitchenProductRow = {
   status: 'active' | 'soldout' | 'hidden';
 };
 
+/* --- Asistente de inventario inicial ---------------------------------------------------------------- */
+
+/** Solo la primera vez que esta tablet entra a un evento (ver
+ * `inventoryDoneKey` en `Board`): pregunta un producto a la vez, prellenado
+ * con su stock actual -- así confirmar sin cambios es un solo tap, no hace
+ * falta escribir todo de nuevo. Después de esto, los ajustes siguen
+ * disponibles en cualquier momento desde "Porciones disponibles". */
+function InventorySetupWizard({ eventId, onDone }: { eventId: number; onDone: () => void }) {
+  const productsQuery = trpc.cocina.products.useQuery({ eventId });
+  const updateStock = trpc.cocina.updateStock.useMutation();
+  const [index, setIndex] = useState(0);
+  const [value, setValue] = useState('');
+
+  const products = (productsQuery.data ?? []) as unknown as KitchenProductRow[];
+  const product = products[index];
+
+  // Nada que configurar -- no vale la pena mostrar un asistente vacío. No
+  // marca el evento como "hecho" (no hay flag que guardar): si más tarde el
+  // admin carga productos que van a cocina, el asistente va a aparecer en
+  // el próximo login en vez de quedar bloqueado para siempre.
+  useEffect(() => {
+    if (productsQuery.isSuccess && products.length === 0) onDone();
+  }, [productsQuery.isSuccess, products.length]);
+
+  useEffect(() => {
+    if (product) setValue(String(product.totalStock));
+  }, [product?.id]);
+
+  if (productsQuery.isLoading || (productsQuery.isSuccess && products.length === 0)) {
+    return <div className="min-h-dvh grid place-items-center bg-[#0d0810]"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
+  }
+  if (!product) return null;
+
+  const isLast = index === products.length - 1;
+
+  const confirmAndAdvance = () => {
+    const finish = () => { if (isLast) onDone(); else setIndex((i) => i + 1); };
+    const parsed = parseInt(value, 10);
+    const qty = Number.isFinite(parsed) && parsed >= 0 ? parsed : product.totalStock;
+    if (qty === product.totalStock) { finish(); return; }
+    updateStock.mutate(
+      { productId: product.id, eventId, totalStock: qty },
+      { onSuccess: finish, onError: (e) => { toast.error(e.message); finish(); } }
+    );
+  };
+
+  return (
+    <div className="min-h-dvh bg-[#0d0810] text-white px-5 py-10 flex flex-col">
+      <div className="max-w-sm mx-auto w-full flex-1 flex flex-col">
+        <p className="text-xs uppercase tracking-widest text-white/40 text-center mb-1">Inventario inicial · {index + 1} / {products.length}</p>
+        <h1 className="font-heading font-extrabold text-2xl text-center mb-8">¿Cuántas porciones hay?</h1>
+        <div className="flex-1 flex flex-col items-center justify-center gap-4">
+          <span className="text-5xl">{product.emoji || '🍽️'}</span>
+          <p className="font-bold text-xl text-center">{product.name}</p>
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value.replace(/\D/g, ''))}
+            inputMode="numeric"
+            autoFocus
+            className="w-32 h-16 rounded-2xl bg-white/[0.06] border border-white/15 text-white text-3xl text-center focus:border-primary/60 focus:outline-none"
+          />
+        </div>
+        <div className="space-y-2 mt-8">
+          <div className="flex gap-2">
+            {index > 0 && (
+              <button onClick={() => setIndex((i) => i - 1)} className="h-14 px-5 rounded-full border border-white/15 text-white/70 font-bold">
+                Atrás
+              </button>
+            )}
+            <button
+              onClick={confirmAndAdvance}
+              disabled={updateStock.isPending}
+              className="flex-1 h-14 rounded-full bg-primary font-bold disabled:opacity-40"
+            >
+              {isLast ? 'Terminar' : 'Siguiente'}
+            </button>
+          </div>
+          <button onClick={onDone} className="w-full text-sm text-white/40 underline text-center py-2">
+            Saltar por ahora
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StockPanel({ eventId }: { eventId: number | undefined }) {
   const productsQuery = trpc.cocina.products.useQuery({ eventId: eventId ?? 0 }, { enabled: !!eventId });
   const updateStock = trpc.cocina.updateStock.useMutation();
+  const toggleSoldOut = trpc.cocina.toggleSoldOut.useMutation();
   const [drafts, setDrafts] = useState<Record<number, string>>({});
+
+  // Botón de emergencia: agotar/reponer sin tener que calcular porciones
+  // exactas -- bloquea la venta de verdad en /caja (a diferencia de dejar
+  // el stock en 0, que ahí solo "avisa pero no bloquea").
+  const doToggleSoldOut = (p: KitchenProductRow) => {
+    if (!eventId) return;
+    const soldOut = p.status !== 'soldout';
+    toggleSoldOut.mutate(
+      { productId: p.id, eventId, soldOut },
+      {
+        onSuccess: () => { toast.success(soldOut ? `${p.name}: marcado agotado` : `${p.name}: repuesto`); productsQuery.refetch(); },
+        onError: (e) => toast.error(e.message),
+      }
+    );
+  };
 
   const products = (productsQuery.data ?? []) as unknown as KitchenProductRow[];
   const groups = new Map<string, KitchenProductRow[]>();
@@ -337,26 +462,38 @@ function StockPanel({ eventId }: { eventId: number | undefined }) {
               {items.map((p) => {
                 const available = Math.max(0, p.totalStock - p.soldCount);
                 const draft = drafts[p.id];
+                const soldOut = p.status === 'soldout';
                 return (
-                  <div key={p.id} className="flex items-center gap-3 p-3 rounded-2xl bg-white/[0.04] border border-white/10">
-                    <span className="text-2xl shrink-0">{p.emoji || '🍽️'}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-bold truncate">{p.name}</p>
-                      <p className="text-xs text-white/40">Disponibles ahora: {available} · Vendidos: {p.soldCount}</p>
+                  <div key={p.id} className={`p-3 rounded-2xl bg-white/[0.04] border space-y-2 ${soldOut ? 'border-red-500/40' : 'border-white/10'}`}>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-2xl shrink-0 ${soldOut ? 'grayscale' : ''}`}>{p.emoji || '🍽️'}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold truncate">{p.name}</p>
+                        <p className="text-xs text-white/40">Disponibles ahora: {available} · Vendidos: {p.soldCount}</p>
+                      </div>
+                      <button
+                        onClick={() => doToggleSoldOut(p)}
+                        disabled={toggleSoldOut.isPending}
+                        className={`h-9 px-3 rounded-full font-bold text-xs shrink-0 ${soldOut ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'}`}
+                      >
+                        {soldOut ? '✅ Reponer' : '🚨 Agotado'}
+                      </button>
                     </div>
-                    <input
-                      value={draft ?? String(p.totalStock)}
-                      onChange={(e) => setDrafts((d) => ({ ...d, [p.id]: e.target.value.replace(/\D/g, '') }))}
-                      inputMode="numeric"
-                      className="w-16 h-11 rounded-xl bg-white/[0.06] border border-white/15 text-white text-center focus:border-primary/60 focus:outline-none shrink-0"
-                    />
-                    <button
-                      onClick={() => save(p)}
-                      disabled={draft === undefined || draft === String(p.totalStock) || updateStock.isPending}
-                      className="h-11 px-4 rounded-full bg-primary font-bold text-sm disabled:opacity-30 shrink-0"
-                    >
-                      Guardar
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <input
+                        value={draft ?? String(p.totalStock)}
+                        onChange={(e) => setDrafts((d) => ({ ...d, [p.id]: e.target.value.replace(/\D/g, '') }))}
+                        inputMode="numeric"
+                        className="w-16 h-11 rounded-xl bg-white/[0.06] border border-white/15 text-white text-center focus:border-primary/60 focus:outline-none shrink-0"
+                      />
+                      <button
+                        onClick={() => save(p)}
+                        disabled={draft === undefined || draft === String(p.totalStock) || updateStock.isPending}
+                        className="h-11 px-4 rounded-full bg-primary font-bold text-sm disabled:opacity-30 shrink-0"
+                      >
+                        Guardar
+                      </button>
+                    </div>
                   </div>
                 );
               })}

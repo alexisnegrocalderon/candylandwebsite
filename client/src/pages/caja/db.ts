@@ -40,6 +40,10 @@ export interface CajaCatalogItem {
    * carga el admin en la Carta de la Fiesta. */
   description: string | null;
   category: string;
+  /** 'soldout' = botón de emergencia de cocina o admin -- bloquea la venta
+   * de verdad en la tarjeta, a diferencia del aviso suave de `totalStock -
+   * soldCount <= 0`. 'hidden' no llega acá (getCajaSnapshot lo excluye). */
+  status: 'active' | 'soldout' | 'hidden';
   totalStock: number;
   soldCount: number;
   /** Genera comanda en /cocina al venderse. */

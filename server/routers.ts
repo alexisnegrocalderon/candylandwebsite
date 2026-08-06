@@ -44,7 +44,7 @@ async function requirePartyProfile(ticketCode: string) {
   return { ...actor, profile: actor.profile };
 }
 import { createCajaSale } from "./caja/sale";
-import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKitchenProductStock } from "./kitchen";
+import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKitchenProductStock, toggleKitchenProductSoldOut } from "./kitchen";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
@@ -805,6 +805,17 @@ export const appRouter = router({
       totalStock: z.number().min(0),
     })).mutation(async ({ input, ctx }) => {
       return updateKitchenProductStock(input.productId, input.eventId, input.totalStock, ctx.operator.operatorId);
+    }),
+
+    // Botón de emergencia: agotar/reponer un producto sin tener que calcular
+    // porciones exactas -- bloquea la venta de verdad en /caja (ver
+    // getCajaSnapshot).
+    toggleSoldOut: kitchenProcedure.input(z.object({
+      productId: z.number(),
+      eventId: z.number(),
+      soldOut: z.boolean(),
+    })).mutation(async ({ input }) => {
+      return toggleKitchenProductSoldOut(input.productId, input.eventId, input.soldOut);
     }),
   }),
 
