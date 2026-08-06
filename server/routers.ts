@@ -1023,6 +1023,34 @@ export const appRouter = router({
     }),
   }),
 
+  // Lista de bloqueo de clientes (por RUT) -- solo admin, nunca expuesta al
+  // checkout público (el chequeo en sí vive dentro de orders.create/createOrder).
+  blockedCustomers: router({
+    listAll: adminProcedure.query(async () => {
+      return db.getAllBlockedCustomers();
+    }),
+    create: adminProcedure.input(z.object({
+      rut: z.string().min(1),
+      fullName: z.string().optional(),
+      reason: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      return db.createBlockedCustomer(input);
+    }),
+    update: adminProcedure.input(z.object({
+      id: z.number(),
+      rut: z.string().optional(),
+      fullName: z.string().optional(),
+      reason: z.string().optional(),
+      isActive: z.number().optional(),
+    })).mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      return db.updateBlockedCustomer(id, data);
+    }),
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      return db.deleteBlockedCustomer(input.id);
+    }),
+  }),
+
   referrals: router({
     getStats: adminProcedure.query(async () => {
       return db.getReferralStats();

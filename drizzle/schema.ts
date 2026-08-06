@@ -256,6 +256,24 @@ export const communityCodes = mysqlTable("communityCodes", {
 export type CommunityCode = typeof communityCodes.$inferSelect;
 export type InsertCommunityCode = typeof communityCodes.$inferInsert;
 
+// Lista de bloqueo de clientes: si el RUT del comprador o de algún
+// acompañante coincide (normalizado, coincidencia exacta), createOrder
+// rechaza la compra antes de crear la orden y antes de cualquier cobro.
+// `fullName` es solo referencia para el admin -- el bloqueo NUNCA matchea
+// por nombre (demasiados falsos positivos con personas homónimas).
+export const blockedCustomers = mysqlTable("blockedCustomers", {
+  id: int("id").autoincrement().primaryKey(),
+  rut: varchar("rut", { length: 20 }).notNull().unique(),
+  fullName: varchar("fullName", { length: 255 }),
+  reason: varchar("reason", { length: 500 }),
+  isActive: int("isActive").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type BlockedCustomer = typeof blockedCustomers.$inferSelect;
+export type InsertBlockedCustomer = typeof blockedCustomers.$inferInsert;
+
 // Config general del sitio (fila única) — números de Instagram del footer y
 // el recargo por servicio (%) que se suma a toda venta nueva (entradas +
 // extras), editables desde el admin.

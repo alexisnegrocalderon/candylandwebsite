@@ -1,12 +1,13 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
 import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
+import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 
@@ -382,6 +383,35 @@ export async function deleteCommunityCode(id: number) {
   return { success: true };
 }
 
+// Lista de bloqueo de clientes (por RUT) -- ver el chequeo en createOrder.
+export async function getAllBlockedCustomers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(blockedCustomers).orderBy(desc(blockedCustomers.createdAt));
+}
+
+export async function createBlockedCustomer(data: { rut: string; fullName?: string; reason?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(blockedCustomers).values({ ...data, rut: normalizeRut(data.rut) });
+  return { success: true };
+}
+
+export async function updateBlockedCustomer(id: number, data: any) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const updateData = data.rut ? { ...data, rut: normalizeRut(data.rut) } : data;
+  await db.update(blockedCustomers).set(updateData).where(eq(blockedCustomers.id, id));
+  return { success: true };
+}
+
+export async function deleteBlockedCustomer(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(blockedCustomers).where(eq(blockedCustomers.id, id));
+  return { success: true };
+}
+
 // Site settings (fila única — Instagram followers/posts para el footer, y el
 // recargo por servicio (%) que se suma a toda venta nueva)
 export async function getSiteSettings() {
@@ -428,6 +458,27 @@ export function parseAttendeeNames(attendeeDataJson: string | null | undefined):
   }
 }
 
+/** Mismo patrón que parseAttendeeNames pero para RUT (titular + acompañantes)
+ * -- busca cualquier campo cuya clave contenga "rut" (`buyer__rut`,
+ * `acceso__acomp1_rut`, etc.) y devuelve los valores normalizados, listos
+ * para comparar contra `blockedCustomers.rut`. */
+export function parseAttendeeRuts(attendeeDataJson: string | null | undefined): string[] {
+  if (!attendeeDataJson) return [];
+  try {
+    const parsed = JSON.parse(attendeeDataJson);
+    const campos = parsed?.campos ?? {};
+    const ruts: string[] = [];
+    for (const [key, value] of Object.entries(campos)) {
+      if (typeof value === 'string' && value.trim() && /rut/i.test(key)) {
+        ruts.push(normalizeRut(value));
+      }
+    }
+    return ruts;
+  } catch {
+    return [];
+  }
+}
+
 // Orders
 export async function createOrder(input: {
   eventSlug: string;
@@ -445,6 +496,19 @@ export async function createOrder(input: {
 
   const event = await getEventBySlug(input.eventSlug);
   if (!event) throw new Error("Event not found");
+
+  // Lista de bloqueo: si el RUT del comprador o de algún acompañante
+  // coincide (exacto, normalizado), la compra se rechaza acá -- antes de
+  // calcular precios/stock y antes de crear cualquier fila en `orders`, así
+  // nunca llega a existir una orden ni se intenta cobrar nada.
+  const attendeeRuts = parseAttendeeRuts(input.attendeeData);
+  if (attendeeRuts.length > 0) {
+    const blocked = await db.select().from(blockedCustomers)
+      .where(and(inArray(blockedCustomers.rut, attendeeRuts), eq(blockedCustomers.isActive, 1)));
+    if (blocked.length > 0) {
+      throw new Error('No pudimos procesar tu compra. Si crees que es un error, escríbenos.');
+    }
+  }
 
   // Misión 300: mientras la ventana esté abierta (más de 3 días antes del
   // evento), las entradas category="acceso" se cobran al precio del abono
