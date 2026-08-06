@@ -1092,6 +1092,7 @@ export default function Home() {
     ],
   });
 
+  const { data: event } = trpc.events.getBySlug.useQuery({ slug: CANDYLAND.slug }, { retry: false });
   const { data: liveTickets } = trpc.events.getTicketTypes.useQuery(
     { slug: CANDYLAND.slug },
     // Polling suave: con DB conectada, el contador Misión 300 se actualiza solo
@@ -1128,7 +1129,7 @@ export default function Home() {
   // comunicación de la preventa) y si no existe usa el acceso más barato.
   const missionPricing: MissionPricing = useMemo(() => {
     if (!liveTickets || liveTickets.length === 0) return null;
-    if (!isMissionWindowOpen(new Date(CANDYLAND.eventDate))) return null;
+    if (!event?.eventDate || !isMissionWindowOpen(new Date(event.eventDate))) return null;
     const accesos = liveTickets.filter((t: any) => t.category === 'acceso' && t.status === 'active');
     if (accesos.length === 0) return null;
     const destacado = accesos.find((t: any) => t.accesoSlug === 'duo')
@@ -1137,7 +1138,7 @@ export default function Home() {
     const depositPrice = missionDepositPrice((destacado as any).accesoSlug);
     if (!(depositPrice < generalPrice)) return null;
     return { generalPrice, depositPrice };
-  }, [liveTickets]);
+  }, [liveTickets, event]);
 
   return (
     <MotionConfig reducedMotion="user">
