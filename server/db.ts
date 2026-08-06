@@ -1,9 +1,9 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, orders, orderItems, tickets, discountCodes, communityCodes, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, orders, orderItems, tickets, discountCodes, communityCodes, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
-import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
+import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
 import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
@@ -200,15 +200,51 @@ export async function createTicketType(data: any) {
   return { success: true };
 }
 
-export async function updateTicketType(id: number, data: any) {
+export async function updateTicketType(id: number, data: any, changedByUserId?: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const updateData: any = { ...data };
   if (data.price !== undefined) updateData.price = String(data.price);
   if (data.originalPrice !== undefined) updateData.originalPrice = String(data.originalPrice);
   if (data.costPrice !== undefined) updateData.costPrice = String(data.costPrice);
+
+  // Deja registro de auditoría cuando cambia el stock (ej. subir el cupo de
+  // "soltero" al entrar más solteros aceptados) -- se compara contra el
+  // valor actual en vez de asumir, para no loguear "cambios" cuando el admin
+  // reenvía el mismo número.
+  if (data.totalStock !== undefined) {
+    const [current] = await db.select({ totalStock: ticketTypes.totalStock, eventId: ticketTypes.eventId }).from(ticketTypes).where(eq(ticketTypes.id, id)).limit(1);
+    if (current && current.totalStock !== data.totalStock) {
+      await db.insert(ticketStockHistory).values({
+        ticketTypeId: id,
+        eventId: current.eventId,
+        previousStock: current.totalStock,
+        newStock: data.totalStock,
+        changedByUserId: changedByUserId ?? null,
+      });
+    }
+  }
+
   await db.update(ticketTypes).set(updateData).where(eq(ticketTypes.id, id));
   return { success: true };
+}
+
+export async function getTicketStockHistory(ticketTypeId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    id: ticketStockHistory.id,
+    previousStock: ticketStockHistory.previousStock,
+    newStock: ticketStockHistory.newStock,
+    createdAt: ticketStockHistory.createdAt,
+    changedByUserId: ticketStockHistory.changedByUserId,
+    changedByName: users.name,
+    changedByEmail: users.email,
+  }).from(ticketStockHistory)
+    .leftJoin(users, eq(users.id, ticketStockHistory.changedByUserId))
+    .where(eq(ticketStockHistory.ticketTypeId, ticketTypeId))
+    .orderBy(desc(ticketStockHistory.createdAt));
+  return rows;
 }
 
 export async function deleteTicketType(id: number) {
@@ -515,7 +551,7 @@ export async function createOrder(input: {
   // ($10.000/persona), no al precio general — el resto (diferencia hasta el
   // 60% si no se junta la meta, o nada si se junta) se resuelve después, ver
   // evaluateMission300() y el webhook de Mercado Pago.
-  const missionOpen = isMissionWindowOpen(new Date(event.eventDate));
+  const missionOpen = isMissionActiveForEvent(event);
   let missionDeposit = false;
 
   // Calculate totals — separa el subtotal de accesos (a lo que aplica el
@@ -703,7 +739,7 @@ export async function createManualOrder(input: {
   const event = await getEventBySlug(input.eventSlug);
   if (!event) throw new Error("Event not found");
 
-  const missionOpen = isMissionWindowOpen(new Date(event.eventDate));
+  const missionOpen = isMissionActiveForEvent(event);
   const tts = await getTicketTypesByEventId(event.id);
   const { unitPrices, subtotal, missionDeposit } = priceManualOrderItems(input.items, tts, input.kind, missionOpen);
 

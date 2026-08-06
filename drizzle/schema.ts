@@ -41,6 +41,12 @@ export const events = mysqlTable("events", {
   eventEnd: timestamp("eventEnd"),
   status: mysqlEnum("status", ["draft", "published", "soldout", "cancelled", "past"]).default("draft").notNull(),
   featured: int("featured").default(0).notNull(),
+  // Interruptor manual del admin: fuerza el cobro a "valor general" aunque
+  // la fecha todavía esté dentro de la ventana de Misión 300 (ver
+  // shared/mission300.ts isMissionActiveForEvent). Gana siempre sobre la
+  // fecha -- se usa cuando la preventa se cierra antes de los 3 días de
+  // corte automático.
+  missionForceClosed: int("missionForceClosed").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -105,6 +111,25 @@ export const ticketTypes = mysqlTable("ticketTypes", {
 
 export type TicketType = typeof ticketTypes.$inferSelect;
 export type InsertTicketType = typeof ticketTypes.$inferInsert;
+
+// Historial de cambios de stock por tipo de entrada (ej. subir el cupo de
+// "soltero" cuando entran más solteros aceptados) -- registro de auditoría,
+// no participa en el cálculo de stock disponible (eso sigue siendo
+// totalStock - soldCount en ticketTypes).
+export const ticketStockHistory = mysqlTable("ticketStockHistory", {
+  id: int("id").autoincrement().primaryKey(),
+  ticketTypeId: int("ticketTypeId").notNull(),
+  eventId: int("eventId").notNull(),
+  previousStock: int("previousStock").notNull(),
+  newStock: int("newStock").notNull(),
+  changedByUserId: int("changedByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  ticketTypeIdx: index("ticketStockHistory_ticketTypeId_idx").on(table.ticketTypeId),
+}));
+
+export type TicketStockHistory = typeof ticketStockHistory.$inferSelect;
+export type InsertTicketStockHistory = typeof ticketStockHistory.$inferInsert;
 
 // Orders
 export const orders = mysqlTable("orders", {

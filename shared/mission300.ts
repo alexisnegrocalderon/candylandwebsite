@@ -78,6 +78,18 @@ export function isMissionWindowOpen(eventDate: Date, now: Date = new Date()): bo
   return now.getTime() < missionCutoff(eventDate).getTime();
 }
 
+/** Igual que isMissionWindowOpen, pero respeta el interruptor manual del
+ * admin (`events.missionForceClosed`) -- si está prendido, la preventa
+ * queda cerrada (valor general) sin importar la fecha. Se usa en todos los
+ * puntos donde ya se tiene la fila completa del evento. */
+export function isMissionActiveForEvent(
+  event: { eventDate: Date | string; missionForceClosed?: number | boolean | null },
+  now: Date = new Date(),
+): boolean {
+  if (event.missionForceClosed) return false;
+  return isMissionWindowOpen(new Date(event.eventDate), now);
+}
+
 /** Precio del abono para una entrada de este acceso (por unidad, no por persona). */
 export function missionDepositPrice(accesoSlug: string | null | undefined): number {
   return MISSION_300_DEPOSIT_PER_PERSON * depositUnitsForAccesoSlug(accesoSlug);

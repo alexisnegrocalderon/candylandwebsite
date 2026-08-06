@@ -22,7 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { MailingComposer } from '@/components/admin/MailingComposer';
-import { isMissionWindowOpen, missionDepositPrice } from '@shared/mission300';
+import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
 import { monthKeyFor } from '@shared/ambassadorProgram';
 import { formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
 import {
@@ -71,6 +71,39 @@ const ACCESO_SLUG_OPTIONS: { value: AccesoSlug; label: string }[] = [
   { value: 'cumpleaneros', label: 'Cumpleañeros' },
 ];
 
+function StockHistoryDialog({ ticketTypeId, ticketName }: { ticketTypeId: number; ticketName: string }) {
+  const [open, setOpen] = useState(false);
+  const { data: history } = trpc.events.ticketStockHistory.useQuery({ ticketTypeId }, { enabled: open });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" title="Ver historial de cambios de stock"><History className="w-3 h-3" /></Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Historial de stock — {ticketName}</DialogTitle>
+        </DialogHeader>
+        {!history || history.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Todavía no hay cambios de stock registrados para esta entrada.</p>
+        ) : (
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {history.map((h: any) => (
+              <div key={h.id} className="text-sm bg-muted/30 rounded-lg px-3 py-2 flex items-center justify-between">
+                <span>
+                  <strong>{h.previousStock}</strong> → <strong>{h.newStock}</strong>
+                  <span className="text-muted-foreground ml-2">{h.changedByName || h.changedByEmail || 'Admin'}</span>
+                </span>
+                <span className="text-xs text-muted-foreground">{new Date(h.createdAt).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function TicketTypesList({
   eventId, onEdit,
 }: { eventId: number; onEdit: (tt: any) => void }) {
@@ -99,6 +132,7 @@ function TicketTypesList({
         )}
       </div>
       <div className="flex gap-2">
+        <StockHistoryDialog ticketTypeId={tt.id} ticketName={tt.name} />
         <Button variant="outline" size="sm" onClick={() => onEdit(tt)}><Edit className="w-3 h-3" /></Button>
         <ConfirmDeleteButton description={`Vas a eliminar el tipo de entrada "${tt.name}".`} onConfirm={() => deleteTicketType.mutateAsync({ id: tt.id })} />
       </div>
@@ -185,7 +219,7 @@ function EventsManager() {
 
   const [newEvent, setNewEvent] = useState({
     title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '',
-    status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false,
+    status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false, missionForceClosed: false,
   });
   const emptyTicketForm = { eventId: 0, name: '', category: 'acceso' as 'acceso' | 'extra', accesoSlug: '' as '' | AccesoSlug, price: 0, totalStock: 0, description: '', costPrice: 0, color: '', internalCode: '' };
   const [newTicket, setNewTicket] = useState(emptyTicketForm);
@@ -201,6 +235,7 @@ function EventsManager() {
     const payload = {
       ...newEvent,
       featured: newEvent.featured ? 1 : 0,
+      missionForceClosed: newEvent.missionForceClosed ? 1 : 0,
       eventDate: fromChileInputValue(newEvent.eventDate),
       doorsOpen: fromChileInputValue(newEvent.doorsOpen),
     };
@@ -210,7 +245,7 @@ function EventsManager() {
     } else {
       await createEvent.mutateAsync(payload);
     }
-    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', status: 'draft', imageUrl: '', featured: false });
+    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', status: 'draft', imageUrl: '', featured: false, missionForceClosed: false });
     setShowEventForm(false);
   };
 
@@ -286,6 +321,10 @@ function EventsManager() {
                 <input type="checkbox" checked={newEvent.featured} onChange={(e) => setNewEvent({ ...newEvent, featured: e.target.checked })} className="w-4 h-4 accent-primary" />
                 <span className="text-sm">Destacar como próximo evento</span>
               </label>
+              <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
+                <input type="checkbox" checked={newEvent.missionForceClosed} onChange={(e) => setNewEvent({ ...newEvent, missionForceClosed: e.target.checked })} className="w-4 h-4 accent-primary" />
+                <span className="text-sm">Cerrar Misión 300 (cobrar valor general ya)</span>
+              </label>
             </div>
             <div className="flex gap-2">
               <Button onClick={handleCreateEvent} disabled={createEvent.isPending || updateEvent.isPending}>
@@ -319,6 +358,7 @@ function EventsManager() {
                       status: event.status || 'draft',
                       imageUrl: event.imageUrl || '',
                       featured: !!event.featured,
+                      missionForceClosed: !!event.missionForceClosed,
                     });
                     setShowEventForm(true);
                   }}>
@@ -717,7 +757,7 @@ function ManualAccessSection() {
   const { data: historyData, refetch: refetchHistory } = trpc.orders.listManual.useQuery();
   const history = historyData ?? [];
 
-  const missionOpen = selectedEvent ? isMissionWindowOpen(new Date(selectedEvent.eventDate)) : false;
+  const missionOpen = selectedEvent ? isMissionActiveForEvent(selectedEvent) : false;
 
   // Precio de catálogo por defecto (abono Misión 300 si corresponde, si no
   // el precio de lista) -- lo que se usa mientras el admin no lo edite.
