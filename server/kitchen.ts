@@ -110,3 +110,22 @@ export async function updateKitchenProductStock(productId: number, eventId: numb
   }
   return updateTicketType(productId, { totalStock }, undefined, operatorId);
 }
+
+/** Botón de emergencia: cocina marca un producto como agotado (o lo repone)
+ * sin tener que calcular un número de porciones exacto -- reusa el mismo
+ * `status` que ya usa el admin (`'active' | 'soldout' | 'hidden'`), así que
+ * el bloqueo es real en /caja (ver getCajaSnapshot) y no un simple aviso. */
+export async function toggleKitchenProductSoldOut(productId: number, eventId: number, soldOut: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [product] = await db.select({ id: ticketTypes.id, toKitchen: ticketTypes.toKitchen, eventId: ticketTypes.eventId, status: ticketTypes.status })
+    .from(ticketTypes).where(eq(ticketTypes.id, productId)).limit(1);
+  if (!product || product.eventId !== eventId || product.toKitchen !== 1) {
+    throw new Error("Ese producto no pertenece a cocina en este evento");
+  }
+  // Un producto oculto (`hidden`) por el admin no se toca -- agotar/reponer
+  // solo tiene sentido entre `active` y `soldout`.
+  if (product.status === 'hidden') throw new Error("Ese producto está oculto por el admin");
+  await db.update(ticketTypes).set({ status: soldOut ? 'soldout' : 'active' }).where(eq(ticketTypes.id, productId));
+  return { success: true };
+}

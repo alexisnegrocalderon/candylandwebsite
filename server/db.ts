@@ -1797,10 +1797,15 @@ export async function getCajaSnapshot(eventId: number) {
   // la fiesta ('consumo' = tragos y comida, 'locker' = guardarropía, 'merch').
   // Los accesos quedan fuera a propósito: no se venden en la barra.
   // Viajan `totalStock`/`soldCount` para poder pintar el "sin stock" en rojo
-  // sin conexión (avisa, no bloquea -- ver server/caja/sale.ts).
+  // sin conexión (avisa, no bloquea -- ver server/caja/sale.ts). Se incluye
+  // también `'soldout'` (no solo `'active'`) para que un producto marcado
+  // agotado -- por el admin o por el botón de emergencia de cocina, ver
+  // toggleKitchenProductSoldOut -- siga apareciendo en la grilla, marcado
+  // como agotado, en vez de desaparecer sin explicación. `'hidden'` sigue
+  // excluido: es ocultar del todo, no lo mismo que agotado.
   const CATALOG_CATEGORIES = ['extra', 'consumo', 'locker', 'merch'];
   const catalog = allTicketTypes
-    .filter((t: any) => CATALOG_CATEGORIES.includes(t.category) && t.status === 'active')
+    .filter((t: any) => CATALOG_CATEGORIES.includes(t.category) && (t.status === 'active' || t.status === 'soldout'))
     .map((t: any) => ({
       id: t.id,
       name: t.name,
@@ -1814,6 +1819,7 @@ export async function getCajaSnapshot(eventId: number) {
       // descripción que ya existe, cargado desde la Carta de la Fiesta.
       description: (t.description as string | null) ?? null,
       category: t.category as string,
+      status: t.status as 'active' | 'soldout' | 'hidden',
       totalStock: Number(t.totalStock),
       soldCount: Number(t.soldCount),
       toKitchen: Number(t.toKitchen ?? 0) === 1,

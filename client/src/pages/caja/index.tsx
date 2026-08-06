@@ -493,6 +493,11 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
       for (const [opId, res] of Object.entries(results)) {
         await markOpSynced(opId, res.result, res.conflictNote);
         if (res.result === 'conflict') toast.warning(`Conflicto al sincronizar: ${res.conflictNote || 'revisar con supervisor'}`);
+        // 'rejected' significa que la venta NUNCA se aplicó en el servidor
+        // (ej. catálogo desactualizado en la tablet) -- sin este aviso
+        // desaparecía en silencio de la cola y la cajera nunca se enteraba
+        // de que había que rehacerla.
+        if (res.result === 'rejected') toast.error(`Venta rechazada al sincronizar: ${res.conflictNote || 'error desconocido'} -- hay que rehacerla`, { duration: 15000 });
       }
       await clearSyncedOps();
       refreshPending();
@@ -1204,9 +1209,15 @@ function NewSale({ eventId, registerId, onSale }: {
               const left = p.totalStock - p.soldCount;
               const noStock = left <= 0;
               const isFavorite = favorites.includes(p.id);
+              // Botón de emergencia de cocina (o el admin): bloqueo REAL, a
+              // diferencia del aviso suave de "Sin stock" de arriba (que
+              // avisa pero deja vender igual, por discrepancias normales de
+              // inventario -- ver server/caja/sale.ts).
+              const soldOut = p.status === 'soldout';
               return (
                 <button
                   key={p.id}
+                  disabled={soldOut && !editingFavorites}
                   onClick={() => {
                     if (longPressed.current) { longPressed.current = false; return; }
                     editingFavorites ? onToggleFavorite(p.id) : add(p.id);
@@ -1216,18 +1227,26 @@ function NewSale({ eventId, registerId, onSale }: {
                   onPointerLeave={cancelLongPress}
                   onPointerCancel={cancelLongPress}
                   onContextMenu={(e) => e.preventDefault()}
-                  className="relative select-none rounded-3xl p-4 min-h-[88px] text-left border active:scale-95 transition-transform backdrop-blur-sm"
+                  className="relative select-none rounded-3xl p-4 min-h-[88px] text-left border active:scale-95 transition-transform backdrop-blur-sm disabled:active:scale-100"
                   style={{
                     backgroundColor: (p.color || '#f472b6') + '14', borderColor: (p.color || '#f472b6') + '50', boxShadow: `0 0 20px -10px ${p.color || '#f472b6'}`,
                     WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: 'manipulation',
+                    filter: soldOut ? 'grayscale(1)' : undefined,
                   }}
                 >
+                  {soldOut && (
+                    <div className="absolute inset-0 z-10 overflow-hidden rounded-3xl pointer-events-none">
+                      <div className="absolute left-[-15%] right-[-15%] top-1/2 -translate-y-1/2 -rotate-[10deg] bg-red-600 text-white text-[11px] font-extrabold uppercase tracking-widest text-center py-1 shadow-lg">
+                        Agotado
+                      </div>
+                    </div>
+                  )}
                   {editingFavorites && (
                     <span className={`absolute top-2 right-2 text-lg leading-none ${isFavorite ? '' : 'opacity-30'}`}>
                       {isFavorite ? '⭐' : '☆'}
                     </span>
                   )}
-                  {!editingFavorites && noStock && (
+                  {!editingFavorites && !soldOut && noStock && (
                     <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide bg-red-500/90 text-white px-2 py-0.5 rounded-full">
                       Sin stock
                     </span>
