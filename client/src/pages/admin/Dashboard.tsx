@@ -4625,7 +4625,7 @@ export default function AdminDashboard() {
   // lo mantiene fuera del indice.
   useSeo({ title: 'Panel — Mansion Playroom', description: '', path: '/admin', noindex: true });
   // Instalable en la pantalla de inicio, sin la barra del navegador.
-  useInstallableApp('/admin.webmanifest', '/admin/sw.js', '/admin/');
+  useInstallableApp('/admin.webmanifest', '/admin/sw.js', '/admin/', 'Admin');
 
   const { user, loading, isAuthenticated, logout } = useAuth();
   const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>('events');
