@@ -169,11 +169,24 @@ export default defineConfig(({ command }) => {
     // sitio (checkout con Mercado Pago, admin) NO debe quedar bajo un
     // service worker. `injectRegister: null` evita que el plugin inyecte un
     // registro automático en <head> (que registraría con scope '/', o sea
-    // todo el sitio); el registro real ocurre a mano, scoped a '/caja/',
-    // dentro de client/src/pages/caja/index.tsx.
+    // todo el sitio); el registro real ocurre a mano, dentro de
+    // client/src/pages/caja/index.tsx.
+    //
+    // El `scope` de nivel superior acá abajo (NO el de `manifest`, que es
+    // solo metadata decorativa del ícono/nombre) es lo que de verdad limita
+    // el alcance del service worker a /caja/ -- sin esto, vite-plugin-pwa
+    // cae al `base` de Vite ('/') y el SW termina controlando TODO el sitio,
+    // incluida cualquier otra pantalla instalable como /gastos (bug real que
+    // hacía que "agregar a inicio" desde /gastos instalara /caja en su
+    // lugar, porque Android asociaba el acceso directo a la app que ya tenía
+    // el origen tomado). El archivo sigue sirviéndose desde la raíz
+    // (dist/public/sw.js) -- un script ahí puede registrarse con un alcance
+    // más angosto como /caja/ sin necesitar la cabecera
+    // Service-Worker-Allowed, porque /caja/ es un subcamino de /.
     VitePWA({
       injectRegister: null,
       registerType: "prompt",
+      scope: "/caja/",
       manifest: {
         name: "Mansion Playroom · Caja",
         short_name: "Caja",

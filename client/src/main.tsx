@@ -37,6 +37,23 @@ if (window.location.pathname === '/') {
   import('./pages/Home');
 }
 
+// Autolimpieza de un bug ya corregido: el service worker de /caja se
+// registraba sin un `scope` explícito y terminaba controlando TODO el sitio
+// (scope '/') en vez de solo /caja/ -- ver vite.config.ts. Quien ya visitó
+// /caja antes de este fix tiene ese registro viejo en el teléfono, y
+// reemplazar el archivo no lo desinstala solo: sigue ahí hasta que algo lo
+// saque. Cualquier registro con scope EXACTAMENTE el origen raíz es
+// inequívocamente ese registro viejo (los legítimos son /caja/ o /gastos/),
+// así que se desregistra apenas arranca el sitio, antes de que /caja llegue
+// a registrar el suyo (bien acotado) más adelante -- sin condición de carrera.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const reg of registrations) {
+      if (reg.scope === `${window.location.origin}/`) reg.unregister();
+    }
+  }).catch(() => {});
+}
+
 const queryClient = new QueryClient();
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
