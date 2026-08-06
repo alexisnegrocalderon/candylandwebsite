@@ -9,9 +9,9 @@ import { Input } from '@/components/ui/input';
 import { QrScanner } from '@/components/QrScanner';
 import { parseTicketCodeFromQr } from '@shared/qr';
 import {
-  saveSnapshot, getLocalEvent, searchLocal, searchGiftsLocal, searchStaffCompsLocal, getLocalAttendee, getLocalCatalog,
+  saveSnapshot, getLocalEvent, searchLocal, searchGiftsLocal, searchStaffCompsLocal, searchInsideAttendeesLocal, getLocalAttendee, getLocalCatalog,
   enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, clearSyncedOps, correctedNow,
-  nextKitchenTicketNumber,
+  nextKitchenTicketNumber, nextLockerTagNumber,
   type CajaAttendee, type CajaCatalogItem, type CajaGift, type CajaStaffComp, type QueuedOp,
 } from './db';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
@@ -445,9 +445,11 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [pending, setPending] = useState(0);
   const [view, setView] = useState<View>('menu');
-  // Confirmación de comanda: el número gigante que la cajera dicta -- si la
-  // venta se encoló sin señal, avisa que cocina todavía no lo ve.
-  const [kitchenConfirm, setKitchenConfirm] = useState<{ number: string; name: string; offline: boolean } | null>(null);
+  // Confirmación de comanda/percha: el número gigante que la cajera dicta --
+  // si la venta se encoló sin señal, avisa que cocina/guardarropía todavía
+  // no lo ve. Cola en vez de un solo valor porque una misma venta puede
+  // tener comida Y guardarropía a la vez -- se muestran una atrás de otra.
+  const [postSaleConfirms, setPostSaleConfirms] = useState<{ kind: 'kitchen' | 'locker'; number: string; name: string; offline: boolean }[]>([]);
   const [query, setQuery] = useState('');
   const [manualCode, setManualCode] = useState('');
   const [results, setResults] = useState<CajaAttendee[]>([]);
@@ -746,19 +748,25 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
           <NewSale
             eventId={localEvent.id}
             registerId={registerId}
-            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, kitchenTicketNumber, customerName) => {
+            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName) => {
               await enqueueOp({
                 opId: newOpId(), type: 'sale', items, paymentMethod, buyerEmail, redeemPlaycoins,
-                discountCode, lockerTag, kitchenTicketNumber, customerName, clientAt: (await correctedNow()).toISOString(),
+                discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, clientAt: (await correctedNow()).toISOString(),
               });
-              if (kitchenTicketNumber) {
-                setKitchenConfirm({ number: kitchenTicketNumber, name: customerName || kitchenTicketNumber, offline: !isOnline });
-              } else {
-                toast.success('Venta registrada ✅');
-              }
+              const confirms: typeof postSaleConfirms = [];
+              if (kitchenTicketNumber) confirms.push({ kind: 'kitchen', number: kitchenTicketNumber, name: customerName || kitchenTicketNumber, offline: !isOnline });
+              if (lockerTag) confirms.push({ kind: 'locker', number: lockerTag, name: lockerCustomerName || lockerTag, offline: !isOnline });
+              if (confirms.length > 0) setPostSaleConfirms(confirms);
+              else toast.success('Venta registrada ✅');
               refreshPending();
               runSync();
-              setView('menu');
+              // Con favoritos cargados, la cajera se queda directo en "Nueva
+              // venta" lista para la próxima -- volver al menú entre cada
+              // venta era fricción innecesaria en un local de alto volumen.
+              // NewSale ya resetea su propio carrito/tab a Favoritos en su
+              // confirm(); sin favoritos, se mantiene el comportamiento de
+              // siempre (volver al menú).
+              if (getFavoriteIds().length === 0) setView('menu');
             }}
           />
         )}
@@ -770,24 +778,32 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         )}
       </main>
 
-      {kitchenConfirm && (
-        <div className="fixed inset-0 z-30 bg-black/85 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-4">
-            <p className="text-sm text-white/60 uppercase tracking-wide">Nombre del pedido</p>
-            <p className="font-heading font-extrabold text-5xl tracking-tight text-primary">{kitchenConfirm.name}</p>
-            <p className="text-xs text-white/40 font-mono">Comanda {kitchenConfirm.number}</p>
-            <p className="text-white/70">Díctale su nombre a la persona -- lo va a necesitar para retirar en cocina.</p>
-            {kitchenConfirm.offline && (
-              <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
-                Sin señal ahora mismo: la cocina todavía no ve este pedido. Avísales a mano y se va a sincronizar solo cuando vuelva la conexión.
+      {postSaleConfirms.length > 0 && (() => {
+        const c = postSaleConfirms[0];
+        const isKitchen = c.kind === 'kitchen';
+        return (
+          <div className="fixed inset-0 z-30 bg-black/85 backdrop-blur-sm flex items-center justify-center p-6">
+            <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-4">
+              <p className="text-sm text-white/60 uppercase tracking-wide">{isKitchen ? 'Nombre del pedido' : '🧥 Percha asignada'}</p>
+              <p className="font-heading font-extrabold text-5xl tracking-tight text-primary">{isKitchen ? c.name : c.number}</p>
+              <p className="text-xs text-white/40 font-mono">{isKitchen ? `Comanda ${c.number}` : c.name}</p>
+              <p className="text-white/70">
+                {isKitchen
+                  ? 'Díctale su nombre a la persona -- lo va a necesitar para retirar en cocina.'
+                  : 'Escribe este número en la percha física y guarda la prenda ahí -- queda asociado al nombre de la persona.'}
               </p>
-            )}
-            <Button className="w-full h-12 bg-primary hover:bg-primary/90" onClick={() => setKitchenConfirm(null)}>
-              Listo
-            </Button>
+              {c.offline && (
+                <p className="text-sm text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+                  Sin señal ahora mismo: {isKitchen ? 'la cocina' : 'el sistema'} todavía no ve este pedido. Se va a sincronizar solo cuando vuelva la conexión.
+                </p>
+              )}
+              <Button className="w-full h-12 bg-primary hover:bg-primary/90" onClick={() => setPostSaleConfirms((q) => q.slice(1))}>
+                Listo
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -915,6 +931,7 @@ function NewSale({ eventId, registerId, onSale }: {
     redeemPlaycoins?: number,
     discountCode?: string,
     lockerTag?: string,
+    lockerCustomerName?: string,
     kitchenTicketNumber?: string,
     customerName?: string,
   ) => void;
@@ -922,10 +939,40 @@ function NewSale({ eventId, registerId, onSale }: {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito' | 'qr'>('debito');
+  // Pantalla intermedia antes de finalizar el cobro (pedido explícito del
+  // dueño): con tarjeta hay que confirmar que la máquina aprobó el pago
+  // antes de dar la venta por hecha; con efectivo hay que pedir el monto
+  // entregado y mostrar el vuelto. QR sigue siendo instantáneo -- no pasa
+  // por una máquina ni requiere vuelto.
+  const [paymentStep, setPaymentStep] = useState<'card' | 'cash' | null>(null);
+  const [cashGiven, setCashGiven] = useState('');
   const [tab, setTab] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<number[]>(() => getFavoriteIds());
   const [editingFavorites, setEditingFavorites] = useState(false);
   const FAVORITES_TAB = '__favoritos__';
+
+  // Mantener presionada una tarjeta muestra sus ingredientes/sabores (pedido
+  // explícito del dueño, para responder preguntas del cliente en el momento).
+  // Reusa `description`, ya cargado desde la Carta de la Fiesta. `longPressed`
+  // es un ref (no state) para no re-renderizar en cada pointerdown, y para
+  // poder leerlo de forma síncrona en el onClick que dispara el navegador
+  // justo después del pointerup y así no sumar el producto al carrito.
+  const [infoProduct, setInfoProduct] = useState<CajaCatalogItem | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressed = useRef(false);
+  const LONG_PRESS_MS = 450;
+
+  const startLongPress = (p: CajaCatalogItem) => {
+    if (!p.description) return; // nada que mostrar -- no interceptar el tap
+    longPressed.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressed.current = true;
+      setInfoProduct(p);
+    }, LONG_PRESS_MS);
+  };
+  const cancelLongPress = () => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  };
 
   // Playcoins (pedido explícito del usuario): paso opcional/omisible para
   // que la venta también gane puntos, y para canjear puntos ya ganados.
@@ -936,7 +983,27 @@ function NewSale({ eventId, registerId, onSale }: {
   const [redeemInput, setRedeemInput] = useState('');
   const [associatedName, setAssociatedName] = useState<string | null>(null);
   const [scanningCustomer, setScanningCustomer] = useState(false);
+  // Buscador por nombre entre quienes YA ENTRARON a la fiesta -- para sumar
+  // Playcoins sin depender de que el cliente traiga a mano el email o el QR
+  // de su entrada (pedido explícito del dueño). Búsqueda local, sin red.
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerSearchResults, setCustomerSearchResults] = useState<CajaAttendee[]>([]);
   const utils = trpc.useUtils();
+
+  useEffect(() => {
+    if (!customerSearch.trim()) { setCustomerSearchResults([]); return; }
+    searchInsideAttendeesLocal(customerSearch).then(setCustomerSearchResults);
+  }, [customerSearch]);
+
+  const pickCustomer = (a: CajaAttendee) => {
+    setBuyerEmail(a.buyerEmail);
+    setAssociatedName(a.buyerName);
+    setShowEmailStep(true);
+    setBalance(null);
+    setRedeemInput('');
+    setCustomerSearch('');
+    setCustomerSearchResults([]);
+  };
 
   // Código de descuento (opcional): se PREVISUALIZA acá contra el mismo
   // endpoint que usa el checkout web, pero el monto real que se cobra lo
@@ -956,9 +1023,10 @@ function NewSale({ eventId, registerId, onSale }: {
     }
   };
 
-  // Guardarropía: el número de la percha física, tecleado por la cajera --
-  // no lo genera el sistema (ver drizzle/schema.ts `lockerItems`).
-  const [lockerTag, setLockerTag] = useState('');
+  // Guardarropía: el número de la percha lo genera la propia tablet al
+  // confirmar (nextLockerTagNumber) -- acá solo se pide el nombre del
+  // cliente, para poder ubicar la prenda por nombre en vez de por número.
+  const [lockerCustomerName, setLockerCustomerName] = useState('');
 
   // Nombre que ve cocina en pantalla en vez del número de comanda (pedido
   // explícito del dueño: el número es difícil de memorizar para ir a buscarlo).
@@ -1007,19 +1075,30 @@ function NewSale({ eventId, registerId, onSale }: {
     }
   };
 
-  const confirm = async () => {
+  // Validaciones del carrito antes de mostrar la pantalla de cobro (tarjeta
+  // o efectivo) -- si algo falta, ni siquiera se abre esa pantalla.
+  const startCheckout = () => {
     if (tooManyLockers) { toast.error('Cobra los abrigos de a uno para poder asignar un número a cada uno'); return; }
-    if (needsLockerTag && !lockerTag.trim()) { toast.error('Falta el número de la percha'); return; }
+    if (needsLockerTag && !lockerCustomerName.trim()) { toast.error('Falta el nombre del cliente para guardarropía'); return; }
     if (hasKitchenItems && !customerName.trim()) { toast.error('Falta el nombre para cocina'); return; }
+    if (paymentMethod === 'debito' || paymentMethod === 'credito') { setPaymentStep('card'); return; }
+    if (paymentMethod === 'efectivo') { setCashGiven(''); setPaymentStep('cash'); return; }
+    confirm();
+  };
+
+  const confirm = async () => {
     const cartItems = Object.entries(cart).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId: Number(ticketTypeId), quantity }));
     const redeemAmount = balance != null ? clampRedeemAmount(Number(redeemInput || 0), Math.min(balance, total)) : 0;
-    // El número de comanda se genera ACÁ, en la tablet, antes de encolar la
-    // venta -- así funciona sin señal (ver nextKitchenTicketNumber).
+    // El número de comanda/percha se genera ACÁ, en la tablet, antes de
+    // encolar la venta -- así funciona sin señal (ver nextKitchenTicketNumber
+    // / nextLockerTagNumber).
     const kitchenTicketNumber = hasKitchenItems ? await nextKitchenTicketNumber(registerId) : undefined;
+    const lockerTag = needsLockerTag ? await nextLockerTagNumber(registerId) : undefined;
     onSale(
       cartItems, paymentMethod, buyerEmail.trim() || undefined, redeemAmount || undefined,
       discountResult?.valid ? discountCode.trim() : undefined,
-      needsLockerTag ? lockerTag.trim() : undefined,
+      lockerTag,
+      needsLockerTag ? lockerCustomerName.trim() : undefined,
       kitchenTicketNumber,
       hasKitchenItems ? customerName.trim() : undefined,
     );
@@ -1029,10 +1108,18 @@ function NewSale({ eventId, registerId, onSale }: {
     setRedeemInput('');
     setShowEmailStep(false);
     setAssociatedName(null);
+    setCustomerSearch('');
+    setCustomerSearchResults([]);
     setDiscountCode('');
     setDiscountResult(null);
-    setLockerTag('');
+    setLockerCustomerName('');
     setCustomerName('');
+    setPaymentStep(null);
+    setCashGiven('');
+    // Pedido explícito del dueño: con favoritos cargados, la pantalla que se
+    // abre después de cada venta es la de Favoritos -- lista para la
+    // siguiente, sin volver a elegir sección cada vez.
+    if (favorites.length > 0) setTab(FAVORITES_TAB);
   };
 
   const handleCustomerScan = async (raw: string) => {
@@ -1097,7 +1184,13 @@ function NewSale({ eventId, registerId, onSale }: {
               return (
                 <button
                   key={p.id}
-                  onClick={() => (editingFavorites ? onToggleFavorite(p.id) : add(p.id))}
+                  onClick={() => {
+                    if (longPressed.current) { longPressed.current = false; return; }
+                    editingFavorites ? onToggleFavorite(p.id) : add(p.id);
+                  }}
+                  onPointerDown={() => startLongPress(p)}
+                  onPointerUp={cancelLongPress}
+                  onPointerLeave={cancelLongPress}
                   className="relative rounded-3xl p-4 min-h-[88px] text-left border active:scale-95 transition-transform backdrop-blur-sm"
                   style={{ backgroundColor: (p.color || '#f472b6') + '14', borderColor: (p.color || '#f472b6') + '50', boxShadow: `0 0 20px -10px ${p.color || '#f472b6'}` }}
                 >
@@ -1110,6 +1203,9 @@ function NewSale({ eventId, registerId, onSale }: {
                     <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide bg-red-500/90 text-white px-2 py-0.5 rounded-full">
                       Sin stock
                     </span>
+                  )}
+                  {p.description && (
+                    <span className="absolute bottom-2 right-2 text-[10px] text-white/30" aria-hidden>ⓘ</span>
                   )}
                   <div className="flex items-center gap-2">
                     <span className="text-3xl leading-none">{p.emoji || CATEGORY_META[p.category]?.emoji || '🛍️'}</span>
@@ -1169,18 +1265,18 @@ function NewSale({ eventId, registerId, onSale }: {
             )}
           </div>
 
-          {/* Guardarropía: el número YA está en la ficha física que se le
-              entrega a la persona -- la cajera solo lo teclea acá. */}
+          {/* Guardarropía: el número de la percha lo asigna el sistema solo,
+              correlativo -- acá solo se pide el nombre del cliente. */}
           {needsLockerTag && (
             <div className="space-y-1">
-              <label className="text-xs text-white/50 uppercase tracking-wide">🧥 Número de la percha</label>
+              <label className="text-xs text-white/50 uppercase tracking-wide">🧥 ¿A nombre de quién? (guardarropía)</label>
               <Input
-                value={lockerTag}
-                onChange={(e) => setLockerTag(e.target.value)}
-                placeholder="Ej: 42"
-                inputMode="numeric"
+                value={lockerCustomerName}
+                onChange={(e) => setLockerCustomerName(e.target.value)}
+                placeholder="Nombre de la persona"
                 className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
               />
+              <p className="text-xs text-white/40">El número de percha se asigna solo al confirmar.</p>
               {tooManyLockers && <p className="text-xs text-red-400">Cobra los abrigos de a uno para poder asignar un número a cada uno.</p>}
             </div>
           )}
@@ -1205,13 +1301,40 @@ function NewSale({ eventId, registerId, onSale }: {
           </div>
 
           {!showEmailStep ? (
-            <div className="flex items-center gap-3 flex-wrap">
-              <button onClick={() => setShowEmailStep(true)} className="text-sm text-white/50 underline">
-                + Registrar email del cliente (gana Playcoins) — opcional
-              </button>
-              <button onClick={() => setScanningCustomer(true)} className="text-sm text-white/50 underline">
-                📷 Asociar a un cliente
-              </button>
+            <div className="space-y-2">
+              <div className="relative">
+                <Input
+                  value={customerSearch}
+                  onChange={(e) => setCustomerSearch(e.target.value)}
+                  placeholder="🔍 Buscar cliente por nombre (Playcoins)"
+                  className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                />
+                {customerSearchResults.length > 0 && (
+                  <div className="absolute z-10 mt-1 w-full bg-[#1a1017] border border-white/15 rounded-xl overflow-hidden shadow-xl max-h-48 overflow-y-auto">
+                    {customerSearchResults.map((a) => (
+                      <button
+                        key={a.orderId}
+                        onClick={() => pickCustomer(a)}
+                        className="w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/10 border-b border-white/5 last:border-0"
+                      >
+                        <span className="font-medium">{a.buyerName}</span>
+                        <span className="block text-xs text-white/40">{a.buyerEmail}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {customerSearch.trim() && customerSearchResults.length === 0 && (
+                  <p className="text-xs text-white/40 mt-1">Nadie que ya haya entrado coincide con "{customerSearch.trim()}".</p>
+                )}
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <button onClick={() => setShowEmailStep(true)} className="text-sm text-white/50 underline">
+                  + Registrar email del cliente — opcional
+                </button>
+                <button onClick={() => setScanningCustomer(true)} className="text-sm text-white/50 underline">
+                  📷 Asociar a un cliente
+                </button>
+              </div>
             </div>
           ) : (
             <div className="space-y-2">
@@ -1262,11 +1385,67 @@ function NewSale({ eventId, registerId, onSale }: {
               </button>
             ))}
           </div>
-          <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={tooManyLockers} onClick={confirm}>
-            Cobrado en terminal — Confirmar
+          <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={tooManyLockers} onClick={startCheckout}>
+            {paymentMethod === 'efectivo' ? 'Cobrar en efectivo' : paymentMethod === 'qr' ? 'Cobrado en terminal — Confirmar' : 'Cobrar con máquina'}
           </Button>
         </div>
       )}
+
+      {paymentStep === 'card' && (
+        <div className="fixed inset-0 z-30 bg-black/90 backdrop-blur-sm flex items-center justify-center p-6">
+          <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-4">
+            <p className="text-xs uppercase tracking-widest text-white/40">Cobrar con máquina</p>
+            <p className="font-heading font-extrabold text-5xl">${total.toLocaleString('es-CL')}</p>
+            <p className="text-white/60 text-sm">Pasa la tarjeta ({paymentMethod}) en el POS y espera la aprobación antes de confirmar.</p>
+            <div className="space-y-2 pt-2">
+              <Button className="w-full h-12 bg-primary hover:bg-primary/90" onClick={confirm}>
+                Pago aprobado — Confirmar venta
+              </Button>
+              <Button variant="outline" className="w-full h-11 border-white/15 text-white/70" onClick={() => setPaymentStep(null)}>
+                Cancelar y volver
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {paymentStep === 'cash' && (() => {
+        const given = Number(cashGiven || 0);
+        const change = given - total;
+        const validAmount = cashGiven.trim() !== '' && given >= total;
+        return (
+          <div className="fixed inset-0 z-30 bg-black/90 backdrop-blur-sm flex items-center justify-center p-6">
+            <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-4">
+              <p className="text-xs uppercase tracking-widest text-white/40">Cobro en efectivo</p>
+              <p className="font-heading font-extrabold text-5xl">${total.toLocaleString('es-CL')}</p>
+              <div className="text-left">
+                <p className="text-xs text-white/50 mb-1">Monto entregado por el cliente</p>
+                <Input
+                  type="number" inputMode="numeric" autoFocus min={0}
+                  value={cashGiven} onChange={(e) => setCashGiven(e.target.value)}
+                  placeholder="$"
+                  className="h-12 bg-white/10 border-white/15 text-white text-xl text-center"
+                />
+              </div>
+              {cashGiven.trim() !== '' && (
+                given < total ? (
+                  <p className="text-red-400 text-sm">Falta ${(total - given).toLocaleString('es-CL')}</p>
+                ) : (
+                  <p className="text-white/80">Vuelto: <span className="font-bold text-2xl">${change.toLocaleString('es-CL')}</span></p>
+                )
+              )}
+              <div className="space-y-2 pt-2">
+                <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={!validAmount} onClick={confirm}>
+                  Confirmar venta
+                </Button>
+                <Button variant="outline" className="w-full h-11 border-white/15 text-white/70" onClick={() => setPaymentStep(null)}>
+                  Cancelar y volver
+                </Button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {scanningCustomer && (
         <div className="fixed inset-0 z-30 bg-black flex flex-col">
@@ -1279,6 +1458,17 @@ function NewSale({ eventId, registerId, onSale }: {
               <div className="w-56 h-56 rounded-3xl border-2 border-primary/70 shadow-[0_0_0_100vmax_rgba(0,0,0,0.45)]" />
             </div>
           </QrScanner>
+        </div>
+      )}
+
+      {infoProduct && (
+        <div className="fixed inset-0 z-30 bg-black/85 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => setInfoProduct(null)}>
+          <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-3" onClick={(e) => e.stopPropagation()}>
+            <span className="text-4xl leading-none">{infoProduct.emoji || CATEGORY_META[infoProduct.category]?.emoji || '🛍️'}</span>
+            <p className="font-heading font-bold text-2xl">{infoProduct.name}</p>
+            <p className="text-white/70 whitespace-pre-wrap">{infoProduct.description}</p>
+            <Button className="w-full h-11 bg-primary hover:bg-primary/90" onClick={() => setInfoProduct(null)}>Listo</Button>
+          </div>
         </div>
       )}
     </div>

@@ -168,14 +168,14 @@ describe("createCajaSale", () => {
     expect(calls.discountUsedCountUpdates).toBe(0);
   });
 
-  it("guardarropía: cobra y registra la percha con el número tecleado", async () => {
+  it("guardarropía: cobra y registra la percha con el número correlativo y el nombre del cliente", async () => {
     const abrigo = { id: 3, name: "Guardarropía", price: "2000", costPrice: null, category: "locker", totalStock: 999, soldCount: 0 };
     const { db, calls } = makeFakeDb({ products: [abrigo] });
 
-    const res = await createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 1 }], lockerTag: "42" });
+    const res = await createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 1 }], lockerTag: "42", lockerCustomerName: "Ana" });
 
     expect(res.result).toBe("applied");
-    expect(calls.lockerInsert).toMatchObject({ tagNumber: "42", orderId: 777 });
+    expect(calls.lockerInsert).toMatchObject({ tagNumber: "42", customerName: "Ana", orderId: 777 });
   });
 
   it("guardarropía: rechaza sin número de percha", async () => {
@@ -183,8 +183,17 @@ describe("createCajaSale", () => {
     const { db } = makeFakeDb({ products: [abrigo] });
 
     await expect(
-      createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 1 }] })
+      createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 1 }], lockerCustomerName: "Ana" })
     ).rejects.toThrow(/número de la percha/);
+  });
+
+  it("guardarropía: rechaza sin nombre del cliente", async () => {
+    const abrigo = { id: 3, name: "Guardarropía", price: "2000", costPrice: null, category: "locker", totalStock: 999, soldCount: 0 };
+    const { db } = makeFakeDb({ products: [abrigo] });
+
+    await expect(
+      createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 1 }], lockerTag: "42" })
+    ).rejects.toThrow(/nombre del cliente/);
   });
 
   it("guardarropía: rechaza más de un abrigo por venta", async () => {
@@ -192,7 +201,7 @@ describe("createCajaSale", () => {
     const { db } = makeFakeDb({ products: [abrigo] });
 
     await expect(
-      createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 2 }], lockerTag: "42" })
+      createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 2 }], lockerTag: "42", lockerCustomerName: "Ana" })
     ).rejects.toThrow(/de a uno/);
   });
 
@@ -201,7 +210,7 @@ describe("createCajaSale", () => {
     const { db } = makeFakeDb({ products: [abrigo], existingLockerTag: true });
 
     await expect(
-      createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 1 }], lockerTag: "42" })
+      createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 3, quantity: 1 }], lockerTag: "42", lockerCustomerName: "Ana" })
     ).rejects.toThrow(/ya está en uso/);
   });
 

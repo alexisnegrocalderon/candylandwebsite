@@ -44,7 +44,7 @@ async function requirePartyProfile(ticketCode: string) {
   return { ...actor, profile: actor.profile };
 }
 import { createCajaSale } from "./caja/sale";
-import { listKitchenTickets, updateKitchenTicket } from "./kitchen";
+import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKitchenProductStock } from "./kitchen";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
@@ -790,6 +790,22 @@ export const appRouter = router({
         to: input.to,
       });
     }),
+
+    // Porciones disponibles por producto (docs/ARQUITECTURA-CAJA.md §12):
+    // cocina carga cuánto hay de cada opción y la cajera solo puede vender
+    // hasta ese tope -- mismo stock/soldCount que ya usa /caja, no una
+    // tabla paralela.
+    products: kitchenProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return listKitchenProducts(input.eventId);
+    }),
+
+    updateStock: kitchenProcedure.input(z.object({
+      productId: z.number(),
+      eventId: z.number(),
+      totalStock: z.number().min(0),
+    })).mutation(async ({ input, ctx }) => {
+      return updateKitchenProductStock(input.productId, input.eventId, input.totalStock, ctx.operator.operatorId);
+    }),
   }),
 
   // --- Caramelo: la fiesta dentro del celular ---
@@ -1519,6 +1535,7 @@ export const appRouter = router({
           redeemPlaycoins: z.number().int().min(0).optional(),
           discountCode: z.string().optional(),
           lockerTag: z.string().max(16).optional(),
+          lockerCustomerName: z.string().max(120).optional(),
           kitchenTicketNumber: z.string().max(12).optional(),
           customerName: z.string().max(60).optional(),
           clientAt: z.string(),
@@ -1546,8 +1563,8 @@ export const appRouter = router({
               opId: op.opId, eventId: input.eventId, operatorId: ctx.operator.operatorId, registerId: input.registerId,
               items: op.items, paymentMethod: op.paymentMethod, clientAt: new Date(op.clientAt),
               buyerEmail: op.buyerEmail, redeemPlaycoins: op.redeemPlaycoins,
-              discountCode: op.discountCode, lockerTag: op.lockerTag, kitchenTicketNumber: op.kitchenTicketNumber,
-              customerName: op.customerName,
+              discountCode: op.discountCode, lockerTag: op.lockerTag, lockerCustomerName: op.lockerCustomerName,
+              kitchenTicketNumber: op.kitchenTicketNumber, customerName: op.customerName,
             });
           }
         } catch (err) {
@@ -1717,6 +1734,7 @@ export const appRouter = router({
       redeemPlaycoins: z.number().int().min(0).optional(),
       discountCode: z.string().optional(),
       lockerTag: z.string().max(16).optional(),
+      lockerCustomerName: z.string().max(120).optional(),
       kitchenTicketNumber: z.string().max(12).optional(),
       customerName: z.string().max(60).optional(),
       clientAt: z.string(),
@@ -1735,6 +1753,7 @@ export const appRouter = router({
           redeemPlaycoins: input.redeemPlaycoins,
           discountCode: input.discountCode,
           lockerTag: input.lockerTag,
+          lockerCustomerName: input.lockerCustomerName,
           kitchenTicketNumber: input.kitchenTicketNumber,
           customerName: input.customerName,
           clientAt: new Date(input.clientAt),

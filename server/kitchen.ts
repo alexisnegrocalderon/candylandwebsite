@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
-import { getDb } from "./db";
-import { kitchenTickets } from "../drizzle/schema";
+import { getDb, updateTicketType } from "./db";
+import { kitchenTickets, ticketTypes } from "../drizzle/schema";
 import { applyOp } from "./caja/ops";
 import { canTransitionKitchenTicket, type KitchenTicketStatus } from "../shared/kitchen";
 
@@ -73,4 +73,40 @@ export async function updateKitchenTicket(
   );
 
   return { result, conflictNote };
+}
+
+/** Productos que van a cocina (toKitchen=1) del evento, con su stock actual
+ * -- para que el equipo de cocina cargue cuántas porciones hay de cada uno.
+ * Se muestran todos, no solo los agrupados como "Comida": un trago con
+ * ingrediente limitado también puede necesitar tope de porciones. */
+export async function listKitchenProducts(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    id: ticketTypes.id,
+    name: ticketTypes.name,
+    groupName: ticketTypes.groupName,
+    emoji: ticketTypes.emoji,
+    totalStock: ticketTypes.totalStock,
+    soldCount: ticketTypes.soldCount,
+    status: ticketTypes.status,
+  }).from(ticketTypes)
+    .where(and(eq(ticketTypes.eventId, eventId), eq(ticketTypes.toKitchen, 1)))
+    .orderBy(asc(ticketTypes.groupName), asc(ticketTypes.sortOrder));
+  return rows;
+}
+
+/** Cocina carga cuántas porciones hay disponibles de un producto -- reusa
+ * `updateTicketType` (mismo camino que el admin) para no duplicar la
+ * lógica de auditoría, pero firma el cambio con `changedByOperatorId` en
+ * vez de `changedByUserId` (son tablas distintas, ver ticketStockHistory). */
+export async function updateKitchenProductStock(productId: number, eventId: number, totalStock: number, operatorId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [product] = await db.select({ id: ticketTypes.id, toKitchen: ticketTypes.toKitchen, eventId: ticketTypes.eventId })
+    .from(ticketTypes).where(eq(ticketTypes.id, productId)).limit(1);
+  if (!product || product.eventId !== eventId || product.toKitchen !== 1) {
+    throw new Error("Ese producto no pertenece a cocina en este evento");
+  }
+  return updateTicketType(productId, { totalStock }, undefined, operatorId);
 }

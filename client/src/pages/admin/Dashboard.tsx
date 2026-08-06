@@ -99,7 +99,7 @@ function StockHistoryDialog({ ticketTypeId, ticketName }: { ticketTypeId: number
               <div key={h.id} className="text-sm bg-muted/30 rounded-lg px-3 py-2 flex items-center justify-between">
                 <span>
                   <strong>{h.previousStock}</strong> → <strong>{h.newStock}</strong>
-                  <span className="text-muted-foreground ml-2">{h.changedByName || h.changedByEmail || 'Admin'}</span>
+                  <span className="text-muted-foreground ml-2">{h.changedByName || h.changedByEmail || (h.changedByOperatorName ? `${h.changedByOperatorName} (cocina)` : 'Admin')}</span>
                 </span>
                 <span className="text-xs text-muted-foreground">{new Date(h.createdAt).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}</span>
               </div>
@@ -4268,6 +4268,10 @@ const emptyProduct = (category: CartaCategory) => ({
   totalStock: 100,
   sortOrder: 0,
   toKitchen: category === 'consumo' ? 0 : 0,
+  // Ingredientes/sabores especiales -- se muestra en /caja al mantener
+  // presionada la tarjeta, para que la cajera pueda responder preguntas del
+  // cliente sin ir a buscarlo.
+  description: '',
 });
 
 function CartaManager() {
@@ -4310,6 +4314,7 @@ function CartaManager() {
       totalStock: Number(p.totalStock),
       sortOrder: Number(p.sortOrder ?? 0),
       toKitchen: Number(p.toKitchen ?? 0),
+      description: p.description ?? '',
     });
     setEditingId(p.id);
     setShowForm(true);
@@ -4330,6 +4335,7 @@ function CartaManager() {
       totalStock: form.totalStock,
       sortOrder: form.sortOrder,
       toKitchen: form.toKitchen,
+      description: form.description.trim() || undefined,
     };
     try {
       if (editingId) await updateType.mutateAsync({ id: editingId, ...payload });
@@ -4392,6 +4398,12 @@ function CartaManager() {
                 <Input value={form.groupName} onChange={(e) => setForm({ ...form, groupName: e.target.value })} className="mt-1" placeholder="Ej: Tragos" />
                 <p className="text-muted-foreground text-xs mt-1">Arma las pestañas de la grilla en /caja.</p>
               </div>
+            </div>
+
+            <div>
+              <Label>Ingredientes / sabores especiales</Label>
+              <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1" placeholder="Ej: Pisco, jugo de maracuyá natural, un toque de menta" rows={2} />
+              <p className="text-muted-foreground text-xs mt-1">Opcional. Aparece en /caja al mantener presionada la tarjeta del producto, para que la cajera pueda responder preguntas del cliente.</p>
             </div>
 
             <div>

@@ -129,6 +129,12 @@ export const ticketStockHistory = mysqlTable("ticketStockHistory", {
   previousStock: int("previousStock").notNull(),
   newStock: int("newStock").notNull(),
   changedByUserId: int("changedByUserId"),
+  // Cambio hecho por staff de cocina (ej. cargar porciones disponibles del
+  // día) en vez de por un admin -- mutuamente excluyente con
+  // changedByUserId, distinguen quién hizo el cambio porque operators y
+  // users son tablas separadas (un id de operador podría coincidir con un
+  // id de usuario sin tener relación).
+  changedByOperatorId: int("changedByOperatorId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   ticketTypeIdx: index("ticketStockHistory_ticketTypeId_idx").on(table.ticketTypeId),
@@ -696,20 +702,23 @@ export const shifts = mysqlTable("shifts", {
 export type Shift = typeof shifts.$inferSelect;
 export type InsertShift = typeof shifts.$inferInsert;
 
-// Guardarropía: una fila por prenda dejada. `tagNumber` es el número de la
-// PERCHA FÍSICA, tecleado por la cajera al cobrar -- no lo genera el sistema.
-// Es a propósito: un correlativo asignado por el servidor no puede funcionar
-// sin señal (dos tablets desconectadas asignarían las dos el #42), y además
-// el número impreso en la ficha es justamente el que la persona lleva en la
-// mano. El único de abajo es la red de seguridad: si alguien teclea un
-// número ya usado esta noche, la caja avisa en vez de dejar dos abrigos con
-// el mismo número.
+// Guardarropía: una fila por prenda dejada. `tagNumber` ya NO lo teclea la
+// cajera: lo genera la propia tablet como correlativo `<nº de caja>-<n>`
+// (client/src/pages/caja/db.ts nextLockerTagNumber), mismo patrón y mismo
+// motivo que el número de comanda de cocina (ver shared/kitchen.ts) -- el
+// prefijo de caja es lo que garantiza que dos tablets sin señal nunca
+// asignen el mismo número entre sí, sin necesitar coordinarse. El único de
+// abajo sigue siendo la red de seguridad, ahora casi imposible de disparar.
 export const lockerItems = mysqlTable("lockerItems", {
   id: int("id").autoincrement().primaryKey(),
   eventId: int("eventId").notNull(),
   orderId: int("orderId").notNull(),
   opId: varchar("opId", { length: 64 }).notNull(),
   tagNumber: varchar("tagNumber", { length: 16 }).notNull(),
+  // Nombre que la cajera le pide al cliente al cobrar -- mismo criterio que
+  // kitchenTickets.customerName: un número correlativo es difícil de
+  // recordar para retirar la prenda, un nombre no.
+  customerName: varchar("customerName", { length: 120 }),
   status: mysqlEnum("status", ["guardado", "retirado"]).default("guardado").notNull(),
   chargedAt: timestamp("chargedAt").defaultNow().notNull(),
   retrievedAt: timestamp("retrievedAt"),
