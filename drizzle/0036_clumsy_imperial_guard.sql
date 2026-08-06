@@ -1,0 +1,1 @@
+ALTER TABLE `ops` MODIFY COLUMN `type` enum('redeem','checkin','sale','void_code','note','shift_open','shift_close','manual_adjust','locker_return','kitchen_update') NOT NULL;

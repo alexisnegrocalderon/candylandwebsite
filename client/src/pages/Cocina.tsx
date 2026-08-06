@@ -211,8 +211,14 @@ function Board({ operatorName }: { operatorName: string }) {
     localStorage.setItem(SOUND_MUTED_KEY, next ? '1' : '0');
   };
 
+  // Estado de carga por tarjeta -- sin esto, apretar "Aprobar" no cambiaba
+  // nada visible hasta que volvía la respuesta (pedido explícito del
+  // dueño: debería decir "Preparando…" apenas se aprieta).
+  const [pendingAction, setPendingAction] = useState<{ ticketNumber: string; to: 'aprobado' | 'entregado' } | null>(null);
+
   const doUpdate = (ticketNumber: string, to: 'aprobado' | 'entregado') => {
     if (!event) return;
+    setPendingAction({ ticketNumber, to });
     update.mutate(
       { opId: newOpId(), eventId: event.id, ticketNumber, to, clientAt: new Date().toISOString() },
       {
@@ -220,6 +226,7 @@ function Board({ operatorName }: { operatorName: string }) {
           if (res.result === 'conflict') toast.warning(res.conflictNote || 'Ese pedido ya cambió de estado');
           else listQuery.refetch();
         },
+        onSettled: () => setPendingAction(null),
         onError: (e) => toast.error(e.message),
       }
     );
@@ -272,7 +279,13 @@ function Board({ operatorName }: { operatorName: string }) {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {active.map((t) => (
-              <TicketCard key={t.id} ticket={t} onApprove={() => doUpdate(t.ticketNumber, 'aprobado')} onDeliver={() => doUpdate(t.ticketNumber, 'entregado')} />
+              <TicketCard
+                key={t.id}
+                ticket={t}
+                onApprove={() => doUpdate(t.ticketNumber, 'aprobado')}
+                onDeliver={() => doUpdate(t.ticketNumber, 'entregado')}
+                pendingTo={pendingAction?.ticketNumber === t.ticketNumber ? pendingAction.to : null}
+              />
             ))}
           </div>
         )}
@@ -288,8 +301,12 @@ function Board({ operatorName }: { operatorName: string }) {
                     <span className="text-white/30 text-xs ml-2 font-mono">{t.ticketNumber}</span>
                     <span className="text-white/40 text-sm ml-2">{t.items.map((i) => `${i.quantity}× ${i.name}`).join(', ')}</span>
                   </div>
-                  <button onClick={() => doUpdate(t.ticketNumber, 'aprobado')} className="text-xs text-white/50 underline shrink-0">
-                    Deshacer
+                  <button
+                    onClick={() => doUpdate(t.ticketNumber, 'aprobado')}
+                    disabled={pendingAction?.ticketNumber === t.ticketNumber}
+                    className="text-xs text-white/50 underline shrink-0 disabled:opacity-40"
+                  >
+                    {pendingAction?.ticketNumber === t.ticketNumber ? 'Deshaciendo…' : 'Deshacer'}
                   </button>
                 </div>
               ))}
@@ -520,8 +537,11 @@ function useElapsed(createdAt: string) {
   return { label, tone };
 }
 
-function TicketCard({ ticket, onApprove, onDeliver }: { ticket: KitchenTicketRow; onApprove: () => void; onDeliver: () => void }) {
+function TicketCard({ ticket, onApprove, onDeliver, pendingTo }: {
+  ticket: KitchenTicketRow; onApprove: () => void; onDeliver: () => void; pendingTo: 'aprobado' | 'entregado' | null;
+}) {
   const { label, tone } = useElapsed(ticket.createdAt);
+  const disabled = pendingTo !== null;
 
   return (
     <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 space-y-3">
@@ -542,12 +562,12 @@ function TicketCard({ ticket, onApprove, onDeliver }: { ticket: KitchenTicketRow
       {ticket.note && <p className="text-sm text-white/50 italic">{ticket.note}</p>}
       <div className="flex gap-2 pt-1">
         {ticket.status === 'pendiente' && (
-          <button onClick={onApprove} className="flex-1 h-12 rounded-full bg-white/10 font-bold active:scale-[0.98] transition-transform">
-            Aprobar
+          <button onClick={onApprove} disabled={disabled} className="flex-1 h-12 rounded-full bg-white/10 font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:active:scale-100">
+            {pendingTo === 'aprobado' ? 'Preparando…' : 'Aprobar'}
           </button>
         )}
-        <button onClick={onDeliver} className="flex-1 h-12 rounded-full bg-primary font-bold active:scale-[0.98] transition-transform">
-          Entregado
+        <button onClick={onDeliver} disabled={disabled} className="flex-1 h-12 rounded-full bg-primary font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:active:scale-100">
+          {pendingTo === 'entregado' ? 'Entregando…' : 'Entregado'}
         </button>
       </div>
     </div>

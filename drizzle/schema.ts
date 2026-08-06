@@ -625,7 +625,12 @@ export type InsertCustomer = typeof customers.$inferInsert;
 // actualiza ni se borra una fila — las correcciones son operaciones nuevas.
 export const ops = mysqlTable("ops", {
   id: varchar("id", { length: 36 }).primaryKey(), // UUID generado en el cliente (idempotencia)
-  type: mysqlEnum("type", ["redeem", "sale", "void_code", "note", "shift_open", "shift_close", "manual_adjust"]).notNull(),
+  // Debe coincidir siempre con `OpType` en server/caja/ops.ts -- quedó
+  // desactualizado una vez (le faltaban 'checkin', 'locker_return' y
+  // 'kitchen_update', agregados al tipo de TS pero nunca migrados acá),
+  // lo que hacía fallar el INSERT para cualquier check-in en /puerta o
+  // Aprobar/Entregado en /cocina.
+  type: mysqlEnum("type", ["redeem", "checkin", "sale", "void_code", "note", "shift_open", "shift_close", "manual_adjust", "locker_return", "kitchen_update"]).notNull(),
   eventId: int("eventId").notNull(),
   operatorId: int("operatorId").notNull(),
   registerId: int("registerId"),

@@ -253,6 +253,13 @@
       "when": 1786046147538,
       "tag": "0035_graceful_demogoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "5",
+      "when": 1786057600589,
+      "tag": "0036_clumsy_imperial_guard",
+      "breakpoints": true
     }
   ]
 }
