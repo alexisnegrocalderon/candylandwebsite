@@ -972,6 +972,9 @@ function NewSale({ eventId, registerId, onSale }: {
   };
   const cancelLongPress = () => {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+    // El popup es solo mientras se mantiene presionado -- se cierra solo al
+    // soltar, sin necesidad de un botón aparte.
+    setInfoProduct(null);
   };
 
   // Playcoins (pedido explícito del usuario): paso opcional/omisible para
@@ -1191,8 +1194,13 @@ function NewSale({ eventId, registerId, onSale }: {
                   onPointerDown={() => startLongPress(p)}
                   onPointerUp={cancelLongPress}
                   onPointerLeave={cancelLongPress}
-                  className="relative rounded-3xl p-4 min-h-[88px] text-left border active:scale-95 transition-transform backdrop-blur-sm"
-                  style={{ backgroundColor: (p.color || '#f472b6') + '14', borderColor: (p.color || '#f472b6') + '50', boxShadow: `0 0 20px -10px ${p.color || '#f472b6'}` }}
+                  onPointerCancel={cancelLongPress}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className="relative select-none rounded-3xl p-4 min-h-[88px] text-left border active:scale-95 transition-transform backdrop-blur-sm"
+                  style={{
+                    backgroundColor: (p.color || '#f472b6') + '14', borderColor: (p.color || '#f472b6') + '50', boxShadow: `0 0 20px -10px ${p.color || '#f472b6'}`,
+                    WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: 'manipulation',
+                  }}
                 >
                   {editingFavorites && (
                     <span className={`absolute top-2 right-2 text-lg leading-none ${isFavorite ? '' : 'opacity-30'}`}>
@@ -1206,6 +1214,13 @@ function NewSale({ eventId, registerId, onSale }: {
                   )}
                   {p.description && (
                     <span className="absolute bottom-2 right-2 text-[10px] text-white/30" aria-hidden>ⓘ</span>
+                  )}
+                  {infoProduct?.id === p.id && (
+                    <div className="absolute inset-0 z-10 rounded-3xl bg-black/80 backdrop-blur-md border border-white/20 flex flex-col items-center justify-center text-center p-3 gap-1 overflow-y-auto pointer-events-none">
+                      <span className="text-2xl leading-none">{p.emoji || CATEGORY_META[p.category]?.emoji || '🛍️'}</span>
+                      <p className="text-white font-semibold text-xs leading-tight">{p.name}</p>
+                      <p className="text-white/90 text-[11px] leading-snug whitespace-pre-wrap">{p.description}</p>
+                    </div>
                   )}
                   <div className="flex items-center gap-2">
                     <span className="text-3xl leading-none">{p.emoji || CATEGORY_META[p.category]?.emoji || '🛍️'}</span>
@@ -1461,16 +1476,6 @@ function NewSale({ eventId, registerId, onSale }: {
         </div>
       )}
 
-      {infoProduct && (
-        <div className="fixed inset-0 z-30 bg-black/85 backdrop-blur-sm flex items-center justify-center p-6" onClick={() => setInfoProduct(null)}>
-          <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-3" onClick={(e) => e.stopPropagation()}>
-            <span className="text-4xl leading-none">{infoProduct.emoji || CATEGORY_META[infoProduct.category]?.emoji || '🛍️'}</span>
-            <p className="font-heading font-bold text-2xl">{infoProduct.name}</p>
-            <p className="text-white/70 whitespace-pre-wrap">{infoProduct.description}</p>
-            <Button className="w-full h-11 bg-primary hover:bg-primary/90" onClick={() => setInfoProduct(null)}>Listo</Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
