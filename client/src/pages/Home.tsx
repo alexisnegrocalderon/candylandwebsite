@@ -31,7 +31,7 @@ import { trpc } from '@/lib/trpc';
 import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
 import { scrollToId, prefersReducedMotion, isFinePointer } from '@/lib/smoothScroll';
-import { isMissionWindowOpen, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
+import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 import { useSeo } from '@/hooks/useSeo';
 import { eventSchema, faqSchema } from '@shared/structuredData';
 
@@ -244,7 +244,7 @@ function DraggableCandies({ boundsRef }: { boundsRef: React.RefObject<HTMLElemen
 
 /* ─── Hero ─────────────────────────────────────────────────── */
 
-function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
+function Hero() {
   const sectionRef = useRef<HTMLElement>(null);
   const { scrollYProgress } = useScroll({ target: sectionRef, offset: ['start start', 'end start'] });
   const bgY = useTransform(scrollYProgress, [0, 1], ['0%', '30%']);
@@ -380,32 +380,6 @@ function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
           </span>
         </motion.div>
 
-        {/* invisible (no hidden/desmontado) mientras missionPricing no resuelve
-         * -- reserva el espacio del bloque desde el primer render para que no
-         * salte el layout cuando la query de tRPC llega (el texto no depende
-         * del VALOR de missionPricing, MISSION_300_DEPOSIT_PER_PERSON es una
-         * constante -- missionPricing solo indica si la preventa sigue
-         * vigente). Esto salía como "Causantes del cambio de diseño" en
-         * PageSpeed Desktop. */}
-        <motion.div
-          initial={{ opacity: 0, y: 16, scale: 0.9 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.7, delay: 0.78, ease: [0.23, 1, 0.32, 1] }}
-          className={`mt-6 flex justify-center ${missionPricing ? '' : 'invisible'}`}
-        >
-          <Link
-            href={`/checkout/${CANDYLAND.slug}`}
-            className="btn-mission300 interactive flex flex-col items-center gap-0.5 px-10 py-5 sm:px-12 sm:py-6 rounded-[2rem] text-white"
-          >
-            <span className="text-xs sm:text-sm uppercase tracking-[0.25em] font-extrabold drop-shadow-sm">🔥 Misión 300</span>
-            <span className="font-heading font-black text-4xl sm:text-5xl leading-none drop-shadow-sm">
-              {formatCLP(MISSION_300_DEPOSIT_PER_PERSON)}
-            </span>
-            <span className="text-[10px] sm:text-xs uppercase tracking-wide font-semibold text-white/85">por persona</span>
-            <span className="mt-1.5 text-sm sm:text-base font-bold">Reserva tu lugar hoy</span>
-          </Link>
-        </motion.div>
-
         <motion.div
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
@@ -417,7 +391,7 @@ function Hero({ missionPricing }: { missionPricing: MissionPricing }) {
             className="btn-jelly inline-flex items-center gap-3 px-10 py-5 bg-primary text-primary-foreground rounded-full text-lg font-bold uppercase tracking-wide interactive"
           >
             <Ticket className="w-5 h-5" />
-            Comprar entrada
+            Quiero ir
           </Link>
           <button
             type="button"
@@ -1056,7 +1030,7 @@ function StickyMobileCTA() {
         className="btn-jelly w-full py-4 bg-primary text-primary-foreground rounded-full font-bold uppercase tracking-wide text-base shadow-[0_-4px_24px_oklch(0.68_0.16_340_/_0.25)] inline-flex items-center justify-center gap-2"
       >
         <Ticket className="w-5 h-5" />
-        Comprar acceso
+        Quiero ir
       </Link>
     </motion.div>
   );
@@ -1129,7 +1103,7 @@ export default function Home() {
   // comunicación de la preventa) y si no existe usa el acceso más barato.
   const missionPricing: MissionPricing = useMemo(() => {
     if (!liveTickets || liveTickets.length === 0) return null;
-    if (!event?.eventDate || !isMissionWindowOpen(new Date(event.eventDate))) return null;
+    if (!event?.eventDate || !isMissionActiveForEvent(event)) return null;
     const accesos = liveTickets.filter((t: any) => t.category === 'acceso' && t.status === 'active');
     if (accesos.length === 0) return null;
     const destacado = accesos.find((t: any) => t.accesoSlug === 'duo')
@@ -1145,7 +1119,7 @@ export default function Home() {
       <CandyIntro />
       <ScrollCandies />
       {showNoise && <div className="noise-overlay" />}
-      <Hero missionPricing={missionPricing} />
+      <Hero />
       <UpcomingEventsSection />
       <UrgencySection vendidos={vendidos} missionPricing={missionPricing} />
       <LineupSection />

@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, whatsappComunidadLink, type Acceso, type CampoForm } from '@/config/candyland';
-import { isMissionWindowOpen, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
+import { isMissionActiveForEvent, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
 import { isValidRut, isValidChileanPhone } from '@shared/rut';
 import { useSeo } from '@/hooks/useSeo';
 
@@ -250,7 +250,7 @@ export default function Checkout() {
   // valor general — igual que hace createOrder en el servidor. Se calcula acá
   // también para que el checkout MUESTRE el precio real que se va a cobrar,
   // en vez del valor general que confundiría a la hora de pagar.
-  const missionOpen = !useConfig && !!event?.eventDate && isMissionWindowOpen(new Date(event.eventDate));
+  const missionOpen = !useConfig && !!event?.eventDate && isMissionActiveForEvent(event);
 
   const acceso: Acceso | undefined = useMemo(() => {
     if (!accesoId) return undefined;

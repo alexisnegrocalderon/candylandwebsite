@@ -4,7 +4,7 @@ import { invokeLLM } from "./_core/llm";
 import { sendEmail, buildMailingBlastEmail, type MailingEventInfo, type MailingEventSections } from "./email";
 import * as db from "./db";
 import { getMission300Status } from "./webhooks";
-import { isMissionWindowOpen, MISSION_300_DEPOSIT_PER_PERSON } from "../shared/mission300";
+import { isMissionActiveForEvent, MISSION_300_DEPOSIT_PER_PERSON } from "../shared/mission300";
 
 function formatEventDateTime(date: Date): string {
   return `${formatChileDate(date)}, ${formatChileTime(date)} hrs`;
@@ -20,7 +20,7 @@ export async function getMailingEventInfo(): Promise<MailingEventInfo | null> {
 
   const eventDate = new Date(event.eventDate);
   let mission300: MailingEventInfo['mission300'] = null;
-  if (isMissionWindowOpen(eventDate)) {
+  if (isMissionActiveForEvent(event)) {
     const status = await getMission300Status(event.id);
     mission300 = { confirmed: status.totalPersonas, goal: status.goal, depositPrice: MISSION_300_DEPOSIT_PER_PERSON };
   }

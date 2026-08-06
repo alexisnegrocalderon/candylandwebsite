@@ -326,6 +326,7 @@ export const appRouter = router({
       doorsOpen: z.string().optional(),
       status: z.enum(['draft', 'published', 'soldout', 'cancelled', 'past']).optional(),
       featured: z.number().optional(),
+      missionForceClosed: z.number().optional(),
     })).mutation(async ({ input }) => {
       return db.createEvent(input);
     }),
@@ -343,6 +344,7 @@ export const appRouter = router({
       doorsOpen: z.string().optional(),
       status: z.enum(['draft', 'published', 'soldout', 'cancelled', 'past']).optional(),
       featured: z.number().optional(),
+      missionForceClosed: z.number().optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return db.updateEvent(id, data);
@@ -397,12 +399,15 @@ export const appRouter = router({
       emoji: z.string().max(8).optional(),
       groupName: z.string().max(50).optional(),
       toKitchen: z.number().min(0).max(1).optional(),
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
-      return db.updateTicketType(id, data);
+      return db.updateTicketType(id, data, ctx.user.id);
     }),
     deleteTicketType: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       return db.deleteTicketType(input.id);
+    }),
+    ticketStockHistory: adminProcedure.input(z.object({ ticketTypeId: z.number() })).query(async ({ input }) => {
+      return db.getTicketStockHistory(input.ticketTypeId);
     }),
   }),
 

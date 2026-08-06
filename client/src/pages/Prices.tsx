@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Ticket, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
-import { isMissionWindowOpen, missionDepositPrice } from '@shared/mission300';
+import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
 import { useSeo } from '@/hooks/useSeo';
 import { breadcrumbSchema } from '@shared/structuredData';
 
@@ -31,7 +31,7 @@ export default function Prices() {
   const { data: liveTickets } = trpc.events.getTicketTypes.useQuery({ slug: CANDYLAND.slug }, { retry: false });
 
   const accesos = (liveTickets ?? []).filter((t: any) => t.category === 'acceso' && t.status !== 'hidden');
-  const missionOpen = !!event?.eventDate && isMissionWindowOpen(new Date(event.eventDate));
+  const missionOpen = !!event?.eventDate && isMissionActiveForEvent(event);
 
   return (
     <div className="min-h-dvh pt-24 pb-16">

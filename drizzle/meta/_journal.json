@@ -225,6 +225,13 @@
       "when": 1785990421779,
       "tag": "0031_chubby_captain_britain",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "5",
+      "when": 1785998144928,
+      "tag": "0032_plain_husk",
+      "breakpoints": true
     }
   ]
 }
