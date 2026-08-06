@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Camera, Search, WifiOff, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
+import { useInstallableApp } from '@/hooks/useInstallableApp';
 import { QrScanner } from '@/components/QrScanner';
 import { parseTicketCodeFromQr } from '@shared/qr';
 import { personasForTicket } from '@shared/mission300';
@@ -43,6 +44,9 @@ function newOpId() {
 
 export default function Puerta() {
   useSeo({ title: 'Puerta — Mansion Playroom', description: 'Control de acceso.', path: '/puerta', noindex: true });
+  // Instalable en la pantalla de inicio: el anfitrión escanea de pie, sin la
+  // barra del navegador ocupando espacio.
+  useInstallableApp('/puerta.webmanifest', '/puerta/sw.js', '/puerta/');
 
   const me = trpc.puerta.me.useQuery();
   if (me.isLoading) {

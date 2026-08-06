@@ -203,10 +203,12 @@ export default defineConfig(({ command }) => {
         // Solo el shell de la app (JS/CSS/HTML) -- los datos (snapshot del
         // evento) viven en IndexedDB vía Dexie, no en la cache de Workbox.
         globPatterns: ["**/*.{js,css,html}"],
-        // El service worker de /gastos NO se precachea: un SW servido desde la
-        // caché de otro SW puede quedar pegado en una versión vieja, y además
-        // /gastos es una pantalla online-only que no quiere caché ninguna.
-        globIgnores: ["**/gastos/sw.js"],
+        // Los service workers de las otras pantallas instalables NO se
+        // precachean acá: un SW servido desde la caché de otro SW puede
+        // quedar pegado en una versión vieja, y ninguna de esas pantallas
+        // (gastos, puerta, admin) quiere caché de Workbox -- necesitan datos
+        // siempre frescos del servidor.
+        globIgnores: ["**/gastos/sw.js", "**/puerta/sw.js", "**/admin/sw.js"],
         navigateFallback: "/caja",
         navigateFallbackDenylist: [/^\/api\//, /^\/(?!caja)/],
       },

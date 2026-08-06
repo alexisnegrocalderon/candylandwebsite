@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
+import { useInstallableApp } from '@/hooks/useInstallableApp';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -4623,6 +4624,8 @@ export default function AdminDashboard() {
   // publica la ruta a quien lo lea; la etiqueta noindex es lo que de verdad
   // lo mantiene fuera del indice.
   useSeo({ title: 'Panel — Mansion Playroom', description: '', path: '/admin', noindex: true });
+  // Instalable en la pantalla de inicio, sin la barra del navegador.
+  useInstallableApp('/admin.webmanifest', '/admin/sw.js', '/admin/');
 
   const { user, loading, isAuthenticated, logout } = useAuth();
   const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>('events');

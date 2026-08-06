@@ -1,0 +1,19 @@
+{
+  "name": "Mansion Playroom · Puerta",
+  "short_name": "Puerta",
+  "description": "Control de acceso en la entrada",
+  "start_url": "/puerta",
+  "scope": "/puerta",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d0810",
+  "theme_color": "#0d0810",
+  "icons": [
+    {
+      "src": "/candyland/logo-isotipo.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "any"
+    }
+  ]
+}

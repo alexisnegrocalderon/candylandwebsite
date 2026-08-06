@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Check, ChevronDown, Trash2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
+import { useInstallableApp } from '@/hooks/useInstallableApp';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
@@ -19,48 +20,17 @@ import { getRecentCategories, pushRecentCategory } from './recent';
  * pensada para cargar una compra en cinco toques mientras se está de pie en
  * una ferretería, no para analizar números -- eso vive en /admin → Gastos.
  *
- * Instalable en la pantalla de inicio con su propio manifest
- * (public/gastos.webmanifest, inyectado acá abajo y quitado al salir para que
- * el sitio público no ofrezca instalar "Gastos"). Va online-only a propósito:
- * no lleva la cola offline de /caja porque los gastos se cargan con señal, no
- * a oscuras en la pista.
+ * Instalable en la pantalla de inicio (ver useInstallableApp). Va
+ * online-only a propósito: no lleva la cola offline de /caja porque los
+ * gastos se cargan con señal, no a oscuras en la pista.
  *
  * Todo en un archivo, mismo criterio que client/src/pages/caja/index.tsx. */
 
 export default function GastosApp() {
   useSeo({ title: 'Gastos — Mansion Playroom', description: '', path: '/gastos', noindex: true });
-
-  // El manifest y el service worker se montan solo mientras esta pantalla está
-  // viva. El SW es network-only (no cachea nada): existe únicamente porque
-  // Chrome no ofrece "instalar" sin uno. iOS instala solo con el manifest.
-  useEffect(() => {
-    // vite-plugin-pwa inyecta un <link rel="manifest"> apuntando al manifest
-    // de Caja en el ÚNICO index.html que comparte todo el sitio (es una SPA
-    // con ruteo en el cliente) -- está SIEMPRE presente, en cada ruta, no solo
-    // en /caja. Si acá se agrega uno nuevo en vez de reemplazarlo, quedan DOS
-    // en el DOM y el navegador usa el primero -- el de Caja -- así que
-    // "agregar a inicio" desde /gastos terminaba instalando /caja. Por eso se
-    // MUTA el existente en vez de agregar uno nuevo, y se restaura su valor
-    // original al salir de esta pantalla.
-    const existing = document.querySelector<HTMLLinkElement>('link[rel="manifest"]');
-    const originalHref = existing?.getAttribute('href') ?? null;
-    const link = existing ?? document.head.appendChild(Object.assign(document.createElement('link'), { rel: 'manifest' }));
-    link.setAttribute('href', '/gastos.webmanifest');
-
-    const meta = document.createElement('meta');
-    meta.name = 'apple-mobile-web-app-capable';
-    meta.content = 'yes';
-    document.head.appendChild(meta);
-
-    if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/gastos/sw.js', { scope: '/gastos/' }).catch(() => {});
-    }
-    return () => {
-      if (originalHref !== null) link.setAttribute('href', originalHref);
-      else link.remove();
-      meta.remove();
-    };
-  }, []);
+  // El SW es network-only (no cachea nada): existe únicamente porque Chrome
+  // no ofrece "instalar" sin uno. iOS instala solo con el manifest.
+  useInstallableApp('/gastos.webmanifest', '/gastos/sw.js', '/gastos/');
 
   const { data: user, isLoading } = trpc.auth.me.useQuery();
 

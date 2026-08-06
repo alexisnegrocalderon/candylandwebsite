@@ -1,0 +1,19 @@
+{
+  "name": "Mansion Playroom · Admin",
+  "short_name": "Admin",
+  "description": "Panel de administración",
+  "start_url": "/admin",
+  "scope": "/admin",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d0810",
+  "theme_color": "#0d0810",
+  "icons": [
+    {
+      "src": "/candyland/logo-isotipo.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "any"
+    }
+  ]
+}
