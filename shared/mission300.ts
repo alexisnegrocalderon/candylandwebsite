@@ -53,9 +53,25 @@ function depositUnitsForAccesoSlug(accesoSlug: string | null | undefined): numbe
   return ACCESO_DEPOSIT_UNITS[accesoSlug] ?? personasForAccesoSlug(accesoSlug);
 }
 
-/** Fecha límite de la Misión 300 para un evento: 3 días antes de que empiece. */
+// Mismo criterio de hora fija de Chile (UTC-4, continental sin cambio de
+// horario) ya usado en client/src/config/candyland.ts (EVENTO.eventDate) y
+// en client/src/pages/admin/Dashboard.tsx (fromChileInputValue/toChileInputValue).
+const CHILE_FIXED_OFFSET_MS = 4 * 60 * 60 * 1000;
+
+/** 23:59:59 (hora de Chile) del día que, contando el propio evento, es el
+ * día número MISSION_300_CUTOFF_DAYS antes de la fiesta -- así "3 días
+ * antes" incluye el día de hoy completo, en vez de restar 72 horas exactas
+ * desde la hora en que arranca el evento (lo que cortaba la ventana casi un
+ * día antes de lo esperado). */
 export function missionCutoff(eventDate: Date): Date {
-  return new Date(eventDate.getTime() - MISSION_300_CUTOFF_DAYS * 24 * 60 * 60 * 1000);
+  const chileWallClock = new Date(eventDate.getTime() - CHILE_FIXED_OFFSET_MS);
+  const cutoffDayUTC = Date.UTC(
+    chileWallClock.getUTCFullYear(),
+    chileWallClock.getUTCMonth(),
+    chileWallClock.getUTCDate() - (MISSION_300_CUTOFF_DAYS - 1),
+    23, 59, 59, 999,
+  );
+  return new Date(cutoffDayUTC + CHILE_FIXED_OFFSET_MS);
 }
 
 export function isMissionWindowOpen(eventDate: Date, now: Date = new Date()): boolean {
