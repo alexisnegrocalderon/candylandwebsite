@@ -957,17 +957,19 @@ function NewSale({ eventId, registerId, onSale }: {
   // es un ref (no state) para no re-renderizar en cada pointerdown, y para
   // poder leerlo de forma síncrona en el onClick que dispara el navegador
   // justo después del pointerup y así no sumar el producto al carrito.
-  const [infoProduct, setInfoProduct] = useState<CajaCatalogItem | null>(null);
+  const [infoProduct, setInfoProduct] = useState<{ product: CajaCatalogItem; x: number; y: number } | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
+  const pressPos = useRef({ x: 0, y: 0 });
   const LONG_PRESS_MS = 450;
 
-  const startLongPress = (p: CajaCatalogItem) => {
+  const startLongPress = (p: CajaCatalogItem, e: React.PointerEvent) => {
     if (!p.description) return; // nada que mostrar -- no interceptar el tap
     longPressed.current = false;
+    pressPos.current = { x: e.clientX, y: e.clientY };
     longPressTimer.current = setTimeout(() => {
       longPressed.current = true;
-      setInfoProduct(p);
+      setInfoProduct({ product: p, ...pressPos.current });
     }, LONG_PRESS_MS);
   };
   const cancelLongPress = () => {
@@ -975,6 +977,24 @@ function NewSale({ eventId, registerId, onSale }: {
     // El popup es solo mientras se mantiene presionado -- se cierra solo al
     // soltar, sin necesidad de un botón aparte.
     setInfoProduct(null);
+  };
+
+  // Popup fijo a un costado del dedo (no encima -- el dedo lo taparía), con
+  // el lado y la posición recortados contra los bordes de la pantalla para
+  // que nunca quede cortado, sin necesitar lógica por columna de la grilla.
+  const INFO_POPUP_WIDTH = 280;
+  const INFO_POPUP_MAX_HEIGHT = 240;
+  const INFO_POPUP_MARGIN = 12;
+  const clampPopupPosition = (x: number, y: number) => {
+    const fitsRight = x + INFO_POPUP_MARGIN + INFO_POPUP_WIDTH < window.innerWidth;
+    const left = fitsRight
+      ? x + INFO_POPUP_MARGIN
+      : Math.max(INFO_POPUP_MARGIN, x - INFO_POPUP_MARGIN - INFO_POPUP_WIDTH);
+    const top = Math.min(
+      Math.max(y - INFO_POPUP_MAX_HEIGHT / 2, INFO_POPUP_MARGIN),
+      window.innerHeight - INFO_POPUP_MAX_HEIGHT - INFO_POPUP_MARGIN
+    );
+    return { left, top };
   };
 
   // Playcoins (pedido explícito del usuario): paso opcional/omisible para
@@ -1191,7 +1211,7 @@ function NewSale({ eventId, registerId, onSale }: {
                     if (longPressed.current) { longPressed.current = false; return; }
                     editingFavorites ? onToggleFavorite(p.id) : add(p.id);
                   }}
-                  onPointerDown={() => startLongPress(p)}
+                  onPointerDown={(e) => startLongPress(p, e)}
                   onPointerUp={cancelLongPress}
                   onPointerLeave={cancelLongPress}
                   onPointerCancel={cancelLongPress}
@@ -1214,13 +1234,6 @@ function NewSale({ eventId, registerId, onSale }: {
                   )}
                   {p.description && (
                     <span className="absolute bottom-2 right-2 text-[10px] text-white/30" aria-hidden>ⓘ</span>
-                  )}
-                  {infoProduct?.id === p.id && (
-                    <div className="absolute inset-0 z-10 rounded-3xl bg-black/80 backdrop-blur-md border border-white/20 flex flex-col items-center justify-center text-center p-3 gap-1 overflow-y-auto pointer-events-none">
-                      <span className="text-2xl leading-none">{p.emoji || CATEGORY_META[p.category]?.emoji || '🛍️'}</span>
-                      <p className="text-white font-semibold text-xs leading-tight">{p.name}</p>
-                      <p className="text-white/90 text-[11px] leading-snug whitespace-pre-wrap">{p.description}</p>
-                    </div>
                   )}
                   <div className="flex items-center gap-2">
                     <span className="text-3xl leading-none">{p.emoji || CATEGORY_META[p.category]?.emoji || '🛍️'}</span>
@@ -1476,6 +1489,21 @@ function NewSale({ eventId, registerId, onSale }: {
         </div>
       )}
 
+      {infoProduct && (() => {
+        const { left, top } = clampPopupPosition(infoProduct.x, infoProduct.y);
+        return (
+          <div
+            className="fixed z-40 max-w-[85vw] rounded-2xl bg-black/85 backdrop-blur-lg border border-white/20 shadow-2xl p-4 overflow-y-auto pointer-events-none"
+            style={{ left, top, width: INFO_POPUP_WIDTH, maxHeight: INFO_POPUP_MAX_HEIGHT }}
+          >
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-2xl leading-none">{infoProduct.product.emoji || CATEGORY_META[infoProduct.product.category]?.emoji || '🛍️'}</span>
+              <p className="text-white font-heading font-bold text-base leading-tight">{infoProduct.product.name}</p>
+            </div>
+            <p className="text-white/90 text-sm leading-snug whitespace-pre-wrap">{infoProduct.product.description}</p>
+          </div>
+        );
+      })()}
     </div>
   );
 }
