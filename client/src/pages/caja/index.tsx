@@ -16,6 +16,7 @@ import {
 } from './db';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { formatChileDateTime } from '@shared/chileDate';
+import { getFavoriteIds, toggleFavorite } from './favorites';
 
 /* Módulo /caja (docs/ARQUITECTURA-CAJA.md Fase 3) -- offline-first: la
  * búsqueda, la ficha y el catálogo se leen siempre de IndexedDB (Dexie), no
@@ -639,9 +640,12 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         />
       )}
 
-      <main className="p-4 max-w-lg mx-auto">
+      {/* "Nueva venta" (view === 'sale') usa el ancho completo -- el resto de
+          las vistas son listas/formularios angostos que se mantienen
+          centrados con su propio max-w-lg, en vez de angostar todo por igual. */}
+      <main className="p-4">
         {view === 'menu' && (
-          <div className="space-y-6">
+          <div className="max-w-lg mx-auto space-y-6">
             <div>
               <Input
                 value={query}
@@ -719,18 +723,24 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         )}
 
         {view === 'sheet' && selectedOrderId && (
-          <CustomerSheet
-            key={sheetVersion}
-            orderId={selectedOrderId}
-            onRedeem={doRedeem}
-            onCheckIn={doCheckIn}
-            canVoid={isSupervisor}
-            onVoid={async (displayCode, reason) => voidCode.mutate({ opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined, displayCode, reason, clientAt: (await correctedNow()).toISOString() })}
-            voiding={voidCode.isPending}
-          />
+          <div className="max-w-lg mx-auto">
+            <CustomerSheet
+              key={sheetVersion}
+              orderId={selectedOrderId}
+              onRedeem={doRedeem}
+              onCheckIn={doCheckIn}
+              canVoid={isSupervisor}
+              onVoid={async (displayCode, reason) => voidCode.mutate({ opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined, displayCode, reason, clientAt: (await correctedNow()).toISOString() })}
+              voiding={voidCode.isPending}
+            />
+          </div>
         )}
 
-        {view === 'conflicts' && <ConflictQueue eventId={localEvent.id} />}
+        {view === 'conflicts' && (
+          <div className="max-w-lg mx-auto">
+            <ConflictQueue eventId={localEvent.id} />
+          </div>
+        )}
 
         {view === 'sale' && (
           <NewSale
@@ -753,7 +763,11 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
           />
         )}
 
-        {view === 'dashboard' && <CajaDashboard eventId={localEvent.id} />}
+        {view === 'dashboard' && (
+          <div className="max-w-lg mx-auto">
+            <CajaDashboard eventId={localEvent.id} />
+          </div>
+        )}
       </main>
 
       {kitchenConfirm && (
@@ -909,6 +923,9 @@ function NewSale({ eventId, registerId, onSale }: {
   const [cart, setCart] = useState<Record<number, number>>({});
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito' | 'qr'>('debito');
   const [tab, setTab] = useState<string | null>(null);
+  const [favorites, setFavorites] = useState<number[]>(() => getFavoriteIds());
+  const [editingFavorites, setEditingFavorites] = useState(false);
+  const FAVORITES_TAB = '__favoritos__';
 
   // Playcoins (pedido explícito del usuario): paso opcional/omisible para
   // que la venta también gane puntos, y para canjear puntos ya ganados.
@@ -966,11 +983,16 @@ function NewSale({ eventId, registerId, onSale }: {
 
   const add = (id: number) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
   const remove = (id: number) => setCart((c) => ({ ...c, [id]: Math.max(0, (c[id] || 0) - 1) }));
+  const onToggleFavorite = (id: number) => setFavorites(toggleFavorite(id));
 
   // Pestañas por sección (groupName), con la categoría como respaldo para
   // productos sin sección asignada -- así nunca desaparecen de la grilla.
-  const tabs = Array.from(new Set(catalog.map((p) => p.groupName || p.category)));
-  const productsInTab = catalog.filter((p) => (p.groupName || p.category) === tab);
+  // "Favoritos" va primero, solo si la cajera ya marcó al menos uno.
+  const sectionTabs = Array.from(new Set(catalog.map((p) => p.groupName || p.category)));
+  const tabs = favorites.length > 0 ? [FAVORITES_TAB, ...sectionTabs] : sectionTabs;
+  const productsInTab = tab === FAVORITES_TAB
+    ? catalog.filter((p) => favorites.includes(p.id))
+    : catalog.filter((p) => (p.groupName || p.category) === tab);
 
   const checkBalance = async () => {
     if (!buyerEmail.trim()) return;
@@ -1028,21 +1050,38 @@ function NewSale({ eventId, registerId, onSale }: {
   };
 
   return (
-    <div className="space-y-5">
-      <h2 className="text-xl font-bold">Nueva venta</h2>
+    <div className="max-w-6xl mx-auto space-y-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xl font-bold">Nueva venta</h2>
+        {catalog.length > 0 && (
+          <button
+            onClick={() => setEditingFavorites((v) => !v)}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${editingFavorites ? 'bg-amber-500 text-black' : 'bg-white/5 text-white/60'}`}
+          >
+            {editingFavorites ? '✓ Listo' : '★ Editar favoritos'}
+          </button>
+        )}
+      </div>
+
+      {editingFavorites && (
+        <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+          Toca los productos que más vendes para agregarlos a "⭐ Favoritos" -- mientras este modo esté activo, tocar un producto no lo agrega a la venta.
+        </p>
+      )}
 
       {catalog.length === 0 ? (
         <p className="text-white/50 text-sm">Todavía no hay productos cargados para este evento. Se cargan desde Admin → Carta de la Fiesta.</p>
       ) : (
-        <>
-          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+        <div className="flex gap-4 items-start">
+          {/* Categorías en columna, siempre visibles de un vistazo -- sin scroll horizontal. */}
+          <div className="w-40 md:w-48 shrink-0 flex flex-col gap-2">
             {tabs.map((t) => {
-              const meta = CATEGORY_META[t] ?? { label: t, emoji: '🛍️' };
+              const meta = t === FAVORITES_TAB ? { label: 'Favoritos', emoji: '⭐' } : (CATEGORY_META[t] ?? { label: t, emoji: '🛍️' });
               return (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
-                  className={`shrink-0 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${tab === t ? 'bg-primary text-white' : 'bg-white/5 text-white/60'}`}
+                  className={`text-left px-4 py-2.5 rounded-2xl text-sm font-medium transition-colors ${tab === t ? 'bg-primary text-white' : 'bg-white/5 text-white/60'}`}
                 >
                   {meta.emoji} {meta.label}
                 </button>
@@ -1050,18 +1089,24 @@ function NewSale({ eventId, registerId, onSale }: {
             })}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 flex-1 min-w-0">
             {productsInTab.map((p) => {
               const left = p.totalStock - p.soldCount;
               const noStock = left <= 0;
+              const isFavorite = favorites.includes(p.id);
               return (
                 <button
                   key={p.id}
-                  onClick={() => add(p.id)}
+                  onClick={() => (editingFavorites ? onToggleFavorite(p.id) : add(p.id))}
                   className="relative rounded-3xl p-4 min-h-[88px] text-left border active:scale-95 transition-transform backdrop-blur-sm"
                   style={{ backgroundColor: (p.color || '#f472b6') + '14', borderColor: (p.color || '#f472b6') + '50', boxShadow: `0 0 20px -10px ${p.color || '#f472b6'}` }}
                 >
-                  {noStock && (
+                  {editingFavorites && (
+                    <span className={`absolute top-2 right-2 text-lg leading-none ${isFavorite ? '' : 'opacity-30'}`}>
+                      {isFavorite ? '⭐' : '☆'}
+                    </span>
+                  )}
+                  {!editingFavorites && noStock && (
                     <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide bg-red-500/90 text-white px-2 py-0.5 rounded-full">
                       Sin stock
                     </span>
@@ -1073,7 +1118,7 @@ function NewSale({ eventId, registerId, onSale }: {
                       <p className="text-sm text-white/60">${p.price.toLocaleString('es-CL')}</p>
                     </div>
                   </div>
-                  {cart[p.id] > 0 && (
+                  {!editingFavorites && cart[p.id] > 0 && (
                     <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       <button onClick={() => remove(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">−</button>
                       <span className="font-bold">{cart[p.id]}</span>
@@ -1083,9 +1128,13 @@ function NewSale({ eventId, registerId, onSale }: {
                 </button>
               );
             })}
-            {productsInTab.length === 0 && <p className="col-span-2 text-white/50 text-sm">Nada cargado en esta sección todavía.</p>}
+            {productsInTab.length === 0 && (
+              <p className="col-span-full text-white/50 text-sm">
+                {tab === FAVORITES_TAB ? 'Todavía no marcaste ningún favorito.' : 'Nada cargado en esta sección todavía.'}
+              </p>
+            )}
           </div>
-        </>
+        </div>
       )}
 
       {hasItems && (
