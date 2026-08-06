@@ -1,0 +1,19 @@
+{
+  "name": "Mansion Playroom · Gastos",
+  "short_name": "Gastos",
+  "description": "Registro rápido de gastos de la productora",
+  "start_url": "/gastos",
+  "scope": "/gastos",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d0810",
+  "theme_color": "#0d0810",
+  "icons": [
+    {
+      "src": "/candyland/logo-isotipo.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "any"
+    }
+  ]
+}

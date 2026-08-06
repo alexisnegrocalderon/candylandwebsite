@@ -232,6 +232,13 @@
       "when": 1785998144928,
       "tag": "0032_plain_husk",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1786002952315,
+      "tag": "0033_known_polaris",
+      "breakpoints": true
     }
   ]
 }

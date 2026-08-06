@@ -34,6 +34,7 @@ const PrintOrders = lazy(() => import("./pages/admin/print/PrintOrders"));
 const PrintCustomers = lazy(() => import("./pages/admin/print/PrintCustomers"));
 const PrintShifts = lazy(() => import("./pages/admin/print/PrintShifts"));
 const CajaApp = lazy(() => import("./pages/caja"));
+const GastosApp = lazy(() => import("./pages/gastos"));
 const MyReferrals = lazy(() => import("./pages/MyReferrals"));
 const MisPuntos = lazy(() => import("./pages/MisPuntos"));
 const Ticket = lazy(() => import("./pages/Ticket"));
@@ -111,6 +112,7 @@ function Router() {
           <Route path="/admin/print/customers" component={PrintCustomers} />
           <Route path="/admin/print/shifts" component={PrintShifts} />
           <Route path="/caja" component={CajaApp} />
+          <Route path="/gastos" component={GastosApp} />
           <Route path="/404" component={NotFound} />
           <Route component={NotFound} />
         </Switch>
@@ -138,7 +140,10 @@ function App() {
   // /cocina es el tablero de pedidos: misma lógica, pantalla de operación
   // interna, no una página del sitio.
   const isCocina = location.startsWith('/cocina');
-  const hideChrome = isCaja || isAdmin || isParty || isPuerta || isCocina;
+  // /gastos es la carga rápida de compras desde el celular: pantalla de
+  // operación interna, instalable aparte, sin nada del sitio público.
+  const isGastos = location.startsWith('/gastos');
+  const hideChrome = isCaja || isAdmin || isParty || isPuerta || isCocina || isGastos;
   // Ni el cursor ni el scroll suave hacen nada en touch (ver isFinePointer),
   // así que en celular no se pide su chunk -- antes se importaban eager en
   // App.tsx y Lenis viajaba igual aunque nunca fuera a correr.

@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt } from 'lucide-react';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -21,8 +21,14 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
+import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
+import {
+  EXPENSE_CATEGORIES, EXPENSE_DOCUMENT_TYPES, EXPENSE_PAYMENT_METHODS,
+  categoryLabel, documentTypeLabel, paymentMethodLabel, deriveAmounts,
+  type ExpenseCategory, type ExpenseDocumentType, type ExpensePaymentMethod,
+} from '@shared/expenses';
 import { monthKeyFor } from '@shared/ambassadorProgram';
 import { formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
 import {
@@ -219,7 +225,7 @@ function EventsManager() {
 
   const [newEvent, setNewEvent] = useState({
     title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '',
-    status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false, missionForceClosed: false,
+    status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false,
   });
   const emptyTicketForm = { eventId: 0, name: '', category: 'acceso' as 'acceso' | 'extra', accesoSlug: '' as '' | AccesoSlug, price: 0, totalStock: 0, description: '', costPrice: 0, color: '', internalCode: '' };
   const [newTicket, setNewTicket] = useState(emptyTicketForm);
@@ -236,6 +242,7 @@ function EventsManager() {
       ...newEvent,
       featured: newEvent.featured ? 1 : 0,
       missionForceClosed: newEvent.missionForceClosed ? 1 : 0,
+      ivaApplies: newEvent.ivaApplies ? 1 : 0,
       eventDate: fromChileInputValue(newEvent.eventDate),
       doorsOpen: fromChileInputValue(newEvent.doorsOpen),
     };
@@ -245,7 +252,7 @@ function EventsManager() {
     } else {
       await createEvent.mutateAsync(payload);
     }
-    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', status: 'draft', imageUrl: '', featured: false, missionForceClosed: false });
+    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', status: 'draft', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false });
     setShowEventForm(false);
   };
 
@@ -325,6 +332,10 @@ function EventsManager() {
                 <input type="checkbox" checked={newEvent.missionForceClosed} onChange={(e) => setNewEvent({ ...newEvent, missionForceClosed: e.target.checked })} className="w-4 h-4 accent-primary" />
                 <span className="text-sm">Cerrar Misión 300 (cobrar valor general ya)</span>
               </label>
+              <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
+                <input type="checkbox" checked={newEvent.ivaApplies} onChange={(e) => setNewEvent({ ...newEvent, ivaApplies: e.target.checked })} className="w-4 h-4 accent-primary" />
+                <span className="text-sm">Este evento se declara al SII (IVA 19%)</span>
+              </label>
             </div>
             <div className="flex gap-2">
               <Button onClick={handleCreateEvent} disabled={createEvent.isPending || updateEvent.isPending}>
@@ -359,6 +370,7 @@ function EventsManager() {
                       imageUrl: event.imageUrl || '',
                       featured: !!event.featured,
                       missionForceClosed: !!event.missionForceClosed,
+                      ivaApplies: !!event.ivaApplies,
                     });
                     setShowEventForm(true);
                   }}>
@@ -3393,9 +3405,10 @@ function ProfitReport({ eventId }: { eventId: number }) {
 
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-      <CardHeader><CardTitle>Utilidad y margen por producto</CardTitle></CardHeader>
+      <CardHeader><CardTitle>Margen por producto (antes de descuentos)</CardTitle></CardHeader>
       <CardContent>
         <p className="text-sm text-muted-foreground mb-3">Ingresos totales: ${totalRevenue.toLocaleString('es-CL')} · Utilidad total: ${totalProfit.toLocaleString('es-CL')} <span className="text-xs">(solo productos con costo cargado)</span></p>
+        <p className="text-xs text-muted-foreground mb-3">Mide qué tan rentable es cada producto sobre su precio de lista. Para la utilidad REAL de la fiesta (con descuentos, gastos, IVA y comisiones) andá a <strong>Gastos y P&amp;L</strong>.</p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr className="text-left text-muted-foreground border-b border-border/50">
@@ -3427,8 +3440,9 @@ function EventComparisonReport() {
 
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-      <CardHeader><CardTitle>Comparativa entre eventos</CardTitle></CardHeader>
+      <CardHeader><CardTitle>Comparativa entre eventos (solo productos)</CardTitle></CardHeader>
       <CardContent className="overflow-x-auto">
+        <p className="text-xs text-muted-foreground mb-3">Ingresos a precio de lista y utilidad sobre el costo de los productos. La comparativa con la utilidad neta real está en <strong>Gastos y P&amp;L</strong>.</p>
         <table className="w-full text-sm">
           <thead><tr className="text-left text-muted-foreground border-b border-border/50">
             <th className="py-2">Evento</th><th>Fecha</th><th>Entradas vendidas</th><th>Ingresos</th><th>Utilidad</th>
@@ -3447,6 +3461,458 @@ function EventComparisonReport() {
         </table>
       </CardContent>
     </Card>
+  );
+}
+
+/* ─── Gastos y resultado (P&L) ──────────────────────────────── */
+
+const emptyExpenseForm = {
+  scope: 'evento' as 'evento' | 'general',
+  eventId: null as number | null,
+  expenseDate: '',
+  category: 'produccion' as ExpenseCategory,
+  description: '',
+  supplier: '',
+  documentNumber: '',
+  documentType: 'boleta' as ExpenseDocumentType,
+  ivaExempt: false,
+  amountTotal: 0,
+  paymentMethod: 'transferencia' as ExpensePaymentMethod,
+  recurrence: 'none' as 'none' | 'mensual',
+  excludeFromPnl: false,
+  prorate: true,
+  notes: '',
+};
+
+function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }) {
+  const [show, setShow] = useState(false);
+  const [form, setForm] = useState(emptyExpenseForm);
+  const create = trpc.expenses.create.useMutation({
+    onSuccess: () => { onSaved(); toast.success('Gasto registrado'); setForm(emptyExpenseForm); setShow(false); },
+    onError: onMutationError,
+  });
+
+  // Vista previa del desglose: solo la factura no exenta separa IVA.
+  const preview = deriveAmounts({ amountTotal: form.amountTotal, documentType: form.documentType, ivaExempt: form.ivaExempt });
+
+  const canSave = form.amountTotal > 0 && form.description.trim().length > 0
+    && (form.scope === 'general' || !!form.eventId);
+
+  const handleSave = () => {
+    create.mutate({
+      ...form,
+      supplier: form.supplier || undefined,
+      documentNumber: form.documentNumber || undefined,
+      notes: form.notes || undefined,
+      eventId: form.scope === 'evento' ? form.eventId : null,
+      expenseDate: form.expenseDate ? fromChileInputValue(form.expenseDate) : new Date().toISOString(),
+    } as any);
+  };
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardContent className="pt-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold">Registrar un gasto</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Cada compra de la productora: quién, cuánto, con qué documento y cómo se pagó.</p>
+          </div>
+          <Button onClick={() => setShow(!show)} className="interactive"><Plus className="w-4 h-4 mr-2" /> Nuevo gasto</Button>
+        </div>
+
+        {show && (
+          <div className="mt-5 space-y-4 border-t border-border/50 pt-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label>¿A qué se imputa?</Label>
+                <Select value={form.scope} onValueChange={(v) => setForm({ ...form, scope: v as 'evento' | 'general' })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="evento">Un evento puntual</SelectItem>
+                    <SelectItem value="general">La productora (se reparte entre los eventos del mes)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {form.scope === 'evento' && (
+                <div>
+                  <Label>Evento</Label>
+                  <Select value={form.eventId ? String(form.eventId) : ''} onValueChange={(v) => setForm({ ...form, eventId: Number(v) })}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Elegir evento" /></SelectTrigger>
+                    <SelectContent>
+                      {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div>
+                <Label>Categoría</Label>
+                <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v as ExpenseCategory })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {EXPENSE_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="md:col-span-2">
+                <Label>¿Qué se compró?</Label>
+                <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1" placeholder="Hielo, DJ, arriendo de luces…" />
+              </div>
+              <div>
+                <Label>Monto total pagado</Label>
+                <Input type="number" value={form.amountTotal || ''} onChange={(e) => setForm({ ...form, amountTotal: Number(e.target.value) })} className="mt-1" placeholder="45000" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div>
+                <Label>Documento</Label>
+                <Select value={form.documentType} onValueChange={(v) => setForm({ ...form, documentType: v as ExpenseDocumentType })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {EXPENSE_DOCUMENT_TYPES.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>N° de documento</Label>
+                <Input value={form.documentNumber} onChange={(e) => setForm({ ...form, documentNumber: e.target.value })} className="mt-1" placeholder="Folio" />
+              </div>
+              <div>
+                <Label>Forma de pago</Label>
+                <Select value={form.paymentMethod} onValueChange={(v) => setForm({ ...form, paymentMethod: v as ExpensePaymentMethod })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {EXPENSE_PAYMENT_METHODS.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Fecha del gasto</Label>
+                <Input type="datetime-local" value={form.expenseDate} onChange={(e) => setForm({ ...form, expenseDate: e.target.value })} className="mt-1" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Proveedor</Label>
+                <Input value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} className="mt-1" placeholder="Opcional" />
+              </div>
+              <div>
+                <Label>Notas</Label>
+                <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="mt-1" placeholder="Opcional" />
+              </div>
+            </div>
+
+            {form.documentType === 'factura' && (
+              <div className="rounded-xl bg-muted/40 px-4 py-3 text-sm">
+                {form.ivaExempt
+                  ? <>Factura <strong>exenta</strong>: no da crédito fiscal, entra completa como costo.</>
+                  : <>Neto <strong>${preview.netAmount.toLocaleString('es-CL')}</strong> · IVA <strong>${preview.ivaAmount.toLocaleString('es-CL')}</strong> <span className="text-muted-foreground">(crédito fiscal)</span></>}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-x-6 gap-y-2">
+              {form.documentType === 'factura' && (
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={form.ivaExempt} onChange={(e) => setForm({ ...form, ivaExempt: e.target.checked })} className="w-4 h-4 accent-primary" />
+                  <span className="text-sm">Factura exenta (sin IVA)</span>
+                </label>
+              )}
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={form.recurrence === 'mensual'} onChange={(e) => setForm({ ...form, recurrence: e.target.checked ? 'mensual' : 'none' })} className="w-4 h-4 accent-primary" />
+                <span className="text-sm">Se repite todos los meses (suscripción)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={form.excludeFromPnl} onChange={(e) => setForm({ ...form, excludeFromPnl: e.target.checked })} className="w-4 h-4 accent-primary" />
+                <span className="text-sm">Ya contado en el costo del producto (no restar de nuevo)</span>
+              </label>
+              {form.scope === 'general' && (
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={!form.prorate} onChange={(e) => setForm({ ...form, prorate: !e.target.checked })} className="w-4 h-4 accent-primary" />
+                  <span className="text-sm">No repartir entre los eventos</span>
+                </label>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <Button onClick={handleSave} disabled={!canSave || create.isPending}>Guardar gasto</Button>
+              <Button variant="outline" onClick={() => setShow(false)}>Cancelar</Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ExpensesList({ events, refreshKey, onChanged }: { events: any[]; refreshKey: number; onChanged: () => void }) {
+  const [filterEvent, setFilterEvent] = useState<string>('all');
+  const [filterCategory, setFilterCategory] = useState<string>('all');
+
+  const { data, refetch } = trpc.expenses.listAll.useQuery({
+    ...(filterEvent === 'all' ? {} : filterEvent === 'general' ? { scope: 'general' as const } : { eventId: Number(filterEvent) }),
+    ...(filterCategory === 'all' ? {} : { category: filterCategory }),
+  });
+  const remove = trpc.expenses.delete.useMutation({
+    onSuccess: () => { refetch(); onChanged(); toast.success('Gasto eliminado'); },
+    onError: onMutationError,
+  });
+
+  useEffect(() => { refetch(); }, [refreshKey, refetch]);
+
+  const rows = data ?? [];
+  const total = rows.reduce((s: number, r: any) => s + r.amountTotal, 0);
+
+  const exportCsv = () => {
+    const header = ['Fecha', 'Ámbito', 'Evento', 'Categoría', 'Descripción', 'Proveedor', 'Documento', 'N°', 'Total', 'Neto', 'IVA', 'Pago'];
+    const lines = rows.map((r: any) => [
+      formatChileShortDate(r.expenseDate), r.scope, r.eventTitle ?? '', categoryLabel(r.category),
+      r.description, r.supplier ?? '', documentTypeLabel(r.documentType), r.documentNumber ?? '',
+      r.amountTotal, r.netAmount, r.ivaAmount, paymentMethodLabel(r.paymentMethod),
+    ].map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','));
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `gastos-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader><CardTitle>Gastos registrados</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="min-w-52">
+            <Label>Filtrar por</Label>
+            <Select value={filterEvent} onValueChange={setFilterEvent}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="general">Solo gastos de la productora</SelectItem>
+                {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="min-w-44">
+            <Label>Categoría</Label>
+            <Select value={filterCategory} onValueChange={setFilterCategory}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {EXPENSE_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button variant="outline" onClick={exportCsv} disabled={rows.length === 0}>
+            <Download className="w-4 h-4 mr-2" /> Exportar CSV
+          </Button>
+          <span className="text-sm text-muted-foreground ml-auto">
+            {rows.length} gasto(s) · <strong className="text-foreground">${total.toLocaleString('es-CL')}</strong>
+          </span>
+        </div>
+
+        <div className="space-y-2">
+          {rows.map((r: any) => (
+            <div key={r.id} className="flex items-center justify-between gap-3 text-sm bg-muted/30 rounded-lg px-3 py-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold">{r.description}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary">{categoryLabel(r.category)}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{documentTypeLabel(r.documentType)}</span>
+                  {r.excludeFromPnl === 1 && <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600">No resta del resultado</span>}
+                  {r.recurrence === 'mensual' && <span className="text-xs px-2 py-0.5 rounded-full bg-violet-electric/15 text-violet-electric">Mensual</span>}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {formatChileShortDate(r.expenseDate)} · {r.eventTitle ?? 'Productora'} · {paymentMethodLabel(r.paymentMethod)}
+                  {r.supplier ? ` · ${r.supplier}` : ''}
+                  {r.ivaAmount > 0 ? ` · IVA $${r.ivaAmount.toLocaleString('es-CL')}` : ''}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="font-semibold tabular-nums">${r.amountTotal.toLocaleString('es-CL')}</span>
+                <ConfirmDeleteButton description={`Vas a eliminar el gasto "${r.description}".`} onConfirm={() => remove.mutateAsync({ id: r.id })} />
+              </div>
+            </div>
+          ))}
+          {rows.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">Sin gastos registrados con estos filtros.</p>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Una línea de la cascada del resultado. `negative` la muestra restando. */
+function PnlRow({ label, amount, negative, hint, strong }: { label: string; amount: number; negative?: boolean; hint?: string; strong?: boolean }) {
+  return (
+    <div className={`flex items-baseline justify-between gap-4 py-2 ${strong ? 'border-t border-border/60 mt-1 pt-3' : ''}`}>
+      <div className="min-w-0">
+        <span className={strong ? 'font-semibold' : ''}>{label}</span>
+        {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
+      </div>
+      <span className={`tabular-nums shrink-0 ${strong ? 'font-bold text-lg' : ''} ${negative ? 'text-muted-foreground' : ''} ${!negative && amount < 0 ? 'text-destructive' : ''}`}>
+        {negative || amount < 0 ? '−' : ''}${Math.abs(amount).toLocaleString('es-CL')}
+      </span>
+    </div>
+  );
+}
+
+function EventPnlReport({ eventId, refreshKey }: { eventId: number; refreshKey: number }) {
+  const { data, refetch } = trpc.cajaReports.eventPnl.useQuery({ eventId });
+  useEffect(() => { refetch(); }, [refreshKey, refetch]);
+
+  if (!data) return null;
+  const positive = data.netProfit >= 0;
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader><CardTitle>Resultado real de {data.title}</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        {data.warnings.length > 0 && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 space-y-1.5">
+            {data.warnings.map((w: string, i: number) => (
+              <p key={i} className="text-xs text-amber-700 dark:text-amber-400">⚠️ {w}</p>
+            ))}
+          </div>
+        )}
+
+        <div className="text-sm">
+          <PnlRow label="Plata que entró" amount={data.grossIncome} hint="Órdenes aprobadas, con descuentos ya aplicados y los copagos de Misión 300 incluidos." />
+          {data.ivaApplies && (
+            <PnlRow label="IVA débito (19%)" amount={data.iva.debitoFiscal} negative hint="Los precios son IVA incluido: esta parte nunca fue tuya." />
+          )}
+          <PnlRow label="Ingreso neto" amount={data.netIncome} />
+
+          {data.cogs > 0 && (
+            <PnlRow label="Costo de productos vendidos" amount={data.cogs} negative
+              hint={`Desde el costo cargado en la carta. Cubre el ${data.cogsCoverage}% de las unidades vendidas.`} />
+          )}
+          <PnlRow label="Gastos directos del evento" amount={data.directExpensesTotal} negative />
+          {data.generalExpensesMonthTotal > 0 && (
+            <PnlRow label="Parte de los gastos de la productora" amount={data.generalExpensesAssigned} negative
+              hint={`${Math.round(data.prorationWeight * 100)}% de $${data.generalExpensesMonthTotal.toLocaleString('es-CL')} del mes ${data.monthKey}, según cuánto ingreso hizo esta fiesta.`} />
+          )}
+          {data.ambassadorCommissions > 0 && (
+            <PnlRow label="Comisiones de embajadores" amount={data.ambassadorCommissions} negative />
+          )}
+
+          <PnlRow label="Utilidad neta" amount={data.netProfit} strong />
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <div className={`rounded-xl px-4 py-3 ${positive ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-destructive/10 text-destructive'}`}>
+            <p className="text-xs uppercase tracking-wide font-semibold opacity-80">Margen</p>
+            <p className="text-2xl font-bold tabular-nums">{data.marginPercent != null ? `${data.marginPercent}%` : '—'}</p>
+          </div>
+          {data.ivaApplies && (
+            <div className="rounded-xl px-4 py-3 bg-muted/50">
+              <p className="text-xs uppercase tracking-wide font-semibold text-muted-foreground">IVA a pagar al SII</p>
+              <p className="text-2xl font-bold tabular-nums">${data.iva.ivaAPagar.toLocaleString('es-CL')}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Débito ${data.iva.debitoFiscal.toLocaleString('es-CL')} − crédito ${data.iva.creditoFiscal.toLocaleString('es-CL')}
+                {data.iva.remanenteCredito > 0 && ` · remanente a favor $${data.iva.remanenteCredito.toLocaleString('es-CL')}`}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {data.directByCategory.length > 0 && (
+          <div>
+            <p className="text-sm font-semibold mb-2">¿En qué se fue la plata?</p>
+            <div className="space-y-1.5">
+              {data.directByCategory.map((c: any) => {
+                const pct = data.directExpensesTotal > 0 ? (c.amount / data.directExpensesTotal) * 100 : 0;
+                return (
+                  <div key={c.category} className="flex items-center gap-3 text-sm">
+                    <span className="w-40 shrink-0">{categoryLabel(c.category)}</span>
+                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                      <div className="h-full bg-primary/70 rounded-full" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="w-28 text-right tabular-nums">${c.amount.toLocaleString('es-CL')}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <p className="text-xs text-muted-foreground border-t border-border/40 pt-3">
+          El cálculo de IVA es una referencia para ver el margen, no reemplaza el F29 que presenta tu contador.
+          {!data.ivaApplies && ' Este evento está marcado como que NO se declara al SII, así que todo va bruto.'}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PnlComparison({ refreshKey }: { refreshKey: number }) {
+  const { data, refetch } = trpc.cajaReports.pnlComparison.useQuery();
+  useEffect(() => { refetch(); }, [refreshKey, refetch]);
+  const rows = data ?? [];
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader><CardTitle>Utilidad neta por evento</CardTitle></CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="text-left text-muted-foreground border-b border-border/50">
+            <th className="py-2">Evento</th><th>Fecha</th><th className="text-right">Entró</th><th className="text-right">Gastos</th><th className="text-right">Utilidad neta</th><th className="text-right">Margen</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r: any) => (
+              <tr key={r.eventId} className="border-b border-border/30">
+                <td className="py-2">{r.title}{!r.ivaApplies && <span className="ml-2 text-xs text-muted-foreground">sin IVA</span>}</td>
+                <td>{formatChileShortDate(r.eventDate)}</td>
+                <td className="text-right tabular-nums">${r.grossIncome.toLocaleString('es-CL')}</td>
+                <td className="text-right tabular-nums text-muted-foreground">${r.totalExpenses.toLocaleString('es-CL')}</td>
+                <td className={`text-right tabular-nums font-semibold ${r.netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
+                  {r.netProfit < 0 ? '−' : ''}${Math.abs(r.netProfit).toLocaleString('es-CL')}
+                </td>
+                <td className="text-right tabular-nums">{r.marginPercent != null ? `${r.marginPercent}%` : '—'}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-muted-foreground">Todavía no hay eventos.</td></tr>}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function GastosView() {
+  const { data: eventsData } = trpc.events.listAll.useQuery();
+  const events = eventsData ?? [];
+  const [eventId, setEventId] = useState<number | null>(null);
+  const activeEventId = eventId ?? events[0]?.id ?? null;
+  // Los reportes se recalculan del lado del servidor, así que después de
+  // crear/borrar un gasto hay que pedirlos de nuevo.
+  const [refreshKey, setRefreshKey] = useState(0);
+  const refresh = () => setRefreshKey((k) => k + 1);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="font-heading text-2xl">Gastos y P&amp;L</h2>
+          <p className="text-sm text-muted-foreground mt-0.5">Cuánto entró, cuánto salió y cuánto quedó en cada fiesta.</p>
+        </div>
+        {events.length > 0 && (
+          <Select value={String(activeEventId)} onValueChange={(v) => setEventId(Number(v))}>
+            <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      {activeEventId && <EventPnlReport eventId={activeEventId} refreshKey={refreshKey} />}
+      <PnlComparison refreshKey={refreshKey} />
+      <ExpenseForm events={events} onSaved={refresh} />
+      <ExpensesList events={events} refreshKey={refreshKey} onChanged={refresh} />
+    </div>
   );
 }
 
@@ -3755,170 +4221,6 @@ function SettingsManager() {
   );
 }
 
-/** Login del panel en dos pasos: contraseña y luego el código de la app de
- * autenticación. La contraseña sola ya no entrega sesión. */
-function AdminLoginForm() {
-  const utils = trpc.useUtils();
-  const [password, setPassword] = useState('');
-  const [code, setCode] = useState('');
-  const [error, setError] = useState('');
-  const [ticket, setTicket] = useState<string | null>(null);
-  const [setup, setSetup] = useState<{ secret: string; qrImageUrl: string } | null>(null);
-  const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
-
-  const entrar = async () => { setError(''); await utils.auth.me.invalidate(); };
-
-  const setupTotp = trpc.auth.adminSetupTotp.useMutation({
-    onSuccess: (r) => setSetup(r),
-    onError: (e) => setError(e.message),
-  });
-
-  const login = trpc.auth.adminLogin.useMutation({
-    onSuccess: (r) => {
-      setError('');
-      if (r.skipped2fa) { entrar(); return; }
-      setTicket(r.ticket);
-      if (r.needsSetup) setupTotp.mutate({ ticket: r.ticket });
-    },
-    onError: (e) => setError(e.message),
-  });
-
-  const confirmTotp = trpc.auth.adminConfirmTotp.useMutation({
-    onSuccess: (r) => { setError(''); setBackupCodes(r.backupCodes); },
-    onError: (e) => { setError(e.message); setCode(''); },
-  });
-
-  const verify = trpc.auth.adminVerifyCode.useMutation({
-    onSuccess: (r) => {
-      if (r.backupCodeUsed) {
-        alert(`Entraste con un código de respaldo. Te quedan ${r.backupCodesLeft}.`);
-      }
-      entrar();
-    },
-    onError: (e) => { setError(e.message); setCode(''); },
-  });
-
-  // Los códigos de respaldo se muestran UNA sola vez: después solo queda
-  // su hash guardado, y ni el sistema puede recuperarlos.
-  if (backupCodes) {
-    return (
-      <div className="min-h-screen pt-24 flex items-center justify-center px-4">
-        <div className="w-full max-w-md text-center">
-          <h2 className="font-heading text-2xl mb-2">Guarda estos códigos</h2>
-          <p className="text-muted-foreground text-sm mb-5">
-            Son tu única forma de entrar si pierdes el teléfono. Se muestran una sola vez —
-            anótalos en un papel o guárdalos en tu gestor de contraseñas. Cada uno sirve una vez.
-          </p>
-          <div className="grid grid-cols-2 gap-2 mb-6">
-            {backupCodes.map((c) => (
-              <code key={c} className="p-3 rounded-lg bg-muted font-mono text-sm tracking-wider">{c}</code>
-            ))}
-          </div>
-          <Button onClick={entrar} className="interactive w-full h-12">Ya los guardé, entrar</Button>
-        </div>
-      </div>
-    );
-  }
-
-  // Configuración inicial del segundo factor.
-  if (setup) {
-    return (
-      <div className="min-h-screen pt-24 flex items-center justify-center px-4">
-        <div className="w-full max-w-sm text-center">
-          <h2 className="font-heading text-2xl mb-2">Configura tu segundo factor</h2>
-          <p className="text-muted-foreground text-sm mb-5">
-            Escanea este código con Google Authenticator (o la app que uses) y escribe el número que aparece.
-          </p>
-          <img src={setup.qrImageUrl} alt="Código QR para la app de autenticación" className="w-56 h-56 mx-auto rounded-xl mb-3" />
-          <p className="text-xs text-amber-600 mb-4">
-            Escribe el código sin recargar la página ni volver atrás. Si algo sale mal,
-            vuelve a empezar desde la contraseña: el mismo QR sigue sirviendo.
-          </p>
-          <details className="mb-5 text-xs text-muted-foreground">
-            <summary className="cursor-pointer">¿No puedes escanear?</summary>
-            <code className="block mt-2 p-2 rounded bg-muted font-mono break-all">{setup.secret}</code>
-          </details>
-          <Input
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="000000"
-            inputMode="numeric"
-            autoFocus
-            className="mb-3 h-14 text-center text-2xl tracking-[0.4em] font-mono"
-          />
-          {error && <p className="text-sm text-destructive mb-3" role="alert">{error}</p>}
-          <Button
-            onClick={() => ticket && confirmTotp.mutate({ ticket, code })}
-            disabled={code.length !== 6 || confirmTotp.isPending}
-            className="interactive w-full h-12"
-          >
-            {confirmTotp.isPending ? 'Verificando…' : 'Confirmar'}
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // Paso 2: el código.
-  if (ticket) {
-    return (
-      <div className="min-h-screen pt-24 flex items-center justify-center px-4">
-        <div className="w-full max-w-xs text-center">
-          <h2 className="font-heading text-2xl mb-2">Código de verificación</h2>
-          <p className="text-muted-foreground text-sm mb-5">
-            Abre tu app de autenticación y escribe el número. También sirve uno de tus códigos de respaldo.
-          </p>
-          <Input
-            value={code}
-            onChange={(e) => setCode(e.target.value.slice(0, 9))}
-            placeholder="000000"
-            autoFocus
-            className="mb-3 h-14 text-center text-2xl tracking-[0.3em] font-mono"
-          />
-          {error && <p className="text-sm text-destructive mb-3" role="alert">{error}</p>}
-          <Button
-            onClick={() => verify.mutate({ ticket, code })}
-            disabled={code.length < 6 || verify.isPending}
-            className="interactive w-full h-12"
-          >
-            {verify.isPending ? 'Verificando…' : 'Entrar'}
-          </Button>
-          <button
-            onClick={() => { setTicket(null); setCode(''); setPassword(''); setError(''); }}
-            className="text-xs text-muted-foreground mt-4 underline"
-          >
-            Volver
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Paso 1: la contraseña.
-  return (
-    <div className="min-h-screen pt-24 flex items-center justify-center px-4">
-      <form
-        onSubmit={(e) => { e.preventDefault(); if (password) login.mutate({ password }); }}
-        className="text-center w-full max-w-xs"
-      >
-        <h2 className="font-heading text-3xl mb-4">Acceso Restringido</h2>
-        <p className="text-muted-foreground mb-6">Ingresa la contraseña de administrador.</p>
-        <Input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Contraseña"
-          autoFocus
-          className="mb-3 h-12 text-center"
-        />
-        {error && <p className="text-sm text-destructive mb-3" role="alert">{error}</p>}
-        <Button type="submit" disabled={login.isPending || setupTotp.isPending || !password} className="interactive w-full">
-          {login.isPending || setupTotp.isPending ? 'Entrando…' : 'Continuar'}
-        </Button>
-      </form>
-    </div>
-  );
-}
 
 /* ─── Carta de la fiesta ──────────────────────────────────────────────────
  * Los tragos, la comida, la guardarropía y el merch son `ticketTypes` con
@@ -4229,6 +4531,7 @@ const ADMIN_SECTIONS = [
   { id: 'ambassadors', label: 'Embajadores VIP', icon: Crown, render: () => <AmbassadorsView /> },
   { id: 'party-gifts', label: 'Tragos de la Fiesta', icon: Martini, render: () => <PartyGiftsView /> },
   { id: 'caja', label: 'Caja', icon: Store, render: () => <CajaAdminView /> },
+  { id: 'gastos', label: 'Gastos y P&L', icon: Receipt, render: () => <GastosView /> },
   { id: 'settings', label: 'Ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },
 ] as const;
 
