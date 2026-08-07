@@ -2123,6 +2123,14 @@ function MailingHistoryView() {
   });
   const campaigns = campaignsData ?? [];
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  // Confirmación en dos pasos antes de cancelar (mismo patrón que
+  // "Evaluar Misión 300") -- frenar una campaña a mitad de envío no se
+  // deshace, así que un tap solo no alcanza.
+  const [confirmingCancelId, setConfirmingCancelId] = useState<number | null>(null);
+  const cancelCampaign = trpc.mailing.cancelCampaign.useMutation({
+    onSuccess: () => { toast.success('Campaña cancelada -- no se manda el resto.'); refetch(); },
+    onError: onMutationError,
+  });
 
   const { data: recipientsData } = trpc.mailing.getCampaignRecipients.useQuery(
     { campaignId: expandedId ?? 0 },
@@ -2156,8 +2164,10 @@ function MailingHistoryView() {
                     <p className="font-semibold">{c.name}</p>
                     <p className="text-xs text-muted-foreground">{c.audienceDescription} · creada el {new Date(c.createdAt).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${c.status === 'done' ? 'bg-primary/10 text-primary' : 'bg-amber-500/10 text-amber-600'}`}>
-                    {c.status === 'done' ? 'Terminada' : 'Enviando…'}
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${
+                    c.status === 'done' ? 'bg-primary/10 text-primary' : c.status === 'cancelled' ? 'bg-muted text-muted-foreground' : 'bg-amber-500/10 text-amber-600'
+                  }`}>
+                    {c.status === 'done' ? 'Terminada' : c.status === 'cancelled' ? 'Cancelada' : 'Enviando…'}
                   </span>
                 </div>
 
@@ -2170,6 +2180,31 @@ function MailingHistoryView() {
                   <span>{c.totalRecipients} en total</span>
                   {c.status === 'sending' && <span>· sigue mañana con lo que falte</span>}
                 </div>
+
+                {c.status === 'sending' && (
+                  confirmingCancelId === c.id ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">¿Cancelar? No se manda el resto de los destinatarios.</span>
+                      <Button
+                        type="button" variant="destructive" size="sm" className="h-7 px-2 text-xs"
+                        onClick={() => { cancelCampaign.mutate({ campaignId: c.id }); setConfirmingCancelId(null); }}
+                        disabled={cancelCampaign.isPending}
+                      >
+                        Confirmar
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setConfirmingCancelId(null)}>
+                        Volver
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button" variant="outline" size="sm" className="h-7 px-2 text-xs text-destructive"
+                      onClick={() => setConfirmingCancelId(c.id)}
+                    >
+                      Cancelar campaña
+                    </Button>
+                  )
+                )}
 
                 {c.failedCount > 0 && (
                   <Button

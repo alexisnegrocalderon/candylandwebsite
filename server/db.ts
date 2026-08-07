@@ -3150,6 +3150,22 @@ export async function listMailingCampaigns() {
   return db.select().from(mailingCampaigns).orderBy(desc(mailingCampaigns.createdAt));
 }
 
+/** Frena una campaña a mitad de envío (pedido explícito del usuario: no
+ * había forma de cancelar una campaña programada). Solo tiene sentido para
+ * campañas todavía 'sending' -- una 'done' ya terminó, y una 'cancelled'
+ * ya está cancelada. Las filas `mailingRecipients` que sigan `pending`
+ * quedan tal cual, sin tocar: el cron ya no las va a ver porque filtra por
+ * `mailingCampaigns.status = 'sending'` (getPendingMailingRecipients). */
+export async function cancelMailingCampaign(campaignId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [campaign] = await db.select().from(mailingCampaigns).where(eq(mailingCampaigns.id, campaignId)).limit(1);
+  if (!campaign) throw new Error("Esa campaña no existe");
+  if (campaign.status !== 'sending') throw new Error("Esa campaña ya terminó o ya está cancelada");
+  await db.update(mailingCampaigns).set({ status: 'cancelled' }).where(eq(mailingCampaigns.id, campaignId));
+  return { success: true };
+}
+
 /** Detalle de una campaña -- se usa para mostrar quiénes fallaron (pedido
  * explícito del usuario en el historial). Trae el email desde `customers`
  * porque `mailingRecipients` no lo duplica. */

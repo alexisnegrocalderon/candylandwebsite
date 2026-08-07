@@ -1,0 +1,1 @@
+ALTER TABLE `mailingCampaigns` MODIFY COLUMN `status` enum('sending','done','cancelled') NOT NULL DEFAULT 'sending';
