@@ -159,6 +159,10 @@ function Board({ operatorName }: { operatorName: string }) {
     () => items.filter((i) => i.status === 'pendiente').sort((a, b) => new Date(a.chargedAt).getTime() - new Date(b.chargedAt).getTime()),
     [items]
   );
+  const stored = useMemo(
+    () => items.filter((i) => i.status === 'guardado').sort((a, b) => new Date(a.receivedAt ?? a.chargedAt).getTime() - new Date(b.receivedAt ?? b.chargedAt).getTime()),
+    [items]
+  );
 
   // Sonido al llegar una prenda nueva -- compara contra la última lista
   // conocida, no contra el estado de React (que se resetea en cada poll).
@@ -234,6 +238,25 @@ function Board({ operatorName }: { operatorName: string }) {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {pending.map((item) => (
+                <LockerCard
+                  key={item.id}
+                  item={item}
+                  pendingTo={pendingAction?.tagNumber === item.tagNumber ? pendingAction.to : null}
+                  onReceive={() => doUpdate(item.tagNumber, 'guardado')}
+                  onDeliver={() => doUpdate(item.tagNumber, 'retirado')}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <p className="text-xs uppercase tracking-widest text-white/40 mb-2">Guardadas ahora ({stored.length})</p>
+          {stored.length === 0 ? (
+            <p className="text-center text-white/40 py-8">No hay prendas guardadas en este momento.</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {stored.map((item) => (
                 <LockerCard
                   key={item.id}
                   item={item}
