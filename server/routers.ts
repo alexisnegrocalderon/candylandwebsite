@@ -44,6 +44,7 @@ async function requirePartyProfile(ticketCode: string) {
   return { ...actor, profile: actor.profile };
 }
 import { createCajaSale } from "./caja/sale";
+import { friendlySyncErrorMessage } from "./caja/ops";
 import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKitchenProductStock, toggleKitchenProductSoldOut } from "./kitchen";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
@@ -732,7 +733,7 @@ export const appRouter = router({
             operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
           });
         } catch (err) {
-          results[op.opId] = { result: 'rejected', conflictNote: err instanceof Error ? err.message : 'Error al sincronizar' };
+          results[op.opId] = { result: 'rejected', conflictNote: friendlySyncErrorMessage(err, op.opId) };
         }
       }
       return results;
@@ -1579,7 +1580,7 @@ export const appRouter = router({
             });
           }
         } catch (err) {
-          results[op.opId] = { result: 'rejected', conflictNote: err instanceof Error ? err.message : 'Error al sincronizar' };
+          results[op.opId] = { result: 'rejected', conflictNote: friendlySyncErrorMessage(err, op.opId) };
         }
       }
       return results;
