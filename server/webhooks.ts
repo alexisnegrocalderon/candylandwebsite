@@ -94,6 +94,28 @@ export async function applyPaymentResult(input: {
   return { ok: true };
 }
 
+/** Botón "Aprobar sin pagar" del panel admin (Ventas Web): para compradores
+ * con un beneficio que los exime de pagar la diferencia de Misión 300. Deja
+ * la orden exactamente como si el pago del topup hubiera llegado aprobado
+ * (misma rama que applyPaymentResult con isTopupPayment=true) -- genera el
+ * ticket con QR y manda el correo final, sin que exista ningún pago real de
+ * Mercado Pago detrás. Solo aplica a órdenes con el abono ya aprobado y la
+ * diferencia todavía pendiente (missionTopupStatus='pending'); no toca
+ * soldCount porque esas entradas ya se contaron cuando se aprobó el abono. */
+export async function approveMissionTopupWithoutPayment(orderId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  if (!order) throw new Error('Orden no encontrada');
+  if (order.missionTopupStatus !== 'pending') throw new Error('Esta orden no tiene un pago de diferencia pendiente');
+
+  await db.update(orders).set({ missionTopupStatus: 'paid' }).where(eq(orders.id, order.id));
+  if (!order.emailSent) await processApprovedOrder(order);
+
+  return { success: true };
+}
+
 /** Cobra una orden ya creada (pending) directamente con el Payment Brick —
  * sin modal ni redirect de Mercado Pago. El monto SIEMPRE sale de la orden
  * guardada en nuestra base (nunca de lo que mande el cliente), así que aunque
