@@ -173,7 +173,10 @@ function App() {
             </Suspense>
           )}
           {!hideChrome && <Navbar />}
-          <Toaster />
+          {/* top-center a propósito: /gastos y /caja tienen un botón de acción
+              fijo abajo de la pantalla, y el toast por defecto (abajo) quedaba
+              superpuesto con ese botón -- se veía como texto roto/mezclado. */}
+          <Toaster position="top-center" />
           <Router />
         </TooltipProvider>
       </ThemeProvider>
