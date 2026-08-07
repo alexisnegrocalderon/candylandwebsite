@@ -753,6 +753,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
           <NewSale
             eventId={localEvent.id}
             registerId={registerId}
+            catalogVersion={snapshotQuery.dataUpdatedAt}
             onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName) => {
               await enqueueOp({
                 opId: newOpId(), type: 'sale', items, paymentMethod, buyerEmail, redeemPlaycoins,
@@ -926,9 +927,15 @@ const CATEGORY_META: Record<string, { label: string; emoji: string }> = {
   extra: { label: 'Extras', emoji: '🎫' },
 };
 
-function NewSale({ eventId, registerId, onSale }: {
+function NewSale({ eventId, registerId, catalogVersion, onSale }: {
   eventId: number;
   registerId: number | null;
+  // Cambia cada vez que llega un snapshot nuevo del servidor (60s) --
+  // dispara la relectura del catálogo desde IndexedDB sin depender de que
+  // la cajera navegue fuera de "Nueva venta" (donde puede quedarse todo el
+  // turno). Sin esto, un producto marcado "agotado" desde /cocina no se
+  // veía acá hasta un refresh manual del navegador.
+  catalogVersion: number;
   onSale: (
     items: { ticketTypeId: number; quantity: number }[],
     paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr',
@@ -1066,7 +1073,7 @@ function NewSale({ eventId, registerId, onSale }: {
       setCatalog(sorted);
       if (sorted.length > 0) setTab((prev) => prev ?? (sorted[0].groupName || sorted[0].category));
     });
-  }, []);
+  }, [catalogVersion]);
 
   const total = catalog.reduce((sum, p) => sum + p.price * (cart[p.id] || 0), 0);
   const cartLines = catalog.filter((p) => (cart[p.id] || 0) > 0);
