@@ -1316,6 +1316,10 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
     onSuccess: () => toast.success('Email reenviado'),
     onError: onMutationError,
   });
+  const approveMissionTopup = trpc.orders.approveMissionTopup.useMutation({
+    onSuccess: () => { toast.success('Aprobada sin pago — ya se generó el ticket y se mandó el correo'); refetchOrders(); },
+    onError: onMutationError,
+  });
   const deleteOrder = trpc.orders.delete.useMutation({
     onSuccess: (_data, variables) => {
       toast.success('Compra eliminada');
@@ -1527,6 +1531,29 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                               >
                                 Reenviar email
                               </button>
+                              {order.missionTopupStatus === 'pending' && (
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <button className="text-green-500 text-xs underline disabled:opacity-50" disabled={approveMissionTopup.isPending}>
+                                      Aprobar sin pagar
+                                    </button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>¿Aprobar la diferencia de Misión 300 sin pago?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        La orden "{order.orderNumber}" de {order.buyerName} queda como si hubiera pagado la diferencia — se genera su ticket con QR y se le manda el correo de confirmación ahora mismo, sin cobrar nada.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                      <AlertDialogAction onClick={() => approveMissionTopup.mutate({ orderId: order.id })}>
+                                        Aprobar sin pagar
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              )}
                             </>
                           )}
                           <ConfirmDeleteButton

@@ -6,7 +6,7 @@ import { publicProcedure, protectedProcedure, operatorProcedure, supervisorProce
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
-import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail } from "./webhooks";
+import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail, approveMissionTopupWithoutPayment } from "./webhooks";
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
 import { redeemDisplayCode } from "./caja/redeem";
@@ -555,6 +555,12 @@ export const appRouter = router({
     }),
     resendConfirmation: adminProcedure.input(z.object({ orderNumber: z.string() })).mutation(async ({ input }) => {
       return resendConfirmationEmail(input.orderNumber);
+    }),
+    // "Aprobar sin pagar" (Ventas Web): para compradores con un beneficio que
+    // los exime de pagar la diferencia de Misión 300 -- genera el ticket con
+    // QR y manda el correo final sin pago real de por medio.
+    approveMissionTopup: adminProcedure.input(z.object({ orderId: z.number() })).mutation(async ({ input }) => {
+      return approveMissionTopupWithoutPayment(input.orderId);
     }),
 
     // Recordatorio a quien dejó la compra a medio camino (server/orderReminders.ts).
