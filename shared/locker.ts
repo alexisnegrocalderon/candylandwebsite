@@ -9,3 +9,19 @@
 export function formatLockerTagNumber(registerId: number | null, counter: number): string {
   return `${registerId ?? 0}-${String(counter).padStart(3, "0")}`;
 }
+
+export type LockerItemStatus = "pendiente" | "guardado" | "retirado";
+
+/** Transiciones válidas de una prenda: pendiente -> guardado (primera
+ * confirmación física en /guardarropia, recién cobrada en caja) ->
+ * retirado -> guardado -> retirado ... -- la misma persona puede entrar y
+ * sacar su prenda las veces que quiera en la noche, siempre con el mismo
+ * `tagNumber`. Nunca se vuelve a 'pendiente'. `retirado -> guardado` sirve
+ * doble función: reingreso real, o "deshacer" un Entregado apretado por
+ * error (mismo criterio que canTransitionKitchenTicket). */
+export function canTransitionLockerItem(from: LockerItemStatus, to: LockerItemStatus): boolean {
+  if (from === "pendiente") return to === "guardado";
+  if (from === "guardado") return to === "retirado";
+  if (from === "retirado") return to === "guardado";
+  return false;
+}

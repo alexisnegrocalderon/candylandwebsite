@@ -3324,7 +3324,7 @@ function OperatorsManager() {
   const { data: operators, refetch } = trpc.operators.listAll.useQuery();
   const create = trpc.operators.create.useMutation({ onSuccess: () => { refetch(); toast.success('Operador creado'); setForm({ name: '', pin: '', role: 'caja' }); }, onError: onMutationError });
   const update = trpc.operators.update.useMutation({ onSuccess: () => { refetch(); toast.success('Actualizado'); }, onError: onMutationError });
-  const [form, setForm] = useState({ name: '', pin: '', role: 'caja' as 'admin' | 'supervisor' | 'caja' | 'barra' | 'acceso' | 'cocina' });
+  const [form, setForm] = useState({ name: '', pin: '', role: 'caja' as 'admin' | 'supervisor' | 'caja' | 'barra' | 'acceso' | 'cocina' | 'guardarropia' });
 
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
@@ -3344,6 +3344,7 @@ function OperatorsManager() {
                 <SelectItem value="barra">Barra</SelectItem>
                 <SelectItem value="acceso">Control acceso</SelectItem>
                 <SelectItem value="cocina">Cocina</SelectItem>
+                <SelectItem value="guardarropia">Guardarropía</SelectItem>
               </SelectContent>
             </Select>
           </div>
