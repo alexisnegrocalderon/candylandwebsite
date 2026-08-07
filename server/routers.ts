@@ -1914,6 +1914,15 @@ export const appRouter = router({
     getCampaignRecipients: adminProcedure.input(z.object({ campaignId: z.number() })).query(async ({ input }) => {
       return db.getMailingCampaignRecipients(input.campaignId);
     }),
+    // Frena el drenaje del cron para una campaña todavía 'sending' (pedido
+    // explícito del usuario: no había forma de cancelar una programada).
+    cancelCampaign: adminProcedure.input(z.object({ campaignId: z.number() })).mutation(async ({ input }) => {
+      try {
+        return await db.cancelMailingCampaign(input.campaignId);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo cancelar la campaña.' });
+      }
+    }),
   }),
 
   // Consulta pública de saldo de Playcoins (pedido explícito del usuario) --

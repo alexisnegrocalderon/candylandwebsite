@@ -817,7 +817,11 @@ export const mailingCampaigns = mysqlTable("mailingCampaigns", {
   // Misión 300 sale siempre actualizado aunque la campaña tarde días en
   // terminar de mandarse.
   eventSections: json("eventSections"),
-  status: mysqlEnum("status", ["sending", "done"]).default("sending").notNull(),
+  // 'cancelled' = el admin la frenó a mano antes de que el cron terminara
+  // de drenar todos los destinatarios `pending` -- esas filas de
+  // `mailingRecipients` quedan huérfanas sin más acción (el cron ya
+  // filtra por `status = 'sending'`, ver getPendingMailingRecipients).
+  status: mysqlEnum("status", ["sending", "done", "cancelled"]).default("sending").notNull(),
   totalRecipients: int("totalRecipients").notNull(),
   sentCount: int("sentCount").default(0).notNull(),
   failedCount: int("failedCount").default(0).notNull(),
