@@ -2,7 +2,7 @@ import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS, CAJA_DEVIC
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk, ADMIN_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
@@ -46,6 +46,7 @@ async function requirePartyProfile(ticketCode: string) {
 import { createCajaSale } from "./caja/sale";
 import { friendlySyncErrorMessage } from "./caja/ops";
 import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKitchenProductStock, toggleKitchenProductSoldOut } from "./kitchen";
+import { listLockerItems, updateLockerItem } from "./locker";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
@@ -156,6 +157,15 @@ async function verifyKitchenPinOrThrow(ctx: any, operatorId: number, pin: string
   const operator = await verifyOperatorPinOrThrow(ctx, operatorId, pin);
   if (operator.role !== 'cocina' && operator.role !== 'supervisor' && operator.role !== 'admin') {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Tu usuario no trabaja en cocina' });
+  }
+  return operator;
+}
+
+/** Igual que las anteriores pero solo para quienes trabajan en guardarropía. */
+async function verifyGuardarropiaPinOrThrow(ctx: any, operatorId: number, pin: string) {
+  const operator = await verifyOperatorPinOrThrow(ctx, operatorId, pin);
+  if (operator.role !== 'guardarropia' && operator.role !== 'supervisor' && operator.role !== 'admin') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Tu usuario no trabaja en guardarropía' });
   }
   return operator;
 }
@@ -817,6 +827,57 @@ export const appRouter = router({
       soldOut: z.boolean(),
     })).mutation(async ({ input }) => {
       return toggleKitchenProductSoldOut(input.productId, input.eventId, input.soldOut);
+    }),
+  }),
+
+  // Pantalla propia de guardarropía: recibe/entrega prendas ya cobradas
+  // en /caja. Mismo criterio que cocina -- sin cola offline, la prenda
+  // nace en otra tablet y no hay forma de enterarse sin consultar al
+  // servidor.
+  guardarropia: router({
+    listOperators: publicProcedure.query(async () => {
+      const all = await db.listActiveOperatorsPublic();
+      return all.filter((o: any) => o.role === 'guardarropia' || o.role === 'supervisor' || o.role === 'admin');
+    }),
+
+    login: publicProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) }))
+      .mutation(async ({ input, ctx }) => {
+        const operator = await verifyGuardarropiaPinOrThrow(ctx, input.operatorId, input.pin);
+        const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
+        return { id: operator.id, name: operator.name, role: operator.role };
+      }),
+
+    me: publicProcedure.query(({ ctx }) => ctx.operator),
+
+    activeEvent: guardarropiaProcedure.query(async () => {
+      return db.getActiveEventForCaja();
+    }),
+
+    // Polling cada 4s -- trae todas las prendas del evento, el cliente
+    // arma la cola de "recién llegadas" y el buscador localmente.
+    list: guardarropiaProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return listLockerItems(input.eventId);
+    }),
+
+    update: guardarropiaProcedure.input(z.object({
+      opId: z.string(),
+      eventId: z.number(),
+      tagNumber: z.string(),
+      to: z.enum(['pendiente', 'guardado', 'retirado']),
+      clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      return updateLockerItem(rawDb, {
+        opId: input.opId,
+        eventId: input.eventId,
+        tagNumber: input.tagNumber,
+        operatorId: ctx.operator.operatorId,
+        clientAt: new Date(input.clientAt),
+        to: input.to,
+      });
     }),
   }),
 
@@ -1784,7 +1845,7 @@ export const appRouter = router({
     create: adminProcedure.input(z.object({
       name: z.string().min(1),
       pin: z.string().min(4).max(8),
-      role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso', 'cocina']),
+      role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso', 'cocina', 'guardarropia']),
     })).mutation(async ({ input }) => {
       const id = await db.createOperator({ name: input.name, pinHash: hashPin(input.pin), role: input.role });
       return { id };
@@ -1793,7 +1854,7 @@ export const appRouter = router({
       id: z.number(),
       name: z.string().min(1).optional(),
       pin: z.string().min(4).max(8).optional(),
-      role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso', 'cocina']).optional(),
+      role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso', 'cocina', 'guardarropia']).optional(),
       active: z.number().min(0).max(1).optional(),
     })).mutation(async ({ input }) => {
       const { id, pin, ...rest } = input;

@@ -267,6 +267,13 @@
       "when": 1786092509710,
       "tag": "0037_majestic_luckman",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "5",
+      "when": 1786094734589,
+      "tag": "0038_bright_vengeance",
+      "breakpoints": true
     }
   ]
 }

@@ -542,7 +542,7 @@ export const operators = mysqlTable("operators", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
   pinHash: varchar("pinHash", { length: 255 }).notNull(),
-  role: mysqlEnum("role", ["admin", "supervisor", "caja", "barra", "acceso", "cocina"]).notNull(),
+  role: mysqlEnum("role", ["admin", "supervisor", "caja", "barra", "acceso", "cocina", "guardarropia"]).notNull(),
   active: int("active").default(1).notNull(),
   // Rate limiting del login por PIN (docs/ARQUITECTURA-CAJA.md §13, riesgo 7)
   // -- el PIN es mucho más débil que una contraseña y la tablet es compartida.
@@ -724,8 +724,20 @@ export const lockerItems = mysqlTable("lockerItems", {
   // kitchenTickets.customerName: un número correlativo es difícil de
   // recordar para retirar la prenda, un nombre no.
   customerName: varchar("customerName", { length: 120 }),
-  status: mysqlEnum("status", ["guardado", "retirado"]).default("guardado").notNull(),
+  // 'pendiente' = recién cobrada en caja, todavía sin confirmar en
+  // /guardarropia que la prenda está físicamente en el mostrador -- la
+  // plata se cobra en caja, pero "guardado" solo lo marca el staff de
+  // guardarropía al tenerla en la mano. De ahí en adelante alterna entre
+  // 'guardado'/'retirado' las veces que la misma persona entre y saque
+  // -- el número (`tagNumber`) es siempre el mismo, nunca se genera uno
+  // nuevo para un reingreso.
+  status: mysqlEnum("status", ["pendiente", "guardado", "retirado"]).default("pendiente").notNull(),
   chargedAt: timestamp("chargedAt").defaultNow().notNull(),
+  // Se pisan en cada ciclo -- siempre reflejan el último "Recibido"/
+  // "Entregado", no un historial completo (igual que kitchenTickets con
+  // approvedAt/deliveredAt).
+  receivedAt: timestamp("receivedAt"),
+  receivedByOperatorId: int("receivedByOperatorId"),
   retrievedAt: timestamp("retrievedAt"),
   retrievedByOperatorId: int("retrievedByOperatorId"),
 }, (t) => [

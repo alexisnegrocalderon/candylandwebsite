@@ -115,6 +115,26 @@ export const kitchenProcedure = t.procedure.use(
   }),
 );
 
+/** Pantalla de guardarropía (/guardarropia): mismo trade-off que
+ * `kitchenProcedure` -- sesión de operador sin exigir dispositivo
+ * enrolado, acotado a solo poder cambiar el estado de una prenda
+ * (recibir/entregar), nunca vender ni cobrar. */
+export const guardarropiaProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+
+    if (!ctx.operator) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: "Sesión de guardarropía requerida" });
+    }
+    const role = ctx.operator.role;
+    if (role !== 'guardarropia' && role !== 'supervisor' && role !== 'admin') {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Tu usuario no tiene acceso a la pantalla de guardarropía" });
+    }
+
+    return next({ ctx: { ...ctx, operator: ctx.operator } });
+  }),
+);
+
 // Requiere una sesión de operador de /caja válida (login por PIN, no admin)
 // EN un dispositivo enrolado -- ambos, no solo uno. Una sesión de operador
 // robada no sirve de nada sin también tener el dispositivo enrolado.
