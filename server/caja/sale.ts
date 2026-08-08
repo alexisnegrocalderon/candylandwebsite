@@ -150,6 +150,19 @@ export async function createCajaSale(
         if (existing.length > 0) throw new Error(`El número ${tagNumber} ya está en uso esta noche`);
       }
 
+      // Mismo criterio que lockerTag arriba: el número de comanda también se
+      // genera en la tablet (client/src/pages/caja/db.ts nextKitchenTicketNumber)
+      // y también tiene una restricción única en el servidor
+      // (kitchenTickets_event_number_unique) -- sin este chequeo previo, un
+      // contador local desincronizado choca contra esa restricción DESPUÉS de
+      // haber creado la orden, dejándola huérfana.
+      if (kitchenItems.length > 0) {
+        const ticketNumber = params.kitchenTicketNumber!.trim();
+        const existing = await db.select().from(kitchenTickets)
+          .where(and(eq(kitchenTickets.eventId, params.eventId), eq(kitchenTickets.ticketNumber, ticketNumber))).limit(1);
+        if (existing.length > 0) throw new Error(`La comanda ${ticketNumber} ya está en uso esta noche`);
+      }
+
       // Canje de Playcoins: SERVER-AUTHORITATIVE, dentro de este mismo
       // mutate() -- se relee el saldo real en el instante en que esta
       // operación finalmente se aplica (no cuando el cajero la encoló
