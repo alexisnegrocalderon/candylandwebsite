@@ -1196,10 +1196,13 @@ export async function resetEventTestData(eventId: number) {
     .where(and(eq(orders.eventId, eventId), eq(orders.channel, 'caja')));
   const orderIds = cajaOrders.map((o) => o.id);
 
-  if (orderIds.length > 0) {
-    await db.delete(kitchenTickets).where(inArray(kitchenTickets.orderId, orderIds));
-    await db.delete(lockerItems).where(inArray(lockerItems.orderId, orderIds));
-  }
+  // Por eventId, no por orderId: kitchenTickets/lockerItems solo se llenan
+  // desde ventas de caja, así que filtrar por evento ya es el conjunto
+  // correcto -- y de paso agarra filas huérfanas de una orden borrada antes
+  // con el botón "Eliminar" de Ventas Caja (deleteOrderCascade no toca estas
+  // dos tablas), que un filtro por orderId actual nunca podría encontrar.
+  await db.delete(kitchenTickets).where(eq(kitchenTickets.eventId, eventId));
+  await db.delete(lockerItems).where(eq(lockerItems.eventId, eventId));
   for (const id of orderIds) {
     await deleteOrderCascade(id);
   }
