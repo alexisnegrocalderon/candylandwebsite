@@ -1,7 +1,7 @@
 import '@/admin.css';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Volume2, VolumeX, WifiOff, Search } from 'lucide-react';
+import { Volume2, VolumeX, WifiOff } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 
@@ -129,7 +129,6 @@ type LockerItemRow = {
 
 function Board({ operatorName }: { operatorName: string }) {
   const [muted, setMuted] = useState(() => localStorage.getItem(SOUND_MUTED_KEY) === '1');
-  const [query, setQuery] = useState('');
   const lastOkAtRef = useRef(Date.now());
   const knownTags = useRef<Set<string>>(new Set());
   const firstLoad = useRef(true);
@@ -159,8 +158,13 @@ function Board({ operatorName }: { operatorName: string }) {
     () => items.filter((i) => i.status === 'pendiente').sort((a, b) => new Date(a.chargedAt).getTime() - new Date(b.chargedAt).getTime()),
     [items]
   );
-  const stored = useMemo(
-    () => items.filter((i) => i.status === 'guardado').sort((a, b) => new Date(a.receivedAt ?? a.chargedAt).getTime() - new Date(b.receivedAt ?? b.chargedAt).getTime()),
+  // Lista de consulta permanente -- a diferencia de `pending`, no filtra por
+  // estado: una vez que alguien tiene número, queda visible acá toda la
+  // noche (guardado, retirado, sin importar cuántas veces alterne entre los
+  // dos), sin tener que buscarlo. Ordenada por nombre/número para barrer
+  // con la vista, no por fecha (que cambiaría de orden todo el tiempo).
+  const all = useMemo(
+    () => [...items].sort((a, b) => (a.customerName || a.tagNumber).localeCompare(b.customerName || b.tagNumber)),
     [items]
   );
 
@@ -207,11 +211,6 @@ function Board({ operatorName }: { operatorName: string }) {
     );
   };
 
-  const q = query.trim().toLowerCase();
-  const searchResults = q.length < 1 ? [] : items.filter((i) =>
-    i.tagNumber.toLowerCase().includes(q) || (i.customerName ?? '').toLowerCase().includes(q)
-  );
-
   return (
     <div className="min-h-dvh bg-[#0d0810] text-white flex flex-col">
       <header className="px-4 py-3 flex items-center justify-between border-b border-white/10 shrink-0">
@@ -230,13 +229,13 @@ function Board({ operatorName }: { operatorName: string }) {
         </div>
       )}
 
-      <main className="flex-1 overflow-y-auto p-3 space-y-6">
+      <main className="flex-1 overflow-y-auto p-3 space-y-5">
         <div>
           <p className="text-xs uppercase tracking-widest text-white/40 mb-2">Recién llegadas</p>
           {pending.length === 0 ? (
-            <p className="text-center text-white/40 py-8">No hay prendas esperando confirmación.</p>
+            <p className="text-center text-white/40 py-6 text-sm">No hay prendas esperando confirmación.</p>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {pending.map((item) => (
                 <LockerCard
                   key={item.id}
@@ -251,13 +250,13 @@ function Board({ operatorName }: { operatorName: string }) {
         </div>
 
         <div>
-          <p className="text-xs uppercase tracking-widest text-white/40 mb-2">Guardadas ahora ({stored.length})</p>
-          {stored.length === 0 ? (
-            <p className="text-center text-white/40 py-8">No hay prendas guardadas en este momento.</p>
+          <p className="text-xs uppercase tracking-widest text-white/40 mb-2">Todas las prendas de hoy ({all.length})</p>
+          {all.length === 0 ? (
+            <p className="text-center text-white/40 py-8">Todavía no hay ninguna prenda registrada.</p>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {stored.map((item) => (
-                <LockerCard
+            <div className="space-y-1.5">
+              {all.map((item) => (
+                <LockerRow
                   key={item.id}
                   item={item}
                   pendingTo={pendingAction?.tagNumber === item.tagNumber ? pendingAction.to : null}
@@ -266,36 +265,6 @@ function Board({ operatorName }: { operatorName: string }) {
                 />
               ))}
             </div>
-          )}
-        </div>
-
-        <div>
-          <p className="text-xs uppercase tracking-widest text-white/40 mb-2">Buscar por nombre o número</p>
-          <div className="relative mb-3">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Ej: Camila o 1-007"
-              className="w-full h-12 pl-10 pr-4 rounded-2xl bg-white/[0.06] border border-white/15 text-white focus:border-primary/60 focus:outline-none"
-            />
-          </div>
-          {q.length > 0 && (
-            searchResults.length === 0 ? (
-              <p className="text-center text-white/40 py-8">Sin resultados para "{query}".</p>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {searchResults.map((item) => (
-                  <LockerCard
-                    key={item.id}
-                    item={item}
-                    pendingTo={pendingAction?.tagNumber === item.tagNumber ? pendingAction.to : null}
-                    onReceive={() => doUpdate(item.tagNumber, 'guardado')}
-                    onDeliver={() => doUpdate(item.tagNumber, 'retirado')}
-                  />
-                ))}
-              </div>
-            )
           )}
         </div>
       </main>
@@ -317,26 +286,66 @@ function LockerCard({ item, pendingTo, onReceive, onDeliver }: {
     : { label: 'Retirado', className: 'bg-white/10 text-white/50' };
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4 space-y-3">
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3 space-y-2">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="font-heading font-extrabold text-4xl tracking-tight truncate">{item.customerName || item.tagNumber}</p>
+          <p className="font-heading font-extrabold text-xl tracking-tight truncate">{item.customerName || item.tagNumber}</p>
           {item.customerName && <p className="text-xs text-white/30 font-mono mt-0.5">{item.tagNumber}</p>}
         </div>
-        <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}>{badge.label}</span>
+        <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium shrink-0 ${badge.className}`}>{badge.label}</span>
       </div>
-      <div className="flex gap-2 pt-1">
+      <div className="flex gap-2">
         {(item.status === 'pendiente' || item.status === 'retirado') && (
-          <button onClick={onReceive} disabled={disabled} className="flex-1 h-12 rounded-full bg-primary font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:active:scale-100">
+          <button onClick={onReceive} disabled={disabled} className="flex-1 h-9 text-sm rounded-full bg-primary font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:active:scale-100">
             {pendingTo === 'guardado' ? 'Recibiendo…' : 'Recibido'}
           </button>
         )}
         {item.status === 'guardado' && (
-          <button onClick={onDeliver} disabled={disabled} className="flex-1 h-12 rounded-full bg-white/10 font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:active:scale-100">
+          <button onClick={onDeliver} disabled={disabled} className="flex-1 h-9 text-sm rounded-full bg-white/10 font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:active:scale-100">
             {pendingTo === 'retirado' ? 'Entregando…' : 'Entregado'}
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Fila angosta para la lista permanente "Todas las prendas de hoy" -- a
+ * diferencia de `LockerCard` (pensada para la cola de recibir, tarjeta
+ * cuadrada grande), esta es una lista larga de consulta: una fila chica por
+ * persona, con su botón de acción al lado según el estado actual. */
+function LockerRow({ item, pendingTo, onReceive, onDeliver }: {
+  item: LockerItemRow;
+  pendingTo: 'guardado' | 'retirado' | null;
+  onReceive: () => void;
+  onDeliver: () => void;
+}) {
+  const disabled = pendingTo !== null;
+  const badge = item.status === 'pendiente'
+    ? { label: 'Sin confirmar', className: 'bg-amber-500/15 text-amber-300' }
+    : item.status === 'guardado'
+    ? { label: 'Guardado', className: 'bg-emerald-500/15 text-emerald-300' }
+    : { label: 'Retirado', className: 'bg-white/10 text-white/50' };
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 flex items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold text-sm truncate">{item.customerName || item.tagNumber}</p>
+        <div className="flex items-center gap-1.5 mt-0.5">
+          {item.customerName && <p className="text-[11px] text-white/30 font-mono">{item.tagNumber}</p>}
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${badge.className}`}>{badge.label}</span>
+        </div>
+      </div>
+      {(item.status === 'pendiente' || item.status === 'retirado') && (
+        <button onClick={onReceive} disabled={disabled} className="h-8 px-3 text-xs shrink-0 rounded-full bg-primary font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:active:scale-100">
+          {pendingTo === 'guardado' ? 'Recibiendo…' : 'Recibir'}
+        </button>
+      )}
+      {item.status === 'guardado' && (
+        <button onClick={onDeliver} disabled={disabled} className="h-8 px-3 text-xs shrink-0 rounded-full bg-white/10 font-bold active:scale-[0.98] transition-transform disabled:opacity-50 disabled:active:scale-100">
+          {pendingTo === 'retirado' ? 'Entregando…' : 'Entregar'}
+        </button>
+      )}
     </div>
   );
 }
