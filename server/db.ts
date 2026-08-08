@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, orders, orderItems, tickets, discountCodes, communityCodes, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, orders, orderItems, tickets, discountCodes, communityCodes, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -1175,6 +1175,48 @@ export async function deleteOrderCascade(orderId: number) {
   await db.delete(orders).where(eq(orders.id, orderId));
 
   return { success: true };
+}
+
+/** Reinicia los datos de prueba de caja/cocina/guardarropía para un evento
+ * antes del estreno real (pedido explícito del usuario, pensado para
+ * apretarse las veces que haga falta mientras siga probando). Reutiliza
+ * deleteOrderCascade por cada venta channel='caja' -- revierte soldCount,
+ * playcoins y totales igual que borrar una orden a mano -- y además limpia
+ * lo que esa función no toca: kitchenTickets/lockerItems (propias de caja),
+ * turnos (shifts) y las filas de `ops` de tipos de caja/cocina/guardarropía.
+ *
+ * A propósito NO toca: compras web (channel != 'caja'), check-ins de
+ * /puerta (ops.type='checkin') ni canjes de extras comprados por la web
+ * (ops.type='redeem') -- ambos podrían mezclarse con actividad real de hoy. */
+export async function resetEventTestData(eventId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const cajaOrders = await db.select({ id: orders.id }).from(orders)
+    .where(and(eq(orders.eventId, eventId), eq(orders.channel, 'caja')));
+  const orderIds = cajaOrders.map((o) => o.id);
+
+  if (orderIds.length > 0) {
+    await db.delete(kitchenTickets).where(inArray(kitchenTickets.orderId, orderIds));
+    await db.delete(lockerItems).where(inArray(lockerItems.orderId, orderIds));
+  }
+  for (const id of orderIds) {
+    await deleteOrderCascade(id);
+  }
+
+  await db.delete(ops).where(and(
+    eq(ops.eventId, eventId),
+    inArray(ops.type, ['sale', 'shift_open', 'shift_close', 'manual_adjust', 'locker_return', 'kitchen_update', 'void_code']),
+  ));
+  await db.delete(shifts).where(eq(shifts.eventId, eventId));
+
+  // soldCount de la carta ya vuelve a 0 solo al revertir cada venta arriba
+  // (son productos que solo se venden en caja) -- esto además saca
+  // cualquier "agotado" (status='soldout') que haya quedado de las pruebas.
+  await db.update(ticketTypes).set({ soldCount: 0, status: 'active' })
+    .where(and(eq(ticketTypes.eventId, eventId), inArray(ticketTypes.category, ['consumo', 'locker', 'merch'])));
+
+  return { ordersDeleted: orderIds.length };
 }
 
 // Export completo (sin paginar) para CSV — filtra por evento/rango de fechas/estado.
