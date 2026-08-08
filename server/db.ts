@@ -3402,6 +3402,32 @@ export async function getPartyActor(ticketCode: string) {
   return { ticket, event, profile: profile ?? null };
 }
 
+/** Resuelve un código pegado a mano en /playmatch: primero intenta como
+ * ticketCode exacto; si no hay match, intenta como orders.orderNumber (el
+ * "Código de reserva" del email, que la gente confunde con el ticketCode
+ * porque ambos empiezan con MP-) y devuelve el ticket principal de esa
+ * orden -- mismo criterio que el QR del email (server/webhooks.ts, mainTicket):
+ * el primer ticket con category="acceso". */
+export async function resolvePartyEntryCode(rawCode: string): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const code = rawCode.trim().toUpperCase();
+  if (!code) return null;
+
+  const [byTicket] = await db.select().from(tickets).where(eq(tickets.ticketCode, code)).limit(1);
+  if (byTicket) return byTicket.ticketCode;
+
+  const [order] = await db.select().from(orders).where(eq(orders.orderNumber, code)).limit(1);
+  if (!order) return null;
+
+  const orderTickets = await db.select().from(tickets).where(eq(tickets.orderId, order.id));
+  for (const t of orderTickets) {
+    const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, t.ticketTypeId)).limit(1);
+    if (tt?.category === 'acceso') return t.ticketCode;
+  }
+  return orderTickets[0]?.ticketCode ?? null;
+}
+
 export async function createPartyProfile(params: {
   eventId: number; ticketId: number; alias: string; gender: PartyGender; avatarId: number; zone: PartyZone;
 }) {

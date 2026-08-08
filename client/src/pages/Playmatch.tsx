@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useLocation } from 'wouter';
 import { toast } from 'sonner';
 import { useSeo } from '@/hooks/useSeo';
 import { parseTicketCodeFromQr } from '@shared/qr';
+import { trpc } from '@/lib/trpc';
+import { LAST_TICKET_CODE_KEY } from '@/lib/lastTicketCode';
 
 /* Punto de entrada público a Playmatch (la capa social de la fiesta): antes
  * la única forma de llegar a `/fiesta/:ticketCode` era el botón condicional
@@ -11,7 +13,12 @@ import { parseTicketCodeFromQr } from '@shared/qr';
  * la puerta -- no había ningún link fijo en el sitio. Como cada perfil está
  * atado a un ticketCode, esta página no valida nada: solo redirige a
  * `/fiesta/<código>`, que ya sabe explicar por qué no puedes entrar todavía
- * (ver ClosedDoor en Party.tsx). */
+ * (ver ClosedDoor en Party.tsx).
+ *
+ * Si el celular ya "conoce" un ticketCode (guardado por Ticket.tsx o Party.tsx
+ * la primera vez que se abrió el link real), entra directo sin mostrar el
+ * formulario -- pegar un código a mano queda solo de respaldo para un
+ * celular nuevo o sin ese storage. */
 export default function Playmatch() {
   useSeo({
     title: 'Playmatch — Mansion Playroom',
@@ -21,12 +28,37 @@ export default function Playmatch() {
 
   const [, setLocation] = useLocation();
   const [code, setCode] = useState('');
+  const [checkingRemembered, setCheckingRemembered] = useState(true);
+  const [resolving, setResolving] = useState(false);
+  const utils = trpc.useUtils();
 
-  const entrar = () => {
+  useEffect(() => {
+    const remembered = localStorage.getItem(LAST_TICKET_CODE_KEY);
+    if (remembered) {
+      setLocation(`/fiesta/${remembered}`);
+    } else {
+      setCheckingRemembered(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const entrar = async () => {
     const parsed = parseTicketCodeFromQr(code) ?? code.trim().toUpperCase();
     if (!parsed) { toast.error('Escribe el código de tu entrada.'); return; }
-    setLocation(`/fiesta/${parsed}`);
+    setResolving(true);
+    try {
+      const { ticketCode } = await utils.party.resolveEntryCode.fetch({ code: parsed });
+      if (!ticketCode) {
+        toast.error('No encontramos tu entrada. Revisa que sea el código MP- que llegó junto a tu QR.');
+        return;
+      }
+      setLocation(`/fiesta/${ticketCode}`);
+    } finally {
+      setResolving(false);
+    }
   };
+
+  if (checkingRemembered) return null;
 
   return (
     <div className="min-h-screen pt-24 pb-16">
@@ -62,9 +94,10 @@ export default function Playmatch() {
               />
               <button
                 onClick={entrar}
-                className="btn-jelly h-14 px-8 rounded-full bg-primary text-white font-bold interactive shrink-0"
+                disabled={resolving}
+                className="btn-jelly h-14 px-8 rounded-full bg-primary text-white font-bold interactive shrink-0 disabled:opacity-60"
               >
-                Entrar
+                {resolving ? 'Buscando...' : 'Entrar'}
               </button>
             </div>
           </div>
