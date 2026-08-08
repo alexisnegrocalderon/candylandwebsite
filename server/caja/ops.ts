@@ -75,7 +75,10 @@ export function friendlySyncErrorMessage(err: unknown, opId: string): string {
   const message = err instanceof Error ? err.message : String(err);
   if (message.startsWith("Failed query")) {
     console.error(`[sync] op ${opId} rechazado por un error inesperado:`, err);
-    return "No se pudo procesar en el servidor -- hay que rehacerla";
+    // El sufijo "-- hay que rehacerla" lo agrega el cliente al armar el toast
+    // (client/src/pages/caja/index.tsx) -- si también se incluyera acá quedaba
+    // duplicado en pantalla.
+    return "No se pudo procesar en el servidor";
   }
   return message || "Error al sincronizar";
 }

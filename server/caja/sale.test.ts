@@ -15,13 +15,15 @@ const { createCajaSale } = await import("./sale");
 
 /* Doble de la cadena de drizzle. El orden de consultas de `createCajaSale`
  * es fijo: tipos de producto -> ledger de ops -> [si hay percha: lockerItems]
- * -> [si hay descuento válido: update discountCodes] -> insert de la orden
- * -> [insert de lockerItems] -> insert de cada ítem + update de soldCount ->
+ * -> [si hay comanda: kitchenTickets] -> [si hay descuento válido: update
+ * discountCodes] -> insert de la orden -> [insert de lockerItems] ->
+ * [insert de kitchenTickets] -> insert de cada ítem + update de soldCount ->
  * insert de la op. */
 function makeFakeDb(state: {
   products: Record<string, unknown>[];
   existingOp?: { result: string; conflictNote?: string | null };
   existingLockerTag?: boolean;
+  existingKitchenTicketNumber?: boolean;
 }) {
   const calls = {
     order: null as Record<string, unknown> | null,
@@ -47,6 +49,7 @@ function makeFakeDb(state: {
         limit: async () => {
           if (table === ops) return state.existingOp ? [state.existingOp] : [];
           if (table === lockerItems) return state.existingLockerTag ? [{ id: 1 }] : [];
+          if (table === kitchenTickets) return state.existingKitchenTicketNumber ? [{ id: 1 }] : [];
           return [];
         },
       };
@@ -277,5 +280,15 @@ describe("createCajaSale", () => {
     await expect(
       createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 4, quantity: 1 }] })
     ).rejects.toThrow(/número de comanda/);
+  });
+
+  it("rechaza una comanda ya usada esta noche SIN crear la orden (evita dejarla huérfana)", async () => {
+    const papas = { id: 4, name: "Papas fritas", price: "3000", costPrice: null, category: "consumo", totalStock: 50, soldCount: 0, toKitchen: 1 };
+    const { db, calls } = makeFakeDb({ products: [papas], existingKitchenTicketNumber: true });
+
+    await expect(
+      createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 4, quantity: 1 }], kitchenTicketNumber: "1-003" })
+    ).rejects.toThrow(/ya está en uso/);
+    expect(calls.order).toBeNull();
   });
 });
