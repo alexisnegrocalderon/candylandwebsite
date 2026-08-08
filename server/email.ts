@@ -173,6 +173,7 @@ export function buildOrderEmail(data: {
   const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
   const ticketUrl = data.ticketCode ? `${EMAIL_BASE_URL}/verificar/${data.ticketCode}` : '';
   const calendarUrl = data.ticketCode ? `${EMAIL_BASE_URL}/api/calendar/${data.ticketCode}.ics` : '';
+  const partyUrl = data.ticketCode ? `${EMAIL_BASE_URL}/fiesta/${data.ticketCode}` : '';
   // El QR se guarda como data: URI (server/qr.ts) para la web, pero muchos
   // clientes de correo no renderizan data: URIs de forma confiable — se usa
   // en cambio la URL real servida por /api/qr/:ticketCode.png (server/calendar.ts).
@@ -302,6 +303,7 @@ export function buildOrderEmail(data: {
         ` : ''}
         <div style="text-align:center;">
           <a href="${ticketUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:800;font-size:14px;margin:0 6px 10px;">Ver mi entrada</a>
+          <a href="${partyUrl}" style="display:inline-block;background:#fff;color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};margin:0 6px 10px;">🍬 Entrar a Playmatch</a>
           <a href="${calendarUrl}" style="display:inline-block;background:#fff;color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};margin:0 6px 10px;">📅 Agregar al calendario</a>
         </div>
       `)}

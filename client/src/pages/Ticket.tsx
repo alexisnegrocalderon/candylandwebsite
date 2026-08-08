@@ -1,9 +1,11 @@
+import { useEffect } from 'react';
 import { useRoute, Link } from 'wouter';
 import { motion } from 'framer-motion';
 import { CalendarPlus, MapPin, Calendar, User, ShieldCheck, TicketX, CheckCircle2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { canEnterParty } from '@shared/party';
+import { rememberTicketCode } from '@/lib/lastTicketCode';
 
 /** Página pública "Mi entrada" — a donde apunta el QR de cada ticket
  * (server/qr.ts). De solo lectura: muestra el QR, los nombres de todos los
@@ -19,6 +21,10 @@ export default function Ticket() {
     noindex: true,
   });
   const { data: ticket, isLoading } = trpc.tickets.getByCode.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
+
+  useEffect(() => {
+    if (ticket?.ticketCode) rememberTicketCode(ticket.ticketCode);
+  }, [ticket?.ticketCode]);
 
   if (isLoading) {
     return (

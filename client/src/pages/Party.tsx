@@ -13,6 +13,7 @@ import {
   AVATARS_PER_GENDER, MAX_ALIAS_LENGTH, MAX_MESSAGE_LENGTH, PARTY_GENDERS, PARTY_ZONES,
   ZONE_LABELS, sanitizeAlias, type PartyGender, type PartyZone,
 } from '@shared/party';
+import { rememberTicketCode } from '@/lib/lastTicketCode';
 
 const GENDER_LABELS: Record<PartyGender, string> = {
   hombre: 'Hombre',
@@ -36,6 +37,11 @@ export default function Party() {
   });
 
   const session = trpc.party.getSession.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
+
+  useEffect(() => {
+    if (ticketCode && !session.data?.denial) rememberTicketCode(ticketCode);
+  }, [ticketCode, session.data?.denial]);
+
   const [openChat, setOpenChat] = useState<{ connectionId: number; alias: string } | null>(null);
   const [selected, setSelected] = useState<MansionPerson | null>(null);
   const [gifting, setGifting] = useState<{ profileId: number; alias: string } | null>(null);

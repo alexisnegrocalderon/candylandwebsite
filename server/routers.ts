@@ -893,6 +893,10 @@ export const appRouter = router({
   // tres condiciones desde cero contra la base -- esconder un botón en el
   // cliente no protege nada.
   party: router({
+    resolveEntryCode: publicProcedure.input(z.object({ code: z.string() })).query(async ({ input }) => {
+      const ticketCode = await db.resolvePartyEntryCode(input.code);
+      return { ticketCode };
+    }),
     getSession: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
       const actor = await db.getPartyActor(input.ticketCode);
       if (!actor) return { denial: 'sin_ticket' as const, event: null, profile: null };
