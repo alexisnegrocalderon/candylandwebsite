@@ -343,25 +343,47 @@ export async function clearSyncedOps() {
   await cajaDB.opsQueue.where('status').equals('synced').delete();
 }
 
+/** Prefijo propio de ESTE dispositivo/instalación, generado una sola vez y
+ * reusado siempre después (persiste en `meta`, sobrevive a que cambie de
+ * caja física/registerId). Antes el prefijo era directamente el
+ * `registerId`, asumiendo que identifica una tablet -- pero dos tablets
+ * pueden terminar operando bajo el mismo registerId, y si el storage local
+ * de una tablet se borra (reinstalar la PWA, limpiar datos) su contador
+ * vuelve a 1 mientras el servidor ya tiene ticketNumbers viejos con ese
+ * mismo registerId, chocando contra la restricción única. Un prefijo
+ * aleatorio por dispositivo hace esa colisión prácticamente imposible sin
+ * depender de que el registerId sea realmente único. */
+async function getDevicePrefix(): Promise<number> {
+  const key = 'devicePrefix';
+  const row = await cajaDB.meta.get(key);
+  if (row?.value) return Number(row.value);
+  const prefix = 1000 + Math.floor(Math.random() * 9000); // 1000-9999
+  await cajaDB.meta.put({ key, value: prefix });
+  return prefix;
+}
+
 /** Número de comanda de cocina, generado EN LA TABLET al confirmar la venta
- * (nunca por el servidor -- así funciona sin señal). El correlativo se lleva
- * acá, en `meta`, por caja física: dos tablets nunca chocan porque cada una
- * prefija con su propio `registerId` (ver shared/kitchen.ts). */
-export async function nextKitchenTicketNumber(registerId: number | null): Promise<string> {
-  const key = `kitchenCounter:${registerId ?? 0}`;
+ * (nunca por el servidor -- así funciona sin señal). El correlativo se
+ * lleva acá, en `meta`, prefijado con el ID aleatorio propio del
+ * dispositivo (`getDevicePrefix`) -- los dos últimos dígitos visibles
+ * siguen siendo correlativos y son los que se leen en pantalla en /cocina. */
+export async function nextKitchenTicketNumber(): Promise<string> {
+  const prefix = await getDevicePrefix();
+  const key = `kitchenCounter:${prefix}`;
   const row = await cajaDB.meta.get(key);
   const next = (Number(row?.value) || 0) + 1;
   await cajaDB.meta.put({ key, value: next });
-  return formatKitchenTicketNumber(registerId, next);
+  return formatKitchenTicketNumber(prefix, next);
 }
 
 /** Número de percha de guardarropía, generado EN LA TABLET al confirmar la
  * venta -- mismo patrón que `nextKitchenTicketNumber` (contador propio en
- * `meta`, distinto del de cocina, prefijado por caja física). */
-export async function nextLockerTagNumber(registerId: number | null): Promise<string> {
-  const key = `lockerCounter:${registerId ?? 0}`;
+ * `meta`, prefijado con el mismo ID aleatorio del dispositivo). */
+export async function nextLockerTagNumber(): Promise<string> {
+  const prefix = await getDevicePrefix();
+  const key = `lockerCounter:${prefix}`;
   const row = await cajaDB.meta.get(key);
   const next = (Number(row?.value) || 0) + 1;
   await cajaDB.meta.put({ key, value: next });
-  return formatLockerTagNumber(registerId, next);
+  return formatLockerTagNumber(prefix, next);
 }

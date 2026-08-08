@@ -1127,8 +1127,8 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
     // El número de comanda/percha se genera ACÁ, en la tablet, antes de
     // encolar la venta -- así funciona sin señal (ver nextKitchenTicketNumber
     // / nextLockerTagNumber).
-    const kitchenTicketNumber = hasKitchenItems ? await nextKitchenTicketNumber(registerId) : undefined;
-    const lockerTag = needsLockerTag ? await nextLockerTagNumber(registerId) : undefined;
+    const kitchenTicketNumber = hasKitchenItems ? await nextKitchenTicketNumber() : undefined;
+    const lockerTag = needsLockerTag ? await nextLockerTagNumber() : undefined;
     onSale(
       cartItems, paymentMethod, buyerEmail.trim() || undefined, redeemAmount || undefined,
       discountResult?.valid ? discountCode.trim() : undefined,
