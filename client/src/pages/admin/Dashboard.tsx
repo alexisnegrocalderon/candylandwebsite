@@ -3318,8 +3318,14 @@ function ProgramConfigTab() {
 function CajaAdminView() {
   const { data: eventsData } = trpc.events.listAll.useQuery();
   const events = eventsData ?? [];
+  // El mismo evento que /caja/cocina/guardarropía usan de verdad (el
+  // publicado más cercano a hoy) -- antes este panel arrancaba en
+  // events[0] (el creado más reciente), que podía ser un evento distinto
+  // del que la tablet estaba usando y hacía que "Reiniciar datos de
+  // prueba" apuntara al evento equivocado sin que se notara.
+  const { data: activeCajaEvent } = trpc.events.getActiveForCaja.useQuery();
   const [eventId, setEventId] = useState<number | null>(null);
-  const activeEventId = eventId ?? events[0]?.id ?? null;
+  const activeEventId = eventId ?? activeCajaEvent?.id ?? events[0]?.id ?? null;
 
   return (
     <div className="space-y-6">

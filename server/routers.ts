@@ -358,6 +358,16 @@ export const appRouter = router({
     listAll: adminProcedure.query(async () => {
       return db.getAllEvents();
     }),
+    // El mismo criterio que usa /caja, /cocina y /guardarropia para elegir
+    // "el evento de esta noche" (el publicado más cercano a hoy en fecha) --
+    // sirve para que el admin (ej. el selector de la sección Caja) arranque
+    // apuntando al evento correcto sin que el usuario tenga que elegirlo a
+    // mano. `listAll` en cambio ordena por creación, así que un evento viejo
+    // o de prueba creado después podía terminar como "seleccionado" por
+    // defecto aunque no fuera el que /caja estaba usando de verdad.
+    getActiveForCaja: adminProcedure.query(async () => {
+      return db.getActiveEventForCaja() ?? null;
+    }),
     create: adminProcedure.input(z.object({
       title: z.string(),
       slug: z.string(),
