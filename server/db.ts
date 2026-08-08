@@ -528,6 +528,20 @@ export function parseAttendeeRuts(attendeeDataJson: string | null | undefined): 
   }
 }
 
+/** RUT del comprador (no de acompañantes) de una orden, para Puerta -- lee
+ * específicamente la clave `buyer__rut` de attendeeData, la fuente de
+ * verdad real (a diferencia de customers.rut, ver upsertCustomerFromOrder). */
+export function parseBuyerRut(attendeeDataJson: string | null | undefined): string | null {
+  if (!attendeeDataJson) return null;
+  try {
+    const parsed = JSON.parse(attendeeDataJson);
+    const value = parsed?.campos?.['buyer__rut'];
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 // Orders
 export async function createOrder(input: {
   eventSlug: string;
@@ -1777,7 +1791,7 @@ export async function getCajaSnapshot(eventId: number) {
       buyerName: o.buyerName,
       buyerEmail: o.buyerEmail,
       buyerPhone: o.buyerPhone,
-      rut: rutByEmail.get((o.buyerEmail || '').trim().toLowerCase()) ?? null,
+      rut: parseBuyerRut(o.attendeeData) ?? rutByEmail.get((o.buyerEmail || '').trim().toLowerCase()) ?? null,
       attendeeNames: attendeeNames.length > 0 ? attendeeNames : [o.buyerName],
       access: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'acceso').map((t: any) => ({
         ticketCode: t.ticketCode,
@@ -2883,8 +2897,8 @@ export async function upsertCustomerFromOrder(order: any, accesoSlugs: string[])
   try {
     const parsed = order.attendeeData ? JSON.parse(order.attendeeData) : null;
     const campos = parsed?.campos ?? {};
-    if (typeof campos.rut === 'string' && campos.rut.trim()) rut = campos.rut.trim();
-    if (typeof campos.instagram === 'string' && campos.instagram.trim()) instagram = campos.instagram.trim();
+    if (typeof campos['buyer__rut'] === 'string' && campos['buyer__rut'].trim()) rut = campos['buyer__rut'].trim();
+    if (typeof campos['buyer__instagram'] === 'string' && campos['buyer__instagram'].trim()) instagram = campos['buyer__instagram'].trim();
   } catch {
     // attendeeData mal formado -- no bloquea el registro del cliente.
   }
