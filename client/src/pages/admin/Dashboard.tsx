@@ -3335,6 +3335,7 @@ function CajaAdminView() {
         )}
       </div>
 
+      {activeEventId && <ResetTestDataCard eventId={activeEventId} eventTitle={events.find((e: any) => e.id === activeEventId)?.title ?? ''} />}
       <OperatorsManager />
       <RegistersManager />
       <DevicesManager />
@@ -3344,6 +3345,49 @@ function CajaAdminView() {
       <ShiftClosingsReport events={events} />
       {activeEventId && <LedgerView eventId={activeEventId} />}
     </div>
+  );
+}
+
+/** Botón para el período de pruebas antes del estreno real: limpia ventas,
+ * turnos y comandas de prueba de /caja, /cocina y /guardarropía para el
+ * evento elegido, y repone el stock/"agotado" de la carta -- pensado para
+ * apretarse las veces que haga falta mientras se sigue probando. Nunca toca
+ * compras web, check-ins de /puerta ni canjes de extras (ver
+ * db.resetEventTestData). */
+function ResetTestDataCard({ eventId, eventTitle }: { eventId: number; eventTitle: string }) {
+  const reset = trpc.caja.resetTestData.useMutation({
+    onSuccess: (data) => toast.success(`Listo -- se borraron ${data.ordersDeleted} venta(s) de prueba y se repuso la carta.`),
+    onError: onMutationError,
+  });
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5 border-l-4 border-l-amber-500">
+      <CardHeader><CardTitle>Reiniciar datos de prueba</CardTitle></CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Borra las ventas, turnos y comandas de prueba de /caja, /cocina y /guardarropía de "{eventTitle}", y repone el stock y el estado "agotado" de la carta de la fiesta. No toca compras web, check-ins de /puerta ni canjes de estacionamiento/piscolón.
+        </p>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button variant="outline" disabled={reset.isPending} className="text-amber-700 border-amber-300">
+              {reset.isPending ? 'Reiniciando…' : 'Reiniciar datos de prueba'}
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>¿Reiniciar caja/cocina/guardarropía de "{eventTitle}"?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Se van a borrar todas las ventas hechas directo en caja, los turnos y las comandas de cocina/guardarropía de este evento, y se va a reponer el stock y quitar el "agotado" de la carta. Esta acción no se puede deshacer. Las compras web, los check-ins de puerta y los canjes de estacionamiento/piscolón NO se tocan.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => reset.mutate({ eventId })}>Sí, reiniciar</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -4360,6 +4404,12 @@ function CartaManager() {
   const createType = trpc.events.createTicketType.useMutation({ onSuccess: () => onSaved('Producto creado'), onError: onMutationError });
   const updateType = trpc.events.updateTicketType.useMutation({ onSuccess: () => onSaved('Producto actualizado'), onError: onMutationError });
   const deleteType = trpc.events.deleteTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  // Mismo endpoint que edita el producto (events.updateTicketType ya acepta
+  // `status`) -- así el admin puede agotar/reponer sin depender de /cocina.
+  const toggleSoldOut = trpc.events.updateTicketType.useMutation({
+    onSuccess: () => { utils.events.listTicketTypes.invalidate(); refetch(); },
+    onError: onMutationError,
+  });
 
   const products = (allTypes ?? []).filter((t: any) => t.category === tab);
   const meta = CARTA_CATEGORIES.find((c) => c.id === tab)!;
@@ -4566,7 +4616,12 @@ function CartaManager() {
                       {p.emoji || meta.emoji}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold truncate">{p.name}</p>
+                      <p className="font-semibold truncate flex items-center gap-2">
+                        {p.name}
+                        {p.status === 'soldout' && (
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-red-600 bg-red-100 px-1.5 py-0.5 rounded">Agotado</span>
+                        )}
+                      </p>
                       <p className="text-muted-foreground text-sm">
                         ${Number(p.price).toLocaleString('es-CL')}
                         {p.costPrice != null && <span className="ml-2 text-xs">margen ${(Number(p.price) - Number(p.costPrice)).toLocaleString('es-CL')}</span>}
@@ -4577,6 +4632,15 @@ function CartaManager() {
                       </p>
                     </div>
                     <div className="flex gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={toggleSoldOut.isPending}
+                        onClick={() => toggleSoldOut.mutate({ id: p.id, status: p.status === 'soldout' ? 'active' : 'soldout' })}
+                        className={p.status === 'soldout' ? 'text-green-600 border-green-300' : 'text-red-600 border-red-300'}
+                      >
+                        {p.status === 'soldout' ? 'Reponer' : <><Ban className="w-3 h-3 mr-1" /> Agotar</>}
+                      </Button>
                       <Button variant="outline" size="sm" onClick={() => openEdit(p)}><Edit className="w-3 h-3" /></Button>
                       <ConfirmDeleteButton description={`Vas a eliminar "${p.name}" de la carta.`} onConfirm={() => deleteType.mutateAsync({ id: p.id })} />
                     </div>

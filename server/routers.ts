@@ -1845,6 +1845,15 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo registrar la venta' });
       }
     }),
+
+    // Reset de datos de prueba de caja/cocina/guardarropía antes del
+    // estreno real (pedido explícito del usuario, pensado para usarse las
+    // veces que haga falta mientras siga probando). Ver db.resetEventTestData
+    // para el detalle exacto de qué toca y qué deja intacto (nunca compras
+    // web, check-ins de puerta ni canjes de extras).
+    resetTestData: adminProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input }) => {
+      return db.resetEventTestData(input.eventId);
+    }),
   }),
 
   // Gestión de operadores desde /admin (docs/ARQUITECTURA-CAJA.md §11).
