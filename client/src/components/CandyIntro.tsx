@@ -48,7 +48,7 @@ function LoadingMedallion() {
         })}
       </motion.div>
       <motion.div
-        className="text-[4.5rem] md:text-[6rem] leading-none drop-shadow-[0_0_40px_oklch(0.68_0.16_340_/_0.4)]"
+        className="text-[4.5rem] md:text-[6rem] leading-none drop-shadow-[0_0_40px_oklch(0.70_0.19_340_/_0.4)]"
         animate={{ rotate: [0, 14, -14, 0], scale: [1, 1.06, 1] }}
         transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
       >
@@ -151,7 +151,7 @@ export default function CandyIntro() {
             className="absolute inset-0"
             style={{
               background:
-                'radial-gradient(circle at 30% 30%, oklch(0.68 0.1 295 / 0.35), transparent 55%), radial-gradient(circle at 70% 70%, oklch(0.76 0.13 35 / 0.3), transparent 55%), oklch(0.97 0.014 340)',
+                'radial-gradient(circle at 30% 30%, oklch(0.70 0.14 280 / 0.35), transparent 55%), radial-gradient(circle at 70% 70%, oklch(0.70 0.20 350 / 0.3), transparent 55%), oklch(0.97 0.014 340)',
             }}
             animate={opening ? { scale: 1.3, opacity: 0 } : {}}
             transition={{ duration: 0.9, ease: [0.23, 1, 0.32, 1] }}
@@ -203,7 +203,7 @@ export default function CandyIntro() {
                 aria-label="Toca para entrar"
               >
                 <motion.div
-                  className="text-[7rem] md:text-[10rem] leading-none drop-shadow-[0_0_40px_oklch(0.68_0.16_340_/_0.4)]"
+                  className="text-[7rem] md:text-[10rem] leading-none drop-shadow-[0_0_40px_oklch(0.70_0.19_340_/_0.4)]"
                   animate={
                     opening
                       ? { scale: [1, 1.25, 0], rotate: [0, -8, 20] }

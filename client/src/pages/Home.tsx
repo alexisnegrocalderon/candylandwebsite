@@ -229,7 +229,7 @@ function DraggableCandies({ boundsRef }: { boundsRef: React.RefObject<HTMLElemen
           dragMomentum
           whileDrag={{ scale: 1.25, zIndex: 30 }}
           whileTap={{ scale: 1.15 }}
-          className={`absolute ${c.size} select-none cursor-grab active:cursor-grabbing z-20 drop-shadow-[0_4px_20px_oklch(0.68_0.16_340_/_0.35)] touch-none`}
+          className={`absolute ${c.size} select-none cursor-grab active:cursor-grabbing z-20 drop-shadow-[0_4px_20px_oklch(0.70_0.19_340_/_0.35)] touch-none`}
           style={{ left: c.left, top: c.top }}
           animate={{ y: [0, -16, 0], rotate: [0, 8, 0] }}
           transition={{ duration: c.dur, repeat: Infinity, ease: 'easeInOut' }}
@@ -309,7 +309,7 @@ function Hero() {
       {/* Viñeta oscura centrada en el texto (contraste) + degradé claro solo
        * en el borde inferior (transición a la sección siguiente) — el resto
        * del video queda a color fuerte en vez de lavado con el fondo claro. */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_65%_55%_at_50%_42%,oklch(0.18_0.04_330/0.45),transparent_70%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_65%_55%_at_50%_42%,oklch(0.18_0.04_338/0.45),transparent_70%)]" />
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background" />
 
       {/* Brillos de club -- blur más liviano en mobile (menos costo de
@@ -327,7 +327,7 @@ function Hero() {
           alt="Mansion Playroom"
           width={300}
           height={300}
-          className="h-16 md:h-20 w-auto mx-auto mb-6 drop-shadow-[0_0_25px_oklch(0.68_0.16_340_/_0.3)]"
+          className="h-16 md:h-20 w-auto mx-auto mb-6 drop-shadow-[0_0_25px_oklch(0.70_0.19_340_/_0.3)]"
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
@@ -585,7 +585,7 @@ function UpcomingEventsSection() {
 function CountdownUnit({ value, label }: { value: number; label: string }) {
   return (
     <div className="flex flex-col items-center gap-1.5">
-      <div className="relative w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-2xl md:rounded-3xl bg-gradient-to-br from-cherry via-primary to-violet-electric shadow-[0_6px_22px_oklch(0.68_0.16_340_/_0.4)] flex items-center justify-center overflow-hidden ring-2 ring-white/30">
+      <div className="relative w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-2xl md:rounded-3xl bg-gradient-to-br from-cherry via-primary to-violet-electric shadow-[0_6px_22px_oklch(0.70_0.19_340_/_0.4)] flex items-center justify-center overflow-hidden ring-2 ring-white/30">
         <div aria-hidden className="absolute inset-0 bg-white/10 mix-blend-overlay" />
         <span className="font-heading font-black text-3xl sm:text-4xl md:text-5xl tabular-nums text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)]">
           {String(value).padStart(2, '0')}
@@ -961,7 +961,7 @@ function FinalCTASection() {
           width={300}
           height={300}
           loading="lazy"
-          className="h-24 w-auto mx-auto mb-8 candy-float drop-shadow-[0_0_25px_oklch(0.68_0.16_340_/_0.3)]"
+          className="h-24 w-auto mx-auto mb-8 candy-float drop-shadow-[0_0_25px_oklch(0.70_0.19_340_/_0.3)]"
         />
         <h2 className="font-heading font-bold text-4xl md:text-7xl tracking-tight leading-[1.02] mb-6">
           Tu entrada es la llave a{' '}
@@ -1077,7 +1077,7 @@ function StickyMobileCTA() {
     >
       <Link
         href={`/checkout/${CANDYLAND.slug}`}
-        className="btn-jelly w-full py-4 bg-primary text-primary-foreground rounded-full font-bold uppercase tracking-wide text-base shadow-[0_-4px_24px_oklch(0.68_0.16_340_/_0.25)] inline-flex items-center justify-center gap-2"
+        className="btn-jelly w-full py-4 bg-primary text-primary-foreground rounded-full font-bold uppercase tracking-wide text-base shadow-[0_-4px_24px_oklch(0.70_0.19_340_/_0.25)] inline-flex items-center justify-center gap-2"
       >
         <Ticket className="w-5 h-5" />
         Quiero ir
