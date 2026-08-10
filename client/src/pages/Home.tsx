@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, MotionConfig, useScroll, useTransform } from 'framer-motion';
 import {
-  ArrowRight,
   Calendar,
   Car,
   Cigarette,
@@ -250,6 +249,10 @@ function Hero() {
   const bgY = useTransform(scrollYProgress, [0, 1], ['0%', '30%']);
   const contentY = useTransform(scrollYProgress, [0, 1], ['0%', '-15%']);
   const contentOpacity = useTransform(scrollYProgress, [0, 0.8], [1, 0]);
+  // El título se mueve a una velocidad distinta (más lenta) que el resto del
+  // bloque de texto -- parallax en capas, da sensación de profundidad al
+  // hacer scroll en vez de que todo el contenido se mueva como una sola pieza.
+  const titleY = useTransform(scrollYProgress, [0, 1], ['0%', '-6%']);
 
   // En touch (celular/tablet) se apaga el parallax con JS del fondo y no se
   // montan los caramelos arrastrables -- en iOS Safari, sumado a los blobs
@@ -343,7 +346,8 @@ function Hero() {
           initial={{ opacity: 0, y: 50, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 1, delay: 0.35, ease: [0.23, 1, 0.32, 1] }}
-          className="font-heading font-extrabold text-[clamp(1.7rem,8.5vw,6.2rem)] leading-[0.95] tracking-tight drop-shadow-[0_4px_30px_oklch(0.76_0.13_35_/_0.25)] whitespace-normal sm:whitespace-nowrap break-words"
+          style={pointerFine ? { y: titleY } : undefined}
+          className="font-heading font-extrabold text-[clamp(1.9rem,8.5vw,6.4rem)] leading-[0.95] tracking-[0.01em] drop-shadow-[0_6px_40px_oklch(0.76_0.13_35_/_0.35)] whitespace-normal sm:whitespace-nowrap break-words"
           aria-label={CANDYLAND.nombre}
         >
           {/* Letras interactivas: hover material candy en desktop, shimmer automático en móvil */}
@@ -369,12 +373,20 @@ function Hero() {
           transition={{ duration: 0.8, delay: 0.7 }}
           className="mt-6 flex flex-wrap items-center justify-center gap-3 text-sm md:text-base"
         >
-          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-candy">
-            <Calendar className="w-4 h-4 text-primary" /> {CANDYLAND.fechaTexto}
-          </span>
-          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-candy">
-            <Clock className="w-4 h-4 text-primary" /> {CANDYLAND.horarioTexto}
-          </span>
+          {EVENTO.fechaConfirmada ? (
+            <>
+              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-candy">
+                <Calendar className="w-4 h-4 text-primary" /> {CANDYLAND.fechaTexto}
+              </span>
+              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-candy">
+                <Clock className="w-4 h-4 text-primary" /> {CANDYLAND.horarioTexto}
+              </span>
+            </>
+          ) : (
+            <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-candy border border-primary/30">
+              <Sparkles className="w-4 h-4 text-primary" /> Próxima fecha: pronto
+            </span>
+          )}
           <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-candy">
             <MapPin className="w-4 h-4 text-primary" /> {CANDYLAND.ciudad}
           </span>
@@ -386,21 +398,24 @@ function Hero() {
           transition={{ duration: 0.8, delay: 0.85 }}
           className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4"
         >
-          <Link
-            href={`/checkout/${CANDYLAND.slug}`}
-            className="btn-jelly inline-flex items-center gap-3 px-10 py-5 bg-primary text-primary-foreground rounded-full text-lg font-bold uppercase tracking-wide interactive"
-          >
-            <Ticket className="w-5 h-5" />
-            Quiero ir
-          </Link>
-          <button
-            type="button"
-            onClick={() => scrollToId('proximos-eventos')}
-            className="inline-flex items-center gap-2 px-8 py-4 border border-primary/40 text-foreground rounded-full text-base font-semibold hover:border-primary hover:text-primary transition-colors interactive"
-          >
-            Próximos Eventos
-            <ArrowRight className="w-4 h-4" />
-          </button>
+          {EVENTO.fechaConfirmada ? (
+            <Link
+              href={`/checkout/${CANDYLAND.slug}`}
+              className="btn-jelly inline-flex items-center gap-3 px-10 py-5 bg-primary text-primary-foreground rounded-full text-lg font-bold uppercase tracking-wide interactive"
+            >
+              <Ticket className="w-5 h-5" />
+              Quiero ir
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => scrollToId('proximos-eventos')}
+              className="btn-jelly inline-flex items-center gap-3 px-10 py-5 bg-primary text-primary-foreground rounded-full text-lg font-bold uppercase tracking-wide interactive"
+            >
+              <Sparkles className="w-5 h-5" />
+              Próximos Eventos
+            </button>
+          )}
         </motion.div>
       </motion.div>
     </section>
@@ -581,6 +596,29 @@ function CountdownUnit({ value, label }: { value: number; label: string }) {
   );
 }
 
+/** Tarjeta que reemplaza countdown + Misión 300 mientras no hay fecha
+ *  confirmada ni venta activa (ver EVENTO.fechaConfirmada). Mismo fondo con
+ *  blobs y estilo `glass-candy` que el resto de la sección, sin números que
+ *  contar ni botón de compra. */
+function ComingSoonCard() {
+  return (
+    <motion.div
+      {...reveal}
+      className="relative glass-candy rounded-3xl px-6 py-10 md:px-10 md:py-14 flex flex-col items-center gap-4 text-center overflow-hidden border-2 border-primary/30"
+    >
+      <div aria-hidden className="absolute -top-16 left-1/4 w-64 h-64 rounded-full bg-cherry/25 blur-[90px]" />
+      <div aria-hidden className="absolute -bottom-16 right-1/4 w-64 h-64 rounded-full bg-primary/20 blur-[90px]" />
+      <span className="relative w-2 h-2 rounded-full bg-primary candy-pulse inline-block" />
+      <p className="relative font-heading font-bold text-2xl md:text-3xl text-gradient-candy">
+        La próxima fecha se viene pronto
+      </p>
+      <p className="relative text-muted-foreground text-sm md:text-base max-w-md">
+        Todavía no confirmamos día ni venta de entradas — síguenos en Instagram para enterarte primero.
+      </p>
+    </motion.div>
+  );
+}
+
 function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missionPricing: MissionPricing }) {
   const { dias, horas, minutos, segundos, esHoy } = useCountdown(CANDYLAND.eventDate);
   const { meta, titulo, copy } = CANDYLAND.mision;
@@ -588,6 +626,18 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
   const displayCount = useCountUp(vendidos);
   const burstId = useIncreaseBurst(vendidos);
   const soldOut = vendidos >= meta;
+
+  if (!EVENTO.fechaConfirmada) {
+    return (
+      <section className="relative py-10 md:py-14 overflow-hidden">
+        <div aria-hidden className="absolute -top-16 left-[10%] w-72 h-72 rounded-full bg-primary/15 blur-[100px] candy-float-slow" />
+        <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/15 blur-[110px] candy-float" />
+        <div className="container relative">
+          <ComingSoonCard />
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="relative py-10 md:py-14 overflow-hidden">

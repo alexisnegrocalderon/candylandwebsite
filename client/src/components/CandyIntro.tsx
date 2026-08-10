@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { prefersReducedMotion } from '@/lib/smoothScroll';
-import { EVENTO } from '@/config/candyland';
+import { EVENTO, MARCA } from '@/config/candyland';
 
 const SEEN_KEY = 'candyland_intro_seen';
 
@@ -16,8 +16,8 @@ const SEEN_KEY = 'candyland_intro_seen';
  *  rápidas. El intro igual espera a que el poster del hero termine de cargar. */
 const MIN_LOADING_MS = 600;
 
-/** Cuánto se queda "CANDYLAND · toca para entrar" antes de disolverse solo.
- *  Quien toque antes, entra antes. */
+/** Cuánto se queda "MANSION PLAYROOM · toca para entrar" antes de disolverse
+ *  solo. Quien toque antes, entra antes. */
 const AUTO_ENTER_MS = 900;
 
 /** Dulces orbitando alrededor del medallón mientras carga la página. */
@@ -126,8 +126,8 @@ export default function CandyIntro() {
   const enterRef = useRef(enter);
   useEffect(() => { enterRef.current = enter; });
 
-  // Auto-entrada: apenas está listo, se muestra "CANDYLAND · toca para entrar"
-  // un momento y el intro se disuelve solo. Tocar antes sigue funcionando y
+  // Auto-entrada: apenas está listo, se muestra "MANSION PLAYROOM · toca para
+  // entrar" un momento y el intro se disuelve solo. Tocar antes sigue funcionando y
   // entra al toque -- `enter()` se protege sola contra ejecutarse dos veces.
   useEffect(() => {
     if (!ready) return;
@@ -224,8 +224,8 @@ export default function CandyIntro() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.15 }}
                   >
-                    <p className="font-heading font-extrabold text-3xl md:text-5xl text-gradient-candy mb-2">
-                      CANDYLAND
+                    <p className="font-heading font-extrabold text-[clamp(1.5rem,7vw,3.25rem)] text-gradient-candy mb-2 uppercase whitespace-nowrap">
+                      {MARCA.nombre}
                     </p>
                     <p className="text-foreground/90 text-base md:text-lg uppercase tracking-[0.25em] animate-pulse">
                       Toca para entrar
