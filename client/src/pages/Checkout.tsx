@@ -138,7 +138,7 @@ function SquareImageOption({
       onClick={onClick}
       aria-pressed={!!activo}
       className={`relative aspect-square rounded-2xl overflow-hidden border-2 text-left interactive transition-all ${
-        activo ? 'border-primary shadow-[0_0_20px_oklch(0.68_0.16_340_/_0.3)]' : 'border-border/50 hover:border-primary/40'
+        activo ? 'border-primary shadow-[0_0_20px_oklch(0.70_0.19_340_/_0.3)]' : 'border-border/50 hover:border-primary/40'
       }`}
     >
       {imgOk ? (

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { prefersReducedMotion } from '@/lib/smoothScroll';
-import { EVENTO } from '@/config/candyland';
+import { EVENTO, MARCA } from '@/config/candyland';
 
 const SEEN_KEY = 'candyland_intro_seen';
 
@@ -16,8 +16,8 @@ const SEEN_KEY = 'candyland_intro_seen';
  *  rápidas. El intro igual espera a que el poster del hero termine de cargar. */
 const MIN_LOADING_MS = 600;
 
-/** Cuánto se queda "CANDYLAND · toca para entrar" antes de disolverse solo.
- *  Quien toque antes, entra antes. */
+/** Cuánto se queda "MANSION PLAYROOM · toca para entrar" antes de disolverse
+ *  solo. Quien toque antes, entra antes. */
 const AUTO_ENTER_MS = 900;
 
 /** Dulces orbitando alrededor del medallón mientras carga la página. */
@@ -48,7 +48,7 @@ function LoadingMedallion() {
         })}
       </motion.div>
       <motion.div
-        className="text-[4.5rem] md:text-[6rem] leading-none drop-shadow-[0_0_40px_oklch(0.68_0.16_340_/_0.4)]"
+        className="text-[4.5rem] md:text-[6rem] leading-none drop-shadow-[0_0_40px_oklch(0.70_0.19_340_/_0.4)]"
         animate={{ rotate: [0, 14, -14, 0], scale: [1, 1.06, 1] }}
         transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
       >
@@ -126,8 +126,8 @@ export default function CandyIntro() {
   const enterRef = useRef(enter);
   useEffect(() => { enterRef.current = enter; });
 
-  // Auto-entrada: apenas está listo, se muestra "CANDYLAND · toca para entrar"
-  // un momento y el intro se disuelve solo. Tocar antes sigue funcionando y
+  // Auto-entrada: apenas está listo, se muestra "MANSION PLAYROOM · toca para
+  // entrar" un momento y el intro se disuelve solo. Tocar antes sigue funcionando y
   // entra al toque -- `enter()` se protege sola contra ejecutarse dos veces.
   useEffect(() => {
     if (!ready) return;
@@ -151,7 +151,7 @@ export default function CandyIntro() {
             className="absolute inset-0"
             style={{
               background:
-                'radial-gradient(circle at 30% 30%, oklch(0.68 0.1 295 / 0.35), transparent 55%), radial-gradient(circle at 70% 70%, oklch(0.76 0.13 35 / 0.3), transparent 55%), oklch(0.97 0.014 340)',
+                'radial-gradient(circle at 30% 30%, oklch(0.70 0.14 280 / 0.35), transparent 55%), radial-gradient(circle at 70% 70%, oklch(0.70 0.20 350 / 0.3), transparent 55%), oklch(0.97 0.014 340)',
             }}
             animate={opening ? { scale: 1.3, opacity: 0 } : {}}
             transition={{ duration: 0.9, ease: [0.23, 1, 0.32, 1] }}
@@ -203,7 +203,7 @@ export default function CandyIntro() {
                 aria-label="Toca para entrar"
               >
                 <motion.div
-                  className="text-[7rem] md:text-[10rem] leading-none drop-shadow-[0_0_40px_oklch(0.68_0.16_340_/_0.4)]"
+                  className="text-[7rem] md:text-[10rem] leading-none drop-shadow-[0_0_40px_oklch(0.70_0.19_340_/_0.4)]"
                   animate={
                     opening
                       ? { scale: [1, 1.25, 0], rotate: [0, -8, 20] }
@@ -224,8 +224,8 @@ export default function CandyIntro() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.15 }}
                   >
-                    <p className="font-heading font-extrabold text-3xl md:text-5xl text-gradient-candy mb-2">
-                      CANDYLAND
+                    <p className="font-heading font-extrabold text-[clamp(1.5rem,7vw,3.25rem)] text-gradient-candy mb-2 uppercase whitespace-nowrap">
+                      {MARCA.nombre}
                     </p>
                     <p className="text-foreground/90 text-base md:text-lg uppercase tracking-[0.25em] animate-pulse">
                       Toca para entrar

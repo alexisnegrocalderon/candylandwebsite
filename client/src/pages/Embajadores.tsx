@@ -70,12 +70,12 @@ function AmbassadorPanelBanner() {
         <div
           aria-hidden
           className="absolute -inset-6 rounded-[3rem] blur-3xl opacity-45 -z-10"
-          style={{ background: 'radial-gradient(circle, oklch(0.68 0.1 295 / 0.3), transparent 70%)' }}
+          style={{ background: 'radial-gradient(circle, oklch(0.70 0.14 280 / 0.3), transparent 70%)' }}
         />
         <div
           aria-hidden
           className="absolute inset-0 rounded-3xl pointer-events-none"
-          style={{ background: 'linear-gradient(135deg, oklch(0.68 0.1 295 / 0.14), oklch(0.76 0.13 35 / 0.1) 60%, transparent 100%)' }}
+          style={{ background: 'linear-gradient(135deg, oklch(0.70 0.14 280 / 0.14), oklch(0.70 0.20 350 / 0.1) 60%, transparent 100%)' }}
         />
         <div className="candy-holo" />
         <div className="candy-sheen" />

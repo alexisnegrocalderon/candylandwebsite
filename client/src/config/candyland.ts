@@ -199,17 +199,27 @@ export const EVENTO = {
   // del sitio apuntan a un evento que no existe y el checkout cae en modo
   // demo silenciosamente, fallando recién al intentar pagar.
   slug: 'candyland-agosto-2026',
-  nombre: 'CANDYLAND',
-  tagline: 'Donde la libertad sabe más dulce',
-  heroTitulo: 'Una noche demasiado dulce para olvidar.',
+  // Nombre corto que se usa en el título grande del Hero. La marca completa
+  // ("Mansion Playroom") vive en MARCA.nombre y se usa en el logo del Hero y
+  // en el splash del Intro -- el título grande no la repite.
+  nombre: 'PLAYROOM',
+  tagline: 'La próxima fiesta se viene pronto',
+  heroTitulo: 'La próxima noche está por anunciarse.',
 
-  // Fecha y hora del evento (hora de Chile continental, invierno = UTC-4)
-  eventDate: new Date('2026-08-08T21:00:00-04:00'),
-  fechaTexto: 'Sábado 08 de Agosto',
-  horarioTexto: '21:00 — 04:30 hrs',
+  // ⚠️ Todavía no hay fecha confirmada para la próxima fiesta (ni venta de
+  // entradas activa). Mientras `fechaConfirmada` sea false, el Hero y la
+  // sección de countdown ocultan fecha/hora/countdown y muestran un mensaje
+  // "Próximamente" en su lugar -- ver Hero() y UrgencySection() en Home.tsx.
+  // `eventDate` se deja con un valor futuro cualquiera solo para no romper
+  // el tipo Date; no se renderiza en ningún lado mientras esto sea false.
+  fechaConfirmada: false,
+  eventDate: new Date('2026-09-30T21:00:00-04:00'),
+  fechaTexto: 'Próximamente',
+  horarioTexto: '',
   afterTexto: 'After hasta el amanecer',
-  // Temático del evento: "candy" es de Candyland. El próximo tendrá el suyo.
-  dressCode: 'Candy sensual: brillos, rosa, látex, lo que te haga sentir así de rico. Nada de tenida deportiva.',
+  // Temático del evento: "candy" era de Candyland. El próximo tendrá el suyo
+  // -- por ahora se deja un dress code genérico hasta definir el de Playroom.
+  dressCode: 'Elegante y sensual: lo que te haga sentir irresistible. Nada de tenida deportiva.',
 } as const;
 
 /* `CANDYLAND` se conserva como objeto compuesto para no romper los archivos

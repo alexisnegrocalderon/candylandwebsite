@@ -1429,8 +1429,8 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard icon={DollarSign} colorClass="bg-[oklch(0.68_0.16_340)]" value={`$${Number(stats?.totalRevenue ?? 0).toLocaleString('es-CL')}`} label="Ingresos Totales" />
-        <StatCard icon={Ticket} colorClass="bg-[oklch(0.72_0.1_300)]" value={stats?.totalOrders ?? 0} label="Órdenes Totales" />
+        <StatCard icon={DollarSign} colorClass="bg-[oklch(0.70_0.19_340)]" value={`$${Number(stats?.totalRevenue ?? 0).toLocaleString('es-CL')}`} label="Ingresos Totales" />
+        <StatCard icon={Ticket} colorClass="bg-[oklch(0.74_0.13_220)]" value={stats?.totalOrders ?? 0} label="Órdenes Totales" />
         <StatCard icon={Users} colorClass="bg-[oklch(0.75_0.15_230)]" value={stats?.approvedOrders ?? 0} label="Pagos Aprobados" />
       </div>
 
@@ -2626,8 +2626,8 @@ function AmbassadorSummaryTab({ monthKey }: { monthKey: string }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Crown} colorClass="bg-[oklch(0.68_0.16_340)]" value={data?.activeAmbassadors ?? 0} label="Embajadores activos" />
-        <StatCard icon={Ticket} colorClass="bg-[oklch(0.72_0.1_300)]" value={data?.monthlySales ?? 0} label="Ventas del mes" />
+        <StatCard icon={Crown} colorClass="bg-[oklch(0.70_0.19_340)]" value={data?.activeAmbassadors ?? 0} label="Embajadores activos" />
+        <StatCard icon={Ticket} colorClass="bg-[oklch(0.74_0.13_220)]" value={data?.monthlySales ?? 0} label="Ventas del mes" />
         <StatCard icon={DollarSign} colorClass="bg-[oklch(0.75_0.15_230)]" value={`$${(data?.monthlyRevenue ?? 0).toLocaleString('es-CL')}`} label="Monto vendido" />
         <StatCard icon={Percent} colorClass="bg-[oklch(0.7_0.16_20)]" value={`$${(data?.monthlyCommission ?? 0).toLocaleString('es-CL')}`} label="Comisiones del mes" />
         <StatCard icon={Users} colorClass="bg-[oklch(0.72_0.14_150)]" value={data?.newClients ?? 0} label="Ventas a clientes nuevos" />
