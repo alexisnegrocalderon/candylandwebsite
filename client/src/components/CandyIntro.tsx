@@ -224,8 +224,10 @@ export default function CandyIntro() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.15 }}
                   >
-                    <p className="font-heading font-extrabold text-[clamp(1.5rem,7vw,3.25rem)] text-gradient-candy mb-2 uppercase whitespace-nowrap">
-                      {MARCA.nombre}
+                    <p className="font-heading font-extrabold text-[clamp(1.8rem,9vw,4rem)] leading-[1.05] text-gradient-candy mb-2 uppercase">
+                      {MARCA.nombre.split(' ').map((palabra) => (
+                        <span key={palabra} className="block">{palabra}</span>
+                      ))}
                     </p>
                     <p className="text-foreground/90 text-base md:text-lg uppercase tracking-[0.25em] animate-pulse">
                       Toca para entrar
