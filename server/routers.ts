@@ -697,8 +697,13 @@ export const appRouter = router({
   // único que puede hacer con esta sesión es marcar entradas.
   puerta: router({
     // Público como el de caja: solo devuelve nombres y roles, nunca PINs.
+    // La puerta no exige dispositivo enrolado (doorProcedure), así que no hay
+    // un eventId de contexto -- se usa la misma heurística de "evento en
+    // curso" que el resto de estas pantallas sin device.
     listOperators: publicProcedure.query(async () => {
-      const all = await db.listActiveOperatorsPublic();
+      const event = await db.getActiveEventForCaja();
+      if (!event) return [];
+      const all = await db.listActiveOperatorsPublic(event.id);
       return all.filter((o: any) => o.role === 'acceso' || o.role === 'supervisor' || o.role === 'admin');
     }),
 
@@ -774,7 +779,9 @@ export const appRouter = router({
   // servidor, así que no tiene sentido una cola offline acá.
   cocina: router({
     listOperators: publicProcedure.query(async () => {
-      const all = await db.listActiveOperatorsPublic();
+      const event = await db.getActiveEventForCaja();
+      if (!event) return [];
+      const all = await db.listActiveOperatorsPublic(event.id);
       return all.filter((o: any) => o.role === 'cocina' || o.role === 'supervisor' || o.role === 'admin');
     }),
 
@@ -852,7 +859,9 @@ export const appRouter = router({
   // servidor.
   guardarropia: router({
     listOperators: publicProcedure.query(async () => {
-      const all = await db.listActiveOperatorsPublic();
+      const event = await db.getActiveEventForCaja();
+      if (!event) return [];
+      const all = await db.listActiveOperatorsPublic(event.id);
       return all.filter((o: any) => o.role === 'guardarropia' || o.role === 'supervisor' || o.role === 'admin');
     }),
 
@@ -1570,12 +1579,19 @@ export const appRouter = router({
     }),
 
     // Pantalla "toca tu nombre" (§10.2) — nunca expone pinHash. Requiere
-    // dispositivo enrolado (deviceProcedure).
-    listOperators: deviceProcedure.query(async () => {
-      return db.listActiveOperatorsPublic();
+    // dispositivo enrolado (deviceProcedure), y solo muestra operadores del
+    // mismo evento al que el dispositivo fue enrolado.
+    listOperators: deviceProcedure.query(async ({ ctx }) => {
+      return db.listActiveOperatorsPublic(ctx.device.eventId);
     }),
     login: deviceProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
       const operator = await verifyOperatorPinOrThrow(ctx, input.operatorId, input.pin);
+      // Defensa en profundidad: aunque listOperators ya filtra por evento,
+      // esto bloquea que un cliente con caché vieja loguee un operador de
+      // otro evento en este dispositivo.
+      if (operator.eventId !== ctx.device.eventId) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Este operador no pertenece al evento de este dispositivo' });
+      }
       const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
@@ -1590,8 +1606,15 @@ export const appRouter = router({
 
     // Pantallas de /caja (docs/ARQUITECTURA-CAJA.md Fase 2) — todas requieren
     // sesión de operador vigente.
-    activeEvent: operatorProcedure.query(async () => {
-      return db.getActiveEventForCaja();
+    //
+    // Antes usaba una heurística global (evento publicado con fecha más
+    // cercana a hoy), lo que podía cruzar catálogos entre dos eventos
+    // "published" simultáneos durante el cambio de fiesta. Ahora resuelve
+    // directo desde el evento al que el dispositivo fue enrolado -- es un
+    // arreglo de comportamiento, no solo plumbing.
+    activeEvent: operatorProcedure.query(async ({ ctx }) => {
+      if (!ctx.device) throw new TRPCError({ code: 'FORBIDDEN', message: 'Este dispositivo no está enrolado' });
+      return db.getEventById(ctx.device.eventId);
     }),
     search: operatorProcedure.input(z.object({ eventId: z.number(), query: z.string() })).query(async ({ input }) => {
       return db.searchCajaCustomers(input.eventId, input.query);
@@ -1668,8 +1691,9 @@ export const appRouter = router({
     }),
 
     // Selección de caja física al abrir turno (§10.2.1).
-    listRegisters: operatorProcedure.query(async () => {
-      return db.listActiveRegisters();
+    listRegisters: operatorProcedure.query(async ({ ctx }) => {
+      if (!ctx.device) throw new TRPCError({ code: 'FORBIDDEN', message: 'Este dispositivo no está enrolado' });
+      return db.listActiveRegisters(ctx.device.eventId);
     }),
     // Apertura de turno con cuadre de caja (pedido explícito del usuario):
     // pide el efectivo inicial declarado por la cajera. Idempotente por
@@ -1868,17 +1892,22 @@ export const appRouter = router({
 
   // Gestión de operadores desde /admin (docs/ARQUITECTURA-CAJA.md §11).
   operators: router({
-    listAll: adminProcedure.query(async () => {
-      return db.listAllOperators();
+    listAll: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.listAllOperators(input.eventId);
     }),
     create: adminProcedure.input(z.object({
+      eventId: z.number(),
       name: z.string().min(1),
       pin: z.string().min(4).max(8),
       role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso', 'cocina', 'guardarropia']),
     })).mutation(async ({ input }) => {
-      const id = await db.createOperator({ name: input.name, pinHash: hashPin(input.pin), role: input.role });
+      const id = await db.createOperator({ eventId: input.eventId, name: input.name, pinHash: hashPin(input.pin), role: input.role });
       return { id };
     }),
+    // `eventId` NO es editable acá a propósito: cada operador pertenece a un
+    // solo evento (pedido explícito del usuario). Si trabaja en otra fiesta
+    // se crea de nuevo ahí -- moverlo reasignaría silenciosamente su
+    // historial pasado a otro evento.
     update: adminProcedure.input(z.object({
       id: z.number(),
       name: z.string().min(1).optional(),
@@ -1889,6 +1918,16 @@ export const appRouter = router({
       const { id, pin, ...rest } = input;
       await db.updateOperator(id, { ...rest, ...(pin ? { pinHash: hashPin(pin) } : {}) });
       return { success: true } as const;
+    }),
+    // Borrado real (pedido explícito del usuario: que no se vayan
+    // acumulando) -- bloqueado si el operador ya tiene historial, ver
+    // db.operatorHasHistory.
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      try {
+        return await db.deleteOperator(input.id);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo eliminar el operador.' });
+      }
     }),
   }),
 
@@ -2026,31 +2065,47 @@ export const appRouter = router({
 
   // Enrolamiento de dispositivos desde /admin (pedido explícito del usuario).
   devices: router({
-    listAll: adminProcedure.query(async () => {
-      return db.listAllDevices();
+    listAll: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.listAllDevices(input.eventId);
     }),
     // Genera un código de un solo uso (vence a las 24h) para enrolar una
     // tablet nueva -- se muestra una sola vez en el admin, no se puede
     // recuperar después (mismo criterio que un PIN).
-    create: adminProcedure.input(z.object({ name: z.string().min(1) })).mutation(async ({ input }) => {
+    create: adminProcedure.input(z.object({ eventId: z.number(), name: z.string().min(1) })).mutation(async ({ input }) => {
       const code = generateEnrollCode();
-      const id = await db.createDeviceEnrollment(input.name, code, enrollCodeExpiry());
+      const id = await db.createDeviceEnrollment(input.eventId, input.name, code, enrollCodeExpiry());
       return { id, enrollCode: code };
     }),
     setActive: adminProcedure.input(z.object({ id: z.number(), active: z.number().min(0).max(1) })).mutation(async ({ input }) => {
       await db.updateDeviceActive(input.id, input.active as 0 | 1);
       return { success: true } as const;
     }),
+    // Ningún dispositivo queda referenciado desde otra tabla (ver
+    // db.deleteDevice), así que este borrado nunca se bloquea por historial.
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      try {
+        return await db.deleteDevice(input.id);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo eliminar el dispositivo.' });
+      }
+    }),
   }),
 
   // Cajas físicas ("Caja 1", "Caja 2"...) desde /admin.
   registers: router({
-    listAll: adminProcedure.query(async () => {
-      return db.listAllRegisters();
+    listAll: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.listAllRegisters(input.eventId);
     }),
-    create: adminProcedure.input(z.object({ name: z.string().min(1) })).mutation(async ({ input }) => {
-      const id = await db.createRegister(input.name);
+    create: adminProcedure.input(z.object({ eventId: z.number(), name: z.string().min(1) })).mutation(async ({ input }) => {
+      const id = await db.createRegister(input.eventId, input.name);
       return { id };
+    }),
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      try {
+        return await db.deleteRegister(input.id);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo eliminar la caja.' });
+      }
     }),
   }),
 
@@ -2059,8 +2114,10 @@ export const appRouter = router({
     profit: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getProfitReport(input.eventId);
     }),
-    eventComparison: adminProcedure.query(async () => {
-      return db.getEventComparison();
+    // `eventIds` opcional: sin filtro compara todos los eventos, con filtro
+    // solo los seleccionados (selector de eventos del admin).
+    eventComparison: adminProcedure.input(z.object({ eventIds: z.array(z.number()).optional() }).optional()).query(async ({ input }) => {
+      return db.getEventComparison(input?.eventIds);
     }),
     // Resultado REAL de un evento: a diferencia de `profit` (que es margen por
     // producto, sobre precios de lista), acá el ingreso es la plata que entró
@@ -2068,8 +2125,8 @@ export const appRouter = router({
     eventPnl: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getEventPnl(input.eventId);
     }),
-    pnlComparison: adminProcedure.query(async () => {
-      return db.getPnlComparison();
+    pnlComparison: adminProcedure.input(z.object({ eventIds: z.array(z.number()).optional() }).optional()).query(async ({ input }) => {
+      return db.getPnlComparison(input?.eventIds);
     }),
     peakHours: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getPeakHours(input.eventId);

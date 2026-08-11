@@ -540,6 +540,7 @@ export type AmbassadorApplication = typeof ambassadorApplications.$inferSelect;
 // Login por PIN, independiente del login admin por password (users.role).
 export const operators = mysqlTable("operators", {
   id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
   name: varchar("name", { length: 255 }).notNull(),
   pinHash: varchar("pinHash", { length: 255 }).notNull(),
   role: mysqlEnum("role", ["admin", "supervisor", "caja", "barra", "acceso", "cocina", "guardarropia"]).notNull(),
@@ -550,7 +551,9 @@ export const operators = mysqlTable("operators", {
   lockedUntil: timestamp("lockedUntil"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => [
+  index("operators_event_idx").on(t.eventId),
+]);
 
 export type Operator = typeof operators.$inferSelect;
 export type InsertOperator = typeof operators.$inferInsert;
@@ -558,10 +561,13 @@ export type InsertOperator = typeof operators.$inferInsert;
 // Cajas físicas (ej. "Caja 1", "Caja 2") usadas en el evento.
 export const registers = mysqlTable("registers", {
   id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
   name: varchar("name", { length: 100 }).notNull(),
   active: int("active").default(1).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (t) => [
+  index("registers_event_idx").on(t.eventId),
+]);
 
 export type Register = typeof registers.$inferSelect;
 export type InsertRegister = typeof registers.$inferInsert;
@@ -574,6 +580,7 @@ export type InsertRegister = typeof registers.$inferInsert;
 // patrón que operators.pinHash, pero para el dispositivo en vez del humano.
 export const devices = mysqlTable("devices", {
   id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
   name: varchar("name", { length: 255 }).notNull(),
   enrollCode: varchar("enrollCode", { length: 16 }).unique(),
   enrollCodeExpiresAt: timestamp("enrollCodeExpiresAt"),
@@ -582,7 +589,9 @@ export const devices = mysqlTable("devices", {
   active: int("active").default(1).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   lastSeenAt: timestamp("lastSeenAt"),
-});
+}, (t) => [
+  index("devices_event_idx").on(t.eventId),
+]);
 
 export type Device = typeof devices.$inferSelect;
 export type InsertDevice = typeof devices.$inferInsert;

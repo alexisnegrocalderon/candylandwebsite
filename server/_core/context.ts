@@ -7,7 +7,12 @@ import { verifyOperatorSession, type OperatorSessionPayload } from "../caja/auth
 import { verifyDeviceSession } from "../caja/deviceAuth";
 import { getOperatorById, getDeviceById } from "../db";
 
-export type DeviceContext = { deviceId: number; name: string };
+export type DeviceContext = { deviceId: number; name: string; eventId: number };
+
+// `eventId` no viene del JWT (que solo prueba que el operador se autenticó
+// alguna vez) -- se agrega acá, leído de la fila de la base en cada request,
+// mismo criterio que `role`/`active` (ver más abajo).
+export type OperatorContext = OperatorSessionPayload & { eventId: number };
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
@@ -15,7 +20,7 @@ export type TrpcContext = {
   user: User | null;
   // Sesión de operador de /caja (login por PIN) — independiente de `user`
   // (login admin/OAuth). Ver docs/ARQUITECTURA-CAJA.md §0.2.
-  operator: OperatorSessionPayload | null;
+  operator: OperatorContext | null;
   // Dispositivo enrolado (pedido explícito del usuario) -- ver server/caja/deviceAuth.ts.
   // Solo dispositivos enrolados por un admin pueden llegar a la pantalla de PIN de /caja.
   device: DeviceContext | null;
@@ -42,11 +47,11 @@ export async function createContext(
   // esperar a que expire la sesión (hasta 12h). El rol viene siempre de la
   // base de datos, nunca del JWT, para que un cambio de rol tampoco quede
   // "congelado" en una sesión vieja.
-  let operator: OperatorSessionPayload | null = null;
+  let operator: OperatorContext | null = null;
   if (sessionPayload) {
     const dbOperator = await getOperatorById(sessionPayload.operatorId);
     if (dbOperator && dbOperator.active) {
-      operator = { operatorId: dbOperator.id, role: dbOperator.role, name: dbOperator.name };
+      operator = { operatorId: dbOperator.id, role: dbOperator.role, name: dbOperator.name, eventId: dbOperator.eventId };
     }
   }
 
@@ -58,7 +63,7 @@ export async function createContext(
   if (deviceSessionPayload) {
     const dbDevice = await getDeviceById(deviceSessionPayload.deviceId);
     if (dbDevice && dbDevice.enrolled && dbDevice.active) {
-      device = { deviceId: dbDevice.id, name: dbDevice.name };
+      device = { deviceId: dbDevice.id, name: dbDevice.name, eventId: dbDevice.eventId };
     }
   }
 
