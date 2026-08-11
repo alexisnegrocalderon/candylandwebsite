@@ -45,7 +45,9 @@ export default function Events() {
           </div>
         ) : events && events.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {events.map((event: any, i: number) => (
+            {events.map((event: any, i: number) => {
+              const isPast = new Date(event.eventDate).getTime() < Date.now();
+              return (
               <motion.div
                 key={event.id}
                 initial={{ opacity: 0, y: 40 }}
@@ -55,11 +57,22 @@ export default function Events() {
                 <Link href={`/eventos/${event.slug}`} className="group block">
                   <div className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-card border border-border/50 transition-all duration-500 group-hover:border-primary/50 group-hover:scale-[1.02]">
                     {event.imageUrl ? (
-                      <img src={event.imageUrl} alt={event.title} className="w-full h-full object-cover" />
+                      <img
+                        src={event.imageUrl}
+                        alt={event.title}
+                        className={`w-full h-full object-cover transition-all duration-500 ${
+                          isPast ? 'grayscale group-hover:grayscale-0 opacity-80 group-hover:opacity-100' : ''
+                        }`}
+                      />
                     ) : (
                       <div className="w-full h-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
                         <Ticket className="w-16 h-16 text-primary/50" />
                       </div>
+                    )}
+                    {isPast && (
+                      <span className="absolute top-3 left-3 px-2.5 py-0.5 rounded-full bg-muted/90 text-muted-foreground text-[9px] font-bold uppercase tracking-wide">
+                        Finalizado
+                      </span>
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-background via-background/30 to-transparent" />
                     <div className="absolute bottom-0 left-0 right-0 p-6">
@@ -84,7 +97,8 @@ export default function Events() {
                   </div>
                 </Link>
               </motion.div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="text-center py-24">
