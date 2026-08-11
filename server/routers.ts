@@ -2152,9 +2152,8 @@ export const appRouter = router({
       const attachments = [{ filename: `rendicion-cocina-${eventTitle}.pdf`, content: pdf }];
       const subject = `[Rendición de cocina] ${eventTitle}`;
 
-      const recipients = [ADMIN_NOTIFICATION_EMAIL, settings.kitchenVendorEmail];
-      const results = await Promise.all(recipients.map((to) => sendEmail({ to, subject, html, attachments })));
-      return { success: true, emailSent: results.every((r) => r.success) };
+      const result = await sendEmail({ to: settings.kitchenVendorEmail, cc: ADMIN_NOTIFICATION_EMAIL, subject, html, attachments });
+      return { success: true, emailSent: result.success };
     }),
     // Reporte consolidado de Ventas/Gastos por sub-tab (pedido explícito del
     // usuario: un solo botón que arma PDF+CSV+email en vez de uno por

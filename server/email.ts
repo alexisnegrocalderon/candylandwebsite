@@ -5,6 +5,10 @@ interface SendEmailInput {
   to: string;
   subject: string;
   html: string;
+  // Copia visible (ej. la productora en un envío a un proveedor externo) --
+  // un solo mensaje con `cc`, no dos envíos separados por request, para no
+  // depender de que ambos envíos individuales lleguen bien.
+  cc?: string;
   // PDF de cierre de turno (pedido explícito del usuario) -- Resend acepta
   // adjuntos nativamente en base64, no hace falta ningún servicio aparte.
   attachments?: { filename: string; content: Buffer | string }[];
@@ -48,6 +52,7 @@ export async function sendEmail(input: SendEmailInput) {
         to: input.to,
         subject: input.subject,
         html: input.html,
+        ...(input.cc ? { cc: input.cc } : {}),
         ...(input.attachments?.length ? {
           attachments: input.attachments.map((a) => ({
             filename: a.filename,
