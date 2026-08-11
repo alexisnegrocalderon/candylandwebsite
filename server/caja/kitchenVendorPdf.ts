@@ -1,5 +1,6 @@
 import PDFDocument from "pdfkit";
 import { money, INK, MUTED, drawTable, drawBarChart } from "./pdfHelpers";
+import { BRAND_NAME } from "../email";
 
 export type KitchenVendorReport = {
   eventTitle: string;
@@ -30,15 +31,15 @@ export function buildKitchenVendorPdf(report: KitchenVendorReport): Promise<Buff
     doc.moveDown(0.5);
     const chartBottom = drawBarChart(
       doc,
-      [{ name: "Proveedor", color: "#6366f1" }, { name: "Productora", color: INK }],
+      [{ name: report.vendorName, color: "#6366f1" }, { name: BRAND_NAME, color: INK }],
       [{ label: "Reparto", values: [report.vendorShare, report.venueShare] }],
       doc.x, doc.y + 14, 200, 100,
     );
     doc.x = doc.page.margins.left;
     doc.y = chartBottom + 16;
     doc.fontSize(11).fillColor(INK).text(`Ingresos totales: ${money(report.totalRevenue)}`);
-    doc.fontSize(11).fillColor("#6366f1").text(`Le corresponde al proveedor: ${money(report.vendorShare)}`);
-    doc.fontSize(11).fillColor(INK).text(`Te corresponde a ti: ${money(report.venueShare)}`);
+    doc.fontSize(11).fillColor("#6366f1").text(`Le corresponde a ${report.vendorName}: ${money(report.vendorShare)}`);
+    doc.fontSize(11).fillColor(INK).text(`Le corresponde a ${BRAND_NAME}: ${money(report.venueShare)}`);
     doc.moveDown(1.2);
 
     doc.fontSize(13).fillColor(INK).text("Detalle por producto");

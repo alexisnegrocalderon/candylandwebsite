@@ -10,7 +10,7 @@ interface SendEmailInput {
   attachments?: { filename: string; content: Buffer | string }[];
 }
 
-const BRAND_NAME = 'Mansion Playroom';
+export const BRAND_NAME = 'Mansion Playroom';
 const DEFAULT_FROM_ADDRESS = 'onboarding@resend.dev';
 
 /** Arma el header `from` con el nombre de marca siempre fijo, sin depender de
@@ -1212,8 +1212,8 @@ export function buildKitchenVendorEmail(data: {
     ${card(`
       <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Resumen del evento</p>
       <p style="color:${MUTED};font-size:13px;margin:0 0 6px;">Ingresos totales: <strong style="color:${INK};">${money(data.totalRevenue)}</strong></p>
-      <p style="color:${MUTED};font-size:13px;margin:0 0 6px;">Le corresponde al proveedor: <strong style="color:${INK};">${money(data.vendorShare)}</strong></p>
-      <p style="color:${MUTED};font-size:13px;margin:0;">Le corresponde a la productora: <strong style="color:${INK};">${money(data.venueShare)}</strong></p>
+      <p style="color:${MUTED};font-size:13px;margin:0 0 6px;">Le corresponde a ${data.vendorName}: <strong style="color:${INK};">${money(data.vendorShare)}</strong></p>
+      <p style="color:${MUTED};font-size:13px;margin:0;">Le corresponde a ${BRAND_NAME}: <strong style="color:${INK};">${money(data.venueShare)}</strong></p>
     `)}
   </div>
 </body>
