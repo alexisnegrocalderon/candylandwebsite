@@ -38,7 +38,7 @@ export function buildKitchenVendorPdf(report: KitchenVendorReport): Promise<Buff
     doc.y = chartBottom + 16;
     doc.fontSize(11).fillColor(INK).text(`Ingresos totales: ${money(report.totalRevenue)}`);
     doc.fontSize(11).fillColor("#6366f1").text(`Le corresponde al proveedor: ${money(report.vendorShare)}`);
-    doc.fontSize(11).fillColor(INK).text(`Te corresponde a vos: ${money(report.venueShare)}`);
+    doc.fontSize(11).fillColor(INK).text(`Te corresponde a ti: ${money(report.venueShare)}`);
     doc.moveDown(1.2);
 
     doc.fontSize(13).fillColor(INK).text("Detalle por producto");

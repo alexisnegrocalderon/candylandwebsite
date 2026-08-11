@@ -1940,7 +1940,7 @@ function MailingSection() {
       setCsvImportResult({ tag, ...result });
       refetchTags();
       if (result.tagged === 0 && result.alreadyTagged === 0) {
-        toast.error(`Ningún email del CSV matcheó con la base de clientes -- mirá el detalle abajo.`);
+        toast.error(`Ningún email del CSV coincidió con la base de clientes -- mira el detalle abajo.`);
       } else {
         toast.success(`${result.tagged} marcados con "${tag}"${result.alreadyTagged ? `, ${result.alreadyTagged} ya la tenían` : ''}${result.notFound.length ? `, ${result.notFound.length} no encontrados` : ''}.`);
       }
@@ -1955,7 +1955,7 @@ function MailingSection() {
     <div className="space-y-6">
       <div>
         <h2 className="font-heading text-2xl">Mailing</h2>
-        <p className="text-sm text-muted-foreground">Armá una audiencia, generá el mail con IA, y mandalo -- cada envío exitoso queda tageado con el nombre de campaña para no repetir destinatarios.</p>
+        <p className="text-sm text-muted-foreground">Arma una audiencia, genera el mail con IA, y mándalo -- cada envío exitoso queda etiquetado con el nombre de campaña para no repetir destinatarios.</p>
       </div>
 
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
@@ -3758,7 +3758,7 @@ function ReportToolbar({ eventId, kind }: { eventId: number; kind: 'ventas' | 'g
         </DialogTrigger>
         <DialogContent>
           <DialogHeader><DialogTitle>Enviar reporte de {kind === 'ventas' ? 'ventas' : 'gastos'}</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">Siempre te llega a vos. Elegí además a quién del staff (con email cargado en su ficha de operador) se lo mandamos.</p>
+          <p className="text-sm text-muted-foreground">Siempre te llega a ti. Elige además a quién del staff (con email cargado en su ficha de operador) se lo mandamos.</p>
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {withEmail.map((o: any) => (
               <label key={o.id} className="flex items-center gap-2 text-sm">
