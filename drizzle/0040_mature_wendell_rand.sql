@@ -1,0 +1,1 @@
+ALTER TABLE `operators` ADD `email` varchar(320);

@@ -1,4 +1,4 @@
-import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS, CAJA_DEVICE_COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS, CAJA_DEVICE_COOKIE_NAME, ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk, ADMIN_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
@@ -49,14 +49,15 @@ import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKit
 import { listLockerItems, updateLockerItem } from "./locker";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
+import { buildShiftClosePdf } from "./caja/shiftReportPdf";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
 import { sendPendingReminders, generateReminderCopy } from "./orderReminders";
 import { parseCsv, extractEmailColumn } from "./csv";
 import QRCode from "qrcode";
 import { consumeBackupCode, createTotpSecret, generateBackupCodes, parseBackupCodes, safeCompare, totpUri, verifyTotp } from "./adminSecurity";
 
-const SHIFT_CLOSE_REPORT_EMAIL = 'contacto@mansionplayroom.cl';
-const APPLICATIONS_EMAIL = 'contacto@mansionplayroom.cl';
+const SHIFT_CLOSE_REPORT_EMAIL = ADMIN_NOTIFICATION_EMAIL;
+const APPLICATIONS_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 const APPLICATION_MAX_PER_HOUR = 5;
 
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -1750,18 +1751,27 @@ export const appRouter = router({
       }, async () => ({ result: 'applied' as const }));
 
       // No debe tumbar el cierre de turno si Resend falla -- el reporte ya
-      // quedó guardado y disponible en /admin de todas formas.
+      // quedó guardado y disponible en /admin de todas formas. El PDF va
+      // adjunto siempre al admin, y además a la cajera dueña del turno si
+      // tiene un email cargado en su ficha de operador (pedido explícito
+      // del usuario) -- para cuadrar la caja con ella ahí mismo.
+      let emailSent = false;
       try {
-        await sendEmail({
-          to: SHIFT_CLOSE_REPORT_EMAIL,
-          subject: `[Cierre de turno] ${report.eventTitle} — ${report.registerName}`,
-          html: buildShiftCloseEmail(report),
-        });
+        const pdf = await buildShiftClosePdf(report);
+        const attachments = [{ filename: `cierre-turno-${report.registerName}.pdf`, content: pdf }];
+        const html = buildShiftCloseEmail(report);
+        const subject = `[Cierre de turno] ${report.eventTitle} — ${report.registerName}`;
+
+        const recipients = [SHIFT_CLOSE_REPORT_EMAIL, ...(report.operatorEmail ? [report.operatorEmail] : [])];
+        const results = await Promise.all(
+          recipients.map((to) => sendEmail({ to, subject, html, attachments }))
+        );
+        emailSent = results.every((r) => r.success);
       } catch (err) {
         console.error('[shiftClose] Error al enviar el correo de cierre:', err);
       }
 
-      return report;
+      return { ...report, emailSent };
     }),
 
     // Anulación con motivo -- solo supervisor/admin (docs/ARQUITECTURA-CAJA.md §3.2).
@@ -1900,8 +1910,11 @@ export const appRouter = router({
       name: z.string().min(1),
       pin: z.string().min(4).max(8),
       role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso', 'cocina', 'guardarropia']),
+      // Opcional (pedido explícito del usuario): si está cargado, el cierre
+      // de turno le manda el PDF de cuadre por correo a esta cajera.
+      email: z.string().email().optional(),
     })).mutation(async ({ input }) => {
-      const id = await db.createOperator({ eventId: input.eventId, name: input.name, pinHash: hashPin(input.pin), role: input.role });
+      const id = await db.createOperator({ eventId: input.eventId, name: input.name, pinHash: hashPin(input.pin), role: input.role, email: input.email });
       return { id };
     }),
     // `eventId` NO es editable acá a propósito: cada operador pertenece a un
@@ -1914,6 +1927,7 @@ export const appRouter = router({
       pin: z.string().min(4).max(8).optional(),
       role: z.enum(['admin', 'supervisor', 'caja', 'barra', 'acceso', 'cocina', 'guardarropia']).optional(),
       active: z.number().min(0).max(1).optional(),
+      email: z.string().email().nullable().optional(),
     })).mutation(async ({ input }) => {
       const { id, pin, ...rest } = input;
       await db.updateOperator(id, { ...rest, ...(pin ? { pinHash: hashPin(pin) } : {}) });

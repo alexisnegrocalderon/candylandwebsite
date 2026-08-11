@@ -3397,18 +3397,35 @@ function ResetTestDataCard({ eventId, eventTitle }: { eventId: number; eventTitl
   );
 }
 
+/** Email opcional de la cajera, editable en línea: se guarda solo al perder
+ * el foco y solo si cambió (pedido explícito del usuario -- alimenta el PDF
+ * de cierre de turno, que se le manda a esta casilla si está cargada). */
+function OperatorEmailInput({ operatorId, email, onSave }: { operatorId: number; email: string | null; onSave: (email: string) => void }) {
+  const [value, setValue] = useState(email ?? '');
+  return (
+    <Input
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => { if (value !== (email ?? '')) onSave(value); }}
+      placeholder="Email (opcional)"
+      className="h-8 text-xs w-48"
+      type="email"
+    />
+  );
+}
+
 function OperatorsManager({ eventId }: { eventId: number }) {
   const { data: operators, refetch } = trpc.operators.listAll.useQuery({ eventId });
-  const create = trpc.operators.create.useMutation({ onSuccess: () => { refetch(); toast.success('Operador creado'); setForm({ name: '', pin: '', role: 'caja' }); }, onError: onMutationError });
+  const create = trpc.operators.create.useMutation({ onSuccess: () => { refetch(); toast.success('Operador creado'); setForm({ name: '', pin: '', role: 'caja', email: '' }); }, onError: onMutationError });
   const update = trpc.operators.update.useMutation({ onSuccess: () => { refetch(); toast.success('Actualizado'); }, onError: onMutationError });
   const deleteOperator = trpc.operators.delete.useMutation({ onSuccess: () => { refetch(); toast.success('Operador eliminado'); }, onError: onMutationError });
-  const [form, setForm] = useState({ name: '', pin: '', role: 'caja' as 'admin' | 'supervisor' | 'caja' | 'barra' | 'acceso' | 'cocina' | 'guardarropia' });
+  const [form, setForm] = useState({ name: '', pin: '', role: 'caja' as 'admin' | 'supervisor' | 'caja' | 'barra' | 'acceso' | 'cocina' | 'guardarropia', email: '' });
 
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader><CardTitle>Operadores</CardTitle></CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
           <div><Label>Nombre</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" /></div>
           <div><Label>PIN (4-8 dígitos)</Label><Input value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value })} className="mt-1" maxLength={8} /></div>
           <div>
@@ -3426,7 +3443,8 @@ function OperatorsManager({ eventId }: { eventId: number }) {
               </SelectContent>
             </Select>
           </div>
-          <Button disabled={!form.name || form.pin.length < 4 || create.isPending} onClick={() => create.mutate({ ...form, eventId })}>Crear operador</Button>
+          <div><Label>Email (opcional)</Label><Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="mt-1" type="email" placeholder="Para el PDF de cierre" /></div>
+          <Button disabled={!form.name || form.pin.length < 4 || create.isPending} onClick={() => create.mutate({ ...form, eventId, email: form.email || undefined })}>Crear operador</Button>
         </div>
         <div className="space-y-2">
           {(operators ?? []).map((op: any) => (
@@ -3435,7 +3453,8 @@ function OperatorsManager({ eventId }: { eventId: number }) {
                 <p className="font-medium">{op.name}</p>
                 <p className="text-xs text-muted-foreground capitalize">{op.role} · {op.active ? 'activo' : 'inactivo'}</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
+                <OperatorEmailInput operatorId={op.id} email={op.email ?? null} onSave={(email) => update.mutate({ id: op.id, email: email || null })} />
                 <Button variant="outline" size="sm" onClick={() => update.mutate({ id: op.id, active: op.active ? 0 : 1 })}>
                   {op.active ? 'Desactivar' : 'Activar'}
                 </Button>

@@ -1579,7 +1579,7 @@ export async function listActiveOperatorsPublic(eventId: number) {
 export async function listAllOperators(eventId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select({ id: operators.id, name: operators.name, role: operators.role, active: operators.active, createdAt: operators.createdAt })
+  return db.select({ id: operators.id, name: operators.name, role: operators.role, active: operators.active, email: operators.email, createdAt: operators.createdAt })
     .from(operators)
     .where(eq(operators.eventId, eventId))
     .orderBy(desc(operators.createdAt));
@@ -2932,6 +2932,23 @@ export async function closeShift(params: {
   }
   const topProducts = Array.from(byProduct.values()).sort((a, b) => b.quantity - a.quantity).slice(0, 3);
 
+  // A diferencia de topProducts (evento completo, top 3, para el snapshot
+  // histórico), esto es el detalle COMPLETO de lo vendido en ESTE turno --
+  // lo que la cajera necesita para cuadrar en el momento con el PDF (pedido
+  // explícito del usuario). Reusa el mismo filtro shift-scoped que ya arma
+  // los totales por medio de pago arriba.
+  const shiftItems = await db.select({ ticketTypeId: orderItems.ticketTypeId, quantity: orderItems.quantity, totalPrice: orderItems.totalPrice })
+    .from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .where(and(...shiftSalesConditions));
+  const byShiftProduct = new Map<number, { name: string; quantity: number; revenue: number }>();
+  for (const item of shiftItems) {
+    const entry = byShiftProduct.get(item.ticketTypeId) ?? { name: ttById.get(item.ticketTypeId)?.name ?? `#${item.ticketTypeId}`, quantity: 0, revenue: 0 };
+    entry.quantity += item.quantity;
+    entry.revenue += Number(item.totalPrice);
+    byShiftProduct.set(item.ticketTypeId, entry);
+  }
+  const shiftProducts = Array.from(byShiftProduct.values()).sort((a, b) => b.revenue - a.revenue);
+
   await db.update(shifts).set({
     closedAt,
     closedByOperatorId: params.closedByOperatorId,
@@ -2952,13 +2969,14 @@ export async function closeShift(params: {
 
   const [event] = await db.select({ title: events.title }).from(events).where(eq(events.id, shift.eventId)).limit(1);
   const [register] = shift.registerId ? await db.select({ name: registers.name }).from(registers).where(eq(registers.id, shift.registerId)).limit(1) : [null];
-  const [operator] = await db.select({ name: operators.name }).from(operators).where(eq(operators.id, shift.operatorId)).limit(1);
+  const [operator] = await db.select({ name: operators.name, email: operators.email }).from(operators).where(eq(operators.id, shift.operatorId)).limit(1);
 
   return {
     id: shift.id,
     eventTitle: event?.title ?? `Evento #${shift.eventId}`,
     registerName: register?.name ?? 'Sin caja asignada',
     operatorName: operator?.name ?? 'Operador eliminado',
+    operatorEmail: operator?.email ?? null,
     openedAt: shift.openedAt,
     closedAt,
     openingCash: Number(shift.openingCash),
@@ -2978,6 +2996,7 @@ export async function closeShift(params: {
     redeemsCount: Number(redeemsCount[0]?.count ?? 0),
     topCustomers,
     topProducts,
+    shiftProducts,
   };
 }
 
