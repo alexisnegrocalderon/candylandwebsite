@@ -3,6 +3,7 @@ import { useRoute, Link } from 'wouter';
 import { motion } from 'framer-motion';
 import { CalendarPlus, MapPin, Calendar, User, ShieldCheck, TicketX, CheckCircle2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { MARCA } from '@/config/candyland';
 import { useSeo } from '@/hooks/useSeo';
 import { canEnterParty } from '@shared/party';
 import { rememberTicketCode } from '@/lib/lastTicketCode';
@@ -74,7 +75,7 @@ export default function Ticket() {
               <div className="relative w-60 mx-auto">
                 <div className="rounded-[28px] p-[3px] bg-gradient-to-br from-primary via-cherry to-violet-electric">
                   <div className="rounded-[25px] bg-white px-4 pt-4 pb-3">
-                    <p className="text-[10px] font-heading font-extrabold tracking-[0.2em] text-primary mb-2">🍭 CANDYLAND</p>
+                    <p className="text-[10px] font-heading font-extrabold tracking-[0.2em] text-primary mb-2 uppercase">🍭 {MARCA.nombre}</p>
                     <img src={ticket.qrImageUrl} alt="Código QR de tu entrada" className="w-full aspect-square rounded-xl" />
                   </div>
                 </div>

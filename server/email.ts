@@ -178,7 +178,7 @@ export function buildOrderEmail(data: {
   // clientes de correo no renderizan data: URIs de forma confiable — se usa
   // en cambio la URL real servida por /api/qr/:ticketCode.png (server/calendar.ts).
   const qrUrl = data.ticketCode ? `${EMAIL_BASE_URL}/api/qr/${data.ticketCode}.png` : data.qrImageUrl;
-  const whatsappShareUrl = `https://wa.me/?text=${encodeURIComponent(`Usa mi código ${data.ambassadorCode} para comprar tu entrada a Candyland en Mansion Playroom 🍭 ${EMAIL_BASE_URL}`)}`;
+  const whatsappShareUrl = `https://wa.me/?text=${encodeURIComponent(`Usa mi código ${data.ambassadorCode} para comprar tu entrada en Mansion Playroom 🍭 ${EMAIL_BASE_URL}`)}`;
 
   return `
 <!DOCTYPE html>
@@ -206,8 +206,8 @@ export function buildOrderEmail(data: {
       <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="font-size:52px;margin:0 0 12px;">🍭</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Tu compra fue confirmada!</h1>
-      <p style="color:${MUTED};font-size:15px;margin:0 0 24px;">La cuenta regresiva para Candyland ya comenzó.</p>
-      <a href="${EMAIL_BASE_URL}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;letter-spacing:0.3px;box-shadow:0 8px 20px rgba(236,95,163,0.35);">Ver Candyland</a>
+      <p style="color:${MUTED};font-size:15px;margin:0 0 24px;">La cuenta regresiva para ${data.eventTitle} ya comenzó.</p>
+      <a href="${EMAIL_BASE_URL}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;letter-spacing:0.3px;box-shadow:0 8px 20px rgba(236,95,163,0.35);">Ver ${data.eventTitle}</a>
     </div>
 
     <div style="padding:32px 24px 0;">
@@ -215,7 +215,7 @@ export function buildOrderEmail(data: {
       <!-- SALUDO -->
       <h2 style="color:${INK};font-size:22px;font-weight:800;margin:0 0 6px;">👋 Hola ${data.buyerName}</h2>
       <p style="color:${MUTED};font-size:15px;margin:0 0 28px;">
-        Tu <strong style="color:${INK};">${ticketNames}</strong> ya está reservado para Candyland en Mansion Playroom. 🎉
+        Tu <strong style="color:${INK};">${ticketNames}</strong> ya está reservado para ${data.eventTitle} en Mansion Playroom. 🎉
         Prepárate para vivir una noche llena de música, conexión y una experiencia completamente distinta.
       </p>
 
@@ -384,7 +384,7 @@ export function buildOrderEmail(data: {
       <!-- DESPEDIDA -->
       <div style="text-align:center;padding:24px 0;">
         <p style="font-size:32px;margin:0 0 8px;">🍭</p>
-        <p style="color:${INK};font-size:16px;font-weight:800;margin:0 0 6px;">Nos vemos en Candyland</p>
+        <p style="color:${INK};font-size:16px;font-weight:800;margin:0 0 6px;">Nos vemos en ${data.eventTitle}</p>
         <p style="color:${MUTED};font-size:13px;line-height:1.6;margin:0;">
           Ya eres parte de esta edición. Nosotros ponemos la música, el ambiente y la experiencia.<br/>
           Tú solo preocúpate de llegar con ganas de disfrutar.<br/>
@@ -672,7 +672,7 @@ export function buildAlmostTierEmail(data: {
       <div style="text-align:center;margin-top:24px;">
         <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Tu código</p>
         <p style="color:${INK};font-size:26px;font-weight:800;font-family:monospace;margin:0 0 20px;">${data.ambassadorCode}</p>
-        <a href="https://wa.me/?text=${encodeURIComponent(`Usa mi código ${data.ambassadorCode} para comprar tu entrada a Candyland en Mansion Playroom 🍭 ${EMAIL_BASE_URL}`)}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;">Compartir por WhatsApp</a>
+        <a href="https://wa.me/?text=${encodeURIComponent(`Usa mi código ${data.ambassadorCode} para comprar tu entrada en Mansion Playroom 🍭 ${EMAIL_BASE_URL}`)}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;">Compartir por WhatsApp</a>
       </div>
     </div>
 
@@ -1325,7 +1325,7 @@ export function buildGiftEmail(data: {
 
       <p style="color:${FAINT};font-size:12px;text-align:center;margin:24px 0 0;line-height:1.6;">
         Recibiste este correo porque alguien te invitó un trago en la fiesta.<br>
-        Mansion Playroom · Candyland
+        Mansion Playroom
       </p>
     </div>
   </div>

@@ -113,7 +113,7 @@ export default function PrivacyPolicy() {
 
           <div className="glass-candy rounded-2xl p-6 mb-10 text-sm text-muted-foreground leading-relaxed space-y-3">
             <p>
-              Venir a Candyland es algo privado, y lo tratamos así. Esta página explica en palabras simples qué
+              Venir a nuestras fiestas es algo privado, y lo tratamos así. Esta página explica en palabras simples qué
               datos guardamos, para qué los usamos, cuánto tiempo los conservamos y cómo puedes pedir que los
               borremos.
             </p>
