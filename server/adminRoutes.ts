@@ -3,6 +3,7 @@ import type { Express, Request, Response } from "express";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
 import { csvEscape, toCsv, parseCsv } from "./csv";
+import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
 
 async function requireAdmin(req: Request, res: Response): Promise<boolean> {
   try {
@@ -220,5 +221,72 @@ export function registerAdminRoutes(app: Express) {
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="cierres-turno-${new Date().toISOString().slice(0, 10)}.csv"`);
     res.send("﻿" + csv);
+  });
+
+  // Reporte consolidado del sub-tab "Ventas" de Gastos y P&L (pedido
+  // explícito del usuario: un solo botón por sub-tab en vez de uno por
+  // tabla) -- CSV y PDF comparten los mismos datos que se ven en pantalla.
+  app.get("/api/admin/gastos/ventas.csv", async (req: Request, res: Response) => {
+    if (!(await requireAdmin(req, res))) return;
+    const eventId = Number(req.query.eventId);
+    if (!eventId) { res.status(400).json({ error: "eventId requerido" }); return; }
+    const rows = await db.getProfitReport(eventId);
+    const csv = toCsv(rows, [
+      { key: "name", label: "Producto" },
+      { key: "category", label: "Categoría" },
+      { key: "groupName", label: "Grupo" },
+      { key: "unitsSold", label: "Unidades" },
+      { key: "revenue", label: "Ingresos" },
+      { key: "cost", label: "Costo" },
+      { key: "profit", label: "Utilidad" },
+      { key: "marginPercent", label: "Margen %" },
+    ]);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="ventas-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send("﻿" + csv);
+  });
+
+  app.get("/api/admin/gastos/ventas.pdf", async (req: Request, res: Response) => {
+    if (!(await requireAdmin(req, res))) return;
+    const eventId = Number(req.query.eventId);
+    if (!eventId) { res.status(400).json({ error: "eventId requerido" }); return; }
+    const [event, rows] = await Promise.all([db.getEventById(eventId), db.getProfitReport(eventId)]);
+    const pdf = await buildVentasReportPdf(event?.title ?? `Evento #${eventId}`, rows);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="ventas-${new Date().toISOString().slice(0, 10)}.pdf"`);
+    res.send(pdf);
+  });
+
+  // Mismo criterio para "Gastos".
+  app.get("/api/admin/gastos/gastos.csv", async (req: Request, res: Response) => {
+    if (!(await requireAdmin(req, res))) return;
+    const eventId = Number(req.query.eventId);
+    if (!eventId) { res.status(400).json({ error: "eventId requerido" }); return; }
+    const rows = await db.listExpenses({ eventId });
+    const csv = toCsv(
+      rows.map((r: any) => ({ ...r, expenseDate: r.expenseDate ? formatChileDateTime(r.expenseDate) : "" })),
+      [
+        { key: "expenseDate", label: "Fecha" },
+        { key: "category", label: "Categoría" },
+        { key: "description", label: "Descripción" },
+        { key: "supplier", label: "Proveedor" },
+        { key: "amountTotal", label: "Monto" },
+        { key: "paymentMethod", label: "Medio de pago" },
+      ],
+    );
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="gastos-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send("﻿" + csv);
+  });
+
+  app.get("/api/admin/gastos/gastos.pdf", async (req: Request, res: Response) => {
+    if (!(await requireAdmin(req, res))) return;
+    const eventId = Number(req.query.eventId);
+    if (!eventId) { res.status(400).json({ error: "eventId requerido" }); return; }
+    const [event, rows] = await Promise.all([db.getEventById(eventId), db.listExpenses({ eventId })]);
+    const pdf = await buildGastosReportPdf(event?.title ?? `Evento #${eventId}`, rows as any);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="gastos-${new Date().toISOString().slice(0, 10)}.pdf"`);
+    res.send(pdf);
   });
 }

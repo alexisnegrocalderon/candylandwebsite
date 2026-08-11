@@ -319,6 +319,11 @@ export const siteSettings = mysqlTable("siteSettings", {
   instagramFollowers: int("instagramFollowers").default(0).notNull(),
   instagramPosts: int("instagramPosts").default(0).notNull(),
   serviceFeePercent: decimal("serviceFeePercent", { precision: 5, scale: 2 }).default("0").notNull(),
+  // Proveedor único de cocina (pedido explícito del usuario): a quién
+  // rendirle cuentas de lo vendido en productos `toKitchen`. Config global,
+  // no por evento -- si cambia de proveedor, se actualiza acá.
+  kitchenVendorName: varchar("kitchenVendorName", { length: 255 }),
+  kitchenVendorEmail: varchar("kitchenVendorEmail", { length: 320 }),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 

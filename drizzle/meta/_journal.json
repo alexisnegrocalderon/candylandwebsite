@@ -288,6 +288,13 @@
       "when": 1786440707156,
       "tag": "0040_mature_wendell_rand",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "5",
+      "when": 1786442778583,
+      "tag": "0041_bored_talon",
+      "breakpoints": true
     }
   ]
 }

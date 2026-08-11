@@ -1152,6 +1152,74 @@ export function buildShiftCloseEmail(data: {
  * (pedido explícito del usuario) -- se arma en server/mailing.ts
  * (getMailingEventInfo) y llega ya resuelta, buildMailingBlastEmail no
  * consulta la base de datos. */
+/** Email genérico para los reportes consolidados de Ventas/Gastos (pedido
+ * explícito del usuario: un solo botón por sub-tab que arma PDF+email con
+ * todo). `lines` son pares label/valor ya formateados por el caller. */
+export function buildSimpleReportEmail(data: { title: string; subtitle: string; lines: { label: string; value: string }[] }) {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">${data.title}</h1>
+    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.subtitle} — el detalle completo va en el PDF adjunto.</p>
+
+    ${card(data.lines.map((l) => `
+      <div style="display:flex;justify-content:space-between;padding:6px 0;">
+        <span style="color:${MUTED};font-size:13px;">${l.label}</span>
+        <span style="color:${INK};font-size:13px;font-weight:600;">${l.value}</span>
+      </div>
+    `).join(''))}
+  </div>
+</body>
+</html>`;
+}
+
+/** Rendición con el proveedor de cocina (pedido explícito del usuario):
+ * cuánto se vendió de productos `toKitchen`, cuánto le corresponde a él y
+ * cuánto a la productora. El PDF adjunto (buildKitchenVendorPdf) trae el
+ * detalle producto por producto; este correo es solo el resumen. */
+export function buildKitchenVendorEmail(data: {
+  eventTitle: string;
+  vendorName: string;
+  totalRevenue: number;
+  vendorShare: number;
+  venueShare: number;
+}) {
+  const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <style>:root { color-scheme: light only; }</style>
+</head>
+<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">🍽️ Rendición de cocina — ${data.eventTitle}</h1>
+    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">Para ${data.vendorName} — el detalle completo por producto va en el PDF adjunto.</p>
+
+    ${card(`
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Resumen del evento</p>
+      <p style="color:${MUTED};font-size:13px;margin:0 0 6px;">Ingresos totales: <strong style="color:${INK};">${money(data.totalRevenue)}</strong></p>
+      <p style="color:${MUTED};font-size:13px;margin:0 0 6px;">Le corresponde al proveedor: <strong style="color:${INK};">${money(data.vendorShare)}</strong></p>
+      <p style="color:${MUTED};font-size:13px;margin:0;">Le corresponde a la productora: <strong style="color:${INK};">${money(data.venueShare)}</strong></p>
+    `)}
+  </div>
+</body>
+</html>`;
+}
+
 export type MailingEventInfo = {
   title: string;
   imageUrl?: string;

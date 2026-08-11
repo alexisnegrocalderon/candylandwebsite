@@ -472,13 +472,16 @@ export async function deleteBlockedCustomer(id: number) {
 // recargo por servicio (%) que se suma a toda venta nueva)
 export async function getSiteSettings() {
   const db = await getDb();
-  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0" };
+  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null };
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) return row;
-  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0" };
+  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null };
 }
 
-export async function updateSiteSettings(data: { instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number }) {
+export async function updateSiteSettings(data: {
+  instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number;
+  kitchenVendorName?: string | null; kitchenVendorEmail?: string | null;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const updateData: any = { ...data };
@@ -2166,10 +2169,15 @@ export async function getProfitReport(eventId: number) {
   const allTicketTypes = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
   const ttById = new Map<number, any>(allTicketTypes.map((t: any) => [t.id, t]));
 
-  const byType = new Map<number, { name: string; unitsSold: number; revenue: number; cost: number; hasCost: boolean }>();
+  const byType = new Map<number, { name: string; category: string; groupName: string | null; unitsSold: number; revenue: number; cost: number; hasCost: boolean }>();
   for (const r of rows) {
     const tt = ttById.get(r.ticketTypeId);
-    const entry = byType.get(r.ticketTypeId) ?? { name: tt?.name ?? `#${r.ticketTypeId}`, unitsSold: 0, revenue: 0, cost: 0, hasCost: false };
+    const entry = byType.get(r.ticketTypeId) ?? {
+      name: tt?.name ?? `#${r.ticketTypeId}`,
+      category: tt?.category ?? 'extra',
+      groupName: tt?.groupName ?? null,
+      unitsSold: 0, revenue: 0, cost: 0, hasCost: false,
+    };
     entry.unitsSold += r.quantity;
     entry.revenue += Number(r.unitPrice) * r.quantity;
     if (r.unitCost != null) { entry.cost += Number(r.unitCost) * r.quantity; entry.hasCost = true; }
@@ -2179,6 +2187,8 @@ export async function getProfitReport(eventId: number) {
   return Array.from(byType.values())
     .map((e) => ({
       name: e.name,
+      category: e.category,
+      groupName: e.groupName,
       unitsSold: e.unitsSold,
       revenue: e.revenue,
       cost: e.hasCost ? e.cost : null,
@@ -2186,6 +2196,52 @@ export async function getProfitReport(eventId: number) {
       marginPercent: e.hasCost && e.revenue > 0 ? Math.round(((e.revenue - e.cost) / e.revenue) * 1000) / 10 : null,
     }))
     .sort((a, b) => b.revenue - a.revenue);
+}
+
+/** Reparto con el proveedor de cocina (pedido explícito del usuario): de
+ * todo lo vendido en productos `toKitchen=1` de un evento, cuánto le
+ * corresponde al proveedor (su costo cargado × cantidad, `costPrice`
+ * congelado al momento de la venta como `unitCost`) y cuánto queda para la
+ * productora (precio − costo, × cantidad). Mismo criterio de "costo
+ * congelado" que `getProfitReport`. */
+export async function getKitchenVendorReport(eventId: number) {
+  const db = await getDb();
+  if (!db) return { products: [], totalRevenue: 0, vendorShare: 0, venueShare: 0 };
+
+  const rows = await db.select({
+    ticketTypeId: orderItems.ticketTypeId,
+    quantity: orderItems.quantity,
+    unitPrice: orderItems.unitPrice,
+    unitCost: orderItems.unitCost,
+  }).from(orderItems)
+    .innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved')));
+
+  const kitchenTicketTypes = await db.select().from(ticketTypes)
+    .where(and(eq(ticketTypes.eventId, eventId), eq(ticketTypes.toKitchen, 1)));
+  const kitchenIds = new Set(kitchenTicketTypes.map((t: any) => t.id));
+  const ttById = new Map<number, any>(kitchenTicketTypes.map((t: any) => [t.id, t]));
+
+  const byType = new Map<number, { name: string; quantity: number; revenue: number; vendorShare: number }>();
+  for (const r of rows) {
+    if (!kitchenIds.has(r.ticketTypeId)) continue;
+    const entry = byType.get(r.ticketTypeId) ?? { name: ttById.get(r.ticketTypeId)?.name ?? `#${r.ticketTypeId}`, quantity: 0, revenue: 0, vendorShare: 0 };
+    entry.quantity += r.quantity;
+    entry.revenue += Number(r.unitPrice) * r.quantity;
+    entry.vendorShare += Number(r.unitCost ?? 0) * r.quantity;
+    byType.set(r.ticketTypeId, entry);
+  }
+
+  const products = Array.from(byType.values())
+    .map((e) => ({ name: e.name, quantity: e.quantity, revenue: e.revenue, vendorShare: e.vendorShare, venueShare: e.revenue - e.vendorShare }))
+    .sort((a, b) => b.revenue - a.revenue);
+
+  return {
+    products,
+    totalRevenue: products.reduce((s, p) => s + p.revenue, 0),
+    vendorShare: products.reduce((s, p) => s + p.vendorShare, 0),
+    venueShare: products.reduce((s, p) => s + p.venueShare, 0),
+  };
 }
 
 /** Comparativa simple entre eventos: ingresos, utilidad (donde haya costo

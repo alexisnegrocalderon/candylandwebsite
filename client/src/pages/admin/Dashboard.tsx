@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -21,6 +22,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { MailingComposer } from '@/components/admin/MailingComposer';
@@ -3345,10 +3347,6 @@ function CajaAdminView() {
       {activeEventId && <OperatorsManager eventId={activeEventId} />}
       {activeEventId && <RegistersManager eventId={activeEventId} />}
       {activeEventId && <DevicesManager eventId={activeEventId} />}
-      {activeEventId && <ProfitReport eventId={activeEventId} />}
-      <EventComparisonReport events={events} />
-      {activeEventId && <PeakHoursReport eventId={activeEventId} />}
-      <ShiftClosingsReport events={events} />
       {activeEventId && <LedgerView eventId={activeEventId} />}
     </div>
   );
@@ -3551,35 +3549,283 @@ function DevicesManager({ eventId }: { eventId: number }) {
   );
 }
 
+const TICKET_CATEGORY_LABEL: Record<string, string> = {
+  acceso: 'Acceso', extra: 'Extra', consumo: 'Consumo', locker: 'Guardarropía', merch: 'Merch',
+};
+
+const PIE_COLORS = ['#111827', '#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#8b5cf6'];
+
+type ProfitSort = 'revenue' | 'units' | 'margin' | 'name';
+type ProfitGroupBy = 'none' | 'category' | 'groupName';
+
+/** "Margen por producto": pedido explícito del usuario -- poder ordenar por
+ * distintos criterios, agrupar por categoría o por grupo del menú, y ver
+ * gráficos para leer de un vistazo cómo estuvo el evento en vez de tener que
+ * leer la tabla entera fila por fila. */
 function ProfitReport({ eventId }: { eventId: number }) {
   const { data } = trpc.cajaReports.profit.useQuery({ eventId });
   const rows = data ?? [];
+  const [sortBy, setSortBy] = useState<ProfitSort>('revenue');
+  const [groupBy, setGroupBy] = useState<ProfitGroupBy>('none');
   const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
   const totalProfit = rows.reduce((s, r) => s + (r.profit ?? 0), 0);
+
+  const groupKey = (r: (typeof rows)[number]) =>
+    groupBy === 'category' ? (TICKET_CATEGORY_LABEL[r.category] ?? r.category)
+    : groupBy === 'groupName' ? (r.groupName ?? 'Sin grupo')
+    : null;
+
+  const sortRows = (list: typeof rows) => [...list].sort((a, b) => {
+    if (sortBy === 'units') return b.unitsSold - a.unitsSold;
+    if (sortBy === 'margin') return (b.marginPercent ?? -Infinity) - (a.marginPercent ?? -Infinity);
+    if (sortBy === 'name') return a.name.localeCompare(b.name);
+    return b.revenue - a.revenue;
+  });
+
+  const groups = groupBy === 'none'
+    ? [{ key: null as string | null, rows: sortRows(rows) }]
+    : Array.from(
+        rows.reduce((map, r) => {
+          const key = groupKey(r)!;
+          (map.get(key) ?? map.set(key, []).get(key)!).push(r);
+          return map;
+        }, new Map<string, typeof rows>()),
+      )
+        .map(([key, list]) => ({ key, rows: sortRows(list) }))
+        .sort((a, b) => b.rows.reduce((s, r) => s + r.revenue, 0) - a.rows.reduce((s, r) => s + r.revenue, 0));
+
+  const chartByGroup = Array.from(
+    rows.reduce((map, r) => {
+      const key = TICKET_CATEGORY_LABEL[r.category] ?? r.category;
+      map.set(key, (map.get(key) ?? 0) + r.revenue);
+      return map;
+    }, new Map<string, number>()),
+  ).map(([name, revenue]) => ({ name, revenue }));
+
+  const topByUnits = [...rows].sort((a, b) => b.unitsSold - a.unitsSold).slice(0, 10);
 
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader><CardTitle>Margen por producto (antes de descuentos)</CardTitle></CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground mb-3">Ingresos totales: ${totalRevenue.toLocaleString('es-CL')} · Utilidad total: ${totalProfit.toLocaleString('es-CL')} <span className="text-xs">(solo productos con costo cargado)</span></p>
-        <p className="text-xs text-muted-foreground mb-3">Mide qué tan rentable es cada producto sobre su precio de lista. Para la utilidad REAL de la fiesta (con descuentos, gastos, IVA y comisiones) andá a <strong>Gastos y P&amp;L</strong>.</p>
+      <CardContent className="space-y-6">
+        <div>
+          <p className="text-sm text-muted-foreground mb-1">Ingresos totales: ${totalRevenue.toLocaleString('es-CL')} · Utilidad total: ${totalProfit.toLocaleString('es-CL')} <span className="text-xs">(solo productos con costo cargado)</span></p>
+          <p className="text-xs text-muted-foreground">Mide qué tan rentable es cada producto sobre su precio de lista. Para la utilidad REAL de la fiesta (con descuentos, gastos, IVA y comisiones) andá a <strong>Gastos y P&amp;L</strong>.</p>
+        </div>
+
+        {rows.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Ingresos por categoría</p>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartByGroup}>
+                    <CartesianGrid stroke="hsl(var(--border))" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${Number(v).toLocaleString('es-CL')}`} />
+                    <Tooltip formatter={(v: number) => `$${v.toLocaleString('es-CL')}`} />
+                    <Bar dataKey="revenue" fill="#111827" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Participación por categoría</p>
+              <div className="h-56">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={chartByGroup} dataKey="revenue" nameKey="name" innerRadius={45} outerRadius={80}>
+                      {chartByGroup.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip formatter={(v: number) => `$${v.toLocaleString('es-CL')}`} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="md:col-span-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Top 10 productos por unidades vendidas</p>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={topByUnits} layout="vertical" margin={{ left: 24 }}>
+                    <CartesianGrid stroke="hsl(var(--border))" />
+                    <XAxis type="number" tick={{ fontSize: 11 }} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={140} />
+                    <Tooltip />
+                    <Bar dataKey="unitsSold" fill="#6366f1" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-3 items-center">
+          <div>
+            <Label className="text-xs">Ordenar por</Label>
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as ProfitSort)}>
+              <SelectTrigger className="mt-1 w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="revenue">Ingresos</SelectItem>
+                <SelectItem value="units">Unidades</SelectItem>
+                <SelectItem value="margin">Margen</SelectItem>
+                <SelectItem value="name">Nombre (A-Z)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Agrupar por</Label>
+            <Select value={groupBy} onValueChange={(v) => setGroupBy(v as ProfitGroupBy)}>
+              <SelectTrigger className="mt-1 w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Sin agrupar</SelectItem>
+                <SelectItem value="category">Por categoría</SelectItem>
+                <SelectItem value="groupName">Por grupo del menú</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto space-y-4">
+          {groups.map((g) => (
+            <div key={g.key ?? 'all'}>
+              {g.key != null && (
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                  {g.key} · ${g.rows.reduce((s, r) => s + r.revenue, 0).toLocaleString('es-CL')}
+                </p>
+              )}
+              <table className="w-full text-sm">
+                <thead><tr className="text-left text-muted-foreground border-b border-border/50">
+                  <th className="py-2">Producto</th><th>Unidades</th><th>Ingresos</th><th>Costo</th><th>Utilidad</th><th>Margen</th>
+                </tr></thead>
+                <tbody>
+                  {g.rows.map((r, i) => (
+                    <tr key={i} className="border-b border-border/30">
+                      <td className="py-2">{r.name}</td>
+                      <td>{r.unitsSold}</td>
+                      <td>${r.revenue.toLocaleString('es-CL')}</td>
+                      <td>{r.cost != null ? `$${r.cost.toLocaleString('es-CL')}` : '—'}</td>
+                      <td>{r.profit != null ? `$${r.profit.toLocaleString('es-CL')}` : '—'}</td>
+                      <td>{r.marginPercent != null ? `${r.marginPercent}%` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+          {rows.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">Sin ventas todavía.</p>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Descarga CSV/PDF + envío por email consolidado de un sub-tab entero
+ * (Ventas o Gastos), pedido explícito del usuario: un solo botón por
+ * sub-tab en vez de uno por cada tabla individual. El admin siempre recibe
+ * el correo; el diálogo deja elegir además a qué operadores con email
+ * cargado del evento mandárselo (el "staff que le corresponde al área"). */
+function ReportToolbar({ eventId, kind }: { eventId: number; kind: 'ventas' | 'gastos' }) {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const { data: operators } = trpc.operators.listAll.useQuery({ eventId });
+  const onReportEmailResult = (res: { emailSent: boolean }) => {
+    setOpen(false);
+    if (res.emailSent) toast.success('Reporte enviado');
+    else toast.warning('No se pudo enviar el correo');
+  };
+  const emailVentas = trpc.cajaReports.emailVentasReport.useMutation({ onSuccess: onReportEmailResult, onError: onMutationError });
+  const emailGastos = trpc.cajaReports.emailGastosReport.useMutation({ onSuccess: onReportEmailResult, onError: onMutationError });
+  const sending = emailVentas.isPending || emailGastos.isPending;
+  const withEmail = (operators ?? []).filter((o: any) => o.email);
+
+  const send = () => {
+    const mutate = kind === 'ventas' ? emailVentas.mutate : emailGastos.mutate;
+    mutate({ eventId, recipientEmails: selected });
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <a href={`/api/admin/gastos/${kind}.csv?eventId=${eventId}`} target="_blank" rel="noopener noreferrer">
+        <Button variant="outline" size="sm">Descargar CSV</Button>
+      </a>
+      <a href={`/api/admin/gastos/${kind}.pdf?eventId=${eventId}`} target="_blank" rel="noopener noreferrer">
+        <Button variant="outline" size="sm">Descargar PDF</Button>
+      </a>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm">Enviar por email</Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Enviar reporte de {kind === 'ventas' ? 'ventas' : 'gastos'}</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Siempre te llega a vos. Elegí además a quién del staff (con email cargado en su ficha de operador) se lo mandamos.</p>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {withEmail.map((o: any) => (
+              <label key={o.id} className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={selected.includes(o.email)}
+                  onCheckedChange={(v) => setSelected(v ? [...selected, o.email] : selected.filter((e) => e !== o.email))}
+                />
+                {o.name} <span className="text-xs text-muted-foreground capitalize">({o.role})</span>
+              </label>
+            ))}
+            {withEmail.length === 0 && <p className="text-sm text-muted-foreground">Ningún operador de este evento tiene email cargado todavía.</p>}
+          </div>
+          <Button onClick={send} disabled={sending} className="interactive">{sending ? 'Enviando…' : 'Enviar'}</Button>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/** Rendición con el proveedor de cocina (pedido explícito del usuario): de
+ * lo vendido en productos `toKitchen` del evento, cuánto le corresponde a
+ * él y cuánto queda para la productora. El email/nombre del proveedor se
+ * carga una sola vez en Ajustes. */
+function KitchenVendorReportCard({ eventId }: { eventId: number }) {
+  const { data } = trpc.cajaReports.kitchenVendorReport.useQuery({ eventId });
+  const { data: settings } = trpc.settings.get.useQuery();
+  const send = trpc.cajaReports.sendKitchenVendorReport.useMutation({
+    onSuccess: (res) => {
+      if (res.emailSent) toast.success('Rendición enviada al proveedor');
+      else toast.warning('No se pudo enviar el correo -- revisa RESEND_API_KEY');
+    },
+    onError: onMutationError,
+  });
+  const vendorEmail = (settings as any)?.kitchenVendorEmail;
+  const rows = data?.products ?? [];
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <CardTitle>Reporte de cocina</CardTitle>
+        <Button size="sm" disabled={!vendorEmail || send.isPending} onClick={() => send.mutate({ eventId })}>
+          {send.isPending ? 'Enviando…' : 'Enviar al proveedor'}
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!vendorEmail && <p className="text-xs text-muted-foreground">No hay email de proveedor cargado -- andá a Ajustes → Proveedor de cocina.</p>}
+        {data && (
+          <p className="text-sm text-muted-foreground">
+            Ingresos: ${data.totalRevenue.toLocaleString('es-CL')} · Proveedor: ${data.vendorShare.toLocaleString('es-CL')} · Productora: ${data.venueShare.toLocaleString('es-CL')}
+          </p>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr className="text-left text-muted-foreground border-b border-border/50">
-              <th className="py-2">Producto</th><th>Unidades</th><th>Ingresos</th><th>Costo</th><th>Utilidad</th><th>Margen</th>
+              <th className="py-2">Producto</th><th>Unidades</th><th>Ingresos</th><th>Proveedor</th><th>Productora</th>
             </tr></thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i} className="border-b border-border/30">
                   <td className="py-2">{r.name}</td>
-                  <td>{r.unitsSold}</td>
+                  <td>{r.quantity}</td>
                   <td>${r.revenue.toLocaleString('es-CL')}</td>
-                  <td>{r.cost != null ? `$${r.cost.toLocaleString('es-CL')}` : '—'}</td>
-                  <td>{r.profit != null ? `$${r.profit.toLocaleString('es-CL')}` : '—'}</td>
-                  <td>{r.marginPercent != null ? `${r.marginPercent}%` : '—'}</td>
+                  <td>${r.vendorShare.toLocaleString('es-CL')}</td>
+                  <td>${r.venueShare.toLocaleString('es-CL')}</td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-muted-foreground">Sin ventas todavía.</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">Sin ventas de cocina todavía.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -4104,8 +4350,26 @@ function GastosView() {
 
       {activeEventId && <EventPnlReport eventId={activeEventId} refreshKey={refreshKey} />}
       <PnlComparison refreshKey={refreshKey} events={events} />
-      <ExpenseForm events={events} onSaved={refresh} />
-      <ExpensesList events={events} refreshKey={refreshKey} onChanged={refresh} />
+
+      <Tabs defaultValue="ventas">
+        <TabsList>
+          <TabsTrigger value="ventas">Ventas</TabsTrigger>
+          <TabsTrigger value="gastos">Gastos</TabsTrigger>
+        </TabsList>
+        <TabsContent value="ventas" className="space-y-6 mt-4">
+          {activeEventId && <ReportToolbar eventId={activeEventId} kind="ventas" />}
+          {activeEventId && <ProfitReport eventId={activeEventId} />}
+          {activeEventId && <KitchenVendorReportCard eventId={activeEventId} />}
+          <EventComparisonReport events={events} />
+          {activeEventId && <PeakHoursReport eventId={activeEventId} />}
+          <ShiftClosingsReport events={events} />
+        </TabsContent>
+        <TabsContent value="gastos" className="space-y-6 mt-4">
+          {activeEventId && <ReportToolbar eventId={activeEventId} kind="gastos" />}
+          <ExpenseForm events={events} onSaved={refresh} />
+          <ExpensesList events={events} refreshKey={refreshKey} onChanged={refresh} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -4338,12 +4602,16 @@ function SettingsManager() {
   const [followers, setFollowers] = useState('');
   const [posts, setPosts] = useState('');
   const [feePercent, setFeePercent] = useState('');
+  const [vendorName, setVendorName] = useState('');
+  const [vendorEmail, setVendorEmail] = useState('');
 
   useEffect(() => {
     if (settings) {
       setFollowers(String(settings.instagramFollowers ?? 0));
       setPosts(String(settings.instagramPosts ?? 0));
       setFeePercent(String(settings.serviceFeePercent ?? 0));
+      setVendorName((settings as any).kitchenVendorName ?? '');
+      setVendorEmail((settings as any).kitchenVendorEmail ?? '');
     }
   }, [settings]);
 
@@ -4353,6 +4621,10 @@ function SettingsManager() {
 
   const handleSaveFee = () => {
     updateSettings.mutate({ serviceFeePercent: Number(feePercent) || 0 });
+  };
+
+  const handleSaveVendor = () => {
+    updateSettings.mutate({ kitchenVendorName: vendorName || null, kitchenVendorEmail: vendorEmail || null });
   };
 
   return (
@@ -4407,6 +4679,21 @@ function SettingsManager() {
             <Input type="number" step="0.01" min="0" max="100" value={feePercent} onChange={(e) => setFeePercent(e.target.value)} className="mt-1" />
           </div>
           <Button onClick={handleSaveFee} disabled={updateSettings.isPending} className="interactive">
+            {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
+          </Button>
+        </CardContent>
+      </Card>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Proveedor de cocina</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            A quién rendirle cuentas de lo vendido en productos de cocina. Se usa en Gastos y P&amp;L → Ventas → Reporte de cocina para mandarle el detalle por email.
+          </p>
+          <div className="grid grid-cols-2 gap-4">
+            <div><Label>Nombre</Label><Input value={vendorName} onChange={(e) => setVendorName(e.target.value)} className="mt-1" /></div>
+            <div><Label>Email</Label><Input type="email" value={vendorEmail} onChange={(e) => setVendorEmail(e.target.value)} className="mt-1" /></div>
+          </div>
+          <Button onClick={handleSaveVendor} disabled={updateSettings.isPending} className="interactive">
             {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
           </Button>
         </CardContent>
