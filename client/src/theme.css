@@ -55,10 +55,20 @@
   * {
     @apply border-border;
   }
+  /* pan-y pinch-zoom (no un pan-y a secas): bloquea el pan horizontal por
+   * arrastre táctil que hacía "correrse" la página hacia los lados, sin
+   * quitar el pinch-zoom que el viewport meta de index.html sigue permitiendo. */
+  html {
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+    touch-action: pan-y pinch-zoom;
+  }
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-sans);
     overflow-x: hidden;
+    overscroll-behavior-x: none;
+    touch-action: pan-y pinch-zoom;
   }
   .container {
     @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
