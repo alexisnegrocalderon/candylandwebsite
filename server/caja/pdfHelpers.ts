@@ -61,13 +61,15 @@ export type ChartRow = { label: string; values: number[] };
 
 /** Barras agrupadas, una por cada valor en `row.values` (mismo orden que
  * `series`). Usado tanto para "contado vs esperado" (cierre de turno) como
- * para cualquier otra comparación de 2+ series por categoría. */
+ * para cualquier otra comparación de 2+ series por categoría. Devuelve el
+ * `y` final (debajo de la leyenda) para que el caller pueda encadenar el
+ * resto del contenido sin adivinar cuánto ocupó el gráfico. */
 export function drawBarChart(
   doc: PDFKit.PDFDocument,
   series: ChartSeries[],
   rows: ChartRow[],
   x: number, y: number, width: number, height: number,
-) {
+): number {
   const maxValue = Math.max(1, ...rows.flatMap((r) => r.values));
   const groupWidth = width / rows.length;
   const barWidth = Math.min(36, groupWidth / (series.length + 1));
@@ -82,10 +84,15 @@ export function drawBarChart(
     doc.fontSize(8).fillColor(MUTED).text(row.label, x + i * groupWidth, y + height + 6, { width: groupWidth, align: "center" });
   });
 
+  // Leyenda debajo del gráfico (no arriba): arriba se solapaba con el
+  // título de la sección cuando el gráfico quedaba pegado al encabezado.
+  const legendY = y + height + 22;
   let legendX = x;
   series.forEach((s) => {
-    doc.fontSize(8).fillColor(s.color).text("■ ", legendX, y - 14, { continued: true }).fillColor(MUTED).text(`${s.name}   `, { continued: true });
+    doc.fontSize(8).fillColor(s.color).text("■ ", legendX, legendY, { continued: true }).fillColor(MUTED).text(`${s.name}   `, { continued: true });
     legendX += 14 + s.name.length * 4.2 + 24;
   });
   doc.text("", { continued: false });
+
+  return legendY + 14;
 }

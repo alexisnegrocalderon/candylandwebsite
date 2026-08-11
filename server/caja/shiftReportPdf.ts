@@ -66,13 +66,13 @@ export function buildShiftClosePdf(report: ShiftCloseReport): Promise<Buffer> {
 
     doc.fontSize(13).fillColor(INK).text("Cuadre de caja");
     doc.moveDown(0.5);
-    drawBarChart(
+    const chartBottom = drawBarChart(
       doc,
       [{ name: "Contado", color: INK }, { name: "Esperado", color: "#dddddd" }],
       rows.map((r) => ({ label: r.label, values: [r.counted, r.expected] })),
       doc.x, doc.y + 14, doc.page.width - doc.page.margins.left - doc.page.margins.right, 100,
     );
-    doc.moveDown(8);
+    doc.y = chartBottom + 16;
 
     const paymentTableRows = rows.map((row) => {
       const cuadra = Math.abs(row.diff) < 1;

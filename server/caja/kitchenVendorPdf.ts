@@ -28,14 +28,14 @@ export function buildKitchenVendorPdf(report: KitchenVendorReport): Promise<Buff
 
     doc.fontSize(13).fillColor(INK).text("Total del evento");
     doc.moveDown(0.5);
-    drawBarChart(
+    const chartBottom = drawBarChart(
       doc,
       [{ name: "Proveedor", color: "#6366f1" }, { name: "Productora", color: INK }],
       [{ label: "Reparto", values: [report.vendorShare, report.venueShare] }],
       doc.x, doc.y + 14, 200, 100,
     );
     doc.x = doc.page.margins.left;
-    doc.y += 40;
+    doc.y = chartBottom + 16;
     doc.fontSize(11).fillColor(INK).text(`Ingresos totales: ${money(report.totalRevenue)}`);
     doc.fontSize(11).fillColor("#6366f1").text(`Le corresponde al proveedor: ${money(report.vendorShare)}`);
     doc.fontSize(11).fillColor(INK).text(`Te corresponde a vos: ${money(report.venueShare)}`);
