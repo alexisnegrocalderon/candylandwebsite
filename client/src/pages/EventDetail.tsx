@@ -24,6 +24,8 @@ export default function EventDetail() {
     return Math.min(...accesos.map((t: any) => Number(t.price)));
   })();
 
+  const isPast = event ? new Date(event.eventDate).getTime() < Date.now() : false;
+
   useSeo({
     title: event ? `${event.title} — Fiesta Liberal en Viña del Mar | +18` : 'Cargando evento… | Mansion Playroom',
     description: event?.shortDescription || 'Fiesta liberal en la Región de Valparaíso: fecha, horario, accesos y entradas para tu próxima noche con Mansion Playroom.',
@@ -134,13 +136,25 @@ export default function EventDetail() {
             className="lg:col-span-1"
           >
             <div className="sticky top-24 bg-card border border-border/50 rounded-2xl p-6 text-center">
-              <h3 className="font-heading text-2xl mb-2">¿Vienes a Candyland?</h3>
-              <p className="text-muted-foreground text-sm mb-6">Elegí cómo vienes y te mostramos tu acceso y el valor al tiro.</p>
-              <Link href={`/checkout/${slug}`}>
-                <Button className="w-full h-12 rounded-full text-lg font-semibold glow-pink interactive">
-                  Comprar entrada <ArrowRight className="w-5 h-5 ml-2" />
-                </Button>
-              </Link>
+              {isPast ? (
+                <>
+                  <h3 className="font-heading text-2xl mb-2">Evento finalizado</h3>
+                  <p className="text-muted-foreground text-sm">Esta noche ya pasó -- revisa nuestros próximos eventos.</p>
+                  <Link href="/eventos" className="mt-4 inline-block text-primary text-sm font-semibold hover:underline">
+                    Ver próximos eventos →
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <h3 className="font-heading text-2xl mb-2">¿Vienes a {event.title}?</h3>
+                  <p className="text-muted-foreground text-sm mb-6">Elegí cómo vienes y te mostramos tu acceso y el valor al tiro.</p>
+                  <Link href={`/checkout/${slug}`}>
+                    <Button className="w-full h-12 rounded-full text-lg font-semibold glow-pink interactive">
+                      Comprar entrada <ArrowRight className="w-5 h-5 ml-2" />
+                    </Button>
+                  </Link>
+                </>
+              )}
             </div>
           </motion.div>
         </div>

@@ -75,12 +75,16 @@ export default function Prices() {
           )}
 
           <div className="text-center mt-10">
-            <Link
-              href={`/checkout/${CANDYLAND.slug}`}
-              className="btn-jelly inline-flex items-center gap-2 px-8 py-4 bg-primary text-primary-foreground rounded-full text-base font-bold uppercase tracking-wide interactive"
-            >
-              <Ticket className="w-5 h-5" /> Comprar entrada <ArrowRight className="w-4 h-4" />
-            </Link>
+            {EVENTO.fechaConfirmada ? (
+              <Link
+                href={`/checkout/${CANDYLAND.slug}`}
+                className="btn-jelly inline-flex items-center gap-2 px-8 py-4 bg-primary text-primary-foreground rounded-full text-base font-bold uppercase tracking-wide interactive"
+              >
+                <Ticket className="w-5 h-5" /> Comprar entrada <ArrowRight className="w-4 h-4" />
+              </Link>
+            ) : (
+              <p className="text-muted-foreground text-sm">Venta de entradas próximamente -- todavía no hay fecha confirmada.</p>
+            )}
           </div>
 
           {/* Antes esta página era solo la tabla de precios. Este bloque

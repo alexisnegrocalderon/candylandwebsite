@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Menu, X, Instagram, ChevronDown } from 'lucide-react';
-import { CANDYLAND } from '@/config/candyland';
+import { CANDYLAND, EVENTO } from '@/config/candyland';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 const navLinks = [
@@ -97,12 +97,14 @@ export default function Navbar() {
               <Instagram size={20} strokeWidth={1.75} />
             </a>
 
-            <Link
-              href={`/checkout/${CANDYLAND.slug}`}
-              className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-semibold tracking-wide uppercase transition-transform duration-200 hover:scale-105 active:scale-95 interactive"
-            >
-              Comprar Entradas
-            </Link>
+            {EVENTO.fechaConfirmada && (
+              <Link
+                href={`/checkout/${CANDYLAND.slug}`}
+                className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-semibold tracking-wide uppercase transition-transform duration-200 hover:scale-105 active:scale-95 interactive"
+              >
+                Comprar Entradas
+              </Link>
+            )}
           </div>
 
           {/* Mobile: Instagram + menú */}
@@ -150,13 +152,15 @@ export default function Navbar() {
                 </Link>
               ))}
 
-              <Link
-                href={`/checkout/${CANDYLAND.slug}`}
-                onClick={() => setMobileOpen(false)}
-                className="mt-2 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center"
-              >
-                Comprar Entradas
-              </Link>
+              {EVENTO.fechaConfirmada && (
+                <Link
+                  href={`/checkout/${CANDYLAND.slug}`}
+                  onClick={() => setMobileOpen(false)}
+                  className="mt-2 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center"
+                >
+                  Comprar Entradas
+                </Link>
+              )}
 
               <div className="mt-4 pt-4 border-t border-border/40 flex flex-col gap-3">
                 {secondaryNavLinks.map((link) => (

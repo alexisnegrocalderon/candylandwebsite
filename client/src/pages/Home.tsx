@@ -963,20 +963,34 @@ function FinalCTASection() {
           loading="lazy"
           className="h-24 w-auto mx-auto mb-8 candy-float drop-shadow-[0_0_25px_oklch(0.70_0.19_340_/_0.3)]"
         />
-        <h2 className="font-heading font-bold text-4xl md:text-7xl tracking-tight leading-[1.02] mb-6">
-          Tu entrada es la llave a{' '}
-          <span className="text-gradient-candy">Candyland.</span>
-        </h2>
-        <p className="text-lg md:text-xl text-muted-foreground mb-10">
-          {CANDYLAND.fechaTexto} · {CANDYLAND.horarioTexto} · {CANDYLAND.ciudad}
-        </p>
-        <Link
-          href={`/checkout/${CANDYLAND.slug}`}
-          className="btn-jelly inline-flex items-center gap-3 px-12 py-6 bg-primary text-primary-foreground rounded-full text-xl font-bold uppercase tracking-wide interactive"
-        >
-          <Ticket className="w-6 h-6" />
-          Comprar entrada ahora
-        </Link>
+        {EVENTO.fechaConfirmada ? (
+          <>
+            <h2 className="font-heading font-bold text-4xl md:text-7xl tracking-tight leading-[1.02] mb-6">
+              Tu entrada es la llave a{' '}
+              <span className="text-gradient-candy">{EVENTO.nombre}.</span>
+            </h2>
+            <p className="text-lg md:text-xl text-muted-foreground mb-10">
+              {CANDYLAND.fechaTexto} · {CANDYLAND.horarioTexto} · {CANDYLAND.ciudad}
+            </p>
+            <Link
+              href={`/checkout/${CANDYLAND.slug}`}
+              className="btn-jelly inline-flex items-center gap-3 px-12 py-6 bg-primary text-primary-foreground rounded-full text-xl font-bold uppercase tracking-wide interactive"
+            >
+              <Ticket className="w-6 h-6" />
+              Comprar entrada ahora
+            </Link>
+          </>
+        ) : (
+          <>
+            <h2 className="font-heading font-bold text-4xl md:text-7xl tracking-tight leading-[1.02] mb-6">
+              La próxima{' '}
+              <span className="text-gradient-candy">llave</span> se viene pronto.
+            </h2>
+            <p className="text-lg md:text-xl text-muted-foreground">
+              Todavía no hay fecha ni venta de entradas -- síguenos en Instagram para enterarte primero.
+            </p>
+          </>
+        )}
       </motion.div>
     </section>
   );
@@ -1067,6 +1081,8 @@ function StickyMobileCTA() {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  if (!EVENTO.fechaConfirmada) return null;
 
   return (
     <motion.div
