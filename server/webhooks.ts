@@ -141,7 +141,7 @@ export async function processCardPaymentForOrder(input: {
   const result = await createCardPayment({
     orderNumber: order.orderNumber,
     amount: Number(order.total),
-    description: `Candyland - ${event?.title ?? 'Mansion Playroom'}`,
+    description: event?.title ?? 'Mansion Playroom',
     token: input.token,
     paymentMethodId: input.paymentMethodId,
     issuerId: input.issuerId,

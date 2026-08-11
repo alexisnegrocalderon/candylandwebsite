@@ -319,7 +319,7 @@ export const CANDYLAND = {
     },
     {
       q: '¿Cuál es el dress code?',
-      a: 'Candy sensual: brillos, rosa, látex, transparencias, lo que te haga sentir irresistible. Evita tenida deportiva.',
+      a: EVENTO.dressCode,
     },
     {
       q: '¿Hay edad mínima?',

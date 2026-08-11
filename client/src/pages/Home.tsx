@@ -531,7 +531,11 @@ function UpcomingEventsSection() {
     };
   });
 
-  const all = hasRealCandyland ? mapped : [staticEvent, ...mapped];
+  // La tarjeta de respaldo solo se arma si además hay fecha confirmada: sin
+  // eso, mostrar "PLAYROOM" con un link al Candyland viejo (staticEvent.href
+  // sigue usando CANDYLAND.slug) sería un evento falso que lleva a la página
+  // de una fiesta que ya pasó.
+  const all = hasRealCandyland || !EVENTO.fechaConfirmada ? mapped : [staticEvent, ...mapped];
   const upcoming = all.filter((e) => !e.isPast).sort((a, b) => a.date.getTime() - b.date.getTime());
   const past = all.filter((e) => e.isPast).sort((a, b) => b.date.getTime() - a.date.getTime());
 

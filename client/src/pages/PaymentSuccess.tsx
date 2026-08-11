@@ -49,7 +49,7 @@ export default function PaymentSuccess() {
           transition={{ delay: 0.25 }}
           className="font-heading text-4xl md:text-5xl mb-3 text-gradient-candy"
         >
-          ¡Bienvenidx a Candyland!
+          ¡Bienvenidx a Mansion Playroom!
         </motion.h1>
         <motion.p
           initial={{ opacity: 0 }}
