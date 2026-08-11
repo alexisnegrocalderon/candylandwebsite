@@ -9,12 +9,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'diagnose (solo lee) o migrate (aplica)'
+        description: 'diagnose (solo lee) / apply (aplica 0040+0041 a mano) / migrate (CLI de drizzle-kit, no soporta el SSL de TiDB)'
         required: true
         default: 'diagnose'
         type: choice
         options:
           - diagnose
+          - apply
           - migrate
 
 jobs:
@@ -29,6 +30,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - if: inputs.mode == 'diagnose'
         run: node scripts/diagnose-migrations.cjs
+        env:
+          DATABASE_URL: ${{ secrets.MIGRATION_DB_URL }}
+      - if: inputs.mode == 'apply'
+        run: node scripts/apply-0040-0041.cjs
         env:
           DATABASE_URL: ${{ secrets.MIGRATION_DB_URL }}
       - if: inputs.mode == 'migrate'
