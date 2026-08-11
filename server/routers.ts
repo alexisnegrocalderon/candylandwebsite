@@ -48,8 +48,10 @@ import { friendlySyncErrorMessage } from "./caja/ops";
 import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKitchenProductStock, toggleKitchenProductSoldOut } from "./kitchen";
 import { listLockerItems, updateLockerItem } from "./locker";
 import { voidTicketCode } from "./caja/void";
-import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail } from "./email";
+import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail } from "./email";
 import { buildShiftClosePdf } from "./caja/shiftReportPdf";
+import { buildKitchenVendorPdf } from "./caja/kitchenVendorPdf";
+import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
 import { sendPendingReminders, generateReminderCopy } from "./orderReminders";
 import { parseCsv, extractEmailColumn } from "./csv";
@@ -1137,6 +1139,8 @@ export const appRouter = router({
       instagramFollowers: z.number().optional(),
       instagramPosts: z.number().optional(),
       serviceFeePercent: z.number().min(0).max(100).optional(),
+      kitchenVendorName: z.string().nullable().optional(),
+      kitchenVendorEmail: z.string().email().nullable().optional(),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings(input);
     }),
@@ -2127,6 +2131,76 @@ export const appRouter = router({
   cajaReports: router({
     profit: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getProfitReport(input.eventId);
+    }),
+    kitchenVendorReport: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getKitchenVendorReport(input.eventId);
+    }),
+    // Manda la rendición de cocina al proveedor cargado en Ajustes -- no
+    // bloqueante si Resend falla, mismo criterio que shiftClose.
+    sendKitchenVendorReport: adminProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input }) => {
+      const settings = await db.getSiteSettings();
+      if (!settings.kitchenVendorEmail) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Primero cargá el email del proveedor de cocina en Ajustes.' });
+      }
+      const event = await db.getEventById(input.eventId);
+      const eventTitle = event?.title ?? `Evento #${input.eventId}`;
+      const report = await db.getKitchenVendorReport(input.eventId);
+      const vendorName = settings.kitchenVendorName || 'Proveedor de cocina';
+
+      const pdf = await buildKitchenVendorPdf({ eventTitle, vendorName, ...report });
+      const html = buildKitchenVendorEmail({ eventTitle, vendorName, totalRevenue: report.totalRevenue, vendorShare: report.vendorShare, venueShare: report.venueShare });
+      const attachments = [{ filename: `rendicion-cocina-${eventTitle}.pdf`, content: pdf }];
+      const subject = `[Rendición de cocina] ${eventTitle}`;
+
+      const recipients = [ADMIN_NOTIFICATION_EMAIL, settings.kitchenVendorEmail];
+      const results = await Promise.all(recipients.map((to) => sendEmail({ to, subject, html, attachments })));
+      return { success: true, emailSent: results.every((r) => r.success) };
+    }),
+    // Reporte consolidado de Ventas/Gastos por sub-tab (pedido explícito del
+    // usuario: un solo botón que arma PDF+CSV+email en vez de uno por
+    // tabla). El admin siempre recibe copia; `recipientEmails` son los
+    // emails de staff elegidos a mano en el diálogo de envío.
+    emailVentasReport: adminProcedure.input(z.object({
+      eventId: z.number(),
+      recipientEmails: z.array(z.string().email()).default([]),
+    })).mutation(async ({ input }) => {
+      const event = await db.getEventById(input.eventId);
+      const eventTitle = event?.title ?? `Evento #${input.eventId}`;
+      const rows = await db.getProfitReport(input.eventId);
+      const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
+      const totalProfit = rows.reduce((s, r) => s + (r.profit ?? 0), 0);
+      const pdf = await buildVentasReportPdf(eventTitle, rows);
+      const html = buildSimpleReportEmail({
+        title: `📈 Reporte de ventas — ${eventTitle}`,
+        subtitle: `${rows.length} productos vendidos`,
+        lines: [
+          { label: 'Ingresos totales', value: `$${Math.round(totalRevenue).toLocaleString('es-CL')}` },
+          { label: 'Utilidad total', value: `$${Math.round(totalProfit).toLocaleString('es-CL')}` },
+        ],
+      });
+      const recipients = Array.from(new Set([ADMIN_NOTIFICATION_EMAIL, ...input.recipientEmails]));
+      const attachments = [{ filename: `ventas-${eventTitle}.pdf`, content: pdf }];
+      const results = await Promise.all(recipients.map((to) => sendEmail({ to, subject: `[Reporte de ventas] ${eventTitle}`, html, attachments })));
+      return { success: true, emailSent: results.every((r) => r.success) };
+    }),
+    emailGastosReport: adminProcedure.input(z.object({
+      eventId: z.number(),
+      recipientEmails: z.array(z.string().email()).default([]),
+    })).mutation(async ({ input }) => {
+      const event = await db.getEventById(input.eventId);
+      const eventTitle = event?.title ?? `Evento #${input.eventId}`;
+      const rows = await db.listExpenses({ eventId: input.eventId });
+      const total = rows.reduce((s: number, r: any) => s + r.amountTotal, 0);
+      const pdf = await buildGastosReportPdf(eventTitle, rows as any);
+      const html = buildSimpleReportEmail({
+        title: `💸 Reporte de gastos — ${eventTitle}`,
+        subtitle: `${rows.length} gastos registrados`,
+        lines: [{ label: 'Total gastado', value: `$${Math.round(total).toLocaleString('es-CL')}` }],
+      });
+      const recipients = Array.from(new Set([ADMIN_NOTIFICATION_EMAIL, ...input.recipientEmails]));
+      const attachments = [{ filename: `gastos-${eventTitle}.pdf`, content: pdf }];
+      const results = await Promise.all(recipients.map((to) => sendEmail({ to, subject: `[Reporte de gastos] ${eventTitle}`, html, attachments })));
+      return { success: true, emailSent: results.every((r) => r.success) };
     }),
     // `eventIds` opcional: sin filtro compara todos los eventos, con filtro
     // solo los seleccionados (selector de eventos del admin).
