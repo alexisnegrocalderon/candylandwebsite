@@ -5,8 +5,9 @@ import { purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations,
 import { sendEmail, buildCheckinSummaryEmail } from "./email";
 import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
 import { isWeeklyEmailDay } from "../shared/ambassadorProgram";
+import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 
-const CHECKIN_SUMMARY_EMAIL = 'contacto@mansionplayroom.cl';
+const CHECKIN_SUMMARY_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 
 /** Vercel manda `Authorization: Bearer <CRON_SECRET>` en cada invocación de
  * un cron job cuando esa variable está seteada en el proyecto -- es el

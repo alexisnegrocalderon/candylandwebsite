@@ -5,6 +5,9 @@ interface SendEmailInput {
   to: string;
   subject: string;
   html: string;
+  // PDF de cierre de turno (pedido explícito del usuario) -- Resend acepta
+  // adjuntos nativamente en base64, no hace falta ningún servicio aparte.
+  attachments?: { filename: string; content: Buffer | string }[];
 }
 
 const BRAND_NAME = 'Mansion Playroom';
@@ -45,6 +48,12 @@ export async function sendEmail(input: SendEmailInput) {
         to: input.to,
         subject: input.subject,
         html: input.html,
+        ...(input.attachments?.length ? {
+          attachments: input.attachments.map((a) => ({
+            filename: a.filename,
+            content: Buffer.isBuffer(a.content) ? a.content.toString('base64') : a.content,
+          })),
+        } : {}),
       }),
     });
 

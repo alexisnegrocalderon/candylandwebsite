@@ -544,6 +544,10 @@ export const operators = mysqlTable("operators", {
   name: varchar("name", { length: 255 }).notNull(),
   pinHash: varchar("pinHash", { length: 255 }).notNull(),
   role: mysqlEnum("role", ["admin", "supervisor", "caja", "barra", "acceso", "cocina", "guardarropia"]).notNull(),
+  // Opcional (pedido explícito del usuario): si está cargado, el cierre de
+  // turno le manda a esta cajera el PDF de cuadre con copia adjunta, además
+  // de mandárselo siempre al admin.
+  email: varchar("email", { length: 320 }),
   active: int("active").default(1).notNull(),
   // Rate limiting del login por PIN (docs/ARQUITECTURA-CAJA.md §13, riesgo 7)
   // -- el PIN es mucho más débil que una contraseña y la tablet es compartida.

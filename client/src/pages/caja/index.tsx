@@ -641,6 +641,9 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
             });
             const cuadra = Math.abs(report.cashDiff) < 1 && Math.abs(report.debitDiff) < 1 && Math.abs(report.creditDiff) < 1 && Math.abs(report.qrDiff) < 1;
             toast.success(cuadra ? '✅ Turno cerrado — la caja cuadra perfecto' : '⚠️ Turno cerrado — revisa el correo, hay diferencias en el cuadre');
+            if (!report.emailSent) {
+              toast.warning('No se pudo enviar el PDF de cierre por correo — revisa con el admin antes de irte.');
+            }
             onCloseShift();
             logout.mutate();
           }}
