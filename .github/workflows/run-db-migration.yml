@@ -1,0 +1,25 @@
+name: One-off DB migration
+
+# Disparado a mano una sola vez para aplicar drizzle/0039 (eventId en
+# operators/devices/registers) contra produccion, corriendo desde los
+# runners de GitHub porque el sandbox del asistente no tiene salida TCP
+# directa a TiDB (solo HTTPS por proxy). Requiere el secret MIGRATION_DB_URL
+# con el connection string completo. Este archivo se borra despues de usarse.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm drizzle-kit migrate
+        env:
+          DATABASE_URL: ${{ secrets.MIGRATION_DB_URL }}
