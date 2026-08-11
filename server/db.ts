@@ -111,6 +111,13 @@ export async function getEventBySlug(slug: string) {
   return result[0] ?? null;
 }
 
+export async function getEventById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(events).where(eq(events.id, id)).limit(1);
+  return result[0] ?? null;
+}
+
 /** El "próximo evento destacado" para el mailing masivo (server/mailing.ts):
  * prioriza el marcado featured=1; si no hay ninguno, cae al próximo publicado
  * por fecha. */
@@ -1560,20 +1567,21 @@ export async function getOperatorById(id: number) {
 }
 
 /** Lista solo lo necesario para la pantalla de "toca tu nombre" del login por PIN (§10.2) — nunca el pinHash. */
-export async function listActiveOperatorsPublic() {
+export async function listActiveOperatorsPublic(eventId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select({ id: operators.id, name: operators.name, role: operators.role })
     .from(operators)
-    .where(eq(operators.active, 1))
+    .where(and(eq(operators.active, 1), eq(operators.eventId, eventId)))
     .orderBy(operators.name);
 }
 
-export async function listAllOperators() {
+export async function listAllOperators(eventId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select({ id: operators.id, name: operators.name, role: operators.role, active: operators.active, createdAt: operators.createdAt })
     .from(operators)
+    .where(eq(operators.eventId, eventId))
     .orderBy(desc(operators.createdAt));
 }
 
@@ -1581,6 +1589,36 @@ export async function updateOperator(id: number, input: Partial<InsertOperator>)
   const db = await getDb();
   if (!db) return;
   await db.update(operators).set(input).where(eq(operators.id, id));
+}
+
+/** ¿Este operador tiene algún historial (venta, canje, turno, comanda, etc.)?
+ * Si sí, borrarlo destruiría trazabilidad de datos ya cerrados -- hay que
+ * desactivarlo en vez de borrarlo. Solo se puede borrar de verdad un
+ * operador que nunca llegó a usarse (pedido explícito del usuario: poder
+ * sacar de la lista a los que se crean de más, sin que se acumulen). */
+export async function operatorHasHistory(id: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return true; // sin conexión no se puede verificar -- más seguro bloquear el borrado
+  const checks = await Promise.all([
+    db.select({ id: orders.id }).from(orders).where(eq(orders.operatorId, id)).limit(1),
+    db.select({ id: ops.id }).from(ops).where(eq(ops.operatorId, id)).limit(1),
+    db.select({ id: shifts.id }).from(shifts).where(or(eq(shifts.operatorId, id), eq(shifts.closedByOperatorId, id))).limit(1),
+    db.select({ id: tickets.id }).from(tickets).where(eq(tickets.usedByOperatorId, id)).limit(1),
+    db.select({ id: lockerItems.id }).from(lockerItems).where(or(eq(lockerItems.receivedByOperatorId, id), eq(lockerItems.retrievedByOperatorId, id))).limit(1),
+    db.select({ id: kitchenTickets.id }).from(kitchenTickets).where(or(eq(kitchenTickets.approvedByOperatorId, id), eq(kitchenTickets.deliveredByOperatorId, id))).limit(1),
+    db.select({ id: ticketStockHistory.id }).from(ticketStockHistory).where(eq(ticketStockHistory.changedByOperatorId, id)).limit(1),
+  ]);
+  return checks.some((rows) => rows.length > 0);
+}
+
+export async function deleteOperator(id: number) {
+  if (await operatorHasHistory(id)) {
+    throw new Error("Este operador ya tiene historial de ventas, turnos o canjes — desactívalo en vez de eliminarlo.");
+  }
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(operators).where(eq(operators.id, id));
+  return { success: true };
 }
 
 const PIN_MAX_ATTEMPTS = 5;
@@ -1658,10 +1696,10 @@ export async function recordIpAttempt(key: string, maxAttempts: number, lockoutM
 
 // --- Enrolamiento de dispositivos (pedido explícito del usuario) ---
 
-export async function createDeviceEnrollment(name: string, enrollCode: string, enrollCodeExpiresAt: Date) {
+export async function createDeviceEnrollment(eventId: number, name: string, enrollCode: string, enrollCodeExpiresAt: Date) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [result] = await db.insert(devices).values({ name, enrollCode, enrollCodeExpiresAt });
+  const [result] = await db.insert(devices).values({ eventId, name, enrollCode, enrollCodeExpiresAt });
   return (result as unknown as { insertId: number }).insertId;
 }
 
@@ -1685,17 +1723,30 @@ export async function getDeviceById(id: number) {
   return device;
 }
 
-export async function listAllDevices() {
+export async function listAllDevices(eventId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select({ id: devices.id, name: devices.name, enrolled: devices.enrolled, active: devices.active, createdAt: devices.createdAt, lastSeenAt: devices.lastSeenAt })
-    .from(devices).orderBy(desc(devices.createdAt));
+    .from(devices)
+    .where(eq(devices.eventId, eventId))
+    .orderBy(desc(devices.createdAt));
 }
 
 export async function updateDeviceActive(id: number, active: 0 | 1) {
   const db = await getDb();
   if (!db) return;
   await db.update(devices).set({ active }).where(eq(devices.id, id));
+}
+
+/** A diferencia de operadores/cajas, ningún dispositivo queda referenciado
+ * desde ninguna otra tabla (no hay `deviceId` en órdenes, ops, turnos, etc.
+ * -- el device solo es un portón de enrolamiento) así que borrar uno nunca
+ * rompe trazabilidad histórica: siempre se puede borrar. */
+export async function deleteDevice(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(devices).where(eq(devices.id, id));
+  return { success: true };
 }
 
 // --- Módulo /caja: pantallas de solo lectura (docs/ARQUITECTURA-CAJA.md §10.2, Fase 2) ---
@@ -2139,11 +2190,23 @@ export async function getProfitReport(eventId: number) {
 
 /** Comparativa simple entre eventos: ingresos, utilidad (donde haya costo
  * cargado) y entradas vendidas por evento, más reciente primero. */
-export async function getEventComparison() {
+/** Comparativa entre eventos (Dashboard → Caja → Comparar). `eventIds` es
+ * opcional -- sin filtro compara TODOS los eventos, igual que antes; con
+ * filtro solo compara los seleccionados (selector de eventos del admin,
+ * pedido explícito del usuario). Mismo criterio "opcional" que ya usa
+ * `listShiftClosings`. */
+export async function getEventComparison(eventIds?: number[]) {
   const db = await getDb();
   if (!db) return [];
 
-  const allEvents = await db.select().from(events).orderBy(desc(events.eventDate));
+  const eventFilter = eventIds?.length ? inArray(events.id, eventIds) : undefined;
+  const allEvents = eventFilter
+    ? await db.select().from(events).where(eventFilter).orderBy(desc(events.eventDate))
+    : await db.select().from(events).orderBy(desc(events.eventDate));
+
+  const orderFilter = eventIds?.length
+    ? and(eq(orders.paymentStatus, 'approved'), inArray(orders.eventId, eventIds))
+    : eq(orders.paymentStatus, 'approved');
   const rows = await db.select({
     eventId: orders.eventId,
     quantity: orderItems.quantity,
@@ -2151,7 +2214,7 @@ export async function getEventComparison() {
     unitCost: orderItems.unitCost,
   }).from(orderItems)
     .innerJoin(orders, eq(orders.id, orderItems.orderId))
-    .where(eq(orders.paymentStatus, 'approved'));
+    .where(orderFilter);
 
   const byEvent = new Map<number, { revenue: number; cost: number; hasCost: boolean; unitsSold: number }>();
   for (const r of rows) {
@@ -2162,8 +2225,26 @@ export async function getEventComparison() {
     byEvent.set(r.eventId, entry);
   }
 
+  // Actividad de operadores/cajas por evento -- se lee del ledger `ops`
+  // (ya indexado por eventId) en vez de operators/registers directamente,
+  // porque lo que importa acá es "quién trabajó de verdad en este evento",
+  // no cuántas filas quedaron creadas.
+  const opsFilter = eventIds?.length ? inArray(ops.eventId, eventIds) : undefined;
+  const activityRows = opsFilter
+    ? await db.select({ eventId: ops.eventId, operatorId: ops.operatorId, registerId: ops.registerId }).from(ops).where(opsFilter)
+    : await db.select({ eventId: ops.eventId, operatorId: ops.operatorId, registerId: ops.registerId }).from(ops);
+
+  const activityByEvent = new Map<number, { operators: Set<number>; registers: Set<number> }>();
+  for (const r of activityRows) {
+    const entry = activityByEvent.get(r.eventId) ?? { operators: new Set<number>(), registers: new Set<number>() };
+    entry.operators.add(r.operatorId);
+    if (r.registerId != null) entry.registers.add(r.registerId);
+    activityByEvent.set(r.eventId, entry);
+  }
+
   return allEvents.map((e: any) => {
     const agg = byEvent.get(e.id);
+    const activity = activityByEvent.get(e.id);
     return {
       eventId: e.id,
       title: e.title,
@@ -2171,6 +2252,8 @@ export async function getEventComparison() {
       revenue: agg?.revenue ?? 0,
       unitsSold: agg?.unitsSold ?? 0,
       profit: agg?.hasCost ? agg.revenue - agg.cost : null,
+      activeOperators: activity?.operators.size ?? 0,
+      activeRegisters: activity?.registers.size ?? 0,
     };
   });
 }
@@ -2504,7 +2587,12 @@ async function buildPnlWarnings(params: {
 /** Comparativa de resultado entre todos los eventos. Se resuelve en consultas
  * agregadas y el prorrateo se arma en memoria: llamar getEventPnl en un loop
  * sería N+1 contra TiDB, y la función de Vercel corta a los 60 segundos. */
-export async function getPnlComparison() {
+/** `eventIds` opcional filtra qué eventos se DEVUELVEN, pero el prorrateo de
+ * gastos generales (`weightByEvent`) siempre se calcula con TODOS los
+ * eventos del mismo mes -- si se filtrara antes, el peso de cada evento
+ * seleccionado quedaría mal calculado (el prorrateo asume que ve a todos los
+ * eventos con los que comparte el gasto general de ese mes). */
+export async function getPnlComparison(eventIds?: number[]) {
   const db = await getDb();
   if (!db) return [];
 
@@ -2575,29 +2663,32 @@ export async function getPnlComparison() {
     for (const [id, w] of Array.from(weights.entries())) weightByEvent.set(id, w);
   }
 
-  return (allEvents as any[]).map((e) => {
-    const monthKey = monthKeyFor(e.eventDate);
-    const pnl = computePnl({
-      ivaApplies: e.ivaApplies === 1,
-      grossIncome: incomeOf(e.id),
-      cogs: cogsByEvent.get(e.id) ?? 0,
-      ambassadorCommissions: commissionsByEvent.get(e.id) ?? 0,
-      directExpenses: (directByEvent.get(e.id) ?? []).map(toPnlExpense),
-      generalExpenses: (generalByMonth.get(monthKey) ?? []).map(toPnlExpense),
-      prorationWeight: weightByEvent.get(e.id) ?? 0,
+  const eventIdSet = eventIds?.length ? new Set(eventIds) : null;
+  return (allEvents as any[])
+    .filter((e) => !eventIdSet || eventIdSet.has(e.id))
+    .map((e) => {
+      const monthKey = monthKeyFor(e.eventDate);
+      const pnl = computePnl({
+        ivaApplies: e.ivaApplies === 1,
+        grossIncome: incomeOf(e.id),
+        cogs: cogsByEvent.get(e.id) ?? 0,
+        ambassadorCommissions: commissionsByEvent.get(e.id) ?? 0,
+        directExpenses: (directByEvent.get(e.id) ?? []).map(toPnlExpense),
+        generalExpenses: (generalByMonth.get(monthKey) ?? []).map(toPnlExpense),
+        prorationWeight: weightByEvent.get(e.id) ?? 0,
+      });
+      return {
+        eventId: e.id,
+        title: e.title,
+        eventDate: e.eventDate,
+        monthKey,
+        ivaApplies: e.ivaApplies === 1,
+        grossIncome: pnl.grossIncome,
+        totalExpenses: pnl.cogs + pnl.directExpensesTotal + pnl.generalExpensesAssigned + pnl.ambassadorCommissions,
+        netProfit: pnl.netProfit,
+        marginPercent: pnl.marginPercent,
+      };
     });
-    return {
-      eventId: e.id,
-      title: e.title,
-      eventDate: e.eventDate,
-      monthKey,
-      ivaApplies: e.ivaApplies === 1,
-      grossIncome: pnl.grossIncome,
-      totalExpenses: pnl.cogs + pnl.directExpensesTotal + pnl.generalExpensesAssigned + pnl.ambassadorCommissions,
-      netProfit: pnl.netProfit,
-      marginPercent: pnl.marginPercent,
-    };
-  });
 }
 
 /** Resumen del mes: totales por categoría y por medio de pago, IVA acumulado,
@@ -2685,23 +2776,50 @@ export async function getLedger(eventId: number, filters: { operatorId?: number;
 
 // --- Módulo /caja: cajas físicas + apertura/cierre de turno (§13, Fase 5) ---
 
-export async function listActiveRegisters() {
+export async function listActiveRegisters(eventId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select({ id: registers.id, name: registers.name }).from(registers).where(eq(registers.active, 1));
+  return db.select({ id: registers.id, name: registers.name })
+    .from(registers)
+    .where(and(eq(registers.active, 1), eq(registers.eventId, eventId)));
 }
 
-export async function listAllRegisters() {
+export async function listAllRegisters(eventId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(registers).orderBy(registers.name);
+  return db.select().from(registers).where(eq(registers.eventId, eventId)).orderBy(registers.name);
 }
 
-export async function createRegister(name: string) {
+export async function createRegister(eventId: number, name: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [result] = await db.insert(registers).values({ name });
+  const [result] = await db.insert(registers).values({ eventId, name });
   return (result as unknown as { insertId: number }).insertId;
+}
+
+/** ¿Esta caja física tiene historial (venta, turno, comanda, canje)?
+ * Mismo criterio que operatorHasHistory. */
+export async function registerHasHistory(id: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return true;
+  const checks = await Promise.all([
+    db.select({ id: orders.id }).from(orders).where(eq(orders.registerId, id)).limit(1),
+    db.select({ id: ops.id }).from(ops).where(eq(ops.registerId, id)).limit(1),
+    db.select({ id: shifts.id }).from(shifts).where(eq(shifts.registerId, id)).limit(1),
+    db.select({ id: tickets.id }).from(tickets).where(eq(tickets.usedAtRegisterId, id)).limit(1),
+    db.select({ id: kitchenTickets.id }).from(kitchenTickets).where(eq(kitchenTickets.registerId, id)).limit(1),
+  ]);
+  return checks.some((rows) => rows.length > 0);
+}
+
+export async function deleteRegister(id: number) {
+  if (await registerHasHistory(id)) {
+    throw new Error("Esta caja ya tiene historial de ventas o turnos — desactívala en vez de eliminarla.");
+  }
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(registers).where(eq(registers.id, id));
+  return { success: true };
 }
 
 /** Cuadre de caja (pedido explícito del usuario): abre un turno persistido

@@ -3342,11 +3342,11 @@ function CajaAdminView() {
       </div>
 
       {activeEventId && <ResetTestDataCard eventId={activeEventId} eventTitle={events.find((e: any) => e.id === activeEventId)?.title ?? ''} />}
-      <OperatorsManager />
-      <RegistersManager />
-      <DevicesManager />
+      {activeEventId && <OperatorsManager eventId={activeEventId} />}
+      {activeEventId && <RegistersManager eventId={activeEventId} />}
+      {activeEventId && <DevicesManager eventId={activeEventId} />}
       {activeEventId && <ProfitReport eventId={activeEventId} />}
-      <EventComparisonReport />
+      <EventComparisonReport events={events} />
       {activeEventId && <PeakHoursReport eventId={activeEventId} />}
       <ShiftClosingsReport events={events} />
       {activeEventId && <LedgerView eventId={activeEventId} />}
@@ -3397,10 +3397,11 @@ function ResetTestDataCard({ eventId, eventTitle }: { eventId: number; eventTitl
   );
 }
 
-function OperatorsManager() {
-  const { data: operators, refetch } = trpc.operators.listAll.useQuery();
+function OperatorsManager({ eventId }: { eventId: number }) {
+  const { data: operators, refetch } = trpc.operators.listAll.useQuery({ eventId });
   const create = trpc.operators.create.useMutation({ onSuccess: () => { refetch(); toast.success('Operador creado'); setForm({ name: '', pin: '', role: 'caja' }); }, onError: onMutationError });
   const update = trpc.operators.update.useMutation({ onSuccess: () => { refetch(); toast.success('Actualizado'); }, onError: onMutationError });
+  const deleteOperator = trpc.operators.delete.useMutation({ onSuccess: () => { refetch(); toast.success('Operador eliminado'); }, onError: onMutationError });
   const [form, setForm] = useState({ name: '', pin: '', role: 'caja' as 'admin' | 'supervisor' | 'caja' | 'barra' | 'acceso' | 'cocina' | 'guardarropia' });
 
   return (
@@ -3425,7 +3426,7 @@ function OperatorsManager() {
               </SelectContent>
             </Select>
           </div>
-          <Button disabled={!form.name || form.pin.length < 4 || create.isPending} onClick={() => create.mutate(form)}>Crear operador</Button>
+          <Button disabled={!form.name || form.pin.length < 4 || create.isPending} onClick={() => create.mutate({ ...form, eventId })}>Crear operador</Button>
         </div>
         <div className="space-y-2">
           {(operators ?? []).map((op: any) => (
@@ -3434,21 +3435,28 @@ function OperatorsManager() {
                 <p className="font-medium">{op.name}</p>
                 <p className="text-xs text-muted-foreground capitalize">{op.role} · {op.active ? 'activo' : 'inactivo'}</p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => update.mutate({ id: op.id, active: op.active ? 0 : 1 })}>
-                {op.active ? 'Desactivar' : 'Activar'}
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => update.mutate({ id: op.id, active: op.active ? 0 : 1 })}>
+                  {op.active ? 'Desactivar' : 'Activar'}
+                </Button>
+                <ConfirmDeleteButton
+                  description={`Vas a eliminar al operador "${op.name}". Si ya tiene ventas, turnos o canjes registrados, no se va a poder -- desactívalo en ese caso.`}
+                  onConfirm={() => deleteOperator.mutateAsync({ id: op.id })}
+                />
+              </div>
             </div>
           ))}
-          {operators && operators.length === 0 && <p className="text-sm text-muted-foreground">Sin operadores todavía.</p>}
+          {operators && operators.length === 0 && <p className="text-sm text-muted-foreground">Sin operadores todavía para este evento.</p>}
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function RegistersManager() {
-  const { data: registersList, refetch } = trpc.registers.listAll.useQuery();
+function RegistersManager({ eventId }: { eventId: number }) {
+  const { data: registersList, refetch } = trpc.registers.listAll.useQuery({ eventId });
   const create = trpc.registers.create.useMutation({ onSuccess: () => { refetch(); toast.success('Caja creada'); setName(''); }, onError: onMutationError });
+  const deleteRegister = trpc.registers.delete.useMutation({ onSuccess: () => { refetch(); toast.success('Caja eliminada'); }, onError: onMutationError });
   const [name, setName] = useState('');
 
   return (
@@ -3457,11 +3465,17 @@ function RegistersManager() {
       <CardContent className="space-y-4">
         <div className="flex gap-2">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Caja 1" className="max-w-xs" />
-          <Button disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ name: name.trim() })}>Crear caja</Button>
+          <Button disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ eventId, name: name.trim() })}>Crear caja</Button>
         </div>
         <div className="flex flex-wrap gap-2">
           {(registersList ?? []).map((r: any) => (
-            <span key={r.id} className="text-sm px-3 py-1 rounded-full bg-muted/30 border border-border/50">{r.name}{!r.active ? ' (inactiva)' : ''}</span>
+            <span key={r.id} className="text-sm pl-3 pr-1 py-1 rounded-full bg-muted/30 border border-border/50 inline-flex items-center gap-1">
+              {r.name}{!r.active ? ' (inactiva)' : ''}
+              <ConfirmDeleteButton
+                description={`Vas a eliminar la caja "${r.name}". Si ya tiene ventas o turnos registrados, no se va a poder -- desactívala en ese caso.`}
+                onConfirm={() => deleteRegister.mutateAsync({ id: r.id })}
+              />
+            </span>
           ))}
           {registersList && registersList.length === 0 && <p className="text-sm text-muted-foreground">Sin cajas creadas todavía -- los operadores podrán entrar "sin caja asignada".</p>}
         </div>
@@ -3470,10 +3484,11 @@ function RegistersManager() {
   );
 }
 
-function DevicesManager() {
-  const { data: devicesList, refetch } = trpc.devices.listAll.useQuery();
+function DevicesManager({ eventId }: { eventId: number }) {
+  const { data: devicesList, refetch } = trpc.devices.listAll.useQuery({ eventId });
   const create = trpc.devices.create.useMutation({ onSuccess: (res) => { refetch(); setName(''); setLastCode(res.enrollCode); }, onError: onMutationError });
   const setActive = trpc.devices.setActive.useMutation({ onSuccess: () => { refetch(); toast.success('Actualizado'); }, onError: onMutationError });
+  const deleteDevice = trpc.devices.delete.useMutation({ onSuccess: () => { refetch(); toast.success('Dispositivo eliminado'); }, onError: onMutationError });
   const [name, setName] = useState('');
   const [lastCode, setLastCode] = useState<string | null>(null);
 
@@ -3484,7 +3499,7 @@ function DevicesManager() {
         <p className="text-sm text-muted-foreground">Solo las tablets/navegadores enrolados acá pueden llegar a la pantalla de PIN de /caja. Genera un código, dáselo a quien configura el dispositivo -- lo canjea una sola vez y vence a las 24h.</p>
         <div className="flex gap-2">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tablet Caja 1" className="max-w-xs" />
-          <Button disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ name: name.trim() })}>Generar código</Button>
+          <Button disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ eventId, name: name.trim() })}>Generar código</Button>
         </div>
         {lastCode && (
           <div className="p-4 rounded-lg bg-primary/10 border border-primary/30">
@@ -3499,12 +3514,18 @@ function DevicesManager() {
                 <p className="font-medium">{d.name}</p>
                 <p className="text-xs text-muted-foreground">{d.enrolled ? 'Enrolado' : 'Código sin canjear'} · {d.active ? 'activo' : 'revocado'}</p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setActive.mutate({ id: d.id, active: d.active ? 0 : 1 })}>
-                {d.active ? 'Revocar' : 'Reactivar'}
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setActive.mutate({ id: d.id, active: d.active ? 0 : 1 })}>
+                  {d.active ? 'Revocar' : 'Reactivar'}
+                </Button>
+                <ConfirmDeleteButton
+                  description={`Vas a eliminar el dispositivo "${d.name}".`}
+                  onConfirm={() => deleteDevice.mutateAsync({ id: d.id })}
+                />
+              </div>
             </div>
           ))}
-          {devicesList && devicesList.length === 0 && <p className="text-sm text-muted-foreground">Sin dispositivos enrolados todavía.</p>}
+          {devicesList && devicesList.length === 0 && <p className="text-sm text-muted-foreground">Sin dispositivos enrolados todavía para este evento.</p>}
         </div>
       </CardContent>
     </Card>
@@ -3548,18 +3569,53 @@ function ProfitReport({ eventId }: { eventId: number }) {
   );
 }
 
-function EventComparisonReport() {
-  const { data } = trpc.cajaReports.eventComparison.useQuery();
+/** Selector de eventos para comparativas (pedido explícito del usuario):
+ * chips que se togglean individualmente. Sin ninguno seleccionado = "todos
+ * los eventos" (mismo significado que `eventIds` vacío/undefined en el
+ * backend), así que no hace falta un botón "Todos" aparte. */
+function EventMultiSelect({
+  events, selected, onChange,
+}: { events: any[]; selected: number[]; onChange: (ids: number[]) => void }) {
+  const toggle = (id: number) => {
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  };
+  return (
+    <div className="flex flex-wrap gap-2">
+      <button
+        type="button"
+        onClick={() => onChange([])}
+        className={`text-xs px-3 py-1 rounded-full border transition-colors ${selected.length === 0 ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/30 border-border/50 text-muted-foreground'}`}
+      >
+        Todos los eventos
+      </button>
+      {events.map((e: any) => (
+        <button
+          key={e.id}
+          type="button"
+          onClick={() => toggle(e.id)}
+          className={`text-xs px-3 py-1 rounded-full border transition-colors ${selected.includes(e.id) ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted/30 border-border/50 text-muted-foreground'}`}
+        >
+          {e.title}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function EventComparisonReport({ events }: { events: any[] }) {
+  const [selectedEventIds, setSelectedEventIds] = useState<number[]>([]);
+  const { data } = trpc.cajaReports.eventComparison.useQuery({ eventIds: selectedEventIds.length ? selectedEventIds : undefined });
   const rows = data ?? [];
 
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader><CardTitle>Comparativa entre eventos (solo productos)</CardTitle></CardHeader>
-      <CardContent className="overflow-x-auto">
-        <p className="text-xs text-muted-foreground mb-3">Ingresos a precio de lista y utilidad sobre el costo de los productos. La comparativa con la utilidad neta real está en <strong>Gastos y P&amp;L</strong>.</p>
+      <CardContent className="overflow-x-auto space-y-3">
+        <p className="text-xs text-muted-foreground">Ingresos a precio de lista y utilidad sobre el costo de los productos. La comparativa con la utilidad neta real está en <strong>Gastos y P&amp;L</strong>.</p>
+        <EventMultiSelect events={events} selected={selectedEventIds} onChange={setSelectedEventIds} />
         <table className="w-full text-sm">
           <thead><tr className="text-left text-muted-foreground border-b border-border/50">
-            <th className="py-2">Evento</th><th>Fecha</th><th>Entradas vendidas</th><th>Ingresos</th><th>Utilidad</th>
+            <th className="py-2">Evento</th><th>Fecha</th><th>Entradas vendidas</th><th>Ingresos</th><th>Utilidad</th><th>Operadores activos</th><th>Cajas activas</th>
           </tr></thead>
           <tbody>
             {rows.map((r: any) => (
@@ -3569,8 +3625,11 @@ function EventComparisonReport() {
                 <td>{r.unitsSold}</td>
                 <td>${r.revenue.toLocaleString('es-CL')}</td>
                 <td>{r.profit != null ? `$${r.profit.toLocaleString('es-CL')}` : '—'}</td>
+                <td>{r.activeOperators}</td>
+                <td>{r.activeRegisters}</td>
               </tr>
             ))}
+            {rows.length === 0 && <tr><td colSpan={7} className="py-4 text-center text-muted-foreground">Sin datos para los eventos seleccionados.</td></tr>}
           </tbody>
         </table>
       </CardContent>
@@ -3961,15 +4020,17 @@ function EventPnlReport({ eventId, refreshKey }: { eventId: number; refreshKey: 
   );
 }
 
-function PnlComparison({ refreshKey }: { refreshKey: number }) {
-  const { data, refetch } = trpc.cajaReports.pnlComparison.useQuery();
+function PnlComparison({ refreshKey, events }: { refreshKey: number; events: any[] }) {
+  const [selectedEventIds, setSelectedEventIds] = useState<number[]>([]);
+  const { data, refetch } = trpc.cajaReports.pnlComparison.useQuery({ eventIds: selectedEventIds.length ? selectedEventIds : undefined });
   useEffect(() => { refetch(); }, [refreshKey, refetch]);
   const rows = data ?? [];
 
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader><CardTitle>Utilidad neta por evento</CardTitle></CardHeader>
-      <CardContent className="overflow-x-auto">
+      <CardContent className="overflow-x-auto space-y-3">
+        <EventMultiSelect events={events} selected={selectedEventIds} onChange={setSelectedEventIds} />
         <table className="w-full text-sm">
           <thead><tr className="text-left text-muted-foreground border-b border-border/50">
             <th className="py-2">Evento</th><th>Fecha</th><th className="text-right">Entró</th><th className="text-right">Gastos</th><th className="text-right">Utilidad neta</th><th className="text-right">Margen</th>
@@ -4023,7 +4084,7 @@ function GastosView() {
       </div>
 
       {activeEventId && <EventPnlReport eventId={activeEventId} refreshKey={refreshKey} />}
-      <PnlComparison refreshKey={refreshKey} />
+      <PnlComparison refreshKey={refreshKey} events={events} />
       <ExpenseForm events={events} onSaved={refresh} />
       <ExpensesList events={events} refreshKey={refreshKey} onChanged={refresh} />
     </div>
