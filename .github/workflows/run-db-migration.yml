@@ -6,10 +6,19 @@ name: One-off DB migration
 # directa a TiDB (solo HTTPS por proxy). Requiere el secret MIGRATION_DB_URL
 # con el connection string completo. Este archivo se borra después de usarse.
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'diagnose (solo lee) o migrate (aplica)'
+        required: true
+        default: 'diagnose'
+        type: choice
+        options:
+          - diagnose
+          - migrate
 
 jobs:
-  migrate:
+  run:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,6 +27,11 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --frozen-lockfile
-      - run: pnpm drizzle-kit migrate
+      - if: inputs.mode == 'diagnose'
+        run: node scripts/diagnose-migrations.cjs
+        env:
+          DATABASE_URL: ${{ secrets.MIGRATION_DB_URL }}
+      - if: inputs.mode == 'migrate'
+        run: pnpm drizzle-kit migrate
         env:
           DATABASE_URL: ${{ secrets.MIGRATION_DB_URL }}
