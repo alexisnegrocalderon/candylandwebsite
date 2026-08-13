@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { trpc } from '@/lib/trpc';
+import { WriteButton } from '@/components/admin/WriteButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -194,9 +195,9 @@ export function MailingComposer({
             />
             <p className="text-xs text-muted-foreground">Cuéntanos qué quieres lograr, con tus palabras -- la IA arma el asunto y el cuerpo del mail con el estilo de marca del sitio.</p>
           </div>
-          <Button onClick={handleGenerate} disabled={step === 'generating'} className="w-full interactive">
+          <WriteButton onClick={handleGenerate} disabled={step === 'generating'} className="w-full interactive">
             {step === 'generating' ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generando…</> : <><Sparkles className="w-4 h-4 mr-2" /> Generar con IA</>}
-          </Button>
+          </WriteButton>
         </div>
       )}
 
@@ -281,26 +282,26 @@ export function MailingComposer({
           {audience.count > RESEND_FREE_DAILY_LIMIT && (
             <p className="text-xs text-amber-600 flex items-center gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              Resend free permite ~{RESEND_FREE_DAILY_LIMIT} emails/día y estás por mandar a {audience.count}. Con "Enviar" ahora, si se corta a mitad de camino, lo ya enviado queda tageado con "{campaignTag || '(sin nombre)'}" y mañana puedes retomar excluyendo esa etiqueta -- o usa "Guardar para envío automático" y no tenés que volver a entrar.
+              Resend free permite ~{RESEND_FREE_DAILY_LIMIT} emails/día y estás por mandar a {audience.count}. Con "Enviar" ahora, si se corta a mitad de camino, lo ya enviado queda tageado con "{campaignTag || '(sin nombre)'}" y mañana puedes retomar excluyendo esa etiqueta -- o usa "Guardar para envío automático" y no tienes que volver a entrar.
             </p>
           )}
 
           <div className="flex flex-wrap gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={handlePreview} disabled={renderPreview.isPending}>
+            <WriteButton type="button" variant="outline" onClick={handlePreview} disabled={renderPreview.isPending}>
               {renderPreview.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null} Actualizar vista previa
-            </Button>
+            </WriteButton>
             <Button type="button" variant="outline" onClick={() => setStep('objective')}>Volver a escribir objetivo</Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button type="button" variant="outline" disabled={!canSend || createAutoCampaign.isPending} className="ml-auto interactive">
+                <WriteButton type="button" variant="outline" disabled={!canSend || createAutoCampaign.isPending} className="ml-auto interactive">
                   {createAutoCampaign.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Clock className="w-4 h-4 mr-2" />} Guardar para envío automático
-                </Button>
+                </WriteButton>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>¿Guardar esta campaña para envío automático?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Se va a guardar para {audience.count} cliente{audience.count !== 1 ? 's' : ''} ({audience.description}), tageados como "{campaignTag}" a medida que les vaya llegando. El cron diario la manda de a poco (respetando el límite de Resend) hasta terminar -- podés seguir el progreso en la pestaña Historial, sin tener que volver a entrar cada día.
+                    Se va a guardar para {audience.count} cliente{audience.count !== 1 ? 's' : ''} ({audience.description}), tageados como "{campaignTag}" a medida que les vaya llegando. El cron diario la manda de a poco (respetando el límite de Resend) hasta terminar -- puedes seguir el progreso en la pestaña Historial, sin tener que volver a entrar cada día.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -311,9 +312,9 @@ export function MailingComposer({
             </AlertDialog>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button type="button" disabled={!canSend} className="interactive">
+                <WriteButton type="button" disabled={!canSend} className="interactive">
                   <Send className="w-4 h-4 mr-2" /> Enviar a {audience.count} cliente{audience.count !== 1 ? 's' : ''}
-                </Button>
+                </WriteButton>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
@@ -367,9 +368,9 @@ export function MailingComposer({
           )}
           <div className="flex gap-2">
             {failed.length > 0 && (
-              <Button type="button" variant="outline" onClick={() => runSend(failed.map((r) => r.customerId))}>
+              <WriteButton type="button" variant="outline" onClick={() => runSend(failed.map((r) => r.customerId))}>
                 <RotateCcw className="w-4 h-4 mr-2" /> Reintentar fallidos
-              </Button>
+              </WriteButton>
             )}
             <Button
               type="button" className="ml-auto"

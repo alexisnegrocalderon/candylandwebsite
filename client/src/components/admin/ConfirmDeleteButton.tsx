@@ -11,6 +11,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
+import { useDemoProps } from '@/lib/demoMode';
 
 /** Botón de borrar reusado en todo el panel admin -- pide confirmación en un
  * diálogo antes de ejecutar, para que un click de más no borre algo por
@@ -25,10 +26,11 @@ export function ConfirmDeleteButton({
   onConfirm: () => void;
   disabled?: boolean;
 }) {
+  const demoProps = useDemoProps();
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="outline" size="sm" className="text-destructive" disabled={disabled}>
+        <Button variant="outline" size="sm" className="text-destructive" {...demoProps} disabled={disabled || demoProps.disabled}>
           <Trash2 className="w-3 h-3" />
         </Button>
       </AlertDialogTrigger>

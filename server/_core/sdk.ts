@@ -289,7 +289,14 @@ class SDKServer {
     // fijo — no depende de que la base de datos esté configurada, ni cae en el
     // flujo de sincronización con el OAuth externo (que no existe acá).
     if (session.openId === ADMIN_LOCAL_OPEN_ID) {
-      return buildAdminLocalUser();
+      return buildLocalUser(ADMIN_LOCAL_OPEN_ID, "Admin", "admin");
+    }
+
+    // Invitado de demostración: mismo mecanismo sintético que el admin, pero
+    // con rol `viewer`. Nunca toca la base, así que tampoco depende de que
+    // exista una fila de usuario para él.
+    if (session.openId === VIEWER_LOCAL_OPEN_ID) {
+      return buildLocalUser(VIEWER_LOCAL_OPEN_ID, "Invitado (demo)", "viewer");
     }
 
     const sessionUserId = session.openId;
@@ -332,15 +339,21 @@ const CRON_OPEN_ID_PREFIX = "cron_";
 /** openId sintético para el login de admin por contraseña (ver routers.ts auth.adminLogin). */
 export const ADMIN_LOCAL_OPEN_ID = "admin-local";
 
-function buildAdminLocalUser(): AuthenticatedUser {
+/** openId sintético del acceso de demostración de solo lectura: sirve para
+ * mostrarle la plataforma a un cliente potencial sin dejarlo tocar nada y
+ * con los datos personales de los clientes reales enmascarados. Se activa
+ * con ADMIN_VIEWER_PASSWORD y se revoca borrando esa variable. */
+export const VIEWER_LOCAL_OPEN_ID = "admin-viewer";
+
+function buildLocalUser(openId: string, name: string, role: AppRole): AuthenticatedUser {
   const now = new Date();
   return {
     id: -1,
-    openId: ADMIN_LOCAL_OPEN_ID,
-    name: "Admin",
+    openId,
+    name,
     email: null,
     loginMethod: "password",
-    role: "admin",
+    role,
     ambassadorCode: null,
     referredBy: null,
     totalReferrals: 0,
@@ -350,8 +363,19 @@ function buildAdminLocalUser(): AuthenticatedUser {
   } as AuthenticatedUser;
 }
 
+/** Roles que entiende la aplicación.
+ *
+ * `viewer` NO existe en el enum de MySQL a propósito: es un rol puramente
+ * sintético para el acceso de demostración de solo lectura (ver
+ * VIEWER_LOCAL_OPEN_ID). Como nunca se persiste una fila con ese rol, no
+ * hace falta migrar la columna `users.role` -- que en esta base es una
+ * operación cara, porque drizzle-kit no puede correr contra el SSL de
+ * TiDB Serverless y hay que aplicarla a mano. */
+export type AppRole = User["role"] | "viewer";
+
 /** Result of `sdk.authenticateRequest`. Cron callbacks set `isCron=true` and `taskUid`; see `references/periodic-updates.md`. */
-export type AuthenticatedUser = User & {
+export type AuthenticatedUser = Omit<User, "role"> & {
+  role: AppRole;
   taskUid?: string;
   isCron?: boolean;
 };

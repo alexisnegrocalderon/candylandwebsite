@@ -1,8 +1,8 @@
 import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS, CAJA_DEVICE_COOKIE_NAME, ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
-import { sdk, ADMIN_LOCAL_OPEN_ID } from "./_core/sdk";
+import { sdk, ADMIN_LOCAL_OPEN_ID, VIEWER_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, adminReadProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
@@ -62,6 +62,9 @@ const SHIFT_CLOSE_REPORT_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 const APPLICATIONS_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 const APPLICATION_MAX_PER_HOUR = 5;
 
+// Escritura del panel: SOLO admin. El invitado de demostración (`viewer`)
+// nunca pasa por acá -- las queries de lectura usan `adminReadProcedure`,
+// importado de _core/trpc, que además le enmascara los datos personales.
 const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
   return next({ ctx });
@@ -211,6 +214,22 @@ async function requireAdminStepTicket(ticket: string) {
  * cuesta diez segundos. */
 const ADMIN_SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** El invitado de demostración dura mucho menos que el admin: es una
+ * credencial que se comparte en una reunión, no la sesión del dueño. */
+const VIEWER_SESSION_MS = 8 * 60 * 60 * 1000;
+
+async function issueViewerSession(ctx: any) {
+  // A diferencia del admin, acá NO se hace upsertUser: el invitado es un
+  // usuario totalmente sintético (ver sdk.authenticateRequest), así que no
+  // ensucia la tabla `users` ni necesita el rol en la base.
+  const sessionToken = await sdk.signSession(
+    { openId: VIEWER_LOCAL_OPEN_ID, appId: 'candyland-admin', name: 'Invitado (demo)' },
+    { expiresInMs: VIEWER_SESSION_MS },
+  );
+  const cookieOptions = getSessionCookieOptions(ctx.req);
+  ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: VIEWER_SESSION_MS });
+}
+
 async function issueAdminSession(ctx: any) {
   await db.upsertUser({ openId: ADMIN_LOCAL_OPEN_ID, name: 'Admin', role: 'admin', lastSignedIn: new Date() });
   const sessionToken = await sdk.signSession({ openId: ADMIN_LOCAL_OPEN_ID, appId: 'candyland-admin', name: 'Admin' }, { expiresInMs: ADMIN_SESSION_MS });
@@ -241,6 +260,19 @@ export const appRouter = router({
 
       const adminPassword = process.env.ADMIN_PASSWORD;
       if (!adminPassword || !safeCompare(input.password, adminPassword)) {
+        // Acceso de demostración de solo lectura: una segunda contraseña que
+        // entra sin 2FA (se comparte en vivo en una reunión) pero que no
+        // puede escribir nada y ve los datos personales enmascarados. Se
+        // revoca borrando la variable en Vercel.
+        const viewerPassword = process.env.ADMIN_VIEWER_PASSWORD;
+        // El `viewerPassword &&` no es redundante: sin él, una variable
+        // vacía o sin definir dejaría entrar con la contraseña vacía.
+        if (viewerPassword && safeCompare(input.password, viewerPassword)) {
+          await db.resetIpRateLimit(ipKey);
+          await issueViewerSession(ctx);
+          return { ticket: '', needsSetup: false, skipped2fa: true, viewer: true } as const;
+        }
+
         await db.recordIpFailedAttempt(ipKey);
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Contraseña incorrecta' });
       }
@@ -358,7 +390,7 @@ export const appRouter = router({
       return db.getTicketTypesByEventId(event.id);
     }),
     // Admin
-    listAll: adminProcedure.query(async () => {
+    listAll: adminReadProcedure.query(async () => {
       return db.getAllEvents();
     }),
     // El mismo criterio que usa /caja, /cocina y /guardarropia para elegir
@@ -368,7 +400,7 @@ export const appRouter = router({
     // mano. `listAll` en cambio ordena por creación, así que un evento viejo
     // o de prueba creado después podía terminar como "seleccionado" por
     // defecto aunque no fuera el que /caja estaba usando de verdad.
-    getActiveForCaja: adminProcedure.query(async () => {
+    getActiveForCaja: adminReadProcedure.query(async () => {
       return db.getActiveEventForCaja() ?? null;
     }),
     create: adminProcedure.input(z.object({
@@ -413,7 +445,7 @@ export const appRouter = router({
       return db.deleteEvent(input.id);
     }),
     // Ticket types management
-    listTicketTypes: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    listTicketTypes: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getTicketTypesByEventId(input.eventId);
     }),
     createTicketType: adminProcedure.input(z.object({
@@ -466,7 +498,7 @@ export const appRouter = router({
     deleteTicketType: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       return db.deleteTicketType(input.id);
     }),
-    ticketStockHistory: adminProcedure.input(z.object({ ticketTypeId: z.number() })).query(async ({ input }) => {
+    ticketStockHistory: adminReadProcedure.input(z.object({ ticketTypeId: z.number() })).query(async ({ input }) => {
       return db.getTicketStockHistory(input.ticketTypeId);
     }),
   }),
@@ -540,7 +572,7 @@ export const appRouter = router({
       return processCardPaymentForOrder(input);
     }),
     // Admin
-    listAll: adminProcedure.input(z.object({
+    listAll: adminReadProcedure.input(z.object({
       page: z.number().optional(),
       limit: z.number().optional(),
       status: z.string().optional(),
@@ -548,13 +580,13 @@ export const appRouter = router({
     }).optional()).query(async ({ input }) => {
       return db.getAllOrders(input?.page ?? 1, input?.limit ?? 50, input?.status, input?.channel);
     }),
-    getStats: adminProcedure.input(z.object({ channel: z.enum(['web', 'caja']).optional() }).optional()).query(async ({ input }) => {
+    getStats: adminReadProcedure.input(z.object({ channel: z.enum(['web', 'caja']).optional() }).optional()).query(async ({ input }) => {
       return db.getOrderStats(input?.channel);
     }),
     // Mismos filtros y mismas columnas que el CSV (server/adminRoutes.ts) --
     // alimenta la vista de impresión/PDF, para que ambos formatos muestren
     // exactamente lo mismo.
-    forPrint: adminProcedure.input(z.object({
+    forPrint: adminReadProcedure.input(z.object({
       eventId: z.number().optional(),
       dateFrom: z.string().optional(),
       dateTo: z.string().optional(),
@@ -563,7 +595,7 @@ export const appRouter = router({
     }).optional()).query(async ({ input }) => {
       return db.getOrdersForExport(input ?? {});
     }),
-    getTickets: adminProcedure.input(z.object({ orderId: z.number() })).query(async ({ input }) => {
+    getTickets: adminReadProcedure.input(z.object({ orderId: z.number() })).query(async ({ input }) => {
       return db.getOrderTickets(input.orderId);
     }),
     resendConfirmation: adminProcedure.input(z.object({ orderNumber: z.string() })).mutation(async ({ input }) => {
@@ -625,7 +657,7 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear el acceso manual.' });
       }
     }),
-    listManual: adminProcedure.query(async () => {
+    listManual: adminReadProcedure.query(async () => {
       return db.listManualOrders();
     }),
     // "Invitación especial instantánea" de Accesos Manuales (pedido explícito
@@ -657,7 +689,7 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear la invitación de consumo.' });
       }
     }),
-    listStaffComps: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    listStaffComps: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.listStaffComps(input.eventId);
     }),
     // Eliminar una compra (pedido explícito del usuario): irreversible, la
@@ -669,7 +701,7 @@ export const appRouter = router({
   }),
 
   mission300: router({
-    status: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    status: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return getMission300Status(input.eventId);
     }),
     evaluate: adminProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input }) => {
@@ -1088,16 +1120,16 @@ export const appRouter = router({
     }),
 
     // Para el equipo del local, durante la fiesta.
-    listReports: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    listReports: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.listPartyReports(input.eventId);
     }),
-    listGifts: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    listGifts: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.listPartyGiftsForEvent(input.eventId);
     }),
   }),
 
   discounts: router({
-    listAll: adminProcedure.query(async () => {
+    listAll: adminReadProcedure.query(async () => {
       return db.getAllDiscountCodes();
     }),
     create: adminProcedure.input(z.object({
@@ -1146,7 +1178,7 @@ export const appRouter = router({
     }),
     // Mismo número que llega en el correo de las 3am (server/cronRoutes.ts),
     // pero en vivo para revisarlo manual desde Ajustes.
-    checkinCount: adminProcedure.query(async () => {
+    checkinCount: adminReadProcedure.query(async () => {
       const event = await db.getActiveEventForCaja();
       if (!event) return null;
       const dashboard = await db.getCajaDashboard(event.id);
@@ -1162,7 +1194,7 @@ export const appRouter = router({
       return db.validateCommunityCode(input.code);
     }),
     // Admin
-    listAll: adminProcedure.query(async () => {
+    listAll: adminReadProcedure.query(async () => {
       return db.getAllCommunityCodes();
     }),
     create: adminProcedure.input(z.object({
@@ -1192,7 +1224,7 @@ export const appRouter = router({
   // buildExpenseValues, para que no se pueda inventar crédito fiscal desde el
   // navegador.
   expenses: router({
-    listAll: adminProcedure.input(z.object({
+    listAll: adminReadProcedure.input(z.object({
       eventId: z.number().optional(),
       monthKey: z.string().optional(),
       scope: z.enum(['evento', 'general']).optional(),
@@ -1211,7 +1243,7 @@ export const appRouter = router({
     delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       return db.deleteExpense(input.id);
     }),
-    monthSummary: adminProcedure.input(z.object({ monthKey: z.string() })).query(async ({ input }) => {
+    monthSummary: adminReadProcedure.input(z.object({ monthKey: z.string() })).query(async ({ input }) => {
       return db.getMonthlyExpenseSummary(input.monthKey);
     }),
   }),
@@ -1219,7 +1251,7 @@ export const appRouter = router({
   // Lista de bloqueo de clientes (por RUT) -- solo admin, nunca expuesta al
   // checkout público (el chequeo en sí vive dentro de orders.create/createOrder).
   blockedCustomers: router({
-    listAll: adminProcedure.query(async () => {
+    listAll: adminReadProcedure.query(async () => {
       return db.getAllBlockedCustomers();
     }),
     create: adminProcedure.input(z.object({
@@ -1245,7 +1277,7 @@ export const appRouter = router({
   }),
 
   referrals: router({
-    getStats: adminProcedure.query(async () => {
+    getStats: adminReadProcedure.query(async () => {
       return db.getReferralStats();
     }),
     getByUser: protectedProcedure.query(async ({ ctx }) => {
@@ -1267,7 +1299,7 @@ export const appRouter = router({
   // tab aparte de "Referidos" (arriba), para embajadores dados de alta a
   // mano que cobran una comisión en plata por venta, no descuento.
   ambassadors: router({
-    listAll: adminProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
+    listAll: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
       return db.listExclusiveAmbassadors(input?.eventId);
     }),
     create: adminProcedure.input(z.object({
@@ -1301,7 +1333,7 @@ export const appRouter = router({
     }),
     // Reporte histórico por evento (el del PR original). Se conserva porque
     // sigue siendo la forma de saber cuánto se pagó en una fiesta puntual.
-    getReport: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    getReport: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getAmbassadorCommissionReport(input.eventId);
     }),
 
@@ -1324,7 +1356,7 @@ export const appRouter = router({
       return ambassadorProgram.getAmbassadorPanel(input.code);
     }),
 
-    getConfig: adminProcedure.query(async () => {
+    getConfig: adminReadProcedure.query(async () => {
       return ambassadorProgram.getProgramConfig();
     }),
     updateConfig: adminProcedure.input(z.object({
@@ -1352,25 +1384,25 @@ export const appRouter = router({
     }),
 
     /** `monthKey` en formato "2026-08"; si no viene, el mes actual de Chile. */
-    getSummary: adminProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
+    getSummary: adminReadProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
       return ambassadorProgram.getAmbassadorAdminSummary(input?.monthKey || monthKeyFor(new Date()));
     }),
-    getRanking: adminProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
+    getRanking: adminReadProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
       return ambassadorProgram.getAmbassadorRanking(input?.monthKey || monthKeyFor(new Date()));
     }),
-    getProfile: adminProcedure.input(z.object({ id: z.number(), monthKey: z.string().optional() })).query(async ({ input }) => {
+    getProfile: adminReadProcedure.input(z.object({ id: z.number(), monthKey: z.string().optional() })).query(async ({ input }) => {
       const monthKey = input.monthKey || monthKeyFor(new Date());
       return {
         stats: await ambassadorProgram.getAmbassadorStats(input.id, monthKey),
         sales: await ambassadorProgram.getAmbassadorSales(input.id),
       };
     }),
-    listReferredClients: adminProcedure.query(async () => {
+    listReferredClients: adminReadProcedure.query(async () => {
       return ambassadorProgram.listReferredClients();
     }),
 
     // --- Beneficios entregados ---
-    listBenefitDeliveries: adminProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
+    listBenefitDeliveries: adminReadProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
       return ambassadorProgram.listBenefitDeliveries(input?.monthKey || monthKeyFor(new Date()));
     }),
     markBenefitDelivered: adminProcedure.input(z.object({
@@ -1390,7 +1422,7 @@ export const appRouter = router({
     }),
 
     // --- Material de la semana ---
-    getWeeklyMaterial: adminProcedure.query(async () => {
+    getWeeklyMaterial: adminReadProcedure.query(async () => {
       return ambassadorProgram.getWeeklyMaterial();
     }),
     saveWeeklyMaterial: adminProcedure.input(z.object({
@@ -1514,13 +1546,13 @@ export const appRouter = router({
       return { ok: true as const, alreadyPending: false as const };
     }),
 
-    listAll: adminProcedure.input(z.object({
+    listAll: adminReadProcedure.input(z.object({
       status: z.enum(['pendiente', 'aprobada', 'rechazada']).optional(),
     }).optional()).query(async ({ input }) => {
       return applications.listApplications(input?.status);
     }),
 
-    countPending: adminProcedure.query(async () => {
+    countPending: adminReadProcedure.query(async () => {
       return applications.countPendingApplications();
     }),
 
@@ -1906,7 +1938,7 @@ export const appRouter = router({
 
   // Gestión de operadores desde /admin (docs/ARQUITECTURA-CAJA.md §11).
   operators: router({
-    listAll: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    listAll: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.listAllOperators(input.eventId);
     }),
     create: adminProcedure.input(z.object({
@@ -1951,7 +1983,7 @@ export const appRouter = router({
 
   // Base de datos de clientes desde /admin (pedido explícito del usuario).
   customers: router({
-    listAll: adminProcedure.input(z.object({
+    listAll: adminReadProcedure.input(z.object({
       search: z.string().optional(),
       accessType: z.string().optional(),
       tag: z.string().optional(),
@@ -1963,7 +1995,7 @@ export const appRouter = router({
     // Etiquetas existentes con su conteo -- alimenta los selectores de
     // "incluir/excluir etiqueta" al armar una campaña de mailing, para no
     // tener que escribir el nombre exacto de memoria.
-    listTags: adminProcedure.query(async () => {
+    listTags: adminReadProcedure.query(async () => {
       return db.listCustomerTags();
     }),
     addTag: adminProcedure.input(z.object({ customerId: z.number(), tag: z.string().min(1) })).mutation(async ({ input }) => {
@@ -2055,10 +2087,10 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear la campaña.' });
       }
     }),
-    listCampaigns: adminProcedure.query(async () => {
+    listCampaigns: adminReadProcedure.query(async () => {
       return db.listMailingCampaigns();
     }),
-    getCampaignRecipients: adminProcedure.input(z.object({ campaignId: z.number() })).query(async ({ input }) => {
+    getCampaignRecipients: adminReadProcedure.input(z.object({ campaignId: z.number() })).query(async ({ input }) => {
       return db.getMailingCampaignRecipients(input.campaignId);
     }),
     // Frena el drenaje del cron para una campaña todavía 'sending' (pedido
@@ -2083,7 +2115,7 @@ export const appRouter = router({
 
   // Enrolamiento de dispositivos desde /admin (pedido explícito del usuario).
   devices: router({
-    listAll: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    listAll: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.listAllDevices(input.eventId);
     }),
     // Genera un código de un solo uso (vence a las 24h) para enrolar una
@@ -2111,7 +2143,7 @@ export const appRouter = router({
 
   // Cajas físicas ("Caja 1", "Caja 2"...) desde /admin.
   registers: router({
-    listAll: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    listAll: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.listAllRegisters(input.eventId);
     }),
     create: adminProcedure.input(z.object({ eventId: z.number(), name: z.string().min(1) })).mutation(async ({ input }) => {
@@ -2129,10 +2161,10 @@ export const appRouter = router({
 
   // Reportes y auditoría de /caja desde /admin (docs/ARQUITECTURA-CAJA.md §11, Fase 4).
   cajaReports: router({
-    profit: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    profit: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getProfitReport(input.eventId);
     }),
-    kitchenVendorReport: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    kitchenVendorReport: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getKitchenVendorReport(input.eventId);
     }),
     // Manda la rendición de cocina al proveedor cargado en Ajustes -- no
@@ -2140,7 +2172,7 @@ export const appRouter = router({
     sendKitchenVendorReport: adminProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input }) => {
       const settings = await db.getSiteSettings();
       if (!settings.kitchenVendorEmail) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Primero cargá el email del proveedor de cocina en Ajustes.' });
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Primero carga el email del proveedor de cocina en Ajustes.' });
       }
       const event = await db.getEventById(input.eventId);
       const eventTitle = event?.title ?? `Evento #${input.eventId}`;
@@ -2203,22 +2235,22 @@ export const appRouter = router({
     }),
     // `eventIds` opcional: sin filtro compara todos los eventos, con filtro
     // solo los seleccionados (selector de eventos del admin).
-    eventComparison: adminProcedure.input(z.object({ eventIds: z.array(z.number()).optional() }).optional()).query(async ({ input }) => {
+    eventComparison: adminReadProcedure.input(z.object({ eventIds: z.array(z.number()).optional() }).optional()).query(async ({ input }) => {
       return db.getEventComparison(input?.eventIds);
     }),
     // Resultado REAL de un evento: a diferencia de `profit` (que es margen por
     // producto, sobre precios de lista), acá el ingreso es la plata que entró
     // de verdad y se restan todos los gastos, el IVA y las comisiones.
-    eventPnl: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    eventPnl: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getEventPnl(input.eventId);
     }),
-    pnlComparison: adminProcedure.input(z.object({ eventIds: z.array(z.number()).optional() }).optional()).query(async ({ input }) => {
+    pnlComparison: adminReadProcedure.input(z.object({ eventIds: z.array(z.number()).optional() }).optional()).query(async ({ input }) => {
       return db.getPnlComparison(input?.eventIds);
     }),
-    peakHours: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+    peakHours: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getPeakHours(input.eventId);
     }),
-    ledger: adminProcedure.input(z.object({
+    ledger: adminReadProcedure.input(z.object({
       eventId: z.number(),
       operatorId: z.number().optional(),
       type: z.string().optional(),
@@ -2230,7 +2262,7 @@ export const appRouter = router({
     }),
     // Cuadres de caja guardados (pedido explícito del usuario) -- sin
     // eventId trae los de todos los eventos, para comparar entre fiestas.
-    shiftClosings: adminProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
+    shiftClosings: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
       return db.listShiftClosings(input?.eventId);
     }),
     // Eliminar un cierre de turno (pedido explícito del usuario, para sacar

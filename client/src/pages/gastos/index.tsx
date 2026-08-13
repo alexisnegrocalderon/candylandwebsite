@@ -2,6 +2,7 @@ import '@/admin.css';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Check, ChevronDown, Trash2 } from 'lucide-react';
+import { canOpenAdmin } from '@/lib/demoMode';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
@@ -42,7 +43,7 @@ export default function GastosApp() {
     );
   }
   if (!user) return <AdminLoginForm />;
-  if (user.role !== 'admin') {
+  if (!canOpenAdmin(user.role)) {
     return (
       <div className="min-h-screen flex items-center justify-center px-6 text-center">
         <p className="text-muted-foreground">Esta pantalla es solo para el administrador.</p>

@@ -2,6 +2,7 @@ import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
+import { maskPii } from "../privacy";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
@@ -41,6 +42,31 @@ export const adminProcedure = t.procedure.use(
         user: ctx.user,
       },
     });
+  }),
+);
+
+/** Lectura del panel de admin: la abre también al invitado de demostración
+ * (`viewer`), enmascarándole los datos personales de los clientes reales.
+ *
+ * Es un procedure SEPARADO en vez de aflojar `adminProcedure` a propósito:
+ * las ~54 mutations siguen colgando del de arriba, así que si algún día se
+ * agrega un endpoint nuevo y se olvida clasificarlo, el invitado recibe
+ * FORBIDDEN. El modo de falla apunta al lado seguro. */
+export const adminReadProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+
+    if (!ctx.user || (ctx.user.role !== 'admin' && ctx.user.role !== 'viewer')) {
+      throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
+    }
+
+    const result = await next({ ctx: { ...ctx, user: ctx.user } });
+
+    if (ctx.user.role === 'viewer' && result.ok) {
+      return { ...result, data: maskPii(result.data) };
+    }
+
+    return result;
   }),
 );
 

@@ -1,8 +1,7 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import { parse as parseCookieHeader } from "cookie";
 import { CAJA_COOKIE_NAME, CAJA_DEVICE_COOKIE_NAME } from "@shared/const";
-import type { User } from "../../drizzle/schema";
-import { sdk } from "./sdk";
+import { sdk, type AuthenticatedUser } from "./sdk";
 import { verifyOperatorSession, type OperatorSessionPayload } from "../caja/auth";
 import { verifyDeviceSession } from "../caja/deviceAuth";
 import { getOperatorById, getDeviceById } from "../db";
@@ -17,7 +16,7 @@ export type OperatorContext = OperatorSessionPayload & { eventId: number };
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
-  user: User | null;
+  user: AuthenticatedUser | null;
   // Sesión de operador de /caja (login por PIN) — independiente de `user`
   // (login admin/OAuth). Ver docs/ARQUITECTURA-CAJA.md §0.2.
   operator: OperatorContext | null;
@@ -29,7 +28,7 @@ export type TrpcContext = {
 export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
-  let user: User | null = null;
+  let user: AuthenticatedUser | null = null;
 
   try {
     user = await sdk.authenticateRequest(opts.req);

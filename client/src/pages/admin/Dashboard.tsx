@@ -3,6 +3,9 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { useAuth } from '@/_core/hooks/useAuth';
+import { NOT_ADMIN_ERR_MSG } from '@shared/const';
+import { canOpenAdmin, useIsDemo, useDemoProps, DEMO_TOOLTIP } from '@/lib/demoMode';
+import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
@@ -11,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -44,6 +47,14 @@ import {
  * silencio — el botón volvía a su estado normal sin avisar que no se guardó nada. */
 const onMutationError = (error: unknown) => {
   const message = error instanceof Error ? error.message : 'No se pudo guardar. Intenta de nuevo.';
+  // El invitado de demostración recibe FORBIDDEN del servidor en cualquier
+  // escritura. Los botones ya salen deshabilitados, así que llegar acá
+  // significa que se disparó por otro camino -- vale explicarlo en criollo
+  // en vez de mostrar el mensaje técnico de permisos.
+  if (message === NOT_ADMIN_ERR_MSG || message === 'Admin access required') {
+    toast.error('Modo demo — solo lectura. Esta acción está deshabilitada.');
+    return;
+  }
   toast.error(message === 'Database not available' ? 'Base de datos no configurada — nada se guardó. Revisa DATABASE_URL en Vercel.' : message);
 };
 
@@ -205,7 +216,7 @@ function Mission300Panel({ eventId }: { eventId: number }) {
             <span className="text-xs text-muted-foreground">
               {status.wouldSucceed ? `Se cumple la meta: se van a generar tickets con QR para las ${status.ordersCount} órdenes.` : `No se cumple: se va a pedir la diferencia por email a las ${status.ordersCount} órdenes.`}
             </span>
-            <Button size="sm" onClick={() => { evaluate.mutate({ eventId }); setConfirming(false); }} disabled={evaluate.isPending}>Confirmar</Button>
+            <WriteButton size="sm" onClick={() => { evaluate.mutate({ eventId }); setConfirming(false); }} disabled={evaluate.isPending}>Confirmar</WriteButton>
             <Button variant="outline" size="sm" onClick={() => setConfirming(false)}>Cancelar</Button>
           </div>
         )}
@@ -341,9 +352,9 @@ function EventsManager() {
               </label>
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleCreateEvent} disabled={createEvent.isPending || updateEvent.isPending}>
+              <WriteButton onClick={handleCreateEvent} disabled={createEvent.isPending || updateEvent.isPending}>
                 {editingEventId ? 'Guardar Cambios' : 'Crear Evento'}
-              </Button>
+              </WriteButton>
               <Button variant="outline" onClick={() => setShowEventForm(false)}>Cancelar</Button>
             </div>
           </CardContent>
@@ -443,9 +454,9 @@ function EventsManager() {
                   )}
                   <div><Label>Descripción</Label><Input value={newTicket.description} onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })} className="mt-1" /></div>
                   <div className="flex gap-2">
-                    <Button onClick={handleCreateTicketType} disabled={createTicketType.isPending || updateTicketType.isPending}>
+                    <WriteButton onClick={handleCreateTicketType} disabled={createTicketType.isPending || updateTicketType.isPending}>
                       {editingTicketId ? 'Guardar Cambios' : 'Crear Entrada'}
-                    </Button>
+                    </WriteButton>
                     <Button variant="outline" onClick={() => { setShowTicketForm(false); setEditingTicketId(null); setNewTicket(emptyTicketForm); }}>Cancelar</Button>
                   </div>
                 </div>
@@ -514,7 +525,7 @@ function DiscountsManager() {
               <div><Label>Válido hasta</Label><Input type="datetime-local" value={newDiscount.validUntil} onChange={(e) => setNewDiscount({ ...newDiscount, validUntil: e.target.value })} className="mt-1" /></div>
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleCreate}>Crear Código</Button>
+              <WriteButton onClick={handleCreate}>Crear Código</WriteButton>
               <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
             </div>
           </CardContent>
@@ -593,7 +604,7 @@ function CommunityCodesManager() {
               <div><Label>Usos máximos</Label><Input type="number" value={newCode.maxUses} onChange={(e) => setNewCode({ ...newCode, maxUses: Number(e.target.value) })} className="mt-1" /></div>
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleCreate}>Crear Código</Button>
+              <WriteButton onClick={handleCreate}>Crear Código</WriteButton>
               <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
             </div>
           </CardContent>
@@ -611,9 +622,9 @@ function CommunityCodesManager() {
                 <span className={`text-xs ml-3 px-2 py-0.5 rounded-full ${c.isActive ? 'bg-green-500/20 text-green-400' : 'bg-muted text-muted-foreground'}`}>{c.isActive ? 'Activo' : 'Inactivo'}</span>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => updateCode.mutateAsync({ id: c.id, isActive: c.isActive ? 0 : 1 })}>
+                <WriteButton variant="outline" size="sm" onClick={() => updateCode.mutateAsync({ id: c.id, isActive: c.isActive ? 0 : 1 })}>
                   {c.isActive ? 'Desactivar' : 'Activar'}
-                </Button>
+                </WriteButton>
                 <a
                   href={`https://wa.me/?text=${encodeURIComponent(`Usa mi código ${c.code} para comprar tu entrada a Candyland en Mansion Playroom 🍭 ${window.location.origin}`)}`}
                   target="_blank"
@@ -684,7 +695,7 @@ function BlockedCustomersManager() {
               <div><Label>Motivo (opcional)</Label><Input value={newBlocked.reason} onChange={(e) => setNewBlocked({ ...newBlocked, reason: e.target.value })} className="mt-1" /></div>
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleCreate}>Bloquear</Button>
+              <WriteButton onClick={handleCreate}>Bloquear</WriteButton>
               <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
             </div>
           </CardContent>
@@ -703,9 +714,9 @@ function BlockedCustomersManager() {
                 <span className={`text-xs ml-3 px-2 py-0.5 rounded-full ${b.isActive ? 'bg-red-500/20 text-red-400' : 'bg-muted text-muted-foreground'}`}>{b.isActive ? 'Bloqueado' : 'Inactivo'}</span>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => updateBlocked.mutateAsync({ id: b.id, isActive: b.isActive ? 0 : 1 })}>
+                <WriteButton variant="outline" size="sm" onClick={() => updateBlocked.mutateAsync({ id: b.id, isActive: b.isActive ? 0 : 1 })}>
                   {b.isActive ? 'Desactivar' : 'Reactivar'}
-                </Button>
+                </WriteButton>
                 <ConfirmDeleteButton description={`Vas a eliminar el bloqueo del RUT "${b.rut}".`} onConfirm={() => deleteBlocked.mutateAsync({ id: b.id })} />
               </div>
             </CardContent>
@@ -1095,9 +1106,9 @@ function InstantInviteButton({ eventSlug }: { eventSlug: string }) {
               <Label>¿Cuántas personas son?</Label>
               <Input type="number" min={1} max={20} value={personas} onChange={(e) => setPersonas(Math.min(20, Math.max(1, Number(e.target.value) || 1)))} className="w-24" />
             </div>
-            <Button className="w-full interactive" disabled={create.isPending} onClick={() => create.mutate({ eventSlug, personas })}>
+            <WriteButton className="w-full interactive" disabled={create.isPending} onClick={() => create.mutate({ eventSlug, personas })}>
               {create.isPending ? 'Generando…' : 'Generar QR'}
-            </Button>
+            </WriteButton>
           </div>
         ) : (
           <div className="space-y-4 text-center">
@@ -1170,9 +1181,9 @@ function StaffCompButton({ eventSlug, products }: { eventSlug: string; products:
             <Label>¿Para quién es?</Label>
             <Input value={staffName} onChange={(e) => setStaffName(e.target.value)} placeholder="Nombre de la persona del staff" />
           </div>
-          <Button className="w-full interactive" disabled={!canSubmit || create.isPending} onClick={() => ticketTypeId && create.mutate({ eventSlug, ticketTypeId, quantity, staffName: staffName.trim() })}>
+          <WriteButton className="w-full interactive" disabled={!canSubmit || create.isPending} onClick={() => ticketTypeId && create.mutate({ eventSlug, ticketTypeId, quantity, staffName: staffName.trim() })}>
             {create.isPending ? 'Creando…' : 'Crear invitación'}
-          </Button>
+          </WriteButton>
         </div>
       </DialogContent>
     </Dialog>
@@ -1267,7 +1278,7 @@ function ReminderDialog({ orders, open, onOpenChange, onSent }: {
                 onChange={(e) => setIdea(e.target.value)}
                 placeholder="Ej: recordarles que el line-up ya está confirmado"
               />
-              <Button
+              <WriteButton
                 type="button"
                 variant="outline"
                 className="interactive shrink-0"
@@ -1275,7 +1286,7 @@ function ReminderDialog({ orders, open, onOpenChange, onSent }: {
                 onClick={() => generar.mutate({ idea: idea.trim() })}
               >
                 {generar.isPending ? 'Generando...' : 'Generar con IA'}
-              </Button>
+              </WriteButton>
             </div>
             <p className="text-xs text-muted-foreground">
               El tono siempre es de recordatorio, no de venta agresiva. Revisa el texto antes de enviar.
@@ -1284,7 +1295,7 @@ function ReminderDialog({ orders, open, onOpenChange, onSent }: {
 
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" className="interactive" onClick={() => onOpenChange(false)}>Cancelar</Button>
-            <Button
+            <WriteButton
               className="interactive"
               disabled={enviar.isPending || orders.length === 0}
               onClick={() => enviar.mutate({
@@ -1293,7 +1304,7 @@ function ReminderDialog({ orders, open, onOpenChange, onSent }: {
               })}
             >
               {enviar.isPending ? 'Enviando...' : `Enviar a ${orders.length}`}
-            </Button>
+            </WriteButton>
           </div>
         </div>
       </DialogContent>
@@ -1392,9 +1403,9 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
           </Select>
           <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-36" aria-label="Desde" />
           <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-36" aria-label="Hasta" />
-          <a href={exportUrl()} target="_blank" rel="noopener noreferrer">
+          <DownloadLink href={exportUrl()}>
             <Button variant="outline" className="interactive">Descargar CSV</Button>
-          </a>
+          </DownloadLink>
           <a href={printUrl()} target="_blank" rel="noopener noreferrer">
             <Button variant="outline" className="interactive">Descargar PDF</Button>
           </a>
@@ -1722,12 +1733,12 @@ function CustomersView() {
             <Upload className="w-4 h-4 mr-2" />
             {importing ? 'Importando…' : 'Importar CSV'}
           </Button>
-          <a href={exportUrl()} target="_blank" rel="noopener noreferrer">
+          <DownloadLink href={exportUrl()}>
             <Button variant="outline" className="interactive">
               <Download className="w-4 h-4 mr-2" />
               Exportar CSV
             </Button>
-          </a>
+          </DownloadLink>
           <a href={printUrl()} target="_blank" rel="noopener noreferrer">
             <Button variant="outline" className="interactive">
               <Download className="w-4 h-4 mr-2" />
@@ -1809,7 +1820,7 @@ function CustomersView() {
                             placeholder="+/-"
                             className="h-7 w-16 text-xs"
                           />
-                          <Button
+                          <WriteButton
                             size="sm" variant="outline" className="h-7 text-xs px-2"
                             onClick={() => {
                               const delta = Number(adjustByCustomer[c.id]);
@@ -1819,7 +1830,7 @@ function CustomersView() {
                             }}
                           >
                             OK
-                          </Button>
+                          </WriteButton>
                         </div>
                       </td>
                     </tr>
@@ -2214,13 +2225,13 @@ function MailingHistoryView() {
                   confirmingCancelId === c.id ? (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-muted-foreground">¿Cancelar? No se manda el resto de los destinatarios.</span>
-                      <Button
+                      <WriteButton
                         type="button" variant="destructive" size="sm" className="h-7 px-2 text-xs"
                         onClick={() => { cancelCampaign.mutate({ campaignId: c.id }); setConfirmingCancelId(null); }}
                         disabled={cancelCampaign.isPending}
                       >
                         Confirmar
-                      </Button>
+                      </WriteButton>
                       <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setConfirmingCancelId(null)}>
                         Volver
                       </Button>
@@ -2356,7 +2367,7 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
         <td className="py-2 px-3"><Input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="Contacto" className="h-8" /></td>
         <td className="py-2 px-3">
           <div className="flex gap-2">
-            <Button size="sm" onClick={handleSave} disabled={updating || !name || !code}>Guardar</Button>
+            <WriteButton size="sm" onClick={handleSave} disabled={updating || !name || !code}>Guardar</WriteButton>
             <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancelar</Button>
           </div>
         </td>
@@ -2755,7 +2766,7 @@ function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
               ponle un número si ese embajador tiene un trato distinto al resto.
             </p>
             <div className="flex gap-2">
-              <Button onClick={handleCreate} disabled={!newAmbassador.name || !newAmbassador.code || createAmbassador.isPending}>Crear Embajador</Button>
+              <WriteButton onClick={handleCreate} disabled={!newAmbassador.name || !newAmbassador.code || createAmbassador.isPending}>Crear Embajador</WriteButton>
               <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
             </div>
           </CardContent>
@@ -2914,17 +2925,17 @@ function AmbassadorApplicationsTab() {
                         approvingId === a.id ? (
                           <div className="flex items-center gap-1">
                             <Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="CODIGO" className="h-8 w-28 font-mono" />
-                            <Button size="sm" className="h-8" disabled={!code.trim() || approve.isPending} onClick={() => approve.mutate({ id: a.id, code: code.trim() })}>
+                            <WriteButton size="sm" className="h-8" disabled={!code.trim() || approve.isPending} onClick={() => approve.mutate({ id: a.id, code: code.trim() })}>
                               {approve.isPending ? '...' : 'OK'}
-                            </Button>
+                            </WriteButton>
                             <Button size="sm" variant="outline" className="h-8" onClick={() => { setApprovingId(null); setCode(''); }}><X className="w-3 h-3" /></Button>
                           </div>
                         ) : rejectingId === a.id ? (
                           <div className="flex items-center gap-1">
                             <Input value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} placeholder="Nota (opcional)" className="h-8 w-36" />
-                            <Button size="sm" variant="destructive" className="h-8" disabled={review.isPending} onClick={() => review.mutate({ id: a.id, status: 'rechazada', note: rejectNote.trim() || undefined })}>
+                            <WriteButton size="sm" variant="destructive" className="h-8" disabled={review.isPending} onClick={() => review.mutate({ id: a.id, status: 'rechazada', note: rejectNote.trim() || undefined })}>
                               {review.isPending ? '...' : 'OK'}
-                            </Button>
+                            </WriteButton>
                             <Button size="sm" variant="outline" className="h-8" onClick={() => { setRejectingId(null); setRejectNote(''); }}><X className="w-3 h-3" /></Button>
                           </div>
                         ) : (
@@ -3130,7 +3141,7 @@ function WeeklyMaterialTab() {
                 onChange={(e) => setIdea(e.target.value)}
                 placeholder="Ej: se confirmó el line-up y quedan pocas entradas de preventa"
               />
-              <Button
+              <WriteButton
                 type="button"
                 variant="outline"
                 className="interactive shrink-0"
@@ -3138,7 +3149,7 @@ function WeeklyMaterialTab() {
                 onClick={() => generar.mutate({ idea: idea.trim() })}
               >
                 {generar.isPending ? 'Generando…' : 'Generar con IA'}
-              </Button>
+              </WriteButton>
             </div>
             <p className="text-xs text-muted-foreground">
               Rellena los campos de abajo con la fecha del evento y las tareas del programa. No guarda nada:
@@ -3152,12 +3163,12 @@ function WeeklyMaterialTab() {
           <div><Label>Cuenta regresiva</Label><Input value={form.countdownText} onChange={set('countdownText')} className="mt-1" placeholder="Se arma sola si lo dejas vacío" /></div>
           <div><Label>Link del material (opcional)</Label><Input value={form.linkUrl} onChange={set('linkUrl')} className="mt-1" placeholder="Carpeta de Drive con las fotos y videos" /></div>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => save.mutate(form)} disabled={save.isPending} className="interactive">
+            <WriteButton onClick={() => save.mutate(form)} disabled={save.isPending} className="interactive">
               {save.isPending ? 'Guardando…' : 'Guardar material'}
-            </Button>
-            <Button variant="outline" onClick={() => sendNow.mutate()} disabled={sendNow.isPending}>
+            </WriteButton>
+            <WriteButton variant="outline" onClick={() => sendNow.mutate()} disabled={sendNow.isPending}>
               {sendNow.isPending ? 'Enviando…' : 'Enviar el correo ahora'}
-            </Button>
+            </WriteButton>
           </div>
           <p className="text-xs text-muted-foreground">
             "Enviar ahora" manda el resumen a todos los embajadores activos que tengan correo cargado, sin esperar al
@@ -3227,13 +3238,13 @@ function ProgramConfigTab() {
             <Input type="number" step="0.01" value={existingPercent} onChange={(e) => setExistingPercent(e.target.value)} className="mt-1" />
             <p className="text-xs text-muted-foreground mt-1">Se paga por vender a alguien que ya estaba en la base, o al cliente de otro embajador.</p>
           </div>
-          <Button
+          <WriteButton
             onClick={() => update.mutate({ commissionScale: scale, existingClientPercent: Number(existingPercent) || 0 })}
             disabled={update.isPending}
             className="interactive"
           >
             {update.isPending ? 'Guardando…' : 'Guardar escala'}
-          </Button>
+          </WriteButton>
         </CardContent>
       </Card>
 
@@ -3258,9 +3269,9 @@ function ProgramConfigTab() {
           <Button variant="outline" size="sm" onClick={() => setBenefits([...benefits, { minSales: 1, items: [], bonusClp: 0 }])}>
             <Plus className="w-3 h-3 mr-1" /> Agregar tramo de beneficios
           </Button>
-          <Button onClick={() => update.mutate({ benefits })} disabled={update.isPending} className="interactive">
+          <WriteButton onClick={() => update.mutate({ benefits })} disabled={update.isPending} className="interactive">
             {update.isPending ? 'Guardando…' : 'Guardar beneficios'}
-          </Button>
+          </WriteButton>
         </CardContent>
       </Card>
 
@@ -3276,13 +3287,13 @@ function ProgramConfigTab() {
             <Label>Fecha</Label>
             <Input type="date" value={launchDate} onChange={(e) => setLaunchDate(e.target.value)} className="mt-1" />
           </div>
-          <Button
+          <WriteButton
             onClick={() => update.mutate({ launchDate: new Date(`${launchDate}T00:00:00`).toISOString() })}
             disabled={update.isPending || !launchDate}
             className="interactive"
           >
             {update.isPending ? 'Guardando…' : 'Guardar fecha'}
-          </Button>
+          </WriteButton>
         </CardContent>
       </Card>
 
@@ -3304,13 +3315,13 @@ function ProgramConfigTab() {
             El envío sale con la corrida diaria del sistema, cerca de las 9 de la mañana en Chile. La hora exacta no se
             puede mover desde acá (la fija el plan de Vercel); este día es el que decide si ese envío se hace o no.
           </p>
-          <Button
+          <WriteButton
             onClick={() => update.mutate({ weeklyEmailEnabled: weeklyEnabled, weeklyEmailWeekday: Number(weekday) })}
             disabled={update.isPending}
             className="interactive"
           >
             {update.isPending ? 'Guardando…' : 'Guardar correo semanal'}
-          </Button>
+          </WriteButton>
         </CardContent>
       </Card>
     </div>
@@ -3442,7 +3453,7 @@ function OperatorsManager({ eventId }: { eventId: number }) {
             </Select>
           </div>
           <div><Label>Email (opcional)</Label><Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="mt-1" type="email" placeholder="Para el PDF de cierre" /></div>
-          <Button disabled={!form.name || form.pin.length < 4 || create.isPending} onClick={() => create.mutate({ ...form, eventId, email: form.email || undefined })}>Crear operador</Button>
+          <WriteButton disabled={!form.name || form.pin.length < 4 || create.isPending} onClick={() => create.mutate({ ...form, eventId, email: form.email || undefined })}>Crear operador</WriteButton>
         </div>
         <div className="space-y-2">
           {(operators ?? []).map((op: any) => (
@@ -3453,9 +3464,9 @@ function OperatorsManager({ eventId }: { eventId: number }) {
               </div>
               <div className="flex items-center gap-2">
                 <OperatorEmailInput operatorId={op.id} email={op.email ?? null} onSave={(email) => update.mutate({ id: op.id, email: email || null })} />
-                <Button variant="outline" size="sm" onClick={() => update.mutate({ id: op.id, active: op.active ? 0 : 1 })}>
+                <WriteButton variant="outline" size="sm" onClick={() => update.mutate({ id: op.id, active: op.active ? 0 : 1 })}>
                   {op.active ? 'Desactivar' : 'Activar'}
-                </Button>
+                </WriteButton>
                 <ConfirmDeleteButton
                   description={`Vas a eliminar al operador "${op.name}". Si ya tiene ventas, turnos o canjes registrados, no se va a poder -- desactívalo en ese caso.`}
                   onConfirm={() => deleteOperator.mutateAsync({ id: op.id })}
@@ -3482,7 +3493,7 @@ function RegistersManager({ eventId }: { eventId: number }) {
       <CardContent className="space-y-4">
         <div className="flex gap-2">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Caja 1" className="max-w-xs" />
-          <Button disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ eventId, name: name.trim() })}>Crear caja</Button>
+          <WriteButton disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ eventId, name: name.trim() })}>Crear caja</WriteButton>
         </div>
         <div className="flex flex-wrap gap-2">
           {(registersList ?? []).map((r: any) => (
@@ -3516,7 +3527,7 @@ function DevicesManager({ eventId }: { eventId: number }) {
         <p className="text-sm text-muted-foreground">Solo las tablets/navegadores enrolados acá pueden llegar a la pantalla de PIN de /caja. Genera un código, dáselo a quien configura el dispositivo -- lo canjea una sola vez y vence a las 24h.</p>
         <div className="flex gap-2">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tablet Caja 1" className="max-w-xs" />
-          <Button disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ eventId, name: name.trim() })}>Generar código</Button>
+          <WriteButton disabled={!name.trim() || create.isPending} onClick={() => create.mutate({ eventId, name: name.trim() })}>Generar código</WriteButton>
         </div>
         {lastCode && (
           <div className="p-4 rounded-lg bg-primary/10 border border-primary/30">
@@ -3532,9 +3543,9 @@ function DevicesManager({ eventId }: { eventId: number }) {
                 <p className="text-xs text-muted-foreground">{d.enrolled ? 'Enrolado' : 'Código sin canjear'} · {d.active ? 'activo' : 'revocado'}</p>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setActive.mutate({ id: d.id, active: d.active ? 0 : 1 })}>
+                <WriteButton variant="outline" size="sm" onClick={() => setActive.mutate({ id: d.id, active: d.active ? 0 : 1 })}>
                   {d.active ? 'Revocar' : 'Reactivar'}
-                </Button>
+                </WriteButton>
                 <ConfirmDeleteButton
                   description={`Vas a eliminar el dispositivo "${d.name}".`}
                   onConfirm={() => deleteDevice.mutateAsync({ id: d.id })}
@@ -3610,7 +3621,7 @@ function ProfitReport({ eventId }: { eventId: number }) {
       <CardContent className="space-y-6">
         <div>
           <p className="text-sm text-muted-foreground mb-1">Ingresos totales: ${totalRevenue.toLocaleString('es-CL')} · Utilidad total: ${totalProfit.toLocaleString('es-CL')} <span className="text-xs">(solo productos con costo cargado)</span></p>
-          <p className="text-xs text-muted-foreground">Mide qué tan rentable es cada producto sobre su precio de lista. Para la utilidad REAL de la fiesta (con descuentos, gastos, IVA y comisiones) andá a <strong>Gastos y P&amp;L</strong>.</p>
+          <p className="text-xs text-muted-foreground">Mide qué tan rentable es cada producto sobre su precio de lista. Para la utilidad REAL de la fiesta (con descuentos, gastos, IVA y comisiones) anda a <strong>Gastos y P&amp;L</strong>.</p>
         </div>
 
         {rows.length > 0 && (
@@ -3744,17 +3755,26 @@ function ReportToolbar({ eventId, kind }: { eventId: number; kind: 'ventas' | 'g
     mutate({ eventId, recipientEmails: selected });
   };
 
+  // Las descargas se sirven por rutas Express que exigen rol admin, así que
+  // para el invitado de demostración devolverían un 403 crudo: mejor
+  // mostrarlas deshabilitadas y no dejar que abra una pestaña con el error.
+  const isDemo = useIsDemo();
+  const download = (ext: 'csv' | 'pdf') =>
+    isDemo ? (
+      <Button variant="outline" size="sm" disabled title={DEMO_TOOLTIP}>Descargar {ext.toUpperCase()}</Button>
+    ) : (
+      <a href={`/api/admin/gastos/${kind}.${ext}?eventId=${eventId}`} target="_blank" rel="noopener noreferrer">
+        <Button variant="outline" size="sm">Descargar {ext.toUpperCase()}</Button>
+      </a>
+    );
+
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <a href={`/api/admin/gastos/${kind}.csv?eventId=${eventId}`} target="_blank" rel="noopener noreferrer">
-        <Button variant="outline" size="sm">Descargar CSV</Button>
-      </a>
-      <a href={`/api/admin/gastos/${kind}.pdf?eventId=${eventId}`} target="_blank" rel="noopener noreferrer">
-        <Button variant="outline" size="sm">Descargar PDF</Button>
-      </a>
+      {download('csv')}
+      {download('pdf')}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
-          <Button variant="outline" size="sm">Enviar por email</Button>
+          <Button variant="outline" size="sm" disabled={isDemo} title={isDemo ? DEMO_TOOLTIP : undefined}>Enviar por email</Button>
         </DialogTrigger>
         <DialogContent>
           <DialogHeader><DialogTitle>Enviar reporte de {kind === 'ventas' ? 'ventas' : 'gastos'}</DialogTitle></DialogHeader>
@@ -3771,7 +3791,7 @@ function ReportToolbar({ eventId, kind }: { eventId: number; kind: 'ventas' | 'g
             ))}
             {withEmail.length === 0 && <p className="text-sm text-muted-foreground">Ningún operador de este evento tiene email cargado todavía.</p>}
           </div>
-          <Button onClick={send} disabled={sending} className="interactive">{sending ? 'Enviando…' : 'Enviar'}</Button>
+          <WriteButton onClick={send} disabled={sending} className="interactive">{sending ? 'Enviando…' : 'Enviar'}</WriteButton>
         </DialogContent>
       </Dialog>
     </div>
@@ -3799,12 +3819,12 @@ function KitchenVendorReportCard({ eventId }: { eventId: number }) {
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
         <CardTitle>Reporte de cocina</CardTitle>
-        <Button size="sm" disabled={!vendorEmail || send.isPending} onClick={() => send.mutate({ eventId })}>
+        <WriteButton size="sm" disabled={!vendorEmail || send.isPending} onClick={() => send.mutate({ eventId })}>
           {send.isPending ? 'Enviando…' : 'Enviar al proveedor'}
-        </Button>
+        </WriteButton>
       </CardHeader>
       <CardContent className="space-y-3">
-        {!vendorEmail && <p className="text-xs text-muted-foreground">No hay email de proveedor cargado -- andá a Ajustes → Proveedor de cocina.</p>}
+        {!vendorEmail && <p className="text-xs text-muted-foreground">No hay email de proveedor cargado -- anda a Ajustes → Proveedor de cocina.</p>}
         {data && (
           <p className="text-sm text-muted-foreground">
             Ingresos: ${data.totalRevenue.toLocaleString('es-CL')} · Proveedor: ${data.vendorShare.toLocaleString('es-CL')} · Productora: ${data.venueShare.toLocaleString('es-CL')}
@@ -4076,7 +4096,7 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
             </div>
 
             <div className="flex gap-2">
-              <Button onClick={handleSave} disabled={!canSave || create.isPending}>Guardar gasto</Button>
+              <WriteButton onClick={handleSave} disabled={!canSave || create.isPending}>Guardar gasto</WriteButton>
               <Button variant="outline" onClick={() => setShow(false)}>Cancelar</Button>
             </div>
           </div>
@@ -4464,9 +4484,9 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
               {events.map((e) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
             </SelectContent>
           </Select>
-          <a href={exportUrl()} target="_blank" rel="noopener noreferrer">
+          <DownloadLink href={exportUrl()}>
             <Button variant="outline" size="sm" className="interactive">Exportar CSV</Button>
-          </a>
+          </DownloadLink>
           <a href={printUrl()} target="_blank" rel="noopener noreferrer">
             <Button variant="outline" size="sm" className="interactive">Descargar PDF</Button>
           </a>
@@ -4580,13 +4600,13 @@ function DeleteShiftClosingButton({ shiftId, label, onDeleted }: { shiftId: numb
         />
         <AlertDialogFooter>
           <AlertDialogCancel>Cancelar</AlertDialogCancel>
-          <Button
+          <WriteButton
             variant="destructive"
             disabled={!password || deleteShift.isPending}
             onClick={() => deleteShift.mutate({ shiftId, password })}
           >
             {deleteShift.isPending ? 'Eliminando…' : 'Eliminar'}
-          </Button>
+          </WriteButton>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
@@ -4661,9 +4681,9 @@ function SettingsManager() {
             <div><Label>Seguidores</Label><Input type="number" value={followers} onChange={(e) => setFollowers(e.target.value)} className="mt-1" /></div>
             <div><Label>Publicaciones</Label><Input type="number" value={posts} onChange={(e) => setPosts(e.target.value)} className="mt-1" /></div>
           </div>
-          <Button onClick={handleSave} disabled={updateSettings.isPending} className="interactive">
+          <WriteButton onClick={handleSave} disabled={updateSettings.isPending} className="interactive">
             {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
-          </Button>
+          </WriteButton>
         </CardContent>
       </Card>
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
@@ -4678,9 +4698,9 @@ function SettingsManager() {
             <Label>Recargo (%)</Label>
             <Input type="number" step="0.01" min="0" max="100" value={feePercent} onChange={(e) => setFeePercent(e.target.value)} className="mt-1" />
           </div>
-          <Button onClick={handleSaveFee} disabled={updateSettings.isPending} className="interactive">
+          <WriteButton onClick={handleSaveFee} disabled={updateSettings.isPending} className="interactive">
             {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
-          </Button>
+          </WriteButton>
         </CardContent>
       </Card>
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
@@ -4693,9 +4713,9 @@ function SettingsManager() {
             <div><Label>Nombre</Label><Input value={vendorName} onChange={(e) => setVendorName(e.target.value)} className="mt-1" /></div>
             <div><Label>Email</Label><Input type="email" value={vendorEmail} onChange={(e) => setVendorEmail(e.target.value)} className="mt-1" /></div>
           </div>
-          <Button onClick={handleSaveVendor} disabled={updateSettings.isPending} className="interactive">
+          <WriteButton onClick={handleSaveVendor} disabled={updateSettings.isPending} className="interactive">
             {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
-          </Button>
+          </WriteButton>
         </CardContent>
       </Card>
     </div>
@@ -4854,7 +4874,7 @@ function CartaManager() {
               {(events ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Button onClick={openNew} className="interactive"><Plus className="w-4 h-4 mr-2" /> Nuevo producto</Button>
+          <WriteButton onClick={openNew} className="interactive"><Plus className="w-4 h-4 mr-2" /> Nuevo producto</WriteButton>
         </div>
       </div>
 
@@ -4956,9 +4976,9 @@ function CartaManager() {
             </label>
 
             <div className="flex gap-2">
-              <Button onClick={save} disabled={createType.isPending || updateType.isPending}>
+              <WriteButton onClick={save} disabled={createType.isPending || updateType.isPending}>
                 {editingId ? 'Guardar cambios' : 'Crear producto'}
-              </Button>
+              </WriteButton>
               <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</Button>
             </div>
           </CardContent>
@@ -5005,7 +5025,7 @@ function CartaManager() {
                       </p>
                     </div>
                     <div className="flex gap-2 shrink-0">
-                      <Button
+                      <WriteButton
                         variant="outline"
                         size="sm"
                         disabled={toggleSoldOut.isPending}
@@ -5013,7 +5033,7 @@ function CartaManager() {
                         className={p.status === 'soldout' ? 'text-green-600 border-green-300' : 'text-red-600 border-red-300'}
                       >
                         {p.status === 'soldout' ? 'Reponer' : <><Ban className="w-3 h-3 mr-1" /> Agotar</>}
-                      </Button>
+                      </WriteButton>
                       <Button variant="outline" size="sm" onClick={() => openEdit(p)}><Edit className="w-3 h-3" /></Button>
                       <ConfirmDeleteButton description={`Vas a eliminar "${p.name}" de la carta.`} onConfirm={() => deleteType.mutateAsync({ id: p.id })} />
                     </div>
@@ -5154,7 +5174,7 @@ export default function AdminDashboard() {
     return <AdminLoginForm />;
   }
 
-  if (user?.role !== 'admin') {
+  if (!canOpenAdmin(user?.role)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/10 to-background">
         <div className="text-center">
@@ -5164,6 +5184,8 @@ export default function AdminDashboard() {
       </div>
     );
   }
+
+  const isDemo = user?.role === 'viewer';
 
   const active = ADMIN_SECTIONS.find((s) => s.id === activeSection) ?? ADMIN_SECTIONS[0];
 
@@ -5175,7 +5197,9 @@ export default function AdminDashboard() {
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shrink-0">
               <LayoutDashboard className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="font-heading text-lg tracking-tight group-data-[collapsible=icon]:hidden">Mansion Playroom</span>
+            <span className="font-heading text-lg tracking-tight group-data-[collapsible=icon]:hidden">
+              {isDemo ? 'Invitado (demo)' : 'Mansion Playroom'}
+            </span>
           </div>
         </SidebarHeader>
         <SidebarContent className="px-2 py-2">
@@ -5210,6 +5234,12 @@ export default function AdminDashboard() {
         <header className="flex items-center gap-3 h-16 px-6 border-b border-border/40">
           <SidebarTrigger className="rounded-lg" />
           <h1 className="font-heading text-2xl">{active.label}</h1>
+          {isDemo && (
+            <span className="ml-auto flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
+              <Eye className="h-3.5 w-3.5" />
+              Modo demo — solo lectura
+            </span>
+          )}
         </header>
         <main className="p-6">
           <motion.div

@@ -1,6 +1,7 @@
 import '@/admin.css';
 import { Link } from 'wouter';
 import { useAuth } from '@/_core/hooks/useAuth';
+import { canOpenAdmin } from '@/lib/demoMode';
 import { formatChileDateTime } from '@shared/chileDate';
 
 /** Layout compartido por los reportes imprimibles (/admin/print/...) --
@@ -53,12 +54,12 @@ export function PrintAuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!isAuthenticated || user?.role !== 'admin') {
+  if (!isAuthenticated || !canOpenAdmin(user?.role)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white text-black">
         <div className="text-center">
           <h2 className="text-xl font-bold mb-2">Sin permisos</h2>
-          <p className="text-black/60">Iniciá sesión como admin en <Link href="/admin" className="text-blue-600 underline">/admin</Link> y volvé a abrir este reporte.</p>
+          <p className="text-black/60">Inicia sesión como admin en <Link href="/admin" className="text-blue-600 underline">/admin</Link> y vuelve a abrir este reporte.</p>
         </div>
       </div>
     );
