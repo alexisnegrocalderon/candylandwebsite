@@ -29,6 +29,8 @@ import {
 import { trpc } from '@/lib/trpc';
 import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
+import WaitingInterestCard from '@/components/WaitingInterestCard';
+import { trackConversion } from '@/lib/analytics';
 import { scrollToId, prefersReducedMotion, isFinePointer } from '@/lib/smoothScroll';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 import { useSeo } from '@/hooks/useSeo';
@@ -401,6 +403,8 @@ function Hero() {
           {EVENTO.fechaConfirmada ? (
             <Link
               href={`/checkout/${CANDYLAND.slug}`}
+              onClick={() => trackConversion('hero_purchase_click', { event: CANDYLAND.slug })}
+              data-umami-event="hero-purchase-click"
               className="btn-jelly inline-flex items-center gap-3 px-10 py-5 bg-primary text-primary-foreground rounded-full text-lg font-bold uppercase tracking-wide interactive"
             >
               <Ticket className="w-5 h-5" />
@@ -409,7 +413,7 @@ function Hero() {
           ) : (
             <button
               type="button"
-              onClick={() => scrollToId('proximos-eventos')}
+              onClick={() => { trackConversion('hero_waiting_click'); scrollToId('proximos-eventos'); }}
               className="btn-jelly inline-flex items-center gap-3 px-10 py-5 bg-primary text-primary-foreground rounded-full text-lg font-bold uppercase tracking-wide interactive"
             >
               <Sparkles className="w-5 h-5" />
@@ -606,24 +610,8 @@ function CountdownUnit({ value, label }: { value: number; label: string }) {
  *  contar ni botón de compra. */
 function ComingSoonCard() {
   return (
-    <motion.div
-      {...reveal}
-      className="relative glass-candy rounded-3xl px-6 py-10 md:px-10 md:py-14 flex flex-col items-center gap-4 text-center overflow-hidden border-2 border-primary/30"
-    >
-      <div aria-hidden className="absolute -top-16 left-1/4 w-64 h-64 rounded-full bg-cherry/25 blur-[90px]" />
-      <div aria-hidden className="absolute -bottom-16 right-1/4 w-64 h-64 rounded-full bg-primary/20 blur-[90px]" />
-      <div className="relative w-14 h-14 flex items-center justify-center">
-        <div aria-hidden className="absolute inset-0 rounded-full bg-primary/30 blur-xl candy-glow-pulse" />
-        <div className="relative w-11 h-11 rounded-full glass-candy flex items-center justify-center">
-          <Sparkles className="w-5 h-5 text-primary" />
-        </div>
-      </div>
-      <p className="relative font-heading font-bold text-2xl md:text-3xl text-gradient-candy">
-        La próxima fecha se viene pronto
-      </p>
-      <p className="relative text-muted-foreground text-sm md:text-base max-w-md">
-        Todavía no confirmamos día ni venta de entradas — síguenos en Instagram para enterarte primero.
-      </p>
+    <motion.div {...reveal}>
+      <WaitingInterestCard />
     </motion.div>
   );
 }
@@ -748,6 +736,8 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
               ) : (
                 <Link
                   href={`/checkout/${CANDYLAND.slug}`}
+                  onClick={() => trackConversion('mission_purchase_click', { event: CANDYLAND.slug })}
+                  data-umami-event="mission-purchase-click"
                   className="btn-jelly mt-5 inline-flex items-center justify-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive"
                 >
                   🍭 Quiero mi dulce · Comprar entrada
@@ -983,6 +973,8 @@ function FinalCTASection() {
             </p>
             <Link
               href={`/checkout/${CANDYLAND.slug}`}
+              onClick={() => trackConversion('final_purchase_click', { event: CANDYLAND.slug })}
+              data-umami-event="final-purchase-click"
               className="btn-jelly inline-flex items-center gap-3 px-12 py-6 bg-primary text-primary-foreground rounded-full text-xl font-bold uppercase tracking-wide interactive"
             >
               <Ticket className="w-6 h-6" />
