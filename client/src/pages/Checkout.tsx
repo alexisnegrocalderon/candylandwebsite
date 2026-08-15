@@ -14,6 +14,7 @@ import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, whatsappComunidadLink, 
 import { isMissionActiveForEvent, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
 import { isValidRut, isValidChileanPhone } from '@shared/rut';
 import { useSeo } from '@/hooks/useSeo';
+import { trackConversion } from '@/lib/analytics';
 
 /**
  * Checkout conversacional: una sola pregunta por pantalla, estilo "asistente"
@@ -986,6 +987,8 @@ export default function Checkout() {
               type="submit"
               form="checkout-form"
               disabled={isProcessing}
+              onClick={() => trackConversion('checkout_continue_payment', { step: paso })}
+              data-umami-event="checkout-continue-payment"
               className="btn-jelly flex-1 h-13 py-3.5 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 interactive"
             >
               {isProcessing ? (<><Loader2 className="w-5 h-5 animate-spin" /> Procesando…</>) : (<>💳 Continuar al pago</>)}

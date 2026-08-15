@@ -7,6 +7,7 @@ import { registerTicketAssetRoutes } from "../calendar";
 import { appRouter } from "../routers";
 import { webhooksRouter } from "../webhooks";
 import { createContext } from "./context";
+import { registerSeoRoutes } from "./seoRoutes";
 
 /**
  * Arma la app Express con todas las rutas de API (tRPC, webhooks, oauth,
@@ -22,6 +23,7 @@ export function createApp(): Express {
   registerAdminRoutes(app);
   registerCronRoutes(app);
   registerTicketAssetRoutes(app);
+  registerSeoRoutes(app);
   // Webhooks antes de tRPC para evitar conflictos de middleware.
   app.use(webhooksRouter);
   app.use(

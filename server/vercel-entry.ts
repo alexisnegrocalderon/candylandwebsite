@@ -1,3 +1,7 @@
-import { createApp } from "./_core/app";
+import { createApp } from './_core/app';
+import { registerVercelSsr } from './_core/vercelSsr';
 
-export default createApp();
+const app = createApp();
+registerVercelSsr(app);
+
+export default app;

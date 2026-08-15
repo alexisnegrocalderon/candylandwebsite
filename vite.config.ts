@@ -198,8 +198,9 @@ export default defineConfig(({ command }) => {
       manifest: {
         name: "Mansion Playroom · Caja",
         short_name: "Caja",
-        start_url: "/caja",
+        start_url: "/caja/",
         scope: "/caja/",
+        lang: "es",
         display: "standalone",
         background_color: "#0a0a0a",
         theme_color: "#0a0a0a",
@@ -217,7 +218,7 @@ export default defineConfig(({ command }) => {
         // (gastos, puerta, admin) quiere caché de Workbox -- necesitan datos
         // siempre frescos del servidor.
         globIgnores: ["**/gastos/sw.js", "**/puerta/sw.js", "**/admin/sw.js"],
-        navigateFallback: "/caja",
+        navigateFallback: "/caja/",
         navigateFallbackDenylist: [/^\/api\//, /^\/(?!caja)/],
       },
     }),
@@ -230,11 +231,15 @@ export default defineConfig(({ command }) => {
         "@": path.resolve(import.meta.dirname, "client", "src"),
         "@shared": path.resolve(import.meta.dirname, "shared"),
         "@assets": path.resolve(import.meta.dirname, "attached_assets"),
+        "virtual:pwa-register": path.resolve(import.meta.dirname, "client", "src", "ssr", "pwa-register-stub.ts"),
       },
     },
     envDir: path.resolve(import.meta.dirname),
     root: path.resolve(import.meta.dirname, "client"),
     publicDir: path.resolve(import.meta.dirname, "client", "public"),
+    ssr: {
+      noExternal: ["framer-motion", "lucide-react"],
+    },
     build: {
       outDir: path.resolve(import.meta.dirname, "dist/public"),
       emptyOutDir: true,

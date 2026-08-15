@@ -65,6 +65,7 @@ export function useSeo(opts: {
   // (se sobrescriben con el valor de la página nueva).
   const jsonLdKey = opts.jsonLd ? JSON.stringify(opts.jsonLd) : '';
   useEffect(() => {
+    document.querySelectorAll('script[data-seo-managed="true"]').forEach((node) => node.remove());
     if (!jsonLdKey) return;
     const script = document.createElement('script');
     script.type = 'application/ld+json';

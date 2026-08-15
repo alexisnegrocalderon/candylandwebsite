@@ -6,6 +6,7 @@ import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
 import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
 import { useSeo } from '@/hooks/useSeo';
 import { breadcrumbSchema } from '@shared/structuredData';
+import { trackConversion } from '@/lib/analytics';
 
 /** Página "Entradas": lista todos los accesos con su precio general y, si la
  * ventana de Misión 300 sigue abierta, el precio de abono al lado tachando
@@ -78,6 +79,8 @@ export default function Prices() {
             {EVENTO.fechaConfirmada ? (
               <Link
                 href={`/checkout/${CANDYLAND.slug}`}
+                onClick={() => trackConversion('prices_purchase_click', { event: CANDYLAND.slug })}
+                data-umami-event="prices-purchase-click"
                 className="btn-jelly inline-flex items-center gap-2 px-8 py-4 bg-primary text-primary-foreground rounded-full text-base font-bold uppercase tracking-wide interactive"
               >
                 <Ticket className="w-5 h-5" /> Comprar entrada <ArrowRight className="w-4 h-4" />

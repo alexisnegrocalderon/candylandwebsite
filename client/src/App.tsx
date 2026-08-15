@@ -7,28 +7,46 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Navbar from "./components/Navbar";
 import { isFinePointer } from "./lib/smoothScroll";
+import { lazy, Suspense, useEffect, type ComponentProps, type ComponentType } from "react";
 
-// Lazy load pages -- Home incluida: antes se importaba eager y arrastraba
-// las 7 secciones + trpc/react-query al chunk de entrada, que quedaba tan
-// pesado que la página se sentía en blanco unos segundos al cargar.
-//
-// CustomCursor y SmoothScroll también van lazy, y encima solo se PIDEN si
-// hay puntero fino -- ambos ya se apagaban solos en touch por dentro (ver los
-// propios componentes), pero antes se importaban eager en App.tsx, así que su
-// código (Lenis incluido, una librería completa) se descargaba igual para
-// todo el mundo aunque nunca fuera a correr. La mayoría de quien entra al
-// sitio lo hace desde el celular (tráfico de Instagram/WhatsApp), así que
-// era peso muerto para la mayoría de las visitas.
-import { lazy, Suspense, useEffect } from "react";
-const Home = lazy(() => import("./pages/Home"));
-const CustomCursor = lazy(() => import("./components/CustomCursor"));
-const SmoothScroll = lazy(() => import("./components/SmoothScroll"));
-const Events = lazy(() => import("./pages/Events"));
-const EventDetail = lazy(() => import("./pages/EventDetail"));
+/**
+ * Public routes stay code-split in the browser, but expose a synchronous
+ * component after their module has been preloaded by the SSR/client boot.
+ * Without this small adapter React.lazy would emit the Suspense spinner in
+ * renderToString, so crawlers would receive no page content.
+ */
+function ssrAwareRoute<T extends ComponentType<any>>(loader: () => Promise<{ default: T }>) {
+  let Loaded: T | undefined;
+  let loading: Promise<{ default: T }> | undefined;
+  const load = () => {
+    if (!loading) {
+      loading = loader().then((module) => {
+        Loaded = module.default;
+        return module;
+      });
+    }
+    return loading;
+  };
+  const Lazy = lazy(load);
+  const Component = (props: ComponentProps<T>) => Loaded ? <Loaded {...props} /> : <Lazy {...props} />;
+  return { Component, preload: async () => { await load(); } };
+}
+
+const HomeRoute = ssrAwareRoute(() => import("./pages/Home"));
+const EventsRoute = ssrAwareRoute(() => import("./pages/Events"));
+const EventDetailRoute = ssrAwareRoute(() => import("./pages/EventDetail"));
+const AboutRoute = ssrAwareRoute(() => import("./pages/About"));
+const PanoramasRoute = ssrAwareRoute(() => import("./pages/Panoramas"));
+const BlogRoute = ssrAwareRoute(() => import("./pages/Blog"));
+const EmbajadoresRoute = ssrAwareRoute(() => import("./pages/Embajadores"));
+const PricesRoute = ssrAwareRoute(() => import("./pages/Prices"));
+const RefundPolicyRoute = ssrAwareRoute(() => import("./pages/RefundPolicy"));
+const PrivacyPolicyRoute = ssrAwareRoute(() => import("./pages/PrivacyPolicy"));
+
+// Private, transactional and operational pages remain lazy and client-only.
 const Checkout = lazy(() => import("./pages/Checkout"));
 const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess"));
 const PaymentFailure = lazy(() => import("./pages/PaymentFailure"));
-const About = lazy(() => import("./pages/About"));
 const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
 const PrintOrders = lazy(() => import("./pages/admin/print/PrintOrders"));
 const PrintCustomers = lazy(() => import("./pages/admin/print/PrintCustomers"));
@@ -41,20 +59,29 @@ const Ticket = lazy(() => import("./pages/Ticket"));
 const Party = lazy(() => import("./pages/Party"));
 const Playmatch = lazy(() => import("./pages/Playmatch"));
 const Ambassador = lazy(() => import("./pages/Ambassador"));
-const Embajadores = lazy(() => import("./pages/Embajadores"));
-const Panoramas = lazy(() => import("./pages/Panoramas"));
-const Blog = lazy(() => import("./pages/Blog"));
 const Puerta = lazy(() => import("./pages/Puerta"));
 const Cocina = lazy(() => import("./pages/Cocina"));
 const Guardarropia = lazy(() => import("./pages/Guardarropia"));
-const Prices = lazy(() => import("./pages/Prices"));
-const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
-const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
+
+export async function preloadPublicRouteForPath(pathname: string): Promise<void> {
+  const clean = pathname.replace(/\/+$/, "") || "/";
+  if (clean === "/") return HomeRoute.preload();
+  if (clean === "/eventos") return EventsRoute.preload();
+  if (clean.startsWith("/eventos/")) return EventDetailRoute.preload();
+  if (clean === "/nosotros") return AboutRoute.preload();
+  if (clean === "/panoramas" || clean.startsWith("/panoramas/")) return PanoramasRoute.preload();
+  if (clean === "/blog" || clean.startsWith("/blog/")) return BlogRoute.preload();
+  if (clean === "/embajadores") return EmbajadoresRoute.preload();
+  if (clean === "/entradas") return PricesRoute.preload();
+  if (clean === "/politica-de-reembolso") return RefundPolicyRoute.preload();
+  if (clean === "/politica-de-privacidad") return PrivacyPolicyRoute.preload();
+}
 
 function PageLoader() {
   return (
     <div className="min-h-screen flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" aria-hidden="true" />
+      <span className="sr-only">Cargando Mansion Playroom…</span>
     </div>
   );
 }
@@ -63,20 +90,6 @@ function Router() {
   const [location] = useLocation();
   return (
     <Suspense fallback={<PageLoader />}>
-      {/* Transición de entrada al cambiar de ruta: fade+rise corto. Antes esto
-       * usaba AnimatePresence con mode="popLayout" para animar también la
-       * salida de la página anterior, pero eso probó ser un bug reproducible
-       * de Framer Motion en este caso (página completa, sin `layout`, code-split
-       * con lazy/Suspense): quedaban DOS instancias de la página nueva montadas
-       * a la vez —una visible y otra congelada en su pose inicial (opacity:0)—
-       * ocupando espacio real en el documento, lo que se veía como contenido
-       * duplicado al hacer scroll. Confirmado en producción con una sola
-       * navegación (un solo pushState) y reproducible también con la ruta ya
-       * cacheada, así que no era una condición de carrera de Suspense.
-       * Sin AnimatePresence, React desmonta la página vieja al instante
-       * (sin animación de salida) y solo la nueva anima su entrada — se
-       * pierde el crossfade de salida pero es imposible que queden dos
-       * páginas mostrándose a la vez. */}
       <motion.div
         key={location}
         initial={{ opacity: 0, y: 14 }}
@@ -84,31 +97,31 @@ function Router() {
         transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
       >
         <Switch>
-          <Route path="/" component={Home} />
-          <Route path="/eventos" component={Events} />
-          <Route path="/eventos/:slug" component={EventDetail} />
+          <Route path="/" component={HomeRoute.Component} />
+          <Route path="/eventos" component={EventsRoute.Component} />
+          <Route path="/eventos/:slug" component={EventDetailRoute.Component} />
           <Route path="/checkout/:eventSlug" component={Checkout} />
           <Route path="/pago/exito" component={PaymentSuccess} />
           <Route path="/pago/error" component={PaymentFailure} />
-          <Route path="/nosotros" component={About} />
+          <Route path="/nosotros" component={AboutRoute.Component} />
           <Route path="/mis-referidos" component={MyReferrals} />
           <Route path="/mis-puntos" component={MisPuntos} />
           <Route path="/verificar/:ticketCode" component={Ticket} />
           <Route path="/fiesta/:ticketCode" component={Party} />
           <Route path="/playmatch" component={Playmatch} />
-          <Route path="/panoramas" component={Panoramas} />
-          <Route path="/panoramas/:slug" component={Panoramas} />
-          <Route path="/blog" component={Blog} />
-          <Route path="/blog/:slug" component={Blog} />
-          <Route path="/embajadores" component={Embajadores} />
+          <Route path="/panoramas" component={PanoramasRoute.Component} />
+          <Route path="/panoramas/:slug" component={PanoramasRoute.Component} />
+          <Route path="/blog" component={BlogRoute.Component} />
+          <Route path="/blog/:slug" component={BlogRoute.Component} />
+          <Route path="/embajadores" component={EmbajadoresRoute.Component} />
           <Route path="/embajador" component={Ambassador} />
           <Route path="/embajador/:code" component={Ambassador} />
           <Route path="/puerta" component={Puerta} />
           <Route path="/cocina" component={Cocina} />
           <Route path="/guardarropia" component={Guardarropia} />
-          <Route path="/entradas" component={Prices} />
-          <Route path="/politica-de-reembolso" component={RefundPolicy} />
-          <Route path="/politica-de-privacidad" component={PrivacyPolicy} />
+          <Route path="/entradas" component={PricesRoute.Component} />
+          <Route path="/politica-de-reembolso" component={RefundPolicyRoute.Component} />
+          <Route path="/politica-de-privacidad" component={PrivacyPolicyRoute.Component} />
           <Route path="/admin" component={AdminDashboard} />
           <Route path="/admin/print/orders" component={PrintOrders} />
           <Route path="/admin/print/customers" component={PrintCustomers} />
@@ -124,40 +137,17 @@ function Router() {
 }
 
 function App() {
-  // /caja es una pantalla táctil de operación, no una página del sitio: sin
-  // navbar público ni las animaciones decorativas del resto del sitio
-  // (docs/ARQUITECTURA-CAJA.md §10.1). /admin ahora usa un sidebar propio
-  // (fixed, inset-y-0) que chocaría con la navbar pública fija arriba, así
-  // que tampoco la lleva -- es un panel interno, no una página del sitio.
-  // /fiesta tampoco: es una app de pantalla completa que se usa a oscuras y
-  // con una mano, y la navbar pública ("Comprar entradas") no tiene ningún
-  // sentido para alguien que ya está adentro de la fiesta.
   const [location] = useLocation();
   const isCaja = location.startsWith('/caja');
   const isAdmin = location.startsWith('/admin');
   const isParty = location.startsWith('/fiesta');
-  // /puerta es la pantalla del anfitrión en la entrada: cámara a pantalla
-  // completa, sin nada del sitio público alrededor.
   const isPuerta = location.startsWith('/puerta');
-  // /cocina es el tablero de pedidos: misma lógica, pantalla de operación
-  // interna, no una página del sitio.
   const isCocina = location.startsWith('/cocina');
-  // /guardarropia es el tablero de recibir/entregar prendas: misma lógica
-  // que /cocina, pantalla de operación interna.
   const isGuardarropia = location.startsWith('/guardarropia');
-  // /gastos es la carga rápida de compras desde el celular: pantalla de
-  // operación interna, instalable aparte, sin nada del sitio público.
   const isGastos = location.startsWith('/gastos');
   const hideChrome = isCaja || isAdmin || isParty || isPuerta || isCocina || isGuardarropia || isGastos;
-  // Ni el cursor ni el scroll suave hacen nada en touch (ver isFinePointer),
-  // así que en celular no se pide su chunk -- antes se importaban eager en
-  // App.tsx y Lenis viajaba igual aunque nunca fuera a correr.
   const showDesktopExtras = !hideChrome && isFinePointer();
 
-  // Saca el loader estático de client/index.html (pintado antes de que
-  // React exista, para que nunca haya un instante en blanco) apenas React
-  // hace su primer commit -- de ahí en más el spinner de Suspense (mismo
-  // look) toma la posta mientras carga el chunk de la página.
   useEffect(() => {
     document.getElementById('initial-loader')?.remove();
   }, []);
@@ -173,9 +163,6 @@ function App() {
             </Suspense>
           )}
           {!hideChrome && <Navbar />}
-          {/* top-center a propósito: /gastos y /caja tienen un botón de acción
-              fijo abajo de la pantalla, y el toast por defecto (abajo) quedaba
-              superpuesto con ese botón -- se veía como texto roto/mezclado. */}
           <Toaster position="top-center" />
           <Router />
         </TooltipProvider>
@@ -185,3 +172,6 @@ function App() {
 }
 
 export default App;
+
+const SmoothScroll = lazy(() => import("./components/SmoothScroll"));
+const CustomCursor = lazy(() => import("./components/CustomCursor"));
