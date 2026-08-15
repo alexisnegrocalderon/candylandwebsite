@@ -10,7 +10,7 @@
   },
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api" },
-    { "source": "/((?!assets/|candyland/|api/|robots\\.txt|sitemap\\.xml|llms\\.txt|favicon\\.ico|gastos\\.webmanifest|gastos/sw\\.js|puerta\\.webmanifest|puerta/sw\\.js|admin\\.webmanifest|admin/sw\\.js|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)", "destination": "/api/render?path=$1" }
+    { "source": "/((?!assets/|candyland/|api/|robots\\.txt|sitemap\\.xml|llms\\.txt|favicon\\.ico|gastos\\.webmanifest|gastos/sw\\.js|puerta\\.webmanifest|puerta/sw\\.js|admin\\.webmanifest|admin/sw\\.js|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)", "destination": "/api/index?path=$1" }
   ],
   "headers": [
     {

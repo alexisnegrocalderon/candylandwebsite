@@ -29918,7 +29918,7 @@ function redirectCanonicalPath(routePath, req, res) {
   return false;
 }
 function registerVercelSsr(app2) {
-  app2.get("/api/render", async (req, res) => {
+  const renderHandler = async (req, res) => {
     const routePath = routeFromRequest(req);
     if (redirectCanonicalPath(routePath, req, res)) return;
     if (routePath === "/robots.txt") return res.type("text/plain").send(getRobotsText());
@@ -29940,7 +29940,8 @@ function registerVercelSsr(app2) {
         res.status(500).type("text/plain").send("SSR unavailable");
       }
     }
-  });
+  };
+  app2.get(["/api/index", "/api/render"], renderHandler);
 }
 
 // server/vercel-entry.ts

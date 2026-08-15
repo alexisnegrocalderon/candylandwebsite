@@ -47,7 +47,7 @@ function redirectCanonicalPath(routePath: string, req: any, res: any) {
 }
 
 export function registerVercelSsr(app: Express) {
-  app.get('/api/render', async (req, res) => {
+  const renderHandler = async (req: any, res: any) => {
     const routePath = routeFromRequest(req);
     if (redirectCanonicalPath(routePath, req, res)) return;
     if (routePath === '/robots.txt') return res.type('text/plain').send(getRobotsText());
@@ -77,5 +77,9 @@ export function registerVercelSsr(app: Express) {
         res.status(500).type('text/plain').send('SSR unavailable');
       }
     }
-  });
+  };
+
+  // Vercel exposes the compiled `api/index.js` function at `/api/index`.
+  // Keep `/api/render` as a compatibility path for local Express and older previews.
+  app.get(['/api/index', '/api/render'], renderHandler);
 }
