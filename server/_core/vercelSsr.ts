@@ -7,7 +7,9 @@ import { composeHtml, FALLBACK_HEAD } from './ssrHtml';
 import { getRobotsText, getSitemapXml } from './seoRoutes';
 
 function routeFromRequest(req: any) {
-  const raw = typeof req.query?.path === 'string' ? req.query.path : '/';
+  const raw = typeof req.query?.path === 'string'
+    ? req.query.path
+    : (typeof req.path === 'string' ? req.path : '/');
   let decoded = raw;
   try { decoded = decodeURIComponent(raw); } catch { /* preserve malformed path */ }
   return (decoded.startsWith('/') ? decoded : `/${decoded}`) || '/';
@@ -82,4 +84,8 @@ export function registerVercelSsr(app: Express) {
   // Vercel exposes the compiled `api/index.js` function at `/api/index`.
   // Keep `/api/render` as a compatibility path for local Express and older previews.
   app.get(['/api/index', '/api/render'], renderHandler);
+  // Depending on Vercel's rewrite mode, Express may receive the original
+  // public pathname (`/entradas`) instead of `/api/index`. Handle that final
+  // GET here while leaving API/webhook routes mounted above untouched.
+  app.get('*', renderHandler);
 }

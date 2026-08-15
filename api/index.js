@@ -29878,7 +29878,7 @@ var FALLBACK_HEAD = {
 
 // server/_core/vercelSsr.ts
 function routeFromRequest(req) {
-  const raw = typeof req.query?.path === "string" ? req.query.path : "/";
+  const raw = typeof req.query?.path === "string" ? req.query.path : typeof req.path === "string" ? req.path : "/";
   let decoded = raw;
   try {
     decoded = decodeURIComponent(raw);
@@ -29942,6 +29942,7 @@ function registerVercelSsr(app2) {
     }
   };
   app2.get(["/api/index", "/api/render"], renderHandler);
+  app2.get("*", renderHandler);
 }
 
 // server/vercel-entry.ts
