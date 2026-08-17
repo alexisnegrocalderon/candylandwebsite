@@ -409,7 +409,7 @@ function Hero() {
           ) : (
             <button
               type="button"
-              onClick={() => scrollToId('proximos-eventos')}
+              onClick={() => scrollToId('proxima-fecha')}
               className="btn-jelly inline-flex items-center gap-3 px-10 py-5 bg-primary text-primary-foreground rounded-full text-lg font-bold uppercase tracking-wide interactive"
             >
               <Sparkles className="w-5 h-5" />
@@ -504,16 +504,24 @@ function UpcomingEventsSection() {
   // Fallback solo mientras el evento no exista todavía en la base de datos
   // (demo/config mode) — una vez que el admin lo carga, se usa el real (con
   // su propio flyer e info) en vez de este placeholder.
-  const staticEvent: HomeEventItem = {
+  //
+  // Los datos acá son fijos (NO se derivan de CANDYLAND/EVENTO): esas
+  // constantes ahora describen "Playroom, sin fecha" por el rebrand, y ya no
+  // representan al Candyland real que se hizo el 08/08. Este objeto es
+  // puramente histórico -- por eso `featured` es siempre false (nunca debe
+  // poder aparecer como el "próximo evento" destacado, aunque no haya fecha
+  // confirmada para el siguiente) e `isPast` es siempre true (siempre va a
+  // "Ediciones anteriores", nunca desaparece).
+  const candylandHistorico: HomeEventItem = {
     id: 'static-candyland',
-    title: CANDYLAND.nombre,
-    date: CANDYLAND.eventDate,
-    dateLabel: CANDYLAND.fechaTexto,
-    venue: CANDYLAND.ciudad,
+    title: 'Candyland',
+    date: new Date('2026-08-08T21:00:00-04:00'),
+    dateLabel: 'Sábado 08 de Agosto',
+    venue: 'Valparaíso, Chile',
     imageUrl: '/candyland/poster-hero.webp',
-    isPast: CANDYLAND.eventDate.getTime() < now,
-    featured: true,
-    href: `/eventos/${CANDYLAND.slug}`,
+    isPast: true,
+    featured: false,
+    href: '/eventos/candyland-agosto-2026',
   };
 
   const mapped: HomeEventItem[] = dbEvents.map((e: any) => {
@@ -524,18 +532,19 @@ function UpcomingEventsSection() {
       date,
       dateLabel: date.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Santiago' }),
       venue: e.venue,
-      imageUrl: e.imageUrl || '/candyland/poster-hero.webp',
+      imageUrl: e.imageUrl || candylandHistorico.imageUrl,
       isPast: e.status === 'past' || date.getTime() < now,
       featured: !!e.featured,
       href: `/eventos/${e.slug}`,
     };
   });
 
-  // La tarjeta de respaldo solo se arma si además hay fecha confirmada: sin
-  // eso, mostrar "PLAYROOM" con un link al Candyland viejo (staticEvent.href
-  // sigue usando CANDYLAND.slug) sería un evento falso que lleva a la página
-  // de una fiesta que ya pasó.
-  const all = hasRealCandyland || !EVENTO.fechaConfirmada ? mapped : [staticEvent, ...mapped];
+  // El respaldo histórico solo se arma si el Candyland real todavía no está
+  // cargado en la BD -- si ya existe una fila real con ese slug, se usa esa
+  // (con su flyer/info real) en vez de este objeto fijo. No depende de
+  // EVENTO.fechaConfirmada: sea cual sea el estado de la próxima fecha, el
+  // evento pasado siempre debe poder verse en "Ediciones anteriores".
+  const all = hasRealCandyland ? mapped : [candylandHistorico, ...mapped];
   const upcoming = all.filter((e) => !e.isPast).sort((a, b) => a.date.getTime() - b.date.getTime());
   const past = all.filter((e) => e.isPast).sort((a, b) => b.date.getTime() - a.date.getTime());
 
@@ -624,6 +633,15 @@ function ComingSoonCard() {
       <p className="relative text-muted-foreground text-sm md:text-base max-w-md">
         Todavía no confirmamos día ni venta de entradas — síguenos en Instagram para enterarte primero.
       </p>
+      <a
+        href={CANDYLAND.redes.instagram}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="btn-jelly relative inline-flex items-center gap-2 mt-2 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive"
+      >
+        <Instagram className="w-4 h-4" />
+        Síguenos en Instagram
+      </a>
     </motion.div>
   );
 }
@@ -638,7 +656,7 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
 
   if (!EVENTO.fechaConfirmada) {
     return (
-      <section className="relative py-10 md:py-14 overflow-hidden">
+      <section id="proxima-fecha" className="relative scroll-mt-24 py-10 md:py-14 overflow-hidden">
         <div aria-hidden className="absolute -top-16 left-[10%] w-72 h-72 rounded-full bg-primary/15 blur-[100px] candy-float-slow" />
         <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/15 blur-[110px] candy-float" />
         <div className="container relative">
@@ -649,7 +667,7 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
   }
 
   return (
-    <section className="relative py-10 md:py-14 overflow-hidden">
+    <section id="proxima-fecha" className="relative scroll-mt-24 py-10 md:py-14 overflow-hidden">
       <div aria-hidden className="absolute -top-16 left-[10%] w-72 h-72 rounded-full bg-primary/15 blur-[100px] candy-float-slow" />
       <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/15 blur-[110px] candy-float" />
 
