@@ -2,6 +2,7 @@ import '@/admin.css';
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
+import { startRegistration } from '@simplewebauthn/browser';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { NOT_ADMIN_ERR_MSG } from '@shared/const';
 import { canOpenAdmin, useIsDemo, useDemoProps, DEMO_TOOLTIP } from '@/lib/demoMode';
@@ -4618,9 +4619,10 @@ function DeleteShiftClosingButton({ shiftId, label, onDeleted }: { shiftId: numb
  * dispositivo nuevo requiere ya estar adentro (adminProcedure), por eso vive
  * acá y no en AdminLoginForm. */
 function WebauthnSecurityCard() {
-  const utils = trpc.useUtils();
   const { data: credentials, refetch } = trpc.auth.webauthnCredentialsList.useQuery();
   const [registering, setRegistering] = useState(false);
+  const [addingDevice, setAddingDevice] = useState(false);
+  const [deviceLabel, setDeviceLabel] = useState('');
 
   const registrationOptions = trpc.auth.webauthnRegistrationOptions.useMutation();
   const registrationVerify = trpc.auth.webauthnRegistrationVerify.useMutation({
@@ -4632,17 +4634,27 @@ function WebauthnSecurityCard() {
     onError: onMutationError,
   });
 
+  // El nombre se pide ANTES en un campo propio (no window.prompt): un diálogo
+  // nativo bloqueante en medio del flujo le puede hacer perder al navegador
+  // el "gesto del usuario" que WebAuthn exige justo al llamar a
+  // startRegistration -- en iOS/iPadOS eso se traduce en un NotAllowedError
+  // silencioso y ningún dispositivo guardado.
   const registrarDispositivo = async () => {
-    const deviceLabel = window.prompt('¿Cómo se llama este dispositivo? (ej. "iPhone de Alexis")');
-    if (!deviceLabel) return;
+    const label = deviceLabel.trim();
+    if (!label) return;
     setRegistering(true);
     try {
-      const { startRegistration } = await import('@simplewebauthn/browser');
       const { options, ticket } = await registrationOptions.mutateAsync();
       const response = await startRegistration({ optionsJSON: options });
-      await registrationVerify.mutateAsync({ ticket, deviceLabel, response });
+      await registrationVerify.mutateAsync({ ticket, deviceLabel: label, response });
+      setDeviceLabel('');
+      setAddingDevice(false);
     } catch (e: any) {
-      if (e?.name !== 'NotAllowedError') toast.error(e?.message || 'No se pudo registrar el dispositivo.');
+      toast.error(
+        e?.name === 'NotAllowedError'
+          ? 'No se pudo completar el registro con Face ID/Touch ID. Intenta de nuevo sin cambiar de pestaña.'
+          : e?.message || 'No se pudo registrar el dispositivo.'
+      );
     } finally {
       setRegistering(false);
     }
@@ -4681,10 +4693,32 @@ function WebauthnSecurityCard() {
             ))}
           </div>
         )}
-        <WriteButton onClick={registrarDispositivo} disabled={registering} className="interactive gap-2">
-          <Fingerprint className="w-4 h-4" />
-          {registering ? 'Registrando…' : 'Registrar este dispositivo'}
-        </WriteButton>
+        {addingDevice ? (
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input
+              value={deviceLabel}
+              onChange={(e) => setDeviceLabel(e.target.value)}
+              placeholder='Nombre del dispositivo (ej. "iPhone de Alexis")'
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter' && deviceLabel.trim()) registrarDispositivo(); }}
+              className="flex-1"
+            />
+            <div className="flex gap-2">
+              <WriteButton onClick={registrarDispositivo} disabled={registering || !deviceLabel.trim()} className="interactive gap-2">
+                <Fingerprint className="w-4 h-4" />
+                {registering ? 'Registrando…' : 'Continuar'}
+              </WriteButton>
+              <Button variant="ghost" onClick={() => { setAddingDevice(false); setDeviceLabel(''); }} disabled={registering} className="interactive">
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <WriteButton onClick={() => setAddingDevice(true)} className="interactive gap-2">
+            <Fingerprint className="w-4 h-4" />
+            Registrar este dispositivo
+          </WriteButton>
+        )}
       </CardContent>
     </Card>
   );
