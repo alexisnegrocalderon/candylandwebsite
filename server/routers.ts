@@ -57,6 +57,7 @@ import { sendPendingReminders, generateReminderCopy } from "./orderReminders";
 import { parseCsv, extractEmailColumn } from "./csv";
 import QRCode from "qrcode";
 import { consumeBackupCode, createTotpSecret, generateBackupCodes, parseBackupCodes, safeCompare, totpUri, verifyTotp } from "./adminSecurity";
+import { buildAuthenticationOptions, buildRegistrationOptions, getRpIdAndOrigin, verifyAuthentication, verifyRegistration } from "./webauthn";
 
 const SHIFT_CLOSE_REPORT_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 const APPLICATIONS_EMAIL = ADMIN_NOTIFICATION_EMAIL;
@@ -207,6 +208,23 @@ async function requireAdminStepTicket(ticket: string) {
   } catch {
     throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Vuelve a ingresar tu contraseña' });
   }
+}
+
+/** Vale de corta vida para una ceremonia WebAuthn (registro o login de
+ * passkey): el "challenge" viaja adentro, firmado, en vez de guardarse en el
+ * servidor -- mismo criterio que signAdminStepTicket para el paso 1 de TOTP.
+ * Dura 2 minutos: alcanza de sobra para completar el prompt de Face
+ * ID/Touch ID, y no vale la pena dejarlo vivo más que eso. */
+async function signWebauthnTicket(kind: 'reg' | 'auth', challenge: string): Promise<string> {
+  return sdk.signSession({ openId: `webauthn:${kind}`, appId: 'candyland-admin-webauthn', name: challenge }, { expiresInMs: 2 * 60 * 1000 });
+}
+
+async function requireWebauthnTicket(kind: 'reg' | 'auth', ticket: string): Promise<string> {
+  const payload = await sdk.verifySession(ticket).catch(() => null);
+  if (payload?.openId !== `webauthn:${kind}`) {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'El código expiró, intenta de nuevo.' });
+  }
+  return payload.name;
 }
 
 /** La sesión de admin baja de UN AÑO a 7 días. Un año era demasiado para
@@ -370,6 +388,109 @@ export const appRouter = router({
           message: res.reason === 'reusado' ? 'Ese código ya se usó. Espera al siguiente.' : 'Código incorrecto',
         });
       }),
+
+    // --- Passkeys (Face ID / Touch ID / Windows Hello) ---
+    // Adicionales al login de arriba, no lo reemplazan. Registro: requiere
+    // estar logueado (adminProcedure) -- solo el dueño, ya autenticado con
+    // contraseña+TOTP, puede sumar un dispositivo nuevo.
+    webauthnRegistrationOptions: adminProcedure.mutation(async ({ ctx }) => {
+      const { rpID } = getRpIdAndOrigin(ctx.req);
+      const existing = await db.getAdminWebauthnCredentials();
+      const options = await buildRegistrationOptions({
+        rpID,
+        existingCredentialIds: existing.map((c) => c.credentialId),
+      });
+      const ticket = await signWebauthnTicket('reg', options.challenge);
+      return { options, ticket } as const;
+    }),
+
+    webauthnRegistrationVerify: adminProcedure.input(z.object({
+      ticket: z.string(),
+      deviceLabel: z.string().min(1).max(100),
+      response: z.any(),
+    })).mutation(async ({ input, ctx }) => {
+      const challenge = await requireWebauthnTicket('reg', input.ticket);
+      const { rpID, origin } = getRpIdAndOrigin(ctx.req);
+      const verification = await verifyRegistration({
+        response: input.response,
+        expectedChallenge: challenge,
+        expectedOrigin: origin,
+        expectedRPID: rpID,
+      });
+      if (!verification.verified || !verification.registrationInfo) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'No se pudo verificar el dispositivo.' });
+      }
+      const { credential } = verification.registrationInfo;
+      await db.saveAdminWebauthnCredential({
+        credentialId: credential.id,
+        publicKey: Buffer.from(credential.publicKey).toString('base64url'),
+        counter: credential.counter,
+        transports: credential.transports,
+        deviceLabel: input.deviceLabel,
+      });
+      return { success: true } as const;
+    }),
+
+    // Login: sin sesión previa (publicProcedure) -- es justamente la forma
+    // de entrar. No hace falta listar credenciales de antemano: son
+    // "discoverable credentials", el propio sistema operativo le muestra al
+    // dueño cuál usar.
+    webauthnLoginOptions: publicProcedure.mutation(async ({ ctx }) => {
+      const { rpID } = getRpIdAndOrigin(ctx.req);
+      const options = await buildAuthenticationOptions({ rpID });
+      const ticket = await signWebauthnTicket('auth', options.challenge);
+      return { options, ticket } as const;
+    }),
+
+    webauthnLoginVerify: publicProcedure.input(z.object({
+      ticket: z.string(),
+      response: z.any(),
+    })).mutation(async ({ input, ctx }) => {
+      const ipKey = adminIpKey(ctx);
+      if (!(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+      }
+      const challenge = await requireWebauthnTicket('auth', input.ticket);
+
+      const credentialRow = await db.getAdminWebauthnCredentialById(input.response?.id);
+      if (!credentialRow) {
+        await db.recordIpFailedAttempt(ipKey);
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Dispositivo no reconocido.' });
+      }
+
+      const { rpID, origin } = getRpIdAndOrigin(ctx.req);
+      const verification = await verifyAuthentication({
+        response: input.response,
+        expectedChallenge: challenge,
+        expectedOrigin: origin,
+        expectedRPID: rpID,
+        credential: {
+          id: credentialRow.credentialId,
+          publicKey: new Uint8Array(Buffer.from(credentialRow.publicKey, 'base64url')),
+          counter: credentialRow.counter,
+          transports: (credentialRow.transports as any) ?? undefined,
+        },
+      });
+      if (!verification.verified) {
+        await db.recordIpFailedAttempt(ipKey);
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No se pudo verificar tu identidad.' });
+      }
+
+      await db.touchAdminWebauthnCredential(credentialRow.id, verification.authenticationInfo.newCounter);
+      await db.resetIpRateLimit(ipKey);
+      await issueAdminSession(ctx);
+      return { success: true } as const;
+    }),
+
+    webauthnCredentialsList: adminProcedure.query(async () => {
+      const rows = await db.getAdminWebauthnCredentials();
+      return rows.map((r) => ({ id: r.id, deviceLabel: r.deviceLabel, createdAt: r.createdAt, lastUsedAt: r.lastUsedAt }));
+    }),
+
+    webauthnCredentialDelete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await db.deleteAdminWebauthnCredential(input.id);
+      return { success: true } as const;
+    }),
   }),
 
   events: router({

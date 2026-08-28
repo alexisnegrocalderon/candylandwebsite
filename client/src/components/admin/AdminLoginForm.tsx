@@ -1,10 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { startAuthentication, browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Fingerprint } from 'lucide-react';
 
 /** Login del panel en dos pasos: contraseña y luego el código de la app de
- * autenticación. La contraseña sola ya no entrega sesión. */
+ * autenticación. La contraseña sola ya no entrega sesión.
+ *
+ * Además, si el dispositivo tiene un passkey registrado (Face ID/Touch ID,
+ * ver Ajustes → Seguridad), se puede entrar directo sin pasar por ninguno de
+ * los dos pasos -- es un camino adicional, no reemplaza al de arriba. */
 export function AdminLoginForm() {
   const utils = trpc.useUtils();
   const [password, setPassword] = useState('');
@@ -13,8 +19,32 @@ export function AdminLoginForm() {
   const [ticket, setTicket] = useState<string | null>(null);
   const [setup, setSetup] = useState<{ secret: string; qrImageUrl: string } | null>(null);
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
+  const [webauthnSupported, setWebauthnSupported] = useState(false);
+  const [webauthnPending, setWebauthnPending] = useState(false);
+
+  useEffect(() => { setWebauthnSupported(browserSupportsWebAuthn()); }, []);
 
   const entrar = async () => { setError(''); await utils.auth.me.invalidate(); };
+
+  const webauthnLoginOptions = trpc.auth.webauthnLoginOptions.useMutation();
+  const webauthnLoginVerify = trpc.auth.webauthnLoginVerify.useMutation();
+
+  const loginConFaceId = async () => {
+    setError('');
+    setWebauthnPending(true);
+    try {
+      const { options, ticket } = await webauthnLoginOptions.mutateAsync();
+      const response = await startAuthentication({ optionsJSON: options });
+      await webauthnLoginVerify.mutateAsync({ ticket, response });
+      await entrar();
+    } catch (e: any) {
+      // El usuario cancela el prompt (o no tiene ningún passkey guardado
+      // todavía) -- no es un error real, no hace falta gritarlo en rojo.
+      if (e?.name !== 'NotAllowedError') setError(e?.message || 'No se pudo verificar con Face ID/Touch ID.');
+    } finally {
+      setWebauthnPending(false);
+    }
+  };
 
   const setupTotp = trpc.auth.adminSetupTotp.useMutation({
     onSuccess: (r) => setSetup(r),
@@ -151,6 +181,23 @@ export function AdminLoginForm() {
       >
         <h2 className="font-heading text-3xl mb-4">Acceso Restringido</h2>
         <p className="text-muted-foreground mb-6">Ingresa la contraseña de administrador.</p>
+        {webauthnSupported && (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={loginConFaceId}
+              disabled={webauthnPending}
+              className="interactive w-full mb-4 gap-2"
+            >
+              <Fingerprint className="w-4 h-4" />
+              {webauthnPending ? 'Verificando…' : 'Usar Face ID / Touch ID'}
+            </Button>
+            <div className="flex items-center gap-3 mb-4 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-border" /> o <div className="h-px flex-1 bg-border" />
+            </div>
+          </>
+        )}
         <Input
           type="password"
           value={password}

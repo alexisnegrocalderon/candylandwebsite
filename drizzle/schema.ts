@@ -1040,6 +1040,29 @@ export const adminTotp = mysqlTable("adminTotp", {
 
 export type AdminTotp = typeof adminTotp.$inferSelect;
 
+// Passkeys (Face ID / Touch ID / Windows Hello) del panel de administración.
+// A diferencia de adminTotp, acá SÍ puede haber varias filas: un solo dueño,
+// pero varios dispositivos (iPhone, iPad, notebook), cada uno con su propia
+// credencial WebAuthn y su propio contador anti-clonado.
+export const adminWebauthnCredentials = mysqlTable("adminWebauthnCredentials", {
+  id: int("id").autoincrement().primaryKey(),
+  // Identificador de la credencial que devuelve el autenticador, en
+  // base64url. Único: es lo primero que se busca al verificar un login.
+  credentialId: varchar("credentialId", { length: 255 }).notNull().unique(),
+  publicKey: text("publicKey").notNull(),
+  // Sube en cada uso; si el valor que manda el dispositivo es menor o igual
+  // al guardado, la credencial fue clonada -- ver verifyAuthenticationResponse.
+  counter: int("counter").notNull().default(0),
+  transports: json("transports"),
+  // Nombre que el dueño le pone al registrar ("iPhone de Alexis"), para
+  // poder distinguir y revocar dispositivos desde Ajustes.
+  deviceLabel: varchar("deviceLabel", { length: 100 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  lastUsedAt: timestamp("lastUsedAt"),
+});
+
+export type AdminWebauthnCredential = typeof adminWebauthnCredentials.$inferSelect;
+
 // Egresos de la productora (módulo /gastos). Una fila = una compra real, con
 // el monto TAL COMO SE PAGÓ (IVA incluido, que es como vienen los precios en
 // Chile). El neto y el IVA se derivan al guardar y quedan congelados: si
