@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, orders, orderItems, tickets, discountCodes, communityCodes, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, orders, orderItems, tickets, discountCodes, communityCodes, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -4344,6 +4344,54 @@ export async function consumeAdminBackupCodes(id: number, remaining: string[]) {
   const db = await getDb();
   if (!db) return;
   await db.update(adminTotp).set({ backupCodes: remaining }).where(eq(adminTotp.id, id));
+}
+
+// --- Passkeys (Face ID / Touch ID) del panel de administración ---
+
+export async function getAdminWebauthnCredentials() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(adminWebauthnCredentials).orderBy(desc(adminWebauthnCredentials.createdAt));
+}
+
+export async function getAdminWebauthnCredentialById(credentialId: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(adminWebauthnCredentials).where(eq(adminWebauthnCredentials.credentialId, credentialId)).limit(1);
+  return row ?? null;
+}
+
+export async function saveAdminWebauthnCredential(params: {
+  credentialId: string;
+  publicKey: string;
+  counter: number;
+  transports?: string[];
+  deviceLabel: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(adminWebauthnCredentials).values({
+    credentialId: params.credentialId,
+    publicKey: params.publicKey,
+    counter: params.counter,
+    transports: params.transports ?? null,
+    deviceLabel: params.deviceLabel,
+  });
+}
+
+/** Sube el contador tras un login exitoso -- si el próximo intento llega con
+ * un contador menor o igual, `verifyAuthenticationResponse` lo va a rechazar
+ * por clonación. */
+export async function touchAdminWebauthnCredential(id: number, counter: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(adminWebauthnCredentials).set({ counter, lastUsedAt: new Date() }).where(eq(adminWebauthnCredentials.id, id));
+}
+
+export async function deleteAdminWebauthnCredential(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(adminWebauthnCredentials).where(eq(adminWebauthnCredentials.id, id));
 }
 
 

@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -4613,6 +4613,83 @@ function DeleteShiftClosingButton({ shiftId, label, onDeleted }: { shiftId: numb
   );
 }
 
+/** Tarjeta de "Ajustes" para administrar passkeys (Face ID/Touch ID) -- camino
+ * adicional al login con contraseña+TOTP, no lo reemplaza. Registrar un
+ * dispositivo nuevo requiere ya estar adentro (adminProcedure), por eso vive
+ * acá y no en AdminLoginForm. */
+function WebauthnSecurityCard() {
+  const utils = trpc.useUtils();
+  const { data: credentials, refetch } = trpc.auth.webauthnCredentialsList.useQuery();
+  const [registering, setRegistering] = useState(false);
+
+  const registrationOptions = trpc.auth.webauthnRegistrationOptions.useMutation();
+  const registrationVerify = trpc.auth.webauthnRegistrationVerify.useMutation({
+    onSuccess: () => { refetch(); toast.success('Dispositivo registrado'); },
+    onError: onMutationError,
+  });
+  const deleteCredential = trpc.auth.webauthnCredentialDelete.useMutation({
+    onSuccess: () => { refetch(); toast.success('Dispositivo eliminado'); },
+    onError: onMutationError,
+  });
+
+  const registrarDispositivo = async () => {
+    const deviceLabel = window.prompt('¿Cómo se llama este dispositivo? (ej. "iPhone de Alexis")');
+    if (!deviceLabel) return;
+    setRegistering(true);
+    try {
+      const { startRegistration } = await import('@simplewebauthn/browser');
+      const { options, ticket } = await registrationOptions.mutateAsync();
+      const response = await startRegistration({ optionsJSON: options });
+      await registrationVerify.mutateAsync({ ticket, deviceLabel, response });
+    } catch (e: any) {
+      if (e?.name !== 'NotAllowedError') toast.error(e?.message || 'No se pudo registrar el dispositivo.');
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader><CardTitle>Seguridad — Face ID / Touch ID</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-muted-foreground text-sm">
+          Registra este iPhone o iPad Pro para entrar al panel con Face ID/Touch ID, sin escribir
+          la contraseña ni el código de la app de autenticación. Es un camino adicional -- el login
+          de siempre sigue funcionando igual.
+        </p>
+        {credentials && credentials.length > 0 && (
+          <div className="space-y-2">
+            {credentials.map((c) => (
+              <div key={c.id} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-muted/50">
+                <div>
+                  <p className="text-sm font-medium">{c.deviceLabel}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Registrado {new Date(c.createdAt).toLocaleDateString('es-CL')}
+                    {c.lastUsedAt ? ` · Último uso ${new Date(c.lastUsedAt).toLocaleDateString('es-CL')}` : ' · Sin usar todavía'}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => { if (window.confirm(`¿Quitar "${c.deviceLabel}"?`)) deleteCredential.mutate({ id: c.id }); }}
+                  disabled={deleteCredential.isPending}
+                  className="interactive text-destructive"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+        <WriteButton onClick={registrarDispositivo} disabled={registering} className="interactive gap-2">
+          <Fingerprint className="w-4 h-4" />
+          {registering ? 'Registrando…' : 'Registrar este dispositivo'}
+        </WriteButton>
+      </CardContent>
+    </Card>
+  );
+}
+
 function SettingsManager() {
   const { data: settings, refetch } = trpc.settings.get.useQuery();
   const updateSettings = trpc.settings.update.useMutation({ onSuccess: () => { refetch(); toast.success('Ajustes guardados'); }, onError: onMutationError });
@@ -4718,6 +4795,7 @@ function SettingsManager() {
           </WriteButton>
         </CardContent>
       </Card>
+      <WebauthnSecurityCard />
     </div>
   );
 }
