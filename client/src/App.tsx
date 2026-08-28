@@ -44,6 +44,7 @@ const Ambassador = lazy(() => import("./pages/Ambassador"));
 const Embajadores = lazy(() => import("./pages/Embajadores"));
 const Panoramas = lazy(() => import("./pages/Panoramas"));
 const Blog = lazy(() => import("./pages/Blog"));
+const QueSonLasFiestasLiberales = lazy(() => import("./pages/QueSonLasFiestasLiberales"));
 const Puerta = lazy(() => import("./pages/Puerta"));
 const Cocina = lazy(() => import("./pages/Cocina"));
 const Guardarropia = lazy(() => import("./pages/Guardarropia"));
@@ -99,6 +100,7 @@ function Router() {
           <Route path="/panoramas" component={Panoramas} />
           <Route path="/panoramas/:slug" component={Panoramas} />
           <Route path="/blog" component={Blog} />
+          <Route path="/blog/que-son-las-fiestas-liberales" component={QueSonLasFiestasLiberales} />
           <Route path="/blog/:slug" component={Blog} />
           <Route path="/embajadores" component={Embajadores} />
           <Route path="/embajador" component={Ambassador} />
