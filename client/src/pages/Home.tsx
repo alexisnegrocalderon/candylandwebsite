@@ -1137,7 +1137,7 @@ function StickyMobileCTA() {
     >
       <Link
         href={`/checkout/${CANDYLAND.slug}`}
-        className="btn-jelly w-full py-4 bg-primary text-primary-foreground rounded-full font-bold uppercase tracking-wide text-base shadow-[0_-4px_24px_oklch(0.70_0.19_340_/_0.25)] inline-flex items-center justify-center gap-2"
+        className="btn-jelly w-full py-4 bg-primary text-primary-foreground rounded-full font-bold uppercase tracking-wide text-base inline-flex items-center justify-center gap-2"
       >
         <Ticket className="w-5 h-5" />
         Quiero ir
