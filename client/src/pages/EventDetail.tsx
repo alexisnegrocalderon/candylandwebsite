@@ -1,15 +1,25 @@
+import { useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useRoute, Link } from 'wouter';
 import { Calendar, MapPin, Clock, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { useSeo } from '@/hooks/useSeo';
+import { prefersReducedMotion } from '@/lib/smoothScroll';
 import { breadcrumbSchema, eventSchema } from '@shared/structuredData';
 
 export default function EventDetail() {
   const [, params] = useRoute('/eventos/:slug');
   const slug = params?.slug ?? '';
   const { data: event, isLoading } = trpc.events.getBySlug.useQuery({ slug });
+  const passRef = useRef<HTMLDivElement>(null);
+  const rm = prefersReducedMotion();
+  const handlePassMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (rm || !passRef.current) return;
+    const r = passRef.current.getBoundingClientRect();
+    passRef.current.style.setProperty('--mx', `${((e.clientX - r.left) / r.width) * 100}%`);
+    passRef.current.style.setProperty('--my', `${((e.clientY - r.top) / r.height) * 100}%`);
+  };
 
   // Precio más bajo real del evento: Google exige un `price` concreto en la
   // oferta, y antes el schema del evento vivía fijo en index.html sin precio
@@ -72,8 +82,10 @@ export default function EventDetail() {
   }
 
   return (
-    <div className="min-h-screen pt-24 pb-16">
-      <div className="container">
+    <div className="relative min-h-screen pt-24 pb-16 overflow-hidden">
+      <div aria-hidden className="absolute -top-16 right-[6%] w-72 h-72 rounded-full bg-cherry/15 blur-[100px] candy-float-slow" />
+
+      <div className="container relative">
         {/* Hero */}
         <motion.div
           initial={{ opacity: 0, y: 40 }}
@@ -92,7 +104,7 @@ export default function EventDetail() {
               <Calendar className="w-4 h-4" />
               <span>{new Date(event.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Santiago' })}</span>
             </div>
-            <h1 className="font-heading text-4xl md:text-6xl lg:text-7xl tracking-tight">{event.title}</h1>
+            <h1 className="font-heading font-bold text-4xl md:text-6xl lg:text-7xl tracking-tight">{event.title}</h1>
           </div>
         </motion.div>
 
@@ -101,18 +113,19 @@ export default function EventDetail() {
           <div className="lg:col-span-2">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '400px' }}
+              transition={{ duration: 0.5, delay: 0.1, ease: [0.23, 1, 0.32, 1] }}
             >
               <div className="flex flex-wrap gap-4 mb-8">
                 {event.venue && (
-                  <div className="flex items-center gap-2 px-4 py-2 bg-card rounded-full border border-border/50">
+                  <div className="flex items-center gap-2 px-4 py-2 glass-candy rounded-full">
                     <MapPin className="w-4 h-4 text-primary" />
                     <span className="text-sm">{event.venue}</span>
                   </div>
                 )}
                 {event.doorsOpen && (
-                  <div className="flex items-center gap-2 px-4 py-2 bg-card rounded-full border border-border/50">
+                  <div className="flex items-center gap-2 px-4 py-2 glass-candy rounded-full">
                     <Clock className="w-4 h-4 text-primary" />
                     <span className="text-sm">Puertas: {new Date(event.doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' })}</span>
                   </div>
@@ -131,14 +144,21 @@ export default function EventDetail() {
            * dentro del wizard conversacional, no acá. */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.4 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '400px' }}
+            transition={{ duration: 0.5, delay: 0.15, ease: [0.23, 1, 0.32, 1] }}
             className="lg:col-span-1"
           >
-            <div className="sticky top-24 bg-card border border-border/50 rounded-2xl p-6 text-center">
+            <div
+              ref={passRef}
+              onPointerMove={handlePassMove}
+              className="candy-pass sticky top-24 glass-candy rounded-2xl p-6 text-center overflow-hidden"
+            >
+              {!isPast && <div className="candy-holo" />}
+              {!isPast && <div className="candy-sheen" />}
               {isPast ? (
                 <>
-                  <h3 className="font-heading text-2xl mb-2">Evento finalizado</h3>
+                  <h3 className="font-heading font-bold text-2xl mb-2">Evento finalizado</h3>
                   <p className="text-muted-foreground text-sm">Esta noche ya pasó -- revisa nuestros próximos eventos.</p>
                   <Link href="/eventos" className="mt-4 inline-block text-primary text-sm font-semibold hover:underline">
                     Ver próximos eventos →
@@ -146,10 +166,10 @@ export default function EventDetail() {
                 </>
               ) : (
                 <>
-                  <h3 className="font-heading text-2xl mb-2">¿Vienes a {event.title}?</h3>
-                  <p className="text-muted-foreground text-sm mb-6">Elegí cómo vienes y te mostramos tu acceso y el valor al tiro.</p>
-                  <Link href={`/checkout/${slug}`}>
-                    <Button className="w-full h-12 rounded-full text-lg font-semibold glow-pink interactive">
+                  <h3 className="relative font-heading font-bold text-2xl mb-2">¿Vienes a {event.title}?</h3>
+                  <p className="relative text-muted-foreground text-sm mb-6">Elegí cómo vienes y te mostramos tu acceso y el valor al tiro.</p>
+                  <Link href={`/checkout/${slug}`} className="relative block">
+                    <Button className="btn-jelly w-full h-12 rounded-full text-lg font-semibold interactive">
                       Comprar entrada <ArrowRight className="w-5 h-5 ml-2" />
                     </Button>
                   </Link>

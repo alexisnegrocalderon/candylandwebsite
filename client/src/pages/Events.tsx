@@ -23,24 +23,28 @@ export default function Events() {
   const { data: events, isLoading } = trpc.events.listPublished.useQuery();
 
   return (
-    <div className="min-h-screen pt-24 pb-16">
-      <div className="container">
+    <div className="relative min-h-screen pt-24 pb-16 overflow-hidden">
+      <div aria-hidden className="absolute -top-16 left-[8%] w-72 h-72 rounded-full bg-primary/15 blur-[100px] candy-float-slow" />
+      <div aria-hidden className="absolute top-1/3 -right-24 w-80 h-80 rounded-full bg-violet-electric/15 blur-[110px] candy-float" />
+
+      <div className="container relative">
         <motion.div
           initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '400px' }}
+          transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
           className="mb-16"
         >
           <p className="text-sm uppercase tracking-[0.3em] text-primary mb-4">Calendario</p>
-          <h1 className="font-heading text-5xl md:text-7xl tracking-tight">
-            Próximos <span className="text-gradient">Eventos</span>
+          <h1 className="font-heading font-bold text-5xl md:text-7xl tracking-tight">
+            Próximos <span className="text-gradient-candy">Eventos</span>
           </h1>
         </motion.div>
 
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="aspect-[3/4] rounded-2xl bg-card animate-pulse" />
+              <div key={i} className="aspect-[3/4] rounded-2xl glass-candy animate-pulse" />
             ))}
           </div>
         ) : events && events.length > 0 ? (
@@ -51,11 +55,12 @@ export default function Events() {
               <motion.div
                 key={event.id}
                 initial={{ opacity: 0, y: 40 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: i * 0.1 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: '400px' }}
+                transition={{ duration: 0.5, delay: i * 0.06, ease: [0.23, 1, 0.32, 1] }}
               >
                 <Link href={`/eventos/${event.slug}`} className="group block">
-                  <div className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-card border border-border/50 transition-all duration-500 group-hover:border-primary/50 group-hover:scale-[1.02]">
+                  <div className="relative aspect-[3/4] rounded-2xl overflow-hidden glass-candy transition-all duration-500 group-hover:border-primary/50 group-hover:scale-[1.02]">
                     {event.imageUrl ? (
                       <img
                         src={event.imageUrl}

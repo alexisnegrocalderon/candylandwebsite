@@ -176,7 +176,7 @@ function SingleFieldInput({
         {...register(fieldKey)}
         placeholder={field.placeholder}
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onEnter(); } }}
-        className="h-14 text-lg"
+        className="h-14 text-lg bg-[oklch(0.995_0.006_340_/_0.5)] backdrop-blur-md border-primary/15 focus-visible:border-primary/40"
       />
       {field.help && <p className="text-xs text-muted-foreground mt-2">{field.help}</p>}
       {error && <p className="text-sm text-destructive mt-2" role="alert">{error}</p>}

@@ -46,17 +46,17 @@ export default function Navbar() {
         animate={{ y: 0 }}
         transition={{ duration: 0.6, ease: [0.23, 1, 0.32, 1] }}
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
-          scrolled ? 'bg-background/80 backdrop-blur-xl border-b border-border/50' : ''
+          scrolled ? 'bg-[oklch(0.995_0.006_340_/_0.55)] backdrop-blur-xl border-b border-primary/15 shadow-[0_4px_24px_oklch(0.70_0.19_340_/_0.06)]' : ''
         }`}
       >
         <div className="container flex items-center justify-between h-20">
-          <Link href="/" className="flex items-center gap-3 interactive">
+          <Link href="/" className="group flex items-center gap-3 interactive">
             <img
               src="/candyland/logo-wordmark.webp"
               alt="Mansion Playroom"
               width={300}
               height={300}
-              className="h-12 w-auto"
+              className="h-12 w-auto transition-all duration-300 group-hover:scale-105 group-hover:drop-shadow-[0_0_16px_oklch(0.70_0.19_340_/_0.35)]"
             />
           </Link>
 
@@ -100,7 +100,7 @@ export default function Navbar() {
             {EVENTO.fechaConfirmada && (
               <Link
                 href={`/checkout/${CANDYLAND.slug}`}
-                className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-semibold tracking-wide uppercase transition-transform duration-200 hover:scale-105 active:scale-95 interactive"
+                className="btn-jelly px-6 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-semibold tracking-wide uppercase interactive"
               >
                 Comprar Entradas
               </Link>
@@ -140,29 +140,45 @@ export default function Navbar() {
             transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
             className="fixed inset-0 z-40 bg-background/95 backdrop-blur-xl pt-24 px-6 md:hidden"
           >
-            <div className="flex flex-col gap-6">
+            {/* Los links entran escalonados en vez de todos de golpe -- mismo
+             * patrón de stagger que las amenities del Home (Home.tsx). */}
+            <motion.div
+              className="flex flex-col gap-6"
+              initial="hidden"
+              animate="show"
+              variants={{ hidden: {}, show: { transition: { staggerChildren: 0.06 } } }}
+            >
               {navLinks.map((link) => (
-                <Link
+                <motion.div
                   key={link.href}
-                  href={link.href}
-                  onClick={() => setMobileOpen(false)}
-                  className="text-3xl font-heading font-bold tracking-tight"
+                  variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.23, 1, 0.32, 1] } } }}
                 >
-                  {link.label}
-                </Link>
+                  <Link
+                    href={link.href}
+                    onClick={() => setMobileOpen(false)}
+                    className="text-3xl font-heading font-bold tracking-tight"
+                  >
+                    {link.label}
+                  </Link>
+                </motion.div>
               ))}
 
               {EVENTO.fechaConfirmada && (
-                <Link
-                  href={`/checkout/${CANDYLAND.slug}`}
-                  onClick={() => setMobileOpen(false)}
-                  className="mt-2 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center"
-                >
-                  Comprar Entradas
-                </Link>
+                <motion.div variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.23, 1, 0.32, 1] } } }}>
+                  <Link
+                    href={`/checkout/${CANDYLAND.slug}`}
+                    onClick={() => setMobileOpen(false)}
+                    className="btn-jelly mt-2 w-full px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center inline-flex items-center justify-center"
+                  >
+                    Comprar Entradas
+                  </Link>
+                </motion.div>
               )}
 
-              <div className="mt-4 pt-4 border-t border-border/40 flex flex-col gap-3">
+              <motion.div
+                variants={{ hidden: { opacity: 0, y: 16 }, show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.23, 1, 0.32, 1] } } }}
+                className="mt-4 pt-4 border-t border-border/40 flex flex-col gap-3"
+              >
                 {secondaryNavLinks.map((link) => (
                   <Link
                     key={link.href}
@@ -173,8 +189,8 @@ export default function Navbar() {
                     {link.label}
                   </Link>
                 ))}
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

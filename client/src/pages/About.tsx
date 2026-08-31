@@ -43,17 +43,20 @@ export default function About() {
   });
 
   return (
-    <div className="min-h-screen pt-24 pb-16">
-      <div className="container">
+    <div className="relative min-h-screen pt-24 pb-16 overflow-hidden">
+      <div aria-hidden className="absolute -top-16 left-[6%] w-72 h-72 rounded-full bg-primary/15 blur-[100px] candy-float-slow" />
+
+      <div className="container relative">
         <motion.div
           initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '400px' }}
+          transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
           className="max-w-4xl"
         >
           <p className="text-sm uppercase tracking-[0.3em] text-primary mb-4">Sobre Nosotros</p>
-          <h1 className="font-heading text-5xl md:text-7xl tracking-tight mb-8">
-            Creamos <span className="text-gradient">experiencias</span> inolvidables
+          <h1 className="font-heading font-bold text-5xl md:text-7xl tracking-tight mb-8">
+            Creamos <span className="text-gradient-candy">experiencias</span> inolvidables
           </h1>
           <p className="text-muted-foreground text-xl leading-relaxed mb-12">
             Mansion Playroom nació con la misión de transformar la vida nocturna de la V Región.
@@ -65,19 +68,20 @@ export default function About() {
 
         <motion.div
           initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.3 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '400px' }}
+          transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
           className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16"
         >
-          <div className="bg-card border border-border/50 rounded-2xl p-8">
-            <h2 className="font-heading text-2xl mb-4 text-gradient">Nuestra Visión</h2>
+          <div className="glass-candy rounded-2xl p-8">
+            <h2 className="font-heading font-bold text-2xl mb-4 text-gradient-candy">Nuestra Visión</h2>
             <p className="text-muted-foreground leading-relaxed">
               Ser la referencia en eventos exclusivos en Latinoamérica, creando comunidades
               que comparten la pasión por las experiencias premium y la vida nocturna de calidad.
             </p>
           </div>
-          <div className="bg-card border border-border/50 rounded-2xl p-8">
-            <h2 className="font-heading text-2xl mb-4 text-gradient">Nuestra Misión</h2>
+          <div className="glass-candy rounded-2xl p-8">
+            <h2 className="font-heading font-bold text-2xl mb-4 text-gradient-candy">Nuestra Misión</h2>
             <p className="text-muted-foreground leading-relaxed">
               Diseñar y producir eventos que superen todas las expectativas, con atención
               obsesiva al detalle, tecnología de punta y un compromiso inquebrantable con la calidad.
@@ -94,8 +98,8 @@ export default function About() {
           transition={{ duration: 0.7 }}
           className="max-w-3xl mb-16"
         >
-          <h2 className="font-heading text-3xl md:text-4xl tracking-tight mb-4">
-            Cómo cuidamos <span className="text-gradient">el espacio</span>
+          <h2 className="font-heading font-bold text-3xl md:text-4xl tracking-tight mb-4">
+            Cómo cuidamos <span className="text-gradient-candy">el espacio</span>
           </h2>
           <p className="text-muted-foreground leading-relaxed mb-8">
             Una noche así solo funciona si todo el mundo se siente seguro. Por eso nuestras tres
@@ -106,7 +110,7 @@ export default function About() {
           <div className="space-y-5">
             {VALORES_EXPLICADOS.map((valor) => (
               <div key={valor.titulo} className="glass-candy rounded-2xl p-6">
-                <h3 className="font-heading text-xl mb-2">{valor.titulo}</h3>
+                <h3 className="font-heading font-bold text-xl mb-2">{valor.titulo}</h3>
                 <p className="text-muted-foreground leading-relaxed">{valor.texto}</p>
               </div>
             ))}
@@ -125,8 +129,8 @@ export default function About() {
           transition={{ duration: 0.7 }}
           className="max-w-3xl mb-16"
         >
-          <h2 className="font-heading text-3xl md:text-4xl tracking-tight mb-4">
-            ¿Es tu <span className="text-gradient">primera vez</span>?
+          <h2 className="font-heading font-bold text-3xl md:text-4xl tracking-tight mb-4">
+            ¿Es tu <span className="text-gradient-candy">primera vez</span>?
           </h2>
           <p className="text-muted-foreground leading-relaxed mb-4">
             Es la pregunta que más nos llega, así que va directo: no pasa nada que tú no quieras que
@@ -148,13 +152,14 @@ export default function About() {
 
         <motion.div
           initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.5 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '400px' }}
+          transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
           className="text-center"
         >
           <Link
             href="/eventos"
-            className="inline-flex items-center gap-3 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold transition-all hover:scale-105 active:scale-95 glow-pink interactive"
+            className="btn-jelly inline-flex items-center gap-3 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold interactive"
           >
             Ver Eventos <ArrowRight className="w-5 h-5" />
           </Link>

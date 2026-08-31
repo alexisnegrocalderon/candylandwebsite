@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Navbar from "./components/Navbar";
+import Footer from "./components/Footer";
 import { isFinePointer } from "./lib/smoothScroll";
 
 // Lazy load pages -- Home incluida: antes se importaba eager y arrastraba
@@ -180,6 +181,7 @@ function App() {
               superpuesto con ese botón -- se veía como texto roto/mezclado. */}
           <Toaster position="top-center" />
           <Router />
+          {!hideChrome && <Footer />}
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

@@ -203,8 +203,8 @@ export const EVENTO = {
   // ("Mansion Playroom") vive en MARCA.nombre y se usa en el logo del Hero y
   // en el splash del Intro -- el título grande no la repite.
   nombre: 'PLAYROOM',
-  tagline: 'La próxima fiesta se viene pronto',
-  heroTitulo: 'La próxima noche está por anunciarse.',
+  tagline: 'Se viene el 2° Aniversario. Y viene con sorpresa',
+  heroTitulo: 'El 2° Aniversario se acerca. Algo grande viene con él.',
 
   // ⚠️ Todavía no hay fecha confirmada para la próxima fiesta (ni venta de
   // entradas activa). Mientras `fechaConfirmada` sea false, el Hero y la

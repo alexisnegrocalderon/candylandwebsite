@@ -75,74 +75,92 @@ export default function ArticleLayout({ article }: { article: Article }) {
               <Clock className="w-3.5 h-3.5" /> {article.readMinutes} min de lectura
             </span>
           </div>
-
-          <div className="space-y-10">
-            {article.sections.map((section) => (
-              <section key={section.heading}>
-                <h2 className="font-heading font-bold text-xl md:text-2xl mb-4">{section.heading}</h2>
-                {section.body?.map((p, i) => (
-                  <p key={i} className="text-muted-foreground leading-relaxed mb-4">{p}</p>
-                ))}
-                {section.list && (
-                  <ul className="space-y-2.5 mb-4">
-                    {section.list.map((item, i) => (
-                      <li
-                        key={i}
-                        className="text-muted-foreground leading-relaxed pl-5 relative before:content-['•'] before:absolute before:left-0 before:text-primary"
-                      >
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {section.note && (
-                  <p className="glass-candy rounded-xl p-4 text-sm text-foreground/80 leading-relaxed">
-                    {section.note}
-                  </p>
-                )}
-              </section>
-            ))}
-          </div>
-
-          <div className="glass-candy rounded-2xl p-6 md:p-8 mt-12 text-center">
-            <p className="text-base md:text-lg mb-5">{article.cta.text}</p>
-            <Link
-              href={article.cta.href}
-              className="btn-jelly inline-flex items-center gap-2 px-7 py-3.5 rounded-full bg-primary text-primary-foreground font-bold interactive"
-            >
-              {article.cta.label} <ArrowRight className="w-4 h-4" />
-            </Link>
-            <div className="mt-5">
-              <a
-                href={CANDYLAND.redes.instagram}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors interactive"
-              >
-                <Instagram className="w-4 h-4" /> Síguenos en Instagram @{INSTAGRAM_HANDLE}
-              </a>
-            </div>
-          </div>
-
-          {related.length > 0 && (
-            <div className="mt-14">
-              <h2 className="font-heading font-bold text-xl mb-5">Seguir leyendo</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {related.map((r) => (
-                  <Link
-                    key={r.slug}
-                    href={articlePath(r)}
-                    className="glass-candy rounded-2xl p-5 interactive hover:border-primary/30 transition-colors block"
-                  >
-                    <div className="text-2xl mb-2" aria-hidden>{r.emoji}</div>
-                    <h3 className="font-semibold mb-1 leading-snug">{r.heading}</h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed line-clamp-2">{r.description}</p>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
         </motion.div>
+
+        <div className="space-y-10">
+          {article.sections.map((section) => (
+            <motion.section
+              key={section.heading}
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '300px' }}
+              transition={{ duration: 0.45, ease: [0.23, 1, 0.32, 1] }}
+            >
+              <h2 className="font-heading font-bold text-xl md:text-2xl mb-4">{section.heading}</h2>
+              {section.body?.map((p, i) => (
+                <p key={i} className="text-muted-foreground leading-relaxed mb-4">{p}</p>
+              ))}
+              {section.list && (
+                <ul className="space-y-2.5 mb-4">
+                  {section.list.map((item, i) => (
+                    <li
+                      key={i}
+                      className="text-muted-foreground leading-relaxed pl-5 relative before:content-['•'] before:absolute before:left-0 before:text-primary"
+                    >
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {section.note && (
+                <p className="glass-candy rounded-xl p-4 text-sm text-foreground/80 leading-relaxed">
+                  {section.note}
+                </p>
+              )}
+            </motion.section>
+          ))}
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: '300px' }}
+          transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
+          className="glass-candy rounded-2xl p-6 md:p-8 mt-12 text-center"
+        >
+          <p className="text-base md:text-lg mb-5">{article.cta.text}</p>
+          <Link
+            href={article.cta.href}
+            className="btn-jelly inline-flex items-center gap-2 px-7 py-3.5 rounded-full bg-primary text-primary-foreground font-bold interactive"
+          >
+            {article.cta.label} <ArrowRight className="w-4 h-4" />
+          </Link>
+          <div className="mt-5">
+            <a
+              href={CANDYLAND.redes.instagram}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors interactive"
+            >
+              <Instagram className="w-4 h-4" /> Síguenos en Instagram @{INSTAGRAM_HANDLE}
+            </a>
+          </div>
+        </motion.div>
+
+        {related.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '300px' }}
+            transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
+            className="mt-14"
+          >
+            <h2 className="font-heading font-bold text-xl mb-5">Seguir leyendo</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {related.map((r) => (
+                <Link
+                  key={r.slug}
+                  href={articlePath(r)}
+                  className="glass-candy rounded-2xl p-5 interactive hover:border-primary/30 transition-colors block"
+                >
+                  <div className="text-2xl mb-2" aria-hidden>{r.emoji}</div>
+                  <h3 className="font-semibold mb-1 leading-snug">{r.heading}</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed line-clamp-2">{r.description}</p>
+                </Link>
+              ))}
+            </div>
+          </motion.div>
+        )}
       </article>
     </div>
   );

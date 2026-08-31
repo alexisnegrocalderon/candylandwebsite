@@ -7,10 +7,10 @@ import {
   Clock,
   Gamepad2,
   Instagram,
+  Lock,
   Lollipop,
   MapPin,
   Martini,
-  MessageCircle,
   Music,
   Music2,
   ShieldCheck,
@@ -384,7 +384,7 @@ function Hero() {
             </>
           ) : (
             <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-candy border border-primary/30">
-              <Sparkles className="w-4 h-4 text-primary" /> Próxima fecha: pronto
+              <Sparkles className="w-4 h-4 text-primary" /> Shhh… algo grande se acerca 🤫
             </span>
           )}
           <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-candy">
@@ -609,30 +609,90 @@ function CountdownUnit({ value, label }: { value: number; label: string }) {
   );
 }
 
+/** Tile con el look de un dígito de countdown, pero que NO cuenta nada real:
+ *  parpadea entre "??" y números al azar, como una señal encriptada. Nunca
+ *  lee `EVENTO.eventDate` -- es puro clima, así que no hay ninguna fecha real
+ *  para que alguien extraiga inspeccionando el bundle o el DOM. Respeta
+ *  reduced-motion mostrando "??" fijo. */
+function GlitchUnit({ label }: { label: string }) {
+  const [value, setValue] = useState('??');
+  useEffect(() => {
+    if (prefersReducedMotion()) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const glitch = () => {
+      const flickers = 3;
+      let i = 0;
+      const tick = () => {
+        setValue(i < flickers ? String(Math.floor(Math.random() * 100)).padStart(2, '0') : '??');
+        i++;
+        timer = setTimeout(tick, i <= flickers ? 90 : 2600 + Math.random() * 2200);
+      };
+      tick();
+    };
+    timer = setTimeout(glitch, 1200 + Math.random() * 2000);
+    return () => clearTimeout(timer);
+  }, []);
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <div className="relative w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-cherry via-primary to-violet-electric shadow-[0_6px_22px_oklch(0.70_0.19_340_/_0.4)] flex items-center justify-center overflow-hidden ring-2 ring-white/30">
+        <div aria-hidden className="absolute inset-0 bg-white/10 mix-blend-overlay" />
+        <span className="font-heading font-black text-xl sm:text-2xl tabular-nums text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)]">
+          {value}
+        </span>
+      </div>
+      <span className="text-[9px] md:text-[10px] uppercase tracking-[0.2em] text-foreground/70 font-bold">{label}</span>
+    </div>
+  );
+}
+
 /** Tarjeta que reemplaza countdown + Misión 300 mientras no hay fecha
- *  confirmada ni venta activa (ver EVENTO.fechaConfirmada). Mismo fondo con
- *  blobs y estilo `glass-candy` que el resto de la sección, sin números que
- *  contar ni botón de compra. */
+ *  confirmada ni venta activa (ver EVENTO.fechaConfirmada). En vez de un
+ *  simple "próximamente", vende intriga: nuestro 2° Aniversario se viene con
+ *  sorpresa, con un placeholder de countdown que "glitchea" (GlitchUnit,
+ *  arriba) sin contar nada real -- nada de fecha en el DOM ni en el bundle. */
 function ComingSoonCard() {
   return (
     <motion.div
       {...reveal}
-      className="relative glass-candy rounded-3xl px-6 py-10 md:px-10 md:py-14 flex flex-col items-center gap-4 text-center overflow-hidden border-2 border-primary/30"
+      className="relative glass-candy rounded-3xl px-6 py-10 md:px-10 md:py-14 flex flex-col items-center gap-5 text-center overflow-hidden border-2 border-primary/30"
     >
       <div aria-hidden className="absolute -top-16 left-1/4 w-64 h-64 rounded-full bg-cherry/25 blur-[90px]" />
       <div aria-hidden className="absolute -bottom-16 right-1/4 w-64 h-64 rounded-full bg-primary/20 blur-[90px]" />
+      {/* Fragmento del flyer bien borroneado -- clima de "algo hay ahí detrás", nada legible */}
+      <img
+        src="/candyland/poster-hero-bg.webp"
+        alt=""
+        aria-hidden
+        loading="lazy"
+        className="absolute inset-0 w-full h-full object-cover opacity-[0.08] blur-3xl scale-125"
+      />
+
+      <span className="relative inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass-candy border border-cherry/40 text-xs md:text-sm font-bold uppercase tracking-[0.2em] text-cherry">
+        <Lock className="w-3.5 h-3.5" /> 2° Aniversario
+      </span>
+
       <div className="relative w-14 h-14 flex items-center justify-center">
         <div aria-hidden className="absolute inset-0 rounded-full bg-primary/30 blur-xl candy-glow-pulse" />
         <div className="relative w-11 h-11 rounded-full glass-candy flex items-center justify-center">
           <Sparkles className="w-5 h-5 text-primary" />
         </div>
       </div>
+
       <p className="relative font-heading font-bold text-2xl md:text-3xl text-gradient-candy">
-        La próxima fecha se viene pronto
+        Algo grande se acerca
       </p>
       <p className="relative text-muted-foreground text-sm md:text-base max-w-md">
-        Todavía no confirmamos día ni venta de entradas — síguenos en Instagram para enterarte primero.
+        Todavía no revelamos día ni venta de entradas para nuestro 2° Aniversario — pero viene con sorpresa. Síguenos en Instagram para ser de los primeros en enterarte.
       </p>
+
+      <div className="relative flex items-center gap-2 sm:gap-3" aria-hidden>
+        <GlitchUnit label="Días" />
+        <span className="text-lg md:text-xl font-heading font-black text-cherry/40">:</span>
+        <GlitchUnit label="Hrs" />
+        <span className="text-lg md:text-xl font-heading font-black text-cherry/40">:</span>
+        <GlitchUnit label="Min" />
+      </div>
+
       <a
         href={CANDYLAND.redes.instagram}
         target="_blank"
@@ -1023,82 +1083,6 @@ function FinalCTASection() {
   );
 }
 
-/* ─── Footer ───────────────────────────────────────────────── */
-
-/** Bar con avatar + seguidores/publicaciones — más confianza que un ícono suelto. */
-function InstagramBar() {
-  const { data: settings } = trpc.settings.get.useQuery();
-  const followers = settings?.instagramFollowers ?? 0;
-  const posts = settings?.instagramPosts ?? 0;
-  const handle = CANDYLAND.redes.instagram.split('/').filter(Boolean).pop();
-  const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K` : String(n));
-
-  return (
-    <a
-      href={CANDYLAND.redes.instagram}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="glass-candy rounded-full pl-2.5 pr-5 py-2 flex items-center gap-3 hover:border-primary/50 transition-colors interactive"
-    >
-      <span className="w-9 h-9 rounded-full bg-gradient-to-br from-primary via-cherry to-violet-electric flex items-center justify-center shrink-0">
-        <Instagram className="w-4.5 h-4.5 text-white" />
-      </span>
-      <span className="flex flex-col leading-tight text-left">
-        <span className="text-xs font-bold text-foreground">@{handle}</span>
-        {(followers > 0 || posts > 0) && (
-          <span className="text-[11px] text-muted-foreground">{fmt(followers)} seguidores · {fmt(posts)} publicaciones</span>
-        )}
-      </span>
-    </a>
-  );
-}
-
-function Footer() {
-  return (
-    <footer className="border-t border-primary/15 py-14">
-      <div className="container">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-          <img src="/candyland/logo-wordmark.webp" alt="Mansion Playroom" width={300} height={300} loading="lazy" className="h-12 w-auto" />
-
-          <div className="flex items-center gap-5">
-            <InstagramBar />
-            <a
-              href={CANDYLAND.redes.tiktok}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="TikTok"
-              className="w-11 h-11 rounded-full glass-candy flex items-center justify-center hover:border-primary/50 transition-colors interactive"
-            >
-              <Music2 className="w-5 h-5 text-primary" />
-            </a>
-            <a
-              href={CANDYLAND.redes.whatsapp}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="WhatsApp"
-              className="w-11 h-11 rounded-full glass-candy flex items-center justify-center hover:border-primary/50 transition-colors interactive"
-            >
-              <MessageCircle className="w-5 h-5 text-primary" />
-            </a>
-          </div>
-        </div>
-
-        <div className="mt-10 pt-8 border-t border-border/40 flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
-          <p>© {new Date().getFullYear()} Mansion Playroom · La Evolución del Carrete</p>
-          <div className="flex items-center gap-6">
-            <span className="px-3 py-1 rounded-full border border-cherry/40 text-cherry font-bold text-xs">+{CANDYLAND.edadMinima}</span>
-            <Link href="/politica-de-reembolso" className="hover:text-foreground transition-colors">Política de reembolso</Link>
-            <Link href="/politica-de-privacidad" className="hover:text-foreground transition-colors">Política de privacidad</Link>
-            <Link href="/panoramas" className="hover:text-foreground transition-colors">Panoramas</Link>
-            <Link href="/blog" className="hover:text-foreground transition-colors">Blog</Link>
-            <Link href="/embajadores" className="hover:text-foreground transition-colors">Embajadores</Link>
-          </div>
-        </div>
-      </div>
-    </footer>
-  );
-}
-
 /* ─── CTA sticky móvil ─────────────────────────────────────── */
 
 function StickyMobileCTA() {
@@ -1219,7 +1203,6 @@ export default function Home() {
       <ExperienceSection />
       <InfoSection />
       <FinalCTASection />
-      <Footer />
       <StickyMobileCTA />
     </MotionConfig>
   );
