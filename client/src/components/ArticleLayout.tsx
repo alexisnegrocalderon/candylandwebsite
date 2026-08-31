@@ -56,9 +56,9 @@ export default function ArticleLayout({ article }: { article: Article }) {
           {/* Migas de pan: además del schema, orientan de verdad a quien llega
               desde Google directo al artículo sin pasar por el home. */}
           <nav aria-label="Migas de pan" className="flex items-center gap-2 text-xs text-muted-foreground mb-6">
-            <Link href="/" className="hover:text-primary transition-colors">Inicio</Link>
+            <Link href="/" className="hover:text-primary transition-colors interactive">Inicio</Link>
             <span aria-hidden>/</span>
-            <Link href={esGuia ? '/panoramas' : '/blog'} className="hover:text-primary transition-colors">
+            <Link href={esGuia ? '/panoramas' : '/blog'} className="hover:text-primary transition-colors interactive">
               {esGuia ? 'Panoramas' : 'Blog'}
             </Link>
           </nav>

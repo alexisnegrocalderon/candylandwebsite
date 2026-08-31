@@ -81,7 +81,7 @@ export default function Navbar() {
               <DropdownMenuContent align="end">
                 {secondaryNavLinks.map((link) => (
                   <DropdownMenuItem key={link.href} asChild>
-                    <Link href={link.href}>{link.label}</Link>
+                    <Link href={link.href} className="interactive">{link.label}</Link>
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>

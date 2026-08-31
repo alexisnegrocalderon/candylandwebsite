@@ -311,9 +311,9 @@ export default function QueSonLasFiestasLiberales() {
       <article className="container max-w-3xl">
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <nav aria-label="Migas de pan" className="flex items-center gap-2 text-xs text-muted-foreground mb-6">
-            <Link href="/" className="hover:text-primary transition-colors">Inicio</Link>
+            <Link href="/" className="hover:text-primary transition-colors interactive">Inicio</Link>
             <span aria-hidden>/</span>
-            <Link href="/blog" className="hover:text-primary transition-colors">Blog</Link>
+            <Link href="/blog" className="hover:text-primary transition-colors interactive">Blog</Link>
           </nav>
 
           <div className="text-5xl mb-4" aria-hidden>✨</div>

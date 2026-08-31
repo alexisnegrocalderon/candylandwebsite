@@ -263,7 +263,7 @@ export default function PrivacyPolicy() {
             por Instagram o por WhatsApp.
             <br />
             También puedes revisar nuestra{' '}
-            <Link href="/politica-de-reembolso" className="text-primary font-medium hover:underline">política de reembolso</Link>.
+            <Link href="/politica-de-reembolso" className="text-primary font-medium hover:underline interactive">política de reembolso</Link>.
           </p>
         </motion.div>
       </div>

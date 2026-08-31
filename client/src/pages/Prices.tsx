@@ -146,13 +146,13 @@ export default function Prices() {
               pregunta antes de decidirse.
             </p>
             <div className="flex flex-col gap-2">
-              <Link href="/blog/primera-vez-que-esperar" className="text-primary text-sm font-semibold hover:underline">
+              <Link href="/blog/primera-vez-que-esperar" className="text-primary text-sm font-semibold hover:underline interactive">
                 Qué esperar en tu primera vez →
               </Link>
-              <Link href="/blog/dress-code-explicado" className="text-primary text-sm font-semibold hover:underline">
+              <Link href="/blog/dress-code-explicado" className="text-primary text-sm font-semibold hover:underline interactive">
                 Dress code explicado →
               </Link>
-              <Link href="/blog/como-llegar-y-estacionar" className="text-primary text-sm font-semibold hover:underline">
+              <Link href="/blog/como-llegar-y-estacionar" className="text-primary text-sm font-semibold hover:underline interactive">
                 Cómo llegar y dónde estacionar →
               </Link>
             </div>

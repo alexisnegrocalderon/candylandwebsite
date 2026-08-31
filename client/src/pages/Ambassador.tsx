@@ -87,7 +87,7 @@ export default function Ambassador() {
           <p className="text-muted-foreground mb-6">
             Revisa que esté bien escrito. Si crees que es un error, escríbenos por Instagram.
           </p>
-          <Link href="/embajador" className="inline-flex h-12 items-center px-8 rounded-full border border-border text-sm font-semibold">
+          <Link href="/embajador" className="inline-flex h-12 items-center px-8 rounded-full border border-border text-sm font-semibold interactive">
             Probar otro código
           </Link>
         </div>

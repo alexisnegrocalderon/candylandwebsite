@@ -59,7 +59,7 @@ export default function Events() {
                 viewport={{ once: true, margin: '400px' }}
                 transition={{ duration: 0.5, delay: i * 0.06, ease: [0.23, 1, 0.32, 1] }}
               >
-                <Link href={`/eventos/${event.slug}`} className="group block">
+                <Link href={`/eventos/${event.slug}`} className="group block interactive">
                   <div className="relative aspect-[3/4] rounded-2xl overflow-hidden glass-candy transition-all duration-500 group-hover:border-primary/50 group-hover:scale-[1.02]">
                     {event.imageUrl ? (
                       <img

@@ -931,7 +931,7 @@ export default function Checkout() {
                     <ShieldCheck className="w-3.5 h-3.5" /> Pago seguro con Mercado Pago · Evento +{CANDYLAND.edadMinima}
                   </p>
                   <p className="text-center text-[11px] text-muted-foreground">
-                    Al comprar aceptas nuestra <Link href="/politica-de-reembolso" className="underline hover:text-foreground">política de reembolso</Link>.
+                    Al comprar aceptas nuestra <Link href="/politica-de-reembolso" className="underline hover:text-foreground interactive">política de reembolso</Link>.
                   </p>
                 </div>
               )}

@@ -75,7 +75,7 @@ export default function EventDetail() {
       <div className="min-h-screen pt-24 flex items-center justify-center">
         <div className="text-center">
           <h2 className="font-heading text-4xl mb-4">Evento no encontrado</h2>
-          <Link href="/eventos" className="text-primary">Volver a eventos</Link>
+          <Link href="/eventos" className="text-primary interactive">Volver a eventos</Link>
         </div>
       </div>
     );
@@ -160,7 +160,7 @@ export default function EventDetail() {
                 <>
                   <h3 className="font-heading font-bold text-2xl mb-2">Evento finalizado</h3>
                   <p className="text-muted-foreground text-sm">Esta noche ya pasó -- revisa nuestros próximos eventos.</p>
-                  <Link href="/eventos" className="mt-4 inline-block text-primary text-sm font-semibold hover:underline">
+                  <Link href="/eventos" className="mt-4 inline-block text-primary text-sm font-semibold hover:underline interactive">
                     Ver próximos eventos →
                   </Link>
                 </>

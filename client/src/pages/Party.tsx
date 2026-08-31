@@ -135,7 +135,7 @@ function ClosedDoor({ denial, eventTitle, doorsOpen }: { denial: string; eventTi
         <h1 className="font-heading font-extrabold text-2xl tracking-tight mb-2">{copy.title}</h1>
         <p className="text-white/50 text-sm mb-8">{copy.body}</p>
         {eventTitle && <p className="text-xs text-white/30 mb-6">{eventTitle}</p>}
-        <Link href="/" className="inline-flex h-12 items-center px-8 rounded-full border border-white/15 text-sm font-semibold">
+        <Link href="/" className="inline-flex h-12 items-center px-8 rounded-full border border-white/15 text-sm font-semibold interactive">
           Volver al inicio
         </Link>
       </div>
@@ -186,7 +186,7 @@ function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreate
             <button
               key={g}
               onClick={() => setGender(g)}
-              className={`h-11 rounded-2xl text-sm font-semibold border transition-colors ${
+              className={`interactive h-11 rounded-2xl text-sm font-semibold border transition-colors ${
                 gender === g ? 'bg-primary/20 border-primary/60 text-white' : 'border-white/12 text-white/55'
               }`}
             >
@@ -202,7 +202,7 @@ function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreate
               key={id}
               onClick={() => setAvatarId(id)}
               aria-label={`Avatar ${id}`}
-              className={`rounded-full transition-transform active:scale-95 ${
+              className={`interactive rounded-full transition-transform active:scale-95 ${
                 avatarId === id ? 'ring-3 ring-primary scale-105' : 'opacity-55'
               }`}
             >
@@ -217,7 +217,7 @@ function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreate
             <button
               key={z}
               onClick={() => setZone(z)}
-              className={`h-11 rounded-2xl text-sm font-semibold border transition-colors ${
+              className={`interactive h-11 rounded-2xl text-sm font-semibold border transition-colors ${
                 zone === z ? 'bg-primary/20 border-primary/60 text-white' : 'border-white/12 text-white/55'
               }`}
             >
@@ -229,7 +229,7 @@ function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreate
         <button
           disabled={!check.ok || create.isPending}
           onClick={() => check.ok && create.mutate({ ticketCode, alias: check.alias, gender, avatarId, zone })}
-          className="w-full h-14 rounded-full bg-primary text-white font-bold text-base disabled:opacity-35 transition-opacity"
+          className="interactive w-full h-14 rounded-full bg-primary text-white font-bold text-base disabled:opacity-35 transition-opacity"
         >
           {create.isPending ? 'Entrando…' : 'Entrar a Playmatch'}
         </button>
@@ -285,7 +285,7 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, on
           </p>
           <button
             onClick={onOpenInbox}
-            className="relative h-9 px-3 rounded-full border border-white/15 text-sm"
+            className="interactive relative h-9 px-3 rounded-full border border-white/15 text-sm"
             aria-label="Mis tragos"
           >
             🍹
@@ -305,7 +305,7 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, on
           </p>
           <div className="flex gap-3 overflow-x-auto pb-1">
             {pending.map((p) => (
-              <button key={p.id} onClick={() => onPick(p)} className="shrink-0 flex flex-col items-center gap-1.5 w-16">
+              <button key={p.id} onClick={() => onPick(p)} className="interactive shrink-0 flex flex-col items-center gap-1.5 w-16">
                 <PartyAvatar gender={p.gender} avatarId={p.avatarId} className="w-14 h-14 rounded-full ring-2 ring-primary" />
                 <span className="text-[11px] truncate max-w-full">{p.alias}</span>
               </button>
@@ -402,7 +402,7 @@ function PersonCard({ ticketCode, person, onClose, onOpenChat, onGift }: {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-end -mt-2 -mr-2 mb-1">
-          <button onClick={onClose} className="p-2 text-white/40" aria-label="Cerrar"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} className="interactive p-2 text-white/40" aria-label="Cerrar"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="flex flex-col items-center text-center mb-6">
@@ -417,14 +417,14 @@ function PersonCard({ ticketCode, person, onClose, onOpenChat, onGift }: {
             <button
               disabled={busy}
               onClick={() => respond.mutate({ ticketCode, connectionId: person.connectionId!, accept: true })}
-              className="w-full h-14 rounded-full bg-primary font-bold disabled:opacity-40"
+              className="interactive w-full h-14 rounded-full bg-primary font-bold disabled:opacity-40"
             >
               Aceptar y hablar
             </button>
             <button
               disabled={busy}
               onClick={() => respond.mutate({ ticketCode, connectionId: person.connectionId!, accept: false })}
-              className="w-full h-12 rounded-full border border-white/15 text-white/60 font-semibold disabled:opacity-40"
+              className="interactive w-full h-12 rounded-full border border-white/15 text-white/60 font-semibold disabled:opacity-40"
             >
               Ahora no
             </button>
@@ -432,7 +432,7 @@ function PersonCard({ ticketCode, person, onClose, onOpenChat, onGift }: {
         ) : person.connectionStatus === 'accepted' && person.connectionId ? (
           <button
             onClick={() => onOpenChat(person.connectionId!, person.alias)}
-            className="w-full h-14 rounded-full bg-primary font-bold"
+            className="interactive w-full h-14 rounded-full bg-primary font-bold"
           >
             Abrir chat 💬
           </button>
@@ -442,7 +442,7 @@ function PersonCard({ ticketCode, person, onClose, onOpenChat, onGift }: {
           <button
             disabled={busy}
             onClick={() => touch.mutate({ ticketCode, targetProfileId: person.id })}
-            className="w-full h-14 rounded-full bg-primary font-bold disabled:opacity-40"
+            className="interactive w-full h-14 rounded-full bg-primary font-bold disabled:opacity-40"
           >
             Mandar un toque 👋
           </button>
@@ -453,7 +453,7 @@ function PersonCard({ ticketCode, person, onClose, onOpenChat, onGift }: {
             persona puede rechazarlo, y ahí no se cobra nada. */}
         <button
           onClick={() => onGift(person.id, person.alias)}
-          className="w-full h-13 mt-2.5 rounded-full border border-primary/40 bg-primary/10 font-semibold"
+          className="interactive w-full h-13 mt-2.5 rounded-full border border-primary/40 bg-primary/10 font-semibold"
         >
           Invitarle un trago 🍹
         </button>
@@ -464,13 +464,13 @@ function PersonCard({ ticketCode, person, onClose, onOpenChat, onGift }: {
               <button
                 onClick={() => block.mutate({ ticketCode, targetProfileId: person.id })}
                 disabled={busy}
-                className="flex-1 h-11 rounded-full border border-white/12 text-xs text-white/50 font-semibold inline-flex items-center justify-center gap-1.5"
+                className="interactive flex-1 h-11 rounded-full border border-white/12 text-xs text-white/50 font-semibold inline-flex items-center justify-center gap-1.5"
               >
                 <Ban className="w-3.5 h-3.5" /> Bloquear
               </button>
               <button
                 onClick={() => setReporting(true)}
-                className="flex-1 h-11 rounded-full border border-red-500/25 text-xs text-red-300 font-semibold inline-flex items-center justify-center gap-1.5"
+                className="interactive flex-1 h-11 rounded-full border border-red-500/25 text-xs text-red-300 font-semibold inline-flex items-center justify-center gap-1.5"
               >
                 <Flag className="w-3.5 h-3.5" /> Denunciar
               </button>
@@ -487,11 +487,11 @@ function PersonCard({ ticketCode, person, onClose, onOpenChat, onGift }: {
                 <button
                   disabled={reason.trim().length < 3 || busy}
                   onClick={() => report.mutate({ ticketCode, targetProfileId: person.id, reason: reason.trim() })}
-                  className="flex-1 h-11 rounded-full bg-red-500/85 text-sm font-bold disabled:opacity-35"
+                  className="interactive flex-1 h-11 rounded-full bg-red-500/85 text-sm font-bold disabled:opacity-35"
                 >
                   Enviar denuncia
                 </button>
-                <button onClick={() => setReporting(false)} className="px-5 h-11 rounded-full border border-white/12 text-sm text-white/55">
+                <button onClick={() => setReporting(false)} className="interactive px-5 h-11 rounded-full border border-white/12 text-sm text-white/55">
                   Cancelar
                 </button>
               </div>
@@ -542,7 +542,7 @@ function Chat({ ticketCode, connectionId, alias, onClose }: {
       transition={{ type: 'spring', damping: 30, stiffness: 320 }}
     >
       <header className="flex items-center gap-3 px-4 py-3 border-b border-white/10 shrink-0">
-        <button onClick={onClose} className="p-1 -ml-1 text-white/60" aria-label="Volver">
+        <button onClick={onClose} className="interactive p-1 -ml-1 text-white/60" aria-label="Volver">
           <ArrowLeft className="w-5 h-5" />
         </button>
         {chat.data?.other && (
@@ -581,7 +581,7 @@ function Chat({ ticketCode, connectionId, alias, onClose }: {
         <button
           onClick={submit}
           disabled={!text.trim() || send.isPending}
-          className="w-12 h-12 shrink-0 grid place-items-center rounded-full bg-primary disabled:opacity-35"
+          className="interactive w-12 h-12 shrink-0 grid place-items-center rounded-full bg-primary disabled:opacity-35"
           aria-label="Enviar"
         >
           <Send className="w-4.5 h-4.5" />

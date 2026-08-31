@@ -866,7 +866,7 @@ function InfoSection() {
           <Accordion type="single" collapsible className="w-full">
             {CANDYLAND.faqs.map((faq, i) => (
               <AccordionItem key={i} value={`faq-${i}`} className="border-primary/15">
-                <AccordionTrigger className="text-left text-base md:text-lg font-semibold hover:text-primary">
+                <AccordionTrigger className="text-left text-base md:text-lg font-semibold hover:text-primary interactive">
                   {faq.q}
                 </AccordionTrigger>
                 <AccordionContent className="text-muted-foreground text-base leading-relaxed">
@@ -964,7 +964,7 @@ function StickyMobileCTA() {
     >
       <Link
         href={`/checkout/${CANDYLAND.slug}`}
-        className="btn-jelly w-full py-4 bg-primary text-primary-foreground rounded-full font-bold uppercase tracking-wide text-base inline-flex items-center justify-center gap-2"
+        className="btn-jelly w-full py-4 bg-primary text-primary-foreground rounded-full font-bold uppercase tracking-wide text-base inline-flex items-center justify-center gap-2 interactive"
       >
         <Ticket className="w-5 h-5" />
         Quiero ir
