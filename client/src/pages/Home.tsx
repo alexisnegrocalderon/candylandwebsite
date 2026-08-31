@@ -241,6 +241,39 @@ function DraggableCandies({ boundsRef }: { boundsRef: React.RefObject<HTMLElemen
   );
 }
 
+/* ─── Título del Hero: efecto "decodificación" ─────────────── */
+
+const DECODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ!?%&*01';
+function randomDecodeChar() {
+  return DECODE_CHARS[Math.floor(Math.random() * DECODE_CHARS.length)];
+}
+
+/** Letra del título del Hero que "se decodifica": arranca mostrando
+ *  caracteres al azar y se asienta en el caracter real después de un breve
+ *  escaneo, en cascada por índice -- como una señal que se resuelve. Mismo
+ *  guiño visual que el countdown-placeholder de ComingSoonCard (GlitchUnit,
+ *  más abajo), así el sitio entero cuenta la misma historia de "algo
+ *  encriptado está por revelarse". Respeta reduced-motion: muestra el
+ *  caracter final de una, sin escaneo. */
+function DecodeLetter({ char, lockAfterMs }: { char: string; lockAfterMs: number }) {
+  const isSpace = char === ' ';
+  const rm = prefersReducedMotion();
+  const [display, setDisplay] = useState(() => (rm || isSpace ? char : randomDecodeChar()));
+  useEffect(() => {
+    if (rm || isSpace) return;
+    const interval = setInterval(() => setDisplay(randomDecodeChar()), 45);
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      setDisplay(char);
+    }, lockAfterMs);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [char, lockAfterMs, isSpace, rm]);
+  return <>{display}</>;
+}
+
 /* ─── Hero ─────────────────────────────────────────────────── */
 
 function Hero() {
@@ -353,7 +386,7 @@ function Hero() {
           {/* Letras interactivas: hover material candy en desktop, shimmer automático en móvil */}
           {CANDYLAND.nombre.split('').map((ch, i) => (
             <span key={i} aria-hidden className="candy-letter" style={{ animationDelay: `${i * 0.22}s` }}>
-              {ch}
+              <DecodeLetter char={ch} lockAfterMs={450 + i * 70} />
             </span>
           ))}
         </motion.h1>
