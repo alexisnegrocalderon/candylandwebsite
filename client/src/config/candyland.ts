@@ -7,9 +7,9 @@
  *
  *   • `MARCA`  → lo permanente (recinto, valores, edad mínima, redes, FAQ).
  *   • `EVENTO` → lo que cambia con cada fiesta (nombre, fecha, dress code,
- *                accesos, precios, Misión 300, pistas).
+ *                accesos, precios, pistas).
  *
- * 👉 Para montar el próximo evento se edita `EVENTO` (y `accesos`, `mision`,
+ * 👉 Para montar el próximo evento se edita `EVENTO` (y `accesos`,
  * `pistas`, `lineup`). Los textos del sitio que nombran al evento leen
  * `EVENTO.nombre`, así que se actualizan solos; los que hablan de la marca
  * dicen Mansion Playroom y no hay que tocarlos. Los extras (estacionamiento,
@@ -52,7 +52,7 @@ export interface Acceso {
   id: string;
   nombre: string;
   precio: number;
-  personas: number; // cuántas personas suma este acceso a la Misión 300
+  personas: number; // cuántas personas cubre este acceso
   descripcion: string;
   beneficios: string[];
   estado: EstadoAcceso;
@@ -190,7 +190,7 @@ export const MARCA = {
  * EVENTO — lo que cambia con cada fiesta.
  *
  * 👉 PARA MONTAR EL PRÓXIMO EVENTO se edita ESTE bloque (y `accesos`,
- * `mision`, `pistas` y `lineup` más abajo). Los textos del sitio que
+ * `pistas` y `lineup` más abajo). Los textos del sitio que
  * nombran el evento leen `EVENTO.nombre`, así que se actualizan solos.
  * ═══════════════════════════════════════════════════════════════ */
 export const EVENTO = {
@@ -232,52 +232,6 @@ export const CANDYLAND = {
   // en el objeto compuesto gana el del evento porque es lo que esperaban
   // todos los usos que ya existían.
   nombre: EVENTO.nombre,
-
-  // ── Misión 300 ─────────────────────────────────────────────
-  mision: {
-    meta: 300,
-    // Personas que ya estaban confirmadas ANTES de esta web: vendidas por la
-    // ticketera anterior (no existen como orden en esta base de datos) más
-    // amigos/invitados que el dueño cuenta a mano y tampoco quedan
-    // registrados como compra. Se suma siempre por encima del conteo real
-    // de la DB, así el contador no "retrocede" al migrar y sigue creciendo
-    // normal con cada venta nueva.
-    //
-    // Ajustado el 2026-08-02 (pedido explícito del dueño): con las ventas
-    // web reales confirmadas ese día (39 personas, ya con la migración de
-    // schema aplicada y la consulta real funcionando), el total debía
-    // marcar 102 personas.
-    //
-    // Reajustado el 2026-08-03: se corrigió un bug donde el conteo real de
-    // la DB incluía abonos de Misión 300 sin resolver (ver PR #54) -- con
-    // el bug arreglado, el conteo real de la DB (vendidasDb) bajó a 7
-    // (verificado en vivo contra producción: 51 personas en accesos vendidos
-    // en bruto, menos 44 personas de abonos todavía sin resolver). El dueño
-    // pidió sumar un grupo de antes de este sistema (ticketera anterior /
-    // contadas a mano, que todavía no había agregado) para que el total
-    // público quede en 112 -- baseline = 112 - 7 = 105.
-    //
-    // ⚠️ Ojo con este cálculo la próxima vez: el número que reporta el dueño
-    // mirando la Home es el TOTAL YA MOSTRADO (baseline + vendidasDb), no
-    // vendidasDb sola -- un primer intento restó mal (112 - 70, tratando el
-    // 70 reportado como si fuera solo la parte de la DB) y dejó el total en
-    // 49 en vez de 112. Para recalibrar: pedir/confirmar el valor real de
-    // vendidasDb (o consultar `/api/trpc/events.getTicketTypes` +
-    // `/api/trpc/mission300.pendingPersonas` en vivo) y restar ESO al total
-    // deseado, no el número que aparece en pantalla.
-    baseline: 105,
-    // Fallback manual para cuando la consulta a la base de datos falla
-    // (ej. una migración de schema pendiente de aplicar en producción).
-    // Con DB funcionando, se usa baseline + la suma real de PERSONAS
-    // vendidas (dúo=2, trío=3, etc.) -- mantenido igual al total de arriba
-    // para que una falla temporal no muestre un número viejo o al azar.
-    confirmadosFallback: 112,
-    titulo: 'Misión 300',
-    copy: 'Cada dulce representa una entrada confirmada.',
-    // EDITAR: cuando generes el loop ambiental en Higgsfield (corto, sin audio),
-    // ponlo en client/public/candyland/ y escribe aquí la ruta, ej: '/candyland/machine-loop.mp4'
-    videoLoop: '',
-  },
 
   // ── Pistas / Line-up ───────────────────────────────────────
   pistas: [

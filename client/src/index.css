@@ -126,59 +126,6 @@ html {
   to { transform: translateX(120%); }
 }
 
-/* Botón 3D "gominola" para el gancho de Misión 300: canto grueso inferior
- * (como un caramelo apretable), se hunde al tocarlo y respira con un pulso
- * de brillo — busca ser el elemento más llamativo de la pantalla, distinto
- * a cualquier otro botón del sitio. */
-.btn-mission300 {
-  position: relative;
-  background: linear-gradient(135deg, var(--color-cherry), var(--color-primary) 55%, var(--color-violet-electric));
-  box-shadow:
-    0 6px 0 oklch(0.42 0.15 340 / 0.95),
-    0 10px 26px oklch(0.70 0.19 340 / 0.45),
-    0 0 42px oklch(0.70 0.20 350 / 0.4);
-  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s ease;
-  animation: mission300-breathe 2.6s ease-in-out infinite;
-}
-.btn-mission300:hover {
-  transform: translateY(-3px) scale(1.02);
-  box-shadow:
-    0 9px 0 oklch(0.42 0.15 340 / 0.95),
-    0 16px 34px oklch(0.70 0.19 340 / 0.5),
-    0 0 54px oklch(0.70 0.20 350 / 0.5);
-}
-.btn-mission300:active {
-  transform: translateY(4px) scale(0.98);
-  box-shadow:
-    0 2px 0 oklch(0.42 0.15 340 / 0.95),
-    0 4px 14px oklch(0.70 0.19 340 / 0.4);
-}
-.btn-mission300::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(105deg, transparent 35%, oklch(1 0 0 / 0.45) 50%, transparent 65%);
-  transform: translateX(-120%);
-}
-.btn-mission300:hover::after {
-  animation: shine-sweep 0.9s ease forwards;
-}
-@keyframes mission300-breathe {
-  0%, 100% {
-    box-shadow:
-      0 6px 0 oklch(0.42 0.15 340 / 0.95),
-      0 10px 26px oklch(0.70 0.19 340 / 0.45),
-      0 0 42px oklch(0.70 0.20 350 / 0.4);
-  }
-  50% {
-    box-shadow:
-      0 6px 0 oklch(0.42 0.15 340 / 0.95),
-      0 10px 26px oklch(0.70 0.19 340 / 0.45),
-      0 0 58px oklch(0.70 0.20 350 / 0.6);
-  }
-}
-
 /* Caramelos flotantes decorativos */
 @keyframes candy-float {
   0%, 100% { transform: translateY(0) rotate(0deg); }
@@ -191,7 +138,7 @@ html {
   animation: candy-float 9s ease-in-out infinite;
 }
 
-/* Pulso de brillo/escala para blobs de glow (Misión 300, disco ball, etc.) */
+/* Pulso de brillo/escala para blobs de glow (disco ball, teaser cards, etc.) */
 @keyframes candy-glow-pulse {
   0%, 100% { opacity: 0.45; transform: scale(1); }
   50% { opacity: 0.8; transform: scale(1.12); }
@@ -200,7 +147,7 @@ html {
   animation: candy-glow-pulse 2.6s ease-in-out infinite;
 }
 
-/* Brillo que recorre la barra de progreso Misión 300 */
+/* Brillo que recorre una barra de progreso */
 @keyframes candy-bar-shine {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(250%); }
@@ -247,9 +194,7 @@ html {
     animation: none;
   }
   .btn-jelly,
-  .btn-jelly::after,
-  .btn-mission300,
-  .btn-mission300::after {
+  .btn-jelly::after {
     transition: none;
     animation: none;
   }

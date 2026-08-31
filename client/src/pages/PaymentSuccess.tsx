@@ -57,7 +57,7 @@ export default function PaymentSuccess() {
           transition={{ delay: 0.4 }}
           className="text-muted-foreground text-lg mb-2"
         >
-          Tu pago fue confirmado y ya sumaste tu dulce a la Misión 300.
+          Tu pago fue confirmado y tu lugar ya está asegurado.
         </motion.p>
         <p className="text-muted-foreground text-sm mb-8 inline-flex items-center gap-1.5 justify-center">
           <Sparkles className="w-3.5 h-3.5 text-primary" /> Tu acceso ya fue enviado a tu correo.

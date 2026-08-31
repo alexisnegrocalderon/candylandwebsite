@@ -5,6 +5,16 @@
  * el checkout antes de pagar).
  */
 
+/** Interruptor general: Misión 300 quedó pausada -- viene una nueva estrategia
+ * de ventas todavía sin definir. Mientras esté en `false`, `isMissionActiveForEvent()`
+ * corta acá mismo y devuelve `false` siempre, sin importar `missionForceClosed`
+ * ni la fecha del evento -- así ningún evento nuevo puede reactivar precio de
+ * abono por accidente. El resto de este archivo (cálculo de precios, cutoff,
+ * etc.) se deja intacto para poder liquidar abonos históricos desde el admin
+ * y el webhook -- solo se apaga el punto de entrada que decide si la preventa
+ * está "activa" para cobrar de nuevo. */
+export const MISSION_300_ENABLED = false;
+
 export const MISSION_300_GOAL = 300;
 export const MISSION_300_DEPOSIT_PER_PERSON = 10000;
 export const MISSION_300_CUTOFF_DAYS = 3;
@@ -86,6 +96,7 @@ export function isMissionActiveForEvent(
   event: { eventDate: Date | string; missionForceClosed?: number | boolean | null },
   now: Date = new Date(),
 ): boolean {
+  if (!MISSION_300_ENABLED) return false;
   if (event.missionForceClosed) return false;
   return isMissionWindowOpen(new Date(event.eventDate), now);
 }

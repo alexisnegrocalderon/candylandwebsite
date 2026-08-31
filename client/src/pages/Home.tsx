@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence, MotionConfig, useScroll, useTransform } from 'framer-motion';
 import {
   Calendar,
@@ -8,7 +8,6 @@ import {
   Gamepad2,
   Instagram,
   Lock,
-  Lollipop,
   MapPin,
   Martini,
   Music,
@@ -27,14 +26,11 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { trpc } from '@/lib/trpc';
-import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
+import { CANDYLAND, EVENTO } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
 import { scrollToId, prefersReducedMotion, isFinePointer } from '@/lib/smoothScroll';
-import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 import { useSeo } from '@/hooks/useSeo';
 import { eventSchema, faqSchema } from '@shared/structuredData';
-
-type MissionPricing = { generalPrice: number; depositPrice: number } | null;
 
 /** Precio más bajo entre los accesos: Google exige un `price` concreto en la
  * oferta del evento, si no descarta el resultado enriquecido. */
@@ -83,106 +79,6 @@ function useCountdown(target: Date) {
     segundos: Math.floor((diff / 1000) % 60),
     esHoy: diff === 0,
   };
-}
-
-/** Anima un número desde su valor previo hasta `target` (easeOutCubic). */
-function useCountUp(target: number, duration = 1200) {
-  const [value, setValue] = useState(target);
-  const fromRef = useRef(target);
-  useEffect(() => {
-    if (prefersReducedMotion()) {
-      setValue(target);
-      fromRef.current = target;
-      return;
-    }
-    const from = fromRef.current;
-    if (from === target) return;
-    const start = performance.now();
-    let raf = 0;
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setValue(Math.round(from + (target - from) * eased));
-      if (t < 1) raf = requestAnimationFrame(tick);
-      else fromRef.current = target;
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [target, duration]);
-  return value;
-}
-
-/** Dispara un id incremental cada vez que `value` sube (para animar un "burst"). */
-function useIncreaseBurst(value: number) {
-  const [burstId, setBurstId] = useState(0);
-  const prevRef = useRef(value);
-  useEffect(() => {
-    if (value > prevRef.current) setBurstId((n) => n + 1);
-    prevRef.current = value;
-  }, [value]);
-  return burstId;
-}
-
-/* ─── Anillo de progreso (contador Misión 300) ─────────────── */
-
-/**
- * Anillo de progreso Misión 300: reemplaza la vieja "máquina de dulces" por
- * un aro moderno con gradiente candy que se llena según el avance. Cuando
- * `dropId` cambia (compra confirmada) se dispara un pequeño brillo ✨.
- */
-function MissionRing({ pct, dropId }: { pct: number; dropId: number }) {
-  const size = 176;
-  const stroke = 12;
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference * (1 - Math.max(0, Math.min(100, pct)) / 100);
-
-  return (
-    <div className="relative w-36 h-36 md:w-44 md:h-44 shrink-0 select-none" aria-hidden>
-      <svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="var(--color-muted)" strokeWidth={stroke} />
-        <motion.circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke="url(#missionRingGradient)"
-          strokeWidth={stroke}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          initial={{ strokeDashoffset: circumference }}
-          animate={{ strokeDashoffset: offset }}
-          transition={{ duration: 1.4, ease: [0.23, 1, 0.32, 1] }}
-        />
-        <defs>
-          <linearGradient id="missionRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="var(--color-primary)" />
-            <stop offset="50%" stopColor="var(--color-cherry)" />
-            <stop offset="100%" stopColor="var(--color-violet-electric)" />
-          </linearGradient>
-        </defs>
-      </svg>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-16 h-16 md:w-20 md:h-20 rounded-full glass-candy flex items-center justify-center">
-          <Lollipop className="w-8 h-8 md:w-10 md:h-10 text-primary" strokeWidth={1.5} />
-        </div>
-      </div>
-      <AnimatePresence>
-        {dropId > 0 && (
-          <motion.span
-            key={dropId}
-            className="absolute top-0 right-0 text-2xl md:text-3xl"
-            initial={{ scale: 0, opacity: 0, y: 6 }}
-            animate={{ scale: 1.1, opacity: 1, y: -6 }}
-            exit={{ opacity: 0, scale: 0.6 }}
-            transition={{ duration: 0.6, ease: [0.34, 1.4, 0.64, 1] }}
-          >
-            ✨
-          </motion.span>
-        )}
-      </AnimatePresence>
-    </div>
-  );
 }
 
 /* Capa global de caramelos que derivan con el scroll (sutil, detrás del contenido) */
@@ -626,7 +522,7 @@ function UpcomingEventsSection() {
   );
 }
 
-/* ─── Countdown + Misión 300 ───────────────────────────────── */
+/* ─── Countdown ────────────────────────────────────────────── */
 
 function CountdownUnit({ value, label }: { value: number; label: string }) {
   return (
@@ -678,7 +574,7 @@ function GlitchUnit({ label }: { label: string }) {
   );
 }
 
-/** Tarjeta que reemplaza countdown + Misión 300 mientras no hay fecha
+/** Tarjeta que reemplaza el countdown mientras no hay fecha
  *  confirmada ni venta activa (ver EVENTO.fechaConfirmada). En vez de un
  *  simple "próximamente", vende intriga: nuestro 2° Aniversario se viene con
  *  sorpresa, con un placeholder de countdown que "glitchea" (GlitchUnit,
@@ -739,13 +635,8 @@ function ComingSoonCard() {
   );
 }
 
-function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missionPricing: MissionPricing }) {
+function UrgencySection() {
   const { dias, horas, minutos, segundos, esHoy } = useCountdown(CANDYLAND.eventDate);
-  const { meta, titulo, copy } = CANDYLAND.mision;
-  const progreso = Math.min(100, Math.round((vendidos / meta) * 100));
-  const displayCount = useCountUp(vendidos);
-  const burstId = useIncreaseBurst(vendidos);
-  const soldOut = vendidos >= meta;
 
   if (!EVENTO.fechaConfirmada) {
     return (
@@ -764,7 +655,7 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
       <div aria-hidden className="absolute -top-16 left-[10%] w-72 h-72 rounded-full bg-primary/15 blur-[100px] candy-float-slow" />
       <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/15 blur-[110px] candy-float" />
 
-      <div className="container relative space-y-6 md:space-y-8">
+      <div className="container relative">
         {/* Countdown — tarjeta propia, grande y con urgencia visual: borde
          * de alerta, tiles grandes con degradé candy.
          *
@@ -796,76 +687,12 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
           <p className="relative text-muted-foreground text-xs md:text-base font-medium">
             {CANDYLAND.fechaTexto} · {CANDYLAND.horarioTexto}
           </p>
-        </motion.div>
-
-        {/* Misión 300 — a todo el ancho, con espacio para respirar */}
-        <motion.div {...reveal} className="relative glass-candy rounded-3xl p-6 md:p-10 overflow-visible">
-          <div className="flex flex-col md:flex-row items-center gap-6 md:gap-10">
-            <div className="relative shrink-0">
-              <div aria-hidden className="absolute inset-0 rounded-full bg-primary/25 blur-3xl candy-glow-pulse" />
-              <MissionRing pct={progreso} dropId={burstId} />
-            </div>
-
-            <div className="flex-1 text-center md:text-left w-full">
-              <h3 className="font-heading font-bold text-xl md:text-2xl text-gradient-candy mb-1">{titulo}</h3>
-              <div className="flex items-baseline justify-center md:justify-start flex-wrap gap-x-2 gap-y-0.5">
-                <span className="font-heading font-extrabold text-4xl md:text-5xl text-gradient-candy tabular-nums" aria-live="polite">
-                  {displayCount}
-                </span>
-                <span className="font-heading font-bold text-lg md:text-xl text-muted-foreground">/{meta}</span>
-                <span className="text-sm md:text-base font-semibold text-foreground/85">ya entraron</span>
-              </div>
-              <p className="text-xs md:text-sm text-muted-foreground mt-1">{copy}</p>
-
-              {/* invisible mientras missionPricing no resuelve -- mismo criterio
-               * que en Hero(), reserva el espacio para no correr la barra de
-               * progreso de abajo cuando llega la query. */}
-              <p className={`mt-2.5 inline-flex flex-wrap items-baseline justify-center md:justify-start gap-x-2 gap-y-0.5 text-sm md:text-base ${missionPricing ? '' : 'invisible'}`}>
-                <span className="font-heading font-extrabold text-gradient-candy text-lg md:text-xl">{formatCLP(MISSION_300_DEPOSIT_PER_PERSON)}</span>
-                <span className="text-muted-foreground">por persona ·</span>
-                <span className="font-bold text-cherry">Reserva tu lugar hoy</span>
-              </p>
-
-              <AnimatePresence>
-                {burstId > 0 && (
-                  <motion.p
-                    key={burstId}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.4 }}
-                    className="text-xs md:text-sm text-primary font-semibold mt-2"
-                  >
-                    ✨ Una persona más se suma a la noche
-                  </motion.p>
-                )}
-              </AnimatePresence>
-
-              <div className="h-3.5 rounded-full bg-muted overflow-hidden mt-4">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${progreso}%` }}
-                  transition={{ duration: 1.2, ease: [0.23, 1, 0.32, 1] }}
-                  className="h-full rounded-full bg-gradient-to-r from-primary via-cherry to-violet-electric relative overflow-hidden"
-                >
-                  <span className="absolute inset-0 candy-bar-shine" />
-                </motion.div>
-              </div>
-
-              {soldOut ? (
-                <div className="mt-5 w-full md:w-auto text-center px-6 py-3 rounded-full bg-muted text-muted-foreground text-sm font-bold uppercase tracking-wide" role="status">
-                  {EVENTO.nombre} está completo · Sold out
-                </div>
-              ) : (
-                <Link
-                  href={`/checkout/${CANDYLAND.slug}`}
-                  className="btn-jelly mt-5 inline-flex items-center justify-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive"
-                >
-                  🍭 Quiero mi dulce · Comprar entrada
-                </Link>
-              )}
-            </div>
-          </div>
+          <Link
+            href={`/checkout/${CANDYLAND.slug}`}
+            className="btn-jelly relative mt-2 inline-flex items-center justify-center gap-2 px-8 py-3.5 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive"
+          >
+            <Ticket className="w-4 h-4" /> Comprar entrada
+          </Link>
         </motion.div>
       </div>
     </section>
@@ -1176,54 +1003,6 @@ export default function Home() {
     ],
   });
 
-  const { data: event } = trpc.events.getBySlug.useQuery({ slug: CANDYLAND.slug }, { retry: false });
-  const { data: liveTickets } = trpc.events.getTicketTypes.useQuery(
-    { slug: CANDYLAND.slug },
-    // Polling suave: con DB conectada, el contador Misión 300 se actualiza solo
-    // cuando entran compras aprobadas (webhook MP → soldCount). Sin DB, no-op.
-    { retry: false, refetchInterval: 30_000, refetchIntervalInBackground: false },
-  );
-  // Personas de abonos de Misión 300 que todavía NO están resueltas (ni el
-  // grupo juntó la meta, ni pagaron la diferencia) -- soldCount ya las cuenta
-  // apenas se aprueba el abono (para que el stock no se sobrevenda), pero acá
-  // hay que restarlas: el contador público solo debe mostrar entradas ya
-  // confirmadas, no las que todavía dependen de que se resuelva la misión.
-  const { data: pendingMission } = trpc.mission300.pendingPersonas.useQuery(
-    { slug: CANDYLAND.slug },
-    { retry: false, refetchInterval: 30_000, refetchIntervalInBackground: false },
-  );
-
-  const vendidos = useMemo(() => {
-    if (liveTickets && liveTickets.length > 0) {
-      // Cuenta PERSONAS solo de accesos (nunca extras como estacionamiento/piscolón):
-      // cada entrada vendida suma según su acceso (dúo=2, trío=3…), usando el
-      // accesoSlug real del ticket type en vez de matchear por nombre (frágil ante
-      // mayúsculas/tildes) — más el baseline de la ticketera anterior.
-      const vendidasDb = liveTickets.reduce((s, t: any) => {
-        if (t.category !== 'acceso') return s;
-        return s + (t.soldCount ?? 0) * personasForAccesoSlug(t.accesoSlug);
-      }, 0) - (pendingMission?.personas ?? 0);
-      return CANDYLAND.mision.baseline + vendidasDb;
-    }
-    return CANDYLAND.mision.confirmadosFallback;
-  }, [liveTickets, pendingMission]);
-
-  // Precio "gancho" para publicitar la preventa Misión 300 en el Hero y en su
-  // propia sección: prioriza el acceso Dúo (el que se usa en toda la
-  // comunicación de la preventa) y si no existe usa el acceso más barato.
-  const missionPricing: MissionPricing = useMemo(() => {
-    if (!liveTickets || liveTickets.length === 0) return null;
-    if (!event?.eventDate || !isMissionActiveForEvent(event)) return null;
-    const accesos = liveTickets.filter((t: any) => t.category === 'acceso' && t.status === 'active');
-    if (accesos.length === 0) return null;
-    const destacado = accesos.find((t: any) => t.accesoSlug === 'duo')
-      ?? [...accesos].sort((a: any, b: any) => Number(a.price) - Number(b.price))[0];
-    const generalPrice = Number((destacado as any).price);
-    const depositPrice = missionDepositPrice((destacado as any).accesoSlug);
-    if (!(depositPrice < generalPrice)) return null;
-    return { generalPrice, depositPrice };
-  }, [liveTickets, event]);
-
   return (
     <MotionConfig reducedMotion="user">
       <CandyIntro />
@@ -1231,7 +1010,7 @@ export default function Home() {
       {showNoise && <div className="noise-overlay" />}
       <Hero />
       <UpcomingEventsSection />
-      <UrgencySection vendidos={vendidos} missionPricing={missionPricing} />
+      <UrgencySection />
       <LineupSection />
       <ExperienceSection />
       <InfoSection />

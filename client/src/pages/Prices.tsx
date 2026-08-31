@@ -3,7 +3,6 @@ import { motion } from 'framer-motion';
 import { Ticket, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
-import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
 import { useSeo } from '@/hooks/useSeo';
 import { prefersReducedMotion } from '@/lib/smoothScroll';
 import { breadcrumbSchema } from '@shared/structuredData';
@@ -25,10 +24,7 @@ function handleCandyPassMove(e: React.PointerEvent<HTMLDivElement>) {
   e.currentTarget.style.setProperty('--my', `${((e.clientY - r.top) / r.height) * 100}%`);
 }
 
-/** Página "Entradas": lista todos los accesos con su precio general y, si la
- * ventana de Misión 300 sigue abierta, el precio de abono al lado tachando
- * el general — mismo gancho de urgencia que ya está en el Hero, pero acá con
- * el detalle completo de cada tipo de acceso. */
+/** Página "Entradas": lista todos los accesos con su precio general. */
 export default function Prices() {
   // Intención de conversión pura: precios y accesos. No repite el pitch de
   // experiencia del home ni la frase "fiesta liberal en Viña del Mar y
@@ -45,11 +41,9 @@ export default function Prices() {
     ],
   });
 
-  const { data: event } = trpc.events.getBySlug.useQuery({ slug: CANDYLAND.slug }, { retry: false });
   const { data: liveTickets } = trpc.events.getTicketTypes.useQuery({ slug: CANDYLAND.slug }, { retry: false });
 
   const accesos = (liveTickets ?? []).filter((t: any) => t.category === 'acceso' && t.status !== 'hidden');
-  const missionOpen = !!event?.eventDate && isMissionActiveForEvent(event);
 
   return (
     <div className="relative min-h-dvh pt-24 pb-16 overflow-hidden">
@@ -60,9 +54,7 @@ export default function Prices() {
           <p className="text-sm uppercase tracking-[0.3em] text-primary mb-3 text-center">{EVENTO.nombre}</p>
           <h1 className="font-heading font-extrabold text-3xl md:text-4xl tracking-tight text-center mb-2">Entradas</h1>
           <p className="text-muted-foreground text-sm text-center mb-10">
-            {missionOpen
-              ? 'Mientras dure la Misión 300, todos los accesos principales tienen precio de abono.'
-              : 'Estos son los valores generales de cada acceso.'}
+            Estos son los valores generales de cada acceso.
           </p>
         </motion.div>
 
@@ -78,7 +70,6 @@ export default function Prices() {
           >
             {accesos.map((t: any) => {
               const generalPrice = Number(t.price);
-              const depositPrice = missionOpen ? missionDepositPrice(t.accesoSlug) : null;
               return (
                 <motion.div
                   key={t.id}
@@ -93,14 +84,7 @@ export default function Prices() {
                     {t.description && <p className="text-muted-foreground text-xs mt-0.5">{t.description}</p>}
                   </div>
                   <div className="relative text-right shrink-0">
-                    {depositPrice !== null && depositPrice < generalPrice ? (
-                      <>
-                        <p className="line-through text-muted-foreground text-sm">{formatCLP(generalPrice)}</p>
-                        <p className="font-heading font-extrabold text-xl text-gradient-candy">{formatCLP(depositPrice)}</p>
-                      </>
-                    ) : (
-                      <p className="font-heading font-extrabold text-xl">{formatCLP(generalPrice)}</p>
-                    )}
+                    <p className="font-heading font-extrabold text-xl">{formatCLP(generalPrice)}</p>
                   </div>
                 </motion.div>
               );
