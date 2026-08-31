@@ -80,8 +80,17 @@
 }
 
 /* Interactive button -- la única clase custom usada tanto en páginas
-   públicas como en admin/caja (ej. components/admin/MailingComposer.tsx). */
+   públicas como en admin/caja (ej. components/admin/MailingComposer.tsx).
+   `touch-action: manipulation` es lo que de verdad importa acá: sin esto,
+   como el viewport y el `touch-action` de html/body de arriba dejan el
+   pinch-zoom prendido a propósito (por accesibilidad), el navegador espera
+   ~300ms después de cada tap para confirmar que no es la primera mitad de
+   un doble-tap-para-zoom antes de disparar el click -- en TODOS los botones
+   y links del sitio (menú, CTAs, etc.), no solo en uno. `manipulation` saca
+   a estos elementos puntuales de esa espera sin tocar el pinch-zoom de la
+   página en general. */
 .interactive {
+  touch-action: manipulation;
   transition: transform 0.16s cubic-bezier(0.23, 1, 0.32, 1);
 }
 .interactive:active {

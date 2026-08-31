@@ -156,7 +156,7 @@ export default function Navbar() {
                   <Link
                     href={link.href}
                     onClick={() => setMobileOpen(false)}
-                    className="text-3xl font-heading font-bold tracking-tight"
+                    className="text-3xl font-heading font-bold tracking-tight interactive"
                   >
                     {link.label}
                   </Link>
@@ -168,7 +168,7 @@ export default function Navbar() {
                   <Link
                     href={`/checkout/${CANDYLAND.slug}`}
                     onClick={() => setMobileOpen(false)}
-                    className="btn-jelly mt-2 w-full px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center inline-flex items-center justify-center"
+                    className="btn-jelly mt-2 w-full px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center inline-flex items-center justify-center interactive"
                   >
                     Comprar Entradas
                   </Link>
@@ -184,7 +184,7 @@ export default function Navbar() {
                     key={link.href}
                     href={link.href}
                     onClick={() => setMobileOpen(false)}
-                    className="text-sm text-muted-foreground"
+                    className="text-sm text-muted-foreground interactive"
                   >
                     {link.label}
                   </Link>
