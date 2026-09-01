@@ -5,6 +5,15 @@ import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { breadcrumbSchema } from '@shared/structuredData';
 
+// Mismo objeto `reveal` que usa Home.tsx -- duplicado acá (no exportado
+// desde allá) para no crear un import cruzado entre páginas por 5 líneas.
+const reveal = {
+  initial: { opacity: 0, y: 40 },
+  whileInView: { opacity: 1, y: 0 },
+  viewport: { once: true, margin: '400px' },
+  transition: { duration: 0.6, ease: [0.23, 1, 0.32, 1] as const },
+};
+
 export default function Events() {
   // Esta página se queda con la intención de CALENDARIO ("eventos este fin de
   // semana en Valparaíso"), no con la de experiencia -- ésa es del home.
@@ -25,12 +34,7 @@ export default function Events() {
   return (
     <div className="min-h-screen pt-24 pb-16">
       <div className="container">
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          className="mb-16"
-        >
+        <motion.div {...reveal} className="mb-16">
           <p className="text-sm uppercase tracking-[0.3em] text-primary mb-4">Calendario</p>
           <h1 className="font-heading text-5xl md:text-7xl tracking-tight">
             Próximos <span className="text-gradient">Eventos</span>
@@ -51,11 +55,12 @@ export default function Events() {
               <motion.div
                 key={event.id}
                 initial={{ opacity: 0, y: 40 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: i * 0.1 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: '400px' }}
+                transition={{ duration: 0.5, delay: Math.min(i * 0.06, 0.3), ease: [0.23, 1, 0.32, 1] }}
               >
                 <Link href={`/eventos/${event.slug}`} className="group block">
-                  <div className="relative aspect-[3/4] rounded-2xl overflow-hidden bg-card border border-border/50 transition-all duration-500 group-hover:border-primary/50 group-hover:scale-[1.02]">
+                  <div className="relative aspect-[3/4] rounded-2xl overflow-hidden glass-candy interactive transition-all duration-500 group-hover:border-primary/50 group-hover:scale-[1.02]">
                     {event.imageUrl ? (
                       <img
                         src={event.imageUrl}

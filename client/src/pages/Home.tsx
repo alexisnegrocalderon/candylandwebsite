@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
 import { motion, AnimatePresence, MotionConfig, useScroll, useTransform } from 'framer-motion';
 import {
   Calendar,
@@ -29,10 +29,16 @@ import {
 import { trpc } from '@/lib/trpc';
 import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
+import ScrollStory from '@/components/home/ScrollStory';
 import { scrollToId, prefersReducedMotion, isFinePointer } from '@/lib/smoothScroll';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 import { useSeo } from '@/hooks/useSeo';
 import { eventSchema, faqSchema } from '@shared/structuredData';
+
+// three/@react-three sólo lo necesita esta capa del hero (desktop, pointer
+// fino, sin reduced-motion) -- import() dinámico para que en mobile ni se
+// pida el chunk (ver "vendor-three" en vite.config.ts).
+const CandyNebulaCanvas = lazy(() => import('@/components/hero3d/CandyNebulaCanvas'));
 
 type MissionPricing = { generalPrice: number; depositPrice: number } | null;
 
@@ -68,6 +74,28 @@ const reveal = {
   viewport: { once: true, margin: '400px' },
   transition: { duration: 0.5, ease: [0.23, 1, 0.32, 1] as const },
 };
+
+/* ─── Tilt 3D para tarjetas .candy-pass (Lineup/Experience) ──
+ * El sistema de CSS .candy-perspective/.candy-pass/.candy-sheen/.candy-holo
+ * ya existía en index.css pero no se usaba en ningún componente -- el CSS
+ * solo define el LOOK (perspectiva, brillo que sigue --mx/--my, banda
+ * holográfica), el tilt en sí (rotateX/rotateY) y el valor de --mx/--my hay
+ * que empujarlo por JS en cada pointermove. Solo se engancha en desktop
+ * (pointerFine) -- en reduced-motion, index.css ya fuerza `transform: none
+ * !important` en .candy-pass, así que estos handlers pueden seguir corriendo
+ * sin efecto visible en vez de tener que gatearlos acá también. */
+function handleCandyTilt(e: React.PointerEvent<HTMLDivElement>) {
+  const card = e.currentTarget;
+  const rect = card.getBoundingClientRect();
+  const px = (e.clientX - rect.left) / rect.width;
+  const py = (e.clientY - rect.top) / rect.height;
+  card.style.setProperty('--mx', `${px * 100}%`);
+  card.style.setProperty('--my', `${py * 100}%`);
+  card.style.transform = `rotateX(${(0.5 - py) * 12}deg) rotateY(${(px - 0.5) * 12}deg)`;
+}
+function resetCandyTilt(e: React.PointerEvent<HTMLDivElement>) {
+  e.currentTarget.style.transform = 'rotateX(0deg) rotateY(0deg)';
+}
 
 function useCountdown(target: Date) {
   const [now, setNow] = useState(() => Date.now());
@@ -260,6 +288,9 @@ function Hero() {
   // satura (el hero se traba o no llega a pintar). El parallax igual "no se
   // nota" en pantallas chicas, así que no se pierde nada quitándolo ahí.
   const [pointerFine] = useState(() => isFinePointer());
+  // Candy Nebula (capa 3D) sólo entra si además no se pidió reduced-motion --
+  // se lee una sola vez al montar, mismo criterio que pointerFine arriba.
+  const [reducedMotion] = useState(() => prefersReducedMotion());
 
   // Si el video no arranca a reproducirse después de unos segundos (conexión
   // mala, o Safari que se quedó pegado tratando de decodificarlo), se deja
@@ -317,6 +348,18 @@ function Hero() {
       <div aria-hidden className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-primary/25 blur-2xl md:blur-[120px] candy-float-slow" />
       <div aria-hidden className="absolute top-1/3 -right-32 w-[28rem] h-[28rem] rounded-full bg-violet-electric/20 blur-2xl md:blur-[140px] candy-float" />
       <div aria-hidden className="absolute bottom-0 left-1/4 w-80 h-80 rounded-full bg-candy-blue/20 blur-2xl md:blur-[110px] candy-float-slow" />
+
+      {/* Candy Nebula: capa 3D procedural (partículas + candy orbs), sólo
+       * desktop/pointer fino/sin reduced-motion -- capa aditiva sobre el
+       * video, nunca lo reemplaza, así que en mobile/reduced-motion el hero
+       * queda pixel-idéntico a como estaba antes de esto. */}
+      {pointerFine && !reducedMotion && (
+        <div aria-hidden className="absolute inset-0 z-[1]">
+          <Suspense fallback={null}>
+            <CandyNebulaCanvas scrollYProgress={scrollYProgress} />
+          </Suspense>
+        </div>
+      )}
 
       {/* Caramelos arrastrables (juego) -- solo desktop/mouse, ver comentario arriba */}
       {pointerFine && <DraggableCandies boundsRef={sectionRef} />}
@@ -782,8 +825,16 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
 /* ─── La Experiencia ───────────────────────────────────────── */
 
 function ExperienceSection() {
+  const [pointerFine] = useState(() => isFinePointer());
+
   return (
     <section id="experiencia" className="py-24 md:py-32 relative overflow-hidden">
+      {/* Brillos de club difuminados -- mismo patrón que Hero/UrgencySection,
+       * ausente acá hasta ahora, lo que hacía que esta sección se sintiera
+       * más plana que las de al lado. */}
+      <div aria-hidden className="absolute -top-16 -right-20 w-80 h-80 rounded-full bg-secondary/15 blur-2xl md:blur-[130px] candy-float-slow" />
+      <div aria-hidden className="absolute bottom-0 -left-24 w-96 h-96 rounded-full bg-cherry/15 blur-2xl md:blur-[130px] candy-float" />
+
       <div className="container">
         <motion.div {...reveal} className="max-w-3xl mb-16">
           <p className="text-sm uppercase tracking-[0.3em] text-primary mb-4">La experiencia</p>
@@ -823,16 +874,27 @@ function ExperienceSection() {
                   show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.35, ease: [0.23, 1, 0.32, 1] } },
                 }}
                 whileHover={{ y: -4, scale: 1.03 }}
-                className="glass-candy rounded-2xl p-5 flex items-center gap-3 hover:border-primary/40 transition-colors"
+                className="candy-perspective"
               >
-                <motion.span
-                  whileHover={{ rotate: [0, -12, 10, -6, 0] }}
-                  transition={{ duration: 0.6 }}
-                  className="inline-flex shrink-0"
+                {/* Tilt + sheen en un elemento hijo aparte (no el mismo que
+                 * anima whileHover arriba) -- ambos escriben `transform`, así
+                 * que si compartieran nodo se pisarían entre sí. */}
+                <div
+                  onPointerMove={pointerFine ? handleCandyTilt : undefined}
+                  onPointerLeave={pointerFine ? resetCandyTilt : undefined}
+                  className="candy-pass glass-candy rounded-2xl p-5 flex items-center gap-3 hover:border-primary/40 transition-colors"
                 >
-                  <Icon className="w-6 h-6 text-primary" />
-                </motion.span>
-                <span className="text-sm md:text-base font-medium">{a.texto}</span>
+                  <motion.span
+                    whileHover={{ rotate: [0, -12, 10, -6, 0] }}
+                    transition={{ duration: 0.6 }}
+                    className="inline-flex shrink-0"
+                  >
+                    <Icon className="w-6 h-6 text-primary" />
+                  </motion.span>
+                  <span className="text-sm md:text-base font-medium">{a.texto}</span>
+                  <div aria-hidden className="candy-sheen" />
+                  <div aria-hidden className="candy-holo" />
+                </div>
               </motion.div>
             );
           })}
@@ -853,6 +915,26 @@ const PISTA_SKINS: Record<string, { grad: string; bar: string; emoji: string }> 
 function LineupSection() {
   const hayLineup = CANDYLAND.lineup.length > 0;
   const [activa, setActiva] = useState<string | null>(null);
+  const [pointerFine] = useState(() => isFinePointer());
+  const [reducedMotion] = useState(() => prefersReducedMotion());
+
+  // Ecualizador "vivo": mientras hay una pista activa, sus barras se
+  // re-randomizan cada ~500ms en vez de quedarse en la altura fija que ya
+  // calcula la fórmula de abajo -- la pista inactiva mantiene esa fórmula
+  // estática (más calma a propósito, ver `eq-bar-idle`). Se apaga entero con
+  // reduced-motion: sin esto, `eq-bar`'s CSS ya para su propia animación,
+  // pero este setInterval seguiría reescribiendo `height` igual.
+  const [activeBarHeights, setActiveBarHeights] = useState<number[]>([]);
+  useEffect(() => {
+    if (!activa || reducedMotion) {
+      setActiveBarHeights([]);
+      return;
+    }
+    const randomize = () => setActiveBarHeights(Array.from({ length: 9 }, () => 18 + Math.random() * 55));
+    randomize();
+    const id = setInterval(randomize, 450 + Math.random() * 150);
+    return () => clearInterval(id);
+  }, [activa, reducedMotion]);
 
   return (
     <section className="py-14 md:py-20 bg-gradient-to-b from-transparent via-violet-electric/5 to-transparent">
@@ -873,33 +955,57 @@ function LineupSection() {
             return (
               <div
                 key={pista.nombre}
-                onPointerEnter={() => setActiva(pista.genero)}
-                onPointerLeave={() => setActiva(null)}
-                onClick={() => setActiva(isActive ? null : pista.genero)}
-                className={`relative rounded-2xl overflow-hidden glass-candy cursor-pointer transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${
+                className={`candy-perspective transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${
                   isActive ? 'flex-[2]' : isDimmed ? 'flex-[0.75] opacity-70' : 'flex-1'
                 }`}
               >
-                {/* Fondo de energía */}
-                <div className={`absolute inset-0 bg-gradient-to-t ${skin.grad}`} />
+                <div
+                  onPointerEnter={() => setActiva(pista.genero)}
+                  onPointerLeave={(e) => {
+                    setActiva(null);
+                    if (pointerFine) resetCandyTilt(e);
+                  }}
+                  onPointerMove={pointerFine ? handleCandyTilt : undefined}
+                  onClick={() => setActiva(isActive ? null : pista.genero)}
+                  className="candy-pass relative h-full rounded-2xl overflow-hidden glass-candy cursor-pointer"
+                >
+                  {/* Fondo de energía */}
+                  <div className={`absolute inset-0 bg-gradient-to-t ${skin.grad}`} />
 
-                {/* Ecualizador animado */}
-                <div aria-hidden className="absolute inset-x-0 bottom-0 flex items-end justify-center gap-1 md:gap-1.5 h-1/2 px-4 opacity-50">
-                  {Array.from({ length: 9 }).map((_, i) => (
-                    <span
-                      key={i}
-                      className={`eq-bar w-1.5 md:w-2 rounded-t-full ${skin.bar} ${isActive ? '' : 'eq-bar-idle'}`}
-                      style={{ animationDelay: `${i * 0.12}s`, height: `${18 + ((i * 37) % 55)}%` }}
-                    />
-                  ))}
-                </div>
+                  {/* Ecualizador animado -- barras vivas mientras está activa */}
+                  <div aria-hidden className="absolute inset-x-0 bottom-0 flex items-end justify-center gap-1 md:gap-1.5 h-1/2 px-4 opacity-50">
+                    {Array.from({ length: 9 }).map((_, i) => (
+                      <span
+                        key={i}
+                        className={`eq-bar w-1.5 md:w-2 rounded-t-full ${skin.bar} ${isActive ? '' : 'eq-bar-idle'}`}
+                        style={{
+                          animationDelay: `${i * 0.12}s`,
+                          height: `${isActive && activeBarHeights[i] !== undefined ? activeBarHeights[i] : 18 + ((i * 37) % 55)}%`,
+                          transition: isActive ? 'height 0.4s ease' : undefined,
+                        }}
+                      />
+                    ))}
+                  </div>
 
-                {/* Contenido */}
-                <div className="relative h-full flex flex-col justify-end p-4 md:p-6">
-                  <p className="text-[10px] md:text-xs uppercase tracking-[0.25em] text-foreground/60 mb-0.5">{pista.nombre}</p>
-                  <h3 className="font-heading font-extrabold text-2xl md:text-4xl text-gradient-candy leading-none mb-1">
-                    {skin.emoji} {pista.genero}
-                  </h3>
+                  {/* Brillo + banda holográfica que siguen el puntero (ver
+                   * .candy-sheen/.candy-holo en index.css) */}
+                  <div aria-hidden className="candy-sheen" />
+                  <div aria-hidden className="candy-holo" />
+
+                  {/* Contenido */}
+                  <div className="relative h-full flex flex-col justify-end p-4 md:p-6">
+                    <p className="text-[10px] md:text-xs uppercase tracking-[0.25em] text-foreground/60 mb-0.5">{pista.nombre}</p>
+                    <h3 className="font-heading font-extrabold text-2xl md:text-4xl text-gradient-candy leading-none mb-1">
+                      <motion.span
+                        aria-hidden
+                        className="inline-block"
+                        animate={isActive ? { scale: [1, 1.28, 1], rotate: [0, -10, 8, 0] } : { scale: 1, rotate: 0 }}
+                        transition={{ duration: 0.55 }}
+                      >
+                        {skin.emoji}
+                      </motion.span>{' '}
+                      {pista.genero}
+                    </h3>
                   <p className={`text-foreground/70 text-xs md:text-sm transition-opacity duration-300 ${isDimmed ? 'opacity-0' : 'opacity-100'}`}>
                     {pista.descripcion}
                   </p>
@@ -921,6 +1027,7 @@ function LineupSection() {
                       </span>
                     )}
                   </div>
+                  </div>
                 </div>
               </div>
             );
@@ -935,24 +1042,50 @@ function LineupSection() {
 
 function InfoSection() {
   return (
-    <section className="py-24 md:py-32 bg-gradient-to-b from-transparent via-primary/5 to-transparent">
-      <div className="container max-w-3xl">
+    <section className="relative overflow-hidden py-24 md:py-32 bg-gradient-to-b from-transparent via-primary/5 to-transparent">
+      {/* Misma capa de brillos difuminados que Experience/Urgency -- acá antes
+       * no había nada, así que la sección se veía chata al lado de las otras. */}
+      <div aria-hidden className="absolute top-10 -right-16 w-72 h-72 rounded-full bg-violet-electric/12 blur-2xl md:blur-[120px] candy-float" />
+      <div aria-hidden className="absolute bottom-10 -left-16 w-72 h-72 rounded-full bg-candy-blue/12 blur-2xl md:blur-[120px] candy-float-slow" />
+
+      <div className="container max-w-3xl relative">
         <motion.div {...reveal}>
           <p className="text-sm uppercase tracking-[0.3em] text-primary mb-4 text-center">Lo esencial</p>
           <h2 className="font-heading font-bold text-4xl md:text-5xl tracking-tight mb-8 text-center">
             Todo lo que necesitas <span className="text-gradient-candy">saber</span>
           </h2>
+        </motion.div>
 
+        {/* Cada pregunta entra escalonada al hacer scroll -- mismo patrón de
+         * `variants`/`staggerChildren` que ya usa la grilla de amenities de
+         * ExperienceSection. Nota: esto solo reestiliza el envoltorio de cada
+         * AccordionItem, nunca CANDYLAND.faqs ni el bloque `faqSchema(...)`
+         * de useSeo (Home()) que arma el JSON-LD del FAQPage a partir de esos
+         * mismos datos -- ese sigue generándose desde CANDYLAND.faqs, no del DOM. */}
+        <motion.div
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true, margin: '400px' }}
+          variants={{ hidden: {}, show: { transition: { staggerChildren: 0.04 } } }}
+        >
           <Accordion type="single" collapsible className="w-full">
             {CANDYLAND.faqs.map((faq, i) => (
-              <AccordionItem key={i} value={`faq-${i}`} className="border-primary/15">
-                <AccordionTrigger className="text-left text-base md:text-lg font-semibold hover:text-primary">
-                  {faq.q}
-                </AccordionTrigger>
-                <AccordionContent className="text-muted-foreground text-base leading-relaxed">
-                  {faq.a}
-                </AccordionContent>
-              </AccordionItem>
+              <motion.div
+                key={i}
+                variants={{
+                  hidden: { opacity: 0, y: 16 },
+                  show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.23, 1, 0.32, 1] } },
+                }}
+              >
+                <AccordionItem value={`faq-${i}`} className="border-primary/15">
+                  <AccordionTrigger className="text-left text-base md:text-lg font-semibold hover:text-primary">
+                    {faq.q}
+                  </AccordionTrigger>
+                  <AccordionContent className="text-muted-foreground text-base leading-relaxed">
+                    {faq.a}
+                  </AccordionContent>
+                </AccordionItem>
+              </motion.div>
             ))}
           </Accordion>
         </motion.div>
@@ -1213,6 +1346,7 @@ export default function Home() {
       <ScrollCandies />
       {showNoise && <div className="noise-overlay" />}
       <Hero />
+      <ScrollStory />
       <UpcomingEventsSection />
       <UrgencySection vendidos={vendidos} missionPricing={missionPricing} />
       <LineupSection />

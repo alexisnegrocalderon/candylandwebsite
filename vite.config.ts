@@ -238,6 +238,21 @@ export default defineConfig(({ command }) => {
     build: {
       outDir: path.resolve(import.meta.dirname, "dist/public"),
       emptyOutDir: true,
+      // Red de seguridad extra para "vendor-three" (ver el caso especial de
+      // "\0vite/preload-helper" más abajo en manualChunks, que es el fix de
+      // fondo de un problema real que apareció acá: sin él, Rollup dejaba
+      // caer el helper interno de import() de Vite DENTRO de vendor-three, y
+      // como ese helper lo usa cualquier chunk con un import() adentro --
+      // prácticamente todas las páginas, vía los lazy() de App.tsx -- CADA
+      // página terminaba importiendo el chunk de three.js entero solo para
+      // llegar a esas pocas líneas). Confirmado con `pnpm build` + grep sobre
+      // dist/public que ya no pasa. Esto de acá solo filtra a "vendor-three"
+      // de la lista de precarga paralela por si algún chunk nuevo, en el
+      // futuro, termina importándolo sin querer -- no reemplaza el fix real.
+      modulePreload: {
+        resolveDependencies: (filename, deps) =>
+          filename.includes('CandyNebulaCanvas') ? deps : deps.filter((dep) => !dep.includes('vendor-three')),
+      },
       rollupOptions: {
         output: {
           // Separa las dependencias grandes y poco cambiantes (React,
@@ -258,10 +273,27 @@ export default defineConfig(({ command }) => {
           // propósito: si entraran, inflarían este chunk con código que no
           // toda página necesita.
           manualChunks(id: string) {
+            // El helper interno de Vite para dynamic import() (módulo virtual
+            // "\0vite/preload-helper.js") lo importa CUALQUIER chunk que
+            // tenga un import() adentro -- prácticamente todas las páginas,
+            // ya que App.tsx las carga todas con lazy(). Sin este caso
+            // especial, Rollup lo dejaba caer dentro del primer chunk manual
+            // que lo necesitara (terminó adentro de "vendor-three"), así que
+            // CADA página terminaba importando el chunk de three.js entero
+            // solo para llegar a este helper de unas pocas líneas. Se lo
+            // manda a "vendor-react" a propósito: ese chunk ya lo carga todo
+            // el mundo sin excepción, así que juntar el helper ahí no suma
+            // ningún request nuevo para nadie.
+            if (id.includes('\0vite/preload-helper')) return 'vendor-react';
             if (!id.includes('node_modules')) return undefined;
             if (/node_modules\/(react|react-dom|scheduler|wouter)\//.test(id)) return 'vendor-react';
             if (id.includes('node_modules/framer-motion')) return 'vendor-motion';
             if (id.includes('node_modules/@radix-ui')) return 'vendor-radix';
+            // Three.js/@react-three sólo lo carga el Candy Nebula del hero
+            // (desktop, pointer fino, sin reduced-motion) vía import()
+            // dinámico -- chunk propio para que quede cacheable aparte y
+            // nunca se cuele en el bundle que sí pide mobile.
+            if (/node_modules\/(three|@react-three)\//.test(id)) return 'vendor-three';
             return undefined;
           },
         },
