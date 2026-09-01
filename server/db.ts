@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -200,8 +200,35 @@ export async function getTicketTypesByEventId(eventId: number) {
   if (!db) return [];
   const existing = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId)).orderBy(ticketTypes.sortOrder);
   const created = await ensureDefaultExtraTicketTypes(eventId, existing);
-  if (!created) return existing;
-  return db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId)).orderBy(ticketTypes.sortOrder);
+  const rows = created
+    ? await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId)).orderBy(ticketTypes.sortOrder)
+    : existing;
+  return attachStockPoolInfo(rows);
+}
+
+/** Le suma a cada fila con `stockPoolId` el remanente REAL del pool
+ * compartido (`poolRemaining`) y su cap (`poolTotalCap`) -- así el
+ * frontend (público o admin) no tiene que hacer una consulta aparte por
+ * cada fila. `poolTotalCap` viaja en la respuesta para que Home.tsx pueda
+ * calcular la barra de progreso (tandaPct) sin volver a pedirlo -- que
+ * viaje en el JSON no es lo mismo que mostrarlo: la UI pública tiene que
+ * seguir sin IMPRIMIR ese número en ningún texto (ver TandaUrgencyCard). */
+async function attachStockPoolInfo<T extends { stockPoolId: number | null }>(
+  rows: T[],
+): Promise<(T & { poolRemaining: number | null; poolTotalCap: number | null })[]> {
+  const poolIds = Array.from(new Set(rows.map((r) => r.stockPoolId).filter((id): id is number => id != null)));
+  if (poolIds.length === 0) return rows.map((r) => ({ ...r, poolRemaining: null, poolTotalCap: null }));
+
+  const poolInfoById = new Map<number, { remaining: number; totalCap: number }>();
+  await Promise.all(poolIds.map(async (id) => {
+    const info = await getStockPoolRemaining(id);
+    if (info) poolInfoById.set(id, { remaining: info.remaining, totalCap: info.pool.totalCap });
+  }));
+
+  return rows.map((r) => {
+    const info = r.stockPoolId != null ? poolInfoById.get(r.stockPoolId) : undefined;
+    return { ...r, poolRemaining: info?.remaining ?? null, poolTotalCap: info?.totalCap ?? null };
+  });
 }
 
 export async function createTicketType(data: any) {
@@ -272,6 +299,95 @@ export async function deleteTicketType(id: number) {
   if (!db) throw new Error("Database not available");
   await db.delete(ticketTypes).where(eq(ticketTypes.id, id));
   return { success: true };
+}
+
+// Cupos compartidos (stockPools) -- ver comentario en drizzle/schema.ts.
+// El admin sigue viendo el número real (vendidos / cap); lo que se esconde
+// es solo la vista pública (TandaUrgencyCard en Home.tsx).
+
+/** Para el panel del admin: cada pool con su remanente REAL calculado
+ * (nunca se esconde acá -- eso es solo en la vista pública). */
+export async function getStockPoolsByEventId(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const pools = await db.select().from(stockPools).where(eq(stockPools.eventId, eventId)).orderBy(desc(stockPools.createdAt));
+  return Promise.all(pools.map(async (pool) => {
+    const info = await getStockPoolRemaining(pool.id);
+    return { ...pool, sold: info?.sold ?? 0, remaining: info?.remaining ?? pool.totalCap };
+  }));
+}
+
+export async function createStockPool(data: { eventId: number; name: string; totalCap: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(stockPools).values(data);
+  return { success: true };
+}
+
+export async function updateStockPool(id: number, data: { name?: string; totalCap?: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(stockPools).set(data).where(eq(stockPools.id, id));
+  return { success: true };
+}
+
+/** Solo se puede borrar un pool que ya no tiene ninguna ticketType apuntándole
+ * -- si no, quedarían filas con un stockPoolId fantasma y createOrder dejaría
+ * de aplicar el límite compartido sin que nadie lo haya decidido a propósito. */
+export async function deleteStockPool(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [inUse] = await db.select({ id: ticketTypes.id }).from(ticketTypes).where(eq(ticketTypes.stockPoolId, id)).limit(1);
+  if (inUse) throw new Error('Este cupo compartido todavía tiene accesos asignados -- desasígnalos antes de borrarlo.');
+  await db.delete(stockPools).where(eq(stockPools.id, id));
+  return { success: true };
+}
+
+/** Remanente real de un cupo compartido: cap total menos lo YA VENDIDO
+ * (soldCount, no pending) de todas las ticketTypes que apuntan a este pool
+ * -- mismo criterio que "totalStock - soldCount" por fila, solo que sumado
+ * entre varias filas en vez de una. */
+export async function getStockPoolRemaining(poolId: number): Promise<{ pool: StockPool; remaining: number; sold: number } | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [pool] = await db.select().from(stockPools).where(eq(stockPools.id, poolId)).limit(1);
+  if (!pool) return null;
+  const [row] = await db
+    .select({ sold: sql<number>`coalesce(sum(${ticketTypes.soldCount}), 0)` })
+    .from(ticketTypes)
+    .where(eq(ticketTypes.stockPoolId, poolId));
+  const sold = Number(row?.sold ?? 0);
+  return { pool, remaining: Math.max(0, pool.totalCap - sold), sold };
+}
+
+/** Parte pura de la validación de cupo compartido en createOrder(): recibe
+ * el remanente YA CALCULADO de cada pool involucrado (ver
+ * getStockPoolRemaining, que sí toca la base de datos) para poder testearla
+ * sola. Suma lo pedido para cada pool EN ESTA MISMA orden -- alguien puede
+ * pedir un Dúo + una Soltera del mismo pozo en una sola compra -- y tira si
+ * el total pedido supera el remanente real de ese pool. Un pool en
+ * `poolRemainingById` que no aparece (ej. se borró entre que se leyó y se
+ * validó) no bloquea la compra: mejor vender de más por una carrera rarísima
+ * que trabar el checkout entero por un pool fantasma. */
+export function validateStockPoolCapacity(
+  items: { ticketTypeId: number; quantity: number }[],
+  ticketTypesForEvent: { id: number; stockPoolId: number | null }[],
+  poolRemainingById: Map<number, { remaining: number; name: string }>,
+): void {
+  const poolRequested = new Map<number, number>();
+  for (const item of items) {
+    const tt = ticketTypesForEvent.find((t) => t.id === item.ticketTypeId);
+    if (tt?.stockPoolId != null) {
+      poolRequested.set(tt.stockPoolId, (poolRequested.get(tt.stockPoolId) ?? 0) + item.quantity);
+    }
+  }
+  for (const [poolId, requested] of Array.from(poolRequested.entries())) {
+    const poolInfo = poolRemainingById.get(poolId);
+    if (!poolInfo) continue;
+    if (requested > poolInfo.remaining) {
+      throw new Error(`Quedan solo ${poolInfo.remaining} cupos de "${poolInfo.name}" -- no alcanza para esta compra`);
+    }
+  }
 }
 
 /** Datos públicos de un ticket para la página "Mi entrada" (/verificar/:ticketCode)
@@ -646,6 +762,24 @@ export async function createOrder(input: {
     subtotal += lineTotal;
     if (tt.category === 'acceso') accesoSubtotal += lineTotal;
   }
+
+  // Cupo compartido (stockPools): además del stock por fila de arriba, si
+  // algún item pertenece a un pool hay que sumar TODO lo pedido para ese
+  // mismo pool EN ESTA MISMA orden (alguien puede pedir un Dúo + una Soltera
+  // en una sola compra, ambos del mismo pozo de 40) y rechazar si supera el
+  // remanente real. Este es el bloqueo de verdad -- la home solo lo muestra,
+  // acá es donde se hace cumplir. El remanente se calcula acá (necesita DB)
+  // y la validación en sí vive en validateStockPoolCapacity(), pura, para
+  // poder testearla sin base de datos.
+  const poolIdsInOrder = Array.from(new Set(
+    input.items.map((i) => tts.find((t) => t.id === i.ticketTypeId)?.stockPoolId).filter((id): id is number => id != null),
+  ));
+  const poolRemainingById = new Map<number, { remaining: number; name: string }>();
+  for (const poolId of poolIdsInOrder) {
+    const info = await getStockPoolRemaining(poolId);
+    if (info) poolRemainingById.set(poolId, { remaining: info.remaining, name: info.pool.name });
+  }
+  validateStockPoolCapacity(input.items, tts, poolRemainingById);
 
   // Apply discount — solo sobre el subtotal de accesos, nunca sobre extras.
   let discountAmount = 0;

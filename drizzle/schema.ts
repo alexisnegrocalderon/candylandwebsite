@@ -90,6 +90,14 @@ export const ticketTypes = mysqlTable("ticketTypes", {
   originalPrice: decimal("originalPrice", { precision: 10, scale: 0 }),
   totalStock: int("totalStock").notNull(),
   soldCount: int("soldCount").default(0).notNull(),
+  // Si esta fila pertenece a un cupo REALMENTE compartido con otras filas
+  // (ej. Tanda "Founders": Dúo, Soltera, Trío... todas gastan del mismo pozo
+  // de 40, no de un totalStock independiente cada una) -- ver `stockPools`
+  // más abajo. `null` = esta fila sigue funcionando exactamente como hoy,
+  // con su propio totalStock/soldCount. No es un reemplazo de esos dos
+  // campos: siguen sumando por fila (para el historial y el admin), el pool
+  // es una validación ADICIONAL que se suma encima al crear la orden.
+  stockPoolId: int("stockPoolId"),
   maxPerOrder: int("maxPerOrder").default(10).notNull(),
   sortOrder: int("sortOrder").default(0).notNull(),
   status: mysqlEnum("status", ["active", "soldout", "hidden"]).default("active").notNull(),
@@ -117,6 +125,27 @@ export const ticketTypes = mysqlTable("ticketTypes", {
 
 export type TicketType = typeof ticketTypes.$inferSelect;
 export type InsertTicketType = typeof ticketTypes.$inferInsert;
+
+// Cupo compartido entre varias filas de ticketTypes (ej. Tanda "Founders"
+// del 2º aniversario: Dúo + Soltera + Soltero + Trío + Grupo comparten un
+// único pozo de 40 entradas -- comprar cualquiera de ellas gasta del mismo
+// contador, no de uno independiente por acceso). El cap vive en UN solo
+// lugar para que editarlo una vez alcance y no se desincronice entre filas.
+// El remanente real se calcula en server/db.ts (getStockPoolRemaining):
+// totalCap - SUM(soldCount) de todas las ticketTypes con este stockPoolId.
+export const stockPools = mysqlTable("stockPools", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  totalCap: int("totalCap").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  eventIdx: index("stockPools_event_idx").on(table.eventId),
+}));
+
+export type StockPool = typeof stockPools.$inferSelect;
+export type InsertStockPool = typeof stockPools.$inferInsert;
 
 // Historial de cambios de stock por tipo de entrada (ej. subir el cupo de
 // "soltero" cuando entran más solteros aceptados) -- registro de auditoría,

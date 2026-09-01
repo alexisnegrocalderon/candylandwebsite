@@ -144,6 +144,11 @@ function TicketTypesList({
       <div>
         <span className="font-semibold">{tt.name}</span>
         <span className="text-muted-foreground ml-2">${Number(tt.price).toLocaleString('es-CL')} · stock {tt.totalStock} · vendidas {tt.soldCount ?? 0} · {tt.status}</span>
+        {tt.stockPoolId != null && (
+          <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-candy-blue/15 text-candy-blue" title="Esta entrada gasta de un cupo compartido con otras -- ver panel Cupos compartidos">
+            Cupo compartido: quedan {tt.poolRemaining} de {tt.poolTotalCap}
+          </span>
+        )}
         {tt.category === 'extra' ? (
           <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-violet-electric/15 text-violet-electric">Extra — aparece en el paso de extras del checkout</span>
         ) : tt.accesoSlug ? (
@@ -172,6 +177,80 @@ function TicketTypesList({
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Extras</p>
           {extras.map(row)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Cupos compartidos (stockPools) de un evento: varias entradas (ej. Dúo,
+ * Soltera, Trío de la Tanda "Founders") pueden gastar del mismo pozo en vez
+ * de tener cada una su propio totalStock independiente -- ver comentario en
+ * drizzle/schema.ts. Acá el admin ve el número REAL (vendidos / cap); lo
+ * que se esconde en la vista pública es solo TandaUrgencyCard en Home.tsx.
+ * Asignar un pool a una entrada se hace desde el formulario de esa entrada
+ * (el Select "Cupo compartido" más abajo), no desde acá -- este panel solo
+ * crea/edita/borra los pools en sí. */
+function StockPoolsPanel({ eventId }: { eventId: number }) {
+  const { data: poolsData, refetch } = trpc.events.listStockPools.useQuery({ eventId });
+  const createPool = trpc.events.createStockPool.useMutation({ onSuccess: () => { refetch(); toast.success('Cupo compartido creado'); setShowForm(false); setForm({ name: '', totalCap: 40 }); }, onError: onMutationError });
+  const updatePool = trpc.events.updateStockPool.useMutation({ onSuccess: () => { refetch(); toast.success('Cupo actualizado'); setEditingId(null); setShowForm(false); }, onError: onMutationError });
+  const deletePool = trpc.events.deleteStockPool.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const utils = trpc.useUtils();
+
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState({ name: 'Founders', totalCap: 40 });
+
+  const pools = poolsData ?? [];
+
+  const handleSave = async () => {
+    if (!form.name.trim() || form.totalCap <= 0) return;
+    if (editingId) {
+      await updatePool.mutateAsync({ id: editingId, name: form.name.trim(), totalCap: form.totalCap });
+    } else {
+      await createPool.mutateAsync({ eventId, name: form.name.trim(), totalCap: form.totalCap });
+    }
+    // Las entradas que usan este pool muestran su remanente en la misma
+    // consulta (events.listTicketTypes) -- invalidar para que se refresque.
+    utils.events.listTicketTypes.invalidate();
+  };
+
+  return (
+    <div className="mt-3 border-t border-border/50 pt-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cupos compartidos</span>
+        <Button variant="outline" size="sm" onClick={() => { setEditingId(null); setForm({ name: 'Founders', totalCap: 40 }); setShowForm(!showForm); }}>
+          <Plus className="w-3 h-3 mr-1" /> Cupo compartido
+        </Button>
+      </div>
+      {pools.length === 0 && !showForm && (
+        <p className="text-xs text-muted-foreground mt-1">Ninguno todavía. Un cupo compartido hace que varias entradas (ej. Dúo + Soltera + Trío) gasten de un mismo pozo total, en vez de cada una tener su propio stock independiente.</p>
+      )}
+      {pools.length > 0 && (
+        <div className="space-y-2 mt-2">
+          {pools.map((p: any) => (
+            <div key={p.id} className="flex items-center justify-between text-sm bg-muted/30 rounded-lg px-3 py-2">
+              <span>
+                <span className="font-semibold">{p.name}</span>
+                <span className="text-muted-foreground ml-2">vendidas {p.sold} / {p.totalCap} · quedan {p.remaining}</span>
+              </span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => { setEditingId(p.id); setForm({ name: p.name, totalCap: p.totalCap }); setShowForm(true); }}><Edit className="w-3 h-3" /></Button>
+                <ConfirmDeleteButton description={`Vas a eliminar el cupo compartido "${p.name}". Solo se puede si ninguna entrada lo está usando.`} onConfirm={() => deletePool.mutateAsync({ id: p.id })} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {showForm && (
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+          <div className="md:col-span-2"><Label>Nombre</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="Founders" /></div>
+          <div><Label>Cupo total</Label><Input type="number" value={form.totalCap} onChange={(e) => setForm({ ...form, totalCap: Number(e.target.value) })} className="mt-1" /></div>
+          <div className="md:col-span-3 flex gap-2">
+            <WriteButton onClick={handleSave} disabled={createPool.isPending || updatePool.isPending}>{editingId ? 'Guardar' : 'Crear'}</WriteButton>
+            <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</Button>
+          </div>
         </div>
       )}
     </div>
@@ -229,6 +308,32 @@ function Mission300Panel({ eventId }: { eventId: number }) {
   );
 }
 
+/** Selector "Cupo compartido" dentro del form de una entrada (solo
+ * category="acceso"): ninguno, o uno de los pools ya creados para este
+ * evento (ver StockPoolsPanel, más arriba en la misma pantalla). */
+function TicketPoolSelect({ eventId, value, onChange }: { eventId: number; value: number | null; onChange: (v: number | null) => void }) {
+  const { data: poolsData } = trpc.events.listStockPools.useQuery({ eventId }, { enabled: !!eventId });
+  const pools = poolsData ?? [];
+
+  return (
+    <div>
+      <Label>Cupo compartido (opcional)</Label>
+      <Select value={value != null ? String(value) : 'none'} onValueChange={(v) => onChange(v === 'none' ? null : Number(v))}>
+        <SelectTrigger className="mt-1"><SelectValue placeholder="Ninguno" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">Ninguno — stock propio de esta entrada</SelectItem>
+          {pools.map((p: any) => (
+            <SelectItem key={p.id} value={String(p.id)}>{p.name} (quedan {p.remaining} de {p.totalCap})</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground mt-1">
+        Si eliges uno, esta entrada gasta del mismo pozo que las demás entradas que también lo usen (ej. Dúo + Soltera de la Tanda Founders comparten un único cupo de 40). Deja el "Stock Total" de arriba en un número igual o mayor al cupo del pool -- si no, esa entrada se agotaría sola antes de llegar al límite compartido. Créalo primero en "Cupos compartidos", debajo de la lista de entradas.
+      </p>
+    </div>
+  );
+}
+
 function EventsManager() {
   const { data: eventsData, refetch } = trpc.events.listAll.useQuery();
   const createEvent = trpc.events.create.useMutation({ onSuccess: () => { refetch(); toast.success('Evento creado'); }, onError: onMutationError });
@@ -242,7 +347,7 @@ function EventsManager() {
     title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '',
     status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false,
   });
-  const emptyTicketForm = { eventId: 0, name: '', category: 'acceso' as 'acceso' | 'extra', accesoSlug: '' as '' | AccesoSlug, price: 0, totalStock: 0, description: '', costPrice: 0, color: '', internalCode: '' };
+  const emptyTicketForm = { eventId: 0, name: '', category: 'acceso' as 'acceso' | 'extra', accesoSlug: '' as '' | AccesoSlug, price: 0, totalStock: 0, description: '', costPrice: 0, color: '', internalCode: '', stockPoolId: null as number | null };
   const [newTicket, setNewTicket] = useState(emptyTicketForm);
   const [showEventForm, setShowEventForm] = useState(false);
   const [showTicketForm, setShowTicketForm] = useState(false);
@@ -276,6 +381,7 @@ function EventsManager() {
     const payload = {
       ...newTicket,
       accesoSlug: newTicket.category === 'extra' ? undefined : (newTicket.accesoSlug || undefined),
+      stockPoolId: newTicket.category === 'extra' ? null : newTicket.stockPoolId,
       costPrice: newTicket.costPrice || undefined,
       color: newTicket.category === 'extra' ? (newTicket.color || undefined) : undefined,
       internalCode: newTicket.category === 'extra' ? (newTicket.internalCode || undefined) : undefined,
@@ -297,6 +403,7 @@ function EventsManager() {
       eventId: tt.eventId, name: tt.name, category: tt.category || 'acceso', accesoSlug: tt.accesoSlug || '',
       price: Number(tt.price), totalStock: tt.totalStock, description: tt.description || '',
       costPrice: tt.costPrice ? Number(tt.costPrice) : 0, color: tt.color || '', internalCode: tt.internalCode || '',
+      stockPoolId: tt.stockPoolId ?? null,
     });
     setShowTicketForm(true);
   };
@@ -398,6 +505,7 @@ function EventsManager() {
                 </div>
               </div>
               <TicketTypesList eventId={event.id} onEdit={handleEditTicketType} />
+              <StockPoolsPanel eventId={event.id} />
               <Mission300Panel eventId={event.id} />
               {showTicketForm && newTicket.eventId === event.id && (
                 <div className="mt-4 border-t border-border/50 pt-4 space-y-4">
@@ -452,6 +560,9 @@ function EventsManager() {
                       </Select>
                       <p className="text-xs text-muted-foreground mt-1">Sin esto, la gente no va a poder comprar esta entrada desde el checkout.</p>
                     </div>
+                  )}
+                  {newTicket.category === 'acceso' && (
+                    <TicketPoolSelect eventId={newTicket.eventId} value={newTicket.stockPoolId} onChange={(v) => setNewTicket({ ...newTicket, stockPoolId: v })} />
                   )}
                   <div><Label>Descripción</Label><Input value={newTicket.description} onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })} className="mt-1" /></div>
                   <div className="flex gap-2">

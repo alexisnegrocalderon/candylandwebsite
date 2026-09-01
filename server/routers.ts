@@ -589,6 +589,9 @@ export const appRouter = router({
       emoji: z.string().max(8).optional(),
       groupName: z.string().max(50).optional(),
       toKitchen: z.number().min(0).max(1).optional(),
+      // Cupo compartido (stockPools) -- null/omitido = sigue usando su propio
+      // totalStock, como hoy.
+      stockPoolId: z.number().nullable().optional(),
     })).mutation(async ({ input }) => {
       return db.createTicketType(input);
     }),
@@ -612,6 +615,7 @@ export const appRouter = router({
       emoji: z.string().max(8).optional(),
       groupName: z.string().max(50).optional(),
       toKitchen: z.number().min(0).max(1).optional(),
+      stockPoolId: z.number().nullable().optional(),
     })).mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
       return db.updateTicketType(id, data, ctx.user.id);
@@ -621,6 +625,29 @@ export const appRouter = router({
     }),
     ticketStockHistory: adminReadProcedure.input(z.object({ ticketTypeId: z.number() })).query(async ({ input }) => {
       return db.getTicketStockHistory(input.ticketTypeId);
+    }),
+    // Cupos compartidos (stockPools) -- ver drizzle/schema.ts. El admin ve el
+    // número real siempre; lo que se esconde es solo la vista pública.
+    listStockPools: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getStockPoolsByEventId(input.eventId);
+    }),
+    createStockPool: adminProcedure.input(z.object({
+      eventId: z.number(),
+      name: z.string().min(1),
+      totalCap: z.number().int().positive(),
+    })).mutation(async ({ input }) => {
+      return db.createStockPool(input);
+    }),
+    updateStockPool: adminProcedure.input(z.object({
+      id: z.number(),
+      name: z.string().min(1).optional(),
+      totalCap: z.number().int().positive().optional(),
+    })).mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      return db.updateStockPool(id, data);
+    }),
+    deleteStockPool: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      return db.deleteStockPool(input.id);
     }),
   }),
 

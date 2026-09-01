@@ -38,19 +38,33 @@ import { eventSchema, faqSchema } from '@shared/structuredData';
 
 type MissionPricing = { generalPrice: number; depositPrice: number } | null;
 
-/** Info de la tanda de entradas vigente para el acceso "destacado" (mismo
- * criterio que `missionPricing`: prioriza Dúo, si no el más barato). Se usa
- * en `UrgencySection` cuando la Misión 300 está cerrada (`missionForceClosed`)
- * -- reemplaza el anillo de progreso por escasez de stock real, sin revelar
- * cuánta gente confirmó en total (ver plan de ventas del aniversario). */
-type TandaInfo = {
+/** Precio de un acceso dentro de la tanda vigente, para la lista completa
+ * que muestra `TandaUrgencyCard` (Soltera, Soltero, Dúo, Trío, Grupo...). */
+type TandaAccesoPrecio = {
   name: string;
   price: number;
   originalPrice: number | null;
+};
+
+/** Info de la tanda de entradas vigente. Se usa en `UrgencySection` cuando
+ * la Misión 300 está cerrada (`missionForceClosed`) -- reemplaza el anillo
+ * de progreso por escasez de stock real, sin revelar cuánta gente confirmó
+ * en total (ver plan de ventas del aniversario).
+ *
+ * `remaining`/`totalStock` son el cupo REAL vigente: si el acceso destacado
+ * usa un cupo compartido (`stockPools`, ver drizzle/schema.ts), son el
+ * remanente/cap del POOL -- no el `totalStock` propio de una fila, que deja
+ * de ser el límite real cuando hay pool. `totalStock` viaja acá SOLO para
+ * calcular la barra de progreso (`tandaPct`): pedido explícito del dueño,
+ * la UI nunca debe imprimir este número en ningún texto visible (ver
+ * TandaUrgencyCard) -- lo único que se muestra es `remaining`. */
+type TandaInfo = {
   remaining: number;
   totalStock: number;
   salesEnd: Date | null;
   soldOut: boolean;
+  /** Precio de CADA acceso activo de la tanda, no solo el "destacado". */
+  accesos: TandaAccesoPrecio[];
 } | null;
 
 /** Fecha muy lejana para pasarle a `useCountdown` cuando no hay `salesEnd`
@@ -996,21 +1010,33 @@ function TandaUrgencyCard({
         </div>
 
         <div className="flex-1 text-center md:text-left w-full">
+          {/* Nunca "de {totalStock}": solo el remanente, que es lo que
+           * genera urgencia sin revelar el tamaño real de la tanda (pedido
+           * explícito del dueño). El número grande ya está en el círculo de
+           * arriba -- acá solo el copy. */}
           <h3 className="font-heading font-bold text-xl md:text-2xl text-gradient-candy mb-1">
-            {tanda ? `Quedan ${tanda.remaining} de ${tanda.totalStock} a este precio` : 'Entradas disponibles'}
+            {tanda ? 'Cupos limitados a este precio' : 'Entradas disponibles'}
           </h3>
 
-          {tanda && (
-            <div className="flex items-baseline justify-center md:justify-start flex-wrap gap-x-2 gap-y-0.5">
-              {tanda.originalPrice && tanda.originalPrice > tanda.price && (
-                <span className="text-base md:text-lg text-muted-foreground line-through">{formatCLP(tanda.originalPrice)}</span>
-              )}
-              <span className="font-heading font-extrabold text-3xl md:text-4xl text-gradient-candy tabular-nums">{formatCLP(tanda.price)}</span>
-              <span className="text-sm md:text-base font-semibold text-foreground/85">· {tanda.name}</span>
+          {/* Precio de CADA acceso vigente (Soltera, Soltero, Dúo, Trío,
+           * Grupo...), no solo uno destacado -- pedido explícito del dueño. */}
+          {tanda && tanda.accesos.length > 0 && (
+            <div className="mt-2 space-y-1.5">
+              {tanda.accesos.map((a) => (
+                <div key={a.name} className="flex items-baseline justify-between gap-3">
+                  <span className="text-sm md:text-base font-semibold text-foreground/85">{a.name}</span>
+                  <span className="flex items-baseline gap-2 shrink-0">
+                    {a.originalPrice && a.originalPrice > a.price && (
+                      <span className="text-xs md:text-sm text-muted-foreground line-through">{formatCLP(a.originalPrice)}</span>
+                    )}
+                    <span className="font-heading font-extrabold text-lg md:text-xl text-gradient-candy tabular-nums">{formatCLP(a.price)}</span>
+                  </span>
+                </div>
+              ))}
             </div>
           )}
 
-          <p className="text-xs md:text-sm text-muted-foreground mt-1">
+          <p className="text-xs md:text-sm text-muted-foreground mt-3">
             Es el aniversario, cae la noche antes de Halloween: la primera fiesta del fin de semana.
           </p>
 
@@ -1600,9 +1626,11 @@ export default function Home() {
     return { generalPrice, depositPrice };
   }, [liveTickets, missionActive]);
 
-  // Tanda vigente para el acceso "destacado" (mismo criterio que
-  // `missionPricing`: prioriza Dúo, si no el más barato) -- alimenta
-  // `TandaUrgencyCard` cuando Misión 300 está cerrada para este evento.
+  // Tanda vigente -- alimenta `TandaUrgencyCard` cuando Misión 300 está
+  // cerrada para este evento. El "destacado" (mismo criterio que
+  // `missionPricing`: prioriza Dúo, si no el más barato) solo decide de
+  // dónde sale el countdown de alza de precio y el remanente/cupo -- la
+  // lista de precios de abajo usa TODOS los accesos de la tanda, no solo él.
   const tanda: TandaInfo = useMemo(() => {
     if (!liveTickets || liveTickets.length === 0) return null;
     // Prioriza accesos activos (la tanda que se está vendiendo hoy); si TODOS
@@ -1613,17 +1641,36 @@ export default function Home() {
     if (pool.length === 0) return null;
     const destacado = pool.find((t: any) => t.accesoSlug === 'duo')
       ?? [...pool].sort((a: any, b: any) => Number(a.price) - Number(b.price))[0];
-    const totalStock = Number((destacado as any).totalStock ?? 0);
-    const remaining = Math.max(0, totalStock - Number((destacado as any).soldCount ?? 0));
-    const originalPrice = (destacado as any).originalPrice ? Number((destacado as any).originalPrice) : null;
+
+    // Cupo REAL vigente: si el destacado usa un cupo compartido (stockPools),
+    // el remanente/total viene del POOL (poolRemaining/poolTotalCap, ya
+    // resueltos por events.getTicketTypes) -- no de su totalStock propio,
+    // que deja de ser el límite real en cuanto hay pool. Sin pool, se
+    // comporta exactamente igual que antes (por fila).
+    const usesPool = (destacado as any).stockPoolId != null && (destacado as any).poolTotalCap != null;
+    const totalStock = usesPool
+      ? Number((destacado as any).poolTotalCap)
+      : Number((destacado as any).totalStock ?? 0);
+    const remaining = usesPool
+      ? Number((destacado as any).poolRemaining)
+      : Math.max(0, totalStock - Number((destacado as any).soldCount ?? 0));
+
+    // Precio de CADA acceso vigente de la tanda (Soltera, Soltero, Dúo,
+    // Trío, Grupo...), no solo el destacado -- pedido explícito del dueño.
+    const accesos: TandaAccesoPrecio[] = [...pool]
+      .sort((a: any, b: any) => Number(a.price) - Number(b.price))
+      .map((t: any) => ({
+        name: t.name,
+        price: Number(t.price),
+        originalPrice: t.originalPrice ? Number(t.originalPrice) : null,
+      }));
+
     return {
-      name: (destacado as any).name,
-      price: Number((destacado as any).price),
-      originalPrice,
       remaining,
       totalStock,
       salesEnd: (destacado as any).salesEnd ? new Date((destacado as any).salesEnd) : null,
       soldOut: remaining <= 0 || (destacado as any).status === 'soldout',
+      accesos,
     };
   }, [liveTickets]);
 
