@@ -1927,6 +1927,148 @@ function LeadsView() {
   );
 }
 
+const UTM_SOURCE_PRESETS = [
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'otro', label: 'Otro…' },
+];
+
+const UTM_MEDIUM_PRESETS: Record<string, { value: string; label: string }[]> = {
+  instagram: [
+    { value: 'historia', label: 'Historia' },
+    { value: 'bio', label: 'Bio / link en la biografía' },
+    { value: 'reel', label: 'Reel' },
+    { value: 'post', label: 'Post' },
+    { value: 'dm', label: 'Mensaje directo' },
+  ],
+  whatsapp: [
+    { value: 'grupo', label: 'Grupo' },
+    { value: 'estado', label: 'Estado' },
+    { value: 'mensaje-directo', label: 'Mensaje directo' },
+  ],
+  tiktok: [
+    { value: 'video', label: 'Video' },
+    { value: 'bio', label: 'Bio' },
+  ],
+  otro: [],
+};
+
+/** Deja el texto listo para un parámetro UTM: minúsculas, sin tildes,
+ * espacios como guiones -- para que "Founders" y "founders" no terminen
+ * como dos filas distintas en el reporte de abajo. */
+function slugifyUtm(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** Arma el link etiquetado ANTES de compartirlo -- así la venta se organiza
+ * sola en "Ventas por Origen" de abajo, sin depender de que nadie anote a
+ * mano de dónde vino cada comprador ni de acordarse la sintaxis UTM. */
+function UtmLinkBuilder() {
+  const [source, setSource] = useState('instagram');
+  const [customSource, setCustomSource] = useState('');
+  const [medium, setMedium] = useState('historia');
+  const [customMedium, setCustomMedium] = useState('');
+  const [campaign, setCampaign] = useState('');
+  const [content, setContent] = useState('');
+  const [path, setPath] = useState('/');
+  const [copied, setCopied] = useState(false);
+
+  const mediumOptions = UTM_MEDIUM_PRESETS[source] ?? [];
+  const effectiveSource = slugifyUtm(source === 'otro' ? customSource : source);
+  const effectiveMedium = slugifyUtm(medium === 'otro' ? customMedium : medium);
+
+  const link = useMemo(() => {
+    try {
+      const cleanPath = path.trim() || '/';
+      const url = new URL(cleanPath.startsWith('/') ? cleanPath : `/${cleanPath}`, window.location.origin);
+      if (effectiveSource) url.searchParams.set('utm_source', effectiveSource);
+      if (effectiveMedium) url.searchParams.set('utm_medium', effectiveMedium);
+      if (campaign.trim()) url.searchParams.set('utm_campaign', slugifyUtm(campaign));
+      if (content.trim()) url.searchParams.set('utm_content', slugifyUtm(content));
+      return url.toString();
+    } catch {
+      return '';
+    }
+  }, [effectiveSource, effectiveMedium, campaign, content, path]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard puede fallar (permiso denegado, contexto no seguro) -- el
+      // link ya queda visible y seleccionable a mano, no es bloqueante.
+    }
+  };
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader><CardTitle>Generador de links</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Armá el link ANTES de compartirlo en cada lugar -- así la venta se organiza sola abajo, sin que tengas que anotar nada a mano.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Label>Dónde lo vas a compartir</Label>
+            <Select
+              value={source}
+              onValueChange={(v) => { setSource(v); setMedium((UTM_MEDIUM_PRESETS[v] ?? [])[0]?.value ?? 'otro'); }}
+            >
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {UTM_SOURCE_PRESETS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {source === 'otro' && (
+              <Input className="mt-2" placeholder="ej: tiktok, email, flyer físico" value={customSource} onChange={(e) => setCustomSource(e.target.value)} />
+            )}
+          </div>
+          <div>
+            <Label>Formato</Label>
+            <Select value={medium} onValueChange={setMedium}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {mediumOptions.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                <SelectItem value="otro">Otro…</SelectItem>
+              </SelectContent>
+            </Select>
+            {medium === 'otro' && (
+              <Input className="mt-2" placeholder="ej: carrusel, historia destacada" value={customMedium} onChange={(e) => setCustomMedium(e.target.value)} />
+            )}
+          </div>
+          <div>
+            <Label>Campaña (opcional)</Label>
+            <Input className="mt-1" placeholder="ej: founders, disfraz" value={campaign} onChange={(e) => setCampaign(e.target.value)} />
+          </div>
+          <div>
+            <Label>Variante (opcional)</Label>
+            <Input className="mt-1" placeholder="ej: v1, v2 -- para probar dos versiones" value={content} onChange={(e) => setContent(e.target.value)} />
+          </div>
+          <div className="md:col-span-2">
+            <Label>Página de destino</Label>
+            <Input className="mt-1 font-mono text-xs" value={path} onChange={(e) => setPath(e.target.value)} placeholder="/ (home) o /eventos/tu-slug" />
+          </div>
+        </div>
+        <div>
+          <Label>Link listo para compartir</Label>
+          <div className="flex items-center gap-2 mt-1">
+            <Input readOnly value={link} className="font-mono text-xs" onFocus={(e) => e.target.select()} />
+            <Button type="button" onClick={copy} className="interactive shrink-0">{copied ? '✓ Copiado' : 'Copiar'}</Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 /** "Ventas por origen" (atribución UTM, agujero 2 del plan de ventas): con
  * $0 de pauta, saber qué reel/historia/link trae ventas de verdad es la
  * única ventaja competitiva que hay. Agrupa ventas web ya aprobadas por
@@ -1963,6 +2105,8 @@ function SalesByOriginView() {
           De dónde vinieron las ventas web ya aprobadas, según el link que usó cada comprador para entrar al sitio. Lo que no viene de un link etiquetado (directo, buscador, embajador con su propio código) cae en "(sin UTM)".
         </p>
       </div>
+
+      <UtmLinkBuilder />
 
       {isLoading ? (
         <p className="text-muted-foreground text-sm">Cargando…</p>
