@@ -30,6 +30,7 @@ import { trpc } from '@/lib/trpc';
 import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
 import ScrollStory from '@/components/home/ScrollStory';
+import FeaturedEventPanel from '@/components/home/FeaturedEventPanel';
 import { scrollToId, prefersReducedMotion, isFinePointer } from '@/lib/smoothScroll';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 import { useSeo } from '@/hooks/useSeo';
@@ -447,26 +448,29 @@ function Hero() {
 
 /* ─── Próximos Eventos ─────────────────────────────────────── */
 
-type HomeEventItem = {
+// Exportado: FeaturedEventPanel.tsx lo necesita como import de sólo-tipo
+// (se borra en compilación, así que no genera un ciclo de import real con
+// que ese archivo a su vez sea importado acá abajo).
+export type HomeEventItem = {
   id: string;
   title: string;
   date: Date;
   dateLabel: string;
   venue?: string | null;
+  shortDescription?: string | null;
   imageUrl: string;
   isPast: boolean;
   featured: boolean;
   href: string;
 };
 
-function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'featured' | 'normal' | 'small' }) {
-  const isFeatured = size === 'featured';
+function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'normal' | 'small' }) {
   const isSmall = size === 'small';
   return (
     <Link
       href={event.href}
       className={`group relative block rounded-2xl md:rounded-3xl overflow-hidden glass-candy interactive ${
-        isFeatured ? 'aspect-[16/10] md:aspect-[21/9]' : isSmall ? 'aspect-square' : 'aspect-[4/5]'
+        isSmall ? 'aspect-square' : 'aspect-[4/5]'
       }`}
     >
       {/* width/height declarados aunque el contenedor ya reserve el espacio
@@ -485,32 +489,22 @@ function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'f
         }`}
       />
       <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-background/20 to-transparent" />
-      {event.featured && !event.isPast && (
-        <span className="absolute top-3 left-3 md:top-4 md:left-4 px-3 py-1 rounded-full bg-primary text-primary-foreground text-[10px] md:text-xs font-bold uppercase tracking-wide">
-          ✨ Próximo evento
-        </span>
-      )}
       {event.isPast && (
         <span className="absolute top-3 left-3 px-2.5 py-0.5 rounded-full bg-muted/90 text-muted-foreground text-[9px] font-bold uppercase tracking-wide">
           Finalizado
         </span>
       )}
-      <div className={`absolute bottom-0 inset-x-0 p-3 md:p-5 ${isFeatured ? 'md:p-8' : ''}`}>
+      <div className="absolute bottom-0 inset-x-0 p-3 md:p-5">
         <p className={`flex items-center gap-1.5 text-primary font-semibold mb-1 ${isSmall ? 'text-[10px]' : 'text-xs md:text-sm'}`}>
           <Calendar className={isSmall ? 'w-3 h-3' : 'w-3.5 h-3.5 md:w-4 md:h-4'} /> {event.dateLabel}
         </p>
-        <h3 className={`font-heading font-bold text-foreground leading-tight ${isFeatured ? 'text-2xl md:text-4xl' : isSmall ? 'text-sm' : 'text-lg md:text-xl'}`}>
+        <h3 className={`font-heading font-bold text-foreground leading-tight ${isSmall ? 'text-sm' : 'text-lg md:text-xl'}`}>
           {event.title}
         </h3>
         {event.venue && !isSmall && (
           <p className="flex items-center gap-1.5 text-muted-foreground text-xs md:text-sm mt-1">
             <MapPin className="w-3.5 h-3.5" /> {event.venue}
           </p>
-        )}
-        {isFeatured && !event.isPast && (
-          <span className="btn-jelly inline-flex items-center gap-2 mt-4 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide">
-            <Ticket className="w-4 h-4" /> Ver evento
-          </span>
         )}
       </div>
     </Link>
@@ -541,7 +535,13 @@ function UpcomingEventsSection() {
     date: new Date('2026-08-08T21:00:00-04:00'),
     dateLabel: 'Sábado 08 de Agosto',
     venue: 'Valparaíso, Chile',
-    imageUrl: '/candyland/poster-hero.webp',
+    // El flyer real (retrato, 1060×1413) -- antes acá vivía poster-hero.webp
+    // (el still del video del hero, 960×540 panorámico), que es la imagen
+    // equivocada para este propósito: quedaba recortada a un cuadrado
+    // diminuto en "Ediciones anteriores" y era, en los hechos, la única
+    // imagen de evento visible en toda la home mientras no hay fecha
+    // confirmada.
+    imageUrl: '/candyland/flyer-08-agosto.jpg',
     isPast: true,
     featured: false,
     href: '/eventos/candyland-agosto-2026',
@@ -555,6 +555,7 @@ function UpcomingEventsSection() {
       date,
       dateLabel: date.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Santiago' }),
       venue: e.venue,
+      shortDescription: e.shortDescription,
       imageUrl: e.imageUrl || candylandHistorico.imageUrl,
       isPast: e.status === 'past' || date.getTime() < now,
       featured: !!e.featured,
@@ -572,10 +573,22 @@ function UpcomingEventsSection() {
   const past = all.filter((e) => e.isPast).sort((a, b) => b.date.getTime() - a.date.getTime());
 
   // El destacado: el que el admin marcó featured, o si no hay ninguno, el próximo más cercano.
+  // (featuredEvent sólo queda undefined cuando `upcoming` está vacío -- el
+  // fallback `?? upcoming[0]` cubre cualquier otro caso -- así que
+  // restUpcoming siempre queda vacío en la rama "sin próximo evento".)
   const featuredEvent = upcoming.find((e) => e.featured) ?? upcoming[0];
   const restUpcoming = upcoming.filter((e) => e.id !== featuredEvent?.id);
 
-  if (!featuredEvent && past.length === 0) return null;
+  // Sin evento próximo todavía: en vez de un segundo estado "vacío", se
+  // promueve la edición pasada más reciente al mismo panel grande -- es,
+  // en los hechos, el único contenido de evento real que hay hoy en la
+  // home, y merece el mismo tratamiento grande que va a tener el próximo
+  // evento apenas el admin lo cargue.
+  const panelEvent = featuredEvent ?? past[0];
+  const panelMode: 'upcoming' | 'past' = featuredEvent ? 'upcoming' : 'past';
+  const stripPast = featuredEvent ? past : past.slice(1);
+
+  if (!panelEvent) return null;
 
   return (
     <section id="proximos-eventos" className="relative scroll-mt-24 py-20 md:py-28">
@@ -587,11 +600,9 @@ function UpcomingEventsSection() {
           </h2>
         </motion.div>
 
-        {featuredEvent && (
-          <motion.div {...reveal} className="mb-6 md:mb-8">
-            <EventCard event={{ ...featuredEvent, featured: true }} size="featured" />
-          </motion.div>
-        )}
+        <div className="mb-12 md:mb-16">
+          <FeaturedEventPanel event={panelEvent} mode={panelMode} />
+        </div>
 
         {restUpcoming.length > 0 && (
           <motion.div {...reveal} className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 mb-12 md:mb-16">
@@ -601,12 +612,18 @@ function UpcomingEventsSection() {
           </motion.div>
         )}
 
-        {past.length > 0 && (
+        {stripPast.length > 0 && (
           <motion.div {...reveal}>
             <p className="text-sm uppercase tracking-[0.25em] text-muted-foreground mb-4">Ediciones anteriores</p>
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-3 md:gap-4">
-              {past.map((e) => (
-                <EventCard key={e.id} event={e} size="small" />
+            {/* Tira horizontal con scroll-snap en vez de una grilla fija --
+             * escala mejor a medida que se acumulan más ediciones pasadas
+             * (una grilla de 6 columnas se ve bien con 6 items, rara con 4
+             * u 8; la tira siempre se ve intencional). */}
+            <div className="flex gap-3 md:gap-4 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-1">
+              {stripPast.map((e) => (
+                <div key={e.id} className="snap-start shrink-0 w-28 md:w-40">
+                  <EventCard event={e} size="small" />
+                </div>
               ))}
             </div>
           </motion.div>
@@ -677,9 +694,23 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
   const burstId = useIncreaseBurst(vendidos);
   const soldOut = vendidos >= meta;
 
+  // Banda full-bleed detrás de esta sección: el único momento de la home
+  // donde el pastel de marca aparece como un campo de color grande en vez
+  // de un acento fino (blobs difuminados, bordes) -- rompe el patrón "todo
+  // vive en el mismo pastel pálido" que se repite en el resto de la
+  // página. Se aplica en las dos ramas (con y sin fecha confirmada) porque
+  // hoy, sin fecha, es la única que se ve.
+  const fullBleedBand = (
+    <div
+      aria-hidden
+      className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-screen bg-gradient-to-r from-primary/20 via-cherry/15 to-violet-electric/20"
+    />
+  );
+
   if (!EVENTO.fechaConfirmada) {
     return (
       <section id="proxima-fecha" className="relative scroll-mt-24 py-10 md:py-14 overflow-hidden">
+        {fullBleedBand}
         <div aria-hidden className="absolute -top-16 left-[10%] w-72 h-72 rounded-full bg-primary/15 blur-[100px] candy-float-slow" />
         <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/15 blur-[110px] candy-float" />
         <div className="container relative">
@@ -691,6 +722,7 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
 
   return (
     <section id="proxima-fecha" className="relative scroll-mt-24 py-10 md:py-14 overflow-hidden">
+      {fullBleedBand}
       <div aria-hidden className="absolute -top-16 left-[10%] w-72 h-72 rounded-full bg-primary/15 blur-[100px] candy-float-slow" />
       <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/15 blur-[110px] candy-float" />
 
@@ -815,8 +847,12 @@ function ExperienceSection() {
       <div aria-hidden className="absolute -top-16 -right-20 w-80 h-80 rounded-full bg-secondary/15 blur-2xl md:blur-[130px] candy-float-slow" />
       <div aria-hidden className="absolute bottom-0 -left-24 w-96 h-96 rounded-full bg-cherry/15 blur-2xl md:blur-[130px] candy-float" />
 
-      <div className="container">
-        <motion.div {...reveal} className="max-w-3xl mb-16">
+      {/* Columnas asimétricas en vez del "heading arriba + grilla abajo" que
+       * repiten Próximos Eventos/FAQ -- el texto queda fijo (sticky) al lado
+       * mientras las amenities, ahora más grandes (2 columnas en vez de 4),
+       * ocupan su propio carril. */}
+      <div className="container grid grid-cols-1 lg:grid-cols-[1fr_1.3fr] gap-10 lg:gap-16 items-start">
+        <motion.div {...reveal} className="lg:sticky lg:top-24">
           <p className="text-sm uppercase tracking-[0.3em] text-primary mb-4">La experiencia</p>
           <h2 className="font-heading font-bold text-4xl md:text-6xl tracking-tight leading-[1.05]">
             Dulces de lujo,
@@ -842,7 +878,7 @@ function ExperienceSection() {
           whileInView="show"
           viewport={{ once: true, margin: '400px' }}
           variants={{ hidden: {}, show: { transition: { staggerChildren: 0.04 } } }}
-          className="grid grid-cols-2 md:grid-cols-4 gap-4"
+          className="grid grid-cols-2 gap-4"
         >
           {CANDYLAND.amenities.map((a) => {
             const Icon = AMENITY_ICONS[a.icono] ?? Sparkles;
@@ -862,16 +898,16 @@ function ExperienceSection() {
                 <div
                   onPointerMove={pointerFine ? handleCandyTilt : undefined}
                   onPointerLeave={pointerFine ? resetCandyTilt : undefined}
-                  className="candy-pass glass-candy rounded-2xl p-5 flex items-center gap-3 hover:border-primary/40 transition-colors"
+                  className="candy-pass glass-candy rounded-2xl p-6 md:p-7 flex items-center gap-3 hover:border-primary/40 transition-colors"
                 >
                   <motion.span
                     whileHover={{ rotate: [0, -12, 10, -6, 0] }}
                     transition={{ duration: 0.6 }}
                     className="inline-flex shrink-0"
                   >
-                    <Icon className="w-6 h-6 text-primary" />
+                    <Icon className="w-7 h-7 md:w-8 md:h-8 text-primary" />
                   </motion.span>
-                  <span className="text-sm md:text-base font-medium">{a.texto}</span>
+                  <span className="text-base md:text-lg font-medium">{a.texto}</span>
                   <div aria-hidden className="candy-sheen" />
                   <div aria-hidden className="candy-holo" />
                 </div>
@@ -1091,6 +1127,17 @@ function FinalCTASection() {
       <div className="absolute inset-0 bg-gradient-to-b from-background via-background/70 to-background" />
       <div aria-hidden className="absolute inset-0 flex items-center justify-center">
         <div className="w-[36rem] h-[36rem] rounded-full bg-primary/15 blur-[150px]" />
+      </div>
+
+      {/* Momento tipográfico gigante -- ningún otro cierre de sección en la
+       * página llega a esta escala; le da a este cierre un peso que antes
+       * era casi una repetición del final del Hero (logo + heading + CTA
+       * centrados sobre un blob, sin nada que lo distinga). Se recorta
+       * contra el `overflow-hidden` de la sección a propósito. */}
+      <div aria-hidden className="absolute inset-0 flex items-center justify-center overflow-hidden select-none pointer-events-none">
+        <span className="font-heading font-black text-gradient-candy opacity-[0.22] text-[clamp(7rem,24vw,18rem)] leading-none tracking-tight whitespace-nowrap">
+          ENTRA
+        </span>
       </div>
 
       <motion.div {...reveal} className="container relative text-center max-w-3xl">
