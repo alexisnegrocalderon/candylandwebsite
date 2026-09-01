@@ -76,8 +76,12 @@ export default function FeaturedEventPanel({ event, mode }: FeaturedEventPanelPr
               alt={event.title}
               width={1060}
               height={1413}
-              className={`absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 ${
-                !isUpcoming ? 'grayscale-[0.25]' : ''
+              // Blanco y negro para ediciones pasadas -- mismo criterio que
+              // ya usa EventCard (grayscale, se revela a color en hover),
+              // no un gris parcial: una edición pasada tiene que leerse
+              // como pasada de un vistazo, no como el próximo evento.
+              className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${
+                !isUpcoming ? 'grayscale group-hover:grayscale-0 opacity-90 group-hover:opacity-100' : 'group-hover:scale-105'
               }`}
             />
             <div aria-hidden className="candy-sheen" />
