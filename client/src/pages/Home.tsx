@@ -31,7 +31,7 @@ import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
 import ScrollStory from '@/components/home/ScrollStory';
 import FeaturedEventPanel from '@/components/home/FeaturedEventPanel';
-import { scrollToId, prefersReducedMotion, isFinePointer } from '@/lib/smoothScroll';
+import { scrollToId, prefersReducedMotion, isFinePointer, isMobileViewport } from '@/lib/smoothScroll';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 import { useSeo } from '@/hooks/useSeo';
 import { eventSchema, faqSchema } from '@shared/structuredData';
@@ -305,6 +305,15 @@ function Hero() {
   // nota" en pantallas chicas, así que no se pierde nada quitándolo ahí.
   const [pointerFine] = useState(() => isFinePointer());
 
+  // El video del Hero es panorámico (2,08:1): en celular, `object-cover` a
+  // pantalla completa recortaría casi todo el ancho y dejaría fuera lo
+  // importante del encuadre (la vela). En vez de confiar en el recorte
+  // automático del navegador, se sirve un archivo aparte ya recortado a
+  // mano centrado en la vela+torta (client/public/candyland/hero-video-
+  // mobile.mp4) -- mismo criterio que isFinePointer() de abajo: se decide
+  // una sola vez al montar, no hace falta que reaccione a un resize.
+  const [isMobile] = useState(() => isMobileViewport());
+
   // Si el video no arranca a reproducirse después de unos segundos (conexión
   // mala, o Safari que se quedó pegado tratando de decodificarlo), se deja
   // de esperar y se muestra fijo el poster -- así nunca queda una pantalla
@@ -339,8 +348,8 @@ function Hero() {
         {!videoTimedOut && (
           <video
             className="absolute inset-0 w-full h-full object-cover opacity-90 saturate-[1.15] motion-reduce:hidden"
-            src="/candyland/hero-video.mp4"
-            poster="/candyland/poster-hero.webp"
+            src={isMobile ? '/candyland/hero-video-mobile.mp4' : '/candyland/hero-video.mp4'}
+            poster={isMobile ? '/candyland/poster-hero-mobile.webp' : '/candyland/poster-hero.webp'}
             autoPlay
             muted
             loop
