@@ -66,7 +66,12 @@ const ACCESOS: Acceso[] = [
   {
     id: 'duo',
     nombre: 'Dúo',
-    precio: 40000,
+    // Precio Founders (Tanda 1) del 2º Aniversario: 60% del precio general
+    // ($50.000), que se carga en el admin como `originalPrice` del ticket
+    // type para que el sitio lo muestre tachado (ver TandaUrgencyCard en
+    // Home.tsx) -- acá solo va el precio Founders, que es el que se cobra
+    // mientras dure esta tanda.
+    precio: 30000,
     personas: 2,
     descripcion: 'Acceso para 2 personas. La entrada clásica de la mansión.',
     beneficios: ['2 accesos', 'Todas las zonas', 'Playground XXL'],
@@ -81,7 +86,8 @@ const ACCESOS: Acceso[] = [
   {
     id: 'soltera',
     nombre: 'Soltera',
-    precio: 20000,
+    // Founders: 60% de $20.000.
+    precio: 12000,
     personas: 1,
     descripcion: 'Acceso individual para ella.',
     beneficios: ['1 acceso', 'Todas las zonas'],
@@ -91,10 +97,14 @@ const ACCESOS: Acceso[] = [
   {
     id: 'duo_mujeres',
     nombre: 'Dúo Mujeres',
-    precio: 20000,
+    // Founders: 60% de $25.000. Ya NO es "el mismo valor que Soltera" (antes
+    // ambos eran $20.000 parejos) -- con el pricing del aniversario quedan en
+    // valores distintos, así que se corrigió la descripción y el beneficio
+    // de abajo para no publicar un dato falso.
+    precio: 15000,
     personas: 2,
-    descripcion: 'Acceso 2x1 para 2 mujeres — mismo valor que el acceso Soltera.',
-    beneficios: ['2 accesos', 'Mismo valor que Soltera sola', 'Todas las zonas'],
+    descripcion: 'Acceso 2x1 para 2 mujeres a un valor conveniente.',
+    beneficios: ['2 accesos', 'Valor conveniente para dos', 'Todas las zonas'],
     estado: 'available',
     exclusivoComunidad: false,
     campos: [
@@ -106,7 +116,8 @@ const ACCESOS: Acceso[] = [
   {
     id: 'soltero',
     nombre: 'Soltero',
-    precio: 30000,
+    // Founders: 60% de $35.000.
+    precio: 21000,
     personas: 1,
     descripcion: 'Acceso individual para él. Exclusivo para miembros validados de la comunidad.',
     beneficios: ['1 acceso', 'Requiere código de comunidad', 'Todas las zonas'],
@@ -120,7 +131,8 @@ const ACCESOS: Acceso[] = [
   {
     id: 'trio',
     nombre: 'Trío',
-    precio: 50000,
+    // Founders: 60% de $60.000.
+    precio: 36000,
     personas: 3,
     descripcion: 'Acceso para 3 personas. Más dulce entre más son.',
     beneficios: ['3 accesos', 'Todas las zonas', 'Playground XXL'],
@@ -138,7 +150,8 @@ const ACCESOS: Acceso[] = [
   {
     id: 'grupo',
     nombre: 'Grupo',
-    precio: 60000,
+    // Founders: 60% de $70.000.
+    precio: 42000,
     personas: 4,
     descripcion: 'Acceso para 4 personas. La forma más dulce de venir en banda.',
     beneficios: ['4 accesos', 'Todas las zonas', 'Playground XXL'],
@@ -198,28 +211,32 @@ export const EVENTO = {
   // el admin le puso al crearlo en /admin) — si no coincide, todos los CTA
   // del sitio apuntan a un evento que no existe y el checkout cae en modo
   // demo silenciosamente, fallando recién al intentar pagar.
-  slug: 'candyland-agosto-2026',
+  slug: '2do-aniversario-playroom',
   // Nombre corto que se usa en el título grande del Hero. La marca completa
   // ("Mansion Playroom") vive en MARCA.nombre y se usa en el logo del Hero y
-  // en el splash del Intro -- el título grande no la repite.
-  nombre: 'PLAYROOM',
-  tagline: 'La próxima fiesta se viene pronto',
-  heroTitulo: 'La próxima noche está por anunciarse.',
+  // en el splash del Intro -- el título grande no la repite. Sin temática
+  // Halloween acá a propósito (decisión del dueño): el foco es el
+  // aniversario, no Halloween -- el disfraz obligatorio va solo en el dress
+  // code, como dato práctico, no como estética del sitio.
+  nombre: 'ANIVERSARIO',
+  tagline: 'Dos años de la fiesta liberal más grande de la V Región',
+  heroTitulo: 'Dos años de mansión. Una noche para celebrarlo -- con disfraz obligatorio.',
 
-  // ⚠️ Todavía no hay fecha confirmada para la próxima fiesta (ni venta de
-  // entradas activa). Mientras `fechaConfirmada` sea false, el Hero y la
-  // sección de countdown ocultan fecha/hora/countdown y muestran un mensaje
-  // "Próximamente" en su lugar -- ver Hero() y UrgencySection() en Home.tsx.
-  // `eventDate` se deja con un valor futuro cualquiera solo para no romper
-  // el tipo Date; no se renderiza en ningún lado mientras esto sea false.
-  fechaConfirmada: false,
-  eventDate: new Date('2026-09-30T21:00:00-04:00'),
-  fechaTexto: 'Próximamente',
-  horarioTexto: '',
+  // Fecha confirmada: viernes 30 de octubre de 2026. La hora de puertas
+  // todavía no está definida -- `eventDate` usa 21:00 (mismo horario que
+  // Candyland) solo como marcador interno para que el countdown y el
+  // JSON-LD tengan una fecha-hora válida, pero esa hora NO se muestra en
+  // ningún lado: `horarioTexto` dice "Hora por confirmar" a propósito.
+  // ⚠️ Reemplazar `eventDate` por la hora real apenas esté definida.
+  fechaConfirmada: true,
+  eventDate: new Date('2026-10-30T21:00:00-03:00'),
+  fechaTexto: 'Viernes 30 de octubre',
+  horarioTexto: 'Hora por confirmar',
   afterTexto: 'After hasta el amanecer',
-  // Temático del evento: "candy" era de Candyland. El próximo tendrá el suyo
-  // -- por ahora se deja un dress code genérico hasta definir el de Playroom.
-  dressCode: 'Elegante y sensual: lo que te haga sentir irresistible. Nada de tenida deportiva.',
+  // Disfraz obligatorio como dato práctico del dress code, sin tematizar el
+  // resto del sitio en Halloween (decisión del dueño: eso queda para la
+  // landing especial de la campaña, no para el home).
+  dressCode: 'Disfraz obligatorio: es nuestro 2º aniversario y lo celebramos en grande. Además de tu disfraz, que te haga sentir irresistible -- nada de tenida deportiva.',
 } as const;
 
 /* `CANDYLAND` se conserva como objeto compuesto para no romper los archivos
@@ -315,7 +332,7 @@ export const CANDYLAND = {
     },
     {
       q: '¿A qué hora empieza y termina?',
-      a: 'Puertas a las 21:00. La fiesta oficial va hasta las 04:30, y el after sigue hasta el amanecer.',
+      a: 'Puertas por confirmar -- te avisamos apenas esté el horario definitivo. El after sigue hasta el amanecer.',
     },
     {
       q: '¿Cuál es el dress code?',
@@ -351,7 +368,7 @@ export const CANDYLAND = {
     },
     {
       q: '¿Qué pasa si llego tarde?',
-      a: 'Puedes entrar en cualquier momento mientras el evento esté abierto. Las puertas abren a las 21:00 y la fiesta va hasta las 04:30, con after hasta el amanecer. Eso sí, si compraste estacionamiento conviene llegar temprano.',
+      a: 'Puedes entrar en cualquier momento mientras el evento esté abierto. El horario de puertas todavía está por confirmarse, y el after sigue hasta el amanecer. Eso sí, si compraste estacionamiento conviene llegar temprano.',
     },
     {
       q: '¿Hay dónde dejar mis cosas?',
