@@ -63,14 +63,25 @@ export default function ScrollStory() {
           🍬
         </motion.span>
 
-        <div className="relative z-10 min-h-[8rem] md:min-h-[10rem] max-w-2xl mx-auto px-4 text-center">
+        {/* w-full es necesario acá: las 3 frases de abajo son las únicas
+         * hijas con contenido real y son todas `absolute` (fuera de flujo),
+         * así que sin w-full esta caja se encoge a su ancho mínimo (el de
+         * los paddings) en vez de ocupar max-w-2xl -- eso partía el texto
+         * letra por letra dentro de una columna de ~32px. */}
+        <div className="relative z-10 w-full min-h-[8rem] md:min-h-[10rem] max-w-2xl mx-auto px-4 flex items-center justify-center text-center">
           <span className="sr-only">{FULL_SENTENCE}</span>
           {BEATS.map((beat, i) => (
             <motion.p
               key={beat}
               aria-hidden
               style={{ opacity: beatOpacities[i] }}
-              className="absolute inset-x-0 font-heading text-3xl sm:text-4xl md:text-6xl font-bold text-gradient-candy"
+              // inset-0 (no solo inset-x-0) + flex en el padre: las 3 frases
+              // tienen que ocupar EXACTAMENTE la misma caja para que el
+              // crossfade sea limpio -- con solo inset-x-0 (sin top) cada
+              // <p> caía en su posición estática de flujo normal (una
+              // debajo de la otra) en vez de superponerse, y el resultado
+              // eran letras sueltas de dos frases distintas mezcladas.
+              className="absolute inset-0 flex items-center justify-center font-heading text-3xl sm:text-4xl md:text-6xl font-bold text-gradient-candy"
             >
               {beat}
             </motion.p>
