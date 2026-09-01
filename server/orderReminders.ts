@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, and, lte } from 'drizzle-orm';
 import { getDb } from './db';
 import { orders, events } from '../drizzle/schema';
 import { invokeLLM } from './_core/llm';
@@ -93,6 +93,90 @@ export async function sendPendingReminders(params: {
 
   console.log(`[Recordatorios] Enviados: ${resultado.sent} · Omitidos: ${resultado.skipped.length} · Con error: ${resultado.failed.length}`);
   return resultado;
+}
+
+/* ── Cron diario de carrito abandonado ─────────────────────────
+ * Pedido explícito del dueño: la herramienta de arriba (sendPendingReminders)
+ * ya existía como botón manual en Ventas Web, pero nadie la usaba
+ * sistemáticamente -- con $0 de pauta y 8 semanas de campaña, cada orden que
+ * queda `pending` y nunca recibe un recordatorio es plata que se dejó sobre
+ * la mesa. Esto la corre sola, todos los días, con una cadencia conservadora
+ * para no transformarse en spam. */
+
+/** No molestar a alguien que todavía está llenando el formulario de compra:
+ * recién es candidata a un recordatorio 3 horas después de crearse. */
+const ABANDONED_CART_MIN_AGE_MS = 3 * 60 * 60 * 1000;
+
+/** Cadencia entre recordatorios de una misma orden (pedido explícito del
+ * dueño: "revisar cada 3 días"). */
+const ABANDONED_CART_REMINDER_GAP_MS = 3 * 24 * 60 * 60 * 1000;
+
+/** Tope de recordatorios por orden -- sin esto, una orden pending que nunca
+ * se paga recibiría un correo cada 3 días para siempre. */
+const ABANDONED_CART_MAX_REMINDERS = 3;
+
+/** Tope duro de recordatorios por CORRIDA del cron -- comparte la cuota
+ * diaria de Resend (~100/día en el plan free) con el mailing masivo
+ * (server/mailing.ts, CRON_MAX_PER_RUN=50) y, más importante, con los
+ * correos transaccionales del sitio (confirmación de compra, Misión 300):
+ * esos nunca deben quedarse sin cupo por vaciar la cuota en recordatorios.
+ * Configurable por env var por si el dueño sube de plan. */
+const ABANDONED_CART_CRON_CAP = Number(process.env.ABANDONED_CART_CRON_CAP) || 10;
+
+/** Ids de las órdenes `pending` elegibles para el recordatorio automático,
+ * de la más vieja a la más nueva (a las que llevan más tiempo esperando les
+ * toca primero si el tope de la corrida no alcanza para todas). Reglas:
+ * - Solo canal 'web' -- caja/import no tienen un checkout al que volver.
+ * - El evento todavía no pasó: "tu entrada te espera" para una fiesta que
+ *   ya fue no tiene sentido y se ve mal.
+ * - Al menos `ABANDONED_CART_MIN_AGE_MS` desde que se creó la orden.
+ * - Si ya recibió un recordatorio, que hayan pasado al menos
+ *   `ABANDONED_CART_REMINDER_GAP_MS` desde el último, y que no haya llegado
+ *   ya a `ABANDONED_CART_MAX_REMINDERS`. */
+async function getOrdersDueForAbandonedCartReminder(): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const now = Date.now();
+  const cutoffCreated = new Date(now - ABANDONED_CART_MIN_AGE_MS);
+
+  const candidatas = await db
+    .select({
+      id: orders.id,
+      createdAt: orders.createdAt,
+      reminderSentAt: orders.reminderSentAt,
+      reminderCount: orders.reminderCount,
+      eventDate: events.eventDate,
+    })
+    .from(orders)
+    .leftJoin(events, eq(orders.eventId, events.id))
+    .where(and(
+      eq(orders.paymentStatus, 'pending'),
+      eq(orders.channel, 'web'),
+      lte(orders.createdAt, cutoffCreated),
+    ))
+    .orderBy(orders.createdAt);
+
+  return candidatas
+    .filter((o) => {
+      if (o.eventDate && new Date(o.eventDate).getTime() < now) return false;
+      if ((o.reminderCount ?? 0) >= ABANDONED_CART_MAX_REMINDERS) return false;
+      if (o.reminderSentAt && now - new Date(o.reminderSentAt).getTime() < ABANDONED_CART_REMINDER_GAP_MS) return false;
+      return true;
+    })
+    .map((o) => o.id);
+}
+
+export type AbandonedCartCronResult = ReminderResult & { eligible: number };
+
+/** Se llama una vez por día desde server/cronRoutes.ts, dentro de la misma
+ * corrida del cron de mailing (Vercel Hobby solo permite 2 crons y los dos
+ * ya están ocupados -- ver el comentario en cronRoutes.ts). */
+export async function runAbandonedCartCron(): Promise<AbandonedCartCronResult> {
+  const eligible = await getOrdersDueForAbandonedCartReminder();
+  const orderIds = eligible.slice(0, ABANDONED_CART_CRON_CAP);
+  if (orderIds.length === 0) return { sent: 0, skipped: [], failed: [], eligible: eligible.length };
+  const resultado = await sendPendingReminders({ orderIds });
+  return { ...resultado, eligible: eligible.length };
 }
 
 /* ── Generación con IA del cuerpo del correo ──────────────────

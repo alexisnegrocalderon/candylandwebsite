@@ -4,6 +4,7 @@ import { processMailingCronBatch } from "./mailing";
 import { purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, getEventHappeningToday, getCajaDashboard } from "./db";
 import { sendEmail, buildCheckinSummaryEmail } from "./email";
 import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
+import { runAbandonedCartCron } from "./orderReminders";
 import { isWeeklyEmailDay } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 
@@ -73,7 +74,21 @@ export function registerCronRoutes(app: Express) {
         console.error('[Cron] Error mandando el correo semanal de embajadores:', err);
       }
 
-      res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, ambassadorWeekly });
+      // Recordatorio automático de carrito abandonado (pedido explícito del
+      // dueño): la herramienta ya existía como botón manual en Ventas Web
+      // (sendPendingReminders), pero nadie la usaba sistemáticamente. Va en
+      // la misma corrida diaria por la misma razón que el correo de
+      // embajadores de arriba -- Vercel Hobby no da para un tercer cron.
+      // Try/catch propio: si esto falla, el mailing y la purga igual
+      // reportan lo que alcanzaron a hacer.
+      let abandonedCart: Awaited<ReturnType<typeof runAbandonedCartCron>> | null = null;
+      try {
+        abandonedCart = await runAbandonedCartCron();
+      } catch (err) {
+        console.error('[Cron] Error mandando recordatorios de carrito abandonado:', err);
+      }
+
+      res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, ambassadorWeekly, abandonedCart });
     } catch (err) {
       console.error('[Cron] Error procesando la cola de mailing:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });

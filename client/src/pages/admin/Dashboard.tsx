@@ -1414,7 +1414,13 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
       </div>
 
       {pendingCount > 0 && !remindersMode && (
-        <p className="text-sm text-yellow-500">⚠️ {pendingCount} orden{pendingCount > 1 ? 'es' : ''} sin pagar — usa el filtro "Sin pagar" para seleccionarlas y mandarles un recordatorio.</p>
+        <p className="text-sm text-yellow-500">
+          ⚠️ {pendingCount} orden{pendingCount > 1 ? 'es' : ''} sin pagar — usa el filtro "Sin pagar" para seleccionarlas y mandarles un recordatorio ya mismo.
+          {' '}
+          <span className="text-muted-foreground">
+            (Además, un cron diario ya les manda un recordatorio solo cada 3 días, hasta 3 veces por orden — esto es para mandar uno extra ya, ej. antes de que suba el precio.)
+          </span>
+        </p>
       )}
 
       {remindersMode && (
