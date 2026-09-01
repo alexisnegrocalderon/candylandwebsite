@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, lazy, Suspense } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, MotionConfig, useScroll, useTransform } from 'framer-motion';
 import {
   Calendar,
@@ -34,11 +34,6 @@ import { scrollToId, prefersReducedMotion, isFinePointer } from '@/lib/smoothScr
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 import { useSeo } from '@/hooks/useSeo';
 import { eventSchema, faqSchema } from '@shared/structuredData';
-
-// three/@react-three sólo lo necesita esta capa del hero (desktop, pointer
-// fino, sin reduced-motion) -- import() dinámico para que en mobile ni se
-// pida el chunk (ver "vendor-three" en vite.config.ts).
-const CandyNebulaCanvas = lazy(() => import('@/components/hero3d/CandyNebulaCanvas'));
 
 type MissionPricing = { generalPrice: number; depositPrice: number } | null;
 
@@ -288,9 +283,6 @@ function Hero() {
   // satura (el hero se traba o no llega a pintar). El parallax igual "no se
   // nota" en pantallas chicas, así que no se pierde nada quitándolo ahí.
   const [pointerFine] = useState(() => isFinePointer());
-  // Candy Nebula (capa 3D) sólo entra si además no se pidió reduced-motion --
-  // se lee una sola vez al montar, mismo criterio que pointerFine arriba.
-  const [reducedMotion] = useState(() => prefersReducedMotion());
 
   // Si el video no arranca a reproducirse después de unos segundos (conexión
   // mala, o Safari que se quedó pegado tratando de decodificarlo), se deja
@@ -348,18 +340,6 @@ function Hero() {
       <div aria-hidden className="absolute -top-24 -left-24 w-96 h-96 rounded-full bg-primary/25 blur-2xl md:blur-[120px] candy-float-slow" />
       <div aria-hidden className="absolute top-1/3 -right-32 w-[28rem] h-[28rem] rounded-full bg-violet-electric/20 blur-2xl md:blur-[140px] candy-float" />
       <div aria-hidden className="absolute bottom-0 left-1/4 w-80 h-80 rounded-full bg-candy-blue/20 blur-2xl md:blur-[110px] candy-float-slow" />
-
-      {/* Candy Nebula: capa 3D procedural (partículas + candy orbs), sólo
-       * desktop/pointer fino/sin reduced-motion -- capa aditiva sobre el
-       * video, nunca lo reemplaza, así que en mobile/reduced-motion el hero
-       * queda pixel-idéntico a como estaba antes de esto. */}
-      {pointerFine && !reducedMotion && (
-        <div aria-hidden className="absolute inset-0 z-[1]">
-          <Suspense fallback={null}>
-            <CandyNebulaCanvas scrollYProgress={scrollYProgress} />
-          </Suspense>
-        </div>
-      )}
 
       {/* Caramelos arrastrables (juego) -- solo desktop/mouse, ver comentario arriba */}
       {pointerFine && <DraggableCandies boundsRef={sectionRef} />}
