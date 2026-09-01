@@ -594,6 +594,10 @@ export async function createOrder(input: {
   ambassadorCode?: string;
   communityCode?: string;
   attendeeData?: string;
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmContent?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -699,6 +703,10 @@ export async function createOrder(input: {
     paymentStatus: 'pending',
     missionDeposit: missionDeposit ? 1 : 0,
     attendeeData: input.attendeeData,
+    utmSource: input.utmSource,
+    utmMedium: input.utmMedium,
+    utmCampaign: input.utmCampaign,
+    utmContent: input.utmContent,
   });
 
   const orderId = orderResult.insertId;
@@ -744,6 +752,40 @@ export async function createOrder(input: {
   }
 
   return { orderId, orderNumber, total, isFree };
+}
+
+/** Reporte "ventas por origen" (agujero 2 del plan de ventas: con $0 de
+ * pauta, saber qué reel/historia/link trae ventas de verdad es la única
+ * ventaja competitiva que hay). Agrupa por utmSource/utmMedium/utmCampaign,
+ * solo ventas web ya aprobadas -- pending no es venta todavía, caja/import
+ * nunca traen UTM porque no pasan por un link. Las que no vinieron de un
+ * link etiquetado (directo, buscador, embajador con su propio código) caen
+ * en el grupo "(sin UTM)", que sigue siendo información útil: cuánto de la
+ * venta total no se puede explicar por ningún link. */
+export async function getSalesByUtmOrigin() {
+  const db = await getDb();
+  if (!db) return [];
+
+  const rows = await db
+    .select({
+      utmSource: orders.utmSource,
+      utmMedium: orders.utmMedium,
+      utmCampaign: orders.utmCampaign,
+      ordersCount: sql<number>`count(*)`,
+      revenue: sql<number>`sum(${orders.total})`,
+    })
+    .from(orders)
+    .where(and(eq(orders.paymentStatus, 'approved'), eq(orders.channel, 'web')))
+    .groupBy(orders.utmSource, orders.utmMedium, orders.utmCampaign)
+    .orderBy(desc(sql`sum(${orders.total})`));
+
+  return rows.map((r) => ({
+    utmSource: r.utmSource ?? '(sin UTM)',
+    utmMedium: r.utmMedium ?? null,
+    utmCampaign: r.utmCampaign ?? null,
+    ordersCount: Number(r.ordersCount),
+    revenue: Number(r.revenue ?? 0),
+  }));
 }
 
 /** Parte pura de createManualOrder(): valida stock y calcula el precio de

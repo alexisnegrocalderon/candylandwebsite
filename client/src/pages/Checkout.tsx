@@ -14,6 +14,7 @@ import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, whatsappComunidadLink, 
 import { isMissionActiveForEvent, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
 import { isValidRut, isValidChileanPhone } from '@shared/rut';
 import { useSeo } from '@/hooks/useSeo';
+import { getStoredUtmParams } from '@/lib/utm';
 
 /**
  * Checkout conversacional: una sola pregunta por pantalla, estilo "asistente"
@@ -549,6 +550,9 @@ export default function Checkout() {
         ambassadorCode: code.trim() || undefined,
         communityCode: requiresCommunityCode ? values['acceso__codigo_acceso'] : undefined,
         attendeeData,
+        // Atribución UTM (ver client/src/lib/utm.ts) -- vacío si nunca entró
+        // por un link etiquetado, y el server lo trata como "sin UTM".
+        ...getStoredUtmParams(),
       });
       sessionStorage.removeItem(STORAGE_KEY);
       setIsProcessing(false);

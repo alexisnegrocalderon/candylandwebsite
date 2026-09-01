@@ -198,6 +198,17 @@ export const orders = mysqlTable("orders", {
   // así que se perdía. Se usa para mostrar los nombres en el ticket público
   // y en el email de confirmación.
   attendeeData: text("attendeeData"),
+  // Atribución UTM (pedido explícito del dueño): con $0 de pauta, es la
+  // única forma de saber qué reel/historia/link realmente trae ventas, no
+  // solo leads. Se capturan de la URL al aterrizar (client/src/lib/utm.ts),
+  // se guardan en localStorage, y Checkout.tsx los manda acá al crear la
+  // orden -- "último toque gana" (ver comentario en utm.ts). Quedan null en
+  // ventas que no vinieron de un link etiquetado (directo, buscador,
+  // embajador vía su propio código, caja).
+  utmSource: varchar("utmSource", { length: 100 }),
+  utmMedium: varchar("utmMedium", { length: 100 }),
+  utmCampaign: varchar("utmCampaign", { length: 100 }),
+  utmContent: varchar("utmContent", { length: 100 }),
   // --- Módulo /caja (docs/ARQUITECTURA-CAJA.md §0.4, §4.3) ---
   // Canal de la venta: web = checkout normal, caja = venta presencial en el
   // evento, import = migración de la ticketera anterior (ya usado por

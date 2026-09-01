@@ -1,5 +1,5 @@
 import '@/admin.css';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { startRegistration } from '@simplewebauthn/browser';
@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -1922,6 +1922,99 @@ function LeadsView() {
             </Card>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+/** "Ventas por origen" (atribución UTM, agujero 2 del plan de ventas): con
+ * $0 de pauta, saber qué reel/historia/link trae ventas de verdad es la
+ * única ventaja competitiva que hay. Agrupa ventas web ya aprobadas por
+ * utm_source/medium/campaign (client/src/lib/utm.ts captura, Checkout.tsx
+ * las manda). Lo que no vino de un link etiquetado (directo, buscador,
+ * embajador con su propio código) cae en "(sin UTM)" -- también es
+ * información útil: cuánto de la venta no se explica por ningún link. */
+function SalesByOriginView() {
+  const { data, isLoading } = trpc.orders.salesByOrigin.useQuery();
+  const rows = data ?? [];
+
+  const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
+  const totalOrders = rows.reduce((s, r) => s + r.ordersCount, 0);
+
+  // El chart agrupa solo por utmSource -- medium/campaña quedan en la tabla
+  // de abajo. Con pocas fuentes activas (instagram, whatsapp, directo) un
+  // chart por cada combinación se vería como ruido.
+  const bySource = useMemo(() => {
+    const map = new Map<string, { name: string; revenue: number; ordersCount: number }>();
+    for (const r of rows) {
+      const acc = map.get(r.utmSource) ?? { name: r.utmSource, revenue: 0, ordersCount: 0 };
+      acc.revenue += r.revenue;
+      acc.ordersCount += r.ordersCount;
+      map.set(r.utmSource, acc);
+    }
+    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
+  }, [rows]);
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-heading text-2xl">Ventas por Origen</h2>
+        <p className="text-muted-foreground text-sm mt-1">
+          De dónde vinieron las ventas web ya aprobadas, según el link que usó cada comprador para entrar al sitio. Lo que no viene de un link etiquetado (directo, buscador, embajador con su propio código) cae en "(sin UTM)".
+        </p>
+      </div>
+
+      {isLoading ? (
+        <p className="text-muted-foreground text-sm">Cargando…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-muted-foreground text-sm">Todavía no hay ventas aprobadas para reportar.</p>
+      ) : (
+        <>
+          <p className="text-sm text-muted-foreground">
+            {totalOrders} orden{totalOrders === 1 ? '' : 'es'} · ${totalRevenue.toLocaleString('es-CL')} en total
+          </p>
+
+          {bySource.length > 1 && (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={bySource} layout="vertical" margin={{ left: 24 }}>
+                  <CartesianGrid stroke="hsl(var(--border))" />
+                  <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `$${Number(v).toLocaleString('es-CL')}`} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
+                  <Tooltip formatter={(v: number) => `$${v.toLocaleString('es-CL')}`} />
+                  <Bar dataKey="revenue" radius={[0, 4, 4, 0]}>
+                    {bySource.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-muted-foreground border-b border-border">
+                  <th className="py-2 pr-4">Origen</th>
+                  <th className="py-2 pr-4">Medio</th>
+                  <th className="py-2 pr-4">Campaña</th>
+                  <th className="py-2 pr-4 text-right">Órdenes</th>
+                  <th className="py-2 text-right">Ingresos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className="border-b border-border/50">
+                    <td className="py-2 pr-4 font-medium">{r.utmSource}</td>
+                    <td className="py-2 pr-4 text-muted-foreground">{r.utmMedium ?? '—'}</td>
+                    <td className="py-2 pr-4 text-muted-foreground">{r.utmCampaign ?? '—'}</td>
+                    <td className="py-2 pr-4 text-right">{r.ordersCount}</td>
+                    <td className="py-2 text-right font-medium">${r.revenue.toLocaleString('es-CL')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
@@ -5234,6 +5327,7 @@ const ADMIN_SECTIONS = [
   { id: 'events', label: 'Eventos', icon: Calendar, render: () => <EventsManager /> },
   { id: 'carta', label: 'Carta de la Fiesta', icon: Martini, render: () => <CartaManager /> },
   { id: 'orders-web', label: 'Ventas Web', icon: Ticket, render: () => <OrdersView channel="web" /> },
+  { id: 'sales-origin', label: 'Ventas por Origen', icon: Compass, render: () => <SalesByOriginView /> },
   { id: 'orders-caja', label: 'Ventas Caja', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
   { id: 'manual-access', label: 'Accesos Manuales', icon: Gift, render: () => <ManualAccessSection /> },
   { id: 'discounts', label: 'Descuentos', icon: Percent, render: () => <DiscountsManager /> },

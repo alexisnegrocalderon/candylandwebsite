@@ -671,6 +671,12 @@ export const appRouter = router({
       // Datos por asistente/tipo de acceso (JSON serializado). Se adjunta a la
       // preferencia de Mercado Pago como metadata; no requiere migración de schema.
       attendeeData: z.string().optional(),
+      // Atribución UTM (ver client/src/lib/utm.ts): de dónde vino la venta
+      // cuando no es por código de embajador.
+      utmSource: z.string().max(100).optional(),
+      utmMedium: z.string().max(100).optional(),
+      utmCampaign: z.string().max(100).optional(),
+      utmContent: z.string().max(100).optional(),
     })).mutation(async ({ input }) => {
       const result = await db.createOrder(input);
       // Descuento del 100%: la orden ya quedó aprobada en createOrder (sin
@@ -703,6 +709,10 @@ export const appRouter = router({
     }),
     getStats: adminReadProcedure.input(z.object({ channel: z.enum(['web', 'caja']).optional() }).optional()).query(async ({ input }) => {
       return db.getOrderStats(input?.channel);
+    }),
+    // "Ventas por origen" (atribución UTM, agujero 2 del plan de ventas).
+    salesByOrigin: adminReadProcedure.query(async () => {
+      return db.getSalesByUtmOrigin();
     }),
     // Mismos filtros y mismas columnas que el CSV (server/adminRoutes.ts) --
     // alimenta la vista de impresión/PDF, para que ambos formatos muestren

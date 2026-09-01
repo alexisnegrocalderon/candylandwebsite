@@ -6,7 +6,14 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
+import { captureUtmParams } from "@/lib/utm";
 import "./index.css";
+
+// Atribución UTM (ver client/src/lib/utm.ts): tiene que correr apenas carga
+// el script, antes que nada navegue -- es una SPA, así que esto solo se
+// ejecuta con la carga completa de página, que es justo el aterrizaje real
+// que interesa capturar (una navegación interna nunca trae utm_* en la URL).
+captureUtmParams();
 
 // Analítica (Umami) opcional: se inyecta solo si el deploy tiene las env vars
 // configuradas. Antes era un <script src="%VITE_ANALYTICS_ENDPOINT%/umami">
