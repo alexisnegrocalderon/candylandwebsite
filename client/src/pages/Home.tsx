@@ -919,29 +919,36 @@ function LeadCaptureInline({ eventId }: { eventId?: number }) {
   }
 
   return (
-    <motion.div {...reveal} className="glass-candy rounded-3xl px-6 py-5 flex flex-col sm:flex-row items-center gap-4">
-      <p className="flex-1 text-sm md:text-base font-semibold text-center sm:text-left">
-        🔔 ¿Todavía lo estás pensando? Dejá tu correo y te avisamos <span className="text-primary">antes de que suba el precio</span>.
-      </p>
-      <form onSubmit={handleSubmit} className="flex w-full sm:w-auto gap-2">
-        <input
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="tu@email.com"
-          className="flex-1 sm:w-56 px-4 py-2.5 rounded-full bg-background/70 border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-        />
-        <button
-          type="submit"
-          disabled={createLead.isPending}
-          className="btn-jelly px-5 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive disabled:opacity-60 shrink-0"
-        >
-          Avisame
-        </button>
-      </form>
+    <motion.div {...reveal} className="glass-candy rounded-3xl px-6 py-5">
+      {/* El mensaje de error vive FUERA de esta fila (ver abajo), no como
+       * tercer hijo del flex -- adentro, un <p> con `w-full` rompía el
+       * cálculo de ancho de los otros dos hijos (el texto de la izquierda
+       * se apretaba en una columna angosta), detectado con Playwright antes
+       * de mandar esto a producción. */}
+      <div className="flex flex-col sm:flex-row items-center gap-4">
+        <p className="flex-1 text-sm md:text-base font-semibold text-center sm:text-left">
+          🔔 ¿Todavía lo estás pensando? Dejá tu correo y te avisamos <span className="text-primary">antes de que suba el precio</span>.
+        </p>
+        <form onSubmit={handleSubmit} className="flex w-full sm:w-auto gap-2">
+          <input
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="tu@email.com"
+            className="flex-1 sm:w-56 px-4 py-2.5 rounded-full bg-background/70 border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+          <button
+            type="submit"
+            disabled={createLead.isPending}
+            className="btn-jelly px-5 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive disabled:opacity-60 shrink-0"
+          >
+            Avisame
+          </button>
+        </form>
+      </div>
       {createLead.isError && (
-        <p className="text-xs text-destructive w-full text-center sm:text-left">Algo falló, probá de nuevo.</p>
+        <p className="text-xs text-destructive text-center sm:text-left mt-3">Algo falló, probá de nuevo.</p>
       )}
     </motion.div>
   );
