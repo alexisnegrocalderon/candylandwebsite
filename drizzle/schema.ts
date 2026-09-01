@@ -293,6 +293,40 @@ export const communityCodes = mysqlTable("communityCodes", {
 export type CommunityCode = typeof communityCodes.$inferSelect;
 export type InsertCommunityCode = typeof communityCodes.$inferInsert;
 
+// Leads: alguien que dejó su contacto sin comprar todavía (hoy el único
+// gancho es "avisame antes de que suba el precio" en UrgencySection, ver
+// LeadCaptureInline en Home.tsx). Sin esto, cualquiera que visite el sitio
+// y no compre en el momento se pierde para siempre -- con $0 de pauta y
+// 8 semanas de campaña, es la principal defensa contra esa fuga (ver plan
+// de ventas del aniversario).
+export const leads = mysqlTable("leads", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull(),
+  phone: varchar("phone", { length: 20 }),
+  instagram: varchar("instagram", { length: 100 }),
+  eventId: int("eventId"),
+  // De dónde vino el gancho -- hoy solo existe 'price_alert' ("avisame antes
+  // de que suba el precio"), se deja como texto libre por si se agrega un
+  // gancho de lista de espera antes de abrir venta ("avisame cuando abra").
+  source: varchar("source", { length: 50 }).default('price_alert').notNull(),
+  utmSource: varchar("utmSource", { length: 100 }),
+  utmMedium: varchar("utmMedium", { length: 100 }),
+  utmCampaign: varchar("utmCampaign", { length: 100 }),
+  // Si este lead terminó comprando, qué orden generó -- se completa a mano
+  // desde el admin (todavía no hay matcheo automático por email).
+  convertedOrderId: int("convertedOrderId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  // Mismo email puede volver a dejar su contacto para OTRO evento más
+  // adelante sin chocar -- pero reenviar el mismo formulario para el mismo
+  // evento actualiza el lead existente en vez de duplicarlo (ver
+  // db.createLead, onDuplicateKeyUpdate).
+  emailEventIdx: uniqueIndex("leads_email_event_idx").on(table.email, table.eventId),
+}));
+
+export type Lead = typeof leads.$inferSelect;
+export type InsertLead = typeof leads.$inferInsert;
+
 // Lista de bloqueo de clientes: si el RUT del comprador o de algún
 // acompañante coincide (normalizado, coincidencia exacta), createOrder
 // rechaza la compra antes de crear la orden y antes de cualquier cobro.

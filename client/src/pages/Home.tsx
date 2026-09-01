@@ -711,6 +711,7 @@ function UrgencySection({
   missionPricing,
   missionActive,
   tanda,
+  eventId,
 }: {
   vendidos: number;
   missionPricing: MissionPricing;
@@ -719,6 +720,9 @@ function UrgencySection({
    * no usa Misión 300, se vende solo por tandas de precio. */
   missionActive: boolean;
   tanda: TandaInfo;
+  /** Id real del evento en la DB (si existe) -- se adjunta al lead para
+   * poder segmentarlos por evento en el admin. */
+  eventId?: number;
 }) {
   const { dias, horas, minutos, segundos, esHoy } = useCountdown(CANDYLAND.eventDate);
   const { meta, titulo, copy } = CANDYLAND.mision;
@@ -874,8 +878,72 @@ function UrgencySection({
         ) : (
           <TandaUrgencyCard tanda={tanda} countdown={tandaCountdown} displayRemaining={tandaDisplayRemaining} />
         )}
+
+        <LeadCaptureInline eventId={eventId} />
       </div>
     </section>
+  );
+}
+
+/** Captura de leads (agujero 1 del plan de ventas): el gancho "avisame antes
+ * de que suba el precio", para quien duda hoy y no compra. Sin esto, esa
+ * persona se pierde para siempre -- no hay ninguna otra forma de dejar el
+ * contacto en el sitio. Vive dentro de `UrgencySection` (en las dos ramas,
+ * Misión 300 y tanda) porque es justo donde ya se está hablando de precio y
+ * urgencia. Los UTM se leen directo de la URL en el momento del envío (no
+ * persisten entre páginas todavía -- esa persistencia es la atribución de
+ * `orders`, un build aparte). */
+function LeadCaptureInline({ eventId }: { eventId?: number }) {
+  const [email, setEmail] = useState('');
+  const createLead = trpc.leads.create.useMutation();
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || createLead.isPending) return;
+    const params = new URLSearchParams(window.location.search);
+    createLead.mutate({
+      email: email.trim(),
+      eventId,
+      utmSource: params.get('utm_source') ?? undefined,
+      utmMedium: params.get('utm_medium') ?? undefined,
+      utmCampaign: params.get('utm_campaign') ?? undefined,
+    });
+  };
+
+  if (createLead.isSuccess) {
+    return (
+      <motion.div {...reveal} className="glass-candy rounded-3xl px-6 py-5 text-center">
+        <p className="font-heading font-bold text-base md:text-lg text-gradient-candy">✅ Listo, te avisamos apenas suba el precio</p>
+      </motion.div>
+    );
+  }
+
+  return (
+    <motion.div {...reveal} className="glass-candy rounded-3xl px-6 py-5 flex flex-col sm:flex-row items-center gap-4">
+      <p className="flex-1 text-sm md:text-base font-semibold text-center sm:text-left">
+        🔔 ¿Todavía lo estás pensando? Dejá tu correo y te avisamos <span className="text-primary">antes de que suba el precio</span>.
+      </p>
+      <form onSubmit={handleSubmit} className="flex w-full sm:w-auto gap-2">
+        <input
+          type="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="tu@email.com"
+          className="flex-1 sm:w-56 px-4 py-2.5 rounded-full bg-background/70 border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+        />
+        <button
+          type="submit"
+          disabled={createLead.isPending}
+          className="btn-jelly px-5 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive disabled:opacity-60 shrink-0"
+        >
+          Avisame
+        </button>
+      </form>
+      {createLead.isError && (
+        <p className="text-xs text-destructive w-full text-center sm:text-left">Algo falló, probá de nuevo.</p>
+      )}
+    </motion.div>
   );
 }
 
@@ -1551,7 +1619,7 @@ export default function Home() {
       <Hero />
       <ScrollStory />
       <UpcomingEventsSection />
-      <UrgencySection vendidos={vendidos} missionPricing={missionPricing} missionActive={missionActive} tanda={tanda} />
+      <UrgencySection vendidos={vendidos} missionPricing={missionPricing} missionActive={missionActive} tanda={tanda} eventId={event?.id} />
       <LineupSection />
       <ExperienceSection />
       <InfoSection />

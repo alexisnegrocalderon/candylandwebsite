@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, orders, orderItems, tickets, discountCodes, communityCodes, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -436,6 +436,37 @@ export async function deleteCommunityCode(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(communityCodes).where(eq(communityCodes.id, id));
+  return { success: true };
+}
+
+// Leads (captura de contacto sin compra, ver drizzle/schema.ts)
+export async function createLead(data: {
+  email: string; phone?: string; instagram?: string; eventId?: number;
+  source?: string; utmSource?: string; utmMedium?: string; utmCampaign?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const email = data.email.trim().toLowerCase();
+  const values = { ...data, email, source: data.source ?? 'price_alert' };
+  // Reenviar el mismo formulario para el mismo evento actualiza el lead
+  // existente (mismo email + eventId) en vez de duplicarlo -- ver el índice
+  // único en drizzle/schema.ts.
+  await db.insert(leads).values(values).onDuplicateKeyUpdate({
+    set: { phone: values.phone, instagram: values.instagram, source: values.source },
+  });
+  return { success: true };
+}
+
+export async function getAllLeads() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(leads).orderBy(desc(leads.createdAt));
+}
+
+export async function deleteLead(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(leads).where(eq(leads.id, id));
   return { success: true };
 }
 

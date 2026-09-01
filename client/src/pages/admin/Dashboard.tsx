@@ -1857,6 +1857,70 @@ function CustomersView() {
   );
 }
 
+/** Contactos que dejaron su correo sin comprar todavía (hoy el único gancho
+ * es "avisame antes de que suba el precio", ver LeadCaptureInline en
+ * Home.tsx) -- con $0 de pauta y 8 semanas de campaña, esta lista es la
+ * principal defensa contra la gente que visita el sitio y se pierde para
+ * siempre por no comprar en el momento. */
+function LeadsView() {
+  const { data, refetch, isLoading } = trpc.leads.listAll.useQuery();
+  const deleteLead = trpc.leads.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const leads = data ?? [];
+
+  const exportCsv = () => {
+    const header = ['Fecha', 'Email', 'Teléfono', 'Instagram', 'Origen', 'UTM Source', 'UTM Medium', 'UTM Campaign'];
+    const lines = leads.map((l: any) => [
+      formatChileShortDate(new Date(l.createdAt)), l.email, l.phone ?? '', l.instagram ?? '',
+      l.source, l.utmSource ?? '', l.utmMedium ?? '', l.utmCampaign ?? '',
+    ].map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','));
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center flex-wrap gap-3">
+        <div>
+          <h2 className="font-heading text-2xl">Leads</h2>
+          <p className="text-muted-foreground text-sm mt-1">Contactos que dejaron su correo sin comprar todavía -- desde el gancho "avisame antes de que suba el precio" en la home.</p>
+        </div>
+        <Button variant="outline" onClick={exportCsv} disabled={leads.length === 0}><Download className="w-4 h-4 mr-2" /> Exportar CSV</Button>
+      </div>
+
+      {isLoading ? (
+        <p className="text-muted-foreground text-sm">Cargando…</p>
+      ) : leads.length === 0 ? (
+        <p className="text-muted-foreground text-sm">Todavía no hay leads.</p>
+      ) : (
+        <div className="space-y-2">
+          {leads.map((l: any) => (
+            <Card key={l.id}>
+              <CardContent className="pt-4 flex justify-between items-center flex-wrap gap-2">
+                <div>
+                  <span className="font-semibold">{l.email}</span>
+                  {l.phone && <span className="text-muted-foreground text-sm ml-3">{l.phone}</span>}
+                  {l.instagram && <span className="text-muted-foreground text-sm ml-3">@{l.instagram.replace(/^@/, '')}</span>}
+                  <span className="text-xs ml-3 px-2 py-0.5 rounded-full bg-primary/15 text-primary">{l.source}</span>
+                  {l.utmSource && (
+                    <span className="text-xs ml-2 px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                      {l.utmSource}{l.utmMedium ? ` · ${l.utmMedium}` : ''}
+                    </span>
+                  )}
+                  <span className="text-muted-foreground text-xs ml-3">{formatChileShortDate(new Date(l.createdAt))}</span>
+                </div>
+                <ConfirmDeleteButton description={`Vas a eliminar el lead "${l.email}".`} onConfirm={() => deleteLead.mutateAsync({ id: l.id })} />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MailingSection() {
   const [search, setSearch] = useState('');
   const [accessType, setAccessType] = useState<string>('all');
@@ -5170,6 +5234,7 @@ const ADMIN_SECTIONS = [
   { id: 'community', label: 'Códigos Comunidad', icon: Users, render: () => <CommunityCodesManager /> },
   { id: 'blocked-customers', label: 'Bloqueo de Clientes', icon: Ban, render: () => <BlockedCustomersManager /> },
   { id: 'customers', label: 'Clientes', icon: Contact, render: () => <CustomersView /> },
+  { id: 'leads', label: 'Leads', icon: UserPlus, render: () => <LeadsView /> },
   { id: 'mailing', label: 'Mailing', icon: Mail, render: () => <MailingSection /> },
   { id: 'mailing-history', label: 'Historial de Mailing', icon: History, render: () => <MailingHistoryView /> },
   { id: 'referrals', label: 'Referidos', icon: Trophy, render: () => <ReferralsView /> },

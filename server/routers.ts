@@ -1340,6 +1340,29 @@ export const appRouter = router({
     }),
   }),
 
+  leads: router({
+    // Público: se llama desde LeadCaptureInline en Home.tsx, sin login.
+    create: publicProcedure.input(z.object({
+      email: z.string().email(),
+      phone: z.string().optional(),
+      instagram: z.string().optional(),
+      eventId: z.number().optional(),
+      source: z.string().optional(),
+      utmSource: z.string().optional(),
+      utmMedium: z.string().optional(),
+      utmCampaign: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      return db.createLead(input);
+    }),
+    // Admin
+    listAll: adminReadProcedure.query(async () => {
+      return db.getAllLeads();
+    }),
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      return db.deleteLead(input.id);
+    }),
+  }),
+
   // Gastos de la productora (módulo /gastos). El neto, el IVA y el mes
   // contable NO se reciben del cliente: los calcula el servidor en
   // buildExpenseValues, para que no se pueda inventar crédito fiscal desde el
