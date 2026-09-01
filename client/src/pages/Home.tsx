@@ -38,6 +38,26 @@ import { eventSchema, faqSchema } from '@shared/structuredData';
 
 type MissionPricing = { generalPrice: number; depositPrice: number } | null;
 
+/** Info de la tanda de entradas vigente para el acceso "destacado" (mismo
+ * criterio que `missionPricing`: prioriza Dúo, si no el más barato). Se usa
+ * en `UrgencySection` cuando la Misión 300 está cerrada (`missionForceClosed`)
+ * -- reemplaza el anillo de progreso por escasez de stock real, sin revelar
+ * cuánta gente confirmó en total (ver plan de ventas del aniversario). */
+type TandaInfo = {
+  name: string;
+  price: number;
+  originalPrice: number | null;
+  remaining: number;
+  totalStock: number;
+  salesEnd: Date | null;
+  soldOut: boolean;
+} | null;
+
+/** Fecha muy lejana para pasarle a `useCountdown` cuando no hay `salesEnd`
+ * -- los Hooks no se pueden llamar condicionalmente, así que el countdown
+ * de alza de precio siempre corre, y el render decide si mostrarlo. */
+const NO_SALES_END = new Date('2999-01-01T00:00:00Z');
+
 /** Precio más bajo entre los accesos: Google exige un `price` concreto en la
  * oferta del evento, si no descarta el resultado enriquecido. */
 const PRECIO_MINIMO_ACCESO = Math.min(...CANDYLAND.accesos.map((a) => a.precio));
@@ -686,13 +706,31 @@ function ComingSoonCard() {
   );
 }
 
-function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missionPricing: MissionPricing }) {
+function UrgencySection({
+  vendidos,
+  missionPricing,
+  missionActive,
+  tanda,
+}: {
+  vendidos: number;
+  missionPricing: MissionPricing;
+  /** false cuando `events.missionForceClosed` está activo para este evento
+   * (ver `isMissionActiveForEvent`, shared/mission300.ts) -- este aniversario
+   * no usa Misión 300, se vende solo por tandas de precio. */
+  missionActive: boolean;
+  tanda: TandaInfo;
+}) {
   const { dias, horas, minutos, segundos, esHoy } = useCountdown(CANDYLAND.eventDate);
   const { meta, titulo, copy } = CANDYLAND.mision;
   const progreso = Math.min(100, Math.round((vendidos / meta) * 100));
   const displayCount = useCountUp(vendidos);
   const burstId = useIncreaseBurst(vendidos);
   const soldOut = vendidos >= meta;
+  // Cuenta regresiva al alza de precio de la tanda vigente -- siempre se
+  // llama (regla de Hooks), NO_SALES_END si no hay `salesEnd` configurado,
+  // y el render decide si la muestra.
+  const tandaCountdown = useCountdown(tanda?.salesEnd ?? NO_SALES_END);
+  const tandaDisplayRemaining = useCountUp(tanda?.remaining ?? 0);
 
   // Banda full-bleed detrás de esta sección: el único momento de la home
   // donde el pastel de marca aparece como un campo de color grande en vez
@@ -760,77 +798,182 @@ function UrgencySection({ vendidos, missionPricing }: { vendidos: number; missio
           </p>
         </motion.div>
 
-        {/* Misión 300 — a todo el ancho, con espacio para respirar */}
-        <motion.div {...reveal} className="relative glass-candy rounded-3xl p-6 md:p-10 overflow-visible">
-          <div className="flex flex-col md:flex-row items-center gap-6 md:gap-10">
-            <div className="relative shrink-0">
-              <div aria-hidden className="absolute inset-0 rounded-full bg-primary/25 blur-3xl candy-glow-pulse" />
-              <MissionRing pct={progreso} dropId={burstId} />
-            </div>
-
-            <div className="flex-1 text-center md:text-left w-full">
-              <h3 className="font-heading font-bold text-xl md:text-2xl text-gradient-candy mb-1">{titulo}</h3>
-              <div className="flex items-baseline justify-center md:justify-start flex-wrap gap-x-2 gap-y-0.5">
-                <span className="font-heading font-extrabold text-4xl md:text-5xl text-gradient-candy tabular-nums" aria-live="polite">
-                  {displayCount}
-                </span>
-                <span className="font-heading font-bold text-lg md:text-xl text-muted-foreground">/{meta}</span>
-                <span className="text-sm md:text-base font-semibold text-foreground/85">ya entraron</span>
-              </div>
-              <p className="text-xs md:text-sm text-muted-foreground mt-1">{copy}</p>
-
-              {/* invisible mientras missionPricing no resuelve -- mismo criterio
-               * que en Hero(), reserva el espacio para no correr la barra de
-               * progreso de abajo cuando llega la query. */}
-              <p className={`mt-2.5 inline-flex flex-wrap items-baseline justify-center md:justify-start gap-x-2 gap-y-0.5 text-sm md:text-base ${missionPricing ? '' : 'invisible'}`}>
-                <span className="font-heading font-extrabold text-gradient-candy text-lg md:text-xl">{formatCLP(MISSION_300_DEPOSIT_PER_PERSON)}</span>
-                <span className="text-muted-foreground">por persona ·</span>
-                <span className="font-bold text-cherry">Reserva tu lugar hoy</span>
-              </p>
-
-              <AnimatePresence>
-                {burstId > 0 && (
-                  <motion.p
-                    key={burstId}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.4 }}
-                    className="text-xs md:text-sm text-primary font-semibold mt-2"
-                  >
-                    ✨ Una persona más se suma a la noche
-                  </motion.p>
-                )}
-              </AnimatePresence>
-
-              <div className="h-3.5 rounded-full bg-muted overflow-hidden mt-4">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${progreso}%` }}
-                  transition={{ duration: 1.2, ease: [0.23, 1, 0.32, 1] }}
-                  className="h-full rounded-full bg-gradient-to-r from-primary via-cherry to-violet-electric relative overflow-hidden"
-                >
-                  <span className="absolute inset-0 candy-bar-shine" />
-                </motion.div>
+        {/* Misión 300 -- solo si el evento la tiene activa. Este aniversario
+         * la tiene cerrada (`missionForceClosed`): se vende por tandas de
+         * precio en su lugar, sin mostrar nunca el total de gente confirmada
+         * (ver plan de ventas del aniversario). */}
+        {missionActive ? (
+          <motion.div {...reveal} className="relative glass-candy rounded-3xl p-6 md:p-10 overflow-visible">
+            <div className="flex flex-col md:flex-row items-center gap-6 md:gap-10">
+              <div className="relative shrink-0">
+                <div aria-hidden className="absolute inset-0 rounded-full bg-primary/25 blur-3xl candy-glow-pulse" />
+                <MissionRing pct={progreso} dropId={burstId} />
               </div>
 
-              {soldOut ? (
-                <div className="mt-5 w-full md:w-auto text-center px-6 py-3 rounded-full bg-muted text-muted-foreground text-sm font-bold uppercase tracking-wide" role="status">
-                  {EVENTO.nombre} está completo · Sold out
+              <div className="flex-1 text-center md:text-left w-full">
+                <h3 className="font-heading font-bold text-xl md:text-2xl text-gradient-candy mb-1">{titulo}</h3>
+                <div className="flex items-baseline justify-center md:justify-start flex-wrap gap-x-2 gap-y-0.5">
+                  <span className="font-heading font-extrabold text-4xl md:text-5xl text-gradient-candy tabular-nums" aria-live="polite">
+                    {displayCount}
+                  </span>
+                  <span className="font-heading font-bold text-lg md:text-xl text-muted-foreground">/{meta}</span>
+                  <span className="text-sm md:text-base font-semibold text-foreground/85">ya entraron</span>
                 </div>
-              ) : (
-                <Link
-                  href={`/checkout/${CANDYLAND.slug}`}
-                  className="btn-jelly mt-5 inline-flex items-center justify-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive"
-                >
-                  🍭 Quiero mi dulce · Comprar entrada
-                </Link>
-              )}
+                <p className="text-xs md:text-sm text-muted-foreground mt-1">{copy}</p>
+
+                {/* invisible mientras missionPricing no resuelve -- mismo criterio
+                 * que en Hero(), reserva el espacio para no correr la barra de
+                 * progreso de abajo cuando llega la query. */}
+                <p className={`mt-2.5 inline-flex flex-wrap items-baseline justify-center md:justify-start gap-x-2 gap-y-0.5 text-sm md:text-base ${missionPricing ? '' : 'invisible'}`}>
+                  <span className="font-heading font-extrabold text-gradient-candy text-lg md:text-xl">{formatCLP(MISSION_300_DEPOSIT_PER_PERSON)}</span>
+                  <span className="text-muted-foreground">por persona ·</span>
+                  <span className="font-bold text-cherry">Reserva tu lugar hoy</span>
+                </p>
+
+                <AnimatePresence>
+                  {burstId > 0 && (
+                    <motion.p
+                      key={burstId}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.4 }}
+                      className="text-xs md:text-sm text-primary font-semibold mt-2"
+                    >
+                      ✨ Una persona más se suma a la noche
+                    </motion.p>
+                  )}
+                </AnimatePresence>
+
+                <div className="h-3.5 rounded-full bg-muted overflow-hidden mt-4">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${progreso}%` }}
+                    transition={{ duration: 1.2, ease: [0.23, 1, 0.32, 1] }}
+                    className="h-full rounded-full bg-gradient-to-r from-primary via-cherry to-violet-electric relative overflow-hidden"
+                  >
+                    <span className="absolute inset-0 candy-bar-shine" />
+                  </motion.div>
+                </div>
+
+                {soldOut ? (
+                  <div className="mt-5 w-full md:w-auto text-center px-6 py-3 rounded-full bg-muted text-muted-foreground text-sm font-bold uppercase tracking-wide" role="status">
+                    {EVENTO.nombre} está completo · Sold out
+                  </div>
+                ) : (
+                  <Link
+                    href={`/checkout/${CANDYLAND.slug}`}
+                    className="btn-jelly mt-5 inline-flex items-center justify-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive"
+                  >
+                    🍭 Quiero mi dulce · Comprar entrada
+                  </Link>
+                )}
+              </div>
             </div>
-          </div>
-        </motion.div>
+          </motion.div>
+        ) : (
+          <TandaUrgencyCard tanda={tanda} countdown={tandaCountdown} displayRemaining={tandaDisplayRemaining} />
+        )}
       </div>
     </section>
+  );
+}
+
+/** Reemplaza la tarjeta de Misión 300 cuando el evento la tiene cerrada
+ * (`missionForceClosed`): en vez de prueba social (un número grande de gente
+ * confirmada), usa escasez de stock real de la tanda vigente -- un número
+ * chico funciona mejor y no revela nada del total (ver plan de ventas del
+ * aniversario). `tanda` sale de `liveTickets` en Home(); puede venir `null`
+ * mientras la query no resuelve o no hay accesos activos todavía. */
+function TandaUrgencyCard({
+  tanda,
+  countdown,
+  displayRemaining,
+}: {
+  tanda: TandaInfo;
+  countdown: { dias: number; horas: number; minutos: number; segundos: number; esHoy: boolean };
+  displayRemaining: number;
+}) {
+  const tandaPct = tanda
+    ? Math.min(100, Math.round(((tanda.totalStock - tanda.remaining) / Math.max(1, tanda.totalStock)) * 100))
+    : 0;
+
+  return (
+    <motion.div {...reveal} className="relative glass-candy rounded-3xl p-6 md:p-10 overflow-visible border-2 border-cherry/40">
+      <div className="flex flex-col md:flex-row items-center gap-6 md:gap-10">
+        <div className="relative shrink-0">
+          <div aria-hidden className="absolute inset-0 rounded-full bg-cherry/25 blur-3xl candy-glow-pulse" />
+          <div className="relative w-28 h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-cherry via-primary to-violet-electric shadow-[0_6px_22px_oklch(0.70_0.19_340_/_0.4)] flex flex-col items-center justify-center ring-2 ring-white/30">
+            <span className="font-heading font-black text-3xl md:text-4xl text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)] tabular-nums" aria-live="polite">
+              {tanda ? displayRemaining : '—'}
+            </span>
+            <span className="text-[10px] md:text-xs uppercase tracking-[0.15em] text-white/90 font-bold">cupos</span>
+          </div>
+        </div>
+
+        <div className="flex-1 text-center md:text-left w-full">
+          <h3 className="font-heading font-bold text-xl md:text-2xl text-gradient-candy mb-1">
+            {tanda ? `Quedan ${tanda.remaining} de ${tanda.totalStock} a este precio` : 'Entradas disponibles'}
+          </h3>
+
+          {tanda && (
+            <div className="flex items-baseline justify-center md:justify-start flex-wrap gap-x-2 gap-y-0.5">
+              {tanda.originalPrice && tanda.originalPrice > tanda.price && (
+                <span className="text-base md:text-lg text-muted-foreground line-through">{formatCLP(tanda.originalPrice)}</span>
+              )}
+              <span className="font-heading font-extrabold text-3xl md:text-4xl text-gradient-candy tabular-nums">{formatCLP(tanda.price)}</span>
+              <span className="text-sm md:text-base font-semibold text-foreground/85">· {tanda.name}</span>
+            </div>
+          )}
+
+          <p className="text-xs md:text-sm text-muted-foreground mt-1">
+            Es el aniversario, cae la noche antes de Halloween: la primera fiesta del fin de semana.
+          </p>
+
+          {tanda?.salesEnd && !tanda.soldOut && (
+            <div className="mt-4">
+              <p className="relative text-xs md:text-sm uppercase tracking-[0.3em] text-cherry font-extrabold inline-flex items-center gap-2 mb-2">
+                <span className="w-2 h-2 rounded-full bg-cherry candy-pulse inline-block" />
+                El precio sube en
+              </p>
+              <div className="flex items-center gap-2 sm:gap-3 justify-center md:justify-start">
+                <CountdownUnit value={countdown.dias} label="Días" />
+                <span className="text-xl md:text-2xl font-heading font-black text-cherry/50 -mt-4">:</span>
+                <CountdownUnit value={countdown.horas} label="Hrs" />
+                <span className="text-xl md:text-2xl font-heading font-black text-cherry/50 -mt-4">:</span>
+                <CountdownUnit value={countdown.minutos} label="Min" />
+                <span className="text-xl md:text-2xl font-heading font-black text-cherry/50 -mt-4">:</span>
+                <CountdownUnit value={countdown.segundos} label="Seg" />
+              </div>
+            </div>
+          )}
+
+          <div className="h-3.5 rounded-full bg-muted overflow-hidden mt-4">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${tandaPct}%` }}
+              transition={{ duration: 1.2, ease: [0.23, 1, 0.32, 1] }}
+              className="h-full rounded-full bg-gradient-to-r from-primary via-cherry to-violet-electric relative overflow-hidden"
+            >
+              <span className="absolute inset-0 candy-bar-shine" />
+            </motion.div>
+          </div>
+
+          {tanda?.soldOut ? (
+            <div className="mt-5 w-full md:w-auto text-center px-6 py-3 rounded-full bg-muted text-muted-foreground text-sm font-bold uppercase tracking-wide" role="status">
+              Se agotó esta tanda · Pronto la siguiente
+            </div>
+          ) : (
+            <Link
+              href={`/checkout/${CANDYLAND.slug}`}
+              className="btn-jelly mt-5 inline-flex items-center justify-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive"
+            >
+              🎃 Quiero mi entrada · Comprar ahora
+            </Link>
+          )}
+        </div>
+      </div>
+    </motion.div>
   );
 }
 
@@ -1351,12 +1494,18 @@ export default function Home() {
     return CANDYLAND.mision.confirmadosFallback;
   }, [liveTickets, pendingMission]);
 
+  // Si el evento tiene `missionForceClosed`, Misión 300 no corre para este
+  // evento (decisión del usuario para el aniversario: se vende solo por
+  // tandas de precio, sin mostrar el total de gente confirmada). Un solo
+  // memo para que `missionPricing` y `UrgencySection` usen el mismo criterio.
+  const missionActive = useMemo(() => !!event?.eventDate && isMissionActiveForEvent(event), [event]);
+
   // Precio "gancho" para publicitar la preventa Misión 300 en el Hero y en su
   // propia sección: prioriza el acceso Dúo (el que se usa en toda la
   // comunicación de la preventa) y si no existe usa el acceso más barato.
   const missionPricing: MissionPricing = useMemo(() => {
     if (!liveTickets || liveTickets.length === 0) return null;
-    if (!event?.eventDate || !isMissionActiveForEvent(event)) return null;
+    if (!missionActive) return null;
     const accesos = liveTickets.filter((t: any) => t.category === 'acceso' && t.status === 'active');
     if (accesos.length === 0) return null;
     const destacado = accesos.find((t: any) => t.accesoSlug === 'duo')
@@ -1365,7 +1514,34 @@ export default function Home() {
     const depositPrice = missionDepositPrice((destacado as any).accesoSlug);
     if (!(depositPrice < generalPrice)) return null;
     return { generalPrice, depositPrice };
-  }, [liveTickets, event]);
+  }, [liveTickets, missionActive]);
+
+  // Tanda vigente para el acceso "destacado" (mismo criterio que
+  // `missionPricing`: prioriza Dúo, si no el más barato) -- alimenta
+  // `TandaUrgencyCard` cuando Misión 300 está cerrada para este evento.
+  const tanda: TandaInfo = useMemo(() => {
+    if (!liveTickets || liveTickets.length === 0) return null;
+    // Prioriza accesos activos (la tanda que se está vendiendo hoy); si TODOS
+    // están agotados, cae a los agotados para poder mostrar "se agotó esta
+    // tanda" en vez de no mostrar nada.
+    const activos = liveTickets.filter((t: any) => t.category === 'acceso' && t.status === 'active');
+    const pool = activos.length > 0 ? activos : liveTickets.filter((t: any) => t.category === 'acceso' && t.status === 'soldout');
+    if (pool.length === 0) return null;
+    const destacado = pool.find((t: any) => t.accesoSlug === 'duo')
+      ?? [...pool].sort((a: any, b: any) => Number(a.price) - Number(b.price))[0];
+    const totalStock = Number((destacado as any).totalStock ?? 0);
+    const remaining = Math.max(0, totalStock - Number((destacado as any).soldCount ?? 0));
+    const originalPrice = (destacado as any).originalPrice ? Number((destacado as any).originalPrice) : null;
+    return {
+      name: (destacado as any).name,
+      price: Number((destacado as any).price),
+      originalPrice,
+      remaining,
+      totalStock,
+      salesEnd: (destacado as any).salesEnd ? new Date((destacado as any).salesEnd) : null,
+      soldOut: remaining <= 0 || (destacado as any).status === 'soldout',
+    };
+  }, [liveTickets]);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -1375,7 +1551,7 @@ export default function Home() {
       <Hero />
       <ScrollStory />
       <UpcomingEventsSection />
-      <UrgencySection vendidos={vendidos} missionPricing={missionPricing} />
+      <UrgencySection vendidos={vendidos} missionPricing={missionPricing} missionActive={missionActive} tanda={tanda} />
       <LineupSection />
       <ExperienceSection />
       <InfoSection />
