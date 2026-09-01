@@ -1418,7 +1418,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
           ⚠️ {pendingCount} orden{pendingCount > 1 ? 'es' : ''} sin pagar — usa el filtro "Sin pagar" para seleccionarlas y mandarles un recordatorio ya mismo.
           {' '}
           <span className="text-muted-foreground">
-            (Además, un cron diario ya les manda un recordatorio solo cada 3 días, hasta 3 veces por orden — esto es para mandar uno extra ya, ej. antes de que suba el precio.)
+            (Además, un cron automático ya revisa esto cada 6 horas y manda un recordatorio solo cada 3 días por orden, hasta 3 veces — esto es para mandar uno extra ya, ej. antes de que suba el precio.)
           </span>
         </p>
       )}

@@ -95,13 +95,13 @@ export async function sendPendingReminders(params: {
   return resultado;
 }
 
-/* ── Cron diario de carrito abandonado ─────────────────────────
+/* ── Cron de carrito abandonado ─────────────────────────────────
  * Pedido explícito del dueño: la herramienta de arriba (sendPendingReminders)
  * ya existía como botón manual en Ventas Web, pero nadie la usaba
  * sistemáticamente -- con $0 de pauta y 8 semanas de campaña, cada orden que
  * queda `pending` y nunca recibe un recordatorio es plata que se dejó sobre
- * la mesa. Esto la corre sola, todos los días, con una cadencia conservadora
- * para no transformarse en spam. */
+ * la mesa. Esto la corre sola cada 6 horas (cron propio, Vercel Pro), con
+ * una cadencia conservadora por orden para no transformarse en spam. */
 
 /** No molestar a alguien que todavía está llenando el formulario de compra:
  * recién es candidata a un recordatorio 3 horas después de crearse. */
@@ -120,8 +120,10 @@ const ABANDONED_CART_MAX_REMINDERS = 3;
  * (server/mailing.ts, CRON_MAX_PER_RUN=50) y, más importante, con los
  * correos transaccionales del sitio (confirmación de compra, Misión 300):
  * esos nunca deben quedarse sin cupo por vaciar la cuota en recordatorios.
- * Configurable por env var por si el dueño sube de plan. */
-const ABANDONED_CART_CRON_CAP = Number(process.env.ABANDONED_CART_CRON_CAP) || 10;
+ * Este cron corre 4 veces al día (cada 6 horas, ver vercel.json), así que el
+ * tope queda bajo por corrida -- el máximo diario real es este número × 4.
+ * Configurable por env var por si el dueño sube de plan de Resend. */
+const ABANDONED_CART_CRON_CAP = Number(process.env.ABANDONED_CART_CRON_CAP) || 5;
 
 /** Ids de las órdenes `pending` elegibles para el recordatorio automático,
  * de la más vieja a la más nueva (a las que llevan más tiempo esperando les
@@ -168,9 +170,8 @@ async function getOrdersDueForAbandonedCartReminder(): Promise<number[]> {
 
 export type AbandonedCartCronResult = ReminderResult & { eligible: number };
 
-/** Se llama una vez por día desde server/cronRoutes.ts, dentro de la misma
- * corrida del cron de mailing (Vercel Hobby solo permite 2 crons y los dos
- * ya están ocupados -- ver el comentario en cronRoutes.ts). */
+/** Se llama desde su propio cron cada 6 horas (server/cronRoutes.ts,
+ * /api/cron/abandoned-cart -- ver vercel.json). */
 export async function runAbandonedCartCron(): Promise<AbandonedCartCronResult> {
   const eligible = await getOrdersDueForAbandonedCartReminder();
   const orderIds = eligible.slice(0, ABANDONED_CART_CRON_CAP);

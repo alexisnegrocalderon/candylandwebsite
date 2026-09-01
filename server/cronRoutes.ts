@@ -30,19 +30,20 @@ function requireCronSecret(req: Request, res: Response): boolean {
 
 export function registerCronRoutes(app: Express) {
   // Cola de envío automática del mailing masivo (pedido explícito del
-  // usuario, ver server/mailing.ts processMailingCronBatch) -- Vercel Hobby
-  // solo permite cron jobs con frecuencia diaria, así que esta corrida manda
-  // la próxima tanda de pendientes y corta antes de agotar el presupuesto de
-  // tiempo; lo que no alcanza queda para la corrida de mañana.
+  // usuario, ver server/mailing.ts processMailingCronBatch): manda la
+  // próxima tanda de pendientes y corta antes de agotar el presupuesto de
+  // tiempo; lo que no alcanza queda para la corrida de mañana. Corre una vez
+  // al día -- no hace falta más seguido, el mailing masivo no es urgente
+  // minuto a minuto.
   app.get("/api/cron/mailing-queue", async (req: Request, res: Response) => {
     if (!requireCronSecret(req, res)) return;
     try {
       const result = await processMailingCronBatch();
 
       // Aprovecha la misma corrida diaria para borrar los chats de fiestas
-      // ya terminadas (Vercel Hobby solo permite crons diarios, así que un
-      // segundo cron no aportaría nada). Va aparte del try del mailing: si
-      // la purga falla, el mailing igual reporta lo que alcanzó a mandar.
+      // ya terminadas -- no necesita su propio cron, con una vez al día
+      // alcanza de sobra. Va aparte del try del mailing: si la purga falla,
+      // el mailing igual reporta lo que alcanzó a mandar.
       let partyMessagesPurgedFor = 0;
       let partyProfilesPurged = 0;
       let giftInvitationsExpired = 0;
@@ -60,9 +61,8 @@ export function registerCronRoutes(app: Express) {
         console.error('[Cron] Error limpiando datos de fiestas terminadas:', err);
       }
 
-      // Correo semanal de los embajadores VIP. Va en la misma corrida diaria
-      // porque Vercel Hobby ya tiene sus 2 crons ocupados y un tercero
-      // rompería el despliegue -- este chequeo decide si hoy toca mandar.
+      // Correo semanal de los embajadores VIP -- una vez al día alcanza
+      // para chequear si hoy toca mandarlo, no necesita su propio cron.
       // Try/catch propio: si el envío falla, la cola de mailing igual reporta.
       let ambassadorWeekly: { sent: number; skipped: number; failed: number } | null = null;
       try {
@@ -74,21 +74,7 @@ export function registerCronRoutes(app: Express) {
         console.error('[Cron] Error mandando el correo semanal de embajadores:', err);
       }
 
-      // Recordatorio automático de carrito abandonado (pedido explícito del
-      // dueño): la herramienta ya existía como botón manual en Ventas Web
-      // (sendPendingReminders), pero nadie la usaba sistemáticamente. Va en
-      // la misma corrida diaria por la misma razón que el correo de
-      // embajadores de arriba -- Vercel Hobby no da para un tercer cron.
-      // Try/catch propio: si esto falla, el mailing y la purga igual
-      // reportan lo que alcanzaron a hacer.
-      let abandonedCart: Awaited<ReturnType<typeof runAbandonedCartCron>> | null = null;
-      try {
-        abandonedCart = await runAbandonedCartCron();
-      } catch (err) {
-        console.error('[Cron] Error mandando recordatorios de carrito abandonado:', err);
-      }
-
-      res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, ambassadorWeekly, abandonedCart });
+      res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, ambassadorWeekly });
     } catch (err) {
       console.error('[Cron] Error procesando la cola de mailing:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
@@ -123,6 +109,27 @@ export function registerCronRoutes(app: Express) {
       res.json({ success: true, sent: true, insideCount: dashboard.insideCount, expectedCount: dashboard.expectedCount });
     } catch (err) {
       console.error('[Cron] Error mandando el resumen de ingresos:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  // Recordatorio automático de carrito abandonado (pedido explícito del
+  // dueño, ver server/orderReminders.ts runAbandonedCartCron): la
+  // herramienta ya existía como botón manual en Ventas Web
+  // (sendPendingReminders), pero nadie la usaba sistemáticamente.
+  //
+  // Cron propio -- en Vercel Pro no hace falta amontonar tareas sin relación
+  // en la misma corrida diaria del mailing solo para ahorrar cron jobs. Corre
+  // cada 6 horas (`vercel.json`): con el mínimo de 3 horas desde que se creó
+  // la orden (ver ABANDONED_CART_MIN_AGE_MS), esto revisa el doble de seguido
+  // de lo que hace falta para no dejar pasar una orden recién elegible.
+  app.get("/api/cron/abandoned-cart", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const result = await runAbandonedCartCron();
+      res.json({ success: true, ...result });
+    } catch (err) {
+      console.error('[Cron] Error mandando recordatorios de carrito abandonado:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
   });
