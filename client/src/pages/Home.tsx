@@ -338,7 +338,7 @@ function Hero() {
           width={480}
           height={270}
           fetchPriority="high"
-          className="absolute inset-0 w-full h-full object-cover opacity-30 blur-3xl scale-125"
+          className="absolute inset-0 w-full h-full object-cover opacity-20 blur-2xl scale-125"
         />
         {/* preload="metadata" (no "auto"): en móvil con conexión lenta, pedir
          * todo el video de una empezaba a competir por ancho de banda con el
@@ -400,7 +400,7 @@ function Hero() {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 1, delay: 0.35, ease: [0.23, 1, 0.32, 1] }}
           style={pointerFine ? { y: titleY } : undefined}
-          className="font-heading font-extrabold text-[clamp(1.9rem,8.5vw,6.4rem)] leading-[0.95] tracking-[0.01em] drop-shadow-[0_6px_40px_oklch(0.76_0.13_35_/_0.35)] whitespace-normal sm:whitespace-nowrap break-words"
+          className="font-heading font-extrabold text-[clamp(1.75rem,7vw,5.5rem)] leading-[0.95] tracking-[0.01em] drop-shadow-[0_6px_40px_oklch(0.76_0.13_35_/_0.35)] whitespace-normal sm:whitespace-nowrap break-words"
           aria-label={CANDYLAND.nombre}
         >
           {/* Letras interactivas: hover material candy en desktop, shimmer automático en móvil */}
