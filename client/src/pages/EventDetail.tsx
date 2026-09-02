@@ -147,7 +147,7 @@ export default function EventDetail() {
               ) : (
                 <>
                   <h3 className="font-heading text-2xl mb-2">¿Vienes a {event.title}?</h3>
-                  <p className="text-muted-foreground text-sm mb-6">Elegí cómo vienes y te mostramos tu acceso y el valor al tiro.</p>
+                  <p className="text-muted-foreground text-sm mb-6">Elige cómo vienes y te mostramos tu acceso y el valor al tiro.</p>
                   <Link href={`/checkout/${slug}`}>
                     <Button className="w-full h-12 rounded-full text-lg font-semibold glow-pink interactive">
                       Comprar entrada <ArrowRight className="w-5 h-5 ml-2" />

@@ -1975,7 +1975,7 @@ function CustomersView() {
 }
 
 /** Contactos que dejaron su correo sin comprar todavía (hoy el único gancho
- * es "avisame antes de que suba el precio", ver LeadCaptureInline en
+ * es "avísame antes de que suba el precio", ver LeadCaptureInline en
  * Home.tsx) -- con $0 de pauta y 8 semanas de campaña, esta lista es la
  * principal defensa contra la gente que visita el sitio y se pierde para
  * siempre por no comprar en el momento. */
@@ -2002,7 +2002,7 @@ function LeadsView() {
       <div className="flex justify-between items-center flex-wrap gap-3">
         <div>
           <h2 className="font-heading text-2xl">Leads</h2>
-          <p className="text-muted-foreground text-sm mt-1">Contactos que dejaron su correo sin comprar todavía -- desde el gancho "avisame antes de que suba el precio" en la home.</p>
+          <p className="text-muted-foreground text-sm mt-1">Contactos que dejaron su correo sin comprar todavía -- desde el gancho "avísame antes de que suba el precio" en la home.</p>
         </div>
         <Button variant="outline" onClick={exportCsv} disabled={leads.length === 0}><Download className="w-4 h-4 mr-2" /> Exportar CSV</Button>
       </div>
@@ -2124,7 +2124,7 @@ function UtmLinkBuilder() {
       <CardHeader><CardTitle>Generador de links</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Armá el link ANTES de compartirlo en cada lugar -- así la venta se organiza sola abajo, sin que tengas que anotar nada a mano.
+          Arma el link ANTES de compartirlo en cada lugar -- así la venta se organiza sola abajo, sin que tengas que anotar nada a mano.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>

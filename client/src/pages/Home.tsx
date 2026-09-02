@@ -908,7 +908,7 @@ function UrgencySection({
   );
 }
 
-/** Captura de leads (agujero 1 del plan de ventas): el gancho "avisame antes
+/** Captura de leads (agujero 1 del plan de ventas): el gancho "avísame antes
  * de que suba el precio", para quien duda hoy y no compra. Sin esto, esa
  * persona se pierde para siempre -- no hay ninguna otra forma de dejar el
  * contacto en el sitio. Vive dentro de `UrgencySection` (en las dos ramas,
@@ -950,7 +950,7 @@ function LeadCaptureInline({ eventId }: { eventId?: number }) {
        * de mandar esto a producción. */}
       <div className="flex flex-col sm:flex-row items-center gap-4">
         <p className="flex-1 text-sm md:text-base font-semibold text-center sm:text-left">
-          🔔 ¿Todavía lo estás pensando? Dejá tu correo y te avisamos <span className="text-primary">antes de que suba el precio</span>.
+          🔔 ¿Todavía lo estás pensando? Deja tu correo y te avisamos <span className="text-primary">antes de que suba el precio</span>.
         </p>
         <form onSubmit={handleSubmit} className="flex w-full sm:w-auto gap-2">
           <input
@@ -966,12 +966,12 @@ function LeadCaptureInline({ eventId }: { eventId?: number }) {
             disabled={createLead.isPending}
             className="btn-jelly px-5 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive disabled:opacity-60 shrink-0"
           >
-            Avisame
+            Avísame
           </button>
         </form>
       </div>
       {createLead.isError && (
-        <p className="text-xs text-destructive text-center sm:text-left mt-3">Algo falló, probá de nuevo.</p>
+        <p className="text-xs text-destructive text-center sm:text-left mt-3">Algo falló, prueba de nuevo.</p>
       )}
     </motion.div>
   );
