@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { eq, inArray, and, lte } from 'drizzle-orm';
 import { getDb } from './db';
 import { orders, events } from '../drizzle/schema';
-import { invokeLLM } from './_core/llm';
+import { invokeLLM, extractContent } from './_core/llm';
 import { sendEmail, buildPendingReminderEmail } from './email';
 
 /* Recordatorio a quien dejó la compra a medio camino.
@@ -222,11 +222,6 @@ Tono: cercano, chileno neutro, tuteo. Cálido y relajado, como quien avisa "oye,
 Estructura: entre 1 y 3 párrafos cortos. El primero recuerda que la compra quedó a medio camino. El resto puede recordar por qué vale la pena la noche o facilitar retomar. NO escribas saludo ("Hola X") ni despedida ni firma: la plantilla del correo ya los pone.
 
 Responde ÚNICAMENTE con el JSON pedido, sin explicaciones.`;
-
-function extractContent(message: { content: string | Array<{ type: string; text?: string }> }): string {
-  if (typeof message.content === 'string') return message.content;
-  return message.content.map((p) => (p.type === 'text' ? p.text ?? '' : '')).join('');
-}
 
 /** Reescribe el cuerpo del recordatorio a partir de una idea del dueño. */
 export async function generateReminderCopy(idea: string): Promise<ReminderCopy> {

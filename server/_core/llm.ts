@@ -462,6 +462,20 @@ export type ModelsResponse = {
   data: ModelInfo[];
 };
 
+/** Saca el texto plano de un mensaje de respuesta del LLM, sin importar si
+ * vino como string directo o como array de partes ({type, text}) -- misma
+ * lógica que antes estaba duplicada en server/mailing.ts y
+ * server/orderReminders.ts (cada uno definía su propio extractContent
+ * idéntico). Todo módulo que genera contenido con IA en el proyecto la usa:
+ * mailing, recordatorios de carrito abandonado, descripciones de evento y
+ * preguntas de ventas. */
+export function extractContent(message: { content: string | Array<{ type: string; text?: string }> }): string {
+  if (typeof message.content === "string") return message.content;
+  return message.content
+    .map((part) => (part.type === "text" ? part.text ?? "" : ""))
+    .join("");
+}
+
 export async function listLLMModels(): Promise<ModelsResponse> {
   assertApiKey();
 

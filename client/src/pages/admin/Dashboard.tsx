@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -125,22 +125,135 @@ function StockHistoryDialog({ ticketTypeId, ticketName }: { ticketTypeId: number
   );
 }
 
-function TicketTypesList({
-  eventId, onEdit,
-}: { eventId: number; onEdit: (tt: any) => void }) {
-  const { data: ticketTypesData, refetch } = trpc.events.listTicketTypes.useQuery({ eventId });
-  const deleteTicketType = trpc.events.deleteTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
-  const ticketTypes = ticketTypesData ?? [];
+/** Arma el form-state de edición a partir de la fila que ya vino del server
+ * -- mismo shape que `emptyTicketForm` de EventsManager (sin `eventId`, ese
+ * ya lo fija la fila / la lista). */
+function ticketFormFromTt(tt: any) {
+  return {
+    name: tt.name as string,
+    category: (tt.category || 'acceso') as 'acceso' | 'extra',
+    accesoSlug: (tt.accesoSlug || '') as '' | AccesoSlug,
+    price: Number(tt.price),
+    totalStock: tt.totalStock as number,
+    description: (tt.description || '') as string,
+    costPrice: tt.costPrice ? Number(tt.costPrice) : 0,
+    color: (tt.color || '') as string,
+    internalCode: (tt.internalCode || '') as string,
+    stockPoolId: (tt.stockPoolId ?? null) as number | null,
+  };
+}
 
-  if (ticketTypes.length === 0) {
-    return <p className="text-muted-foreground text-xs mt-3">Todavía no hay entradas para este evento.</p>;
+/** Fila de un tipo de entrada: edita en el lugar (estado local `editing`),
+ * mismo criterio que AmbassadorRow/StockPoolRow. Antes el formulario de
+ * editar (~15 campos) se renderizaba UNA sola vez, después de toda la lista
+ * de entradas + Cupos compartidos + Misión 300, al fondo de la card del
+ * evento -- editar la primera entrada de diez obligaba a bajar toda la
+ * pantalla para encontrar el formulario. Acá se expande pegado a ESTA fila,
+ * dentro de su propia sublista (Accesos o Extras). */
+function TicketTypeRow({ tt, eventId }: { tt: any; eventId: number }) {
+  const utils = trpc.useUtils();
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(() => ticketFormFromTt(tt));
+  const deleteTicketType = trpc.events.deleteTicketType.useMutation({
+    onSuccess: () => utils.events.listTicketTypes.invalidate(),
+    onError: onMutationError,
+  });
+  const updateTicketType = trpc.events.updateTicketType.useMutation({
+    onSuccess: () => {
+      utils.events.listTicketTypes.invalidate();
+      utils.events.listStockPools.invalidate();
+      toast.success('Entrada actualizada');
+      setEditing(false);
+    },
+    onError: onMutationError,
+  });
+
+  const handleSave = () => {
+    if (!form.name || !form.price) return;
+    updateTicketType.mutate({
+      id: tt.id,
+      name: form.name,
+      category: form.category,
+      accesoSlug: form.category === 'extra' ? undefined : (form.accesoSlug || undefined),
+      stockPoolId: form.category === 'extra' ? null : form.stockPoolId,
+      price: form.price,
+      totalStock: form.totalStock,
+      description: form.description,
+      costPrice: form.costPrice || undefined,
+      color: form.category === 'extra' ? (form.color || undefined) : undefined,
+      internalCode: form.category === 'extra' ? (form.internalCode || undefined) : undefined,
+    });
+  };
+
+  if (editing) {
+    return (
+      <div className="bg-muted/30 rounded-lg px-3 py-3 space-y-4">
+        <h4 className="font-semibold text-sm">Editar Tipo de Entrada</h4>
+        <div>
+          <Label>Categoría</Label>
+          <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v as 'acceso' | 'extra', accesoSlug: v === 'extra' ? '' : form.accesoSlug })}>
+            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="acceso">Acceso principal (Dúo, Soltera, Trío…)</SelectItem>
+              <SelectItem value="extra">Extra (estacionamiento, cover, etc.)</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground mt-1">Los extras aparecen solos en el paso de extras del checkout, para cualquier evento — no hace falta tocar código.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div><Label>Nombre</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="VIP, General..." /></div>
+          <div><Label>Precio (CLP)</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} className="mt-1" /></div>
+          <div><Label>Stock Total</Label><Input type="number" value={form.totalStock} onChange={(e) => setForm({ ...form, totalStock: Number(e.target.value) })} className="mt-1" /></div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <Label>Costo (CLP)</Label>
+            <Input type="number" value={form.costPrice} onChange={(e) => setForm({ ...form, costPrice: Number(e.target.value) })} className="mt-1" placeholder="Opcional, para márgenes" />
+          </div>
+          {form.category === 'extra' && (
+            <>
+              <div>
+                <Label>Código interno (canje)</Label>
+                <Input value={form.internalCode} onChange={(e) => setForm({ ...form, internalCode: e.target.value.toUpperCase() })} className="mt-1" placeholder="PIS, LOC..." maxLength={6} />
+              </div>
+              <div>
+                <Label>Color (grilla de caja)</Label>
+                <Input type="color" value={form.color || '#f472b6'} onChange={(e) => setForm({ ...form, color: e.target.value })} className="mt-1 h-10" />
+              </div>
+            </>
+          )}
+        </div>
+        {form.category === 'extra' && (
+          <p className="text-xs text-muted-foreground -mt-2">El código interno es el prefijo del código de canje que recibe el comprador (ej. PIS-8F3K-29LX). Si se deja vacío, se genera uno automático a partir del nombre.</p>
+        )}
+        {form.category === 'acceso' && (
+          <div>
+            <Label>Tipo de acceso (conecta con la pregunta del checkout)</Label>
+            <Select value={form.accesoSlug} onValueChange={(v) => setForm({ ...form, accesoSlug: v as AccesoSlug })}>
+              <SelectTrigger className="mt-1"><SelectValue placeholder="Elegir…" /></SelectTrigger>
+              <SelectContent>
+                {ACCESO_SLUG_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">Sin esto, la gente no va a poder comprar esta entrada desde el checkout.</p>
+          </div>
+        )}
+        {form.category === 'acceso' && (
+          <TicketPoolSelect eventId={eventId} value={form.stockPoolId} onChange={(v) => setForm({ ...form, stockPoolId: v })} />
+        )}
+        <div><Label>Descripción</Label><Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1" /></div>
+        <div className="flex gap-2">
+          <WriteButton onClick={handleSave} disabled={updateTicketType.isPending}>Guardar Cambios</WriteButton>
+          <Button variant="outline" onClick={() => { setForm(ticketFormFromTt(tt)); setEditing(false); }}>Cancelar</Button>
+        </div>
+      </div>
+    );
   }
 
-  const accesos = ticketTypes.filter((tt: any) => tt.category !== 'extra');
-  const extras = ticketTypes.filter((tt: any) => tt.category === 'extra');
-
-  const row = (tt: any) => (
-    <div key={tt.id} className="flex items-center justify-between text-sm bg-muted/30 rounded-lg px-3 py-2">
+  return (
+    <div className="flex items-center justify-between text-sm bg-muted/30 rounded-lg px-3 py-2">
       <div>
         <span className="font-semibold">{tt.name}</span>
         <span className="text-muted-foreground ml-2">${Number(tt.price).toLocaleString('es-CL')} · stock {tt.totalStock} · vendidas {tt.soldCount ?? 0} · {tt.status}</span>
@@ -159,24 +272,36 @@ function TicketTypesList({
       </div>
       <div className="flex gap-2">
         <StockHistoryDialog ticketTypeId={tt.id} ticketName={tt.name} />
-        <Button variant="outline" size="sm" onClick={() => onEdit(tt)}><Edit className="w-3 h-3" /></Button>
+        <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Edit className="w-3 h-3" /></Button>
         <ConfirmDeleteButton description={`Vas a eliminar el tipo de entrada "${tt.name}".`} onConfirm={() => deleteTicketType.mutateAsync({ id: tt.id })} />
       </div>
     </div>
   );
+}
+
+function TicketTypesList({ eventId }: { eventId: number }) {
+  const { data: ticketTypesData } = trpc.events.listTicketTypes.useQuery({ eventId });
+  const ticketTypes = ticketTypesData ?? [];
+
+  if (ticketTypes.length === 0) {
+    return <p className="text-muted-foreground text-xs mt-3">Todavía no hay entradas para este evento.</p>;
+  }
+
+  const accesos = ticketTypes.filter((tt: any) => tt.category !== 'extra');
+  const extras = ticketTypes.filter((tt: any) => tt.category === 'extra');
 
   return (
     <div className="mt-3 space-y-4 border-t border-border/50 pt-3">
       {accesos.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Accesos</p>
-          {accesos.map(row)}
+          {accesos.map((tt: any) => <TicketTypeRow key={tt.id} tt={tt} eventId={eventId} />)}
         </div>
       )}
       {extras.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Extras</p>
-          {extras.map(row)}
+          {extras.map((tt: any) => <TicketTypeRow key={tt.id} tt={tt} eventId={eventId} />)}
         </div>
       )}
     </div>
@@ -191,36 +316,83 @@ function TicketTypesList({
  * Asignar un pool a una entrada se hace desde el formulario de esa entrada
  * (el Select "Cupo compartido" más abajo), no desde acá -- este panel solo
  * crea/edita/borra los pools en sí. */
+/** Fila de un cupo compartido: edita en el lugar (estado local `editing`),
+ * mismo criterio que AmbassadorRow más abajo -- sin esto, editar el cupo #1
+ * de 3 abría un formulario compartido DESPUÉS de toda la lista, obligando a
+ * bajar para encontrarlo. Acá el formulario reemplaza directamente esta
+ * fila, no se mueve nada más en la pantalla. */
+function StockPoolRow({ p, onSaved, onDelete }: { p: any; onSaved: () => void; onDelete: (id: number) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({ name: p.name, totalCap: p.totalCap });
+  const updatePool = trpc.events.updateStockPool.useMutation({
+    onSuccess: () => { onSaved(); toast.success('Cupo actualizado'); setEditing(false); },
+    onError: onMutationError,
+  });
+
+  if (editing) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end bg-muted/30 rounded-lg px-3 py-2">
+        <div className="md:col-span-2"><Label>Nombre</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" /></div>
+        <div><Label>Cupo total</Label><Input type="number" value={form.totalCap} onChange={(e) => setForm({ ...form, totalCap: Number(e.target.value) })} className="mt-1" /></div>
+        <div className="md:col-span-3 flex gap-2">
+          <WriteButton
+            onClick={() => { if (form.name.trim() && form.totalCap > 0) updatePool.mutate({ id: p.id, name: form.name.trim(), totalCap: form.totalCap }); }}
+            disabled={updatePool.isPending}
+          >
+            Guardar
+          </WriteButton>
+          <Button variant="outline" onClick={() => { setForm({ name: p.name, totalCap: p.totalCap }); setEditing(false); }}>Cancelar</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between text-sm bg-muted/30 rounded-lg px-3 py-2">
+      <span>
+        <span className="font-semibold">{p.name}</span>
+        <span className="text-muted-foreground ml-2">vendidas {p.sold} / {p.totalCap} · quedan {p.remaining}</span>
+      </span>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Edit className="w-3 h-3" /></Button>
+        <ConfirmDeleteButton description={`Vas a eliminar el cupo compartido "${p.name}". Solo se puede si ninguna entrada lo está usando.`} onConfirm={() => onDelete(p.id)} />
+      </div>
+    </div>
+  );
+}
+
 function StockPoolsPanel({ eventId }: { eventId: number }) {
   const { data: poolsData, refetch, error: poolsError } = trpc.events.listStockPools.useQuery({ eventId });
   const createPool = trpc.events.createStockPool.useMutation({ onSuccess: () => { refetch(); toast.success('Cupo compartido creado'); setShowForm(false); setForm({ name: '', totalCap: 40 }); }, onError: onMutationError });
-  const updatePool = trpc.events.updateStockPool.useMutation({ onSuccess: () => { refetch(); toast.success('Cupo actualizado'); setEditingId(null); setShowForm(false); }, onError: onMutationError });
   const deletePool = trpc.events.deleteStockPool.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
   const utils = trpc.useUtils();
 
   const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState({ name: 'Founders', totalCap: 40 });
 
   const pools = poolsData ?? [];
 
-  const handleSave = async () => {
+  // Las entradas que usan un pool muestran su remanente en la misma consulta
+  // (events.listTicketTypes) -- invalidar acá para que se refresque tanto
+  // después de crear como después de editar/borrar una fila.
+  const onSaved = () => { refetch(); utils.events.listTicketTypes.invalidate(); };
+
+  const handleCreate = async () => {
     if (!form.name.trim() || form.totalCap <= 0) return;
-    if (editingId) {
-      await updatePool.mutateAsync({ id: editingId, name: form.name.trim(), totalCap: form.totalCap });
-    } else {
-      await createPool.mutateAsync({ eventId, name: form.name.trim(), totalCap: form.totalCap });
-    }
-    // Las entradas que usan este pool muestran su remanente en la misma
-    // consulta (events.listTicketTypes) -- invalidar para que se refresque.
-    utils.events.listTicketTypes.invalidate();
+    await createPool.mutateAsync({ eventId, name: form.name.trim(), totalCap: form.totalCap });
+    onSaved();
+  };
+
+  const handleDelete = async (id: number) => {
+    await deletePool.mutateAsync({ id });
+    onSaved();
   };
 
   return (
     <div className="mt-3 border-t border-border/50 pt-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cupos compartidos</span>
-        <Button variant="outline" size="sm" onClick={() => { setEditingId(null); setForm({ name: 'Founders', totalCap: 40 }); setShowForm(!showForm); }}>
+        <Button variant="outline" size="sm" onClick={() => { setForm({ name: 'Founders', totalCap: 40 }); setShowForm(!showForm); }}>
           <Plus className="w-3 h-3 mr-1" /> Cupo compartido
         </Button>
       </div>
@@ -233,16 +405,7 @@ function StockPoolsPanel({ eventId }: { eventId: number }) {
       {pools.length > 0 && (
         <div className="space-y-2 mt-2">
           {pools.map((p: any) => (
-            <div key={p.id} className="flex items-center justify-between text-sm bg-muted/30 rounded-lg px-3 py-2">
-              <span>
-                <span className="font-semibold">{p.name}</span>
-                <span className="text-muted-foreground ml-2">vendidas {p.sold} / {p.totalCap} · quedan {p.remaining}</span>
-              </span>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => { setEditingId(p.id); setForm({ name: p.name, totalCap: p.totalCap }); setShowForm(true); }}><Edit className="w-3 h-3" /></Button>
-                <ConfirmDeleteButton description={`Vas a eliminar el cupo compartido "${p.name}". Solo se puede si ninguna entrada lo está usando.`} onConfirm={() => deletePool.mutateAsync({ id: p.id })} />
-              </div>
-            </div>
+            <StockPoolRow key={p.id} p={p} onSaved={onSaved} onDelete={handleDelete} />
           ))}
         </div>
       )}
@@ -251,8 +414,8 @@ function StockPoolsPanel({ eventId }: { eventId: number }) {
           <div className="md:col-span-2"><Label>Nombre</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="Founders" /></div>
           <div><Label>Cupo total</Label><Input type="number" value={form.totalCap} onChange={(e) => setForm({ ...form, totalCap: Number(e.target.value) })} className="mt-1" /></div>
           <div className="md:col-span-3 flex gap-2">
-            <WriteButton onClick={handleSave} disabled={createPool.isPending || updatePool.isPending}>{editingId ? 'Guardar' : 'Crear'}</WriteButton>
-            <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</Button>
+            <WriteButton onClick={handleCreate} disabled={createPool.isPending}>Crear</WriteButton>
+            <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
           </div>
         </div>
       )}
@@ -337,25 +500,272 @@ function TicketPoolSelect({ eventId, value, onChange }: { eventId: number; value
   );
 }
 
+/** Arma el form-state de edición de un evento a partir de la fila del
+ * server -- mismo shape que `newEvent` de EventsManager. */
+function eventFormFromEvent(event: any) {
+  return {
+    title: event.title as string, slug: event.slug as string, description: (event.description || '') as string,
+    shortDescription: (event.shortDescription || '') as string, venue: (event.venue || '') as string,
+    address: (event.address || '') as string, mapsUrl: (event.mapsUrl || '') as string,
+    eventDate: toChileInputValue(event.eventDate), doorsOpen: toChileInputValue(event.doorsOpen),
+    status: (event.status || 'draft') as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past',
+    imageUrl: (event.imageUrl || '') as string, featured: !!event.featured,
+    missionForceClosed: !!event.missionForceClosed, ivaApplies: !!event.ivaApplies,
+  };
+}
+
+/** Botón "Generar con IA" para descripción corta + completa de un evento
+ * (pedido explícito del dueño, 02/09) -- mismo molde que el objetivo de
+ * MailingComposer.tsx: un campo de idea/tema TRANSITORIO (no se guarda en la
+ * base, no existe columna para eso hoy, ver drizzle/schema.ts) y un click
+ * llena ambos campos, que el dueño puede seguir editando a mano después. Se
+ * usa tanto en el form de crear evento como en el de editar (EventCard). */
+function EventDescriptionAiFields({
+  title, venue, address, eventDateInputValue, onGenerated,
+}: {
+  title: string;
+  venue?: string;
+  address?: string;
+  eventDateInputValue?: string;
+  onGenerated: (result: { shortDescription: string; description: string }) => void;
+}) {
+  const [idea, setIdea] = useState('');
+  const generate = trpc.events.generateDescription.useMutation({
+    onSuccess: (data) => { onGenerated(data); toast.success('Descripción generada -- revísala antes de guardar'); },
+    onError: onMutationError,
+  });
+
+  const handleGenerate = () => {
+    if (!title.trim()) { toast.error('Ponle un título al evento primero'); return; }
+    generate.mutate({
+      title: title.trim(),
+      venue: venue?.trim() || undefined,
+      address: address?.trim() || undefined,
+      eventDateISO: eventDateInputValue ? fromChileInputValue(eventDateInputValue) : undefined,
+      idea: idea.trim() || undefined,
+    });
+  };
+
+  return (
+    <div className="bg-muted/30 rounded-lg p-3 space-y-2">
+      <Label>Idea/tema para la IA (opcional -- no se guarda)</Label>
+      <Input value={idea} onChange={(e) => setIdea(e.target.value)} placeholder="Ej: Halloween, disfraz obligatorio" className="mt-1" />
+      <WriteButton type="button" variant="outline" size="sm" onClick={handleGenerate} disabled={generate.isPending}>
+        {generate.isPending ? <><Loader2 className="w-3 h-3 mr-2 animate-spin" /> Generando…</> : <><Sparkles className="w-3 h-3 mr-2" /> Generar descripciones con IA</>}
+      </WriteButton>
+    </div>
+  );
+}
+
+/** Card de un evento: edita en el lugar (estado local `editing`), mismo
+ * criterio que AmbassadorRow/StockPoolRow/TicketTypeRow. Antes el formulario
+ * de editar vivía en una card fija ANTES de toda la lista de eventos --
+ * editar el evento #5 de 10 mandaba arriba de todo. Acá el formulario
+ * reemplaza directamente la cabecera de la card de ESE evento. También es
+ * dueña del formulario de "Nueva Entrada" para este evento (antes vivía en
+ * EventsManager, gateado por comparar `newTicket.eventId === event.id` --
+ * más simple tenerlo local ahora que cada evento ya es su propio componente). */
+function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number) => Promise<void> }) {
+  const utils = trpc.useUtils();
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(() => eventFormFromEvent(event));
+  const updateEvent = trpc.events.update.useMutation({
+    onSuccess: () => { utils.events.listAll.invalidate(); toast.success('Evento actualizado'); setEditing(false); },
+    onError: onMutationError,
+  });
+
+  const emptyTicketForm = { name: '', category: 'acceso' as 'acceso' | 'extra', accesoSlug: '' as '' | AccesoSlug, price: 0, totalStock: 0, description: '', costPrice: 0, color: '', internalCode: '', stockPoolId: null as number | null };
+  const [newTicket, setNewTicket] = useState(emptyTicketForm);
+  const [showTicketForm, setShowTicketForm] = useState(false);
+  const createTicketType = trpc.events.createTicketType.useMutation({
+    onSuccess: () => { utils.events.listTicketTypes.invalidate(); toast.success('Entrada creada'); },
+    onError: onMutationError,
+  });
+
+  const handleSaveEvent = () => {
+    if (!form.title || !form.slug || !form.eventDate) return;
+    updateEvent.mutate({
+      id: event.id,
+      ...form,
+      featured: form.featured ? 1 : 0,
+      missionForceClosed: form.missionForceClosed ? 1 : 0,
+      ivaApplies: form.ivaApplies ? 1 : 0,
+      eventDate: fromChileInputValue(form.eventDate),
+      doorsOpen: fromChileInputValue(form.doorsOpen),
+    });
+  };
+
+  const handleCreateTicketType = async () => {
+    if (!newTicket.name || !newTicket.price) return;
+    await createTicketType.mutateAsync({
+      eventId: event.id,
+      ...newTicket,
+      accesoSlug: newTicket.category === 'extra' ? undefined : (newTicket.accesoSlug || undefined),
+      stockPoolId: newTicket.category === 'extra' ? null : newTicket.stockPoolId,
+      costPrice: newTicket.costPrice || undefined,
+      color: newTicket.category === 'extra' ? (newTicket.color || undefined) : undefined,
+      internalCode: newTicket.category === 'extra' ? (newTicket.internalCode || undefined) : undefined,
+    });
+    setNewTicket(emptyTicketForm);
+    setShowTicketForm(false);
+  };
+
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        {editing ? (
+          <div className="space-y-4">
+            <h4 className="font-semibold text-sm">Editar Evento</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div><Label>Título</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="mt-1" /></div>
+              <div><Label>Slug (URL)</Label><Input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} className="mt-1" /></div>
+              <div><Label>Venue</Label><Input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} className="mt-1" /></div>
+              <div><Label>Dirección</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="mt-1" /></div>
+              <div><Label>Link de Google Maps</Label><Input value={form.mapsUrl} onChange={(e) => setForm({ ...form, mapsUrl: e.target.value })} className="mt-1" placeholder="https://maps.app.goo.gl/..." /></div>
+              <div><Label>Fecha del evento</Label><Input type="datetime-local" value={form.eventDate} onChange={(e) => setForm({ ...form, eventDate: e.target.value })} className="mt-1" /></div>
+              <div><Label>Apertura de puertas</Label><Input type="datetime-local" value={form.doorsOpen} onChange={(e) => setForm({ ...form, doorsOpen: e.target.value })} className="mt-1" /></div>
+            </div>
+            <EventDescriptionAiFields
+              title={form.title}
+              venue={form.venue}
+              address={form.address}
+              eventDateInputValue={form.eventDate}
+              onGenerated={(r) => setForm({ ...form, shortDescription: r.shortDescription, description: r.description })}
+            />
+            <div><Label>Descripción corta</Label><Input value={form.shortDescription} onChange={(e) => setForm({ ...form, shortDescription: e.target.value })} className="mt-1" /></div>
+            <div><Label>Descripción completa</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1 h-24" /></div>
+            <div><Label>URL del flyer/imagen</Label><Input value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} className="mt-1" placeholder="https://..." /></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+              <div>
+                <Label>Estado</Label>
+                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as any })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">Borrador (oculto)</SelectItem>
+                    <SelectItem value="published">Publicado (próximo)</SelectItem>
+                    <SelectItem value="soldout">Agotado</SelectItem>
+                    <SelectItem value="past">Pasado (aparece en blanco y negro)</SelectItem>
+                    <SelectItem value="cancelled">Cancelado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
+                <input type="checkbox" checked={form.featured} onChange={(e) => setForm({ ...form, featured: e.target.checked })} className="w-4 h-4 accent-primary" />
+                <span className="text-sm">Destacar como próximo evento</span>
+              </label>
+              <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
+                <input type="checkbox" checked={form.missionForceClosed} onChange={(e) => setForm({ ...form, missionForceClosed: e.target.checked })} className="w-4 h-4 accent-primary" />
+                <span className="text-sm">Cerrar Misión 300 (cobrar valor general ya)</span>
+              </label>
+              <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
+                <input type="checkbox" checked={form.ivaApplies} onChange={(e) => setForm({ ...form, ivaApplies: e.target.checked })} className="w-4 h-4 accent-primary" />
+                <span className="text-sm">Este evento se declara al SII (IVA 19%)</span>
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <WriteButton onClick={handleSaveEvent} disabled={updateEvent.isPending}>Guardar Cambios</WriteButton>
+              <Button variant="outline" onClick={() => { setForm(eventFormFromEvent(event)); setEditing(false); }}>Cancelar</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-between items-start">
+            <div>
+              <h3 className="font-semibold text-lg">{event.title}</h3>
+              <p className="text-muted-foreground text-sm">/{event.slug} | {event.status} | {new Date(event.eventDate).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                <Edit className="w-3 h-3" />
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { setNewTicket(emptyTicketForm); setShowTicketForm(true); }}>
+                <Plus className="w-3 h-3 mr-1" /> Entrada
+              </Button>
+              <ConfirmDeleteButton description={`Vas a eliminar el evento "${event.title}" completo, con todas sus entradas.`} onConfirm={() => onDeleted(event.id)} />
+            </div>
+          </div>
+        )}
+        <TicketTypesList eventId={event.id} />
+        <StockPoolsPanel eventId={event.id} />
+        <Mission300Panel eventId={event.id} />
+        {showTicketForm && (
+          <div className="mt-4 border-t border-border/50 pt-4 space-y-4">
+            <h4 className="font-semibold text-sm">Nuevo Tipo de Entrada</h4>
+            <div>
+              <Label>Categoría</Label>
+              <Select value={newTicket.category} onValueChange={(v) => setNewTicket({ ...newTicket, category: v as 'acceso' | 'extra', accesoSlug: v === 'extra' ? '' : newTicket.accesoSlug })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="acceso">Acceso principal (Dúo, Soltera, Trío…)</SelectItem>
+                  <SelectItem value="extra">Extra (estacionamiento, cover, etc.)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">Los extras aparecen solos en el paso de extras del checkout, para cualquier evento — no hace falta tocar código.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div><Label>Nombre</Label><Input value={newTicket.name} onChange={(e) => setNewTicket({ ...newTicket, name: e.target.value })} className="mt-1" placeholder="VIP, General..." /></div>
+              <div><Label>Precio (CLP)</Label><Input type="number" value={newTicket.price} onChange={(e) => setNewTicket({ ...newTicket, price: Number(e.target.value) })} className="mt-1" /></div>
+              <div><Label>Stock Total</Label><Input type="number" value={newTicket.totalStock} onChange={(e) => setNewTicket({ ...newTicket, totalStock: Number(e.target.value) })} className="mt-1" /></div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label>Costo (CLP)</Label>
+                <Input type="number" value={newTicket.costPrice} onChange={(e) => setNewTicket({ ...newTicket, costPrice: Number(e.target.value) })} className="mt-1" placeholder="Opcional, para márgenes" />
+              </div>
+              {newTicket.category === 'extra' && (
+                <>
+                  <div>
+                    <Label>Código interno (canje)</Label>
+                    <Input value={newTicket.internalCode} onChange={(e) => setNewTicket({ ...newTicket, internalCode: e.target.value.toUpperCase() })} className="mt-1" placeholder="PIS, LOC..." maxLength={6} />
+                  </div>
+                  <div>
+                    <Label>Color (grilla de caja)</Label>
+                    <Input type="color" value={newTicket.color || '#f472b6'} onChange={(e) => setNewTicket({ ...newTicket, color: e.target.value })} className="mt-1 h-10" />
+                  </div>
+                </>
+              )}
+            </div>
+            {newTicket.category === 'extra' && (
+              <p className="text-xs text-muted-foreground -mt-2">El código interno es el prefijo del código de canje que recibe el comprador (ej. PIS-8F3K-29LX). Si se deja vacío, se genera uno automático a partir del nombre.</p>
+            )}
+            {newTicket.category === 'acceso' && (
+              <div>
+                <Label>Tipo de acceso (conecta con la pregunta del checkout)</Label>
+                <Select value={newTicket.accesoSlug} onValueChange={(v) => setNewTicket({ ...newTicket, accesoSlug: v as AccesoSlug })}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Elegir…" /></SelectTrigger>
+                  <SelectContent>
+                    {ACCESO_SLUG_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">Sin esto, la gente no va a poder comprar esta entrada desde el checkout.</p>
+              </div>
+            )}
+            {newTicket.category === 'acceso' && (
+              <TicketPoolSelect eventId={event.id} value={newTicket.stockPoolId} onChange={(v) => setNewTicket({ ...newTicket, stockPoolId: v })} />
+            )}
+            <div><Label>Descripción</Label><Input value={newTicket.description} onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })} className="mt-1" /></div>
+            <div className="flex gap-2">
+              <WriteButton onClick={handleCreateTicketType} disabled={createTicketType.isPending}>Crear Entrada</WriteButton>
+              <Button variant="outline" onClick={() => { setShowTicketForm(false); setNewTicket(emptyTicketForm); }}>Cancelar</Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function EventsManager() {
   const { data: eventsData, refetch } = trpc.events.listAll.useQuery();
   const createEvent = trpc.events.create.useMutation({ onSuccess: () => { refetch(); toast.success('Evento creado'); }, onError: onMutationError });
   const deleteEvent = trpc.events.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
-  const updateEvent = trpc.events.update.useMutation({ onSuccess: () => { refetch(); toast.success('Evento actualizado'); }, onError: onMutationError });
-  const utils = trpc.useUtils();
-  const createTicketType = trpc.events.createTicketType.useMutation({ onSuccess: () => { utils.events.listTicketTypes.invalidate(); toast.success('Entrada creada'); }, onError: onMutationError });
-  const updateTicketType = trpc.events.updateTicketType.useMutation({ onSuccess: () => { utils.events.listTicketTypes.invalidate(); toast.success('Entrada actualizada'); }, onError: onMutationError });
 
   const [newEvent, setNewEvent] = useState({
     title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '',
     status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false,
   });
-  const emptyTicketForm = { eventId: 0, name: '', category: 'acceso' as 'acceso' | 'extra', accesoSlug: '' as '' | AccesoSlug, price: 0, totalStock: 0, description: '', costPrice: 0, color: '', internalCode: '', stockPoolId: null as number | null };
-  const [newTicket, setNewTicket] = useState(emptyTicketForm);
   const [showEventForm, setShowEventForm] = useState(false);
-  const [showTicketForm, setShowTicketForm] = useState(false);
-  const [editingEventId, setEditingEventId] = useState<number | null>(null);
-  const [editingTicketId, setEditingTicketId] = useState<number | null>(null);
 
   const events = eventsData ?? [];
 
@@ -369,46 +779,13 @@ function EventsManager() {
       eventDate: fromChileInputValue(newEvent.eventDate),
       doorsOpen: fromChileInputValue(newEvent.doorsOpen),
     };
-    if (editingEventId) {
-      await updateEvent.mutateAsync({ id: editingEventId, ...payload });
-      setEditingEventId(null);
-    } else {
-      await createEvent.mutateAsync(payload);
-    }
+    await createEvent.mutateAsync(payload);
     setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', status: 'draft', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false });
     setShowEventForm(false);
   };
 
-  const handleCreateTicketType = async () => {
-    if (!newTicket.eventId || !newTicket.name || !newTicket.price) return;
-    const payload = {
-      ...newTicket,
-      accesoSlug: newTicket.category === 'extra' ? undefined : (newTicket.accesoSlug || undefined),
-      stockPoolId: newTicket.category === 'extra' ? null : newTicket.stockPoolId,
-      costPrice: newTicket.costPrice || undefined,
-      color: newTicket.category === 'extra' ? (newTicket.color || undefined) : undefined,
-      internalCode: newTicket.category === 'extra' ? (newTicket.internalCode || undefined) : undefined,
-    };
-    if (editingTicketId) {
-      const { eventId, ...data } = payload;
-      await updateTicketType.mutateAsync({ id: editingTicketId, ...data });
-      setEditingTicketId(null);
-    } else {
-      await createTicketType.mutateAsync(payload);
-    }
-    setNewTicket(emptyTicketForm);
-    setShowTicketForm(false);
-  };
-
-  const handleEditTicketType = (tt: any) => {
-    setEditingTicketId(tt.id);
-    setNewTicket({
-      eventId: tt.eventId, name: tt.name, category: tt.category || 'acceso', accesoSlug: tt.accesoSlug || '',
-      price: Number(tt.price), totalStock: tt.totalStock, description: tt.description || '',
-      costPrice: tt.costPrice ? Number(tt.costPrice) : 0, color: tt.color || '', internalCode: tt.internalCode || '',
-      stockPoolId: tt.stockPoolId ?? null,
-    });
-    setShowTicketForm(true);
+  const handleDeleteEvent = async (id: number) => {
+    await deleteEvent.mutateAsync({ id });
   };
 
   return (
@@ -432,8 +809,15 @@ function EventsManager() {
               <div><Label>Fecha del evento</Label><Input type="datetime-local" value={newEvent.eventDate} onChange={(e) => setNewEvent({ ...newEvent, eventDate: e.target.value })} className="mt-1" /></div>
               <div><Label>Apertura de puertas</Label><Input type="datetime-local" value={newEvent.doorsOpen} onChange={(e) => setNewEvent({ ...newEvent, doorsOpen: e.target.value })} className="mt-1" /></div>
             </div>
+            <EventDescriptionAiFields
+              title={newEvent.title}
+              venue={newEvent.venue}
+              address={newEvent.address}
+              eventDateInputValue={newEvent.eventDate}
+              onGenerated={(r) => setNewEvent({ ...newEvent, shortDescription: r.shortDescription, description: r.description })}
+            />
             <div><Label>Descripción corta</Label><Input value={newEvent.shortDescription} onChange={(e) => setNewEvent({ ...newEvent, shortDescription: e.target.value })} className="mt-1" /></div>
-            <div><Label>Descripción completa</Label><textarea value={newEvent.description} onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })} className="mt-1 w-full h-24 bg-input border border-border rounded-md p-2 text-foreground" /></div>
+            <div><Label>Descripción completa</Label><Textarea value={newEvent.description} onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })} className="mt-1 h-24" /></div>
             <div><Label>URL del flyer/imagen</Label><Input value={newEvent.imageUrl} onChange={(e) => setNewEvent({ ...newEvent, imageUrl: e.target.value })} className="mt-1" placeholder="https://..." /></div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
               <div>
@@ -463,9 +847,7 @@ function EventsManager() {
               </label>
             </div>
             <div className="flex gap-2">
-              <WriteButton onClick={handleCreateEvent} disabled={createEvent.isPending || updateEvent.isPending}>
-                {editingEventId ? 'Guardar Cambios' : 'Crear Evento'}
-              </WriteButton>
+              <WriteButton onClick={handleCreateEvent} disabled={createEvent.isPending}>Crear Evento</WriteButton>
               <Button variant="outline" onClick={() => setShowEventForm(false)}>Cancelar</Button>
             </div>
           </CardContent>
@@ -474,110 +856,7 @@ function EventsManager() {
 
       <div className="space-y-4">
         {events.map((event: any) => (
-          <Card key={event.id}>
-            <CardContent className="pt-6">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-semibold text-lg">{event.title}</h3>
-                  <p className="text-muted-foreground text-sm">/{event.slug} | {event.status} | {new Date(event.eventDate).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => {
-                    setEditingEventId(event.id);
-                    setNewEvent({
-                      title: event.title, slug: event.slug, description: event.description || '',
-                      shortDescription: event.shortDescription || '', venue: event.venue || '',
-                      address: event.address || '',
-                      mapsUrl: event.mapsUrl || '',
-                      eventDate: toChileInputValue(event.eventDate),
-                      doorsOpen: toChileInputValue(event.doorsOpen),
-                      status: event.status || 'draft',
-                      imageUrl: event.imageUrl || '',
-                      featured: !!event.featured,
-                      missionForceClosed: !!event.missionForceClosed,
-                      ivaApplies: !!event.ivaApplies,
-                    });
-                    setShowEventForm(true);
-                  }}>
-                    <Edit className="w-3 h-3" />
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => { setEditingTicketId(null); setNewTicket({ ...emptyTicketForm, eventId: event.id }); setShowTicketForm(true); }}>
-                    <Plus className="w-3 h-3 mr-1" /> Entrada
-                  </Button>
-                  <ConfirmDeleteButton description={`Vas a eliminar el evento "${event.title}" completo, con todas sus entradas.`} onConfirm={() => deleteEvent.mutateAsync({ id: event.id })} />
-                </div>
-              </div>
-              <TicketTypesList eventId={event.id} onEdit={handleEditTicketType} />
-              <StockPoolsPanel eventId={event.id} />
-              <Mission300Panel eventId={event.id} />
-              {showTicketForm && newTicket.eventId === event.id && (
-                <div className="mt-4 border-t border-border/50 pt-4 space-y-4">
-                  <h4 className="font-semibold text-sm">{editingTicketId ? 'Editar Tipo de Entrada' : 'Nuevo Tipo de Entrada'}</h4>
-                  <div>
-                    <Label>Categoría</Label>
-                    <Select value={newTicket.category} onValueChange={(v) => setNewTicket({ ...newTicket, category: v as 'acceso' | 'extra', accesoSlug: v === 'extra' ? '' : newTicket.accesoSlug })}>
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="acceso">Acceso principal (Dúo, Soltera, Trío…)</SelectItem>
-                        <SelectItem value="extra">Extra (estacionamiento, cover, etc.)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground mt-1">Los extras aparecen solos en el paso de extras del checkout, para cualquier evento — no hace falta tocar código.</p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div><Label>Nombre</Label><Input value={newTicket.name} onChange={(e) => setNewTicket({ ...newTicket, name: e.target.value })} className="mt-1" placeholder="VIP, General..." /></div>
-                    <div><Label>Precio (CLP)</Label><Input type="number" value={newTicket.price} onChange={(e) => setNewTicket({ ...newTicket, price: Number(e.target.value) })} className="mt-1" /></div>
-                    <div><Label>Stock Total</Label><Input type="number" value={newTicket.totalStock} onChange={(e) => setNewTicket({ ...newTicket, totalStock: Number(e.target.value) })} className="mt-1" /></div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <Label>Costo (CLP)</Label>
-                      <Input type="number" value={newTicket.costPrice} onChange={(e) => setNewTicket({ ...newTicket, costPrice: Number(e.target.value) })} className="mt-1" placeholder="Opcional, para márgenes" />
-                    </div>
-                    {newTicket.category === 'extra' && (
-                      <>
-                        <div>
-                          <Label>Código interno (canje)</Label>
-                          <Input value={newTicket.internalCode} onChange={(e) => setNewTicket({ ...newTicket, internalCode: e.target.value.toUpperCase() })} className="mt-1" placeholder="PIS, LOC..." maxLength={6} />
-                        </div>
-                        <div>
-                          <Label>Color (grilla de caja)</Label>
-                          <Input type="color" value={newTicket.color || '#f472b6'} onChange={(e) => setNewTicket({ ...newTicket, color: e.target.value })} className="mt-1 h-10" />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  {newTicket.category === 'extra' && (
-                    <p className="text-xs text-muted-foreground -mt-2">El código interno es el prefijo del código de canje que recibe el comprador (ej. PIS-8F3K-29LX). Si se deja vacío, se genera uno automático a partir del nombre.</p>
-                  )}
-                  {newTicket.category === 'acceso' && (
-                    <div>
-                      <Label>Tipo de acceso (conecta con la pregunta del checkout)</Label>
-                      <Select value={newTicket.accesoSlug} onValueChange={(v) => setNewTicket({ ...newTicket, accesoSlug: v as AccesoSlug })}>
-                        <SelectTrigger className="mt-1"><SelectValue placeholder="Elegir…" /></SelectTrigger>
-                        <SelectContent>
-                          {ACCESO_SLUG_OPTIONS.map((o) => (
-                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground mt-1">Sin esto, la gente no va a poder comprar esta entrada desde el checkout.</p>
-                    </div>
-                  )}
-                  {newTicket.category === 'acceso' && (
-                    <TicketPoolSelect eventId={newTicket.eventId} value={newTicket.stockPoolId} onChange={(v) => setNewTicket({ ...newTicket, stockPoolId: v })} />
-                  )}
-                  <div><Label>Descripción</Label><Input value={newTicket.description} onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })} className="mt-1" /></div>
-                  <div className="flex gap-2">
-                    <WriteButton onClick={handleCreateTicketType} disabled={createTicketType.isPending || updateTicketType.isPending}>
-                      {editingTicketId ? 'Guardar Cambios' : 'Crear Entrada'}
-                    </WriteButton>
-                    <Button variant="outline" onClick={() => { setShowTicketForm(false); setEditingTicketId(null); setNewTicket(emptyTicketForm); }}>Cancelar</Button>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <EventCard key={event.id} event={event} onDeleted={handleDeleteEvent} />
         ))}
       </div>
     </div>
@@ -4763,6 +5042,62 @@ function PnlComparison({ refreshKey, events }: { refreshKey: number; events: any
   );
 }
 
+/** Panel de preguntas simples sobre ventas/movimientos con IA (pedido
+ * explícito del dueño, 02/09) -- responde solo con datos YA agregados del
+ * sistema (server/adminQa.ts: getOrderStats, getSalesByUtmOrigin, el P&L del
+ * evento seleccionado), nunca inventa un número que no tenga. Sin historial
+ * persistido en base: las últimas preguntas/respuestas quedan solo en estado
+ * local de esta sesión (se pierden al recargar) -- cada pregunta es
+ * independiente, esto no es una conversación multi-turno. */
+function AdminAiQaPanel({ eventId }: { eventId: number | null }) {
+  const [question, setQuestion] = useState('');
+  const [history, setHistory] = useState<{ question: string; answer: string }[]>([]);
+  const ask = trpc.cajaReports.askAi.useMutation({
+    onSuccess: (data, variables) => {
+      setHistory((h) => [{ question: variables.question, answer: data.answer }, ...h].slice(0, 5));
+      setQuestion('');
+    },
+    onError: onMutationError,
+  });
+
+  const handleAsk = () => {
+    if (question.trim().length < 3 || ask.isPending) return;
+    ask.mutate({ question: question.trim(), eventId: eventId ?? undefined });
+  };
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base"><Sparkles className="w-4 h-4 text-primary" /> Preguntale a la IA</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">Preguntas simples sobre ventas, origen y plata del evento seleccionado arriba -- si no tiene el dato, lo dice en vez de inventarlo.</p>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Input
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder="Ej: ¿Cuánto llevamos vendido? ¿De dónde vienen más ventas?"
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAsk(); }}
+          />
+          <WriteButton onClick={handleAsk} disabled={ask.isPending || question.trim().length < 3}>
+            {ask.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Preguntando…</> : <><Sparkles className="w-4 h-4 mr-2" /> Preguntar</>}
+          </WriteButton>
+        </div>
+        {history.length > 0 && (
+          <div className="space-y-3 pt-2 border-t border-border/50">
+            {history.map((h, i) => (
+              <div key={i} className="text-sm">
+                <p className="font-semibold">{h.question}</p>
+                <p className="text-muted-foreground whitespace-pre-wrap mt-0.5">{h.answer}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function GastosView() {
   const { data: eventsData } = trpc.events.listAll.useQuery();
   const events = eventsData ?? [];
@@ -4789,6 +5124,8 @@ function GastosView() {
           </Select>
         )}
       </div>
+
+      <AdminAiQaPanel eventId={activeEventId} />
 
       {activeEventId && <EventPnlReport eventId={activeEventId} refreshKey={refreshKey} />}
       <PnlComparison refreshKey={refreshKey} events={events} />
@@ -5307,6 +5644,203 @@ const emptyProduct = (category: CartaCategory) => ({
   description: '',
 });
 
+/** Arma el form-state de edición de un producto a partir de la fila del
+ * server -- mismo shape que `emptyProduct()`. */
+function productFormFromP(p: any) {
+  return {
+    name: p.name as string,
+    category: p.category as CartaCategory,
+    groupName: (p.groupName ?? '') as string,
+    emoji: (p.emoji ?? EMOJI_SUGGESTIONS[p.category as CartaCategory][0]) as string,
+    color: (p.color ?? CARTA_CATEGORIES.find((c) => c.id === p.category)!.color) as string,
+    price: Number(p.price),
+    costPrice: p.costPrice != null ? Number(p.costPrice) : 0,
+    totalStock: Number(p.totalStock),
+    sortOrder: Number(p.sortOrder ?? 0),
+    toKitchen: Number(p.toKitchen ?? 0),
+    description: (p.description ?? '') as string,
+  };
+}
+
+/** Card de un producto de la carta: edita en el lugar (estado local
+ * `editing`), mismo criterio que AmbassadorRow/StockPoolRow/TicketTypeRow/
+ * EventCard. Antes el formulario de editar vivía en una card fija ANTES de
+ * toda la grilla de productos -- editar el producto #8 de 15 mandaba arriba
+ * de todo. Acá el formulario reemplaza directamente el contenido de LA card
+ * de ese producto. `toggleSoldOut`/borrar quedan en CartaManager (mismas
+ * mutations para toda la grilla, no hace falta una por card). */
+function CartaProductCard({ p, meta, onToggleSoldOut, toggling, onDelete }: {
+  p: any;
+  meta: typeof CARTA_CATEGORIES[number];
+  onToggleSoldOut: (id: number, nextStatus: 'active' | 'soldout') => void;
+  toggling: boolean;
+  onDelete: (id: number) => Promise<void>;
+}) {
+  const utils = trpc.useUtils();
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(() => productFormFromP(p));
+  const updateType = trpc.events.updateTicketType.useMutation({
+    onSuccess: () => { utils.events.listTicketTypes.invalidate(); toast.success('Producto actualizado'); setEditing(false); },
+    onError: onMutationError,
+  });
+
+  const handleSave = () => {
+    if (!form.name.trim()) { toast.error('Ponle un nombre al producto'); return; }
+    if (form.price <= 0) { toast.error('El precio tiene que ser mayor a 0'); return; }
+    updateType.mutate({
+      id: p.id,
+      name: form.name.trim(),
+      category: form.category,
+      groupName: form.groupName.trim() || undefined,
+      emoji: form.emoji || undefined,
+      color: form.color,
+      price: form.price,
+      costPrice: form.costPrice || undefined,
+      totalStock: form.totalStock,
+      sortOrder: form.sortOrder,
+      toKitchen: form.toKitchen,
+      description: form.description.trim() || undefined,
+    });
+  };
+
+  if (editing) {
+    return (
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5 md:col-span-2">
+        <CardContent className="pt-6 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2">
+              <Label>Nombre</Label>
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="Ej: Piscola" />
+            </div>
+            <div>
+              <Label>Sección</Label>
+              <Input value={form.groupName} onChange={(e) => setForm({ ...form, groupName: e.target.value })} className="mt-1" placeholder="Ej: Tragos" />
+              <p className="text-muted-foreground text-xs mt-1">Arma las pestañas de la grilla en /caja.</p>
+            </div>
+          </div>
+
+          <div>
+            <Label>Ingredientes / sabores especiales</Label>
+            <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1" placeholder="Ej: Pisco, jugo de maracuyá natural, un toque de menta" rows={2} />
+            <p className="text-muted-foreground text-xs mt-1">Opcional. Aparece en /caja al mantener presionada la tarjeta del producto, para que la cajera pueda responder preguntas del cliente.</p>
+          </div>
+
+          <div>
+            <Label>Ícono</Label>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {EMOJI_SUGGESTIONS[form.category].map((em) => (
+                <button
+                  key={em}
+                  onClick={() => setForm({ ...form, emoji: em })}
+                  className={`w-11 h-11 rounded-xl text-2xl leading-none flex items-center justify-center border transition-colors interactive ${form.emoji === em ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted'}`}
+                >
+                  {em}
+                </button>
+              ))}
+              <Input
+                value={form.emoji}
+                onChange={(e) => setForm({ ...form, emoji: e.target.value.slice(0, 4) })}
+                className="w-20 h-11 text-center text-xl"
+                aria-label="Otro emoji"
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label>Color del botón</Label>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {COLOR_PALETTE.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setForm({ ...form, color: c })}
+                  style={{ backgroundColor: c }}
+                  className={`w-9 h-9 rounded-full transition-transform interactive ${form.color === c ? 'ring-2 ring-offset-2 ring-foreground scale-110' : ''}`}
+                  aria-label={`Color ${c}`}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div><Label>Precio</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} className="mt-1" /></div>
+            <div>
+              <Label>Costo</Label>
+              <Input type="number" value={form.costPrice} onChange={(e) => setForm({ ...form, costPrice: Number(e.target.value) })} className="mt-1" />
+              <p className="text-muted-foreground text-xs mt-1">Para ver el margen. Si no se carga, ese dato se pierde para siempre.</p>
+            </div>
+            <div>
+              <Label>Stock</Label>
+              <Input type="number" value={form.totalStock} onChange={(e) => setForm({ ...form, totalStock: Number(e.target.value) })} className="mt-1" />
+              <p className="text-muted-foreground text-xs mt-1">Solo avisa: nunca impide vender.</p>
+            </div>
+            <div>
+              <Label>Orden</Label>
+              <Input type="number" value={form.sortOrder} onChange={(e) => setForm({ ...form, sortOrder: Number(e.target.value) })} className="mt-1" />
+              <p className="text-muted-foreground text-xs mt-1">Menor = más arriba. Pon los más vendidos primero.</p>
+            </div>
+          </div>
+
+          <label className="flex items-start gap-3 cursor-pointer">
+            <Checkbox checked={form.toKitchen === 1} onCheckedChange={(v) => setForm({ ...form, toKitchen: v ? 1 : 0 })} className="mt-0.5" />
+            <span className="text-sm">
+              Lo prepara la cocina
+              <span className="block text-muted-foreground text-xs">Al venderse genera una comanda en la pantalla de cocina con el número de pedido.</span>
+            </span>
+          </label>
+
+          <div className="flex gap-2">
+            <WriteButton onClick={handleSave} disabled={updateType.isPending}>Guardar cambios</WriteButton>
+            <Button variant="outline" onClick={() => { setForm(productFormFromP(p)); setEditing(false); }}>Cancelar</Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const left = Number(p.totalStock) - Number(p.soldCount);
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardContent className="pt-4 flex items-center gap-3">
+        <div
+          className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0"
+          style={{ backgroundColor: (p.color || meta.color) + '22' }}
+        >
+          {p.emoji || meta.emoji}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold truncate flex items-center gap-2">
+            {p.name}
+            {p.status === 'soldout' && (
+              <span className="text-[10px] font-bold uppercase tracking-wide text-red-600 bg-red-100 px-1.5 py-0.5 rounded">Agotado</span>
+            )}
+          </p>
+          <p className="text-muted-foreground text-sm">
+            ${Number(p.price).toLocaleString('es-CL')}
+            {p.costPrice != null && <span className="ml-2 text-xs">margen ${(Number(p.price) - Number(p.costPrice)).toLocaleString('es-CL')}</span>}
+          </p>
+          <p className={`text-xs mt-0.5 ${left <= 0 ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
+            {left <= 0 ? 'Sin stock (igual se puede vender)' : `Quedan ${left}`}
+            {Number(p.toKitchen) === 1 && <span className="ml-2">· va a cocina</span>}
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <WriteButton
+            variant="outline"
+            size="sm"
+            disabled={toggling}
+            onClick={() => onToggleSoldOut(p.id, p.status === 'soldout' ? 'active' : 'soldout')}
+            className={p.status === 'soldout' ? 'text-green-600 border-green-300' : 'text-red-600 border-red-300'}
+          >
+            {p.status === 'soldout' ? 'Reponer' : <><Ban className="w-3 h-3 mr-1" /> Agotar</>}
+          </WriteButton>
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Edit className="w-3 h-3" /></Button>
+          <ConfirmDeleteButton description={`Vas a eliminar "${p.name}" de la carta.`} onConfirm={() => onDelete(p.id)} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function CartaManager() {
   const { data: events } = trpc.events.listAll.useQuery();
   const [eventId, setEventId] = useState<number | null>(null);
@@ -5317,18 +5851,17 @@ function CartaManager() {
 
   const [tab, setTab] = useState<CartaCategory>('consumo');
   const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyProduct('consumo'));
 
-  const onSaved = (msg: string) => {
-    utils.events.listTicketTypes.invalidate();
-    refetch();
-    toast.success(msg);
-    setShowForm(false);
-    setEditingId(null);
-  };
-  const createType = trpc.events.createTicketType.useMutation({ onSuccess: () => onSaved('Producto creado'), onError: onMutationError });
-  const updateType = trpc.events.updateTicketType.useMutation({ onSuccess: () => onSaved('Producto actualizado'), onError: onMutationError });
+  const createType = trpc.events.createTicketType.useMutation({
+    onSuccess: () => {
+      utils.events.listTicketTypes.invalidate();
+      refetch();
+      toast.success('Producto creado');
+      setShowForm(false);
+    },
+    onError: onMutationError,
+  });
   const deleteType = trpc.events.deleteTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
   // Mismo endpoint que edita el producto (events.updateTicketType ya acepta
   // `status`) -- así el admin puede agotar/reponer sin depender de /cocina.
@@ -5340,24 +5873,7 @@ function CartaManager() {
   const products = (allTypes ?? []).filter((t: any) => t.category === tab);
   const meta = CARTA_CATEGORIES.find((c) => c.id === tab)!;
 
-  const openNew = () => { setForm(emptyProduct(tab)); setEditingId(null); setShowForm(true); };
-  const openEdit = (p: any) => {
-    setForm({
-      name: p.name,
-      category: p.category,
-      groupName: p.groupName ?? '',
-      emoji: p.emoji ?? EMOJI_SUGGESTIONS[tab][0],
-      color: p.color ?? meta.color,
-      price: Number(p.price),
-      costPrice: p.costPrice != null ? Number(p.costPrice) : 0,
-      totalStock: Number(p.totalStock),
-      sortOrder: Number(p.sortOrder ?? 0),
-      toKitchen: Number(p.toKitchen ?? 0),
-      description: p.description ?? '',
-    });
-    setEditingId(p.id);
-    setShowForm(true);
-  };
+  const openNew = () => { setForm(emptyProduct(tab)); setShowForm(true); };
 
   const save = async () => {
     if (!activeId) return;
@@ -5377,12 +5893,14 @@ function CartaManager() {
       description: form.description.trim() || undefined,
     };
     try {
-      if (editingId) await updateType.mutateAsync({ id: editingId, ...payload });
-      else await createType.mutateAsync({ eventId: activeId, ...payload });
+      await createType.mutateAsync({ eventId: activeId, ...payload });
     } catch {
       // onMutationError ya avisó; se deja el formulario abierto para reintentar
     }
   };
+
+  const handleDelete = async (id: number) => { await deleteType.mutateAsync({ id }); };
+  const handleToggleSoldOut = (id: number, nextStatus: 'active' | 'soldout') => { toggleSoldOut.mutate({ id, status: nextStatus }); };
 
   // Agrupadas por sección para que la lista se lea como la carta de verdad.
   const groups = products.reduce((acc: Record<string, any[]>, p: any) => {
@@ -5509,10 +6027,8 @@ function CartaManager() {
             </label>
 
             <div className="flex gap-2">
-              <WriteButton onClick={save} disabled={createType.isPending || updateType.isPending}>
-                {editingId ? 'Guardar cambios' : 'Crear producto'}
-              </WriteButton>
-              <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</Button>
+              <WriteButton onClick={save} disabled={createType.isPending}>Crear producto</WriteButton>
+              <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
             </div>
           </CardContent>
         </Card>
@@ -5530,50 +6046,16 @@ function CartaManager() {
         <div key={groupName} className="space-y-2">
           <h3 className="font-heading text-lg">{groupName}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {(items as any[]).map((p) => {
-              const left = Number(p.totalStock) - Number(p.soldCount);
-              return (
-                <Card key={p.id} className="rounded-2xl border-0 shadow-md shadow-black/5">
-                  <CardContent className="pt-4 flex items-center gap-3">
-                    <div
-                      className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0"
-                      style={{ backgroundColor: (p.color || meta.color) + '22' }}
-                    >
-                      {p.emoji || meta.emoji}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold truncate flex items-center gap-2">
-                        {p.name}
-                        {p.status === 'soldout' && (
-                          <span className="text-[10px] font-bold uppercase tracking-wide text-red-600 bg-red-100 px-1.5 py-0.5 rounded">Agotado</span>
-                        )}
-                      </p>
-                      <p className="text-muted-foreground text-sm">
-                        ${Number(p.price).toLocaleString('es-CL')}
-                        {p.costPrice != null && <span className="ml-2 text-xs">margen ${(Number(p.price) - Number(p.costPrice)).toLocaleString('es-CL')}</span>}
-                      </p>
-                      <p className={`text-xs mt-0.5 ${left <= 0 ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
-                        {left <= 0 ? 'Sin stock (igual se puede vender)' : `Quedan ${left}`}
-                        {Number(p.toKitchen) === 1 && <span className="ml-2">· va a cocina</span>}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <WriteButton
-                        variant="outline"
-                        size="sm"
-                        disabled={toggleSoldOut.isPending}
-                        onClick={() => toggleSoldOut.mutate({ id: p.id, status: p.status === 'soldout' ? 'active' : 'soldout' })}
-                        className={p.status === 'soldout' ? 'text-green-600 border-green-300' : 'text-red-600 border-red-300'}
-                      >
-                        {p.status === 'soldout' ? 'Reponer' : <><Ban className="w-3 h-3 mr-1" /> Agotar</>}
-                      </WriteButton>
-                      <Button variant="outline" size="sm" onClick={() => openEdit(p)}><Edit className="w-3 h-3" /></Button>
-                      <ConfirmDeleteButton description={`Vas a eliminar "${p.name}" de la carta.`} onConfirm={() => deleteType.mutateAsync({ id: p.id })} />
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+            {(items as any[]).map((p) => (
+              <CartaProductCard
+                key={p.id}
+                p={p}
+                meta={meta}
+                onToggleSoldOut={handleToggleSoldOut}
+                toggling={toggleSoldOut.isPending}
+                onDelete={handleDelete}
+              />
+            ))}
           </div>
         </div>
       ))}

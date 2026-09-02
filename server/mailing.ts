@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { formatChileDate, formatChileTime } from "../shared/chileDate";
-import { invokeLLM } from "./_core/llm";
+import { invokeLLM, extractContent } from "./_core/llm";
 import { sendEmail, buildMailingBlastEmail, type MailingEventInfo, type MailingEventSections } from "./email";
 import * as db from "./db";
 import { getMission300Status } from "./webhooks";
@@ -80,13 +80,6 @@ const SYSTEM_PROMPT = `Eres quien escribe los emails de marketing de Mansion Pla
 Tono: cercano, conversacional, en español chileno, sin ser vulgar ni gritar en mayúsculas. Nada de lenguaje corporativo genérico.
 La marca usa una paleta pastel (rosa/celeste/amarillo/lila) y emojis con moderación (🍬🎉✨), pero el contenido que generas es solo texto, no HTML ni estilos.
 Responde ÚNICAMENTE con el JSON pedido, sin explicaciones adicionales. Usa "highlightLabel"/"highlightValue" solo si el objetivo menciona un dato concreto que valga la pena destacar en grande (un número de entradas, un precio, un premio); si no aplica, omítelos.`;
-
-function extractContent(message: { content: string | Array<{ type: string; text?: string }> }): string {
-  if (typeof message.content === "string") return message.content;
-  return message.content
-    .map((part) => (part.type === "text" ? part.text ?? "" : ""))
-    .join("");
-}
 
 export async function generateMailingTemplate(objective: string, audienceDescription: string): Promise<MailingContent> {
   const result = await invokeLLM({

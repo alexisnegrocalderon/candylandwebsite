@@ -3,7 +3,12 @@ import { invokeLLM } from "./_core/llm";
 import { MailingContentSchema, generateMailingTemplate } from "./mailing";
 import { buildMailingBlastEmail } from "./email";
 
-vi.mock("./_core/llm", () => ({ invokeLLM: vi.fn() }));
+// Solo se mockea invokeLLM -- extractContent (compartida en _core/llm.ts,
+// usada también por mailing.ts) se deja real.
+vi.mock("./_core/llm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./_core/llm")>();
+  return { ...actual, invokeLLM: vi.fn() };
+});
 const invokeLLMMock = vi.mocked(invokeLLM);
 
 describe("MailingContentSchema", () => {

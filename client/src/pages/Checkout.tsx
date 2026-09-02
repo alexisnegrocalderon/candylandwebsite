@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, whatsappComunidadLink, type Acceso, type CampoForm } from '@/config/candyland';
 import { isMissionActiveForEvent, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
-import { isValidRut, isValidChileanPhone } from '@shared/rut';
+import { isValidRut, isValidChileanPhone, formatRutLive } from '@shared/rut';
 import { useSeo } from '@/hooks/useSeo';
 import { getStoredUtmParams } from '@/lib/utm';
 
@@ -164,8 +164,13 @@ function SquareImageOption({
 }
 
 function SingleFieldInput({
-  fieldKey, field, register, error, onEnter,
-}: { fieldKey: string; field: CampoForm; register: any; error?: string; onEnter: () => void }) {
+  fieldKey, field, register, setValue, error, onEnter,
+}: { fieldKey: string; field: CampoForm; register: any; setValue: any; error?: string; onEnter: () => void }) {
+  // Mismo criterio que buildSchema() más arriba para saber si es un campo de
+  // RUT (comprador o acompañante) -- puntos y guion se ponen solos mientras
+  // se escribe, pedido explícito del dueño (antes había que tipear el guion
+  // a mano). Ver formatRutLive en shared/rut.ts.
+  const isRut = field.name === 'rut' || field.name.endsWith('_rut');
   return (
     <div>
       <Input
@@ -174,7 +179,9 @@ function SingleFieldInput({
         inputMode={field.type === 'tel' ? 'tel' : field.type === 'email' ? 'email' : field.type === 'number' ? 'numeric' : undefined}
         autoComplete={autoCompleteFor(fieldKey)}
         autoFocus
-        {...register(fieldKey)}
+        {...(isRut
+          ? register(fieldKey, { onChange: (e: React.ChangeEvent<HTMLInputElement>) => setValue(fieldKey, formatRutLive(e.target.value), { shouldValidate: false }) })
+          : register(fieldKey))}
         placeholder={field.placeholder}
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onEnter(); } }}
         className="h-14 text-lg"
@@ -791,7 +798,7 @@ export default function Checkout() {
                   <div>
                     <Input
                       value={communityCodeInput}
-                      onChange={(e) => { setCommunityCodeInput(e.target.value.toUpperCase()); setCommunityCodeStatus('idle'); }}
+                      onChange={(e) => { setCommunityCodeInput(e.target.value.replace(/^\s+/, '').toUpperCase()); setCommunityCodeStatus('idle'); }}
                       placeholder="Tu código de validación"
                       autoFocus
                       className="h-14 text-lg"
@@ -831,7 +838,7 @@ export default function Checkout() {
 
               {/* Pasos de un solo campo (datos / contacto / extra del acceso) */}
               {pasoActual.id !== 'codigo-comunidad' && pasoActual.keys.length > 0 && soloFieldKey && soloField && soloField.type !== 'checkbox' && (
-                <SingleFieldInput fieldKey={soloFieldKey} field={soloField} register={register} error={err(soloFieldKey)} onEnter={continuar} />
+                <SingleFieldInput fieldKey={soloFieldKey} field={soloField} register={register} setValue={setValue} error={err(soloFieldKey)} onEnter={continuar} />
               )}
 
               {/* Paso de confirmación (checkbox): antes era una card sutil
@@ -886,7 +893,11 @@ export default function Checkout() {
                         id="promo-code"
                         value={code}
                         onChange={(e) => {
-                          setCode(e.target.value.toUpperCase());
+                          // Un espacio al inicio nunca es parte de un código real -- solo
+                          // pasa cuando alguien copia y pega y arrastra un espacio de más.
+                          // Se saca en vivo para que ni siquiera se vea, en vez de solo
+                          // recortarlo recién al aplicar (donde ya se hacía .trim()).
+                          setCode(e.target.value.replace(/^\s+/, '').toUpperCase());
                           setCodeResult(null);
                           setCodeError('');
                         }}

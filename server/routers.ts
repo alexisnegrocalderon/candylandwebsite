@@ -54,6 +54,8 @@ import { buildKitchenVendorPdf } from "./caja/kitchenVendorPdf";
 import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
 import { sendPendingReminders, generateReminderCopy } from "./orderReminders";
+import { generateEventDescription } from "./eventDescriptions";
+import { answerSalesQuestion } from "./adminQa";
 import { parseCsv, extractEmailColumn } from "./csv";
 import QRCode from "qrcode";
 import { consumeBackupCode, createTotpSecret, generateBackupCodes, parseBackupCodes, safeCompare, totpUri, verifyTotp } from "./adminSecurity";
@@ -648,6 +650,21 @@ export const appRouter = router({
     }),
     deleteStockPool: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       return db.deleteStockPool(input.id);
+    }),
+    // IA: descripción corta + completa a partir de los datos del evento y una
+    // idea/tema libre y opcional (no se guarda, ver server/eventDescriptions.ts).
+    generateDescription: adminProcedure.input(z.object({
+      title: z.string().min(1),
+      venue: z.string().optional(),
+      address: z.string().optional(),
+      eventDateISO: z.string().optional(),
+      idea: z.string().max(500).optional(),
+    })).mutation(async ({ input }) => {
+      try {
+        return await generateEventDescription(input);
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar la descripción.' });
+      }
     }),
   }),
 
@@ -2344,6 +2361,21 @@ export const appRouter = router({
   cajaReports: router({
     profit: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getProfitReport(input.eventId);
+    }),
+    // IA: preguntas simples sobre ventas/movimientos, con los datos ya
+    // agregados del sistema (ver server/adminQa.ts). adminProcedure (no
+    // adminReadProcedure) porque dispara una llamada a IA con costo, mismo
+    // criterio que mailing/recordatorios.
+    askAi: adminProcedure.input(z.object({
+      question: z.string().min(3).max(500),
+      eventId: z.number().optional(),
+    })).mutation(async ({ input }) => {
+      try {
+        const answer = await answerSalesQuestion(input.question, input.eventId);
+        return { answer };
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar la respuesta.' });
+      }
     }),
     kitchenVendorReport: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getKitchenVendorReport(input.eventId);
