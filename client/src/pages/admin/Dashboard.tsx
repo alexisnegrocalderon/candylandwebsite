@@ -192,7 +192,7 @@ function TicketTypesList({
  * (el Select "Cupo compartido" más abajo), no desde acá -- este panel solo
  * crea/edita/borra los pools en sí. */
 function StockPoolsPanel({ eventId }: { eventId: number }) {
-  const { data: poolsData, refetch } = trpc.events.listStockPools.useQuery({ eventId });
+  const { data: poolsData, refetch, error: poolsError } = trpc.events.listStockPools.useQuery({ eventId });
   const createPool = trpc.events.createStockPool.useMutation({ onSuccess: () => { refetch(); toast.success('Cupo compartido creado'); setShowForm(false); setForm({ name: '', totalCap: 40 }); }, onError: onMutationError });
   const updatePool = trpc.events.updateStockPool.useMutation({ onSuccess: () => { refetch(); toast.success('Cupo actualizado'); setEditingId(null); setShowForm(false); }, onError: onMutationError });
   const deletePool = trpc.events.deleteStockPool.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
@@ -224,7 +224,10 @@ function StockPoolsPanel({ eventId }: { eventId: number }) {
           <Plus className="w-3 h-3 mr-1" /> Cupo compartido
         </Button>
       </div>
-      {pools.length === 0 && !showForm && (
+      {poolsError && (
+        <p className="text-xs text-destructive mt-1">No se pudo cargar la lista de cupos: {poolsError.message}</p>
+      )}
+      {!poolsError && pools.length === 0 && !showForm && (
         <p className="text-xs text-muted-foreground mt-1">Ninguno todavía. Un cupo compartido hace que varias entradas (ej. Dúo + Soltera + Trío) gasten de un mismo pozo total, en vez de cada una tener su propio stock independiente.</p>
       )}
       {pools.length > 0 && (
