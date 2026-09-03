@@ -30,92 +30,108 @@ function requireCronSecret(req: Request, res: Response): boolean {
 }
 
 export function registerCronRoutes(app: Express) {
-  // Cola de envío automática del mailing masivo (pedido explícito del
-  // usuario, ver server/mailing.ts processMailingCronBatch) -- Vercel Hobby
-  // solo permite cron jobs con frecuencia diaria (y como mucho 2 en total,
-  // ver el comentario del recordatorio de carrito abandonado más abajo:
-  // Vercel devolvió ese error en vivo al desplegar, así que quedó
-  // confirmado en la práctica, no es una suposición). Esta corrida manda la
-  // próxima tanda de pendientes y corta antes de agotar el presupuesto de
-  // tiempo; lo que no alcanza queda para la corrida de mañana.
+  /* Cola de envío del mailing masivo (server/mailing.ts
+   * processMailingCronBatch).
+   *
+   * Este archivo tenía TODO amontonado en una sola corrida diaria porque
+   * Vercel Hobby permite como mucho 2 crons y solo con frecuencia diaria --
+   * Vercel devolvió "Hobby accounts are limited to daily cron jobs" en vivo
+   * al intentar un tercero. Con el proyecto ya en un equipo Pro esa
+   * restricción desaparece, así que cada tarea vuelve a tener su propio
+   * endpoint y su propia frecuencia (ver `crons` en vercel.json).
+   *
+   * Lo que NO cambia es cuántos correos se mandan por día: eso lo limita el
+   * plan de Resend, no Vercel. Correr cada 15 minutos sirve para que una
+   * campaña salga el mismo día en vez de estirarse una semana, con el
+   * presupuesto diario compartido de `AUTOMATED_EMAIL_DAILY_CAP` cuidando
+   * que los correos transaccionales nunca se queden sin cupo. */
   app.get("/api/cron/mailing-queue", async (req: Request, res: Response) => {
     if (!requireCronSecret(req, res)) return;
     try {
       const result = await processMailingCronBatch();
 
-      // Aprovecha la misma corrida diaria para borrar los chats de fiestas
-      // ya terminadas (Vercel Hobby solo permite crons diarios, así que un
-      // segundo cron no aportaría nada). Va aparte del try del mailing: si
-      // la purga falla, el mailing igual reporta lo que alcanzó a mandar.
-      let partyMessagesPurgedFor = 0;
-      let partyProfilesPurged = 0;
-      let giftInvitationsExpired = 0;
-      try {
-        const purge = await purgeOldPartyMessages();
-        partyMessagesPurgedFor = purge.deletedFor;
-        // Plazo de conservación prometido en la política de privacidad.
-        const profiles = await purgeOldPartyProfiles();
-        partyProfilesPurged = profiles.profilesDeleted;
-        // Invitaciones a un trago que nadie llegó a pagar. Nunca toca un
-        // regalo ya pagado: ese sigue válido para la próxima fiesta.
-        const expired = await expireOldGiftInvitations();
-        giftInvitationsExpired = expired.expired;
-      } catch (err) {
-        console.error('[Cron] Error limpiando datos de fiestas terminadas:', err);
-      }
-
-      // Correo semanal de los embajadores VIP. Va en la misma corrida diaria
-      // porque Vercel Hobby ya tiene sus 2 crons ocupados y un tercero
-      // rompería el despliegue -- este chequeo decide si hoy toca mandar.
-      // Try/catch propio: si el envío falla, la cola de mailing igual reporta.
-      let ambassadorWeekly: { sent: number; skipped: number; failed: number } | null = null;
-      try {
-        const config = await getProgramConfig();
-        if (config.weeklyEmailEnabled && isWeeklyEmailDay(new Date(), config.weeklyEmailWeekday)) {
-          ambassadorWeekly = await sendWeeklyAmbassadorEmails();
-        }
-      } catch (err) {
-        console.error('[Cron] Error mandando el correo semanal de embajadores:', err);
-      }
-
-      // Recordatorio automático de carrito abandonado (pedido explícito del
-      // dueño): la herramienta ya existía como botón manual en Ventas Web
-      // (sendPendingReminders), pero nadie la usaba sistemáticamente. Va en
-      // la misma corrida diaria -- Vercel devolvió "Hobby accounts are
-      // limited to daily cron jobs" al intentar darle un cron propio cada 6
-      // horas, así que confirmado: este proyecto corre en cuenta Hobby (o al
-      // menos así lo ve Vercel), no Pro. Try/catch propio: si esto falla, el
-      // mailing y la purga igual reportan lo que alcanzaron a hacer.
-      let abandonedCart: Awaited<ReturnType<typeof runAbandonedCartCron>> | null = null;
-      try {
-        abandonedCart = await runAbandonedCartCron();
-      } catch (err) {
-        console.error('[Cron] Error mandando recordatorios de carrito abandonado:', err);
-      }
-
-      // Red de seguridad del avance automático de tanda (ver
-      // server/tandaAutoAdvance.ts): el chequeo real ya corre en cada
-      // consulta pública de precios y después de cada pago aprobado, así
-      // que esto solo cubre el caso límite de una fase vencida por fecha
-      // sin ninguna visita ese día. Mismo motivo de siempre para ir acá
-      // adentro y no en un cron propio: Vercel Hobby ya tiene los 2 cupos
-      // ocupados.
-      let tandaAutoAdvanced = 0;
-      try {
-        const homeEvents = await getHomeEvents();
-        for (const ev of homeEvents) {
-          const advance = await checkAndAdvanceTandaIfNeeded(ev.id);
-          if (advance.advanced) tandaAutoAdvanced++;
-        }
-      } catch (err) {
-        console.error('[Cron] Error chequeando avance automático de tanda:', err);
-      }
-
-      res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, ambassadorWeekly, abandonedCart, tandaAutoAdvanced });
+      res.json({ success: true, ...result });
     } catch (err) {
       console.error('[Cron] Error procesando la cola de mailing:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
+  });
+
+  /* Recordatorio de carrito abandonado. Antes viajaba de polizón en la
+   * corrida diaria del mailing, así que una orden abandonada a las 22:00
+   * recibía su recordatorio recién al otro día a las 10:00 de la mañana --
+   * cuando la urgencia ya se pasó. Cada hora, el recordatorio sale a las 3-4
+   * horas de abandonada, que es la ventana que ya definía
+   * ABANDONED_CART_MIN_AGE_MS y que hasta ahora no se podía cumplir. */
+  app.get("/api/cron/abandoned-cart", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const result = await runAbandonedCartCron();
+      res.json({ success: true, ...result });
+    } catch (err) {
+      console.error('[Cron] Error mandando recordatorios de carrito abandonado:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  /* Avance automático de tanda por fecha o por cupo.
+   *
+   * El chequeo sigue corriendo además en cada consulta pública de precios y
+   * después de cada pago aprobado (server/tandaAutoAdvance.ts) -- eso no
+   * cambia y sigue siendo lo que hace que el cambio de fase se note al
+   * instante cuando hay tráfico. Lo que cambia es el respaldo: era una vez al
+   * día, así que una fase con fecha de corte a las 23:00 sin visitas podía
+   * quedarse vencida hasta 24 horas vendiendo al precio viejo. Cada 10
+   * minutos ese peor caso pasa a ser de minutos. */
+  app.get("/api/cron/tanda", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      let advanced = 0;
+      const homeEvents = await getHomeEvents();
+      for (const ev of homeEvents) {
+        const result = await checkAndAdvanceTandaIfNeeded(ev.id);
+        if (result.advanced) advanced++;
+      }
+      res.json({ success: true, eventsChecked: homeEvents.length, advanced });
+    } catch (err) {
+      console.error('[Cron] Error chequeando avance automático de tanda:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  /* Mantenimiento diario: purgas con plazo prometido en la política de
+   * privacidad, invitaciones a tragos vencidas y el correo semanal de
+   * embajadores. Nada de esto necesita frecuencia alta -- son tareas de
+   * calendario, no de reacción -- pero sí merecen no estar mezcladas con el
+   * mailing: cuando compartían corrida, un fallo de una podía tapar a la
+   * otra en los logs. Cada bloque va en su propio try para que una falla no
+   * cancele el resto. */
+  app.get("/api/cron/maintenance", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+
+    let partyMessagesPurgedFor = 0;
+    let partyProfilesPurged = 0;
+    let giftInvitationsExpired = 0;
+    try {
+      partyMessagesPurgedFor = (await purgeOldPartyMessages()).deletedFor;
+      partyProfilesPurged = (await purgeOldPartyProfiles()).profilesDeleted;
+      // Nunca toca un regalo ya pagado: ese sigue válido para la próxima fiesta.
+      giftInvitationsExpired = (await expireOldGiftInvitations()).expired;
+    } catch (err) {
+      console.error('[Cron] Error limpiando datos de fiestas terminadas:', err);
+    }
+
+    let ambassadorWeekly: { sent: number; skipped: number; failed: number } | null = null;
+    try {
+      const config = await getProgramConfig();
+      if (config.weeklyEmailEnabled && isWeeklyEmailDay(new Date(), config.weeklyEmailWeekday)) {
+        ambassadorWeekly = await sendWeeklyAmbassadorEmails();
+      }
+    } catch (err) {
+      console.error('[Cron] Error mandando el correo semanal de embajadores:', err);
+    }
+
+    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, ambassadorWeekly });
   });
 
   // Correo de las 3am con el total de gente que entró (pedido explícito del

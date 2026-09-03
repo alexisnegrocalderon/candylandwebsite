@@ -68,3 +68,31 @@ export function chileHourOf(date: Date | string): number {
   // `hour12: false` puede devolver "24" a la medianoche según el motor.
   return Number(hour) % 24;
 }
+
+/** La medianoche de HOY en hora de Chile, como instante.
+ *
+ * Para ventanas de "lo que va del día": con un runtime en UTC, usar la
+ * medianoche UTC corre la ventana 3-4 horas, así que un presupuesto diario se
+ * reiniciaría a las 20:00 o 21:00 de Chile -- en plena venta.
+ *
+ * Chile es UTC-3 en verano y UTC-4 en invierno, así que en vez de fijar un
+ * offset se prueban los dos y se toma el que de verdad cae a las 00:00 del
+ * mismo día en Chile. Es más simple y más honesto que hacer aritmética de
+ * offsets, y no se rompe cuando cambia el horario. */
+export function startOfChileDay(now: Date = new Date()): Date {
+  const dayFmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: CHILE_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  const [y, m, d] = dayFmt.format(now).split('-').map(Number);
+
+  for (const offsetHours of [4, 3]) {
+    const candidate = new Date(Date.UTC(y, m - 1, d, offsetHours, 0, 0));
+    if (chileHourOf(candidate) === 0 && dayFmt.format(candidate) === dayFmt.format(now)) {
+      return candidate;
+    }
+  }
+  // El día en que empieza el horario de verano, la medianoche local no
+  // existe (el reloj salta de 23:59 a 01:00). UTC-3 deja la ventana un poco
+  // más ancha que el día real, que es el lado seguro para un presupuesto.
+  return new Date(Date.UTC(y, m - 1, d, 3, 0, 0));
+}

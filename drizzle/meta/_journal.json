@@ -337,6 +337,13 @@
       "when": 1788428859590,
       "tag": "0047_certain_lionheart",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "5",
+      "when": 1788453703060,
+      "tag": "0048_dapper_gwen_stacy",
+      "breakpoints": true
     }
   ]
 }

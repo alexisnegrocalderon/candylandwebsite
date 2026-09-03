@@ -143,23 +143,33 @@ const expenseInputSchema = z.object({
   ivaAmountOverride: z.number().int().nonnegative().optional(),
   paymentMethod: z.enum(['efectivo', 'tarjeta', 'transferencia', 'otro']),
   paidFromShiftId: z.number().nullable().optional(),
-  recurrence: z.enum(['none', 'mensual']).optional(),
+  recurrence: z.enum(['none', 'mensual', 'por_evento']).optional(),
   recurrenceEndsAt: z.string().nullable().optional(),
   excludeFromPnl: z.boolean().optional(),
   prorate: z.boolean().optional(),
   receiptUrl: z.string().optional(),
   notes: z.string().max(500).optional(),
-}).refine((v) => v.scope !== 'evento' || !!v.eventId, {
+// Una plantilla 'por_evento' es el catálogo de un costo fijo de cada fiesta,
+// no un gasto de una fiesta puntual: va con scope 'evento' pero SIN eventId,
+// porque se copia a todas. Por eso queda exenta de la regla de abajo.
+}).refine((v) => v.recurrence === 'por_evento' || v.scope !== 'evento' || !!v.eventId, {
   message: 'Un gasto de evento necesita que elijas a qué evento va',
   path: ['eventId'],
 // Una suscripción se paga todos los meses; un evento pasa una vez. Cargar
 // una suscripción a un evento hacía que `materializeRecurringExpenses` le
 // creara una copia a ESA fiesta cada mes para siempre, así que su resultado
-// seguía empeorando meses después de que terminó. Un costo que se repite es
-// de la productora, y desde ahí se reparte entre los eventos del mes.
+// seguía empeorando meses después de que terminó. Un costo que se repite
+// todos los meses es de la productora; el que se repite en cada fiesta va con
+// 'por_evento', que sí se carga completo a cada una.
 }).refine((v) => v.recurrence !== 'mensual' || v.scope === 'general', {
-  message: 'Un gasto que se repite todos los meses va a la productora, no a un evento puntual: si no, se le sigue restando a esa fiesta todos los meses.',
+  message: 'Un gasto que se repite todos los meses va a la productora. Si es un costo fijo de cada fiesta (el DJ, la seguridad), usa "se repite en cada evento".',
   path: ['recurrence'],
+}).refine((v) => v.recurrence !== 'por_evento' || v.scope === 'evento', {
+  message: 'Un costo fijo de cada fiesta se imputa a los eventos, no a la productora.',
+  path: ['recurrence'],
+}).refine((v) => v.recurrence !== 'por_evento' || !v.eventId, {
+  message: 'Un costo fijo de cada fiesta no se carga a una fiesta puntual: se copia a todas automáticamente.',
+  path: ['eventId'],
 });
 
 

@@ -7,7 +7,7 @@ import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, pe
 import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
-import { chileHourOf } from '../shared/chileDate';
+import { chileHourOf, startOfChileDay } from '../shared/chileDate';
 import { monthKeyFor } from '../shared/ambassadorProgram';
 import { normalizeTandaSchedule, nextPhase } from '../shared/tandaSchedule';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
@@ -2710,11 +2710,67 @@ export async function materializeRecurringExpenses(monthKey: string) {
  * de baja. Se incluye `eventId` a propósito -- una plantilla cargada a un
  * evento es la combinación que le sigue restando a esa fiesta todos los
  * meses, y ahora se ve. */
+/** Materializa los gastos fijos DE CADA FIESTA para un evento puntual.
+ *
+ * Los eventos de esta productora no son mensuales: hay meses con dos fiestas
+ * y meses sin ninguna. Atar un costo fijo de fiesta al calendario mensual
+ * cobraba de más en los primeros y de menos en los segundos. Una plantilla
+ * `recurrence='por_evento'` (el DJ, la seguridad, el arriendo del local) se
+ * copia una vez por evento y se carga completa a esa fiesta.
+ *
+ * Idempotente por el único (recurringParentId, eventId), así que dos pestañas
+ * pidiendo el reporte al mismo tiempo no duplican nada -- mismo criterio que
+ * `materializeRecurringExpenses`, y por eso tampoco necesita cron. */
+export async function materializeEventRecurringExpenses(eventId: number) {
+  const db = await getDb();
+  if (!db) return;
+
+  const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) return;
+  const eventDate = new Date(event.eventDate);
+
+  const templates = await db.select().from(expenses).where(eq(expenses.recurrence, 'por_evento'));
+
+  for (const t of templates as any[]) {
+    // Una plantilla nunca se aplica hacia atrás: cargar hoy "el DJ de cada
+    // fiesta" no puede cambiarle el resultado a las fiestas que ya pasaron y
+    // que el dueño ya revisó.
+    if (new Date(t.expenseDate) > eventDate) continue;
+    if (t.recurrenceEndsAt && new Date(t.recurrenceEndsAt) < eventDate) continue;
+
+    await db.insert(expenses).values({
+      scope: 'evento',
+      eventId,
+      periodMonth: monthKeyFor(event.eventDate),
+      // La fecha de la copia es la de la fiesta, no la de la plantilla: así
+      // cae en el mes correcto y se ordena junto al resto de esa noche.
+      expenseDate: eventDate,
+      category: t.category,
+      description: t.description,
+      supplier: t.supplier,
+      supplierRut: t.supplierRut,
+      documentType: t.documentType,
+      documentNumber: t.documentNumber,
+      ivaExempt: t.ivaExempt,
+      amountTotal: t.amountTotal,
+      netAmount: t.netAmount,
+      ivaAmount: t.ivaAmount,
+      paymentMethod: t.paymentMethod,
+      recurrence: 'none',
+      recurringParentId: t.id,
+      excludeFromPnl: t.excludeFromPnl,
+      prorate: t.prorate,
+      notes: t.notes,
+      createdByUserId: t.createdByUserId,
+    }).onDuplicateKeyUpdate({ set: { id: sql`id` } });
+  }
+}
+
 export async function listRecurringExpenses() {
   const db = await getDb();
   if (!db) return [];
   const rows = await db.select().from(expenses)
-    .where(eq(expenses.recurrence, 'mensual'))
+    .where(ne(expenses.recurrence, 'none'))
     .orderBy(desc(expenses.expenseDate));
 
   const eventIds = Array.from(new Set(rows.map((r: any) => r.eventId).filter((id: any) => id != null)));
@@ -2728,6 +2784,7 @@ export async function listRecurringExpenses() {
     category: r.category,
     amountTotal: Number(r.amountTotal),
     scope: r.scope,
+    recurrence: r.recurrence as 'mensual' | 'por_evento',
     eventId: r.eventId,
     eventTitle: r.eventId ? (titleById.get(r.eventId) ?? `Evento #${r.eventId}`) : null,
     expenseDate: r.expenseDate,
@@ -2744,14 +2801,23 @@ export async function listExpenses(filters: {
   const db = await getDb();
   if (!db) return [];
 
+  // Mismo criterio que getEventPnl: las copias de los gastos fijos de cada
+  // fiesta se crean al pedir la lista, así el dueño las ve junto al resto en
+  // vez de "aparecer" recién en el reporte.
+  if (filters.eventId) await materializeEventRecurringExpenses(filters.eventId);
+  if (filters.monthKey) await materializeRecurringExpenses(filters.monthKey);
+
   const conditions = [];
   if (filters.eventId) conditions.push(eq(expenses.eventId, filters.eventId));
   if (filters.monthKey) conditions.push(eq(expenses.periodMonth, filters.monthKey));
   if (filters.scope) conditions.push(eq(expenses.scope, filters.scope));
   if (filters.category) conditions.push(eq(expenses.category, filters.category as any));
+  // Las plantillas nunca aparecen en la lista de gastos: no son plata gastada,
+  // son la regla de la que salen las copias. Se ven en su propio panel.
+  conditions.push(eq(expenses.recurrence, 'none'));
 
   const rows = await db.select().from(expenses)
-    .where(conditions.length ? and(...conditions) : undefined)
+    .where(and(...conditions))
     .orderBy(desc(expenses.expenseDate))
     .limit(500);
 
@@ -2863,6 +2929,9 @@ export async function getEventPnl(eventId: number) {
 
   const monthKey = monthKeyFor(event.eventDate);
   await materializeRecurringExpenses(monthKey);
+  // Los costos fijos de CADA fiesta (el DJ, la seguridad) se copian a este
+  // evento antes de calcular: si no, el resultado saldría sin ellos.
+  await materializeEventRecurringExpenses(eventId);
 
   // Ingreso del evento y de todos los eventos del mismo mes (para el peso del
   // prorrateo). Se traen las órdenes aprobadas una sola vez y se agrupa acá:
@@ -2913,14 +2982,14 @@ export async function getEventPnl(eventId: number) {
     eq(expenses.scope, 'evento'),
     eq(expenses.eventId, eventId),
     eq(expenses.excludeFromPnl, 0),
-    ne(expenses.recurrence, 'mensual'),
+    eq(expenses.recurrence, 'none'),
   ));
   const generalRows = await db.select().from(expenses).where(and(
     eq(expenses.scope, 'general'),
     eq(expenses.periodMonth, monthKey),
     eq(expenses.excludeFromPnl, 0),
     eq(expenses.prorate, 1),
-    ne(expenses.recurrence, 'mensual'),
+    eq(expenses.recurrence, 'none'),
   ));
 
   const pnl = computePnl({
@@ -3047,7 +3116,7 @@ export async function getPnlComparison(eventIds?: number[]) {
 
   const allExpenses = await db.select().from(expenses).where(and(
     eq(expenses.excludeFromPnl, 0),
-    ne(expenses.recurrence, 'mensual'),
+    eq(expenses.recurrence, 'none'),
   ));
   const directByEvent = new Map<number, any[]>();
   const generalByMonth = new Map<string, any[]>();
@@ -3117,7 +3186,7 @@ export async function getMonthlyExpenseSummary(monthKey: string) {
 
   const rows = await db.select().from(expenses).where(and(
     eq(expenses.periodMonth, monthKey),
-    ne(expenses.recurrence, 'mensual'),
+    eq(expenses.recurrence, 'none'),
   ));
 
   const byCategory = new Map<string, number>();
@@ -4021,6 +4090,40 @@ export async function getMailingCampaignRecipients(campaignId: number) {
  * la más nueva (cola justa: una campaña no se "salta" a otra que llegó
  * después) -- usado por el cron diario (server/mailing.ts). `limit` acota
  * cuántas filas trae de una, el cron corta antes por presupuesto de tiempo. */
+/** Cuántos correos automáticos salieron HOY (hora de Chile).
+ *
+ * Con los crons diarios de antes, el tope por corrida ERA el tope del día. Al
+ * pasar a Vercel Pro y correr cada 15 minutos, ese mismo tope se
+ * multiplicaría por 96 y vaciaría la cuota diaria de Resend en una hora --
+ * dejando sin cupo a los correos que de verdad no pueden fallar: la
+ * confirmación de compra con el QR de la entrada.
+ *
+ * Por eso el presupuesto pasa a ser diario y compartido: la frecuencia alta
+ * sirve para que un correo salga PRONTO, no para mandar más.
+ *
+ * Cuenta el mailing masivo y los recordatorios de carrito abandonado, que son
+ * los dos automáticos. Los transaccionales quedan fuera a propósito: son la
+ * reserva que este presupuesto protege, no algo que deba consumirlo. */
+export async function countAutomatedEmailsSentToday(now: Date = new Date()): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  // Inicio del día en hora de Chile: con un runtime en UTC, usar medianoche
+  // UTC movería la ventana 3-4 horas y el presupuesto se reiniciaría a las
+  // 20:00 o 21:00 de Chile, en plena venta.
+  const dayStart = startOfChileDay(now);
+
+  const [mailing] = await db.select({ count: sql<number>`count(*)` })
+    .from(mailingRecipients)
+    .where(and(eq(mailingRecipients.status, 'sent'), gte(mailingRecipients.sentAt, dayStart)));
+
+  const [reminders] = await db.select({ count: sql<number>`count(*)` })
+    .from(orders)
+    .where(gte(orders.reminderSentAt, dayStart));
+
+  return Number(mailing?.count ?? 0) + Number(reminders?.count ?? 0);
+}
+
 export async function getPendingMailingRecipients(limit: number) {
   const db = await getDb();
   if (!db) return [];

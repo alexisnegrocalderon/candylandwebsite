@@ -4975,7 +4975,7 @@ const emptyExpenseForm = {
   ivaExempt: false,
   amountTotal: 0,
   paymentMethod: 'transferencia' as ExpensePaymentMethod,
-  recurrence: 'none' as 'none' | 'mensual',
+  recurrence: 'none' as 'none' | 'mensual' | 'por_evento',
   excludeFromPnl: false,
   prorate: true,
   notes: '',
@@ -5003,7 +5003,7 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
   const preview = deriveAmounts({ amountTotal: form.amountTotal, documentType: form.documentType, ivaExempt: form.ivaExempt });
 
   const canSave = form.amountTotal > 0 && form.description.trim().length > 0
-    && (form.scope === 'general' || !!form.eventId);
+    && (form.scope === 'general' || form.recurrence === 'por_evento' || !!form.eventId);
 
   const handleSave = () => {
     create.mutate({
@@ -5038,7 +5038,7 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
                 <Label>¿A qué se imputa?</Label>
                 <Select
                   value={form.scope}
-                  disabled={form.recurrence === 'mensual'}
+                  disabled={form.recurrence !== 'none'}
                   onValueChange={(v) => setForm({ ...form, scope: v as 'evento' | 'general' })}
                 >
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
@@ -5049,11 +5049,16 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
                 </Select>
                 {form.recurrence === 'mensual' && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    Los gastos que se repiten van siempre a la productora y se reparten entre los eventos del mes.
+                    Las suscripciones van siempre a la productora y se reparten entre los eventos del mes.
+                  </p>
+                )}
+                {form.recurrence === 'por_evento' && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Se copia solo a cada evento que hagas, completo. No elijas un evento acá: va a todos.
                   </p>
                 )}
               </div>
-              {form.scope === 'evento' && (
+              {form.scope === 'evento' && form.recurrence !== 'por_evento' && (
                 <div>
                   <Label>Evento</Label>
                   <Select value={form.eventId ? String(form.eventId) : ''} onValueChange={(v) => setForm({ ...form, eventId: Number(v) })}>
@@ -5169,10 +5174,13 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
                   <span className="text-sm">Factura exenta (sin IVA)</span>
                 </label>
               )}
-              {/* Marcar "se repite" pasa el gasto a la productora: si quedara
-                  cargado a un evento, se le crearía una copia a ESA fiesta
-                  todos los meses para siempre y su resultado seguiría
-                  empeorando meses después de que terminó. */}
+              {/* Dos formas de repetirse, porque los eventos de esta
+                  productora NO son mensuales: hay meses con dos fiestas y
+                  meses sin ninguna. Una suscripción sigue el calendario y es
+                  de la productora; un costo fijo de fiesta (el DJ, la
+                  seguridad) sigue a los eventos y se carga completo a cada
+                  uno. Atar el segundo al calendario cobraba de más los meses
+                  con dos fiestas y de menos los meses sin ninguna. */}
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -5184,7 +5192,20 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
                   })}
                   className="w-4 h-4 accent-primary"
                 />
-                <span className="text-sm">Se repite todos los meses (suscripción)</span>
+                <span className="text-sm">Se repite todos los meses (suscripción de la productora)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.recurrence === 'por_evento'}
+                  onChange={(e) => setForm({
+                    ...form,
+                    recurrence: e.target.checked ? 'por_evento' : 'none',
+                    ...(e.target.checked ? { scope: 'evento' as const, eventId: null } : {}),
+                  })}
+                  className="w-4 h-4 accent-primary"
+                />
+                <span className="text-sm">Se repite en cada evento (DJ, seguridad, arriendo…)</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" checked={form.excludeFromPnl} onChange={(e) => setForm({ ...form, excludeFromPnl: e.target.checked })} className="w-4 h-4 accent-primary" />
@@ -5879,9 +5900,9 @@ function RecurringExpensesPanel() {
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader>
-        <CardTitle>Gastos que se repiten todos los meses</CardTitle>
+        <CardTitle>Gastos que se repiten solos</CardTitle>
         <p className="text-sm text-muted-foreground">
-          De cada uno sale una copia automática cada mes. Para darlo de baja, ponle fecha de término o elimínalo.
+          De cada uno sale una copia automática, y esa copia es la que entra al resultado. Para darlo de baja, ponle fecha de término o elimínalo.
         </p>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -5893,13 +5914,21 @@ function RecurringExpensesPanel() {
                 {categoryLabel(r.category)}{r.supplier ? ` · ${r.supplier}` : ''} · desde {formatChileShortDate(r.expenseDate)}
                 {r.recurrenceEndsAt ? ` · termina ${formatChileShortDate(r.recurrenceEndsAt)}` : ' · sin fecha de término'}
               </p>
-              {r.eventId && (
+              <p className="text-xs mt-1">
+                {r.recurrence === 'por_evento'
+                  ? <span className="text-primary">Se copia a cada evento que hagas, completo.</span>
+                  : <span className="text-muted-foreground">Suscripción de la productora: se reparte entre los eventos del mes.</span>}
+              </p>
+              {r.recurrence === 'mensual' && r.eventId && (
                 <p className="text-xs text-amber-600 mt-1">
-                  ⚠️ Está cargado a "{r.eventTitle}": se le resta a ese evento todos los meses. Debería ir a la productora.
+                  ⚠️ Está cargado a "{r.eventTitle}": se le resta a ese evento todos los meses, aunque la fiesta ya haya pasado.
+                  Si es un costo fijo de cada fiesta, debería ser "se repite en cada evento".
                 </p>
               )}
             </div>
-            <span className="font-semibold tabular-nums shrink-0">${r.amountTotal.toLocaleString('es-CL')}/mes</span>
+            <span className="font-semibold tabular-nums shrink-0">
+              ${r.amountTotal.toLocaleString('es-CL')}{r.recurrence === 'por_evento' ? '/evento' : '/mes'}
+            </span>
           </div>
         ))}
       </CardContent>

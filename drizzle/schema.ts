@@ -1264,10 +1264,22 @@ export const expenses = mysqlTable("expenses", {
   // mandar por hielo). Sin esto, closeShift lo lee como plata faltante.
   paidFromShiftId: int("paidFromShiftId"),
 
-  // Suscripciones y gastos fijos: la fila con recurrence='mensual' es la
-  // PLANTILLA, y las copias de cada mes apuntan a ella con recurringParentId.
-  // Se materializan solas al pedir el reporte de ese mes, sin cron.
-  recurrence: mysqlEnum("recurrence", ["none", "mensual"]).default("none").notNull(),
+  // Gastos que se repiten. La fila con `recurrence` distinta de 'none' es la
+  // PLANTILLA (nunca entra a ningún resultado por sí misma); las copias
+  // apuntan a ella con `recurringParentId` y se materializan solas al pedir
+  // el reporte, sin cron.
+  //
+  // - 'mensual': una suscripción de la productora (un software, una bodega).
+  //   Se copia una vez por mes y se reparte entre los eventos de ese mes.
+  // - 'por_evento': un costo fijo de CADA fiesta (el DJ, la seguridad, el
+  //   arriendo del local). Se copia una vez por evento y se carga completo a
+  //   esa fiesta. Existe porque los eventos de esta productora no son
+  //   mensuales: atarlos al calendario cobraba de más los meses con dos
+  //   fiestas y de menos los meses sin ninguna.
+  //
+  // Una plantilla 'por_evento' lleva `scope='evento'` con `eventId` en NULL
+  // -- es el catálogo, no un gasto de una fiesta puntual.
+  recurrence: mysqlEnum("recurrence", ["none", "mensual", "por_evento"]).default("none").notNull(),
   recurrenceEndsAt: timestamp("recurrenceEndsAt"),
   recurringParentId: int("recurringParentId"),
 
@@ -1294,6 +1306,10 @@ export const expenses = mysqlTable("expenses", {
   // copia por plantilla y por mes, aunque dos pestañas pidan el reporte al
   // mismo tiempo.
   recurringMonthUnique: uniqueIndex("expenses_recurring_month_unique").on(table.recurringParentId, table.periodMonth),
+  // Lo mismo para las plantillas 'por_evento': una sola copia por plantilla y
+  // por evento. MySQL trata los NULL como distintos entre sí, así que los
+  // gastos normales (sin `recurringParentId`) no chocan nunca con este único.
+  recurringEventUnique: uniqueIndex("expenses_recurring_event_unique").on(table.recurringParentId, table.eventId),
 }));
 
 export type Expense = typeof expenses.$inferSelect;

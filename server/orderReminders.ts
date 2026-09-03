@@ -1,9 +1,10 @@
 import { z } from 'zod';
 import { eq, inArray, and, lte } from 'drizzle-orm';
-import { getDb } from './db';
+import { getDb, countAutomatedEmailsSentToday } from './db';
 import { orders, events } from '../drizzle/schema';
 import { invokeLLM, extractContent } from './_core/llm';
 import { sendEmail, buildPendingReminderEmail } from './email';
+import { AUTOMATED_EMAIL_DAILY_CAP } from './mailing';
 
 /* Recordatorio a quien dejó la compra a medio camino.
  *
@@ -175,7 +176,16 @@ export type AbandonedCartCronResult = ReminderResult & { eligible: number };
  * ya están ocupados -- ver el comentario en cronRoutes.ts). */
 export async function runAbandonedCartCron(): Promise<AbandonedCartCronResult> {
   const eligible = await getOrdersDueForAbandonedCartReminder();
-  const orderIds = eligible.slice(0, ABANDONED_CART_CRON_CAP);
+
+  // Presupuesto diario compartido con el mailing masivo. Al pasar el cron de
+  // diario a cada hora (Vercel Pro), el tope por corrida dejó de ser el tope
+  // del día: sin este freno, 24 corridas podrían vaciar la cuota de Resend y
+  // dejar sin cupo a la confirmación de compra con el QR de la entrada.
+  const sentToday = await countAutomatedEmailsSentToday();
+  const dailyRemaining = AUTOMATED_EMAIL_DAILY_CAP - sentToday;
+  if (dailyRemaining <= 0) return { sent: 0, skipped: [], failed: [], eligible: eligible.length };
+
+  const orderIds = eligible.slice(0, Math.min(ABANDONED_CART_CRON_CAP, dailyRemaining));
   if (orderIds.length === 0) return { sent: 0, skipped: [], failed: [], eligible: eligible.length };
   const resultado = await sendPendingReminders({ orderIds });
   return { ...resultado, eligible: eligible.length };

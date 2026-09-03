@@ -203,12 +203,23 @@ export async function createAutoMailingCampaign(input: {
  * sigue 'pending' para la próxima corrida. */
 const CRON_TIME_BUDGET_MS = 50_000;
 
-/** Tope duro de emails por corrida, además del presupuesto de tiempo -- el
- * cron comparte la cuota diaria de Resend (~100/día en el plan free) con los
- * correos transaccionales del sitio (confirmaciones de compra, Misión 300,
- * etc.), que no deben quedarse sin cupo por una campaña grande. Configurable
- * por env var por si el dueño sube de plan y quiere drenar más rápido. */
-const CRON_MAX_PER_RUN = Number(process.env.MAILING_CRON_DAILY_CAP) || 50;
+/** Tope de emails por corrida. Con el cron corriendo cada 15 minutos (Vercel
+ * Pro) esto ya NO es el tope del día: es solo cuánto se manda de una vez para
+ * no pasarse del presupuesto de tiempo de la función. */
+const CRON_MAX_PER_RUN = Number(process.env.MAILING_CRON_RUN_CAP) || 25;
+
+/** Tope de emails automáticos POR DÍA, compartido entre el mailing masivo y
+ * los recordatorios de carrito abandonado.
+ *
+ * Es la pieza que hace segura la frecuencia alta. Antes el cron corría una
+ * vez al día, así que el tope por corrida ERA el tope diario; a 96 corridas
+ * por día ese mismo número vaciaría la cuota de Resend (~100/día en el plan
+ * free) en una hora, y los correos que de verdad no pueden fallar --  la
+ * confirmación de compra con el QR de la entrada -- se quedarían sin cupo.
+ *
+ * El default deja margen para los transaccionales. Súbelo con la env var
+ * `AUTOMATED_EMAIL_DAILY_CAP` al pasar a un plan de Resend más grande. */
+export const AUTOMATED_EMAIL_DAILY_CAP = Number(process.env.AUTOMATED_EMAIL_DAILY_CAP) || 60;
 
 export type MailingCronResult = {
   processed: number;
@@ -229,7 +240,16 @@ export type MailingCronResult = {
  * cada email. */
 export async function processMailingCronBatch(): Promise<MailingCronResult> {
   const start = Date.now();
-  const pending = await db.getPendingMailingRecipients(CRON_MAX_PER_RUN);
+
+  // Presupuesto diario compartido: la frecuencia alta sirve para que un
+  // correo salga PRONTO, no para mandar más. Ver AUTOMATED_EMAIL_DAILY_CAP.
+  const sentToday = await db.countAutomatedEmailsSentToday();
+  const dailyRemaining = AUTOMATED_EMAIL_DAILY_CAP - sentToday;
+  if (dailyRemaining <= 0) {
+    return { processed: 0, sent: 0, failed: 0, campaignsTouched: 0 };
+  }
+
+  const pending = await db.getPendingMailingRecipients(Math.min(CRON_MAX_PER_RUN, dailyRemaining));
 
   let sent = 0;
   let failed = 0;
