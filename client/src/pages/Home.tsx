@@ -376,8 +376,10 @@ function Hero() {
       </motion.div>
       {/* Viñeta oscura centrada en el texto (contraste) + degradé claro solo
        * en el borde inferior (transición a la sección siguiente) — el resto
-       * del video queda a color fuerte en vez de lavado con el fondo claro. */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_65%_55%_at_50%_42%,oklch(0.18_0.04_338/0.45),transparent_70%)]" />
+       * del video queda a color fuerte en vez de lavado con el fondo claro.
+       * Alpha bajado de 0.45 a 0.28 -- el dueño lo vio muy difuminado en
+       * producción, tapaba demasiado el video real. */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_65%_55%_at_50%_42%,oklch(0.18_0.04_338/0.28),transparent_70%)]" />
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background" />
 
       {/* Brillos de club -- blur más liviano en mobile (menos costo de
@@ -390,22 +392,16 @@ function Hero() {
       {pointerFine && <DraggableCandies boundsRef={sectionRef} />}
 
       <motion.div style={{ y: contentY, opacity: contentOpacity }} className="relative z-10 text-center px-4 max-w-5xl mx-auto pt-24 pb-20">
-        <motion.img
-          src="/candyland/logo-wordmark.webp"
-          alt="Mansion Playroom"
-          width={300}
-          height={300}
-          className="h-16 md:h-20 w-auto mx-auto mb-6 drop-shadow-[0_0_25px_oklch(0.70_0.19_340_/_0.3)]"
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-        />
+        {/* Logo chico sacado -- pedido explícito del dueño: el video de fondo
+         * ya trae el logo grande "MANSION PLAYROOM" quemado en la imagen, y
+         * la barra de navegación de arriba ya tiene el suyo -- este tercero,
+         * chico, en el medio, quedaba redundante. */}
 
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.8, delay: 0.25 }}
-          className="text-xs md:text-sm uppercase tracking-[0.35em] text-foreground/70 mb-4"
+          className="text-xs md:text-sm uppercase tracking-[0.35em] text-white/80 drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)] mb-4"
         >
           {CANDYLAND.valores.join(' · ')}
         </motion.p>
@@ -430,7 +426,7 @@ function Hero() {
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.9, delay: 0.55 }}
-          className="mt-6 text-xl md:text-2xl text-foreground/90 font-medium"
+          className="mt-6 text-xl md:text-2xl text-white/95 font-medium drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)]"
         >
           {CANDYLAND.heroTitulo}
         </motion.p>

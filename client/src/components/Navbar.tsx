@@ -60,14 +60,23 @@ export default function Navbar() {
             />
           </Link>
 
-          {/* Desktop nav */}
+          {/* Desktop nav -- sin scrollear, el nav flota directo sobre el video
+           * del Hero (className de arriba no le pone fondo hasta `scrolled`).
+           * `text-muted-foreground` ahí es un gris oscuro pensado para fondos
+           * claros -- casi invisible contra el video oscuro. Mientras no hay
+           * scroll, usa un tono claro con sombra propia; apenas aparece el
+           * fondo (`scrolled`), vuelve al esquema normal del resto del sitio. */}
           <div className="hidden md:flex items-center gap-8">
             {navLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
                 className={`text-sm font-medium tracking-wide uppercase transition-colors duration-300 interactive ${
-                  location === link.href ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                  location === link.href
+                    ? 'text-primary'
+                    : scrolled
+                      ? 'text-muted-foreground hover:text-foreground'
+                      : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
                 }`}
               >
                 {link.label}
@@ -75,7 +84,9 @@ export default function Navbar() {
             ))}
 
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex items-center gap-1 text-sm font-medium tracking-wide uppercase text-muted-foreground hover:text-foreground transition-colors duration-300 interactive outline-none">
+              <DropdownMenuTrigger className={`flex items-center gap-1 text-sm font-medium tracking-wide uppercase transition-colors duration-300 interactive outline-none ${
+                scrolled ? 'text-muted-foreground hover:text-foreground' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
+              }`}>
                 Más <ChevronDown size={14} strokeWidth={2} />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
