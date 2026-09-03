@@ -152,6 +152,14 @@ const expenseInputSchema = z.object({
 }).refine((v) => v.scope !== 'evento' || !!v.eventId, {
   message: 'Un gasto de evento necesita que elijas a qué evento va',
   path: ['eventId'],
+// Una suscripción se paga todos los meses; un evento pasa una vez. Cargar
+// una suscripción a un evento hacía que `materializeRecurringExpenses` le
+// creara una copia a ESA fiesta cada mes para siempre, así que su resultado
+// seguía empeorando meses después de que terminó. Un costo que se repite es
+// de la productora, y desde ahí se reparte entre los eventos del mes.
+}).refine((v) => v.recurrence !== 'mensual' || v.scope === 'general', {
+  message: 'Un gasto que se repite todos los meses va a la productora, no a un evento puntual: si no, se le sigue restando a esa fiesta todos los meses.',
+  path: ['recurrence'],
 });
 
 
@@ -817,15 +825,19 @@ export const appRouter = router({
       limit: z.number().optional(),
       status: z.string().optional(),
       channel: z.enum(['web', 'caja']).optional(),
+      eventId: z.number().optional(),
     }).optional()).query(async ({ input }) => {
-      return db.getAllOrders(input?.page ?? 1, input?.limit ?? 50, input?.status, input?.channel);
+      return db.getAllOrders(input?.page ?? 1, input?.limit ?? 50, input?.status, input?.channel, input?.eventId);
     }),
-    getStats: adminReadProcedure.input(z.object({ channel: z.enum(['web', 'caja']).optional() }).optional()).query(async ({ input }) => {
-      return db.getOrderStats(input?.channel);
+    getStats: adminReadProcedure.input(z.object({
+      channel: z.enum(['web', 'caja']).optional(),
+      eventId: z.number().optional(),
+    }).optional()).query(async ({ input }) => {
+      return db.getOrderStats(input?.channel, input?.eventId);
     }),
     // "Ventas por origen" (atribución UTM, agujero 2 del plan de ventas).
-    salesByOrigin: adminReadProcedure.query(async () => {
-      return db.getSalesByUtmOrigin();
+    salesByOrigin: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
+      return db.getSalesByUtmOrigin(input?.eventId);
     }),
     // Mismos filtros y mismas columnas que el CSV (server/adminRoutes.ts) --
     // alimenta la vista de impresión/PDF, para que ambos formatos muestren
@@ -1002,7 +1014,17 @@ export const appRouter = router({
 
     me: publicProcedure.query(({ ctx }) => ctx.operator),
 
-    activeEvent: doorProcedure.query(async () => {
+    /* El evento sale del operador que inició sesión (`operators.eventId`),
+     * no de la heurística "el evento publicado con fecha más cercana a
+     * ahora". Con dos eventos publicados a la vez esa heurística puede
+     * apuntar al equivocado y un check-in queda cargado a la fiesta que no
+     * es. /caja ya lo había resuelto usando el evento del dispositivo
+     * enrolado; estas pantallas no tienen dispositivo a propósito (el
+     * anfitrión usa su propio teléfono), pero el operador sí trae su evento.
+     * La heurística queda solo como respaldo para un operador viejo sin
+     * evento asignado. */
+    activeEvent: doorProcedure.query(async ({ ctx }) => {
+      if (ctx.operator?.eventId) return (await db.getEventById(ctx.operator.eventId)) ?? undefined;
       return db.getActiveEventForCaja();
     }),
 
@@ -1080,7 +1102,17 @@ export const appRouter = router({
 
     me: publicProcedure.query(({ ctx }) => ctx.operator),
 
-    activeEvent: kitchenProcedure.query(async () => {
+    /* El evento sale del operador que inició sesión (`operators.eventId`),
+     * no de la heurística "el evento publicado con fecha más cercana a
+     * ahora". Con dos eventos publicados a la vez esa heurística puede
+     * apuntar al equivocado y un check-in queda cargado a la fiesta que no
+     * es. /caja ya lo había resuelto usando el evento del dispositivo
+     * enrolado; estas pantallas no tienen dispositivo a propósito (el
+     * anfitrión usa su propio teléfono), pero el operador sí trae su evento.
+     * La heurística queda solo como respaldo para un operador viejo sin
+     * evento asignado. */
+    activeEvent: kitchenProcedure.query(async ({ ctx }) => {
+      if (ctx.operator?.eventId) return (await db.getEventById(ctx.operator.eventId)) ?? undefined;
       return db.getActiveEventForCaja();
     }),
 
@@ -1160,7 +1192,17 @@ export const appRouter = router({
 
     me: publicProcedure.query(({ ctx }) => ctx.operator),
 
-    activeEvent: guardarropiaProcedure.query(async () => {
+    /* El evento sale del operador que inició sesión (`operators.eventId`),
+     * no de la heurística "el evento publicado con fecha más cercana a
+     * ahora". Con dos eventos publicados a la vez esa heurística puede
+     * apuntar al equivocado y un check-in queda cargado a la fiesta que no
+     * es. /caja ya lo había resuelto usando el evento del dispositivo
+     * enrolado; estas pantallas no tienen dispositivo a propósito (el
+     * anfitrión usa su propio teléfono), pero el operador sí trae su evento.
+     * La heurística queda solo como respaldo para un operador viejo sin
+     * evento asignado. */
+    activeEvent: guardarropiaProcedure.query(async ({ ctx }) => {
+      if (ctx.operator?.eventId) return (await db.getEventById(ctx.operator.eventId)) ?? undefined;
       return db.getActiveEventForCaja();
     }),
 
@@ -2605,6 +2647,13 @@ export const appRouter = router({
     // Turnos todavía abiertos: los necesita el formulario de gastos para
     // ofrecer "se pagó con plata del cajón de esta caja". Sin marcarlo, ese
     // efectivo aparece como faltante en el arqueo de esa caja.
+    // Suscripciones activas (gastos que se repiten todos los meses). Hoy no
+    // se ven en ningún lado del panel: se marcan al crear el gasto y después
+    // generan una copia cada mes sin que nadie pueda revisarlas ni darlas de
+    // baja.
+    recurringExpenses: adminReadProcedure.query(async () => {
+      return db.listRecurringExpenses();
+    }),
     // Bitácora de acciones destructivas del panel. Los terminales ya tenían
     // el ledger `ops`; el lado admin no dejaba ningún rastro.
     adminAudit: adminReadProcedure.input(z.object({ limit: z.number().min(1).max(500).optional() }).optional()).query(async ({ input }) => {

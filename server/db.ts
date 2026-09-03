@@ -7,6 +7,7 @@ import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, pe
 import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
+import { chileHourOf } from '../shared/chileDate';
 import { monthKeyFor } from '../shared/ambassadorProgram';
 import { normalizeTandaSchedule, nextPhase } from '../shared/tandaSchedule';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
@@ -973,9 +974,15 @@ export async function createOrder(input: {
  * link etiquetado (directo, buscador, embajador con su propio código) caen
  * en el grupo "(sin UTM)", que sigue siendo información útil: cuánto de la
  * venta total no se puede explicar por ningún link. */
-export async function getSalesByUtmOrigin() {
+export async function getSalesByUtmOrigin(eventId?: number) {
   const db = await getDb();
   if (!db) return [];
+
+  // Sin `eventId` este reporte mezclaba las campañas de todas las fiestas, que
+  // es justo lo contrario de para lo que sirve: saber qué contenido trajo
+  // ventas de ESTA campaña.
+  const conditions = [eq(orders.paymentStatus, 'approved'), eq(orders.channel, 'web')];
+  if (eventId) conditions.push(eq(orders.eventId, eventId));
 
   const rows = await db
     .select({
@@ -986,7 +993,7 @@ export async function getSalesByUtmOrigin() {
       revenue: sql<number>`sum(${orders.total})`,
     })
     .from(orders)
-    .where(and(eq(orders.paymentStatus, 'approved'), eq(orders.channel, 'web')))
+    .where(and(...conditions))
     .groupBy(orders.utmSource, orders.utmMedium, orders.utmCampaign)
     .orderBy(desc(sql`sum(${orders.total})`));
 
@@ -1327,7 +1334,7 @@ export async function listManualOrders() {
 /** `channel`: 'web' = ventas del sitio (incluye 'import', la migración de la
  * ticketera anterior -- nunca fueron ventas de caja); 'caja' = solo ventas
  * presenciales. Nunca se mezclan en pantalla (pedido explícito del usuario). */
-export async function getAllOrders(page: number = 1, limit: number = 50, status?: string, channel?: 'web' | 'caja') {
+export async function getAllOrders(page: number = 1, limit: number = 50, status?: string, channel?: 'web' | 'caja', eventId?: number) {
   const db = await getDb();
   if (!db) return { orders: [], total: 0 };
 
@@ -1336,6 +1343,9 @@ export async function getAllOrders(page: number = 1, limit: number = 50, status?
   if (status) conditions.push(eq(orders.paymentStatus, status as any));
   if (channel === 'caja') conditions.push(eq(orders.channel, 'caja'));
   else if (channel === 'web') conditions.push(sql`${orders.channel} != 'caja'`);
+  // Sin este filtro, Ventas Web y Ventas Caja mezclaban las órdenes de todas
+  // las fiestas en una sola lista.
+  if (eventId) conditions.push(eq(orders.eventId, eventId));
   const query = db.select().from(orders)
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(orders.createdAt)).limit(limit).offset(offset);
@@ -1575,11 +1585,18 @@ export async function getOrdersForExport(filters: { eventId?: number; dateFrom?:
   return rows;
 }
 
-export async function getOrderStats(channel?: 'web' | 'caja') {
+export async function getOrderStats(channel?: 'web' | 'caja', eventId?: number) {
   const db = await getDb();
   if (!db) return { totalOrders: 0, totalRevenue: 0, approvedOrders: 0 };
 
-  const where = channel === 'caja' ? eq(orders.channel, 'caja') : channel === 'web' ? sql`${orders.channel} != 'caja'` : undefined;
+  // `eventId` no estaba y por eso "Ingresos Totales" sumaba TODAS las fiestas
+  // de la historia mientras el panel lo mostraba como si fuera del evento que
+  // estás mirando.
+  const conditions = [];
+  if (channel === 'caja') conditions.push(eq(orders.channel, 'caja'));
+  else if (channel === 'web') conditions.push(sql`${orders.channel} != 'caja'`);
+  if (eventId) conditions.push(eq(orders.eventId, eventId));
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
   const [stats] = await db.select({
     totalOrders: sql<number>`COUNT(*)`,
     totalRevenue: sql<number>`COALESCE(SUM(CASE WHEN paymentStatus = 'approved' THEN total ELSE 0 END), 0)`,
@@ -2685,6 +2702,39 @@ export async function materializeRecurringExpenses(monthKey: string) {
   }
 }
 
+/** Las suscripciones activas: los gastos marcados como "se repite todos los
+ * meses", que son las plantillas de las que sale una copia cada mes.
+ *
+ * No se veían en ninguna parte del panel: se marcaban al crear el gasto y
+ * después seguían generando copias sin que nadie pudiera revisarlas ni darlas
+ * de baja. Se incluye `eventId` a propósito -- una plantilla cargada a un
+ * evento es la combinación que le sigue restando a esa fiesta todos los
+ * meses, y ahora se ve. */
+export async function listRecurringExpenses() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(expenses)
+    .where(eq(expenses.recurrence, 'mensual'))
+    .orderBy(desc(expenses.expenseDate));
+
+  const eventIds = Array.from(new Set(rows.map((r: any) => r.eventId).filter((id: any) => id != null)));
+  const eventRows = eventIds.length ? await db.select({ id: events.id, title: events.title }).from(events).where(inArray(events.id, eventIds)) : [];
+  const titleById = new Map(eventRows.map((e: any) => [e.id, e.title]));
+
+  return rows.map((r: any) => ({
+    id: r.id,
+    description: r.description,
+    supplier: r.supplier,
+    category: r.category,
+    amountTotal: Number(r.amountTotal),
+    scope: r.scope,
+    eventId: r.eventId,
+    eventTitle: r.eventId ? (titleById.get(r.eventId) ?? `Evento #${r.eventId}`) : null,
+    expenseDate: r.expenseDate,
+    recurrenceEndsAt: r.recurrenceEndsAt,
+  }));
+}
+
 export async function listExpenses(filters: {
   eventId?: number;
   monthKey?: string;
@@ -3105,7 +3155,9 @@ export async function getPeakHours(eventId: number) {
   if (!db) return [];
   const rows = await db.select({ serverAt: ops.serverAt }).from(ops).where(eq(ops.eventId, eventId));
   const counts = new Array(24).fill(0);
-  for (const r of rows) counts[new Date(r.serverAt).getHours()]++;
+  // `getHours()` daba la hora del runtime, que en Vercel es UTC: el gráfico
+  // salía corrido 3-4 horas respecto de la hora real de la fiesta.
+  for (const r of rows) counts[chileHourOf(r.serverAt)]++;
   return counts.map((count, hour) => ({ hour, count }));
 }
 

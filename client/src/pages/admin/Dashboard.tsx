@@ -2001,9 +2001,15 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const [dateTo, setDateTo] = useState('');
   const [search, setSearch] = useState('');
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
+  // Antes esta vista no tenía filtro de evento: la lista y los totales
+  // mezclaban TODAS las fiestas de la historia y se leían como si fueran de
+  // una sola. Con dos eventos publicados a la vez eso deja de ser un detalle.
+  const [eventFilter, setEventFilter] = useState<string>('all');
+  const { data: eventsList } = trpc.events.listAll.useQuery();
+  const eventId = eventFilter === 'all' ? undefined : Number(eventFilter);
 
-  const { data: ordersData, refetch: refetchOrders } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter, channel });
-  const { data: stats, refetch: refetchStats } = trpc.orders.getStats.useQuery({ channel });
+  const { data: ordersData, refetch: refetchOrders } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter, channel, eventId });
+  const { data: stats, refetch: refetchStats } = trpc.orders.getStats.useQuery({ channel, eventId });
   const { data: orderTickets, isFetching: loadingTickets } = trpc.orders.getTickets.useQuery(
     { orderId: expandedOrderId ?? 0 },
     { enabled: expandedOrderId !== null }
@@ -2055,7 +2061,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
 
   // Al cambiar de filtro la selección deja de tener sentido (y podría arrastrar
   // ids de órdenes que ya no están en pantalla).
-  useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, channel, search]);
+  useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, channel, search, eventFilter]);
 
   const filterParams = () => {
     const params = new URLSearchParams();
@@ -2063,6 +2069,10 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
     if (dateFrom) params.set('dateFrom', dateFrom);
     if (dateTo) params.set('dateTo', dateTo);
     params.set('channel', channel);
+    // El backend ya soportaba filtrar el export por evento; simplemente nadie
+    // se lo mandaba, así que el CSV y el PDF traían todas las fiestas aunque
+    // en pantalla estuvieras viendo una sola.
+    if (eventId) params.set('eventId', String(eventId));
     return params;
   };
   const exportUrl = () => `/api/admin/orders/export.csv?${filterParams().toString()}`;
@@ -2074,6 +2084,13 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         <h2 className="font-heading text-2xl">{channel === 'caja' ? 'Ventas en Caja' : 'Ventas Web'}</h2>
         <div className="flex flex-wrap items-center gap-2">
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, email o N° de orden…" className="max-w-xs" />
+          <Select value={eventFilter} onValueChange={setEventFilter}>
+            <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los eventos</SelectItem>
+              {(eventsList ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -2759,7 +2776,14 @@ function UtmLinkBuilder() {
  * embajador con su propio código) cae en "(sin UTM)" -- también es
  * información útil: cuánto de la venta no se explica por ningún link. */
 function SalesByOriginView() {
-  const { data, isLoading } = trpc.orders.salesByOrigin.useQuery();
+  // Con dos eventos publicados, mezclar las campañas de las dos fiestas hace
+  // el reporte inútil: lo que se quiere saber es qué link trajo ventas de
+  // ESTA campaña.
+  const [eventFilter, setEventFilter] = useState<string>('all');
+  const { data: eventsList } = trpc.events.listAll.useQuery();
+  const { data, isLoading } = trpc.orders.salesByOrigin.useQuery({
+    eventId: eventFilter === 'all' ? undefined : Number(eventFilter),
+  });
   const rows = data ?? [];
 
   const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
@@ -2781,11 +2805,20 @@ function SalesByOriginView() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="font-heading text-2xl">Ventas por Origen</h2>
-        <p className="text-muted-foreground text-sm mt-1">
-          De dónde vinieron las ventas web ya aprobadas, según el link que usó cada comprador para entrar al sitio. Lo que no viene de un link etiquetado (directo, buscador, embajador con su propio código) cae en "(sin UTM)".
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-heading text-2xl">Ventas por Origen</h2>
+          <p className="text-muted-foreground text-sm mt-1">
+            De dónde vinieron las ventas web ya aprobadas, según el link que usó cada comprador para entrar al sitio. Lo que no viene de un link etiquetado (directo, buscador, embajador con su propio código) cae en "(sin UTM)".
+          </p>
+        </div>
+        <Select value={eventFilter} onValueChange={setEventFilter}>
+          <SelectTrigger className="w-52 shrink-0"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los eventos</SelectItem>
+            {(eventsList ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </div>
 
       <UtmLinkBuilder />
@@ -4345,6 +4378,7 @@ function CajaAdminView() {
       </div>
 
       {activeEventId && <ResetTestDataCard eventId={activeEventId} eventTitle={events.find((e: any) => e.id === activeEventId)?.title ?? ''} />}
+      <RecurringExpensesPanel />
       <AdminAuditPanel />
       {activeEventId && <OperatorsManager eventId={activeEventId} />}
       {activeEventId && <RegistersManager eventId={activeEventId} />}
@@ -5002,13 +5036,22 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <Label>¿A qué se imputa?</Label>
-                <Select value={form.scope} onValueChange={(v) => setForm({ ...form, scope: v as 'evento' | 'general' })}>
+                <Select
+                  value={form.scope}
+                  disabled={form.recurrence === 'mensual'}
+                  onValueChange={(v) => setForm({ ...form, scope: v as 'evento' | 'general' })}
+                >
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="evento">Un evento puntual</SelectItem>
                     <SelectItem value="general">La productora (se reparte entre los eventos del mes)</SelectItem>
                   </SelectContent>
                 </Select>
+                {form.recurrence === 'mensual' && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Los gastos que se repiten van siempre a la productora y se reparten entre los eventos del mes.
+                  </p>
+                )}
               </div>
               {form.scope === 'evento' && (
                 <div>
@@ -5126,8 +5169,21 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
                   <span className="text-sm">Factura exenta (sin IVA)</span>
                 </label>
               )}
+              {/* Marcar "se repite" pasa el gasto a la productora: si quedara
+                  cargado a un evento, se le crearía una copia a ESA fiesta
+                  todos los meses para siempre y su resultado seguiría
+                  empeorando meses después de que terminó. */}
               <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input type="checkbox" checked={form.recurrence === 'mensual'} onChange={(e) => setForm({ ...form, recurrence: e.target.checked ? 'mensual' : 'none' })} className="w-4 h-4 accent-primary" />
+                <input
+                  type="checkbox"
+                  checked={form.recurrence === 'mensual'}
+                  onChange={(e) => setForm({
+                    ...form,
+                    recurrence: e.target.checked ? 'mensual' : 'none',
+                    ...(e.target.checked ? { scope: 'general' as const, eventId: null } : {}),
+                  })}
+                  className="w-4 h-4 accent-primary"
+                />
                 <span className="text-sm">Se repite todos los meses (suscripción)</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -5809,6 +5865,48 @@ function ShiftSalesDetail({ shiftId }: { shiftId: number }) {
  * Todo lo que pasa por los terminales ya quedaba auditado en el ledger
  * `ops`. El lado admin no dejaba nada: borrar una compra, editar un gasto o
  * eliminar un evento no se podía reconstruir después. */
+/** Las suscripciones activas (gastos marcados "se repite todos los meses").
+ *
+ * Hasta ahora no se veían en ninguna parte: se marcaban al crear el gasto y
+ * después generaban una copia cada mes sin que nadie pudiera revisarlas. Si
+ * alguna quedó cargada a un evento puntual, acá se ve marcada -- esa es la
+ * combinación que le seguía restando a esa fiesta todos los meses. */
+function RecurringExpensesPanel() {
+  const { data } = trpc.cajaReports.recurringExpenses.useQuery();
+  const rows = data ?? [];
+  if (rows.length === 0) return null;
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle>Gastos que se repiten todos los meses</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          De cada uno sale una copia automática cada mes. Para darlo de baja, ponle fecha de término o elimínalo.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {rows.map((r: any) => (
+          <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/50 p-3">
+            <div>
+              <p className="font-semibold">{r.description}</p>
+              <p className="text-xs text-muted-foreground">
+                {categoryLabel(r.category)}{r.supplier ? ` · ${r.supplier}` : ''} · desde {formatChileShortDate(r.expenseDate)}
+                {r.recurrenceEndsAt ? ` · termina ${formatChileShortDate(r.recurrenceEndsAt)}` : ' · sin fecha de término'}
+              </p>
+              {r.eventId && (
+                <p className="text-xs text-amber-600 mt-1">
+                  ⚠️ Está cargado a "{r.eventTitle}": se le resta a ese evento todos los meses. Debería ir a la productora.
+                </p>
+              )}
+            </div>
+            <span className="font-semibold tabular-nums shrink-0">${r.amountTotal.toLocaleString('es-CL')}/mes</span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function AdminAuditPanel() {
   const { data } = trpc.cajaReports.adminAudit.useQuery({ limit: 200 });
   const rows = data ?? [];

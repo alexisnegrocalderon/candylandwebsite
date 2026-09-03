@@ -48,3 +48,23 @@ export function formatChileShortDate(date: Date | string): string {
   const d = date instanceof Date ? date : new Date(date);
   return d.toLocaleDateString('es-CL', { timeZone: CHILE_TZ });
 }
+
+/** La HORA del día (0-23) de un instante, en hora de Chile.
+ *
+ * `new Date(x).getHours()` devuelve la hora del runtime, que en Vercel es
+ * UTC: el gráfico de "horas punta" del admin quedaba corrido 3-4 horas, y
+ * una fiesta de 21:00 a 05:00 aparecía repartida donde no era. Misma razón
+ * que el resto de este archivo, pero para la hora suelta en vez de un texto
+ * formateado.
+ *
+ * Se usa la zona IANA para que el horario de verano se resuelva solo. */
+export function chileHourOf(date: Date | string): number {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  const hour = new Intl.DateTimeFormat('en-US', {
+    timeZone: CHILE_TZ,
+    hour: 'numeric',
+    hour12: false,
+  }).format(d);
+  // `hour12: false` puede devolver "24" a la medianoche según el motor.
+  return Number(hour) % 24;
+}
