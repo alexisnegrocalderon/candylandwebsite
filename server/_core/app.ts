@@ -4,6 +4,8 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerAdminRoutes } from "../adminRoutes";
 import { registerCronRoutes } from "../cronRoutes";
 import { registerTicketAssetRoutes } from "../calendar";
+import { registerBlobUploadRoutes } from "../blobUpload";
+import { registerSsrMetaRoutes } from "../ssrMeta";
 import { appRouter } from "../routers";
 import { webhooksRouter } from "../webhooks";
 import { createContext } from "./context";
@@ -22,6 +24,11 @@ export function createApp(): Express {
   registerAdminRoutes(app);
   registerCronRoutes(app);
   registerTicketAssetRoutes(app);
+  registerBlobUploadRoutes(app);
+  // Rutas /api/ssr/* -- registradas acá (compartido entre Vercel y el server
+  // local) y ANTES del catch-all de Vite en dev (_core/index.ts las agrega
+  // recién después de createApp()), así nunca chocan con su middleware.
+  registerSsrMetaRoutes(app);
   // Webhooks antes de tRPC para evitar conflictos de middleware.
   app.use(webhooksRouter);
   app.use(

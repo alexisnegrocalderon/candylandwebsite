@@ -619,15 +619,15 @@ export async function deleteBlockedCustomer(id: number) {
 // recargo por servicio (%) que se suma a toda venta nueva)
 export async function getSiteSettings() {
   const db = await getDb();
-  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null };
+  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) return row;
-  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null };
+  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
 }
 
 export async function updateSiteSettings(data: {
   instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number;
-  kitchenVendorName?: string | null; kitchenVendorEmail?: string | null;
+  kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

@@ -398,6 +398,13 @@ export const siteSettings = mysqlTable("siteSettings", {
   // no por evento -- si cambia de proveedor, se actualiza acá.
   kitchenVendorName: varchar("kitchenVendorName", { length: 255 }),
   kitchenVendorEmail: varchar("kitchenVendorEmail", { length: 320 }),
+  // Imagen por defecto al compartir el sitio en redes (Open Graph/Twitter)
+  // cuando la página no es de un evento puntual -- cada evento sigue usando
+  // su propio `imageUrl` en su página de detalle. null = usa el flyer
+  // estático de siempre (og-candyland.jpg). Se sirve inyectada del lado del
+  // servidor, ver server/ssrMeta.ts -- un campo editable acá solo no
+  // alcanzaría para cambiar el preview de WhatsApp/Facebook (SPA sin SSR).
+  ogImageUrl: varchar("ogImageUrl", { length: 1024 }),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 

@@ -4,12 +4,14 @@
   "outputDirectory": "dist/public",
   "functions": {
     "api/index.js": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "dist/public/index.html"
     }
   },
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api" },
-    { "source": "/((?!assets/|candyland/|api/|robots\\.txt|sitemap\\.xml|llms\\.txt|favicon\\.ico|gastos\\.webmanifest|gastos/sw\\.js|puerta\\.webmanifest|puerta/sw\\.js|admin\\.webmanifest|admin/sw\\.js|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)", "destination": "/index.html" }
+    { "source": "/eventos/:slug", "destination": "/api/ssr/event/:slug" },
+    { "source": "/((?!assets/|candyland/|api/|admin|caja|gastos|puerta|cocina|guardarropia|checkout/|pago/|robots\\.txt|sitemap\\.xml|llms\\.txt|favicon\\.ico|gastos\\.webmanifest|gastos/sw\\.js|puerta\\.webmanifest|puerta/sw\\.js|admin\\.webmanifest|admin/sw\\.js|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)", "destination": "/api/ssr/page" }
   ],
   "headers": [
     {

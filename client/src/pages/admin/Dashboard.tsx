@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
+import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
@@ -677,7 +678,8 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number) =
             <div><Label>Descripción completa</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1 h-24" /></div>
             <div>
               <Label>URL del flyer/imagen</Label>
-              <Input value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} className="mt-1" placeholder="https://..." />
+              <div className="mt-1"><ImageUploadField value={form.imageUrl} onChange={(url) => setForm({ ...form, imageUrl: url })} pathPrefix="events" /></div>
+              <Input value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} className="mt-2" placeholder="https://..." />
               <FlyerUrlPreview url={form.imageUrl} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
@@ -865,7 +867,8 @@ function EventsManager() {
             <div><Label>Descripción completa</Label><Textarea value={newEvent.description} onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })} className="mt-1 h-24" /></div>
             <div>
               <Label>URL del flyer/imagen</Label>
-              <Input value={newEvent.imageUrl} onChange={(e) => setNewEvent({ ...newEvent, imageUrl: e.target.value })} className="mt-1" placeholder="https://..." />
+              <div className="mt-1"><ImageUploadField value={newEvent.imageUrl} onChange={(url) => setNewEvent({ ...newEvent, imageUrl: url })} pathPrefix="events" /></div>
+              <Input value={newEvent.imageUrl} onChange={(e) => setNewEvent({ ...newEvent, imageUrl: e.target.value })} className="mt-2" placeholder="https://..." />
               <FlyerUrlPreview url={newEvent.imageUrl} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
@@ -5542,6 +5545,7 @@ function SettingsManager() {
   const [feePercent, setFeePercent] = useState('');
   const [vendorName, setVendorName] = useState('');
   const [vendorEmail, setVendorEmail] = useState('');
+  const [ogImageUrl, setOgImageUrl] = useState('');
 
   useEffect(() => {
     if (settings) {
@@ -5550,6 +5554,7 @@ function SettingsManager() {
       setFeePercent(String(settings.serviceFeePercent ?? 0));
       setVendorName((settings as any).kitchenVendorName ?? '');
       setVendorEmail((settings as any).kitchenVendorEmail ?? '');
+      setOgImageUrl((settings as any).ogImageUrl ?? '');
     }
   }, [settings]);
 
@@ -5563,6 +5568,10 @@ function SettingsManager() {
 
   const handleSaveVendor = () => {
     updateSettings.mutate({ kitchenVendorName: vendorName || null, kitchenVendorEmail: vendorEmail || null });
+  };
+
+  const handleSaveOgImage = () => {
+    updateSettings.mutate({ ogImageUrl: ogImageUrl.trim() || null });
   };
 
   return (
@@ -5632,6 +5641,20 @@ function SettingsManager() {
             <div><Label>Email</Label><Input type="email" value={vendorEmail} onChange={(e) => setVendorEmail(e.target.value)} className="mt-1" /></div>
           </div>
           <WriteButton onClick={handleSaveVendor} disabled={updateSettings.isPending} className="interactive">
+            {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
+          </WriteButton>
+        </CardContent>
+      </Card>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Imagen para compartir en redes (OG)</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Se usa cuando alguien comparte el sitio (no un evento puntual) en WhatsApp/Instagram/Facebook. Cada evento
+            usa su propio flyer automáticamente en su página. Si dejas esto vacío, se usa la imagen de siempre.
+          </p>
+          <ImageUploadField value={ogImageUrl} onChange={setOgImageUrl} pathPrefix="site" />
+          <Input value={ogImageUrl} onChange={(e) => setOgImageUrl(e.target.value)} className="mt-2" placeholder="https://..." />
+          <WriteButton onClick={handleSaveOgImage} disabled={updateSettings.isPending} className="interactive">
             {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
           </WriteButton>
         </CardContent>

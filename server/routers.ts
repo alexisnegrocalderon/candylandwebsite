@@ -1348,6 +1348,7 @@ export const appRouter = router({
       serviceFeePercent: z.number().min(0).max(100).optional(),
       kitchenVendorName: z.string().nullable().optional(),
       kitchenVendorEmail: z.string().email().nullable().optional(),
+      ogImageUrl: z.string().url().nullable().optional(),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings(input);
     }),

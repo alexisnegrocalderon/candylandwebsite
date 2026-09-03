@@ -5,7 +5,9 @@ import * as db from "./db";
 import { csvEscape, toCsv, parseCsv } from "./csv";
 import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
 
-async function requireAdmin(req: Request, res: Response): Promise<boolean> {
+/** Exportada para que otras rutas Express crudas (fuera de tRPC) reusen el
+ * mismo chequeo -- ver server/blobUpload.ts. */
+export async function requireAdmin(req: Request, res: Response): Promise<boolean> {
   try {
     const user = await sdk.authenticateRequest(req);
     if (user.role !== "admin") {
