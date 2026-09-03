@@ -747,6 +747,7 @@ function UrgencySection({
   missionPricing,
   missionActive,
   tanda,
+  ticketsLoading,
   eventId,
 }: {
   vendidos: number;
@@ -756,6 +757,10 @@ function UrgencySection({
    * no usa Misión 300, se vende solo por tandas de precio. */
   missionActive: boolean;
   tanda: TandaInfo;
+  /** Pasa a `TandaUrgencyCard` para mostrar un esqueleto mientras
+   * `events.getTicketTypes` no respondió todavía -- solo se usa en la rama
+   * de tanda, la de Misión 300 no lo necesita (tiene su propio contador). */
+  ticketsLoading: boolean;
   /** Id real del evento en la DB (si existe) -- se adjunta al lead para
    * poder segmentarlos por evento en el admin. */
   eventId?: number;
@@ -912,7 +917,7 @@ function UrgencySection({
             </div>
           </motion.div>
         ) : (
-          <TandaUrgencyCard tanda={tanda} countdown={tandaCountdown} displayRemaining={tandaDisplayRemaining} />
+          <TandaUrgencyCard tanda={tanda} countdown={tandaCountdown} displayRemaining={tandaDisplayRemaining} isLoading={ticketsLoading} />
         )}
 
         <LeadCaptureInline eventId={eventId} />
@@ -1000,14 +1005,36 @@ function TandaUrgencyCard({
   tanda,
   countdown,
   displayRemaining,
+  isLoading,
 }: {
   tanda: TandaInfo;
   countdown: { dias: number; horas: number; minutos: number; segundos: number; esHoy: boolean };
   displayRemaining: number;
+  /** true mientras `events.getTicketTypes` todavía no respondió -- sin esto,
+   * el instante de carga se ve igual que "no hay entradas" (mismo `tanda ===
+   * null`), que es confuso apenas por un segundo. Un esqueleto evita ese
+   * salto brusco entre "nada" y la tarjeta real. */
+  isLoading: boolean;
 }) {
   const tandaPct = tanda
     ? Math.min(100, Math.round(((tanda.totalStock - tanda.remaining) / Math.max(1, tanda.totalStock)) * 100))
     : 0;
+
+  if (isLoading && !tanda) {
+    return (
+      <motion.div {...reveal} aria-hidden className="relative glass-candy rounded-3xl p-6 md:p-10 border-2 border-cherry/40 animate-pulse">
+        <div className="flex flex-col md:flex-row items-center gap-6 md:gap-10">
+          <div className="w-28 h-28 md:w-32 md:h-32 rounded-full bg-muted shrink-0" />
+          <div className="flex-1 w-full space-y-3">
+            <div className="h-5 w-48 max-w-full bg-muted rounded-full mx-auto md:mx-0" />
+            <div className="h-4 w-full max-w-xs bg-muted rounded-full mx-auto md:mx-0" />
+            <div className="h-4 w-full max-w-xs bg-muted rounded-full mx-auto md:mx-0" />
+            <div className="h-4 w-2/3 max-w-xs bg-muted rounded-full mx-auto md:mx-0" />
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div {...reveal} className="relative glass-candy rounded-3xl p-6 md:p-10 overflow-visible border-2 border-cherry/40">
@@ -1046,7 +1073,7 @@ function TandaUrgencyCard({
                     <span className="min-w-0 flex-1 text-sm md:text-base font-semibold text-foreground/85 leading-snug">{a.name}</span>
                     <span className="flex items-baseline gap-2 shrink-0">
                       {a.originalPrice && a.originalPrice > a.price && (
-                        <span className="text-[11px] md:text-xs text-muted-foreground/70 line-through tabular-nums">{formatCLP(a.originalPrice)}</span>
+                        <span className="text-base md:text-lg font-semibold text-muted-foreground/70 line-through tabular-nums">{formatCLP(a.originalPrice)}</span>
                       )}
                       <span className="font-heading font-extrabold text-lg md:text-xl text-gradient-candy tabular-nums">{formatCLP(a.price)}</span>
                     </span>
@@ -1534,13 +1561,20 @@ function Footer() {
 
 /* ─── CTA sticky móvil ─────────────────────────────────────── */
 
-function StickyMobileCTA() {
+function StickyMobileCTA({ salesEnd, soldOut }: { salesEnd: Date | null; soldOut: boolean }) {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
     const onScroll = () => setVisible(window.scrollY > window.innerHeight * 0.8);
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  // Mismo criterio que TandaUrgencyCard/UrgencySection: el hook siempre se
+  // llama (regla de Hooks), NO_SALES_END si no hay `salesEnd`, y el render
+  // decide si lo muestra. En scroll rápido en el celular esta barra fija es
+  // lo único siempre visible -- repetir acá la urgencia del alza de precio
+  // evita que se pierda por no volver a scrollear hasta la tarjeta de tanda.
+  const countdown = useCountdown(salesEnd ?? NO_SALES_END);
 
   if (!EVENTO.fechaConfirmada) return null;
 
@@ -1551,6 +1585,11 @@ function StickyMobileCTA() {
       transition={{ duration: 0.35, ease: [0.23, 1, 0.32, 1] }}
       className="fixed bottom-0 inset-x-0 z-40 p-3 md:hidden"
     >
+      {salesEnd && !soldOut && (
+        <p className="text-center text-[11px] font-bold uppercase tracking-wide text-cherry mb-1.5 [text-shadow:0_1px_3px_oklch(1_0_0_/_0.6)]">
+          🔥 El precio sube en {countdown.dias}d {countdown.horas}h {countdown.minutos}m
+        </p>
+      )}
       <Link
         href={`/checkout/${CANDYLAND.slug}`}
         className="btn-jelly w-full py-4 bg-primary text-primary-foreground rounded-full font-bold uppercase tracking-wide text-base shadow-[0_-4px_24px_oklch(0.70_0.19_340_/_0.25)] inline-flex items-center justify-center gap-2"
@@ -1593,7 +1632,7 @@ export default function Home() {
   });
 
   const { data: event } = trpc.events.getBySlug.useQuery({ slug: CANDYLAND.slug }, { retry: false });
-  const { data: liveTickets } = trpc.events.getTicketTypes.useQuery(
+  const { data: liveTickets, isLoading: liveTicketsLoading } = trpc.events.getTicketTypes.useQuery(
     { slug: CANDYLAND.slug },
     // Polling suave: con DB conectada, el contador Misión 300 se actualiza solo
     // cuando entran compras aprobadas (webhook MP → soldCount). Sin DB, no-op.
@@ -1702,13 +1741,13 @@ export default function Home() {
       <Hero />
       <ScrollStory />
       <UpcomingEventsSection />
-      <UrgencySection vendidos={vendidos} missionPricing={missionPricing} missionActive={missionActive} tanda={tanda} eventId={event?.id} />
+      <UrgencySection vendidos={vendidos} missionPricing={missionPricing} missionActive={missionActive} tanda={tanda} ticketsLoading={liveTicketsLoading} eventId={event?.id} />
       <LineupSection />
       <ExperienceSection />
       <InfoSection />
       <FinalCTASection />
       <Footer />
-      <StickyMobileCTA />
+      <StickyMobileCTA salesEnd={!missionActive ? (tanda?.salesEnd ?? null) : null} soldOut={!!tanda?.soldOut} />
     </MotionConfig>
   );
 }
