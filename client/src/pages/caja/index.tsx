@@ -1012,6 +1012,9 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito' | 'qr'>('debito');
+  // Venta en curso: bloquea el botón de confirmar hasta que la venta quedó
+  // encolada, para que un doble toque no registre la misma venta dos veces.
+  const [confirming, setConfirming] = useState(false);
   // Pantalla intermedia antes de finalizar el cobro (pedido explícito del
   // dueño): con tarjeta hay que confirmar que la máquina aprobó el pago
   // antes de dar la venta por hecha; con efectivo hay que pedir el monto
@@ -1183,6 +1186,23 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
   };
 
   const confirm = async () => {
+    // Guarda contra el doble toque. El POS de tarjetas es una máquina
+    // APARTE: la tablet solo REGISTRA lo que ya se cobró ahí. Sin esta
+    // guarda, dos toques (o uno solo en una tablet lenta, porque el modal
+    // seguía abierto durante los await de abajo) generaban DOS ventas con
+    // opId distinto -- `applyOp` no las deduplica porque son ops distintas
+    // -- contra UN solo cobro real en el POS. Cada repetición infla el
+    // esperado del cierre sin que haya entrado un peso más.
+    if (confirming) return;
+    setConfirming(true);
+    try {
+      await runConfirm();
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const runConfirm = async () => {
     const cartItems = Object.entries(cart).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId: Number(ticketTypeId), quantity }));
     const redeemAmount = balance != null ? clampRedeemAmount(Number(redeemInput || 0), Math.min(balance, total)) : 0;
     // El número de comanda/percha se genera ACÁ, en la tablet, antes de
@@ -1525,8 +1545,8 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
             <p className="font-heading font-extrabold text-5xl">${total.toLocaleString('es-CL')}</p>
             <p className="text-white/60 text-sm">Pasa la tarjeta ({paymentMethod}) en el POS y espera la aprobación antes de confirmar.</p>
             <div className="space-y-2 pt-2">
-              <Button className="w-full h-12 bg-primary hover:bg-primary/90" onClick={confirm}>
-                Pago aprobado — Confirmar venta
+              <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={confirming} onClick={confirm}>
+                {confirming ? 'Registrando…' : 'Pago aprobado — Confirmar venta'}
               </Button>
               <Button variant="outline" className="w-full h-11 border-white/15 text-white/70" onClick={() => setPaymentStep(null)}>
                 Cancelar y volver
@@ -1562,8 +1582,8 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
                 )
               )}
               <div className="space-y-2 pt-2">
-                <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={!validAmount} onClick={confirm}>
-                  Confirmar venta
+                <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={!validAmount || confirming} onClick={confirm}>
+                  {confirming ? 'Registrando…' : 'Confirmar venta'}
                 </Button>
                 <Button variant="outline" className="w-full h-11 border-white/15 text-white/70" onClick={() => setPaymentStep(null)}>
                   Cancelar y volver

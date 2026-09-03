@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening } from "./shiftMath";
+import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening, findPossibleDuplicateSales } from "./shiftMath";
 
 /* El evento pasado cerró con una diferencia enorme y nunca hubo un test del
  * arqueo. Estos casos son exactamente los escenarios que la produjeron o que
@@ -113,5 +113,60 @@ describe("shiftCashDiff y expectedCashWithOpening", () => {
     const { expectedCash } = computeExpectedTotals([sale({ total: "200000", paymentMethod: "efectivo" })], 12000);
     expect(expectedCashWithOpening(expectedCash, 50000)).toBe(238000);
     expect(shiftCashDiff(238000, expectedCash, 50000)).toBe(0);
+  });
+});
+
+describe("findPossibleDuplicateSales", () => {
+  it("marca dos ventas iguales seguidas (el doble toque en el POS)", () => {
+    const dups = findPossibleDuplicateSales([
+      sale({ total: "35000", paymentMethod: "debito", at: "2026-10-31T01:00:00-03:00" }),
+      sale({ total: "35000", paymentMethod: "debito", at: "2026-10-31T01:00:12-03:00" }),
+    ]);
+    expect(dups).toHaveLength(1);
+    expect(dups[0]).toMatchObject({ total: 35000, paymentMethod: "debito", count: 2 });
+  });
+
+  it("no marca dos ventas iguales separadas por horas", () => {
+    const dups = findPossibleDuplicateSales([
+      sale({ total: "35000", paymentMethod: "debito", at: "2026-10-31T01:00:00-03:00" }),
+      sale({ total: "35000", paymentMethod: "debito", at: "2026-10-31T03:00:00-03:00" }),
+    ]);
+    expect(dups).toHaveLength(0);
+  });
+
+  it("no mezcla montos ni medios de pago distintos", () => {
+    const dups = findPossibleDuplicateSales([
+      sale({ total: "35000", paymentMethod: "debito", at: "2026-10-31T01:00:00-03:00" }),
+      sale({ total: "35000", paymentMethod: "efectivo", at: "2026-10-31T01:00:10-03:00" }),
+      sale({ total: "20000", paymentMethod: "debito", at: "2026-10-31T01:00:20-03:00" }),
+    ]);
+    expect(dups).toHaveLength(0);
+  });
+
+  it("cuenta una ráfaga de tres como una sola sospecha de 3", () => {
+    const dups = findPossibleDuplicateSales([
+      sale({ total: "10000", paymentMethod: "debito", at: "2026-10-31T02:00:00-03:00" }),
+      sale({ total: "10000", paymentMethod: "debito", at: "2026-10-31T02:00:20-03:00" }),
+      sale({ total: "10000", paymentMethod: "debito", at: "2026-10-31T02:00:40-03:00" }),
+    ]);
+    expect(dups).toHaveLength(1);
+    expect(dups[0].count).toBe(3);
+  });
+
+  it("ordena por la plata que habría de más, no por el monto suelto", () => {
+    const dups = findPossibleDuplicateSales([
+      // 3 repeticiones de 10.000 = 20.000 de más
+      sale({ total: "10000", paymentMethod: "debito", at: "2026-10-31T02:00:00-03:00" }),
+      sale({ total: "10000", paymentMethod: "debito", at: "2026-10-31T02:00:20-03:00" }),
+      sale({ total: "10000", paymentMethod: "debito", at: "2026-10-31T02:00:40-03:00" }),
+      // 2 repeticiones de 15.000 = 15.000 de más
+      sale({ total: "15000", paymentMethod: "debito", at: "2026-10-31T03:00:00-03:00" }),
+      sale({ total: "15000", paymentMethod: "debito", at: "2026-10-31T03:00:30-03:00" }),
+    ]);
+    expect(dups.map((d) => d.total)).toEqual([10000, 15000]);
+  });
+
+  it("una venta sola nunca es sospechosa", () => {
+    expect(findPossibleDuplicateSales([sale()])).toHaveLength(0);
   });
 });

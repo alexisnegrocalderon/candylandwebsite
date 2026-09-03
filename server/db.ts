@@ -14,7 +14,7 @@ import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, t
 import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
-import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening } from './caja/shiftMath';
+import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening, findPossibleDuplicateSales } from './caja/shiftMath';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -3406,6 +3406,67 @@ export async function closeShift(params: {
     topCustomers,
     topProducts,
     shiftProducts,
+  };
+}
+
+/** Las ventas que entraron en el arqueo de un turno YA CERRADO, una por una.
+ *
+ * Cuando un cierre da una diferencia grande, el total esperado por medio de
+ * pago no alcanza para explicarla: hay que poder mirar venta por venta y
+ * compararla contra el voucher de la máquina. Devuelve además las
+ * repeticiones sospechosas (`findPossibleDuplicateSales`), que es donde
+ * suele estar la plata que no calza. */
+export async function getShiftSales(shiftId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [shift] = await db.select().from(shifts).where(eq(shifts.id, shiftId)).limit(1);
+  if (!shift) return null;
+
+  // Un turno abierto todavía no tiene `closedAt`: se usa "ahora" como tope,
+  // igual que hará el cierre cuando ocurra.
+  const closedAt = shift.closedAt ?? new Date();
+  const conditions = [
+    eq(orders.eventId, shift.eventId),
+    eq(orders.channel, 'caja'),
+    eq(orders.paymentStatus, 'approved'),
+    gte(orders.createdAt, shift.openedAt),
+    lte(orders.createdAt, closedAt),
+  ];
+  conditions.push(shift.registerId ? eq(orders.registerId, shift.registerId) : isNull(orders.registerId));
+  const rows = await db.select({
+    id: orders.id,
+    orderNumber: orders.orderNumber,
+    total: orders.total,
+    subtotal: orders.subtotal,
+    discount: orders.discount,
+    paymentMethod: orders.paymentMethod,
+    createdAt: orders.createdAt,
+    registerId: orders.registerId,
+    operatorId: orders.operatorId,
+  }).from(orders).where(and(...conditions)).orderBy(desc(orders.createdAt));
+
+  // Mismo criterio que el cierre: el SQL solo acota, la autoridad es el
+  // filtro probado.
+  const sales = filterShiftSales(rows as any[], {
+    openedAt: shift.openedAt, closedAt, registerId: shift.registerId,
+  });
+
+  const operatorIds = Array.from(new Set(sales.map((r: any) => r.operatorId).filter((id: any) => id != null)));
+  const operatorRows = operatorIds.length ? await db.select({ id: operators.id, name: operators.name }).from(operators).where(inArray(operators.id, operatorIds)) : [];
+  const operatorById = new Map(operatorRows.map((o: any) => [o.id, o.name]));
+
+  return {
+    shiftId: shift.id,
+    sales: sales.map((r: any) => ({
+      id: r.id,
+      orderNumber: r.orderNumber,
+      total: Number(r.total),
+      discount: Number(r.discount ?? 0),
+      paymentMethod: r.paymentMethod,
+      createdAt: r.createdAt,
+      operatorName: operatorById.get(r.operatorId) ?? null,
+    })),
+    possibleDuplicates: findPossibleDuplicateSales(sales as any[]),
   };
 }
 

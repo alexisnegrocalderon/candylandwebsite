@@ -2540,6 +2540,12 @@ export const appRouter = router({
     openShifts: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
       return db.listOpenShifts(input?.eventId);
     }),
+    // Detalle venta por venta de un turno: con una diferencia grande, los
+    // totales por medio de pago no alcanzan para explicarla -- hay que poder
+    // comparar contra el voucher de la máquina línea por línea.
+    shiftSales: adminReadProcedure.input(z.object({ shiftId: z.number() })).query(async ({ input }) => {
+      return db.getShiftSales(input.shiftId);
+    }),
     // Eliminar un cierre de turno (pedido explícito del usuario, para sacar
     // pruebas/cierres de práctica de los reportes reales) -- doble
     // verificación: además del diálogo de confirmación en el admin, pide la

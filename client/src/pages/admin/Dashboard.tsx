@@ -5642,6 +5642,8 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
               {' = '}<strong>${(r.expectedCash + r.openingCash).toLocaleString('es-CL')}</strong>
             </p>
 
+            {expandedId === r.id && <ShiftSalesDetail shiftId={r.id} />}
+
             {expandedId === r.id && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-border/50">
                 <div>
@@ -5673,6 +5675,95 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
  * diferencia de ConfirmDeleteButton, acá además hay que escribir la clave de
  * admin, así que el diálogo queda controlado a mano en vez de usar el
  * genérico. */
+/** Detalle venta por venta de un turno, dentro de "Ver detalle".
+ *
+ * Con una diferencia grande al cerrar, los totales por medio de pago no
+ * alcanzan para explicarla: hay que poder comparar línea por línea contra el
+ * voucher de la máquina. Arriba de todo van las repeticiones sospechosas,
+ * que es donde suele estar la plata que no calza: el POS de tarjetas es una
+ * máquina aparte, así que una venta registrada dos veces en la tablet infla
+ * el esperado sin que haya entrado un peso más. */
+function ShiftSalesDetail({ shiftId }: { shiftId: number }) {
+  const { data, isLoading } = trpc.cajaReports.shiftSales.useQuery({ shiftId });
+
+  if (isLoading) return <p className="mt-4 pt-4 border-t border-border/50 text-sm text-muted-foreground">Cargando las ventas del turno…</p>;
+  if (!data) return null;
+
+  const byMethod = new Map<string, { count: number; total: number }>();
+  for (const s of data.sales) {
+    const key = s.paymentMethod ?? 'sin medio';
+    const entry = byMethod.get(key) ?? { count: 0, total: 0 };
+    entry.count += 1;
+    entry.total += s.total;
+    byMethod.set(key, entry);
+  }
+
+  const duplicateMoney = data.possibleDuplicates.reduce((sum, d) => sum + d.total * (d.count - 1), 0);
+
+  return (
+    <div className="mt-4 pt-4 border-t border-border/50 space-y-4">
+      <div>
+        <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Ventas de este turno ({data.sales.length})</p>
+        <div className="flex flex-wrap gap-2">
+          {Array.from(byMethod.entries()).map(([method, v]) => (
+            <span key={method} className="rounded-lg bg-muted/50 px-3 py-1.5 text-sm">
+              {method}: <strong>${v.total.toLocaleString('es-CL')}</strong> <span className="text-muted-foreground">({v.count})</span>
+            </span>
+          ))}
+          {data.sales.length === 0 && <span className="text-sm text-muted-foreground">Sin ventas registradas en la ventana de este turno.</span>}
+        </div>
+      </div>
+
+      {data.possibleDuplicates.length > 0 && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+          <p className="text-sm font-semibold">
+            ⚠️ {data.possibleDuplicates.length} venta(s) repetida(s) sospechosa(s) — hasta ${duplicateMoney.toLocaleString('es-CL')} de más en el esperado
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Mismo monto y mismo medio de pago con menos de 90 segundos de diferencia. Es una sospecha, no una certeza:
+            dos clientes distintos pueden pagar lo mismo casi al mismo tiempo. Compara contra el voucher de la máquina antes de dar nada por hecho.
+          </p>
+          <div className="mt-3 space-y-1">
+            {data.possibleDuplicates.map((d, i) => (
+              <p key={i} className="text-sm">
+                {d.count}× ${d.total.toLocaleString('es-CL')} en {d.paymentMethod ?? 'sin medio'} — {formatChileDateTime(d.firstAt)} → {formatChileDateTime(d.lastAt)}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {data.sales.length > 0 && (
+        <details>
+          <summary className="text-sm cursor-pointer text-muted-foreground hover:text-foreground">Ver las {data.sales.length} ventas una por una</summary>
+          <div className="mt-2 max-h-72 overflow-y-auto rounded-lg border border-border/50">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                <tr>
+                  <th className="text-left px-3 py-2 font-medium">Hora</th>
+                  <th className="text-left px-3 py-2 font-medium">Medio</th>
+                  <th className="text-right px-3 py-2 font-medium">Monto</th>
+                  <th className="text-left px-3 py-2 font-medium">Cajera</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.sales.map((s) => (
+                  <tr key={s.id} className="border-t border-border/40">
+                    <td className="px-3 py-1.5 whitespace-nowrap">{formatChileDateTime(s.createdAt)}</td>
+                    <td className="px-3 py-1.5">{s.paymentMethod ?? '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">${s.total.toLocaleString('es-CL')}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{s.operatorName ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function DeleteShiftClosingButton({ shiftId, label, onDeleted }: { shiftId: number; label: string; onDeleted: () => void }) {
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
