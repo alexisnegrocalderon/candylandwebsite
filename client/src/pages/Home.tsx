@@ -1042,11 +1042,18 @@ function TandaUrgencyCard({
         <div className="relative shrink-0">
           <div aria-hidden className="absolute inset-0 rounded-full bg-cherry/25 blur-3xl candy-glow-pulse" />
           <div className="relative w-28 h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-cherry via-primary to-violet-electric shadow-[0_6px_22px_oklch(0.70_0.19_340_/_0.4)] flex flex-col items-center justify-center ring-2 ring-white/30">
-            <span className="text-[9px] md:text-[10px] uppercase tracking-[0.15em] text-white/80 font-bold leading-none mb-0.5">Quedan</span>
             <span className="font-heading font-black text-3xl md:text-4xl text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)] tabular-nums leading-none" aria-live="polite">
               {tanda ? displayRemaining : '—'}
             </span>
             <span className="text-[10px] md:text-xs uppercase tracking-[0.15em] text-white/90 font-bold">cupos</span>
+          </div>
+          {/* Sticker "Quedan" pegado encima del círculo, como una calcomanía
+           * -- pedido explícito del dueño: no una etiqueta más adentro del
+           * círculo, sino algo que se note superpuesto. Rotado y con sombra
+           * propia para que se lea como un objeto aparte, no como parte del
+           * degradé de abajo. */}
+          <div aria-hidden className="absolute -top-3 left-1/2 -translate-x-1/2 -rotate-6 px-3 py-1 rounded-full bg-white text-cherry text-[10px] md:text-xs font-heading font-black uppercase tracking-wider shadow-[0_3px_10px_rgba(0,0,0,0.3)] ring-2 ring-cherry/15 z-10">
+            Quedan
           </div>
         </div>
 
