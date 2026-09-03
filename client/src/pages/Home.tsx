@@ -1042,7 +1042,8 @@ function TandaUrgencyCard({
         <div className="relative shrink-0">
           <div aria-hidden className="absolute inset-0 rounded-full bg-cherry/25 blur-3xl candy-glow-pulse" />
           <div className="relative w-28 h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-cherry via-primary to-violet-electric shadow-[0_6px_22px_oklch(0.70_0.19_340_/_0.4)] flex flex-col items-center justify-center ring-2 ring-white/30">
-            <span className="font-heading font-black text-3xl md:text-4xl text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)] tabular-nums" aria-live="polite">
+            <span className="text-[9px] md:text-[10px] uppercase tracking-[0.15em] text-white/80 font-bold leading-none mb-0.5">Quedan</span>
+            <span className="font-heading font-black text-3xl md:text-4xl text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)] tabular-nums leading-none" aria-live="polite">
               {tanda ? displayRemaining : '—'}
             </span>
             <span className="text-[10px] md:text-xs uppercase tracking-[0.15em] text-white/90 font-bold">cupos</span>
@@ -1716,8 +1717,15 @@ export default function Home() {
 
     // Precio de CADA acceso vigente de la tanda (Soltera, Soltero, Dúo,
     // Trío, Grupo...), no solo el destacado -- pedido explícito del dueño.
+    // Orden por cantidad de personas (1, 1, 2, 2, 3, 4...), no por precio --
+    // así Trío y Grupo (los de más gente) siempre quedan al final, pedido
+    // explícito. Empate en personas se desempata por precio, para que el
+    // orden sea siempre el mismo y no salte entre renders.
     const accesos: TandaAccesoPrecio[] = [...pool]
-      .sort((a: any, b: any) => Number(a.price) - Number(b.price))
+      .sort((a: any, b: any) => {
+        const personas = personasForAccesoSlug(a.accesoSlug) - personasForAccesoSlug(b.accesoSlug);
+        return personas !== 0 ? personas : Number(a.price) - Number(b.price);
+      })
       .map((t: any) => ({
         name: t.name,
         price: Number(t.price),
