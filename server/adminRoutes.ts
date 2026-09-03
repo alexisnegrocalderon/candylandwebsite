@@ -4,6 +4,8 @@ import { sdk } from "./_core/sdk";
 import * as db from "./db";
 import { csvEscape, toCsv, parseCsv } from "./csv";
 import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
+import { buildPnlReportPdf } from "./caja/pnlPdf";
+import { buildMovementsPdf } from "./caja/movementsPdf";
 
 /** Exportada para que otras rutas Express crudas (fuera de tRPC) reusen el
  * mismo chequeo -- ver server/blobUpload.ts. */
@@ -271,8 +273,12 @@ export function registerAdminRoutes(app: Express) {
     if (!(await requireAdmin(req, res))) return;
     const eventId = Number(req.query.eventId);
     if (!eventId) { res.status(400).json({ error: "eventId requerido" }); return; }
-    const [event, rows] = await Promise.all([db.getEventById(eventId), db.getProfitReport(eventId)]);
-    const pdf = await buildVentasReportPdf(event?.title ?? `Evento #${eventId}`, rows);
+    const [event, rows, breakdown] = await Promise.all([
+      db.getEventById(eventId),
+      db.getProfitReport(eventId),
+      db.getEventSalesBreakdown(eventId),
+    ]);
+    const pdf = await buildVentasReportPdf(event?.title ?? `Evento #${eventId}`, rows, breakdown);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="ventas-${new Date().toISOString().slice(0, 10)}.pdf"`);
     res.send(pdf);
@@ -308,6 +314,34 @@ export function registerAdminRoutes(app: Express) {
     const pdf = await buildGastosReportPdf(event?.title ?? `Evento #${eventId}`, rows as any);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="gastos-${new Date().toISOString().slice(0, 10)}.pdf"`);
+    res.send(pdf);
+  });
+
+  /* Estado de resultados del evento. Era el reporte que faltaba y el que más
+   * falta hacía: "¿esta fiesta dio ganancia?" solo se podía leer en pantalla. */
+  app.get("/api/admin/gastos/resultado.pdf", async (req: Request, res: Response) => {
+    if (!(await requireAdmin(req, res))) return;
+    const eventId = Number(req.query.eventId);
+    if (!eventId) { res.status(400).json({ error: "eventId requerido" }); return; }
+    const pnl = await db.getEventPnl(eventId);
+    if (!pnl) { res.status(404).json({ error: "Evento no encontrado" }); return; }
+    const pdf = await buildPnlReportPdf(pnl as any);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="resultado-${new Date().toISOString().slice(0, 10)}.pdf"`);
+    res.send(pdf);
+  });
+
+  /* El ledger completo del evento. Es lo único que sobrevive a cualquier
+   * borrado del panel, así que es con lo que se reconstruye la noche cuando
+   * un número no cuadra. */
+  app.get("/api/admin/gastos/movimientos.pdf", async (req: Request, res: Response) => {
+    if (!(await requireAdmin(req, res))) return;
+    const eventId = Number(req.query.eventId);
+    if (!eventId) { res.status(400).json({ error: "eventId requerido" }); return; }
+    const [event, rows] = await Promise.all([db.getEventById(eventId), db.getLedger(eventId)]);
+    const pdf = await buildMovementsPdf(event?.title ?? `Evento #${eventId}`, rows as any);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="movimientos-${new Date().toISOString().slice(0, 10)}.pdf"`);
     res.send(pdf);
   });
 }

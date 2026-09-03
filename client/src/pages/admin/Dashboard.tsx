@@ -2107,7 +2107,9 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
             <Button variant="outline" className="interactive">Descargar CSV</Button>
           </DownloadLink>
           <a href={printUrl()} target="_blank" rel="noopener noreferrer">
-            <Button variant="outline" className="interactive">Descargar PDF</Button>
+            {/* Abre una página lista para imprimir, no descarga un archivo:
+                decía "Descargar PDF" y no descargaba nada. */}
+            <Button variant="outline" className="interactive">Ver para imprimir</Button>
           </a>
         </div>
       </div>
@@ -2448,7 +2450,7 @@ function CustomersView() {
           <a href={printUrl()} target="_blank" rel="noopener noreferrer">
             <Button variant="outline" className="interactive">
               <Download className="w-4 h-4 mr-2" />
-              Descargar PDF
+              Ver para imprimir
             </Button>
           </a>
         </div>
@@ -4775,6 +4777,54 @@ function ProfitReport({ eventId }: { eventId: number }) {
  * sub-tab en vez de uno por cada tabla individual. El admin siempre recibe
  * el correo; el diálogo deja elegir además a qué operadores con email
  * cargado del evento mandárselo (el "staff que le corresponde al área"). */
+/** Los cuatro reportes descargables del evento, juntos.
+ *
+ * El de resultado y el de movimientos no existían, y los otros dos vivían
+ * escondidos dentro de sus pestañas, así que había que acordarse de dónde
+ * estaba cada uno. Son PDF de verdad armados en el servidor (pdfkit), no una
+ * página que el navegador imprime: se descargan, se adjuntan a un correo y se
+ * ven igual en cualquier aparato. */
+function EventReportDownloads({ eventId }: { eventId: number }) {
+  const isDemo = useIsDemo();
+
+  const REPORTS = [
+    { file: 'ventas', label: 'Ventas del evento', hint: 'De dónde salió la plata (web y caja, por medio de pago) y qué producto dejó margen.' },
+    { file: 'gastos', label: 'Gastos del evento', hint: 'Cada compra con su fecha, proveedor, documento y forma de pago.' },
+    { file: 'resultado', label: 'Resultado (P&L)', hint: 'Qué entró, qué se fue restando y cuánto quedó. Con el IVA del período si el evento se declara.' },
+    { file: 'movimientos', label: 'Movimientos detallados', hint: 'El registro completo de los terminales, operación por operación. No se puede editar ni borrar.' },
+  ];
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle>Descargar reportes de este evento</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Todos en hora de Chile y con la fecha de emisión impresa, para que sirvan como respaldo.
+        </p>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {REPORTS.map((r) => (
+          <div key={r.file} className="rounded-xl border border-border/50 p-4 flex flex-col gap-2">
+            <div>
+              <p className="font-semibold text-sm">{r.label}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{r.hint}</p>
+            </div>
+            {isDemo ? (
+              <Button variant="outline" size="sm" disabled title={DEMO_TOOLTIP} className="self-start">Descargar PDF</Button>
+            ) : (
+              <a href={`/api/admin/gastos/${r.file}.pdf?eventId=${eventId}`} target="_blank" rel="noopener noreferrer" className="self-start">
+                <Button variant="outline" size="sm" className="interactive">
+                  <Download className="w-4 h-4 mr-2" /> Descargar PDF
+                </Button>
+              </a>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ReportToolbar({ eventId, kind }: { eventId: number; kind: 'ventas' | 'gastos' }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
@@ -5551,6 +5601,7 @@ function GastosView() {
       <AdminAiQaPanel eventId={activeEventId} />
 
       {activeEventId && <EventPnlReport eventId={activeEventId} refreshKey={refreshKey} />}
+      {activeEventId && <EventReportDownloads eventId={activeEventId} />}
       <PnlComparison refreshKey={refreshKey} events={events} />
 
       <Tabs defaultValue="ventas">
@@ -5670,7 +5721,7 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
             <Button variant="outline" size="sm" className="interactive">Exportar CSV</Button>
           </DownloadLink>
           <a href={printUrl()} target="_blank" rel="noopener noreferrer">
-            <Button variant="outline" size="sm" className="interactive">Descargar PDF</Button>
+            <Button variant="outline" size="sm" className="interactive">Ver para imprimir</Button>
           </a>
         </div>
       </CardHeader>

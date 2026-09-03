@@ -2479,6 +2479,52 @@ export async function resolveConflict(rawDb: any, params: { opId: string; eventI
 /** Utilidad/margen por producto de un evento -- unitCost queda congelado al
  * momento de la venta (§12), así que si el costo cambia después esto sigue
  * reflejando la utilidad real de ESE evento, no la de hoy. */
+/** Cómo se compone lo recaudado de un evento: por canal (web vs caja) y, en
+ * caja, por medio de pago.
+ *
+ * `getProfitReport` responde "qué producto dejó más margen" sobre precios de
+ * lista; esto responde "de dónde salió la plata", que es otra pregunta y la
+ * que hace falta para cuadrar contra el banco y contra el cajón. */
+export async function getEventSalesBreakdown(eventId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const rows = await db.select({
+    channel: orders.channel,
+    paymentMethod: orders.paymentMethod,
+    total: orders.total,
+  }).from(orders).where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved')));
+
+  let webTotal = 0, webCount = 0, cajaTotal = 0, cajaCount = 0;
+  const cajaByMethod = new Map<string, { count: number; total: number }>();
+  const webByMethod = new Map<string, { count: number; total: number }>();
+
+  for (const r of rows as any[]) {
+    const amount = Number(r.total);
+    const key = r.paymentMethod ?? 'sin medio';
+    if (r.channel === 'caja') {
+      cajaTotal += amount; cajaCount += 1;
+      const e = cajaByMethod.get(key) ?? { count: 0, total: 0 };
+      e.count += 1; e.total += amount; cajaByMethod.set(key, e);
+    } else {
+      webTotal += amount; webCount += 1;
+      const e = webByMethod.get(key) ?? { count: 0, total: 0 };
+      e.count += 1; e.total += amount; webByMethod.set(key, e);
+    }
+  }
+
+  const toList = (m: Map<string, { count: number; total: number }>) =>
+    Array.from(m.entries())
+      .map(([method, v]) => ({ method, ...v }))
+      .sort((a, b) => b.total - a.total);
+
+  return {
+    web: { total: webTotal, count: webCount, byMethod: toList(webByMethod) },
+    caja: { total: cajaTotal, count: cajaCount, byMethod: toList(cajaByMethod) },
+    total: webTotal + cajaTotal,
+  };
+}
+
 export async function getProfitReport(eventId: number) {
   const db = await getDb();
   if (!db) return [];
