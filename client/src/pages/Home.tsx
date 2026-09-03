@@ -953,22 +953,25 @@ function LeadCaptureInline({ eventId }: { eventId?: number }) {
 
   if (createLead.isSuccess) {
     return (
-      <motion.div {...reveal} className="glass-candy rounded-3xl px-6 py-5 text-center">
-        <p className="font-heading font-bold text-base md:text-lg text-gradient-candy">✅ Listo, te avisamos apenas suba el precio</p>
+      <motion.div {...reveal} className="glass-candy rounded-3xl px-6 py-5 text-center border-2 border-primary/40">
+        <p className="font-heading font-bold text-lg md:text-xl text-gradient-candy">✅ Listo, te avisamos antes que suba el precio</p>
       </motion.div>
     );
   }
 
   return (
-    <motion.div {...reveal} className="glass-candy rounded-3xl px-6 py-5">
+    <motion.div {...reveal} className="glass-candy rounded-3xl px-6 py-5 border-2 border-primary/40">
       {/* El mensaje de error vive FUERA de esta fila (ver abajo), no como
        * tercer hijo del flex -- adentro, un <p> con `w-full` rompía el
        * cálculo de ancho de los otros dos hijos (el texto de la izquierda
        * se apretaba en una columna angosta), detectado con Playwright antes
-       * de mandar esto a producción. */}
+       * de mandar esto a producción. Frase de "antes de que suba el precio"
+       * agrandada y en degradé -- pedido explícito del dueño: que se note
+       * más, es la razón real por la que alguien deja el correo acá. */}
       <div className="flex flex-col sm:flex-row items-center gap-4">
-        <p className="flex-1 text-sm md:text-base font-semibold text-center sm:text-left">
-          🔔 ¿Todavía lo estás pensando? Deja tu correo y te avisamos <span className="text-primary">antes de que suba el precio</span>.
+        <p className="flex-1 text-base md:text-lg font-bold text-center sm:text-left">
+          🔔 ¿Todavía lo estás pensando? Deja tu correo y{' '}
+          <span className="font-heading font-extrabold text-gradient-candy">te avisamos antes de que suba el precio</span>.
         </p>
         <form onSubmit={handleSubmit} className="flex w-full sm:w-auto gap-2">
           <input
@@ -1724,15 +1727,13 @@ export default function Home() {
 
     // Precio de CADA acceso vigente de la tanda (Soltera, Soltero, Dúo,
     // Trío, Grupo...), no solo el destacado -- pedido explícito del dueño.
-    // Orden por cantidad de personas (1, 1, 2, 2, 3, 4...), no por precio --
-    // así Trío y Grupo (los de más gente) siempre quedan al final, pedido
-    // explícito. Empate en personas se desempata por precio, para que el
-    // orden sea siempre el mismo y no salte entre renders.
+    // Orden de menor a mayor precio -- de paso deja Trío y Grupo al final,
+    // que son los más caros, sin necesidad de ordenar por cantidad de
+    // personas (probado y descartado: dejaba Soltero antes que Mujeres
+    // Doble aunque Mujeres Doble sea más barato, pedido explícito de
+    // corregir eso).
     const accesos: TandaAccesoPrecio[] = [...pool]
-      .sort((a: any, b: any) => {
-        const personas = personasForAccesoSlug(a.accesoSlug) - personasForAccesoSlug(b.accesoSlug);
-        return personas !== 0 ? personas : Number(a.price) - Number(b.price);
-      })
+      .sort((a: any, b: any) => Number(a.price) - Number(b.price))
       .map((t: any) => ({
         name: t.name,
         price: Number(t.price),
