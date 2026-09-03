@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening, findPossibleDuplicateSales } from "./shiftMath";
+import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening, findPossibleDuplicateSales, cardTotals, cardSplitLooksUnreliable } from "./shiftMath";
 
 /* El evento pasado cerró con una diferencia enorme y nunca hubo un test del
  * arqueo. Estos casos son exactamente los escenarios que la produjeron o que
@@ -168,5 +168,31 @@ describe("findPossibleDuplicateSales", () => {
 
   it("una venta sola nunca es sospechosa", () => {
     expect(findPossibleDuplicateSales([sale()])).toHaveLength(0);
+  });
+});
+
+describe("cardTotals / cardSplitLooksUnreliable", () => {
+  // Los números reales del cierre de Candyland (08-08-2026).
+  const candyland = { countedDebit: 1227000, countedCredit: 200500, expectedDebit: 2204000, expectedCredit: 0 };
+
+  it("el total de tarjetas muestra el hueco real, sin el ruido del desglose", () => {
+    // Por separado se lee "faltan 977.000 en débito, sobran 200.500 en
+    // crédito". El hueco de verdad es la resta de los totales.
+    expect(cardTotals(candyland)).toEqual({ counted: 1427500, expected: 2204000, diff: -776500 });
+  });
+
+  it("detecta que el desglose no es creíble cuando el sistema no anotó nada de un tipo", () => {
+    expect(cardSplitLooksUnreliable(candyland)).toBe(true);
+  });
+
+  it("un desglose normal no se marca como sospechoso", () => {
+    const ok = { countedDebit: 1000000, countedCredit: 500000, expectedDebit: 1000000, expectedCredit: 500000 };
+    expect(cardSplitLooksUnreliable(ok)).toBe(false);
+    expect(cardTotals(ok).diff).toBe(0);
+  });
+
+  it("sin nada de crédito por ningún lado, el desglose sigue siendo creíble", () => {
+    const soloDebito = { countedDebit: 800000, countedCredit: 0, expectedDebit: 800000, expectedCredit: 0 };
+    expect(cardSplitLooksUnreliable(soloDebito)).toBe(false);
   });
 });

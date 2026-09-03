@@ -359,6 +359,19 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
           <p className="text-white/60 text-sm mt-1">Efectivo contado: <b>${countedCash.toLocaleString('es-CL')}</b>. Ahora anota los totales de los vouchers de las máquinas.</p>
         </div>
 
+        {/* El voucher del POS solo cubre desde el último cierre de lote de la
+         * máquina. Si el lote se cerró durante la noche (varias máquinas lo
+         * hacen solas de madrugada), el comprobante del final trae únicamente
+         * una parte y el cuadre muestra un faltante enorme que no es plata
+         * perdida. Avisarlo acá es más barato que descubrirlo al otro día. */}
+        <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3">
+          <p className="text-amber-200/90 text-xs leading-relaxed">
+            Fíjate que el voucher sea el del <b>cierre de lote completo</b> de la noche. Si la máquina cerró
+            lote antes (varias lo hacen solas de madrugada), ese comprobante trae solo una parte y el cuadre
+            va a marcar un faltante que no existe. Si hay más de un comprobante, súmalos.
+          </p>
+        </div>
+
         <div className="space-y-3">
           <div>
             <label className="text-xs text-white/50 uppercase tracking-wide">💳 Total débito (voucher máquina)</label>
@@ -1193,16 +1206,25 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
     // opId distinto -- `applyOp` no las deduplica porque son ops distintas
     // -- contra UN solo cobro real en el POS. Cada repetición infla el
     // esperado del cierre sin que haya entrado un peso más.
+    await confirmWith(paymentMethod);
+  };
+
+  /** Confirma fijando el medio de pago del mismo click. No alcanza con
+   * `setPaymentMethod(m)` y después `confirm()`: el estado todavía no se
+   * actualizó cuando corre el handler, así que la venta se guardaría con el
+   * medio anterior -- justo el error que dejó la noche entera anotada como
+   * débito. */
+  const confirmWith = async (method: 'efectivo' | 'debito' | 'credito' | 'qr') => {
     if (confirming) return;
     setConfirming(true);
     try {
-      await runConfirm();
+      await runConfirm(method);
     } finally {
       setConfirming(false);
     }
   };
 
-  const runConfirm = async () => {
+  const runConfirm = async (method: 'efectivo' | 'debito' | 'credito' | 'qr' = paymentMethod) => {
     const cartItems = Object.entries(cart).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId: Number(ticketTypeId), quantity }));
     const redeemAmount = balance != null ? clampRedeemAmount(Number(redeemInput || 0), Math.min(balance, total)) : 0;
     // El número de comanda/percha se genera ACÁ, en la tablet, antes de
@@ -1216,7 +1238,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
     // el carrito solo se limpia cuando la venta quedó realmente encolada.
     try {
       await onSale(
-        cartItems, paymentMethod, buyerEmail.trim() || undefined, redeemAmount || undefined,
+        cartItems, method, buyerEmail.trim() || undefined, redeemAmount || undefined,
         discountResult?.valid ? discountCode.trim() : undefined,
         lockerTag,
         needsLockerTag ? lockerCustomerName.trim() : undefined,
@@ -1543,15 +1565,29 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
           <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-4">
             <p className="text-xs uppercase tracking-widest text-white/40">Cobrar con máquina</p>
             <p className="font-heading font-extrabold text-5xl">${total.toLocaleString('es-CL')}</p>
-            <p className="text-white/60 text-sm">Pasa la tarjeta ({paymentMethod}) en el POS y espera la aprobación antes de confirmar.</p>
-            <div className="space-y-2 pt-2">
-              <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={confirming} onClick={confirm}>
-                {confirming ? 'Registrando…' : 'Pago aprobado — Confirmar venta'}
-              </Button>
-              <Button variant="outline" className="w-full h-11 border-white/15 text-white/70" onClick={() => setPaymentStep(null)}>
-                Cancelar y volver
-              </Button>
+            <p className="text-white/60 text-sm">Pasa la tarjeta en el POS y espera la aprobación.</p>
+            {/* La noche de Candyland cerró con CERO ventas anotadas como
+             * crédito y $200.500 de crédito en el voucher de la máquina: el
+             * selector venía en "débito" por defecto y nadie lo movió nunca.
+             * Por eso acá no se confirma con un botón genérico -- se elige
+             * el tipo de tarjeta en el mismo momento en que se ve en el POS,
+             * que es el único instante en que la cajera realmente lo sabe. */}
+            <p className="text-white/40 text-xs">¿Con qué pagó? Tiene que calzar con el voucher.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(['debito', 'credito'] as const).map((m) => (
+                <Button
+                  key={m}
+                  className={`h-14 text-base font-semibold ${paymentMethod === m ? 'bg-primary hover:bg-primary/90' : 'bg-white/[0.06] hover:bg-white/[0.12] text-white'}`}
+                  disabled={confirming}
+                  onClick={() => { setPaymentMethod(m); confirmWith(m); }}
+                >
+                  {confirming && paymentMethod === m ? 'Registrando…' : m === 'debito' ? 'Débito' : 'Crédito'}
+                </Button>
+              ))}
             </div>
+            <Button variant="outline" className="w-full h-11 border-white/15 text-white/70" disabled={confirming} onClick={() => setPaymentStep(null)}>
+              Cancelar y volver
+            </Button>
           </div>
         </div>
       )}

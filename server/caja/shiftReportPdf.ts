@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit";
 import { formatChileDateTime } from "../../shared/chileDate";
 import { money, INK, MUTED, GREEN, RED, drawTable, drawBarChart } from "./pdfHelpers";
+import { cardTotals, cardSplitLooksUnreliable } from "./shiftMath";
 
 export type ShiftCloseReport = {
   eventTitle: string;
@@ -40,6 +41,14 @@ function paymentRows(r: ShiftCloseReport): PaymentRow[] {
   ];
   if (r.countedQr || r.expectedQr) {
     rows.push({ label: "QR / Transferencia", counted: r.countedQr, expected: r.expectedQr, diff: r.qrDiff });
+  }
+  // Débito y crédito juntos: el desglose depende de que se haya elegido bien
+  // el tipo de tarjeta en la tablet, y cuando no se elige bien las dos líneas
+  // de arriba se leen como un descuadre enorme en las dos direcciones cuando
+  // en realidad el hueco es la resta de los totales.
+  if (r.countedDebit || r.countedCredit || r.expectedDebit || r.expectedCredit) {
+    const card = cardTotals(r);
+    rows.push({ label: "Tarjetas (total)", counted: card.counted, expected: card.expected, diff: card.diff });
   }
   return rows;
 }
@@ -91,6 +100,14 @@ export function buildShiftClosePdf(report: ShiftCloseReport): Promise<Buffer> {
     );
 
     doc.y = afterPaymentTableY + 8;
+    if (cardSplitLooksUnreliable(report)) {
+      doc.fontSize(9).fillColor(RED).text(
+        "Ojo: el sistema no registró ninguna venta de un tipo de tarjeta que sí aparece en el voucher. " +
+        "El selector de la tablet quedó fijo, así que las líneas de débito y crédito por separado no sirven para cuadrar: " +
+        "mira la línea \"Tarjetas (total)\"."
+      );
+      doc.moveDown(0.3);
+    }
     const paidOut = report.cashPaidOut ?? 0;
     doc.fontSize(9).fillColor(MUTED).text(
       `Esperado en efectivo = ${money(report.openingCash)} de fondo inicial + ${money(report.expectedCash + paidOut)} de ventas en efectivo` +

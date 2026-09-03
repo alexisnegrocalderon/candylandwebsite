@@ -14,7 +14,7 @@ import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, t
 import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
-import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening, findPossibleDuplicateSales } from './caja/shiftMath';
+import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening, findPossibleDuplicateSales, cardTotals } from './caja/shiftMath';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -3549,6 +3549,15 @@ export async function listShiftClosings(eventId?: number) {
     // resta a mano (y el descuadre falso) al reconciliar desde el CSV.
     expectedCashWithOpening: expectedCashWithOpening(Number(r.expectedCash ?? 0), Number(r.openingCash)),
     cashDiff: shiftCashDiff(Number(r.countedCash ?? 0), Number(r.expectedCash ?? 0), Number(r.openingCash)),
+    // Tarjetas sumadas: ver `cardTotals`. Cuando el tipo de tarjeta se eligió
+    // mal en la tablet, débito y crédito se descuadran en direcciones
+    // opuestas y sólo el total dice cuánta plata falta realmente.
+    countedCard: Number(r.countedDebit ?? 0) + Number(r.countedCredit ?? 0),
+    expectedCard: Number(r.expectedDebit ?? 0) + Number(r.expectedCredit ?? 0),
+    cardDiff: cardTotals({
+      countedDebit: Number(r.countedDebit ?? 0), countedCredit: Number(r.countedCredit ?? 0),
+      expectedDebit: Number(r.expectedDebit ?? 0), expectedCredit: Number(r.expectedCredit ?? 0),
+    }).diff,
     debitDiff: Number(r.countedDebit ?? 0) - Number(r.expectedDebit ?? 0),
     creditDiff: Number(r.countedCredit ?? 0) - Number(r.expectedCredit ?? 0),
     qrDiff: Number(r.countedQr ?? 0) - Number(r.expectedQr ?? 0),

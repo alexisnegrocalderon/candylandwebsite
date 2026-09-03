@@ -5632,6 +5632,31 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
               </div>
             </div>
 
+            {/* Débito + crédito juntos. El desglose depende de que la
+                cajera haya elegido bien el tipo de tarjeta, y la noche de
+                Candyland demostró que no se puede dar por hecho: cerró con
+                $0 esperados en crédito y $200.500 en el voucher, así que por
+                separado se leía "faltan $977.000 y sobran $200.500" cuando el
+                hueco real era $776.500. Este total es el que manda. */}
+            {(() => {
+              const counted = r.countedDebit + r.countedCredit;
+              const expected = r.expectedDebit + r.expectedCredit;
+              const splitDudoso = (r.expectedCredit === 0 && r.countedCredit > 0) || (r.expectedDebit === 0 && r.countedDebit > 0);
+              return (
+                <div className="mt-3 rounded-lg bg-muted/50 p-3 text-sm">
+                  <p className="text-xs text-muted-foreground mb-1">💳 Tarjetas (débito + crédito)</p>
+                  <p>${counted.toLocaleString('es-CL')} contado · <span className="text-muted-foreground">${expected.toLocaleString('es-CL')} esperado</span></p>
+                  {diffLabel(counted - expected)}
+                  {splitDudoso && (
+                    <p className="text-xs text-amber-500 mt-1">
+                      El desglose de arriba no es confiable en este turno: el sistema no registró ninguna venta de un tipo de tarjeta
+                      que sí aparece en el voucher, o sea que el selector de la tablet quedó fijo toda la noche. Mira este total, no las dos tarjetas por separado.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Cómo se arma el "esperado" del efectivo, en una línea: sin
                 esto la resta del fondo y de los gastos pagados del cajón
                 parecían un descuadre sin explicación. */}

@@ -144,3 +144,39 @@ export function findPossibleDuplicateSales(
   // Lo más caro primero: es donde está la plata que hay que explicar.
   return out.sort((a, b) => (b.total * (b.count - 1)) - (a.total * (a.count - 1)));
 }
+
+export type CardTotals = { counted: number; expected: number; diff: number };
+
+/** Débito y crédito SUMADOS.
+ *
+ * El desglose por tipo de tarjeta depende de que la cajera haya elegido bien
+ * el medio de pago en la tablet, y la noche de Candyland demostró que eso no
+ * se puede dar por hecho: cerró con $0 esperados en crédito y $200.500 de
+ * crédito en el voucher, porque el selector venía en "débito" y nadie lo
+ * movió. Leído por separado eso se ve como "faltan $977.000 en débito y
+ * sobran $200.500 en crédito"; sumado, el hueco real de tarjetas queda a la
+ * vista sin el ruido de la mala clasificación.
+ *
+ * El desglose se sigue mostrando: cuando el dato es confiable, sirve para
+ * cuadrar contra cada línea del voucher. Este total es el que manda para
+ * saber si falta plata. */
+export function cardTotals(r: {
+  countedDebit: number; countedCredit: number;
+  expectedDebit: number; expectedCredit: number;
+}): CardTotals {
+  const counted = r.countedDebit + r.countedCredit;
+  const expected = r.expectedDebit + r.expectedCredit;
+  return { counted, expected, diff: counted - expected };
+}
+
+/** ¿El desglose débito/crédito es creíble?
+ *
+ * Si el sistema no registró NADA de un tipo pero el voucher sí trae plata de
+ * ese tipo, el selector no se movió en toda la noche: las diferencias por
+ * separado son ruido y hay que mirar el total. */
+export function cardSplitLooksUnreliable(r: {
+  countedDebit: number; countedCredit: number;
+  expectedDebit: number; expectedCredit: number;
+}): boolean {
+  return (r.expectedCredit === 0 && r.countedCredit > 0) || (r.expectedDebit === 0 && r.countedDebit > 0);
+}

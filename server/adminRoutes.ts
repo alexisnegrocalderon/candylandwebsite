@@ -220,6 +220,12 @@ export function registerAdminRoutes(app: Express) {
         { key: "countedCredit", label: "Crédito contado" },
         { key: "expectedCredit", label: "Crédito esperado" },
         { key: "creditDiff", label: "Diferencia crédito" },
+        // Débito + crédito juntos: cuando el tipo de tarjeta se eligió mal en
+        // la tablet, las dos columnas de arriba se descuadran en direcciones
+        // opuestas y ninguna dice cuánta plata falta de verdad. Ésta sí.
+        { key: "countedCard", label: "Tarjetas contado (total)" },
+        { key: "expectedCard", label: "Tarjetas esperado (total)" },
+        { key: "cardDiff", label: "Diferencia tarjetas (total)" },
         // QR / transferencia: se cobraba y se guardaba, pero no salía en
         // ningún export -- al cuadrar desde el admin esa plata parecía
         // haberse evaporado.
