@@ -10,12 +10,12 @@ import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -135,6 +135,7 @@ function ticketFormFromTt(tt: any) {
     category: (tt.category || 'acceso') as 'acceso' | 'extra',
     accesoSlug: (tt.accesoSlug || '') as '' | AccesoSlug,
     price: Number(tt.price),
+    originalPrice: tt.originalPrice ? Number(tt.originalPrice) : 0,
     totalStock: tt.totalStock as number,
     description: (tt.description || '') as string,
     costPrice: tt.costPrice ? Number(tt.costPrice) : 0,
@@ -178,6 +179,7 @@ function TicketTypeRow({ tt, eventId }: { tt: any; eventId: number }) {
       accesoSlug: form.category === 'extra' ? undefined : (form.accesoSlug || undefined),
       stockPoolId: form.category === 'extra' ? null : form.stockPoolId,
       price: form.price,
+      originalPrice: form.originalPrice || undefined,
       totalStock: form.totalStock,
       description: form.description,
       costPrice: form.costPrice || undefined,
@@ -201,9 +203,13 @@ function TicketTypeRow({ tt, eventId }: { tt: any; eventId: number }) {
           </Select>
           <p className="text-xs text-muted-foreground mt-1">Los extras aparecen solos en el paso de extras del checkout, para cualquier evento — no hace falta tocar código.</p>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div><Label>Nombre</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="VIP, General..." /></div>
           <div><Label>Precio (CLP)</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} className="mt-1" /></div>
+          <div>
+            <Label>Precio general (opcional, se muestra tachado)</Label>
+            <Input type="number" value={form.originalPrice} onChange={(e) => setForm({ ...form, originalPrice: Number(e.target.value) })} className="mt-1" placeholder="Ej: 20000" />
+          </div>
           <div><Label>Stock Total</Label><Input type="number" value={form.totalStock} onChange={(e) => setForm({ ...form, totalStock: Number(e.target.value) })} className="mt-1" /></div>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -257,7 +263,13 @@ function TicketTypeRow({ tt, eventId }: { tt: any; eventId: number }) {
     <div className="flex items-center justify-between text-sm bg-muted/30 rounded-lg px-3 py-2">
       <div>
         <span className="font-semibold">{tt.name}</span>
-        <span className="text-muted-foreground ml-2">${Number(tt.price).toLocaleString('es-CL')} · stock {tt.totalStock} · vendidas {tt.soldCount ?? 0} · {tt.status}</span>
+        <span className="text-muted-foreground ml-2">
+          ${Number(tt.price).toLocaleString('es-CL')}
+          {tt.originalPrice && Number(tt.originalPrice) > Number(tt.price) && (
+            <span className="line-through ml-1">${Number(tt.originalPrice).toLocaleString('es-CL')}</span>
+          )}
+          {' '}· stock {tt.totalStock} · vendidas {tt.soldCount ?? 0} · {tt.status}
+        </span>
         {tt.stockPoolId != null && (
           <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-candy-blue/15 text-candy-blue" title="Esta entrada gasta de un cupo compartido con otras -- ver panel Cupos compartidos">
             Cupo compartido: quedan {tt.poolRemaining} de {tt.poolTotalCap}
@@ -306,6 +318,126 @@ function TicketTypesList({ eventId }: { eventId: number }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** "Cerrar tanda y activar la siguiente" -- pedido explícito del dueño:
+ * cuando se agotan los cupos de la tanda vigente (ej. Founders), en vez de
+ * editar cada acceso a mano (cerrar el viejo, crear el nuevo, repetir por
+ * cada tipo de entrada), un solo diálogo lista TODOS los accesos hoy
+ * activos con su precio actual, pide el precio/stock de la fase nueva por
+ * fila (precargados con los valores actuales como punto de partida), y en
+ * un click cierra las filas viejas (quedan `soldout`, dejan de venderse) y
+ * crea las nuevas ya `active`. Sigue siendo 100% manual -- nada de esto se
+ * dispara solo por fecha ni por cupo agotado, el dueño decide cuándo.
+ *
+ * Reusa TicketPoolSelect para asignar opcionalmente un cupo compartido
+ * nuevo a alguna fila, sin forzarlo -- por defecto cada fila nueva usa su
+ * propio stock independiente, no un pool compartido cada vez. */
+function AdvanceTandaDialog({ eventId }: { eventId: number }) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const { data: ticketTypesData } = trpc.events.listTicketTypes.useQuery({ eventId }, { enabled: open });
+  const activos = (ticketTypesData ?? []).filter((tt: any) => tt.category === 'acceso' && tt.status === 'active');
+
+  type RowDraft = { newPrice: number; newTotalStock: number; newStockPoolId: number | null };
+  const [rows, setRows] = useState<Record<number, RowDraft>>({});
+
+  // Al abrir, precarga cada fila activa con su precio/stock actual como
+  // punto de partida -- el dueño edita desde ahí, no arranca en blanco.
+  useEffect(() => {
+    if (open && activos.length > 0 && Object.keys(rows).length === 0) {
+      setRows(Object.fromEntries(activos.map((tt: any) => [
+        tt.id,
+        { newPrice: Number(tt.price), newTotalStock: tt.totalStock, newStockPoolId: null },
+      ])));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, ticketTypesData]);
+
+  const advanceTanda = trpc.events.advanceTanda.useMutation({
+    onSuccess: () => {
+      utils.events.listTicketTypes.invalidate();
+      utils.events.listStockPools.invalidate();
+      toast.success('Tanda cerrada y nueva tanda activada');
+      setOpen(false);
+      setConfirming(false);
+      setRows({});
+    },
+    onError: onMutationError,
+  });
+
+  const handleSubmit = () => {
+    const payload = activos.map((tt: any) => {
+      const r = rows[tt.id] ?? { newPrice: Number(tt.price), newTotalStock: tt.totalStock, newStockPoolId: null };
+      return { oldTicketTypeId: tt.id, newPrice: r.newPrice, newTotalStock: r.newTotalStock, newStockPoolId: r.newStockPoolId };
+    });
+    advanceTanda.mutate({ eventId, rows: payload });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setConfirming(false); setRows({}); } }}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm"><ArrowRight className="w-3 h-3 mr-1" /> Cerrar tanda y activar la siguiente</Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Cerrar tanda actual y activar la siguiente</DialogTitle>
+        </DialogHeader>
+        {activos.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No hay ningún acceso activo en este evento todavía.</p>
+        ) : (
+          <>
+            <p className="text-xs text-muted-foreground">
+              Esto cierra para siempre cada acceso activo de abajo (deja de venderse) y crea uno nuevo con el precio y stock que definas acá, ya activo. No se puede deshacer -- si te equivocás, después hay que corregirlo a mano.
+            </p>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {activos.map((tt: any) => {
+                const r = rows[tt.id] ?? { newPrice: Number(tt.price), newTotalStock: tt.totalStock, newStockPoolId: null };
+                const pct = tt.originalPrice && Number(tt.originalPrice) > 0
+                  ? Math.round((1 - r.newPrice / Number(tt.originalPrice)) * 100)
+                  : null;
+                return (
+                  <div key={tt.id} className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end bg-muted/30 rounded-lg px-3 py-3">
+                    <div className="md:col-span-3 text-sm font-semibold">
+                      {tt.name} <span className="text-muted-foreground font-normal">— hoy ${Number(tt.price).toLocaleString('es-CL')}</span>
+                    </div>
+                    <div>
+                      <Label>Precio nuevo (CLP)</Label>
+                      <Input type="number" value={r.newPrice} onChange={(e) => setRows({ ...rows, [tt.id]: { ...r, newPrice: Number(e.target.value) } })} className="mt-1" />
+                      {pct !== null && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {pct > 0 ? `${pct}% de descuento vs. precio general (${Number(tt.originalPrice).toLocaleString('es-CL')})` : 'Igual o sobre el precio general'}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <Label>Stock nuevo</Label>
+                      <Input type="number" value={r.newTotalStock} onChange={(e) => setRows({ ...rows, [tt.id]: { ...r, newTotalStock: Number(e.target.value) } })} className="mt-1" />
+                    </div>
+                    <TicketPoolSelect eventId={eventId} value={r.newStockPoolId} onChange={(v) => setRows({ ...rows, [tt.id]: { ...r, newStockPoolId: v } })} />
+                  </div>
+                );
+              })}
+            </div>
+            {!confirming ? (
+              <Button variant="outline" onClick={() => setConfirming(true)}>Continuar</Button>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-destructive font-medium">¿Confirmás? Las {activos.length} entradas activas de arriba dejan de venderse ahora mismo y quedan reemplazadas por las nuevas.</p>
+                <div className="flex gap-2">
+                  <WriteButton onClick={handleSubmit} disabled={advanceTanda.isPending} className={buttonVariants({ variant: 'destructive' })}>
+                    Cerrar tanda y activar la siguiente
+                  </WriteButton>
+                  <Button variant="outline" onClick={() => setConfirming(false)}>Cancelar</Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -616,7 +748,7 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number) =
     onError: onMutationError,
   });
 
-  const emptyTicketForm = { name: '', category: 'acceso' as 'acceso' | 'extra', accesoSlug: '' as '' | AccesoSlug, price: 0, totalStock: 0, description: '', costPrice: 0, color: '', internalCode: '', stockPoolId: null as number | null };
+  const emptyTicketForm = { name: '', category: 'acceso' as 'acceso' | 'extra', accesoSlug: '' as '' | AccesoSlug, price: 0, originalPrice: 0, totalStock: 0, description: '', costPrice: 0, color: '', internalCode: '', stockPoolId: null as number | null };
   const [newTicket, setNewTicket] = useState(emptyTicketForm);
   const [showTicketForm, setShowTicketForm] = useState(false);
   const createTicketType = trpc.events.createTicketType.useMutation({
@@ -644,6 +776,7 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number) =
       ...newTicket,
       accesoSlug: newTicket.category === 'extra' ? undefined : (newTicket.accesoSlug || undefined),
       stockPoolId: newTicket.category === 'extra' ? null : newTicket.stockPoolId,
+      originalPrice: newTicket.originalPrice || undefined,
       costPrice: newTicket.costPrice || undefined,
       color: newTicket.category === 'extra' ? (newTicket.color || undefined) : undefined,
       internalCode: newTicket.category === 'extra' ? (newTicket.internalCode || undefined) : undefined,
@@ -732,6 +865,9 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number) =
           </div>
         )}
         <TicketTypesList eventId={event.id} />
+        <div className="mt-3">
+          <AdvanceTandaDialog eventId={event.id} />
+        </div>
         <StockPoolsPanel eventId={event.id} />
         <Mission300Panel eventId={event.id} />
         {showTicketForm && (
@@ -748,9 +884,13 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number) =
               </Select>
               <p className="text-xs text-muted-foreground mt-1">Los extras aparecen solos en el paso de extras del checkout, para cualquier evento — no hace falta tocar código.</p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div><Label>Nombre</Label><Input value={newTicket.name} onChange={(e) => setNewTicket({ ...newTicket, name: e.target.value })} className="mt-1" placeholder="VIP, General..." /></div>
               <div><Label>Precio (CLP)</Label><Input type="number" value={newTicket.price} onChange={(e) => setNewTicket({ ...newTicket, price: Number(e.target.value) })} className="mt-1" /></div>
+              <div>
+                <Label>Precio general (opcional, se muestra tachado)</Label>
+                <Input type="number" value={newTicket.originalPrice} onChange={(e) => setNewTicket({ ...newTicket, originalPrice: Number(e.target.value) })} className="mt-1" placeholder="Ej: 20000" />
+              </div>
               <div><Label>Stock Total</Label><Input type="number" value={newTicket.totalStock} onChange={(e) => setNewTicket({ ...newTicket, totalStock: Number(e.target.value) })} className="mt-1" /></div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

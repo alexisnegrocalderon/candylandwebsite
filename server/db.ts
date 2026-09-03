@@ -301,6 +301,55 @@ export async function deleteTicketType(id: number) {
   return { success: true };
 }
 
+/** "Cerrar esta tanda y activar la siguiente" (flujo del admin, pedido
+ * explícito del dueño: el avance de fase queda MANUAL -- nada acá se
+ * dispara solo por fecha ni por cupo agotado, solo lo arma este llamado).
+ * Para cada fila hoy activa: la marca `soldout` (mismo status que
+ * TandaUrgencyCard en Home.tsx ya trata como "tanda terminada", no hace
+ * falta un valor nuevo de status) y crea una fila NUEVA con el mismo
+ * eventId/accesoSlug/category/name/originalPrice -- el precio general es el
+ * techo fijo entre fases, solo cambia el precio VIGENTE -- pero con el
+ * price/totalStock/stockPoolId de la fase nueva que cargó el admin, ya en
+ * `status: 'active'`.
+ *
+ * Sin `db.transaction()` explícita -- mismo criterio que el resto de este
+ * archivo (ver markMailingRecipientResult): si se corta a mitad de camino,
+ * el peor caso es una tanda con algunas filas ya cerradas y otras aún por
+ * abrir, visible y corregible a mano en el admin, no un dato perdido. Una
+ * fila que ya no existe o es de otro evento se salta sin abortar el resto. */
+export async function advanceTanda(
+  eventId: number,
+  rows: { oldTicketTypeId: number; newPrice: number; newTotalStock: number; newStockPoolId?: number | null }[],
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  let count = 0;
+  for (const row of rows) {
+    const [old] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, row.oldTicketTypeId)).limit(1);
+    if (!old || old.eventId !== eventId) continue;
+
+    await db.update(ticketTypes).set({ status: 'soldout' }).where(eq(ticketTypes.id, row.oldTicketTypeId));
+
+    await db.insert(ticketTypes).values({
+      eventId,
+      name: old.name,
+      accesoSlug: old.accesoSlug,
+      category: old.category,
+      description: old.description,
+      price: String(row.newPrice),
+      originalPrice: old.originalPrice ?? undefined,
+      totalStock: row.newTotalStock,
+      maxPerOrder: old.maxPerOrder,
+      sortOrder: old.sortOrder,
+      status: 'active',
+      stockPoolId: row.newStockPoolId ?? null,
+    });
+    count++;
+  }
+  return { success: true, count };
+}
+
 // Cupos compartidos (stockPools) -- ver comentario en drizzle/schema.ts.
 // El admin sigue viendo el número real (vendidos / cap); lo que se esconde
 // es solo la vista pública (TandaUrgencyCard en Home.tsx).

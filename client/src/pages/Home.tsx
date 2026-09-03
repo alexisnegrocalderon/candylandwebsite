@@ -1040,7 +1040,7 @@ function TandaUrgencyCard({
                   <span className="text-sm md:text-base font-semibold text-foreground/85">{a.name}</span>
                   <span className="flex items-baseline gap-2 shrink-0">
                     {a.originalPrice && a.originalPrice > a.price && (
-                      <span className="text-xs md:text-sm text-muted-foreground line-through">{formatCLP(a.originalPrice)}</span>
+                      <span className="text-[11px] md:text-xs text-muted-foreground/70 line-through tabular-nums">{formatCLP(a.originalPrice)}</span>
                     )}
                     <span className="font-heading font-extrabold text-lg md:text-xl text-gradient-candy tabular-nums">{formatCLP(a.price)}</span>
                   </span>

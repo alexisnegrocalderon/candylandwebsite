@@ -61,7 +61,7 @@ export default function Prices() {
                     <div className="text-right shrink-0">
                       {depositPrice !== null && depositPrice < generalPrice ? (
                         <>
-                          <p className="line-through text-muted-foreground text-sm">{formatCLP(generalPrice)}</p>
+                          <p className="line-through text-muted-foreground/70 text-xs tabular-nums">{formatCLP(generalPrice)}</p>
                           <p className="font-heading font-extrabold text-xl text-gradient-candy">{formatCLP(depositPrice)}</p>
                         </>
                       ) : (

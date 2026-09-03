@@ -625,6 +625,20 @@ export const appRouter = router({
     deleteTicketType: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
       return db.deleteTicketType(input.id);
     }),
+    // "Cerrar tanda y activar la siguiente" -- cierra cada fila hoy activa
+    // (queda soldout) y crea la siguiente ya activa, con precio/stock
+    // nuevos. Avance de fase 100% manual, ver comentario en db.advanceTanda.
+    advanceTanda: adminProcedure.input(z.object({
+      eventId: z.number(),
+      rows: z.array(z.object({
+        oldTicketTypeId: z.number(),
+        newPrice: z.number(),
+        newTotalStock: z.number(),
+        newStockPoolId: z.number().nullable().optional(),
+      })).min(1),
+    })).mutation(async ({ input }) => {
+      return db.advanceTanda(input.eventId, input.rows);
+    }),
     ticketStockHistory: adminReadProcedure.input(z.object({ ticketTypeId: z.number() })).query(async ({ input }) => {
       return db.getTicketStockHistory(input.ticketTypeId);
     }),
