@@ -6727,7 +6727,136 @@ function CartaManager() {
   );
 }
 
+/** Vista "Evento": la noche completa en una sola pantalla.
+ *
+ * El dueño marcó los cuatro dolores del admin -- tener que saltar entre
+ * secciones, cuánto vendió, qué pasó en la caja, si dio ganancia -- y dijo
+ * que lo usa tanto en vivo como después. Hasta ahora eso vivía repartido
+ * entre Ventas Web, Ventas Caja, Caja y Gastos y P&L, cada una con su propio
+ * selector de evento (o sin ninguno).
+ *
+ * Esta vista NO reemplaza a esas secciones: el trabajo de detalle (editar una
+ * orden, cargar un gasto) se sigue haciendo ahí. Acá se ve la noche entera de
+ * un vistazo, con un solo selector que manda para toda la pantalla. */
+function EventOverview() {
+  const { data: events } = trpc.events.listAll.useQuery();
+  const { data: defaultEvent } = trpc.events.getActiveForCaja.useQuery();
+  const [selected, setSelected] = useState<number | null>(null);
+  // Arranca en el evento que /caja considera "el de esta noche", no en el
+  // primero de la lista: `listAll` ordena por creación, así que un evento de
+  // prueba creado después quedaría seleccionado por defecto.
+  const eventId = selected ?? defaultEvent?.id ?? events?.[0]?.id ?? null;
+
+  const { data: webStats } = trpc.orders.getStats.useQuery({ channel: 'web', eventId: eventId! }, { enabled: !!eventId });
+  const { data: cajaStats } = trpc.orders.getStats.useQuery({ channel: 'caja', eventId: eventId! }, { enabled: !!eventId });
+  const { data: pnl } = trpc.cajaReports.eventPnl.useQuery({ eventId: eventId! }, { enabled: !!eventId });
+  const { data: closings } = trpc.cajaReports.shiftClosings.useQuery({ eventId: eventId! }, { enabled: !!eventId });
+  const { data: peak } = trpc.cajaReports.peakHours.useQuery({ eventId: eventId! }, { enabled: !!eventId });
+
+  if (!eventId) {
+    return <p className="text-sm text-muted-foreground">Todavía no hay eventos cargados.</p>;
+  }
+
+  const webRevenue = Number(webStats?.totalRevenue ?? 0);
+  const cajaRevenue = Number(cajaStats?.totalRevenue ?? 0);
+  const gastos = (pnl?.directExpensesTotal ?? 0) + (pnl?.generalExpensesAssigned ?? 0);
+  const resultado = pnl?.netProfit ?? null;
+
+  // Solo las horas con movimiento: una fiesta ocupa 8 de las 24 horas del
+  // día, así que pintar las 24 deja el gráfico casi vacío (que es como se
+  // veía hasta ahora).
+  const peakRows = (peak ?? []).filter((h: any) => h.count > 0);
+  const peakMax = Math.max(1, ...peakRows.map((h: any) => h.count));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-heading text-2xl">La noche completa</h2>
+        <Select value={String(eventId)} onValueChange={(v) => setSelected(Number(v))}>
+          <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {(events ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard icon={Ticket} colorClass="bg-violet-electric" value={`$${webRevenue.toLocaleString('es-CL')}`} label="Ventas web" />
+        <StatCard icon={ShoppingBag} colorClass="bg-primary" value={`$${cajaRevenue.toLocaleString('es-CL')}`} label="Ventas en caja" />
+        <StatCard icon={Receipt} colorClass="bg-amber-500" value={`$${gastos.toLocaleString('es-CL')}`} label="Gastos del evento" />
+        <StatCard
+          icon={DollarSign}
+          colorClass={resultado != null && resultado < 0 ? 'bg-destructive' : 'bg-green-600'}
+          value={resultado != null ? `$${resultado.toLocaleString('es-CL')}` : '—'}
+          label={resultado != null && resultado < 0 ? 'Pérdida' : 'Ganancia'}
+        />
+      </div>
+
+      {(pnl?.warnings?.length ?? 0) > 0 && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 space-y-1">
+          <p className="text-sm font-semibold">Ojo con estos números</p>
+          {pnl!.warnings.map((w: string, i: number) => <p key={i} className="text-sm text-muted-foreground">{w}</p>)}
+        </div>
+      )}
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>La caja de esa noche</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {(closings ?? []).length === 0 && (
+            <p className="text-sm text-muted-foreground">Todavía no hay turnos cerrados en este evento.</p>
+          )}
+          {(closings ?? []).map((r: any) => {
+            const cardCounted = r.countedCard ?? (r.countedDebit + r.countedCredit);
+            const cardExpected = r.expectedCard ?? (r.expectedDebit + r.expectedCredit);
+            return (
+              <div key={r.id} className="rounded-xl border border-border/50 p-3">
+                <p className="font-semibold">{r.registerName} · {r.operatorName}</p>
+                <p className="text-xs text-muted-foreground">
+                  {formatChileDateTime(r.openedAt)} → {r.closedAt ? formatChileDateTime(r.closedAt) : '—'} · {r.salesCount} ventas
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2 text-sm">
+                  <p>Efectivo: <strong>${r.countedCash.toLocaleString('es-CL')}</strong> <span className="text-muted-foreground">de ${(r.expectedCash + r.openingCash).toLocaleString('es-CL')}</span></p>
+                  <p>Tarjetas: <strong>${cardCounted.toLocaleString('es-CL')}</strong> <span className="text-muted-foreground">de ${cardExpected.toLocaleString('es-CL')}</span></p>
+                  <p>QR: <strong>${(r.countedQr ?? 0).toLocaleString('es-CL')}</strong> <span className="text-muted-foreground">de ${(r.expectedQr ?? 0).toLocaleString('es-CL')}</span></p>
+                </div>
+              </div>
+            );
+          })}
+          <p className="text-xs text-muted-foreground">El detalle venta por venta está en Gastos y P&amp;L → Cierres de turno.</p>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader>
+          <CardTitle>A qué hora se movió la caja</CardTitle>
+          <p className="text-sm text-muted-foreground">Operaciones por hora, en hora de Chile.</p>
+        </CardHeader>
+        <CardContent>
+          {peakRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Todavía no hay movimientos de caja en este evento.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {peakRows.map((h: any) => (
+                <div key={h.hour} className="flex items-center gap-3 text-sm">
+                  <span className="w-12 shrink-0 tabular-nums text-muted-foreground">{String(h.hour).padStart(2, '0')}:00</span>
+                  <div className="flex-1 h-5 rounded-md bg-muted overflow-hidden">
+                    <div className="h-full bg-primary rounded-md" style={{ width: `${(h.count / peakMax) * 100}%` }} />
+                  </div>
+                  <span className="w-10 shrink-0 tabular-nums text-right">{h.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 const ADMIN_SECTIONS = [
+  // Primera del menú: es el resumen de la noche, lo que el dueño mira en vivo
+  // y al día siguiente. Las secciones de abajo siguen siendo las del detalle.
+  { id: 'overview', label: 'Evento', icon: LayoutDashboard, render: () => <EventOverview /> },
   { id: 'events', label: 'Eventos', icon: Calendar, render: () => <EventsManager /> },
   { id: 'carta', label: 'Carta de la Fiesta', icon: Martini, render: () => <CartaManager /> },
   { id: 'orders-web', label: 'Ventas Web', icon: Ticket, render: () => <OrdersView channel="web" /> },
