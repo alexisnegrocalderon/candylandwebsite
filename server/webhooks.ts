@@ -1,7 +1,7 @@
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
-import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid } from './db';
+import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid, matchLeadForOrder } from './db';
 import { attributeAmbassadorSale } from './ambassadorProgram';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
@@ -469,6 +469,10 @@ async function processApprovedOrder(order: any) {
   const priorCustomer = await getCustomerForAttribution(order.buyerEmail);
 
   await upsertCustomerFromOrder(order, orderAccesoSlugs);
+  // Si esta compra la hizo alguien que antes dejó su correo como lead
+  // ("avísame antes de que suba el precio"), lo marca convertido -- nunca
+  // lanza, no puede bloquear la confirmación de una compra real.
+  await matchLeadForOrder(order);
   // Playcoins (pedido explícito del usuario): 25 por cada $1.000 CLP
   // gastados, misma regla para web y caja -- ver shared/playcoins.ts.
   await awardPlaycoins({ email: order.buyerEmail, totalClp: Number(order.total), reason: 'earn_web', orderId: order.id });

@@ -2572,13 +2572,33 @@ function CustomersView() {
 function LeadsView() {
   const { data, refetch, isLoading } = trpc.leads.listAll.useQuery();
   const deleteLead = trpc.leads.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
-  const leads = data ?? [];
+  const allLeads = data ?? [];
+
+  // Filtro en memoria: son cientos de filas, no miles, y ya se traen todas
+  // de una consulta sin paginar -- no hace falta tocar el servidor.
+  const [search, setSearch] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<string>('all');
+  const [convertedFilter, setConvertedFilter] = useState<'all' | 'yes' | 'no'>('all');
+
+  const availableSources = Array.from(new Set(allLeads.map((l: any) => l.utmSource).filter(Boolean))) as string[];
+
+  const leads = allLeads.filter((l: any) => {
+    if (convertedFilter === 'yes' && !l.convertedOrderId) return false;
+    if (convertedFilter === 'no' && l.convertedOrderId) return false;
+    if (sourceFilter !== 'all' && l.utmSource !== sourceFilter) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      const haystack = `${l.email} ${l.phone ?? ''} ${l.instagram ?? ''}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
 
   const exportCsv = () => {
-    const header = ['Fecha', 'Email', 'Teléfono', 'Instagram', 'Origen', 'UTM Source', 'UTM Medium', 'UTM Campaign'];
+    const header = ['Fecha', 'Email', 'Teléfono', 'Instagram', 'Origen', 'UTM Source', 'UTM Medium', 'UTM Campaign', 'Convertido'];
     const lines = leads.map((l: any) => [
       formatChileShortDate(new Date(l.createdAt)), l.email, l.phone ?? '', l.instagram ?? '',
-      l.source, l.utmSource ?? '', l.utmMedium ?? '', l.utmCampaign ?? '',
+      l.source, l.utmSource ?? '', l.utmMedium ?? '', l.utmCampaign ?? '', l.convertedOrderId ? 'Sí' : 'No',
     ].map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','));
     const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -2594,13 +2614,36 @@ function LeadsView() {
           <h2 className="font-heading text-2xl">Leads</h2>
           <p className="text-muted-foreground text-sm mt-1">Contactos que dejaron su correo sin comprar todavía -- desde el gancho "avísame antes de que suba el precio" en la home.</p>
         </div>
-        <Button variant="outline" onClick={exportCsv} disabled={leads.length === 0}><Download className="w-4 h-4 mr-2" /> Exportar CSV</Button>
+        <Button variant="outline" onClick={exportCsv} disabled={leads.length === 0}><Download className="w-4 h-4 mr-2" /> Exportar CSV ({leads.length})</Button>
       </div>
+
+      {allLeads.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por email, teléfono o Instagram…" className="max-w-xs" />
+          <Select value={sourceFilter} onValueChange={setSourceFilter}>
+            <SelectTrigger className="w-44"><SelectValue placeholder="Origen (UTM)" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Cualquier origen</SelectItem>
+              {availableSources.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={convertedFilter} onValueChange={(v) => setConvertedFilter(v as 'all' | 'yes' | 'no')}>
+            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="no">Sin convertir</SelectItem>
+              <SelectItem value="yes">Convertidos</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {isLoading ? (
         <p className="text-muted-foreground text-sm">Cargando…</p>
-      ) : leads.length === 0 ? (
+      ) : allLeads.length === 0 ? (
         <p className="text-muted-foreground text-sm">Todavía no hay leads.</p>
+      ) : leads.length === 0 ? (
+        <p className="text-muted-foreground text-sm">Ningún lead coincide con el filtro.</p>
       ) : (
         <div className="space-y-2">
           {leads.map((l: any) => (
@@ -2616,6 +2659,9 @@ function LeadsView() {
                       {l.utmSource}{l.utmMedium ? ` · ${l.utmMedium}` : ''}
                     </span>
                   )}
+                  {l.convertedOrderId ? (
+                    <span className="text-xs ml-2 px-2 py-0.5 rounded-full bg-green-500/15 text-green-600">✅ Convertido</span>
+                  ) : null}
                   <span className="text-muted-foreground text-xs ml-3">{formatChileShortDate(new Date(l.createdAt))}</span>
                 </div>
                 <ConfirmDeleteButton description={`Vas a eliminar el lead "${l.email}".`} onConfirm={(adminPassword) => deleteLead.mutateAsync({ id: l.id, adminPassword })} />
@@ -2911,6 +2957,20 @@ function MailingSection() {
   const availableTags = tagsData ?? [];
 
   const bulkTagFromCsv = trpc.customers.bulkTagFromCsv.useMutation();
+  // "Cargar leads sin convertir como audiencia" (ver server/db.ts
+  // syncLeadsAsMailingAudience): convierte cada lead en un `customers`
+  // mínimo taggeado "leads", así el resto del flujo de acá abajo (filtrar
+  // por etiqueta, seleccionar, enviar/programar) es EL MISMO que ya usa el
+  // dueño para clientes reales -- ninguna UI nueva que aprender.
+  const syncLeads = trpc.leads.syncAsAudience.useMutation({
+    onSuccess: (rows) => {
+      refetchTags();
+      if (rows.length === 0) { toast.info('No hay leads sin convertir para este filtro.'); return; }
+      setTagFilter('leads');
+      toast.success(`${rows.length} lead(s) cargados. Filtrados por la etiqueta "leads" para que los veas abajo.`);
+    },
+    onError: onMutationError,
+  });
 
   const toggleSelected = (id: number) => {
     setSelectedIds((prev) => {
@@ -3044,6 +3104,13 @@ function MailingSection() {
                 {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
               </SelectContent>
             </Select>
+            <WriteButton
+              variant="outline"
+              onClick={() => syncLeads.mutate({ eventId: eventFilter === 'all' ? undefined : Number(eventFilter) })}
+              disabled={syncLeads.isPending}
+            >
+              {syncLeads.isPending ? 'Cargando…' : 'Cargar leads sin convertir como audiencia'}
+            </WriteButton>
 
             <div className="ml-auto flex flex-col items-end gap-1">
               <input

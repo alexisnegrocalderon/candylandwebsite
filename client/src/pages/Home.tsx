@@ -922,17 +922,30 @@ function UrgencySection({
   );
 }
 
-/** Captura de leads (agujero 1 del plan de ventas): el gancho "avísame antes
- * de que suba el precio", para quien duda hoy y no compra. Sin esto, esa
- * persona se pierde para siempre -- no hay ninguna otra forma de dejar el
- * contacto en el sitio. Vive dentro de `UrgencySection` (en las dos ramas,
- * Misión 300 y tanda) porque es justo donde ya se está hablando de precio y
- * urgencia. Los UTM se leen directo de la URL en el momento del envío (no
- * persisten entre páginas todavía -- esa persistencia es la atribución de
- * `orders`, un build aparte). */
-function LeadCaptureInline({ eventId }: { eventId?: number }) {
+/** Marca en `sessionStorage` que este visitante ya dejó su correo en algún
+ * lugar del sitio esta sesión -- la comparten `LeadCaptureInline` y
+ * `ExitIntentModal` para que, si ya lo dejó en uno, el otro nunca se lo
+ * vuelva a pedir. */
+const LEAD_CAPTURED_KEY = 'mp_lead_captured';
+
+/** Corazón compartido del formulario de captura de leads: el input de
+ * correo, la mutation y el estado de éxito. `LeadCaptureInline` (la tarjeta
+ * fija) y `ExitIntentModal` (el modal de salida) lo usan con textos
+ * distintos -- el modal necesita un gancho más corto -- así que el copy se
+ * pasa por prop en vez de hardcodearlo acá. */
+function LeadCaptureForm({ eventId, hook, successCopy, onSuccess }: {
+  eventId?: number;
+  hook: React.ReactNode;
+  successCopy: string;
+  onSuccess?: () => void;
+}) {
   const [email, setEmail] = useState('');
-  const createLead = trpc.leads.create.useMutation();
+  const createLead = trpc.leads.create.useMutation({
+    onSuccess: () => {
+      try { sessionStorage.setItem(LEAD_CAPTURED_KEY, '1'); } catch { /* modo privado, no bloquea */ }
+      onSuccess?.();
+    },
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -948,27 +961,18 @@ function LeadCaptureInline({ eventId }: { eventId?: number }) {
   };
 
   if (createLead.isSuccess) {
-    return (
-      <motion.div {...reveal} className="glass-candy rounded-3xl px-6 py-5 text-center border-2 border-primary/40">
-        <p className="font-heading font-bold text-lg md:text-xl text-gradient-candy">✅ Listo, te avisamos antes que suba el precio</p>
-      </motion.div>
-    );
+    return <p className="font-heading font-bold text-lg md:text-xl text-gradient-candy text-center">{successCopy}</p>;
   }
 
   return (
-    <motion.div {...reveal} className="glass-candy rounded-3xl px-6 py-5 border-2 border-primary/40">
+    <>
       {/* El mensaje de error vive FUERA de esta fila (ver abajo), no como
        * tercer hijo del flex -- adentro, un <p> con `w-full` rompía el
        * cálculo de ancho de los otros dos hijos (el texto de la izquierda
        * se apretaba en una columna angosta), detectado con Playwright antes
-       * de mandar esto a producción. Frase de "antes de que suba el precio"
-       * agrandada y en degradé -- pedido explícito del dueño: que se note
-       * más, es la razón real por la que alguien deja el correo acá. */}
+       * de mandar esto a producción. */}
       <div className="flex flex-col sm:flex-row items-center gap-4">
-        <p className="flex-1 text-base md:text-lg font-bold text-center sm:text-left">
-          🔔 ¿Todavía lo estás pensando? Deja tu correo y{' '}
-          <span className="font-heading font-extrabold text-gradient-candy">te avisamos antes de que suba el precio</span>.
-        </p>
+        <p className="flex-1 text-base md:text-lg font-bold text-center sm:text-left">{hook}</p>
         <form onSubmit={handleSubmit} className="flex w-full sm:w-auto gap-2">
           <input
             type="email"
@@ -990,7 +994,102 @@ function LeadCaptureInline({ eventId }: { eventId?: number }) {
       {createLead.isError && (
         <p className="text-xs text-destructive text-center sm:text-left mt-3">Algo falló, prueba de nuevo.</p>
       )}
+    </>
+  );
+}
+
+/** Captura de leads (agujero 1 del plan de ventas): el gancho "avísame antes
+ * de que suba el precio", para quien duda hoy y no compra. Sin esto, esa
+ * persona se pierde para siempre -- no hay ninguna otra forma de dejar el
+ * contacto en el sitio. Vive dentro de `UrgencySection` (en las dos ramas,
+ * Misión 300 y tanda) porque es justo donde ya se está hablando de precio y
+ * urgencia. Los UTM se leen directo de la URL en el momento del envío (no
+ * persisten entre páginas todavía -- esa persistencia es la atribución de
+ * `orders`, un build aparte). */
+function LeadCaptureInline({ eventId }: { eventId?: number }) {
+  return (
+    <motion.div {...reveal} className="glass-candy rounded-3xl px-6 py-5 border-2 border-primary/40">
+      <LeadCaptureForm
+        eventId={eventId}
+        hook={<>🔔 ¿Todavía lo estás pensando? Deja tu correo y{' '}
+          <span className="font-heading font-extrabold text-gradient-candy">te avisamos antes de que suba el precio</span>.</>}
+        successCopy="✅ Listo, te avisamos antes que suba el precio"
+      />
     </motion.div>
+  );
+}
+
+/** Modal de salida (exit-intent): a quien está por irse sin comprar, en vez
+ * de esperar a que note la tarjeta de `LeadCaptureInline` más abajo en la
+ * página, se le ofrece el mismo gancho de frente en el momento exacto en
+ * que se está por ir.
+ *
+ * Dispara con `mouseleave` cuando el mouse sale por ARRIBA del viewport
+ * (`e.clientY <= 0`, hacia la barra de pestañas/cerrar) -- patrón estándar
+ * de exit-intent. Desktop-only a propósito: no hay una señal mobile
+ * equivalente sin falsos positivos (cualquier scroll dispara algo parecido
+ * a un "mouseleave" en touch), y desktop es de todos modos donde más
+ * tráfico se puede interceptar así.
+ *
+ * Se muestra como mucho una vez por sesión, y nunca si el visitante ya dejó
+ * su correo en algún otro lugar del sitio esta sesión (mismo flag que usa
+ * `LeadCaptureForm`). */
+function ExitIntentModal() {
+  const [open, setOpen] = useState(false);
+  const [dismissedOrCaptured, setDismissedOrCaptured] = useState(false);
+
+  useEffect(() => {
+    if (isMobileViewport() || prefersReducedMotion()) return;
+    let alreadyCaptured = false;
+    try { alreadyCaptured = sessionStorage.getItem(LEAD_CAPTURED_KEY) === '1'; } catch { /* modo privado */ }
+    if (alreadyCaptured) return;
+
+    const onMouseLeave = (e: MouseEvent) => {
+      if (e.clientY > 0) return;
+      setOpen(true);
+      document.removeEventListener('mouseleave', onMouseLeave);
+    };
+    // Un pequeño delay antes de armar el listener: nadie está "por irse" en
+    // los primeros segundos, y evita que un movimiento brusco apenas carga
+    // la página cuente como intención de salida.
+    const timer = setTimeout(() => document.addEventListener('mouseleave', onMouseLeave), 4000);
+    return () => { clearTimeout(timer); document.removeEventListener('mouseleave', onMouseLeave); };
+  }, []);
+
+  if (dismissedOrCaptured) return null;
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-sm flex items-center justify-center p-6"
+          onClick={() => setOpen(false)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.94 }}
+            transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
+            className="glass-candy rounded-3xl px-6 py-8 md:px-10 md:py-10 max-w-md w-full border-2 border-primary/40 text-center relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setOpen(false)}
+              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground text-sm"
+              aria-label="Cerrar"
+            >
+              ✕
+            </button>
+            <p className="text-2xl mb-3">👋</p>
+            <LeadCaptureForm
+              hook={<>Antes de irte -- deja tu correo y{' '}
+                <span className="font-heading font-extrabold text-gradient-candy">te avisamos antes de que suba el precio</span>.</>}
+              successCopy="✅ Listo, te avisamos antes que suba el precio"
+              onSuccess={() => setTimeout(() => setDismissedOrCaptured(true), 1500)}
+            />
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -1760,6 +1859,7 @@ export default function Home() {
       <FinalCTASection />
       <Footer />
       <StickyMobileCTA salesEnd={!missionActive ? (tanda?.salesEnd ?? null) : null} soldOut={!!tanda?.soldOut} />
+      <ExitIntentModal />
     </MotionConfig>
   );
 }

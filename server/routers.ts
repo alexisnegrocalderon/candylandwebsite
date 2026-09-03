@@ -1548,6 +1548,12 @@ export const appRouter = router({
       await db.recordAdminAudit({ action: 'leads.delete', targetType: 'lead', targetId: input.id, ip: clientIp(ctx) });
       return result;
     }),
+    // Convierte los leads sin convertir en audiencia de mailing (ver
+    // db.syncLeadsAsMailingAudience) -- devuelve filas de `customers` para
+    // que el selector de audiencia del admin no necesite ningún cambio.
+    syncAsAudience: adminProcedure.input(z.object({ eventId: z.number().optional() }).optional()).mutation(async ({ input }) => {
+      return db.syncLeadsAsMailingAudience({ eventId: input?.eventId });
+    }),
   }),
 
   // Gastos de la productora (módulo /gastos). El neto, el IVA y el mes

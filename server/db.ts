@@ -8,6 +8,7 @@ import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRes
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { chileHourOf, startOfChileDay } from '../shared/chileDate';
+import { matchLeadForOrder as matchLeadForOrderImpl, syncLeadsAsMailingAudience as syncLeadsAsMailingAudienceImpl } from './leadsMailing';
 import { monthKeyFor } from '../shared/ambassadorProgram';
 import { normalizeTandaSchedule, nextPhase } from '../shared/tandaSchedule';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
@@ -653,6 +654,29 @@ export async function deleteLead(id: number) {
   if (!db) throw new Error("Database not available");
   await db.delete(leads).where(eq(leads.id, id));
   return { success: true };
+}
+
+/** Cuando una compra se aprueba, marca cualquier lead que dejó ESE correo
+ * como convertido (ver la lógica real en `server/leadsMailing.ts`, separada
+ * para poder probarla con un doble de base, mismo criterio que
+ * `server/caja/sale.ts`). Nunca lanza: se llama desde `processApprovedOrder`
+ * y un problema acá no puede bloquear la confirmación de una compra real. */
+export async function matchLeadForOrder(order: { buyerEmail: string; id: number }): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await matchLeadForOrderImpl(db, order);
+  } catch (err) {
+    console.warn('[leads] no se pudo marcar como convertido', order.id, err);
+  }
+}
+
+/** Convierte los leads sin convertir en audiencia de mailing (lógica real en
+ * `server/leadsMailing.ts`). */
+export async function syncLeadsAsMailingAudience(filter: { eventId?: number } = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  return syncLeadsAsMailingAudienceImpl(db, filter);
 }
 
 // Lista de bloqueo de clientes (por RUT) -- ver el chequeo en createOrder.
