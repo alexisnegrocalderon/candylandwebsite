@@ -1075,7 +1075,7 @@ function TandaUrgencyCard({
             <div className="mt-2">
               {tanda.accesos.some((a) => a.originalPrice && a.originalPrice > a.price) && (
                 <p className="text-[10px] md:text-xs text-muted-foreground/70 mb-2">
-                  El tachado es el precio general -- el otro es lo que pagás en esta tanda.
+                  El tachado es el precio general -- el otro es lo que pagas en esta tanda.
                 </p>
               )}
               <div className="space-y-1.5">
