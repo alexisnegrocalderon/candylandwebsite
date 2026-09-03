@@ -112,8 +112,19 @@ function ExpenseCapture() {
     onError: (e) => toast.error(e.message),
   });
 
+  // Borrar un gasto pide la clave de admin, igual que en /admin (pedido
+  // explícito del dueño: nada se borra solo con la sesión abierta). Acá pesa
+  // más todavía: este teléfono anda de pie en una ferretería y la sesión
+  // dura una semana.
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deletePassword, setDeletePassword] = useState('');
   const remove = trpc.expenses.delete.useMutation({
-    onSuccess: () => { refetch(); toast.success('Gasto eliminado'); },
+    onSuccess: () => {
+      refetch();
+      toast.success('Gasto eliminado');
+      setDeletingId(null);
+      setDeletePassword('');
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -264,19 +275,49 @@ function ExpenseCapture() {
             </p>
             <div className="space-y-1.5">
               {today.map((e: any) => (
-                <div key={e.id} className="flex items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2 text-sm">
-                  <span className="truncate">{e.description}</span>
-                  <span className="flex items-center gap-2 shrink-0">
-                    <span className="tabular-nums">${e.amountTotal.toLocaleString('es-CL')}</span>
-                    <button
-                      type="button"
-                      onClick={() => remove.mutate({ id: e.id })}
-                      aria-label={`Eliminar ${e.description}`}
-                      className="text-white/40 hover:text-destructive"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </span>
+                <div key={e.id} className="rounded-lg bg-white/5 px-3 py-2 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate">{e.description}</span>
+                    <span className="flex items-center gap-2 shrink-0">
+                      <span className="tabular-nums">${e.amountTotal.toLocaleString('es-CL')}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setDeletingId(deletingId === e.id ? null : e.id); setDeletePassword(''); }}
+                        aria-label={`Eliminar ${e.description}`}
+                        className="text-white/40 hover:text-destructive"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </span>
+                  </div>
+                  {deletingId === e.id && (
+                    <div className="mt-2 space-y-2">
+                      <p className="text-xs text-white/50">Escribe tu clave de admin para eliminar este gasto.</p>
+                      <Input
+                        type="password"
+                        autoFocus
+                        value={deletePassword}
+                        onChange={(ev) => setDeletePassword(ev.target.value)}
+                        placeholder="Clave de admin"
+                        className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline" size="sm" className="flex-1 border-white/15 text-white"
+                          onClick={() => { setDeletingId(null); setDeletePassword(''); }}
+                        >
+                          Cancelar
+                        </Button>
+                        <Button
+                          variant="destructive" size="sm" className="flex-1"
+                          disabled={!deletePassword || remove.isPending}
+                          onClick={() => remove.mutate({ id: e.id, adminPassword: deletePassword })}
+                        >
+                          {remove.isPending ? 'Eliminando…' : 'Eliminar'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

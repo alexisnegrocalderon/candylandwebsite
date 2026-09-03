@@ -330,6 +330,13 @@
       "when": 1788427162638,
       "tag": "0046_salty_wolfsbane",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "5",
+      "when": 1788428859590,
+      "tag": "0047_certain_lionheart",
+      "breakpoints": true
     }
   ]
 }

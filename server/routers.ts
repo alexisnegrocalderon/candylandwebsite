@@ -74,6 +74,42 @@ const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   return next({ ctx });
 });
 
+/** Acción destructiva del panel: exige la clave de admin EN CADA LLAMADA,
+ * además de la sesión.
+ *
+ * `adminProcedure` solo mira una cookie que dura 7 días: el 2FA protege
+ * ENTRAR al panel, no BORRAR. Con la sesión abierta en el teléfono, un toque
+ * equivocado -- o cualquiera que agarre el aparato desbloqueado -- puede
+ * borrar una compra, un evento o el historial de caja sin que nada lo frene.
+ * El dueño pidió explícitamente que se pida la clave cada vez.
+ *
+ * El límite por IP es el mismo de los logins, y acá importa más: a
+ * diferencia del login, este camino no tiene segundo factor, así que sin el
+ * límite sería un oráculo cómodo para adivinar la clave a fuerza bruta. */
+const adminPasswordInput = z.object({
+  adminPassword: z.string().min(1, 'Ingresa tu clave de admin'),
+});
+
+const adminPasswordProcedure = adminProcedure
+  .input(adminPasswordInput)
+  .use(async (opts) => {
+    const ipKey = `admin-reauth:${clientIp(opts.ctx)}`;
+    if (!(await db.checkIpRateLimit(ipKey))) {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+    }
+
+    const parsed = adminPasswordInput.safeParse(await opts.getRawInput());
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    // `safeCompare` y no `!==`: tiempo constante, mismo criterio que ya usa
+    // el login de admin.
+    if (!adminPassword || !parsed.success || !safeCompare(parsed.data.adminPassword, adminPassword)) {
+      await db.recordIpFailedAttempt(ipKey);
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Clave de admin incorrecta' });
+    }
+
+    return opts.next({ ctx: opts.ctx });
+  });
+
 // Qué bloques de la tarjeta de evento incluir en un mail de mailing masivo --
 // mismo shape usado por mailing.renderPreview, mailing.sendBatch y
 // mailing.createAutoCampaign (server/email.ts MailingEventSections).
@@ -578,8 +614,11 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateEvent(id, data);
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteEvent(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const before = await db.getEventById(input.id);
+      const result = await db.deleteEvent(input.id);
+      await db.recordAdminAudit({ action: 'events.delete', targetType: 'event', targetId: input.id, eventId: input.id, payload: before ?? null, ip: clientIp(ctx) });
+      return result;
     }),
     // Ticket types management
     listTicketTypes: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
@@ -636,8 +675,10 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateTicketType(id, data, ctx.user.id);
     }),
-    deleteTicketType: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteTicketType(input.id);
+    deleteTicketType: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteTicketType(input.id);
+      await db.recordAdminAudit({ action: 'events.deleteTicketType', targetType: 'ticketType', targetId: input.id, ip: clientIp(ctx) });
+      return result;
     }),
     // "Cerrar tanda y activar la siguiente" -- cierra cada fila hoy activa
     // (queda soldout) y crea la siguiente ya activa, con precio/stock
@@ -898,8 +939,13 @@ export const appRouter = router({
     // Eliminar una compra (pedido explícito del usuario): irreversible, la
     // confirmación con ventana de diálogo vive en el admin, acá solo se
     // ejecuta el borrado en cascada.
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteOrderCascade(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      // La foto se toma ANTES de borrar: después no queda nada que mirar, y
+      // reconstruir una venta desaparecida es justo lo que no se podía hacer.
+      const before = await db.getOrderById(input.id);
+      const result = await db.deleteOrderCascade(input.id);
+      await db.recordAdminAudit({ action: 'orders.delete', targetType: 'order', targetId: input.id, eventId: before?.eventId ?? null, payload: before ?? null, ip: clientIp(ctx) });
+      return result;
     }),
   }),
 
@@ -1361,8 +1407,10 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateDiscountCode(id, data);
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteDiscountCode(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteDiscountCode(input.id);
+      await db.recordAdminAudit({ action: 'discounts.delete', targetType: 'discountCode', targetId: input.id, ip: clientIp(ctx) });
+      return result;
     }),
   }),
 
@@ -1418,8 +1466,10 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateCommunityCode(id, data);
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteCommunityCode(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteCommunityCode(input.id);
+      await db.recordAdminAudit({ action: 'communityCodes.delete', targetType: 'communityCode', targetId: input.id, ip: clientIp(ctx) });
+      return result;
     }),
   }),
 
@@ -1441,8 +1491,10 @@ export const appRouter = router({
     listAll: adminReadProcedure.query(async () => {
       return db.getAllLeads();
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteLead(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteLead(input.id);
+      await db.recordAdminAudit({ action: 'leads.delete', targetType: 'lead', targetId: input.id, ip: clientIp(ctx) });
+      return result;
     }),
   }),
 
@@ -1462,13 +1514,17 @@ export const appRouter = router({
     create: adminProcedure.input(expenseInputSchema).mutation(async ({ input, ctx }) => {
       return db.createExpense({ ...input, createdByUserId: ctx.user.id });
     }),
-    update: adminProcedure.input(expenseInputSchema.partial().extend({ id: z.number() }))
-      .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        return db.updateExpense(id, data);
+    update: adminPasswordProcedure.input(expenseInputSchema.partial().extend({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { id, adminPassword: _pw, ...data } = input as any;
+        const result = await db.updateExpense(id, data);
+        await db.recordAdminAudit({ action: 'expenses.update', targetType: 'expense', targetId: id, eventId: (data as any).eventId ?? null, payload: data, ip: clientIp(ctx) });
+        return result;
       }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteExpense(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteExpense(input.id);
+      await db.recordAdminAudit({ action: 'expenses.delete', targetType: 'expense', targetId: input.id, ip: clientIp(ctx) });
+      return result;
     }),
     monthSummary: adminReadProcedure.input(z.object({ monthKey: z.string() })).query(async ({ input }) => {
       return db.getMonthlyExpenseSummary(input.monthKey);
@@ -1498,8 +1554,10 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateBlockedCustomer(id, data);
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteBlockedCustomer(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteBlockedCustomer(input.id);
+      await db.recordAdminAudit({ action: 'blockedCustomers.delete', targetType: 'blockedCustomer', targetId: input.id, ip: clientIp(ctx) });
+      return result;
     }),
   }),
 
@@ -1555,8 +1613,10 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateExclusiveAmbassador(id, data);
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteExclusiveAmbassador(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteExclusiveAmbassador(input.id);
+      await db.recordAdminAudit({ action: 'ambassadors.delete', targetType: 'ambassador', targetId: input.id, ip: clientIp(ctx) });
+      return result;
     }),
     // Reporte histórico por evento (el del PR original). Se conserva porque
     // sigue siendo la forma de saber cuánto se pagó en una fiesta puntual.
@@ -2185,8 +2245,10 @@ export const appRouter = router({
     // veces que haga falta mientras siga probando). Ver db.resetEventTestData
     // para el detalle exacto de qué toca y qué deja intacto (nunca compras
     // web, check-ins de puerta ni canjes de extras).
-    resetTestData: adminProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input }) => {
-      return db.resetEventTestData(input.eventId);
+    resetTestData: adminPasswordProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.resetEventTestData(input.eventId);
+      await db.recordAdminAudit({ action: 'caja.resetTestData', targetType: 'event', targetId: input.eventId, eventId: input.eventId, payload: result, ip: clientIp(ctx) });
+      return result;
     }),
   }),
 
@@ -2226,9 +2288,11 @@ export const appRouter = router({
     // Borrado real (pedido explícito del usuario: que no se vayan
     // acumulando) -- bloqueado si el operador ya tiene historial, ver
     // db.operatorHasHistory.
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       try {
-        return await db.deleteOperator(input.id);
+        const result = await db.deleteOperator(input.id);
+        await db.recordAdminAudit({ action: 'operators.delete', targetType: 'operator', targetId: input.id, ip: clientIp(ctx) });
+        return result;
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo eliminar el operador.' });
       }
@@ -2386,9 +2450,11 @@ export const appRouter = router({
     }),
     // Ningún dispositivo queda referenciado desde otra tabla (ver
     // db.deleteDevice), así que este borrado nunca se bloquea por historial.
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       try {
-        return await db.deleteDevice(input.id);
+        const result = await db.deleteDevice(input.id);
+        await db.recordAdminAudit({ action: 'devices.delete', targetType: 'device', targetId: input.id, ip: clientIp(ctx) });
+        return result;
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo eliminar el dispositivo.' });
       }
@@ -2404,9 +2470,11 @@ export const appRouter = router({
       const id = await db.createRegister(input.eventId, input.name);
       return { id };
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       try {
-        return await db.deleteRegister(input.id);
+        const result = await db.deleteRegister(input.id);
+        await db.recordAdminAudit({ action: 'registers.delete', targetType: 'register', targetId: input.id, ip: clientIp(ctx) });
+        return result;
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo eliminar la caja.' });
       }
@@ -2537,6 +2605,11 @@ export const appRouter = router({
     // Turnos todavía abiertos: los necesita el formulario de gastos para
     // ofrecer "se pagó con plata del cajón de esta caja". Sin marcarlo, ese
     // efectivo aparece como faltante en el arqueo de esa caja.
+    // Bitácora de acciones destructivas del panel. Los terminales ya tenían
+    // el ledger `ops`; el lado admin no dejaba ningún rastro.
+    adminAudit: adminReadProcedure.input(z.object({ limit: z.number().min(1).max(500).optional() }).optional()).query(async ({ input }) => {
+      return db.listAdminAudit(input?.limit ?? 200);
+    }),
     openShifts: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
       return db.listOpenShifts(input?.eventId);
     }),
@@ -2550,15 +2623,16 @@ export const appRouter = router({
     // pruebas/cierres de práctica de los reportes reales) -- doble
     // verificación: además del diálogo de confirmación en el admin, pide la
     // misma clave que auth.adminLogin.
-    deleteShiftClosing: adminProcedure.input(z.object({
+    // Antes comparaba la clave con `!==` (sin tiempo constante) y sin
+    // ningún límite de intentos. Ahora usa el mismo procedure que el resto
+    // de las acciones destructivas, para que el arreglo valga en todas.
+    deleteShiftClosing: adminPasswordProcedure.input(z.object({
       shiftId: z.number(),
-      password: z.string(),
-    })).mutation(async ({ input }) => {
-      const adminPassword = process.env.ADMIN_PASSWORD;
-      if (!adminPassword || input.password !== adminPassword) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Contraseña incorrecta' });
-      }
-      return db.deleteShiftClosing(input.shiftId);
+    })).mutation(async ({ input, ctx }) => {
+      const before = await db.getShiftSales(input.shiftId);
+      const result = await db.deleteShiftClosing(input.shiftId);
+      await db.recordAdminAudit({ action: 'cajaReports.deleteShiftClosing', targetType: 'shift', targetId: input.shiftId, payload: { salesCount: before?.sales.length ?? null }, ip: clientIp(ctx) });
+      return result;
     }),
   }),
 });

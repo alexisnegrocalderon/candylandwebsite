@@ -287,7 +287,7 @@ function TicketTypeRow({ tt, eventId }: { tt: any; eventId: number }) {
       <div className="flex gap-2">
         <StockHistoryDialog ticketTypeId={tt.id} ticketName={tt.name} />
         <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Edit className="w-3 h-3" /></Button>
-        <ConfirmDeleteButton description={`Vas a eliminar el tipo de entrada "${tt.name}".`} onConfirm={() => deleteTicketType.mutateAsync({ id: tt.id })} />
+        <ConfirmDeleteButton description={`Vas a eliminar el tipo de entrada "${tt.name}".`} onConfirm={(adminPassword) => deleteTicketType.mutateAsync({ id: tt.id, adminPassword })} />
       </div>
     </div>
   );
@@ -550,7 +550,7 @@ function TandaScheduleEditor({ event }: { event: any }) {
  * de 3 abría un formulario compartido DESPUÉS de toda la lista, obligando a
  * bajar para encontrarlo. Acá el formulario reemplaza directamente esta
  * fila, no se mueve nada más en la pantalla. */
-function StockPoolRow({ p, onSaved, onDelete }: { p: any; onSaved: () => void; onDelete: (id: number) => Promise<void> }) {
+function StockPoolRow({ p, onSaved, onDelete }: { p: any; onSaved: () => void; onDelete: (id: number, adminPassword: string) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ name: p.name, totalCap: p.totalCap });
   const updatePool = trpc.events.updateStockPool.useMutation({
@@ -584,7 +584,7 @@ function StockPoolRow({ p, onSaved, onDelete }: { p: any; onSaved: () => void; o
       </span>
       <div className="flex gap-2">
         <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Edit className="w-3 h-3" /></Button>
-        <ConfirmDeleteButton description={`Vas a eliminar el cupo compartido "${p.name}". Solo se puede si ninguna entrada lo está usando.`} onConfirm={() => onDelete(p.id)} />
+        <ConfirmDeleteButton description={`Vas a eliminar el cupo compartido "${p.name}". Solo se puede si ninguna entrada lo está usando.`} onConfirm={(adminPassword) => onDelete(p.id, adminPassword)} />
       </div>
     </div>
   );
@@ -835,7 +835,7 @@ function EventDescriptionAiFields({
  * dueña del formulario de "Nueva Entrada" para este evento (antes vivía en
  * EventsManager, gateado por comparar `newTicket.eventId === event.id` --
  * más simple tenerlo local ahora que cada evento ya es su propio componente). */
-function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number) => Promise<void> }) {
+function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number, adminPassword: string) => Promise<void> }) {
   const utils = trpc.useUtils();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(() => eventFormFromEvent(event));
@@ -956,7 +956,7 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number) =
               <Button variant="outline" size="sm" onClick={() => { setNewTicket(emptyTicketForm); setShowTicketForm(true); }}>
                 <Plus className="w-3 h-3 mr-1" /> Entrada
               </Button>
-              <ConfirmDeleteButton description={`Vas a eliminar el evento "${event.title}" completo, con todas sus entradas.`} onConfirm={() => onDeleted(event.id)} />
+              <ConfirmDeleteButton description={`Vas a eliminar el evento "${event.title}" completo, con todas sus entradas.`} onConfirm={(adminPassword) => onDeleted(event.id, adminPassword)} />
             </div>
           </div>
         )}
@@ -1068,8 +1068,8 @@ function EventsManager() {
     setShowEventForm(false);
   };
 
-  const handleDeleteEvent = async (id: number) => {
-    await deleteEvent.mutateAsync({ id });
+  const handleDeleteEvent = async (id: number, adminPassword: string) => {
+    await deleteEvent.mutateAsync({ id, adminPassword });
   };
 
   return (
@@ -1236,7 +1236,7 @@ function DiscountsManager() {
                     <MessageCircle className="w-3 h-3" />
                   </Button>
                 </a>
-                <ConfirmDeleteButton description={`Vas a eliminar el código de descuento "${d.code}".`} onConfirm={() => deleteDiscount.mutateAsync({ id: d.id })} />
+                <ConfirmDeleteButton description={`Vas a eliminar el código de descuento "${d.code}".`} onConfirm={(adminPassword) => deleteDiscount.mutateAsync({ id: d.id, adminPassword })} />
               </div>
             </CardContent>
           </Card>
@@ -1317,7 +1317,7 @@ function CommunityCodesManager() {
                     <MessageCircle className="w-3 h-3" />
                   </Button>
                 </a>
-                <ConfirmDeleteButton description={`Vas a eliminar el código de comunidad "${c.code}".`} onConfirm={() => deleteCode.mutateAsync({ id: c.id })} />
+                <ConfirmDeleteButton description={`Vas a eliminar el código de comunidad "${c.code}".`} onConfirm={(adminPassword) => deleteCode.mutateAsync({ id: c.id, adminPassword })} />
               </div>
             </CardContent>
           </Card>
@@ -1400,7 +1400,7 @@ function BlockedCustomersManager() {
                 <WriteButton variant="outline" size="sm" onClick={() => updateBlocked.mutateAsync({ id: b.id, isActive: b.isActive ? 0 : 1 })}>
                   {b.isActive ? 'Desactivar' : 'Reactivar'}
                 </WriteButton>
-                <ConfirmDeleteButton description={`Vas a eliminar el bloqueo del RUT "${b.rut}".`} onConfirm={() => deleteBlocked.mutateAsync({ id: b.id })} />
+                <ConfirmDeleteButton description={`Vas a eliminar el bloqueo del RUT "${b.rut}".`} onConfirm={(adminPassword) => deleteBlocked.mutateAsync({ id: b.id, adminPassword })} />
               </div>
             </CardContent>
           </Card>
@@ -2260,7 +2260,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                           )}
                           <ConfirmDeleteButton
                             description={`Vas a eliminar la compra "${order.orderNumber}" de ${order.buyerName}.`}
-                            onConfirm={() => deleteOrder.mutateAsync({ id: order.id })}
+                            onConfirm={(adminPassword) => deleteOrder.mutateAsync({ id: order.id, adminPassword })}
                             disabled={deleteOrder.isPending}
                           />
                         </div>
@@ -2599,7 +2599,7 @@ function LeadsView() {
                   )}
                   <span className="text-muted-foreground text-xs ml-3">{formatChileShortDate(new Date(l.createdAt))}</span>
                 </div>
-                <ConfirmDeleteButton description={`Vas a eliminar el lead "${l.email}".`} onConfirm={() => deleteLead.mutateAsync({ id: l.id })} />
+                <ConfirmDeleteButton description={`Vas a eliminar el lead "${l.email}".`} onConfirm={(adminPassword) => deleteLead.mutateAsync({ id: l.id, adminPassword })} />
               </CardContent>
             </Card>
           ))}
@@ -3317,7 +3317,7 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
   expanded: boolean;
   onToggleExpand: () => void;
   onUpdate: (data: { name?: string; code?: string; commissionPercent?: number | null; contact?: string; email?: string; instagram?: string; active?: number }) => Promise<unknown>;
-  onDelete: () => Promise<unknown>;
+  onDelete: (adminPassword: string) => Promise<unknown>;
   updating: boolean;
   deleting: boolean;
 }) {
@@ -3394,7 +3394,7 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
           <Button variant="outline" size="sm" disabled={updating} onClick={() => onUpdate({ active: ambassador.active ? 0 : 1 })}>
             {ambassador.active ? 'Desactivar' : 'Activar'}
           </Button>
-          <ConfirmDeleteButton description={`Vas a eliminar al embajador "${ambassador.name}" (${ambassador.code}). Sus clientes exclusivos quedan libres; las comisiones ya generadas se conservan.`} onConfirm={onDelete} disabled={deleting} />
+          <ConfirmDeleteButton description={`Vas a eliminar al embajador "${ambassador.name}" (${ambassador.code}). Sus clientes exclusivos quedan libres; las comisiones ya generadas se conservan.`} onConfirm={(adminPassword) => onDelete(adminPassword)} disabled={deleting} />
         </div>
       </td>
     </tr>
@@ -3791,7 +3791,7 @@ function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
                       updating={updateAmbassador.isPending}
                       deleting={deleteAmbassador.isPending}
                       onUpdate={(data) => updateAmbassador.mutateAsync({ id: a.id, ...data })}
-                      onDelete={() => deleteAmbassador.mutateAsync({ id: a.id })}
+                      onDelete={(adminPassword) => deleteAmbassador.mutateAsync({ id: a.id, adminPassword })}
                     />
                     {expandedId === a.id && (
                       <AmbassadorProfileRow
@@ -4345,6 +4345,7 @@ function CajaAdminView() {
       </div>
 
       {activeEventId && <ResetTestDataCard eventId={activeEventId} eventTitle={events.find((e: any) => e.id === activeEventId)?.title ?? ''} />}
+      <AdminAuditPanel />
       {activeEventId && <OperatorsManager eventId={activeEventId} />}
       {activeEventId && <RegistersManager eventId={activeEventId} />}
       {activeEventId && <DevicesManager eventId={activeEventId} />}
@@ -4360,6 +4361,8 @@ function CajaAdminView() {
  * compras web, check-ins de /puerta ni canjes de extras (ver
  * db.resetEventTestData). */
 function ResetTestDataCard({ eventId, eventTitle }: { eventId: number; eventTitle: string }) {
+  // Es el borrado más destructivo del panel, así que también pide la clave.
+  const [resetPassword, setResetPassword] = useState('');
   const reset = trpc.caja.resetTestData.useMutation({
     onSuccess: (data) => toast.success(`Listo -- se borraron ${data.ordersDeleted} venta(s) de prueba y se repuso la carta.`),
     onError: onMutationError,
@@ -4385,9 +4388,21 @@ function ResetTestDataCard({ eventId, eventTitle }: { eventId: number; eventTitl
                 Se van a borrar todas las ventas hechas directo en caja, los turnos y las comandas de cocina/guardarropía de este evento, y se va a reponer el stock y quitar el "agotado" de la carta. Esta acción no se puede deshacer. Las compras web, los check-ins de puerta y los canjes de estacionamiento/piscolón NO se tocan.
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <Input
+              type="password"
+              autoFocus
+              value={resetPassword}
+              onChange={(e) => setResetPassword(e.target.value)}
+              placeholder="Tu clave de admin"
+            />
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction onClick={() => reset.mutate({ eventId })}>Sí, reiniciar</AlertDialogAction>
+              <AlertDialogCancel onClick={() => setResetPassword('')}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={!resetPassword || reset.isPending}
+                onClick={(e) => { e.preventDefault(); reset.mutate({ eventId, adminPassword: resetPassword }); }}
+              >
+                Sí, reiniciar
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -4459,7 +4474,7 @@ function OperatorsManager({ eventId }: { eventId: number }) {
                 </WriteButton>
                 <ConfirmDeleteButton
                   description={`Vas a eliminar al operador "${op.name}". Si ya tiene ventas, turnos o canjes registrados, no se va a poder -- desactívalo en ese caso.`}
-                  onConfirm={() => deleteOperator.mutateAsync({ id: op.id })}
+                  onConfirm={(adminPassword) => deleteOperator.mutateAsync({ id: op.id, adminPassword })}
                 />
               </div>
             </div>
@@ -4491,7 +4506,7 @@ function RegistersManager({ eventId }: { eventId: number }) {
               {r.name}{!r.active ? ' (inactiva)' : ''}
               <ConfirmDeleteButton
                 description={`Vas a eliminar la caja "${r.name}". Si ya tiene ventas o turnos registrados, no se va a poder -- desactívala en ese caso.`}
-                onConfirm={() => deleteRegister.mutateAsync({ id: r.id })}
+                onConfirm={(adminPassword) => deleteRegister.mutateAsync({ id: r.id, adminPassword })}
               />
             </span>
           ))}
@@ -4538,7 +4553,7 @@ function DevicesManager({ eventId }: { eventId: number }) {
                 </WriteButton>
                 <ConfirmDeleteButton
                   description={`Vas a eliminar el dispositivo "${d.name}".`}
-                  onConfirm={() => deleteDevice.mutateAsync({ id: d.id })}
+                  onConfirm={(adminPassword) => deleteDevice.mutateAsync({ id: d.id, adminPassword })}
                 />
               </div>
             </div>
@@ -5223,7 +5238,7 @@ function ExpensesList({ events, refreshKey, onChanged }: { events: any[]; refres
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span className="font-semibold tabular-nums">${r.amountTotal.toLocaleString('es-CL')}</span>
-                <ConfirmDeleteButton description={`Vas a eliminar el gasto "${r.description}".`} onConfirm={() => remove.mutateAsync({ id: r.id })} />
+                <ConfirmDeleteButton description={`Vas a eliminar el gasto "${r.description}".`} onConfirm={(adminPassword) => remove.mutateAsync({ id: r.id, adminPassword })} />
               </div>
             </div>
           ))}
@@ -5789,6 +5804,71 @@ function ShiftSalesDetail({ shiftId }: { shiftId: number }) {
   );
 }
 
+/** Bitácora de acciones destructivas del panel.
+ *
+ * Todo lo que pasa por los terminales ya quedaba auditado en el ledger
+ * `ops`. El lado admin no dejaba nada: borrar una compra, editar un gasto o
+ * eliminar un evento no se podía reconstruir después. */
+function AdminAuditPanel() {
+  const { data } = trpc.cajaReports.adminAudit.useQuery({ limit: 200 });
+  const rows = data ?? [];
+
+  const LABELS: Record<string, string> = {
+    'orders.delete': 'Eliminó una compra',
+    'events.delete': 'Eliminó un evento',
+    'events.deleteTicketType': 'Eliminó un tipo de entrada',
+    'expenses.delete': 'Eliminó un gasto',
+    'expenses.update': 'Editó un gasto',
+    'blockedCustomers.delete': 'Sacó un RUT de la lista de bloqueo',
+    'discounts.delete': 'Eliminó un código de descuento',
+    'communityCodes.delete': 'Eliminó un código de comunidad',
+    'leads.delete': 'Eliminó un lead',
+    'ambassadors.delete': 'Eliminó un embajador',
+    'operators.delete': 'Eliminó un operador',
+    'devices.delete': 'Eliminó un dispositivo',
+    'registers.delete': 'Eliminó una caja',
+    'caja.resetTestData': 'Reinició los datos de prueba de un evento',
+    'cajaReports.deleteShiftClosing': 'Eliminó un cierre de turno',
+  };
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle>Qué se borró o se editó</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Cada acción destructiva del panel queda registrada acá con su fecha. Lo que pasa en los terminales
+          (ventas, canjes, anulaciones) tiene su propio registro en el ledger de caja, que no se borra nunca.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 && <p className="text-sm text-muted-foreground">Todavía no se ha borrado ni editado nada desde el panel.</p>}
+        {rows.length > 0 && (
+          <div className="max-h-96 overflow-y-auto rounded-lg border border-border/50">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                <tr>
+                  <th className="text-left px-3 py-2 font-medium">Cuándo</th>
+                  <th className="text-left px-3 py-2 font-medium">Qué pasó</th>
+                  <th className="text-left px-3 py-2 font-medium">Sobre</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r: any) => (
+                  <tr key={r.id} className="border-t border-border/40">
+                    <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">{formatChileDateTime(r.createdAt)}</td>
+                    <td className="px-3 py-1.5">{LABELS[r.action] ?? r.action}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{r.targetType ? `${r.targetType} #${r.targetId}` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function DeleteShiftClosingButton({ shiftId, label, onDeleted }: { shiftId: number; label: string; onDeleted: () => void }) {
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
@@ -5828,7 +5908,7 @@ function DeleteShiftClosingButton({ shiftId, label, onDeleted }: { shiftId: numb
           <WriteButton
             variant="destructive"
             disabled={!password || deleteShift.isPending}
-            onClick={() => deleteShift.mutate({ shiftId, password })}
+            onClick={() => deleteShift.mutate({ shiftId, adminPassword: password })}
           >
             {deleteShift.isPending ? 'Eliminando…' : 'Eliminar'}
           </WriteButton>
@@ -6160,7 +6240,7 @@ function CartaProductCard({ p, meta, onToggleSoldOut, toggling, onDelete }: {
   meta: typeof CARTA_CATEGORIES[number];
   onToggleSoldOut: (id: number, nextStatus: 'active' | 'soldout') => void;
   toggling: boolean;
-  onDelete: (id: number) => Promise<void>;
+  onDelete: (id: number, adminPassword: string) => Promise<void>;
 }) {
   const utils = trpc.useUtils();
   const [editing, setEditing] = useState(false);
@@ -6320,7 +6400,7 @@ function CartaProductCard({ p, meta, onToggleSoldOut, toggling, onDelete }: {
             {p.status === 'soldout' ? 'Reponer' : <><Ban className="w-3 h-3 mr-1" /> Agotar</>}
           </WriteButton>
           <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Edit className="w-3 h-3" /></Button>
-          <ConfirmDeleteButton description={`Vas a eliminar "${p.name}" de la carta.`} onConfirm={() => onDelete(p.id)} />
+          <ConfirmDeleteButton description={`Vas a eliminar "${p.name}" de la carta.`} onConfirm={(adminPassword) => onDelete(p.id, adminPassword)} />
         </div>
       </CardContent>
     </Card>
@@ -6385,7 +6465,7 @@ function CartaManager() {
     }
   };
 
-  const handleDelete = async (id: number) => { await deleteType.mutateAsync({ id }); };
+  const handleDelete = async (id: number, adminPassword: string) => { await deleteType.mutateAsync({ id, adminPassword }); };
   const handleToggleSoldOut = (id: number, nextStatus: 'active' | 'soldout') => { toggleSoldOut.mutate({ id, status: nextStatus }); };
 
   // Agrupadas por sección para que la lista se lea como la carta de verdad.

@@ -786,6 +786,38 @@ export type InsertOp = typeof ops.$inferInsert;
 // canal 'caja' dentro de la ventana del turno (nunca ventas web). `top*` es
 // un snapshot (no un cálculo en vivo) para que el reporte de un evento
 // pasado no cambie si se generan más ventas después.
+/** Rastro de las acciones destructivas del panel de admin.
+ *
+ * Todo lo que pasa por los terminales queda auditado en el ledger `ops`
+ * (append-only, idempotente por opId). El lado admin no tenía nada
+ * equivalente: borrar una compra, editar un gasto, eliminar un evento o
+ * cambiar un precio no dejaba ningún rastro, así que después no había forma
+ * de reconstruir por qué un número había cambiado.
+ *
+ * Se guarda aparte de `ops` a propósito: `ops` es la bitácora de la
+ * operación de la fiesta (una cajera, un dispositivo, un evento), y mezclarle
+ * acciones de admin ensuciaría los conteos que ya salen de esa tabla. */
+export const adminAuditLog = mysqlTable("adminAuditLog", {
+  id: int("id").autoincrement().primaryKey(),
+  // Ruta tRPC que se ejecutó, ej. "orders.delete" -- es lo que hace el
+  // registro legible sin tener que adivinar a qué botón corresponde.
+  action: varchar("action", { length: 100 }).notNull(),
+  targetType: varchar("targetType", { length: 50 }),
+  targetId: varchar("targetId", { length: 64 }),
+  eventId: int("eventId"),
+  // Foto de lo que se borró o de cómo estaba antes de editarse. Sin esto el
+  // registro dice QUE pasó pero no QUÉ se perdió, que es justo lo que se
+  // necesita para reconstruir.
+  payload: json("payload"),
+  ip: varchar("ip", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("adminAuditLog_created_idx").on(t.createdAt),
+  index("adminAuditLog_action_idx").on(t.action),
+]);
+
+export type AdminAuditLogRow = typeof adminAuditLog.$inferSelect;
+
 export const shifts = mysqlTable("shifts", {
   id: int("id").autoincrement().primaryKey(),
   eventId: int("eventId").notNull(),

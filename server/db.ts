@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -1426,6 +1426,15 @@ export function computeOrderDeleteEffects(
  *   saldo con `adjustPlaycoinsManually`, que agrega una fila nueva de
  *   ajuste y mantiene la auditoría completa.
  * Qué ajustar exactamente sale de computeOrderDeleteEffects(). */
+/** La orden cruda, para la foto que guarda la bitácora antes de borrarla.
+ * Devuelve `null` si no existe. */
+export async function getOrderById(orderId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  return order ?? null;
+}
+
 export async function deleteOrderCascade(orderId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1486,6 +1495,20 @@ export async function resetEventTestData(eventId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  // Freno de mano: si el evento YA tiene un turno cerrado, esto dejó de ser
+  // un evento de prueba y pasó a ser plata real. Un click acá borraría las
+  // ventas de la noche entera, y el arqueo ya cerrado quedaría apuntando a
+  // ventas que no existen. Se puede seguir reiniciando mientras se prueba
+  // (ningún turno cerrado todavía), que es para lo que se hizo el botón.
+  const [closedShift] = await db.select({ id: shifts.id }).from(shifts)
+    .where(and(eq(shifts.eventId, eventId), eq(shifts.status, 'closed'))).limit(1);
+  if (closedShift) {
+    throw new Error(
+      'Este evento ya tiene un cierre de caja guardado, así que sus ventas no son de prueba. ' +
+      'Si de verdad quieres reiniciarlo, elimina primero el cierre de turno desde Gastos y P&L.',
+    );
+  }
+
   const cajaOrders = await db.select({ id: orders.id }).from(orders)
     .where(and(eq(orders.eventId, eventId), eq(orders.channel, 'caja')));
   const orderIds = cajaOrders.map((o) => o.id);
@@ -1501,10 +1524,12 @@ export async function resetEventTestData(eventId: number) {
     await deleteOrderCascade(id);
   }
 
-  await db.delete(ops).where(and(
-    eq(ops.eventId, eventId),
-    inArray(ops.type, ['sale', 'shift_open', 'shift_close', 'manual_adjust', 'locker_return', 'kitchen_update', 'void_code']),
-  ));
+  // El ledger `ops` NO se toca. Es la única prueba de que esas operaciones
+  // existieron -- incluidas las anulaciones y los ajustes de supervisor, o
+  // sea justo lo que habría que auditar si alguien usara este botón para
+  // tapar algo. Borrarlo dejaba al sistema sin forma de contradecir a nadie.
+  // Las ventas ya se revirtieron arriba, así que el conteo de plata queda
+  // limpio igual; lo que sobrevive es el registro de qué pasó.
   await db.delete(shifts).where(eq(shifts.eventId, eventId));
 
   // soldCount de la carta ya vuelve a 0 solo al revertir cada venta arriba
@@ -1513,7 +1538,7 @@ export async function resetEventTestData(eventId: number) {
   await db.update(ticketTypes).set({ soldCount: 0, status: 'active' })
     .where(and(eq(ticketTypes.eventId, eventId), inArray(ticketTypes.category, ['consumo', 'locker', 'merch'])));
 
-  return { ordersDeleted: orderIds.length };
+  return { ordersDeleted: orderIds.length, opsPreserved: true };
 }
 
 // Export completo (sin paginar) para CSV — filtra por evento/rango de fechas/estado.
@@ -3416,6 +3441,43 @@ export async function closeShift(params: {
  * compararla contra el voucher de la máquina. Devuelve además las
  * repeticiones sospechosas (`findPossibleDuplicateSales`), que es donde
  * suele estar la plata que no calza. */
+/** Deja constancia de una acción destructiva del panel de admin.
+ *
+ * Nunca lanza: un fallo al escribir la bitácora no puede impedir que el
+ * dueño borre lo que decidió borrar. El registro es para poder reconstruir
+ * después, no una barrera -- la barrera es la clave que ya pidió
+ * `adminPasswordProcedure`. */
+export async function recordAdminAudit(entry: {
+  action: string;
+  targetType?: string | null;
+  targetId?: string | number | null;
+  eventId?: number | null;
+  payload?: unknown;
+  ip?: string | null;
+}) {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await db.insert(adminAuditLog).values({
+      action: entry.action,
+      targetType: entry.targetType ?? null,
+      targetId: entry.targetId != null ? String(entry.targetId) : null,
+      eventId: entry.eventId ?? null,
+      payload: (entry.payload ?? null) as any,
+      ip: entry.ip ?? null,
+    });
+  } catch (err) {
+    console.warn('[adminAudit] no se pudo registrar la acción', entry.action, err);
+  }
+}
+
+/** Bitácora de admin, lo más nuevo primero. */
+export async function listAdminAudit(limit = 200) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(adminAuditLog).orderBy(desc(adminAuditLog.createdAt)).limit(limit);
+}
+
 export async function getShiftSales(shiftId: number) {
   const db = await getDb();
   if (!db) return null;
