@@ -35,8 +35,10 @@ export type ProgramConfig = {
 
 /** Las columnas `json` vuelven como arreglo ya parseado o como texto según el
  * driver -- el resto del proyecto ya se defiende igual (ver parseBackupCodes
- * en adminSecurity.ts y el Array.isArray de upsertCustomerFromOrder). */
-function parseJsonArray<T>(raw: unknown, fallback: T[]): T[] {
+ * en adminSecurity.ts y el Array.isArray de upsertCustomerFromOrder).
+ * Exportada porque `server/db.ts` (advanceTanda) la reusa para
+ * `events.tandaDiscountSchedule` -- mismo parseo defensivo, sin duplicar. */
+export function parseJsonArray<T>(raw: unknown, fallback: T[]): T[] {
   if (Array.isArray(raw)) return raw as T[];
   if (typeof raw === 'string') {
     try {

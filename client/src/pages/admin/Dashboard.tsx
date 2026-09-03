@@ -32,6 +32,7 @@ import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
+import { DEFAULT_TANDA_SCHEDULE, computePhasePrice, nextPhase } from '@shared/tandaSchedule';
 import {
   EXPENSE_CATEGORIES, EXPENSE_DOCUMENT_TYPES, EXPENSE_PAYMENT_METHODS,
   categoryLabel, documentTypeLabel, paymentMethodLabel, deriveAmounts,
@@ -333,25 +334,37 @@ function TicketTypesList({ eventId }: { eventId: number }) {
  *
  * Reusa TicketPoolSelect para asignar opcionalmente un cupo compartido
  * nuevo a alguna fila, sin forzarlo -- por defecto cada fila nueva usa su
- * propio stock independiente, no un pool compartido cada vez. */
-function AdvanceTandaDialog({ eventId }: { eventId: number }) {
+ * propio stock independiente, no un pool compartido cada vez.
+ *
+ * El precio nuevo se precarga con el que corresponde a la SIGUIENTE fase de
+ * la escala del evento (ver TandaScheduleEditor / shared/tandaSchedule.ts),
+ * pero sigue siendo un input editable como siempre -- pedido explícito del
+ * dueño: precargado, no bloqueado. */
+function AdvanceTandaDialog({ event }: { event: any }) {
+  const eventId = event.id;
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const { data: ticketTypesData } = trpc.events.listTicketTypes.useQuery({ eventId }, { enabled: open });
   const activos = (ticketTypesData ?? []).filter((tt: any) => tt.category === 'acceso' && tt.status === 'active');
 
+  const schedule: number[] = Array.isArray(event.tandaDiscountSchedule) ? event.tandaDiscountSchedule : DEFAULT_TANDA_SCHEDULE;
+  const next = nextPhase(event.tandaPhaseIndex ?? 0, schedule);
+
   type RowDraft = { newPrice: number; newTotalStock: number; newStockPoolId: number | null };
   const [rows, setRows] = useState<Record<number, RowDraft>>({});
 
-  // Al abrir, precarga cada fila activa con su precio/stock actual como
-  // punto de partida -- el dueño edita desde ahí, no arranca en blanco.
+  // Al abrir, precarga cada fila activa con el precio de la siguiente fase
+  // de la escala (si hay una y la fila tiene originalPrice cargado) --
+  // si no, cae al precio actual como punto de partida, igual que antes.
   useEffect(() => {
     if (open && activos.length > 0 && Object.keys(rows).length === 0) {
-      setRows(Object.fromEntries(activos.map((tt: any) => [
-        tt.id,
-        { newPrice: Number(tt.price), newTotalStock: tt.totalStock, newStockPoolId: null },
-      ])));
+      setRows(Object.fromEntries(activos.map((tt: any) => {
+        const seedPrice = next && tt.originalPrice
+          ? computePhasePrice(Number(tt.originalPrice), next.percent)
+          : Number(tt.price);
+        return [tt.id, { newPrice: seedPrice, newTotalStock: tt.totalStock, newStockPoolId: null }];
+      })));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, ticketTypesData]);
@@ -360,6 +373,7 @@ function AdvanceTandaDialog({ eventId }: { eventId: number }) {
     onSuccess: () => {
       utils.events.listTicketTypes.invalidate();
       utils.events.listStockPools.invalidate();
+      utils.events.listAll.invalidate();
       toast.success('Tanda cerrada y nueva tanda activada');
       setOpen(false);
       setConfirming(false);
@@ -385,10 +399,15 @@ function AdvanceTandaDialog({ eventId }: { eventId: number }) {
         <DialogHeader>
           <DialogTitle>Cerrar tanda actual y activar la siguiente</DialogTitle>
         </DialogHeader>
-        {activos.length === 0 ? (
+        {!next ? (
+          <p className="text-sm text-muted-foreground">Este evento ya está en la última fase de la escala (precio general). No queda ninguna fase siguiente para activar.</p>
+        ) : activos.length === 0 ? (
           <p className="text-sm text-muted-foreground">No hay ningún acceso activo en este evento todavía.</p>
         ) : (
           <>
+            <p className="text-xs font-medium">
+              Vas a pasar a la Fase {next.index + 1} — {next.percent}% de descuento sobre el precio general.
+            </p>
             <p className="text-xs text-muted-foreground">
               Esto cierra para siempre cada acceso activo de abajo (deja de venderse) y crea uno nuevo con el precio y stock que definas acá, ya activo. No se puede deshacer -- si te equivocás, después hay que corregirlo a mano.
             </p>
@@ -410,6 +429,9 @@ function AdvanceTandaDialog({ eventId }: { eventId: number }) {
                         <p className="text-xs text-muted-foreground mt-1">
                           {pct > 0 ? `${pct}% de descuento vs. precio general (${Number(tt.originalPrice).toLocaleString('es-CL')})` : 'Igual o sobre el precio general'}
                         </p>
+                      )}
+                      {!tt.originalPrice && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Sin precio general cargado -- no se pudo calcular el precio de fase automáticamente, se precargó el precio actual.</p>
                       )}
                     </div>
                     <div>
@@ -436,6 +458,66 @@ function AdvanceTandaDialog({ eventId }: { eventId: number }) {
             )}
           </>
         )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Escala de descuentos por fase de ESTE evento (Fase 1 = 60%, Fase 2 =
+ * 50%...) -- editable acá, pedido explícito del dueño: un evento futuro
+ * puede querer una escala distinta. Mismo patrón fila-con-agregar/quitar que
+ * ProgramConfigTab, simplificado (un solo número por fase, sin min/max
+ * porque acá la fase ES la posición en el arreglo). Guarda con su propia
+ * mutación (mismo criterio que StockPoolRow/TicketTypeRow: cada pieza es
+ * dueña de su propio guardado, no todo pasa por el form grande de
+ * EventCard). Se muestra como sibling de AdvanceTandaDialog, no adentro:
+ * la escala se define una vez por evento y rara vez se toca, mientras
+ * "Cerrar tanda" se usa seguido durante la campaña -- meterla en el diálogo
+ * agregaría fricción cada vez que se abre para algo que casi nunca cambia. */
+function TandaScheduleEditor({ event }: { event: any }) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [schedule, setSchedule] = useState<number[]>(
+    Array.isArray(event.tandaDiscountSchedule) ? event.tandaDiscountSchedule : DEFAULT_TANDA_SCHEDULE,
+  );
+
+  const update = trpc.events.update.useMutation({
+    onSuccess: () => {
+      utils.events.listAll.invalidate();
+      toast.success('Escala de tandas guardada');
+      setOpen(false);
+    },
+    onError: onMutationError,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => {
+      setOpen(v);
+      if (v) setSchedule(Array.isArray(event.tandaDiscountSchedule) ? event.tandaDiscountSchedule : DEFAULT_TANDA_SCHEDULE);
+    }}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">Escala de tandas</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Escala de descuentos por fase</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          % de descuento sobre el precio general de cada fase, en orden. Fase actual de este evento: {(event.tandaPhaseIndex ?? 0) + 1}.
+        </p>
+        <div className="space-y-2">
+          {schedule.map((pct, i) => (
+            <div key={i} className="flex items-end gap-3">
+              <div className="text-xs text-muted-foreground w-16">Fase {i + 1}</div>
+              <Input type="number" value={pct} onChange={(e) => setSchedule(schedule.map((x, j) => j === i ? Number(e.target.value) || 0 : x))} className="w-24" />
+              <Button variant="outline" size="sm" className="text-destructive" onClick={() => setSchedule(schedule.filter((_, j) => j !== i))}><Trash2 className="w-3 h-3" /></Button>
+            </div>
+          ))}
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setSchedule([...schedule, 0])}><Plus className="w-3 h-3 mr-1" /> Agregar fase</Button>
+        <WriteButton onClick={() => update.mutate({ id: event.id, tandaDiscountSchedule: schedule })} disabled={update.isPending}>
+          {update.isPending ? 'Guardando…' : 'Guardar escala'}
+        </WriteButton>
       </DialogContent>
     </Dialog>
   );
@@ -865,8 +947,9 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number) =
           </div>
         )}
         <TicketTypesList eventId={event.id} />
-        <div className="mt-3">
-          <AdvanceTandaDialog eventId={event.id} />
+        <div className="mt-3 flex flex-wrap items-start gap-3">
+          <AdvanceTandaDialog event={event} />
+          <TandaScheduleEditor event={event} />
         </div>
         <StockPoolsPanel eventId={event.id} />
         <Mission300Panel eventId={event.id} />

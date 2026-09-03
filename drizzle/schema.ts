@@ -53,6 +53,17 @@ export const events = mysqlTable("events", {
   // que su resultado se calcula 100% bruto. Es una decisión por FIESTA, no
   // global -- mismo patrón int-como-booleano que `featured`.
   ivaApplies: int("ivaApplies").default(0).notNull(),
+  // Escala de descuentos de las tandas de este evento, en % sobre
+  // originalPrice (ej. [60, 50, 40, 30, 0] -- Founders 60%, luego 50%...).
+  // La posición en el arreglo ES la fase, no hace falta un número de fase
+  // aparte por tramo (a diferencia de ambassadorProgramConfig.commissionScale,
+  // donde cada tramo necesita min/max Y percent correlacionados). `null` =
+  // evento sin escala propia todavía -- se usa DEFAULT_TANDA_SCHEDULE.
+  tandaDiscountSchedule: json("tandaDiscountSchedule"), // number[]
+  // Índice (0-based) de la fase HOY vigente. Arranca en 0 porque la tanda
+  // "Founders" ya en producción para el evento real de hoy ES la fase 1/60%
+  // -- el default de columna cubre ese caso sin backfill.
+  tandaPhaseIndex: int("tandaPhaseIndex").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

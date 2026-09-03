@@ -560,6 +560,9 @@ export const appRouter = router({
       featured: z.number().optional(),
       missionForceClosed: z.number().optional(),
       ivaApplies: z.number().optional(),
+      // Escala de descuentos por fase de este evento (ej. [60,50,40,30,0]) --
+      // ver shared/tandaSchedule.ts. Editable desde el admin, por evento.
+      tandaDiscountSchedule: z.array(z.number().min(0).max(100)).optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return db.updateEvent(id, data);

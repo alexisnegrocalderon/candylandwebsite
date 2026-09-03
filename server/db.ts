@@ -8,6 +8,8 @@ import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRes
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { monthKeyFor } from '../shared/ambassadorProgram';
+import { parseJsonArray } from './ambassadorProgram';
+import { DEFAULT_TANDA_SCHEDULE, nextPhase } from '../shared/tandaSchedule';
 import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, type PnlExpense } from '../shared/expenses';
 import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
@@ -324,6 +326,11 @@ export async function advanceTanda(
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) throw new Error("Evento no encontrado");
+  const schedule = parseJsonArray<number>(event.tandaDiscountSchedule, DEFAULT_TANDA_SCHEDULE);
+  const next = nextPhase(event.tandaPhaseIndex, schedule);
+
   let count = 0;
   for (const row of rows) {
     const [old] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, row.oldTicketTypeId)).limit(1);
@@ -347,7 +354,18 @@ export async function advanceTanda(
     });
     count++;
   }
-  return { success: true, count };
+
+  // Avanza la fase del evento junto con las filas, en el mismo llamado --
+  // así el próximo click de "Cerrar tanda" ya precarga el % correcto. Si ya
+  // se llegó al final de la escala (`next` null), NO se toca el índice:
+  // "Cerrar tanda" sigue funcionando como herramienta manual libre (ej. un
+  // ajuste de precio ad-hoc fuera de la escala), solo deja de avanzar la
+  // fase automáticamente una vez agotada.
+  if (next) {
+    await db.update(events).set({ tandaPhaseIndex: next.index }).where(eq(events.id, eventId));
+  }
+
+  return { success: true, count, newPhaseIndex: next ? next.index : event.tandaPhaseIndex };
 }
 
 // Cupos compartidos (stockPools) -- ver comentario en drizzle/schema.ts.

@@ -316,6 +316,13 @@
       "when": 1788400471692,
       "tag": "0044_bitter_kylun",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "5",
+      "when": 1788409784451,
+      "tag": "0045_nappy_firestar",
+      "breakpoints": true
     }
   ]
 }
