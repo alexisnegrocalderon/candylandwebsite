@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import * as db from "./db";
 import { eventSchema, breadcrumbSchema } from "../shared/structuredData";
 import { getIndexHtmlTemplate, injectMeta } from "./_core/htmlTemplate";
@@ -10,7 +10,25 @@ import { getIndexHtmlTemplate, injectMeta } from "./_core/htmlTemplate";
  * a los crawlers de redes sociales no les sirve de nada: leen el HTML tal
  * cual lo devuelve el servidor, sin correr JS. Ver vercel.json (rewrites)
  * para qué rutas llegan hasta acá en vez de ir directo al `/index.html`
- * estático. */
+ * estático.
+ *
+ * ⚠️ Las rutas de acá abajo usan el path REAL que pide el navegador
+ * (`/eventos/:slug`, `*`), NO un path inventado tipo `/api/ssr/...` --
+ * confirmado con la documentación de Vercel + el comportamiento ya probado
+ * de tRPC en este mismo proyecto: el `destination` de un rewrite en
+ * vercel.json solo le dice a Vercel QUÉ función invocar, pero Express
+ * adentro sigue viendo la URL que el navegador pidió de verdad en
+ * `req.url`/`req.path`. Mandar el rewrite a un destino inventado (como se
+ * hizo en un intento anterior, `/api/ssr/page`) no resuelve a NINGÚN
+ * archivo/función real y tira 404 antes de que esta función corra --
+ * rompió el sitio entero, ver el commit que lo arregla.
+ *
+ * Por el mismo motivo, `registerSsrMetaRoutes` NO se llama desde el
+ * `createApp()` compartido (`server/_core/app.ts`) -- se llama SOLO desde
+ * `server/vercel-entry.ts`, después de armado el resto de la app (tRPC
+ * incluido). El catch-all (`*`) de acá abajo matchea CUALQUIER GET, así
+ * que si se registrara antes de tRPC (o en el server local, antes de que
+ * Vite sirva sus propias rutas en dev) se comería esas requests primero. */
 
 const SITE_URL = "https://mansionplayroom.cl";
 const DEFAULT_OG_IMAGE = `${SITE_URL}/candyland/og-candyland.jpg`;
@@ -55,7 +73,7 @@ function loadTemplateOrFail(res: Response): string | null {
 }
 
 export function registerSsrMetaRoutes(app: Express) {
-  app.get("/api/ssr/event/:slug", async (req: Request, res: Response) => {
+  app.get("/eventos/:slug", async (req: Request, res: Response) => {
     const template = loadTemplateOrFail(res);
     if (!template) return;
     try {
@@ -116,12 +134,19 @@ export function registerSsrMetaRoutes(app: Express) {
       });
       sendHtml(res, html);
     } catch (err) {
-      console.error("[ssrMeta] /api/ssr/event falló, sirviendo template sin inyectar:", err);
+      console.error("[ssrMeta] /eventos/:slug falló, sirviendo template sin inyectar:", err);
       sendHtml(res, template);
     }
   });
 
-  app.get("/api/ssr/page", async (_req: Request, res: Response) => {
+  // Catch-all: cualquier otra página pública que haya llegado hasta acá
+  // (vercel.json ya filtró /api, assets estáticos, y las apps internas --
+  // admin/caja/checkout/etc -- ANTES de llegar a esta función). La guarda
+  // de /api/ de abajo es solo por las dudas: un /api/algo que no matcheó
+  // ninguna ruta más específica (trpc, admin, cron, blob, webhooks, todas
+  // registradas antes que esta) no debería devolver una página HTML.
+  app.get("*", async (req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith("/api/")) return next();
     const template = loadTemplateOrFail(res);
     if (!template) return;
     try {
@@ -129,7 +154,7 @@ export function registerSsrMetaRoutes(app: Express) {
       const html = injectMeta(template, { ogImage: image, twitterImage: image });
       sendHtml(res, html);
     } catch (err) {
-      console.error("[ssrMeta] /api/ssr/page falló, sirviendo template sin inyectar:", err);
+      console.error("[ssrMeta] catch-all falló, sirviendo template sin inyectar:", err);
       sendHtml(res, template);
     }
   });

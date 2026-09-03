@@ -5,7 +5,6 @@ import { registerAdminRoutes } from "../adminRoutes";
 import { registerCronRoutes } from "../cronRoutes";
 import { registerTicketAssetRoutes } from "../calendar";
 import { registerBlobUploadRoutes } from "../blobUpload";
-import { registerSsrMetaRoutes } from "../ssrMeta";
 import { appRouter } from "../routers";
 import { webhooksRouter } from "../webhooks";
 import { createContext } from "./context";
@@ -14,7 +13,12 @@ import { createContext } from "./context";
  * Arma la app Express con todas las rutas de API (tRPC, webhooks, oauth,
  * export de admin) sin `listen()` ni nada de Vite/estáticos — así se puede
  * reusar tal cual tanto en el server local (`_core/index.ts`) como en la
- * función serverless de Vercel (`api/index.ts`).
+ * función serverless de Vercel (`server/vercel-entry.ts`).
+ *
+ * A propósito NO registra las rutas SSR de `server/ssrMeta.ts` (su catch-all
+ * `app.get('*', ...)` se comería cualquier GET, incluida la propia SPA de
+ * Vite en dev local) -- esas se agregan solo en `vercel-entry.ts`, después
+ * de esta app ya armada. Ver el comentario de `registerSsrMetaRoutes`.
  */
 export function createApp(): Express {
   const app = express();
@@ -25,10 +29,6 @@ export function createApp(): Express {
   registerCronRoutes(app);
   registerTicketAssetRoutes(app);
   registerBlobUploadRoutes(app);
-  // Rutas /api/ssr/* -- registradas acá (compartido entre Vercel y el server
-  // local) y ANTES del catch-all de Vite en dev (_core/index.ts las agrega
-  // recién después de createApp()), así nunca chocan con su middleware.
-  registerSsrMetaRoutes(app);
   // Webhooks antes de tRPC para evitar conflictos de middleware.
   app.use(webhooksRouter);
   app.use(

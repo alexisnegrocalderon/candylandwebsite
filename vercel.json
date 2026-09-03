@@ -10,8 +10,8 @@
   },
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api" },
-    { "source": "/eventos/:slug", "destination": "/api/ssr/event/:slug" },
-    { "source": "/((?!assets/|candyland/|api/|admin|caja|gastos|puerta|cocina|guardarropia|checkout/|pago/|robots\\.txt|sitemap\\.xml|llms\\.txt|favicon\\.ico|gastos\\.webmanifest|gastos/sw\\.js|puerta\\.webmanifest|puerta/sw\\.js|admin\\.webmanifest|admin/sw\\.js|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)", "destination": "/api/ssr/page" }
+    { "source": "/(admin|caja|gastos|puerta|cocina|guardarropia|checkout|pago)(/.*)?", "destination": "/index.html" },
+    { "source": "/((?!assets/|candyland/|api/|robots\\.txt|sitemap\\.xml|llms\\.txt|favicon\\.ico|gastos\\.webmanifest|gastos/sw\\.js|puerta\\.webmanifest|puerta/sw\\.js|admin\\.webmanifest|admin/sw\\.js|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)", "destination": "/api" }
   ],
   "headers": [
     {
