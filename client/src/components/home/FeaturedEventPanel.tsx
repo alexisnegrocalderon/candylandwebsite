@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'wouter';
-import { Calendar, MapPin, Ticket, Sparkles } from 'lucide-react';
+import { Calendar, MapPin, Ticket, Sparkles, ImageOff } from 'lucide-react';
 import { isFinePointer } from '@/lib/smoothScroll';
 import type { HomeEventItem } from '@/pages/Home';
 
@@ -49,6 +49,12 @@ interface FeaturedEventPanelProps {
 export default function FeaturedEventPanel({ event, mode }: FeaturedEventPanelProps) {
   const [pointerFine] = useState(() => isFinePointer());
   const isUpcoming = mode === 'upcoming';
+  // Si la URL del flyer (pegada a mano en el admin, sin validar) no carga --
+  // hotlink protection, o un link "compartir" de Instagram/Drive/iCloud que
+  // no es el archivo directo -- que se note, en vez de quedar una caja
+  // traslúcida indistinguible de "no hay nada". Mismo patrón que
+  // SquareImageOption en Checkout.tsx.
+  const [imgOk, setImgOk] = useState(true);
 
   return (
     <motion.div
@@ -71,19 +77,27 @@ export default function FeaturedEventPanel({ event, mode }: FeaturedEventPanelPr
             {/* El flyer real es 1060×1413 (3:4) -- la caja ya calza con esa
              * proporción, así que object-cover no tiene nada que recortar
              * (a diferencia del viejo aspect-[21/9]). */}
-            <img
-              src={event.imageUrl}
-              alt={event.title}
-              width={1060}
-              height={1413}
-              // Blanco y negro para ediciones pasadas -- mismo criterio que
-              // ya usa EventCard (grayscale, se revela a color en hover),
-              // no un gris parcial: una edición pasada tiene que leerse
-              // como pasada de un vistazo, no como el próximo evento.
-              className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${
-                !isUpcoming ? 'grayscale group-hover:grayscale-0 opacity-90 group-hover:opacity-100' : 'group-hover:scale-105'
-              }`}
-            />
+            {imgOk ? (
+              <img
+                src={event.imageUrl}
+                alt={event.title}
+                width={1060}
+                height={1413}
+                onError={() => setImgOk(false)}
+                // Blanco y negro para ediciones pasadas -- mismo criterio que
+                // ya usa EventCard (grayscale, se revela a color en hover),
+                // no un gris parcial: una edición pasada tiene que leerse
+                // como pasada de un vistazo, no como el próximo evento.
+                className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${
+                  !isUpcoming ? 'grayscale group-hover:grayscale-0 opacity-90 group-hover:opacity-100' : 'group-hover:scale-105'
+                }`}
+              />
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-primary/20 via-cherry/10 to-violet-electric/15 px-6 text-center">
+                <ImageOff className="w-10 h-10 text-primary/50" />
+                <span className="text-sm font-semibold text-muted-foreground">Flyer no disponible</span>
+              </div>
+            )}
             <div aria-hidden className="candy-sheen" />
             <div aria-hidden className="candy-holo" />
           </div>

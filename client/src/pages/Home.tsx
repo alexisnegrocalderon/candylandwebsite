@@ -6,6 +6,7 @@ import {
   Cigarette,
   Clock,
   Gamepad2,
+  ImageOff,
   Instagram,
   Lollipop,
   MapPin,
@@ -509,6 +510,10 @@ export type HomeEventItem = {
 
 function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'normal' | 'small' }) {
   const isSmall = size === 'small';
+  // Mismo criterio que FeaturedEventPanel.tsx: si la URL del flyer (pegada a
+  // mano en el admin) no carga, que se note con un ícono en vez de quedar
+  // una tarjeta glass en blanco indistinguible de "no hay nada".
+  const [imgOk, setImgOk] = useState(true);
   return (
     <Link
       href={event.href}
@@ -521,16 +526,24 @@ function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'n
        * a decodificar antes, así la imagen no "aparece de golpe" sobre una
        * tarjeta glass casi blanca. Son las proporciones nominales, no un
        * tamaño fijo -- el `object-cover` manda igual. */}
-      <img
-        src={event.imageUrl}
-        alt={event.title}
-        loading="lazy"
-        width={1060}
-        height={1413}
-        className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${
-          event.isPast ? 'grayscale group-hover:grayscale-0 opacity-80 group-hover:opacity-100' : 'group-hover:scale-105'
-        }`}
-      />
+      {imgOk ? (
+        <img
+          src={event.imageUrl}
+          alt={event.title}
+          loading="lazy"
+          width={1060}
+          height={1413}
+          onError={() => setImgOk(false)}
+          className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${
+            event.isPast ? 'grayscale group-hover:grayscale-0 opacity-80 group-hover:opacity-100' : 'group-hover:scale-105'
+          }`}
+        />
+      ) : (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-primary/20 via-cherry/10 to-violet-electric/15">
+          <ImageOff className={isSmall ? 'w-5 h-5 text-primary/50' : 'w-7 h-7 text-primary/50'} />
+          {!isSmall && <span className="text-xs font-semibold text-muted-foreground">Flyer no disponible</span>}
+        </div>
+      )}
       <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-background/20 to-transparent" />
       {event.isPast && (
         <span className="absolute top-3 left-3 px-2.5 py-0.5 rounded-full bg-muted/90 text-muted-foreground text-[9px] font-bold uppercase tracking-wide">

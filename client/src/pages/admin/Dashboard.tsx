@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2 } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -514,6 +514,47 @@ function eventFormFromEvent(event: any) {
   };
 }
 
+/** Miniatura en vivo de la URL del flyer/imagen mientras se escribe/pega
+ * (pedido implícito -- se detectó que el admin cargó un evento con una URL
+ * que no carga como imagen, ej. un link "compartir" de Instagram/Drive/
+ * iCloud en vez del archivo directo, y el flyer quedó en blanco en el sitio
+ * público sin ningún aviso). `key={url}` fuerza que el <img> se remonte en
+ * cada cambio, así reintenta cargar desde cero sin necesidad de debounce ni
+ * useEffect. Mismo criterio que ya usa Checkout.tsx (SquareImageOption):
+ * useState + onError, y la misma caja de advertencia ámbar ya usada más
+ * abajo en este archivo (ver PnlWarnings). */
+function FlyerUrlPreview({ url }: { url: string }) {
+  const [status, setStatus] = useState<'idle' | 'ok' | 'error'>('idle');
+  if (!url.trim()) return null;
+  return (
+    <div className="mt-2 flex items-start gap-3">
+      <div className="w-16 aspect-[3/4] rounded-lg overflow-hidden glass-candy shrink-0 flex items-center justify-center">
+        {status === 'error' ? (
+          <ImageOff className="w-5 h-5 text-muted-foreground" />
+        ) : (
+          <img
+            key={url}
+            src={url}
+            alt=""
+            className="w-full h-full object-cover"
+            onLoad={() => setStatus('ok')}
+            onError={() => setStatus('error')}
+          />
+        )}
+      </div>
+      {status === 'ok' && (
+        <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">✓ Se ve bien, así se va a ver en la home.</p>
+      )}
+      {status === 'error' && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 space-y-1">
+          <p className="font-medium">⚠️ Esa URL no carga como imagen.</p>
+          <p>Los links para "compartir" de Instagram, Google Drive o iCloud casi nunca sirven -- son una página, no la foto directa. Pega el link directo al archivo (que termine en .jpg, .png, etc.), o sube la imagen a Imgur, Cloudinary, o algún bucket/CDN y usa ese link.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Botón "Generar con IA" para descripción corta + completa de un evento
  * (pedido explícito del dueño, 02/09) -- mismo molde que el objetivo de
  * MailingComposer.tsx: un campo de idea/tema TRANSITORIO (no se guarda en la
@@ -634,7 +675,11 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number) =
             />
             <div><Label>Descripción corta</Label><Input value={form.shortDescription} onChange={(e) => setForm({ ...form, shortDescription: e.target.value })} className="mt-1" /></div>
             <div><Label>Descripción completa</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1 h-24" /></div>
-            <div><Label>URL del flyer/imagen</Label><Input value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} className="mt-1" placeholder="https://..." /></div>
+            <div>
+              <Label>URL del flyer/imagen</Label>
+              <Input value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} className="mt-1" placeholder="https://..." />
+              <FlyerUrlPreview url={form.imageUrl} />
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
               <div>
                 <Label>Estado</Label>
@@ -818,7 +863,11 @@ function EventsManager() {
             />
             <div><Label>Descripción corta</Label><Input value={newEvent.shortDescription} onChange={(e) => setNewEvent({ ...newEvent, shortDescription: e.target.value })} className="mt-1" /></div>
             <div><Label>Descripción completa</Label><Textarea value={newEvent.description} onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })} className="mt-1 h-24" /></div>
-            <div><Label>URL del flyer/imagen</Label><Input value={newEvent.imageUrl} onChange={(e) => setNewEvent({ ...newEvent, imageUrl: e.target.value })} className="mt-1" placeholder="https://..." /></div>
+            <div>
+              <Label>URL del flyer/imagen</Label>
+              <Input value={newEvent.imageUrl} onChange={(e) => setNewEvent({ ...newEvent, imageUrl: e.target.value })} className="mt-1" placeholder="https://..." />
+              <FlyerUrlPreview url={newEvent.imageUrl} />
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
               <div>
                 <Label>Estado</Label>
