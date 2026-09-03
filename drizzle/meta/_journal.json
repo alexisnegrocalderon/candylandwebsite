@@ -323,6 +323,13 @@
       "when": 1788409784451,
       "tag": "0045_nappy_firestar",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "5",
+      "when": 1788427162638,
+      "tag": "0046_salty_wolfsbane",
+      "breakpoints": true
     }
   ]
 }

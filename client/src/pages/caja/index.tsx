@@ -120,6 +120,22 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
   });
   const [shiftStarted, setShiftStarted] = useState(() => sessionStorage.getItem('caja_shift_opened') === '1');
 
+  // El servidor manda: si ya hay un turno abierto para esta caja, se entra a
+  // vender sin volver a pedir el efectivo inicial, aunque `sessionStorage`
+  // esté vacío (la PWA se reinició, se cerró la pestaña, la tablet estuvo
+  // bloqueada). `sessionStorage` queda solo como caché optimista para que la
+  // pantalla no parpadee y para funcionar sin conexión.
+  const { data: serverShift, isLoading: shiftLoading } = trpc.caja.currentShift.useQuery(
+    { registerId: registerId ?? undefined },
+    { enabled: registerId !== undefined, refetchOnWindowFocus: true },
+  );
+  useEffect(() => {
+    if (serverShift && !shiftStarted) {
+      sessionStorage.setItem('caja_shift_opened', '1');
+      setShiftStarted(true);
+    }
+  }, [serverShift, shiftStarted]);
+
   const chooseRegister = (id: number | null) => {
     setRegisterId(id);
     if (id !== null) sessionStorage.setItem('caja_register_id', String(id));
@@ -128,13 +144,39 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
 
   const openWithCash = async (openingCash: number) => {
     if (!event) return;
-    await shiftOpen.mutateAsync({
-      opId: newOpId(), eventId: event.id, registerId: registerId ?? undefined,
-      openingCash, clientAt: (await correctedNow()).toISOString(),
-    });
-    sessionStorage.setItem('caja_shift_opened', '1');
-    setShiftStarted(true);
+    try {
+      const opened = await shiftOpen.mutateAsync({
+        opId: newOpId(), eventId: event.id, registerId: registerId ?? undefined,
+        openingCash, clientAt: (await correctedNow()).toISOString(),
+      });
+      // Si el turno ya estaba abierto, el monto recién contado NO se aplica
+      // (el fondo del turno es el original). Antes esto pasaba en silencio y
+      // la cajera quedaba creyendo que había redeclarado la caja.
+      if (opened.alreadyOpen) {
+        toast.info(
+          `Ya había un turno abierto en esta caja con fondo de $${opened.openingCash.toLocaleString('es-CL')}. ` +
+          'Se mantiene ese fondo -- el conteo que acabas de hacer no lo reemplaza.',
+          { duration: 10000 },
+        );
+      }
+      sessionStorage.setItem('caja_shift_opened', '1');
+      setShiftStarted(true);
+    } catch (err: any) {
+      // Sin esto el turno fallaba en silencio y la cajera seguía en la
+      // pantalla de conteo sin entender por qué no pasaba nada.
+      toast.error(err?.message ?? 'No se pudo abrir el turno. Revisa la conexión e intenta de nuevo.', { duration: 8000 });
+    }
   };
+
+  // Mientras se pregunta al servidor no se muestra el contador de
+  // denominaciones: si hay turno abierto, pedirlo sería el bug de nuevo.
+  if (registerId !== undefined && !shiftStarted && shiftLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex items-center justify-center">
+        <p className="text-white/60 text-sm">Revisando si hay un turno abierto…</p>
+      </div>
+    );
+  }
 
   if (registerId !== undefined && shiftStarted) {
     return (
@@ -171,7 +213,13 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
           </button>
         ))}
       </div>
-      <button onClick={() => chooseRegister(null)} className="text-white/50 text-sm underline">Continuar sin caja asignada</button>
+      {/* Con cajas configuradas, "sin caja asignada" es un pie de bug: ese
+       * turno se lleva las ventas de TODAS las cajas al cuadrar (el cierre
+       * filtra por `registerId`), así que el arqueo de las otras cajas queda
+       * corto. Solo se ofrece si el evento no tiene ninguna caja cargada. */}
+      {(registersList ?? []).length === 0 && (
+        <button onClick={() => chooseRegister(null)} className="text-white/50 text-sm underline">Continuar sin caja asignada</button>
+      )}
     </div>
   );
 }
@@ -635,17 +683,27 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
           loading={shiftClose.isPending}
           onCancel={() => setShowCloseForm(false)}
           onSubmit={async (counts) => {
-            const report = await shiftClose.mutateAsync({
-              opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined,
-              ...counts, clientAt: (await correctedNow()).toISOString(),
-            });
-            const cuadra = Math.abs(report.cashDiff) < 1 && Math.abs(report.debitDiff) < 1 && Math.abs(report.creditDiff) < 1 && Math.abs(report.qrDiff) < 1;
-            toast.success(cuadra ? '✅ Turno cerrado — la caja cuadra perfecto' : '⚠️ Turno cerrado — revisa el correo, hay diferencias en el cuadre');
-            if (!report.emailSent) {
-              toast.warning('No se pudo enviar el PDF de cierre por correo — revisa con el admin antes de irte.');
+            // Sin try/catch, un cierre que fallaba (sin señal, turno ya
+            // cerrado desde otra tablet) dejaba el formulario colgado sin
+            // ningún aviso: la cajera se iba creyendo que había cerrado.
+            try {
+              const report = await shiftClose.mutateAsync({
+                opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined,
+                ...counts, clientAt: (await correctedNow()).toISOString(),
+              });
+              const cuadra = Math.abs(report.cashDiff) < 1 && Math.abs(report.debitDiff) < 1 && Math.abs(report.creditDiff) < 1 && Math.abs(report.qrDiff) < 1;
+              toast.success(cuadra ? '✅ Turno cerrado — la caja cuadra perfecto' : '⚠️ Turno cerrado — revisa el correo, hay diferencias en el cuadre');
+              if (!report.emailSent) {
+                toast.warning('No se pudo enviar el PDF de cierre por correo — revisa con el admin antes de irte.');
+              }
+              onCloseShift();
+              logout.mutate();
+            } catch (err: any) {
+              toast.error(
+                err?.message ?? 'No se pudo cerrar el turno. El turno sigue abierto -- revisa la conexión e intenta de nuevo.',
+                { duration: 10000 },
+              );
             }
-            onCloseShift();
-            logout.mutate();
           }}
         />
       )}
@@ -949,7 +1007,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
     lockerCustomerName?: string,
     kitchenTicketNumber?: string,
     customerName?: string,
-  ) => void;
+  ) => void | Promise<void>;
 }) {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
@@ -1132,14 +1190,26 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
     // / nextLockerTagNumber).
     const kitchenTicketNumber = hasKitchenItems ? await nextKitchenTicketNumber() : undefined;
     const lockerTag = needsLockerTag ? await nextLockerTagNumber() : undefined;
-    onSale(
-      cartItems, paymentMethod, buyerEmail.trim() || undefined, redeemAmount || undefined,
-      discountResult?.valid ? discountCode.trim() : undefined,
-      lockerTag,
-      needsLockerTag ? lockerCustomerName.trim() : undefined,
-      kitchenTicketNumber,
-      hasKitchenItems ? customerName.trim() : undefined,
-    );
+    // `onSale` encola la venta en IndexedDB. Antes se llamaba sin `await` y
+    // el carrito se vaciaba igual: si el encolado fallaba, la venta
+    // desaparecía de la pantalla sin quedar registrada en ningún lado. Ahora
+    // el carrito solo se limpia cuando la venta quedó realmente encolada.
+    try {
+      await onSale(
+        cartItems, paymentMethod, buyerEmail.trim() || undefined, redeemAmount || undefined,
+        discountResult?.valid ? discountCode.trim() : undefined,
+        lockerTag,
+        needsLockerTag ? lockerCustomerName.trim() : undefined,
+        kitchenTicketNumber,
+        hasKitchenItems ? customerName.trim() : undefined,
+      );
+    } catch (err: any) {
+      toast.error(
+        err?.message ?? 'No se pudo registrar la venta. El carrito queda como está -- intenta de nuevo.',
+        { duration: 10000 },
+      );
+      return;
+    }
     setCart({});
     setBuyerEmail('');
     setBalance(null);

@@ -203,9 +203,16 @@ export function registerAdminRoutes(app: Express) {
         { key: "closedByName", label: "Cerró" },
         { key: "openedAt", label: "Apertura" },
         { key: "closedAt", label: "Cierre" },
-        { key: "openingCash", label: "Efectivo inicial" },
+        { key: "openingCash", label: "Efectivo inicial (fondo)" },
+        { key: "expectedCash", label: "Ventas en efectivo del turno" },
+        { key: "cashPaidOut", label: "Gastos pagados del cajón" },
+        // Sin esta columna, en Excel "Contado - Esperado" no daba nunca la
+        // "Diferencia efectivo" de la columna siguiente: la brecha era
+        // exactamente el fondo inicial, que el esperado exportado no incluía
+        // pero la diferencia sí restaba. Ésta es la cifra contra la que se
+        // compara de verdad lo que hay en el cajón.
+        { key: "expectedCashWithOpening", label: "Esperado total (con fondo)" },
         { key: "countedCash", label: "Efectivo contado" },
-        { key: "expectedCash", label: "Efectivo esperado" },
         { key: "cashDiff", label: "Diferencia efectivo" },
         { key: "countedDebit", label: "Débito contado" },
         { key: "expectedDebit", label: "Débito esperado" },
@@ -213,6 +220,12 @@ export function registerAdminRoutes(app: Express) {
         { key: "countedCredit", label: "Crédito contado" },
         { key: "expectedCredit", label: "Crédito esperado" },
         { key: "creditDiff", label: "Diferencia crédito" },
+        // QR / transferencia: se cobraba y se guardaba, pero no salía en
+        // ningún export -- al cuadrar desde el admin esa plata parecía
+        // haberse evaporado.
+        { key: "countedQr", label: "QR/transferencia contado" },
+        { key: "expectedQr", label: "QR/transferencia esperado" },
+        { key: "qrDiff", label: "Diferencia QR/transferencia" },
         { key: "salesCount", label: "N° ventas" },
         { key: "redeemsCount", label: "N° canjes" },
         { key: "topCustomers", label: "Top clientes (evento)" },

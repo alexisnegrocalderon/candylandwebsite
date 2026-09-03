@@ -1959,6 +1959,25 @@ export const appRouter = router({
       if (!ctx.device) throw new TRPCError({ code: 'FORBIDDEN', message: 'Este dispositivo no está enrolado' });
       return db.listActiveRegisters(ctx.device.eventId);
     }),
+    // Turno abierto de ESTA caja, según el servidor. Es la fuente de verdad:
+    // antes el cliente solo miraba `sessionStorage`, que se borra cuando la
+    // tablet reinicia la PWA (pantalla bloqueada un rato largo, otra app en
+    // primer plano, pestaña cerrada) -- y ahí le volvía a pedir el efectivo
+    // inicial a la cajera aunque el turno siguiera abierto en la base. Ese
+    // era el bug que reportó el dueño del evento pasado.
+    currentShift: operatorProcedure.input(z.object({
+      registerId: z.number().optional(),
+    })).query(async ({ input, ctx }) => {
+      if (!ctx.device) throw new TRPCError({ code: 'FORBIDDEN', message: 'Este dispositivo no está enrolado' });
+      const shift = await db.getOpenShift(ctx.device.eventId, input.registerId);
+      if (!shift) return null;
+      return {
+        shiftId: shift.id,
+        openingCash: Number(shift.openingCash),
+        openedAt: shift.openedAt,
+        openedByOperatorId: shift.operatorId,
+      };
+    }),
     // Apertura de turno con cuadre de caja (pedido explícito del usuario):
     // pide el efectivo inicial declarado por la cajera. Idempotente por
     // evento+caja (un refresh de página no duplica el turno abierto).
@@ -1969,17 +1988,25 @@ export const appRouter = router({
       const rawDb = await db.getDb();
       if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
       if (!ctx.operator) throw new TRPCError({ code: 'UNAUTHORIZED' });
-      const shiftId = await db.openShift({
+      const opened = await db.openShift({
         eventId: input.eventId, operatorId: ctx.operator.operatorId,
         registerId: input.registerId, openingCash: input.openingCash,
       });
       const { applyOp } = await import('./caja/ops');
       await applyOp(rawDb, {
         id: input.opId, type: 'shift_open', eventId: input.eventId, operatorId: ctx.operator.operatorId,
-        registerId: input.registerId, targetType: 'operator', targetId: String(ctx.operator.operatorId),
-        payload: { openingCash: input.openingCash, shiftId }, clientAt: new Date(input.clientAt),
+        registerId: input.registerId, targetType: 'operator', targetId: String(opened.shiftId),
+        // `declaredCash` es lo que la cajera acaba de contar; `openingCash`
+        // es el que quedó vigente. Cuando el turno ya estaba abierto los dos
+        // difieren, y el ledger tiene que mostrar esa diferencia en vez de
+        // registrar un fondo que nunca se aplicó.
+        payload: {
+          openingCash: opened.openingCash, declaredCash: input.openingCash,
+          alreadyOpen: opened.alreadyOpen, shiftId: opened.shiftId,
+        },
+        clientAt: new Date(input.clientAt),
       }, async () => ({ result: 'applied' as const }));
-      return { shiftId };
+      return opened;
     }),
     // Protocolo de pendientes (§13, riesgo 2): el cliente NO debe llamar esto
     // con ops sin sincronizar -- se bloquea en la UI, no acá, porque cerrar
@@ -2506,6 +2533,12 @@ export const appRouter = router({
     // eventId trae los de todos los eventos, para comparar entre fiestas.
     shiftClosings: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
       return db.listShiftClosings(input?.eventId);
+    }),
+    // Turnos todavía abiertos: los necesita el formulario de gastos para
+    // ofrecer "se pagó con plata del cajón de esta caja". Sin marcarlo, ese
+    // efectivo aparece como faltante en el arqueo de esa caja.
+    openShifts: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
+      return db.listOpenShifts(input?.eventId);
     }),
     // Eliminar un cierre de turno (pedido explícito del usuario, para sacar
     // pruebas/cierres de práctica de los reportes reales) -- doble

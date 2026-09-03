@@ -14,6 +14,7 @@ import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, t
 import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
+import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening } from './caja/shiftMath';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -3163,22 +3164,60 @@ export async function deleteRegister(id: number) {
 
 /** Cuadre de caja (pedido explícito del usuario): abre un turno persistido
  * con el efectivo inicial declarado por la cajera. Si ya hay un turno
- * abierto para el mismo evento+caja (p. ej. refresh de página), se reusa en
- * vez de crear uno nuevo -- así "abrir turno" es idempotente por sesión. */
+ * abierto para el mismo evento+caja (p. ej. refresh de página, o la tablet
+ * que reinició la PWA a mitad de la noche), se reusa en vez de crear uno
+ * nuevo -- así "abrir turno" es idempotente.
+ *
+ * Devuelve `alreadyOpen` y el `openingCash` que quedó REALMENTE vigente:
+ * antes esta función devolvía solo el id y el monto recién contado se
+ * descartaba en silencio, así que la cajera contaba las 9 denominaciones de
+ * nuevo, la UI le confirmaba que había abierto turno, y el cuadre final se
+ * calculaba con el fondo viejo. Ahora el llamador puede avisarle que el
+ * turno ya estaba abierto y con qué fondo. */
 export async function openShift(params: { eventId: number; operatorId: number; registerId?: number; openingCash: number }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const existing = await getOpenShift(params.eventId, params.registerId);
-  if (existing) return existing.id;
+  if (existing) {
+    return {
+      shiftId: existing.id,
+      alreadyOpen: true,
+      openingCash: Number(existing.openingCash),
+      openedAt: existing.openedAt,
+    };
+  }
 
-  const [result] = await db.insert(shifts).values({
-    eventId: params.eventId,
-    operatorId: params.operatorId,
-    registerId: params.registerId ?? null,
-    openingCash: String(params.openingCash),
-  });
-  return (result as unknown as { insertId: number }).insertId;
+  try {
+    const [result] = await db.insert(shifts).values({
+      eventId: params.eventId,
+      operatorId: params.operatorId,
+      registerId: params.registerId ?? null,
+      openingCash: String(params.openingCash),
+    });
+    return {
+      shiftId: (result as unknown as { insertId: number }).insertId,
+      alreadyOpen: false,
+      openingCash: params.openingCash,
+      openedAt: new Date(),
+    };
+  } catch (err: any) {
+    // Índice único `shifts_open_unique`: dos tablets que abrieron la misma
+    // caja en el mismo instante. El SELECT de arriba no alcanza porque esto
+    // no corre en una transacción -- acá se convierte la carrera en el mismo
+    // caso "ya estaba abierto" de siempre, en vez de un error críptico que
+    // dejaría a la cajera sin poder vender.
+    const isDuplicate = err?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(String(err?.message ?? ''));
+    if (!isDuplicate) throw err;
+    const raced = await getOpenShift(params.eventId, params.registerId);
+    if (!raced) throw err;
+    return {
+      shiftId: raced.id,
+      alreadyOpen: true,
+      openingCash: Number(raced.openingCash),
+      openedAt: raced.openedAt,
+    };
+  }
 }
 
 /** Turno abierto para un evento+caja (o "sin caja asignada" si registerId es
@@ -3221,28 +3260,54 @@ export async function closeShift(params: {
 
   const closedAt = new Date();
 
+  // Ventana del turno: desde que se abrió hasta que se cierra. El límite
+  // superior importa -- sin él, una venta que sincroniza desde una tablet
+  // offline JUSTO mientras se procesa el cierre entraba al esperado sin
+  // estar en el conteo físico del cajón.
   const shiftSalesConditions = [
     eq(orders.eventId, shift.eventId),
     eq(orders.channel, 'caja'),
     eq(orders.paymentStatus, 'approved'),
     gte(orders.createdAt, shift.openedAt),
+    lte(orders.createdAt, closedAt),
   ];
-  if (shift.registerId) shiftSalesConditions.push(eq(orders.registerId, shift.registerId));
-  const shiftSales = await db.select({ total: orders.total, paymentMethod: orders.paymentMethod })
-    .from(orders).where(and(...shiftSalesConditions));
+  // Turno CON caja asignada: solo sus ventas. Turno SIN caja asignada: solo
+  // las ventas que tampoco tienen caja -- antes no se filtraba nada, así que
+  // un turno sin caja se tragaba las ventas de TODAS las cajas del evento y
+  // su arqueo no significaba nada (crítico ahora que van a operar 2 cajas
+  // en paralelo).
+  shiftSalesConditions.push(
+    shift.registerId ? eq(orders.registerId, shift.registerId) : isNull(orders.registerId),
+  );
+  const fetchedSales = await db.select({
+    total: orders.total, paymentMethod: orders.paymentMethod,
+    createdAt: orders.createdAt, registerId: orders.registerId,
+  }).from(orders).where(and(...shiftSalesConditions));
+  // El SQL de arriba es solo para traer menos filas: quien decide qué venta
+  // es de este turno es `filterShiftSales`, que está probado en
+  // `server/caja/shiftMath.test.ts`. Antes esta decisión vivía únicamente en
+  // el SQL y por eso nunca se pudo probar.
+  const shiftSales = filterShiftSales(fetchedSales as any[], {
+    openedAt: shift.openedAt, closedAt, registerId: shift.registerId,
+  });
 
-  let expectedCash = 0, expectedDebit = 0, expectedCredit = 0, expectedQr = 0;
-  for (const s of shiftSales) {
-    const amount = Number(s.total);
-    if (s.paymentMethod === 'efectivo') expectedCash += amount;
-    else if (s.paymentMethod === 'debito') expectedDebit += amount;
-    else if (s.paymentMethod === 'credito') expectedCredit += amount;
-    else if (s.paymentMethod === 'qr') expectedQr += amount;
-  }
+  // Efectivo que SALIÓ del cajón durante el turno (pagarle al DJ, mandar por
+  // hielo): la columna `expenses.paidFromShiftId` existía desde siempre, se
+  // guardaba, y no la leía nadie -- el comentario del schema ya advertía que
+  // "sin esto, closeShift lo lee como plata faltante". Se resta del efectivo
+  // esperado: esa plata legítimamente ya no está en el cajón.
+  const drawerExpenses = await db.select({ amountTotal: expenses.amountTotal })
+    .from(expenses).where(eq(expenses.paidFromShiftId, shift.id));
+  const cashPaidOut = drawerExpenses.reduce((sum: number, e: any) => sum + Number(e.amountTotal ?? 0), 0);
+
+  const { expectedCash, expectedDebit, expectedCredit, expectedQr } = computeExpectedTotals(shiftSales, cashPaidOut);
 
   const redeemsCount = await db.select({ count: sql<number>`count(*)` }).from(ops).where(and(
-    eq(ops.eventId, shift.eventId), eq(ops.type, 'redeem'), eq(ops.result, 'applied'), gte(ops.serverAt, shift.openedAt),
-    ...(shift.registerId ? [eq(ops.registerId, shift.registerId)] : []),
+    eq(ops.eventId, shift.eventId), eq(ops.type, 'redeem'), eq(ops.result, 'applied'),
+    gte(ops.serverAt, shift.openedAt), lte(ops.serverAt, closedAt),
+    // Mismo criterio que las ventas de arriba: sin caja asignada cuenta
+    // solo lo suyo, no los canjes de las otras cajas.
+    shift.registerId ? eq(ops.registerId, shift.registerId) : isNull(ops.registerId),
   ));
 
   // "Cómo terminó la fiesta": top 3 clientes/productos del evento completo,
@@ -3299,6 +3364,7 @@ export async function closeShift(params: {
     expectedDebit: String(expectedDebit),
     expectedCredit: String(expectedCredit),
     expectedQr: String(expectedQr),
+    cashPaidOut: String(cashPaidOut),
     salesCount: shiftSales.length,
     redeemsCount: Number(redeemsCount[0]?.count ?? 0),
     topCustomers,
@@ -3327,7 +3393,11 @@ export async function closeShift(params: {
     expectedDebit,
     expectedCredit,
     expectedQr,
-    cashDiff: params.countedCash - expectedCash - Number(shift.openingCash),
+    // Efectivo sacado del cajón durante el turno (ya restado de expectedCash)
+    // -- se expone aparte para que el PDF y el correo lo muestren como línea
+    // propia en vez de que aparezca como un descuadre sin explicación.
+    cashPaidOut,
+    cashDiff: shiftCashDiff(params.countedCash, expectedCash, Number(shift.openingCash)),
     debitDiff: params.countedDebit - expectedDebit,
     creditDiff: params.countedCredit - expectedCredit,
     qrDiff: (params.countedQr ?? 0) - expectedQr,
@@ -3337,6 +3407,35 @@ export async function closeShift(params: {
     topProducts,
     shiftProducts,
   };
+}
+
+/** Turnos ABIERTOS de un evento, con el nombre de caja y de quien lo abrió.
+ * Lo usa el formulario de gastos para poder marcar "esto se pagó con plata
+ * del cajón de la caja X": sin ese dato, el efectivo que sale para pagar a un
+ * proveedor se lee como faltante al cerrar el turno. */
+export async function listOpenShifts(eventId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(shifts.status, 'open')];
+  if (eventId) conditions.push(eq(shifts.eventId, eventId));
+  const rows = await db.select().from(shifts).where(and(...conditions)).orderBy(desc(shifts.openedAt));
+  if (rows.length === 0) return [];
+
+  const registerIds = Array.from(new Set(rows.map((r: any) => r.registerId).filter((id: any) => id != null)));
+  const operatorIds = Array.from(new Set(rows.map((r: any) => r.operatorId).filter((id: any) => id != null)));
+  const registerRows = registerIds.length ? await db.select({ id: registers.id, name: registers.name }).from(registers).where(inArray(registers.id, registerIds)) : [];
+  const operatorRows = operatorIds.length ? await db.select({ id: operators.id, name: operators.name }).from(operators).where(inArray(operators.id, operatorIds)) : [];
+  const registerById = new Map(registerRows.map((r: any) => [r.id, r.name]));
+  const operatorById = new Map(operatorRows.map((o: any) => [o.id, o.name]));
+
+  return rows.map((r: any) => ({
+    id: r.id,
+    eventId: r.eventId,
+    registerName: r.registerId ? (registerById.get(r.registerId) ?? 'Caja eliminada') : 'Sin caja asignada',
+    operatorName: operatorById.get(r.operatorId) ?? 'Operador eliminado',
+    openedAt: r.openedAt,
+    openingCash: Number(r.openingCash),
+  }));
 }
 
 /** Cierres de turno guardados, para comparar entre eventos y exportar a CSV
@@ -3375,9 +3474,23 @@ export async function listShiftClosings(eventId?: number) {
     expectedCash: Number(r.expectedCash ?? 0),
     expectedDebit: Number(r.expectedDebit ?? 0),
     expectedCredit: Number(r.expectedCredit ?? 0),
-    cashDiff: Number(r.countedCash ?? 0) - Number(r.expectedCash ?? 0) - Number(r.openingCash),
+    // QR/transferencia: closeShift ya lo calculaba y lo guardaba, pero ni
+    // este listado ni el panel ni el CSV lo devolvían -- al cuadrar desde
+    // /admin esa plata aparecía evaporada.
+    countedQr: Number(r.countedQr ?? 0),
+    expectedQr: Number(r.expectedQr ?? 0),
+    // Efectivo que salió del cajón para pagar gastos durante el turno -- ya
+    // viene restado de `expectedCash`, se muestra aparte para que el arqueo
+    // se pueda leer sin adivinar de dónde salió la resta.
+    cashPaidOut: Number(r.cashPaidOut ?? 0),
+    // "Esperado total" = ventas en efectivo del turno + el fondo inicial.
+    // Es contra ESTE número que se compara lo contado; exportarlo evita la
+    // resta a mano (y el descuadre falso) al reconciliar desde el CSV.
+    expectedCashWithOpening: expectedCashWithOpening(Number(r.expectedCash ?? 0), Number(r.openingCash)),
+    cashDiff: shiftCashDiff(Number(r.countedCash ?? 0), Number(r.expectedCash ?? 0), Number(r.openingCash)),
     debitDiff: Number(r.countedDebit ?? 0) - Number(r.expectedDebit ?? 0),
     creditDiff: Number(r.countedCredit ?? 0) - Number(r.expectedCredit ?? 0),
+    qrDiff: Number(r.countedQr ?? 0) - Number(r.expectedQr ?? 0),
     salesCount: r.salesCount ?? 0,
     redeemsCount: r.redeemsCount ?? 0,
     topCustomers: r.topCustomers ?? [],

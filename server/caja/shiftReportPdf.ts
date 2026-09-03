@@ -21,6 +21,10 @@ export type ShiftCloseReport = {
   debitDiff: number;
   creditDiff: number;
   qrDiff: number;
+  /** Efectivo que salió del cajón para pagar gastos durante el turno. Ya
+   * viene restado del esperado; se imprime aparte para que la cajera pueda
+   * ver de dónde sale la resta en vez de leerla como un faltante. */
+  cashPaidOut?: number;
   salesCount: number;
   redeemsCount: number;
   shiftProducts: { name: string; quantity: number; revenue: number }[];
@@ -86,7 +90,15 @@ export function buildShiftClosePdf(report: ShiftCloseReport): Promise<Buffer> {
       doc.y,
     );
 
-    doc.y = afterPaymentTableY + 20;
+    doc.y = afterPaymentTableY + 8;
+    const paidOut = report.cashPaidOut ?? 0;
+    doc.fontSize(9).fillColor(MUTED).text(
+      `Esperado en efectivo = ${money(report.openingCash)} de fondo inicial + ${money(report.expectedCash + paidOut)} de ventas en efectivo` +
+      (paidOut > 0 ? ` − ${money(paidOut)} de gastos pagados del cajón` : '') +
+      ` = ${money(report.expectedCash + report.openingCash)}`
+    );
+
+    doc.y = doc.y + 20;
     doc.fontSize(13).fillColor(INK).text("Ventas del turno por producto");
     doc.moveDown(0.5);
 

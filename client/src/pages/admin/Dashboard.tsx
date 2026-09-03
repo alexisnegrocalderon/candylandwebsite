@@ -4930,11 +4930,21 @@ const emptyExpenseForm = {
   excludeFromPnl: false,
   prorate: true,
   notes: '',
+  // Turno de cuyo cajón salió el efectivo, cuando se pagó en efectivo durante
+  // el evento. `null` = no salió de ninguna caja (plata de la productora).
+  paidFromShiftId: null as number | null,
 };
 
 function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }) {
   const [show, setShow] = useState(false);
   const [form, setForm] = useState(emptyExpenseForm);
+  // Solo tiene sentido preguntar por el cajón si el gasto es en efectivo y de
+  // un evento puntual, así que la consulta se hace recién ahí.
+  const cashFromDrawerApplies = form.paymentMethod === 'efectivo' && form.scope === 'evento' && !!form.eventId;
+  const { data: openShifts } = trpc.cajaReports.openShifts.useQuery(
+    { eventId: form.eventId ?? undefined },
+    { enabled: cashFromDrawerApplies },
+  );
   const create = trpc.expenses.create.useMutation({
     onSuccess: () => { onSaved(); toast.success('Gasto registrado'); setForm(emptyExpenseForm); setShow(false); },
     onError: onMutationError,
@@ -4953,6 +4963,10 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
       documentNumber: form.documentNumber || undefined,
       notes: form.notes || undefined,
       eventId: form.scope === 'evento' ? form.eventId : null,
+      // Si el gasto dejó de ser en efectivo (o de un evento) después de
+      // haber elegido caja, la marca se limpia: si no, el cierre de ese
+      // turno restaría plata que nunca salió del cajón.
+      paidFromShiftId: cashFromDrawerApplies ? form.paidFromShiftId : null,
       expenseDate: form.expenseDate ? fromChileInputValue(form.expenseDate) : new Date().toISOString(),
     } as any);
   };
@@ -5053,6 +5067,34 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
                 <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="mt-1" placeholder="Opcional" />
               </div>
             </div>
+
+            {/* Efectivo sacado del cajón durante la fiesta (hielo de última
+                hora, propina al proveedor). Marcarlo acá es lo que hace que
+                el cierre de ESA caja no lo lea como plata faltante. */}
+            {cashFromDrawerApplies && (
+              <div>
+                <Label>¿Salió del cajón de alguna caja?</Label>
+                <Select
+                  value={form.paidFromShiftId ? String(form.paidFromShiftId) : 'none'}
+                  onValueChange={(v) => setForm({ ...form, paidFromShiftId: v === 'none' ? null : Number(v) })}
+                >
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No — se pagó con plata de la productora</SelectItem>
+                    {(openShifts ?? []).map((s: any) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.registerName} · abrió {s.operatorName} ({formatChileDateTime(s.openedAt)})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {(openShifts ?? []).length === 0
+                    ? 'No hay turnos abiertos en este evento ahora mismo. Se marca solo mientras la caja está abierta: al cerrarla, el monto se descuenta del efectivo esperado.'
+                    : 'Al cerrar esa caja, este monto se descuenta del efectivo esperado -- si no lo marcas, aparece como faltante.'}
+                </p>
+              </div>
+            )}
 
             {form.documentType === 'factura' && (
               <div className="rounded-xl bg-muted/40 px-4 py-3 text-sm">
@@ -5560,7 +5602,10 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 mt-3 text-sm">
+            {/* Cuatro medios de pago, no tres: el QR/transferencia se cobra
+                en caja y se guarda desde siempre, pero este panel no lo
+                mostraba -- esa plata quedaba fuera del cuadre a la vista. */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-sm">
               <div className="rounded-lg bg-muted/50 p-3">
                 <p className="text-xs text-muted-foreground mb-1">💵 Efectivo</p>
                 <p>${r.countedCash.toLocaleString('es-CL')} contado</p>
@@ -5579,7 +5624,23 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
                 <p className="text-xs text-muted-foreground">${r.expectedCredit.toLocaleString('es-CL')} esperado</p>
                 {diffLabel(r.creditDiff)}
               </div>
+              <div className="rounded-lg bg-muted/50 p-3">
+                <p className="text-xs text-muted-foreground mb-1">📱 QR/transferencia</p>
+                <p>${(r.countedQr ?? 0).toLocaleString('es-CL')} contado</p>
+                <p className="text-xs text-muted-foreground">${(r.expectedQr ?? 0).toLocaleString('es-CL')} esperado</p>
+                {diffLabel(r.qrDiff ?? 0)}
+              </div>
             </div>
+
+            {/* Cómo se arma el "esperado" del efectivo, en una línea: sin
+                esto la resta del fondo y de los gastos pagados del cajón
+                parecían un descuadre sin explicación. */}
+            <p className="mt-2 text-xs text-muted-foreground">
+              Esperado en efectivo = ${r.openingCash.toLocaleString('es-CL')} de fondo
+              {' + '}${(r.expectedCash + (r.cashPaidOut ?? 0)).toLocaleString('es-CL')} de ventas
+              {(r.cashPaidOut ?? 0) > 0 && <> {' − '}${(r.cashPaidOut ?? 0).toLocaleString('es-CL')} de gastos pagados del cajón</>}
+              {' = '}<strong>${(r.expectedCash + r.openingCash).toLocaleString('es-CL')}</strong>
+            </p>
 
             {expandedId === r.id && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-border/50">

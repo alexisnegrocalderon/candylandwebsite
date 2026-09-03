@@ -1,4 +1,5 @@
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex } from "drizzle-orm/mysql-core";
+import { sql } from "drizzle-orm";
 
 /**
  * Core user table backing auth flow.
@@ -806,13 +807,35 @@ export const shifts = mysqlTable("shifts", {
   // la app del banco. Sin esta columna, la plata cobrada por QR simplemente
   // desaparecería del arqueo del turno.
   expectedQr: decimal("expectedQr", { precision: 10, scale: 0 }),
+  // Efectivo que SALIÓ del cajón durante el turno para pagar gastos
+  // (`expenses.paidFromShiftId`). Se congela al cerrar, igual que `expected*`:
+  // si un gasto se edita después, el arqueo de esa noche no cambia. Sin esta
+  // resta, la plata usada para pagar un proveedor se leía como faltante.
+  cashPaidOut: decimal("cashPaidOut", { precision: 10, scale: 0 }),
   salesCount: int("salesCount"),
   redeemsCount: int("redeemsCount"),
   topCustomers: json("topCustomers"), // [{ name, email, total }]
   topProducts: json("topProducts"), // [{ name, quantity, revenue }]
   status: mysqlEnum("status", ["open", "closed"]).default("open").notNull(),
+  // Llave de unicidad del turno ABIERTO de una caja. `openShift` hace
+  // SELECT-y-después-INSERT sin transacción, así que dos tablets que abren a
+  // la vez podían crear dos turnos abiertos en la misma caja -- y ahí el
+  // arqueo de cada uno solo cubre parte de la noche mientras el cajón tiene
+  // todo (la diferencia gigante del evento pasado). Al ser NULL cuando el
+  // turno está cerrado, el índice único no estorba al historial: MySQL no
+  // compara filas con NULL entre sí, así que se pueden cerrar todos los
+  // turnos que se quiera sobre la misma caja.
+  openKey: varchar("openKey", { length: 64 }).generatedAlwaysAs(
+    sql`(case when \`status\` = 'open' then concat(\`eventId\`, '-', ifnull(\`registerId\`, 'x')) else null end)`,
+    // VIRTUAL y no STORED a propósito: TiDB (la base de producción) no
+    // permite agregar una columna generada STORED a una tabla que ya existe,
+    // pero sí una VIRTUAL, y sí acepta índices sobre ella.
+    { mode: 'virtual' },
+  ),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (t) => [
+  uniqueIndex("shifts_open_unique").on(t.openKey),
+]);
 
 export type Shift = typeof shifts.$inferSelect;
 export type InsertShift = typeof shifts.$inferInsert;
