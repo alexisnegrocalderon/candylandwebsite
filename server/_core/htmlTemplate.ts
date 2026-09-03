@@ -17,10 +17,12 @@ import path from "node:path";
  * solo le agrega el script de módulos/HMR y algunos preloads en el build
  * real, nada que toque las etiquetas og/twitter/JSON-LD.
  *
- * En Vercel, para que la función tenga `dist/public/index.html` disponible
- * en su propio filesystem (el `outputDirectory` normalmente solo lo sirve
- * el CDN estático, no la función) hace falta `includeFiles` en
- * vercel.json bajo `functions["api/index.js"]`. */
+ * En Vercel, para que la función tenga estos archivos disponibles en su
+ * propio filesystem (el `outputDirectory` normalmente solo lo sirve el CDN
+ * estático, no la función) hace falta `includeFiles` en vercel.json bajo
+ * `functions["api/index.js"]` -- ahí se incluyen los dos (`**\/index.html`)
+ * para que el fallback a `client/index.html` sirva de algo también ahí, no
+ * solo en dev local. */
 let cached: string | null = null;
 
 export function getIndexHtmlTemplate(): string {

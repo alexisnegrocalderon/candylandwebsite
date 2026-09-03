@@ -38,9 +38,26 @@ function sendHtml(res: Response, html: string) {
   res.send(html);
 }
 
+// `getIndexHtmlTemplate()` puede tirar si ni `dist/public/index.html` ni
+// `client/index.html` están disponibles (ej. un `includeFiles` mal
+// configurado en Vercel) -- sin este try/catch, ese throw síncrono dentro
+// de un handler async queda como una promise rechazada que Express 4 NO
+// atrapa solo, y el request se queda colgado hasta el maxDuration (60s) en
+// vez de fallar rápido. Mejor una respuesta de error inmediata y visible.
+function loadTemplateOrFail(res: Response): string | null {
+  try {
+    return getIndexHtmlTemplate();
+  } catch (err) {
+    console.error("[ssrMeta] No se pudo leer index.html:", err);
+    res.status(500).type("text/plain").send("Error interno. Probá de nuevo en un momento.");
+    return null;
+  }
+}
+
 export function registerSsrMetaRoutes(app: Express) {
   app.get("/api/ssr/event/:slug", async (req: Request, res: Response) => {
-    const template = getIndexHtmlTemplate();
+    const template = loadTemplateOrFail(res);
+    if (!template) return;
     try {
       const slug = req.params.slug;
       const event = await db.getEventBySlug(slug);
@@ -105,7 +122,8 @@ export function registerSsrMetaRoutes(app: Express) {
   });
 
   app.get("/api/ssr/page", async (_req: Request, res: Response) => {
-    const template = getIndexHtmlTemplate();
+    const template = loadTemplateOrFail(res);
+    if (!template) return;
     try {
       const image = await resolveDefaultOgImage();
       const html = injectMeta(template, { ogImage: image, twitterImage: image });
