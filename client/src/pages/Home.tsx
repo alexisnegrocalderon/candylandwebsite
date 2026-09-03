@@ -1036,11 +1036,14 @@ function TandaUrgencyCard({
           {tanda && tanda.accesos.length > 0 && (
             <div className="mt-2 space-y-1.5">
               {tanda.accesos.map((a) => (
-                <div key={a.name} className="flex items-baseline justify-between gap-3">
+                <div key={a.name} className="flex items-center justify-between gap-3">
                   <span className="text-sm md:text-base font-semibold text-foreground/85">{a.name}</span>
-                  <span className="flex items-baseline gap-2 shrink-0">
+                  <span className="flex flex-col items-end gap-0.5 shrink-0">
                     {a.originalPrice && a.originalPrice > a.price && (
-                      <span className="text-[11px] md:text-xs text-muted-foreground/70 line-through tabular-nums">{formatCLP(a.originalPrice)}</span>
+                      <span className="flex flex-col items-end -mb-0.5">
+                        <span className="text-[8px] md:text-[9px] uppercase tracking-wider text-muted-foreground/50 leading-none">Precio general</span>
+                        <span className="text-[11px] md:text-xs text-muted-foreground/70 line-through tabular-nums leading-tight">{formatCLP(a.originalPrice)}</span>
+                      </span>
                     )}
                     <span className="font-heading font-extrabold text-lg md:text-xl text-gradient-candy tabular-nums">{formatCLP(a.price)}</span>
                   </span>
