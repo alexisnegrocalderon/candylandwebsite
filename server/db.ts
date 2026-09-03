@@ -8,8 +8,8 @@ import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRes
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { monthKeyFor } from '../shared/ambassadorProgram';
-import { parseJsonArray } from './ambassadorProgram';
-import { DEFAULT_TANDA_SCHEDULE, nextPhase } from '../shared/tandaSchedule';
+import { normalizeTandaSchedule, nextPhase } from '../shared/tandaSchedule';
+import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, type PnlExpense } from '../shared/expenses';
 import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
@@ -328,7 +328,7 @@ export async function advanceTanda(
 
   const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
   if (!event) throw new Error("Evento no encontrado");
-  const schedule = parseJsonArray<number>(event.tandaDiscountSchedule, DEFAULT_TANDA_SCHEDULE);
+  const schedule = normalizeTandaSchedule(event.tandaDiscountSchedule);
   const next = nextPhase(event.tandaPhaseIndex, schedule);
 
   let count = 0;
@@ -819,6 +819,11 @@ export async function createOrder(input: {
   for (const item of input.items) {
     const tt = tts.find(t => t.id === item.ticketTypeId);
     if (!tt) throw new Error(`Ticket type ${item.ticketTypeId} not found`);
+    // Una fila cerrada por "Cerrar tanda" (manual o automático, ver
+    // server/tandaAutoAdvance.ts) queda `status: 'soldout'` -- sin este
+    // chequeo, alguien con el id viejo guardado podría seguir comprando al
+    // precio de la fase anterior indefinidamente mientras le quedara stock.
+    if (tt.status !== 'active') throw new Error(`${tt.name} ya no está disponible a este precio -- actualizá la página e intentá de nuevo.`);
     const available = tt.totalStock - tt.soldCount;
     if (item.quantity > available) throw new Error(`Not enough stock for ${tt.name}`);
     const useDeposit = missionOpen && tt.category === 'acceso';
@@ -950,6 +955,10 @@ export async function createOrder(input: {
     for (const item of input.items) {
       await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
     }
+    // Esta compra gratis puede ser justo la que agota el cupo compartido de
+    // la tanda vigente -- chequea acá mismo si toca pasar de fase sola (ver
+    // server/tandaAutoAdvance.ts).
+    await checkAndAdvanceTandaIfNeeded(event.id);
   }
 
   return { orderId, orderNumber, total, isFree };

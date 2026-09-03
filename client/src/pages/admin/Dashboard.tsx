@@ -32,7 +32,7 @@ import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
-import { DEFAULT_TANDA_SCHEDULE, computePhasePrice, nextPhase } from '@shared/tandaSchedule';
+import { computePhasePrice, nextPhase, normalizeTandaSchedule, type TandaPhase } from '@shared/tandaSchedule';
 import {
   EXPENSE_CATEGORIES, EXPENSE_DOCUMENT_TYPES, EXPENSE_PAYMENT_METHODS,
   categoryLabel, documentTypeLabel, paymentMethodLabel, deriveAmounts,
@@ -348,7 +348,7 @@ function AdvanceTandaDialog({ event }: { event: any }) {
   const { data: ticketTypesData } = trpc.events.listTicketTypes.useQuery({ eventId }, { enabled: open });
   const activos = (ticketTypesData ?? []).filter((tt: any) => tt.category === 'acceso' && tt.status === 'active');
 
-  const schedule: number[] = Array.isArray(event.tandaDiscountSchedule) ? event.tandaDiscountSchedule : DEFAULT_TANDA_SCHEDULE;
+  const schedule: TandaPhase[] = normalizeTandaSchedule(event.tandaDiscountSchedule);
   const next = nextPhase(event.tandaPhaseIndex ?? 0, schedule);
 
   type RowDraft = { newPrice: number; newTotalStock: number; newStockPoolId: number | null };
@@ -361,7 +361,7 @@ function AdvanceTandaDialog({ event }: { event: any }) {
     if (open && activos.length > 0 && Object.keys(rows).length === 0) {
       setRows(Object.fromEntries(activos.map((tt: any) => {
         const seedPrice = next && tt.originalPrice
-          ? computePhasePrice(Number(tt.originalPrice), next.percent)
+          ? computePhasePrice(Number(tt.originalPrice), next.phase.percent)
           : Number(tt.price);
         return [tt.id, { newPrice: seedPrice, newTotalStock: tt.totalStock, newStockPoolId: null }];
       })));
@@ -406,7 +406,7 @@ function AdvanceTandaDialog({ event }: { event: any }) {
         ) : (
           <>
             <p className="text-xs font-medium">
-              Vas a pasar a la Fase {next.index + 1} — {next.percent}% de descuento sobre el precio general.
+              Vas a pasar a la Fase {next.index + 1} — {next.phase.percent}% de descuento sobre el precio general.
             </p>
             <p className="text-xs text-muted-foreground">
               Esto cierra para siempre cada acceso activo de abajo (deja de venderse) y crea uno nuevo con el precio y stock que definas acá, ya activo. No se puede deshacer -- si te equivocás, después hay que corregirlo a mano.
@@ -466,20 +466,24 @@ function AdvanceTandaDialog({ event }: { event: any }) {
 /** Escala de descuentos por fase de ESTE evento (Fase 1 = 60%, Fase 2 =
  * 50%...) -- editable acá, pedido explícito del dueño: un evento futuro
  * puede querer una escala distinta. Mismo patrón fila-con-agregar/quitar que
- * ProgramConfigTab, simplificado (un solo número por fase, sin min/max
- * porque acá la fase ES la posición en el arreglo). Guarda con su propia
- * mutación (mismo criterio que StockPoolRow/TicketTypeRow: cada pieza es
- * dueña de su propio guardado, no todo pasa por el form grande de
- * EventCard). Se muestra como sibling de AdvanceTandaDialog, no adentro:
- * la escala se define una vez por evento y rara vez se toca, mientras
- * "Cerrar tanda" se usa seguido durante la campaña -- meterla en el diálogo
- * agregaría fricción cada vez que se abre para algo que casi nunca cambia. */
+ * ProgramConfigTab, simplificado (sin min/max porque acá la fase ES la
+ * posición en el arreglo). Guarda con su propia mutación (mismo criterio
+ * que StockPoolRow/TicketTypeRow: cada pieza es dueña de su propio
+ * guardado, no todo pasa por el form grande de EventCard). Se muestra como
+ * sibling de AdvanceTandaDialog, no adentro: la escala se define una vez
+ * por evento y rara vez se toca, mientras "Cerrar tanda" se usa seguido
+ * durante la campaña -- meterla en el diálogo agregaría fricción cada vez
+ * que se abre para algo que casi nunca cambia.
+ *
+ * Cada fase acepta una fecha límite opcional -- pasada esa fecha (o si el
+ * cupo compartido de la fase se agota antes, lo que ocurra primero), el
+ * sistema pasa solo a la fase siguiente (ver server/tandaAutoAdvance.ts).
+ * Sin fecha, esa fase solo avanza con "Cerrar tanda" a mano, en cualquier
+ * momento -- mismo comportamiento que antes de esta ronda. */
 function TandaScheduleEditor({ event }: { event: any }) {
   const utils = trpc.useUtils();
   const [open, setOpen] = useState(false);
-  const [schedule, setSchedule] = useState<number[]>(
-    Array.isArray(event.tandaDiscountSchedule) ? event.tandaDiscountSchedule : DEFAULT_TANDA_SCHEDULE,
-  );
+  const [schedule, setSchedule] = useState<TandaPhase[]>(normalizeTandaSchedule(event.tandaDiscountSchedule));
 
   const update = trpc.events.update.useMutation({
     onSuccess: () => {
@@ -493,7 +497,7 @@ function TandaScheduleEditor({ event }: { event: any }) {
   return (
     <Dialog open={open} onOpenChange={(v) => {
       setOpen(v);
-      if (v) setSchedule(Array.isArray(event.tandaDiscountSchedule) ? event.tandaDiscountSchedule : DEFAULT_TANDA_SCHEDULE);
+      if (v) setSchedule(normalizeTandaSchedule(event.tandaDiscountSchedule));
     }}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm">Escala de tandas</Button>
@@ -504,17 +508,27 @@ function TandaScheduleEditor({ event }: { event: any }) {
         </DialogHeader>
         <p className="text-xs text-muted-foreground">
           % de descuento sobre el precio general de cada fase, en orden. Fase actual de este evento: {(event.tandaPhaseIndex ?? 0) + 1}.
+          Si le ponés fecha a una fase, pasa sola a la siguiente cuando llegue esa fecha. Si además esa fase vende con cupo
+          compartido y se agota antes, también pasa sola -- lo que ocurra primero. Dejalo vacío para que esa fase solo avance
+          con el botón manual, en cualquier momento.
         </p>
         <div className="space-y-2">
-          {schedule.map((pct, i) => (
+          {schedule.map((phase, i) => (
             <div key={i} className="flex items-end gap-3">
               <div className="text-xs text-muted-foreground w-16">Fase {i + 1}</div>
-              <Input type="number" value={pct} onChange={(e) => setSchedule(schedule.map((x, j) => j === i ? Number(e.target.value) || 0 : x))} className="w-24" />
+              <div>
+                <Label className="text-xs">% descuento</Label>
+                <Input type="number" value={phase.percent} onChange={(e) => setSchedule(schedule.map((x, j) => j === i ? { ...x, percent: Number(e.target.value) || 0 } : x))} className="w-24 mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">Fecha límite (opcional)</Label>
+                <Input type="datetime-local" value={toChileInputValue(phase.untilDate)} onChange={(e) => setSchedule(schedule.map((x, j) => j === i ? { ...x, untilDate: e.target.value ? fromChileInputValue(e.target.value) : null } : x))} className="mt-1" />
+              </div>
               <Button variant="outline" size="sm" className="text-destructive" onClick={() => setSchedule(schedule.filter((_, j) => j !== i))}><Trash2 className="w-3 h-3" /></Button>
             </div>
           ))}
         </div>
-        <Button variant="outline" size="sm" onClick={() => setSchedule([...schedule, 0])}><Plus className="w-3 h-3 mr-1" /> Agregar fase</Button>
+        <Button variant="outline" size="sm" onClick={() => setSchedule([...schedule, { percent: 0 }])}><Plus className="w-3 h-3 mr-1" /> Agregar fase</Button>
         <WriteButton onClick={() => update.mutate({ id: event.id, tandaDiscountSchedule: schedule })} disabled={update.isPending}>
           {update.isPending ? 'Guardando…' : 'Guardar escala'}
         </WriteButton>

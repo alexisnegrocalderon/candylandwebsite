@@ -1,10 +1,11 @@
 import type { Express, Request, Response } from "express";
 import { ENV } from "./_core/env";
 import { processMailingCronBatch } from "./mailing";
-import { purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, getEventHappeningToday, getCajaDashboard } from "./db";
+import { purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, getEventHappeningToday, getCajaDashboard, getHomeEvents } from "./db";
 import { sendEmail, buildCheckinSummaryEmail } from "./email";
 import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
 import { runAbandonedCartCron } from "./orderReminders";
+import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { isWeeklyEmailDay } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 
@@ -92,7 +93,25 @@ export function registerCronRoutes(app: Express) {
         console.error('[Cron] Error mandando recordatorios de carrito abandonado:', err);
       }
 
-      res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, ambassadorWeekly, abandonedCart });
+      // Red de seguridad del avance automático de tanda (ver
+      // server/tandaAutoAdvance.ts): el chequeo real ya corre en cada
+      // consulta pública de precios y después de cada pago aprobado, así
+      // que esto solo cubre el caso límite de una fase vencida por fecha
+      // sin ninguna visita ese día. Mismo motivo de siempre para ir acá
+      // adentro y no en un cron propio: Vercel Hobby ya tiene los 2 cupos
+      // ocupados.
+      let tandaAutoAdvanced = 0;
+      try {
+        const homeEvents = await getHomeEvents();
+        for (const ev of homeEvents) {
+          const advance = await checkAndAdvanceTandaIfNeeded(ev.id);
+          if (advance.advanced) tandaAutoAdvanced++;
+        }
+      } catch (err) {
+        console.error('[Cron] Error chequeando avance automático de tanda:', err);
+      }
+
+      res.json({ success: true, ...result, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, ambassadorWeekly, abandonedCart, tandaAutoAdvanced });
     } catch (err) {
       console.error('[Cron] Error procesando la cola de mailing:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });

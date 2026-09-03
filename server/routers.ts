@@ -14,6 +14,7 @@ import { checkInTicket } from "./caja/checkin";
 import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
+import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import * as applications from "./ambassadorApplications";
 import {
   AMBASSADOR_REQUIREMENTS, AMBASSADOR_TASKS, instagramLinkFor, sanitizeApplicantName,
@@ -510,6 +511,11 @@ export const appRouter = router({
     getTicketTypes: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input }) => {
       const event = await db.getEventBySlug(input.slug);
       if (!event) return [];
+      // Cualquier visitante viendo precios dispara el chequeo de avance
+      // automático de tanda (por fecha o cupo agotado) -- ver
+      // server/tandaAutoAdvance.ts. Home.tsx ya hace polling de esta misma
+      // consulta cada 30s, así que no hace falta ningún cron nuevo.
+      await checkAndAdvanceTandaIfNeeded(event.id);
       return db.getTicketTypesByEventId(event.id);
     }),
     // Admin
@@ -560,9 +566,14 @@ export const appRouter = router({
       featured: z.number().optional(),
       missionForceClosed: z.number().optional(),
       ivaApplies: z.number().optional(),
-      // Escala de descuentos por fase de este evento (ej. [60,50,40,30,0]) --
-      // ver shared/tandaSchedule.ts. Editable desde el admin, por evento.
-      tandaDiscountSchedule: z.array(z.number().min(0).max(100)).optional(),
+      // Escala de descuentos por fase de este evento -- ver
+      // shared/tandaSchedule.ts (TandaPhase[]: % + fecha límite opcional
+      // por fase, para el avance automático). Editable desde el admin, por
+      // evento.
+      tandaDiscountSchedule: z.array(z.object({
+        percent: z.number().min(0).max(100),
+        untilDate: z.string().nullable().optional(),
+      })).optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return db.updateEvent(id, data);

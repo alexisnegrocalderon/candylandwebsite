@@ -3,6 +3,7 @@ import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
 import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid } from './db';
 import { attributeAmbassadorSale } from './ambassadorProgram';
+import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
 import { eq, and, sql, isNotNull, ne, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
@@ -75,6 +76,11 @@ export async function applyPaymentResult(input: {
       for (const item of items) {
         await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
       }
+      // Esta compra puede ser justo la que agota el cupo compartido de la
+      // tanda vigente -- chequea acá mismo si toca pasar de fase sola, en
+      // vez de esperar el próximo poll de otro visitante (ver
+      // server/tandaAutoAdvance.ts).
+      if (order.eventId) await checkAndAdvanceTandaIfNeeded(order.eventId);
     }
 
     if (isMissionDeposit) {
