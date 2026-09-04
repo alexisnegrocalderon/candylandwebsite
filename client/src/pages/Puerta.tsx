@@ -87,7 +87,7 @@ function Login({ onDone }: { onDone: () => void }) {
                 <button
                   key={o.id}
                   onClick={() => setOperatorId(o.id)}
-                  className="w-full h-14 rounded-2xl border border-white/12 text-left px-5 font-semibold active:scale-[0.99] transition-transform"
+                  className="neu-btn w-full h-14 rounded-2xl text-left px-5 font-semibold"
                 >
                   {o.name}
                 </button>
@@ -109,12 +109,12 @@ function Login({ onDone }: { onDone: () => void }) {
               inputMode="numeric"
               autoFocus
               type="password"
-              className="w-full h-16 px-5 rounded-2xl bg-white/[0.06] border border-white/15 text-white text-2xl tracking-[0.4em] text-center focus:border-primary/60 focus:outline-none"
+              className="neu-surface w-full h-16 px-5 rounded-2xl text-white text-2xl tracking-[0.4em] text-center focus:outline-none"
             />
             <button
               disabled={pin.length < 4 || login.isPending}
               onClick={() => login.mutate({ operatorId, pin })}
-              className="w-full h-14 mt-5 rounded-full bg-primary font-bold disabled:opacity-35"
+              className="neu-btn-primary w-full h-14 mt-5 rounded-full bg-primary font-bold disabled:opacity-35"
             >
               {login.isPending ? 'Entrando…' : 'Entrar'}
             </button>
@@ -256,12 +256,18 @@ function Scanner({ operatorName }: { operatorName: string }) {
 
   return (
     <div className="min-h-dvh bg-[#0d0810] text-white flex flex-col">
-      <header className="px-4 py-3 flex items-center justify-between border-b border-white/10 shrink-0">
-        <div>
-          <p className="font-bold leading-tight">{localEvent?.title ?? 'Puerta'}</p>
-          <p className="text-xs text-white/45">{operatorName}</p>
+      <header
+        className="px-4 py-3 flex items-center justify-between border-b border-white/10 shrink-0 gap-3"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <img src="/candyland/logo-isotipo.webp" alt="" aria-hidden className="h-8 w-8 rounded-lg shrink-0" />
+          <div className="min-w-0">
+            <p className="font-bold leading-tight truncate">{localEvent?.title ?? 'Puerta'}</p>
+            <p className="text-xs text-white/45">{operatorName}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {!isOnline && (
             <span className="text-xs px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 inline-flex items-center gap-1">
               <WifiOff className="w-3 h-3" /> Sin señal
@@ -336,7 +342,7 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
 
   return (
     <div className="fixed inset-0 z-50 bg-[#0d0810] flex flex-col">
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="flex-1 overflow-y-auto p-5 max-w-lg w-full mx-auto">
         <div className="flex justify-end -mt-1 -mr-1 mb-2">
           <button onClick={onCerrar} className="p-2 text-white/40" aria-label="Cerrar"><X className="w-6 h-6" /></button>
         </div>
@@ -347,7 +353,7 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
 
         {puedeEntrar && (
           <>
-            <div className="rounded-3xl border border-primary/30 bg-primary/10 p-5 mb-4">
+            <div className="neu-surface rounded-3xl p-5 mb-4 bg-primary/10">
               <p className="text-xs uppercase tracking-widest text-white/50 mb-1">Acceso</p>
               <p className="font-heading font-extrabold text-2xl tracking-tight">{ficha.typeName}</p>
               <p className="text-sm text-white/60 mt-0.5">{personas} {personas === 1 ? 'persona' : 'personas'}</p>
@@ -364,7 +370,7 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
             </p>
 
             {estacionamiento.length > 0 && (
-              <div className="rounded-2xl border border-candy-blue/35 bg-candy-blue/10 p-4 mb-3">
+              <div className="neu-surface rounded-2xl bg-candy-blue/10 p-4 mb-3">
                 <p className="text-xs uppercase tracking-widest text-white/50 mb-1">Estacionamiento</p>
                 {estacionamiento.map((e, i) => (
                   <p key={i} className={`font-bold text-lg ${esVip(e.typeName) ? 'text-amber-300' : ''}`}>
@@ -379,7 +385,7 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
              * No es obligatorio antes de dar acceso: no trabar la fila por
              * alguien que llegó a pie. */}
             {estacionamiento.length === 0 && (
-              <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 mb-3">
+              <div className="neu-surface rounded-2xl p-4 mb-3">
                 <p className="text-xs uppercase tracking-widest text-white/45 mb-2">¿Paga estacionamiento ahora?</p>
                 {cobrando ? (
                   <p className="text-sm text-white/50">Cobrando…</p>
@@ -389,7 +395,7 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
                       <button
                         key={metodo}
                         onClick={() => { setCobrando(true); onCobrarEstacionamiento(metodo); }}
-                        className="h-11 rounded-xl bg-candy-blue/15 border border-candy-blue/30 text-sm font-semibold capitalize"
+                        className="neu-btn h-11 rounded-xl bg-candy-blue/15 text-sm font-semibold capitalize"
                       >
                         {metodo}
                       </button>
@@ -400,7 +406,7 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
             )}
 
             {otrosExtras.length > 0 && (
-              <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 mb-3">
+              <div className="neu-surface rounded-2xl p-4 mb-3">
                 <p className="text-xs uppercase tracking-widest text-white/45 mb-1.5">También compró</p>
                 {otrosExtras.map((e, i) => (
                   <p key={i} className="text-sm text-white/75">{e.typeName}{e.status === 'used' ? ' · ya retirado' : ''}</p>
@@ -411,18 +417,21 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
         )}
       </div>
 
-      <div className="p-4 border-t border-white/10 shrink-0 space-y-2.5">
+      <div
+        className="p-4 border-t border-white/10 shrink-0 space-y-2.5 max-w-lg w-full mx-auto"
+        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+      >
         {puedeEntrar && (
           <>
             <p className="text-center text-sm text-amber-200/90 font-semibold px-2">
               Revisa la cédula y compara con los nombres de arriba
             </p>
-            <button onClick={onAceptar} className="w-full h-16 rounded-full bg-primary text-lg font-bold active:scale-[0.99] transition-transform">
+            <button onClick={onAceptar} className="neu-btn-primary w-full h-16 rounded-full bg-primary text-lg font-bold">
               Coincide — dar acceso
             </button>
           </>
         )}
-        <button onClick={onCerrar} className="w-full h-13 rounded-full border border-white/15 text-white/70 font-semibold">
+        <button onClick={onCerrar} className="neu-btn w-full h-13 rounded-full text-white/70 font-semibold">
           {puedeEntrar ? 'No coincide / cancelar' : 'Volver a escanear'}
         </button>
       </div>
