@@ -1,7 +1,7 @@
 import '@/admin.css';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Camera, Search, WifiOff, X } from 'lucide-react';
+import { Camera, Search, WifiOff, X, Ticket, Car, DollarSign, ShoppingBag } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
@@ -40,6 +40,15 @@ type Ficha = {
 
 function newOpId() {
   return crypto.randomUUID();
+}
+
+/** Iniciales para el avatar circular de "A nombre de" -- primera letra del
+ * nombre y del apellido (o solo la primera si es una sola palabra). */
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
 export default function Puerta() {
@@ -353,16 +362,24 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
 
         {puedeEntrar && (
           <>
-            <div className="neu-surface rounded-3xl p-5 mb-4 bg-primary/10">
+            <div className="neu-surface rounded-3xl p-5 mb-4 bg-primary/10 relative">
+              <span className="neu-btn absolute top-4 right-4 w-9 h-9 rounded-full bg-primary/20 grid place-items-center">
+                <Ticket className="w-4 h-4 text-primary" />
+              </span>
               <p className="text-xs uppercase tracking-widest text-white/50 mb-1">Acceso</p>
-              <p className="font-heading font-extrabold text-2xl tracking-tight">{ficha.typeName}</p>
+              <p className="font-heading font-extrabold text-4xl tracking-tight pr-10">{ficha.typeName}</p>
               <p className="text-sm text-white/60 mt-0.5">{personas} {personas === 1 ? 'persona' : 'personas'}</p>
             </div>
 
             <p className="text-xs uppercase tracking-widest text-white/45 mb-2">A nombre de</p>
-            <div className="space-y-1.5 mb-2">
+            <div className="flex flex-wrap gap-3 mb-2">
               {ficha.attendeeNames.map((n, i) => (
-                <p key={i} className="text-xl font-bold leading-tight">{n}</p>
+                <div key={i} className="flex flex-col items-center w-16 text-center">
+                  <span className="neu-btn w-12 h-12 rounded-full bg-primary/20 grid place-items-center font-heading font-extrabold text-sm">
+                    {initials(n)}
+                  </span>
+                  <p className="text-xs font-semibold leading-tight mt-1.5 truncate w-full">{n}</p>
+                </div>
               ))}
             </div>
             <p className="text-sm text-white/50 mb-5">
@@ -370,8 +387,11 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
             </p>
 
             {estacionamiento.length > 0 && (
-              <div className="neu-surface rounded-2xl bg-candy-blue/10 p-4 mb-3">
-                <p className="text-xs uppercase tracking-widest text-white/50 mb-1">Estacionamiento</p>
+              <div className="neu-surface rounded-2xl bg-candy-blue/10 p-4 mb-3 relative">
+                <span className="neu-btn absolute top-3 right-3 w-8 h-8 rounded-full bg-candy-blue/20 grid place-items-center">
+                  <Car className="w-3.5 h-3.5 text-candy-blue" />
+                </span>
+                <p className="text-xs uppercase tracking-widest text-white/50 mb-1 pr-9">Estacionamiento</p>
                 {estacionamiento.map((e, i) => (
                   <p key={i} className={`font-bold text-lg ${esVip(e.typeName) ? 'text-amber-300' : ''}`}>
                     {esVip(e.typeName) ? '⭐' : '🅿️'} {e.typeName}
@@ -385,8 +405,11 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
              * No es obligatorio antes de dar acceso: no trabar la fila por
              * alguien que llegó a pie. */}
             {estacionamiento.length === 0 && (
-              <div className="neu-surface rounded-2xl p-4 mb-3">
-                <p className="text-xs uppercase tracking-widest text-white/45 mb-2">¿Paga estacionamiento ahora?</p>
+              <div className="neu-surface rounded-2xl p-4 mb-3 relative">
+                <span className="neu-btn absolute top-3 right-3 w-8 h-8 rounded-full bg-candy-blue/20 grid place-items-center">
+                  <DollarSign className="w-3.5 h-3.5 text-candy-blue" />
+                </span>
+                <p className="text-xs uppercase tracking-widest text-white/45 mb-2 pr-9">¿Paga estacionamiento ahora?</p>
                 {cobrando ? (
                   <p className="text-sm text-white/50">Cobrando…</p>
                 ) : (
@@ -406,8 +429,11 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
             )}
 
             {otrosExtras.length > 0 && (
-              <div className="neu-surface rounded-2xl p-4 mb-3">
-                <p className="text-xs uppercase tracking-widest text-white/45 mb-1.5">También compró</p>
+              <div className="neu-surface rounded-2xl p-4 mb-3 relative">
+                <span className="neu-btn absolute top-3 right-3 w-8 h-8 rounded-full bg-white/10 grid place-items-center">
+                  <ShoppingBag className="w-3.5 h-3.5 text-white/70" />
+                </span>
+                <p className="text-xs uppercase tracking-widest text-white/45 mb-1.5 pr-9">También compró</p>
                 {otrosExtras.map((e, i) => (
                   <p key={i} className="text-sm text-white/75">{e.typeName}{e.status === 'used' ? ' · ya retirado' : ''}</p>
                 ))}
@@ -418,22 +444,29 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
       </div>
 
       <div
-        className="p-4 border-t border-white/10 shrink-0 space-y-2.5 max-w-lg w-full mx-auto"
+        className="p-4 shrink-0 max-w-lg w-full mx-auto"
         style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
       >
         {puedeEntrar && (
-          <>
-            <p className="text-center text-sm text-amber-200/90 font-semibold px-2">
-              Revisa la cédula y compara con los nombres de arriba
-            </p>
-            <button onClick={onAceptar} className="neu-btn-primary w-full h-16 rounded-full bg-primary text-lg font-bold">
+          <p className="text-center text-sm text-amber-200/90 font-semibold px-2 mb-3">
+            Revisa la cédula y compara con los nombres de arriba
+          </p>
+        )}
+        <div className="neu-surface rounded-full p-2 flex items-center gap-2">
+          <button
+            onClick={onCerrar}
+            aria-label={puedeEntrar ? 'No coincide / cancelar' : 'Volver a escanear'}
+            className="neu-btn shrink-0 h-13 px-4 rounded-full text-white/70 font-semibold text-sm inline-flex items-center gap-1.5"
+          >
+            <X className="w-4 h-4" />
+            <span>{puedeEntrar ? 'No coincide' : 'Volver a escanear'}</span>
+          </button>
+          {puedeEntrar && (
+            <button onClick={onAceptar} className="neu-btn-primary flex-1 h-14 rounded-full bg-primary text-base font-bold">
               Coincide — dar acceso
             </button>
-          </>
-        )}
-        <button onClick={onCerrar} className="neu-btn w-full h-13 rounded-full text-white/70 font-semibold">
-          {puedeEntrar ? 'No coincide / cancelar' : 'Volver a escanear'}
-        </button>
+          )}
+        </div>
       </div>
     </div>
   );
