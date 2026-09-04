@@ -18,7 +18,16 @@
  *
  * Cuando el evento exista en la base de datos con el slug de `EVENTO.slug`,
  * la sección de entradas usa los datos reales automáticamente.
+ *
+ * ⚠️ Los campos que además viajan en los CORREOS (nombre del evento, fecha,
+ * dress code, datos de marca) NO se escriben acá: viven en
+ * `shared/eventBrand.ts` y se leen desde ahí, porque `server/email.ts`
+ * necesita exactamente los mismos textos. Antes eran una copia manual en
+ * cada lado y se desalinearon (los correos anunciaban el dress code de
+ * Candyland en el aniversario) -- ver el comentario de ese archivo.
  */
+
+import { BRAND, EVENT_BRAND } from '@shared/eventBrand';
 
 export type EstadoAcceso = 'available' | 'last_tickets' | 'soldout' | 'coming_soon';
 
@@ -190,11 +199,11 @@ const ACCESOS: Acceso[] = [
  * la marca deben decir Mansion Playroom, no el nombre del evento de turno.
  * ═══════════════════════════════════════════════════════════════ */
 export const MARCA = {
-  nombre: 'Mansion Playroom',
-  ciudad: 'Valparaíso, Chile',
-  lugar: 'La Mansión — dirección exacta al comprar',
-  valores: ['Respeto', 'Consentimiento', 'Libertad'] as const,
-  edadMinima: 18,
+  nombre: BRAND.nombre,
+  ciudad: BRAND.ciudad,
+  lugar: BRAND.lugar,
+  valores: BRAND.valores,
+  edadMinima: BRAND.edadMinima,
 } as const;
 
 /* ═══════════════════════════════════════════════════════════════
@@ -216,7 +225,7 @@ export const EVENTO = {
   // Halloween acá a propósito (decisión del dueño): el foco es el
   // aniversario, no Halloween -- el disfraz obligatorio va solo en el dress
   // code, como dato práctico, no como estética del sitio.
-  nombre: 'ANIVERSARIO',
+  nombre: EVENT_BRAND.nombre,
   tagline: 'Dos años de la fiesta liberal más grande de la V Región',
   heroTitulo: 'Dos años de mansión. Una noche para celebrarlo -- con disfraz obligatorio.',
 
@@ -228,13 +237,13 @@ export const EVENTO = {
   // ⚠️ Reemplazar `eventDate` por la hora real apenas esté definida.
   fechaConfirmada: true,
   eventDate: new Date('2026-10-30T21:00:00-03:00'),
-  fechaTexto: 'Viernes 30 de octubre',
-  horarioTexto: 'Hora por confirmar',
+  fechaTexto: EVENT_BRAND.fechaTexto,
+  horarioTexto: EVENT_BRAND.horarioTexto,
   afterTexto: 'After hasta el amanecer',
   // Disfraz obligatorio como dato práctico del dress code, sin tematizar el
   // resto del sitio en Halloween (decisión del dueño: eso queda para la
   // landing especial de la campaña, no para el home).
-  dressCode: 'Disfraz obligatorio: es nuestro 2º aniversario y lo celebramos en grande. Además de tu disfraz, que te haga sentir irresistible -- nada de tenida deportiva.',
+  dressCode: EVENT_BRAND.dressCode,
 } as const;
 
 /* `CANDYLAND` se conserva como objeto compuesto para no romper los archivos
