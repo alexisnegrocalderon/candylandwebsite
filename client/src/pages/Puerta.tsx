@@ -1,7 +1,7 @@
 import '@/admin.css';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Camera, Search, WifiOff, X } from 'lucide-react';
+import { Camera, Search, WifiOff, X, Ticket, Car, DollarSign, ShoppingBag } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
@@ -31,9 +31,9 @@ type Ficha = {
    * invitación especial instantánea (un solo QR para todo un grupo). */
   groupSize: number | null;
   status: string;
-  attendeeNames: string[];
-  /** RUT de quien compró -- no hay uno por asistente, ver `caja/db.ts`. */
-  rut: string | null;
+  /** Titular + acompañantes, cada uno con su propio nombre y RUT -- ver
+   * `caja/db.ts`. */
+  attendees: { name: string; rut: string | null }[];
   extras: { typeName: string; status: string }[];
   buyerName: string;
 };
@@ -50,7 +50,7 @@ export default function Puerta() {
 
   const me = trpc.puerta.me.useQuery();
   if (me.isLoading) {
-    return <div className="min-h-dvh grid place-items-center bg-[#0d0810]"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
+    return <div className="min-h-dvh grid place-items-center puerta-bg"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
   }
   if (!me.data) return <Login onDone={() => me.refetch()} />;
   return <Scanner operatorName={me.data.name} />;
@@ -69,7 +69,7 @@ function Login({ onDone }: { onDone: () => void }) {
   });
 
   return (
-    <div className="min-h-dvh bg-[#0d0810] text-white px-5 py-10">
+    <div className="min-h-dvh puerta-bg text-white px-5 py-10">
       <div className="max-w-sm mx-auto">
         <img
           src="/candyland/logo-wordmark.webp"
@@ -87,7 +87,7 @@ function Login({ onDone }: { onDone: () => void }) {
                 <button
                   key={o.id}
                   onClick={() => setOperatorId(o.id)}
-                  className="w-full h-14 rounded-2xl border border-white/12 text-left px-5 font-semibold active:scale-[0.99] transition-transform"
+                  className="glass-btn w-full h-14 rounded-2xl text-left px-5 font-semibold text-white/95"
                 >
                   {o.name}
                 </button>
@@ -109,12 +109,12 @@ function Login({ onDone }: { onDone: () => void }) {
               inputMode="numeric"
               autoFocus
               type="password"
-              className="w-full h-16 px-5 rounded-2xl bg-white/[0.06] border border-white/15 text-white text-2xl tracking-[0.4em] text-center focus:border-primary/60 focus:outline-none"
+              className="glass-surface w-full h-16 px-5 rounded-2xl text-white text-2xl tracking-[0.4em] text-center focus:outline-none"
             />
             <button
               disabled={pin.length < 4 || login.isPending}
               onClick={() => login.mutate({ operatorId, pin })}
-              className="w-full h-14 mt-5 rounded-full bg-primary font-bold disabled:opacity-35"
+              className="glass-btn-primary w-full h-14 mt-5 rounded-full text-white font-bold disabled:opacity-35"
             >
               {login.isPending ? 'Entrando…' : 'Entrar'}
             </button>
@@ -202,8 +202,7 @@ function Scanner({ operatorName }: { operatorName: string }) {
       accesoSlug: acc.accesoSlug,
       groupSize: acc.groupSize ?? null,
       status: acc.status,
-      attendeeNames: attendee.attendeeNames ?? [attendee.buyerName],
-      rut: attendee.rut ?? null,
+      attendees: attendee.attendees?.length ? attendee.attendees : [{ name: attendee.buyerName, rut: null }],
       extras: attendee.extras.map((e) => ({ typeName: e.typeName, status: e.status })),
       buyerName: attendee.buyerName,
     };
@@ -217,7 +216,7 @@ function Scanner({ operatorName }: { operatorName: string }) {
     if (!f) {
       // Sin ficha local: puede ser de otro evento o de una compra hecha
       // en el último minuto, todavía no descargada.
-      setFicha({ ticketCode: code, typeName: '', accesoSlug: null, groupSize: null, status: 'desconocido', attendeeNames: [], rut: null, extras: [], buyerName: '' });
+      setFicha({ ticketCode: code, typeName: '', accesoSlug: null, groupSize: null, status: 'desconocido', attendees: [], extras: [], buyerName: '' });
     } else {
       setFicha(f);
     }
@@ -240,16 +239,34 @@ function Scanner({ operatorName }: { operatorName: string }) {
     setScanning(true);
   };
 
+  // No cierra la ficha (a diferencia de darAcceso): el anfitrión puede
+  // seguir viendo los nombres/RUT mientras confirma con el auto, y recién
+  // cierra con "Aprobar acceso" o "Volver a escanear".
+  const cobrarEstacionamiento = async (ticketCode: string, metodo: 'efectivo' | 'debito' | 'credito') => {
+    await enqueueOp({ opId: newOpId(), type: 'parking_paid', ticketCode, paymentMethod: metodo, clientAt: (await correctedNow()).toISOString() });
+    toast.success('Estacionamiento cobrado 🅿️');
+    refreshPending();
+    setFicha((prev) => (prev && prev.ticketCode === ticketCode)
+      ? { ...prev, extras: [...prev.extras, { typeName: 'Estacionamiento', status: 'used' }] }
+      : prev);
+  };
+
   const cerrar = () => { setFicha(null); setScanning(true); };
 
   return (
-    <div className="min-h-dvh bg-[#0d0810] text-white flex flex-col">
-      <header className="px-4 py-3 flex items-center justify-between border-b border-white/10 shrink-0">
-        <div>
-          <p className="font-bold leading-tight">{localEvent?.title ?? 'Puerta'}</p>
-          <p className="text-xs text-white/45">{operatorName}</p>
+    <div className="min-h-dvh puerta-bg text-white flex flex-col">
+      <header
+        className="px-4 py-3 flex items-center justify-between border-b border-white/10 shrink-0 gap-3"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <img src="/candyland/logo-isotipo.webp" alt="" aria-hidden className="h-8 w-8 rounded-lg shrink-0" />
+          <div className="min-w-0">
+            <p className="font-bold leading-tight truncate">{localEvent?.title ?? 'Puerta'}</p>
+            <p className="text-xs text-white/45">{operatorName}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {!isOnline && (
             <span className="text-xs px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-300 inline-flex items-center gap-1">
               <WifiOff className="w-3 h-3" /> Sin señal
@@ -277,7 +294,14 @@ function Scanner({ operatorName }: { operatorName: string }) {
         </p>
       </QrScanner>
 
-      {ficha && <FichaVerificacion ficha={ficha} onAceptar={() => darAcceso(ficha.ticketCode)} onCerrar={cerrar} />}
+      {ficha && (
+        <FichaVerificacion
+          ficha={ficha}
+          onAceptar={() => darAcceso(ficha.ticketCode)}
+          onCerrar={cerrar}
+          onCobrarEstacionamiento={(metodo) => cobrarEstacionamiento(ficha.ticketCode, metodo)}
+        />
+      )}
 
       {buscando && (
         <BuscarPorNombre
@@ -297,13 +321,15 @@ function Scanner({ operatorName }: { operatorName: string }) {
 
 /* --- Ficha de verificación ------------------------------------------------ */
 
-function FichaVerificacion({ ficha, onAceptar, onCerrar }: {
+function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento }: {
   ficha: Ficha;
   onAceptar: () => void;
   onCerrar: () => void;
+  onCobrarEstacionamiento: (metodo: 'efectivo' | 'debito' | 'credito') => void;
 }) {
   const personas = personasForTicket(ficha.groupSize, ficha.accesoSlug);
   const puedeEntrar = ficha.status === 'valid';
+  const [cobrando, setCobrando] = useState(false);
 
   // El estacionamiento es lo primero que el anfitrión necesita saber para
   // decirle al auto dónde ir, así que va destacado y aparte del resto.
@@ -314,8 +340,8 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar }: {
   const esVip = (nombre: string) => /vip/i.test(nombre);
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0d0810] flex flex-col">
-      <div className="flex-1 overflow-y-auto p-5">
+    <div className="fixed inset-0 z-50 puerta-bg flex flex-col">
+      <div className="flex-1 overflow-y-auto p-5 max-w-lg w-full mx-auto">
         <div className="flex justify-end -mt-1 -mr-1 mb-2">
           <button onClick={onCerrar} className="p-2 text-white/40" aria-label="Cerrar"><X className="w-6 h-6" /></button>
         </div>
@@ -326,25 +352,47 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar }: {
 
         {puedeEntrar && (
           <>
-            <div className="rounded-3xl border border-primary/30 bg-primary/10 p-5 mb-4">
-              <p className="text-xs uppercase tracking-widest text-white/50 mb-1">Acceso</p>
-              <p className="font-heading font-extrabold text-2xl tracking-tight">{ficha.typeName}</p>
-              <p className="text-sm text-white/60 mt-0.5">{personas} {personas === 1 ? 'persona' : 'personas'}</p>
+            <div className="glass-surface rounded-[28px] p-6 mb-4 relative bg-gradient-to-br from-primary/20 to-transparent">
+              <span className="glass-btn absolute top-5 right-5 w-9 h-9 rounded-full grid place-items-center">
+                <Ticket className="w-4 h-4 text-primary" />
+              </span>
+              <p className="text-xs uppercase tracking-widest text-white/55 mb-1">Acceso</p>
+              <p className="font-heading font-extrabold text-4xl tracking-tight pr-12 leading-[1.05]">{ficha.typeName}</p>
+              <p className="text-sm text-white/60 mt-1.5">{personas} {personas === 1 ? 'persona' : 'personas'}</p>
             </div>
 
-            <p className="text-xs uppercase tracking-widest text-white/45 mb-2">A nombre de</p>
-            <div className="space-y-1.5 mb-2">
-              {ficha.attendeeNames.map((n, i) => (
-                <p key={i} className="text-xl font-bold leading-tight">{n}</p>
-              ))}
+            {/* Cada persona del acceso con SU nombre y SU RUT -- no solo el
+             * titular -- porque el anfitrión compara a cada una contra su
+             * propia cédula. El tamaño de letra se achica un poco a medida
+             * que hay más personas, para que todas quepan sin scroll en un
+             * Dúo/Trío/grupo sin dejar de leerse bien. */}
+            <div className="glass-surface rounded-3xl p-5 mb-4 divide-y divide-white/10">
+              {ficha.attendees.map((p, i) => {
+                const n = ficha.attendees.length;
+                const nameSize = n <= 1 ? 'text-2xl' : n === 2 ? 'text-xl' : 'text-lg';
+                const rutSize = n <= 1 ? 'text-4xl' : n === 2 ? 'text-3xl' : 'text-2xl';
+                return (
+                  <div key={i} className={i === 0 ? 'pb-3.5' : 'py-3.5'}>
+                    <p className="text-xs uppercase tracking-widest text-white/45 mb-1">
+                      {ficha.attendees.length > 1 ? `Persona ${i + 1}` : 'A nombre de'}
+                    </p>
+                    <p className={`${nameSize} font-bold leading-snug`}>{p.name}</p>
+                    {p.rut ? (
+                      <p className={`${rutSize} font-mono font-bold tracking-wider mt-1`}>{p.rut}</p>
+                    ) : (
+                      <p className="text-sm text-amber-200/80 mt-1">RUT no registrado — pídelo verbalmente</p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <p className="text-sm text-white/50 mb-5">
-              {ficha.rut ? `RUT ${ficha.rut}` : 'RUT no registrado — pídelo verbalmente'}
-            </p>
 
             {estacionamiento.length > 0 && (
-              <div className="rounded-2xl border border-candy-blue/35 bg-candy-blue/10 p-4 mb-3">
-                <p className="text-xs uppercase tracking-widest text-white/50 mb-1">Estacionamiento</p>
+              <div className="glass-surface rounded-2xl p-4 mb-3 relative bg-gradient-to-br from-candy-blue/20 to-transparent">
+                <span className="glass-btn absolute top-3.5 right-3.5 w-8 h-8 rounded-full grid place-items-center">
+                  <Car className="w-3.5 h-3.5 text-candy-blue" />
+                </span>
+                <p className="text-xs uppercase tracking-widest text-white/55 mb-1 pr-9">Estacionamiento</p>
                 {estacionamiento.map((e, i) => (
                   <p key={i} className={`font-bold text-lg ${esVip(e.typeName) ? 'text-amber-300' : ''}`}>
                     {esVip(e.typeName) ? '⭐' : '🅿️'} {e.typeName}
@@ -353,11 +401,42 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar }: {
               </div>
             )}
 
+            {/* Solo se ofrece cobrar si esta ficha todavía NO tiene
+             * estacionamiento -- online, de staff, o ya cobrado acá mismo.
+             * No es obligatorio antes de dar acceso: no trabar la fila por
+             * alguien que llegó a pie. */}
+            {estacionamiento.length === 0 && (
+              <div className="glass-surface rounded-2xl p-4 mb-3 relative bg-gradient-to-br from-candy-blue/10 to-transparent">
+                <span className="glass-btn absolute top-3.5 right-3.5 w-8 h-8 rounded-full grid place-items-center">
+                  <DollarSign className="w-3.5 h-3.5 text-candy-blue" />
+                </span>
+                <p className="text-xs uppercase tracking-widest text-white/55 mb-2 pr-9">¿Paga estacionamiento ahora?</p>
+                {cobrando ? (
+                  <p className="text-sm text-white/50">Cobrando…</p>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['efectivo', 'debito', 'credito'] as const).map((metodo) => (
+                      <button
+                        key={metodo}
+                        onClick={() => { setCobrando(true); onCobrarEstacionamiento(metodo); }}
+                        className="glass-btn h-12 rounded-xl text-sm font-semibold capitalize text-white/95"
+                      >
+                        {metodo}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {otrosExtras.length > 0 && (
-              <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 mb-3">
-                <p className="text-xs uppercase tracking-widest text-white/45 mb-1.5">También compró</p>
+              <div className="glass-surface rounded-2xl p-4 mb-3 relative">
+                <span className="glass-btn absolute top-3.5 right-3.5 w-8 h-8 rounded-full grid place-items-center">
+                  <ShoppingBag className="w-3.5 h-3.5 text-white/70" />
+                </span>
+                <p className="text-xs uppercase tracking-widest text-white/55 mb-1.5 pr-9">También compró</p>
                 {otrosExtras.map((e, i) => (
-                  <p key={i} className="text-sm text-white/75">{e.typeName}{e.status === 'used' ? ' · ya retirado' : ''}</p>
+                  <p key={i} className="text-sm text-white/80">{e.typeName}{e.status === 'used' ? ' · ya retirado' : ''}</p>
                 ))}
               </div>
             )}
@@ -365,18 +444,21 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar }: {
         )}
       </div>
 
-      <div className="p-4 border-t border-white/10 shrink-0 space-y-2.5">
+      <div
+        className="p-4 shrink-0 space-y-2.5 max-w-lg w-full mx-auto"
+        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+      >
         {puedeEntrar && (
           <>
             <p className="text-center text-sm text-amber-200/90 font-semibold px-2">
               Revisa la cédula y compara con los nombres de arriba
             </p>
-            <button onClick={onAceptar} className="w-full h-16 rounded-full bg-primary text-lg font-bold active:scale-[0.99] transition-transform">
+            <button onClick={onAceptar} className="glass-btn-primary w-full h-16 rounded-full text-white text-lg font-bold">
               Coincide — dar acceso
             </button>
           </>
         )}
-        <button onClick={onCerrar} className="w-full h-13 rounded-full border border-white/15 text-white/70 font-semibold">
+        <button onClick={onCerrar} className="glass-btn w-full h-13 rounded-full text-white/85 font-semibold">
           {puedeEntrar ? 'No coincide / cancelar' : 'Volver a escanear'}
         </button>
       </div>
@@ -406,7 +488,7 @@ function BuscarPorNombre({ query, onQuery, results, onPick, onClose }: {
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 bg-[#0d0810] flex flex-col p-4">
+    <div className="fixed inset-0 z-50 puerta-bg flex flex-col p-4">
       <div className="flex items-center gap-2 mb-4">
         <input
           value={query}

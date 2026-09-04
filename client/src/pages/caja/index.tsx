@@ -1,7 +1,7 @@
 import '@/admin.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Camera, X } from 'lucide-react';
+import { Camera, X, ShoppingCart, Search, LayoutDashboard, AlertTriangle, LogOut } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { Button } from '@/components/ui/button';
@@ -51,7 +51,7 @@ export default function CajaApp() {
 
   if (loadingDevice) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] flex items-center justify-center">
+      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -73,7 +73,7 @@ function DeviceEnroll() {
   });
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
+    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
       <h1 className="text-xl font-bold">Enrolar este dispositivo</h1>
       <p className="text-white/60 text-sm text-center max-w-xs">Pide el código de enrolamiento a un administrador (Panel Admin → Caja → Dispositivos).</p>
       <Input
@@ -94,7 +94,7 @@ function OperatorGate() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] flex items-center justify-center">
+      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -172,7 +172,7 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
   // denominaciones: si hay turno abierto, pedirlo sería el bug de nuevo.
   if (registerId !== undefined && !shiftStarted && shiftLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex items-center justify-center">
+      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex items-center justify-center">
         <p className="text-white/60 text-sm">Revisando si hay un turno abierto…</p>
       </div>
     );
@@ -203,7 +203,7 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
+    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
       <h1 className="text-xl font-bold">Hola, {operator.name} 👋</h1>
       <p className="text-white/60 text-sm">Elige tu caja para este turno</p>
       <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
@@ -274,7 +274,7 @@ function DenominationCounter({ initialQuantities, onComplete, onExit, finalLabel
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
+    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
       <button onClick={back} className="text-white/50 text-sm self-start">← Volver</button>
       <p className="text-white/40 text-xs uppercase tracking-wide">Paso {step + 1} de {DENOMINATIONS.length}</p>
       <h1 className="text-xl font-bold text-center">{denom.label}</h1>
@@ -428,7 +428,7 @@ function PinLogin() {
 
   if (!selected) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-8 p-6">
+      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-8 p-6">
         <h1 className="text-2xl font-bold tracking-tight">Mansion Playroom · Caja</h1>
         <p className="text-white/60 text-sm -mt-6">Toca tu nombre</p>
         <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
@@ -455,7 +455,7 @@ function PinLogin() {
   const submit = (finalPin: string) => login.mutate({ operatorId: selected.id, pin: finalPin });
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
+    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
       <button onClick={() => { setSelected(null); setPin(''); }} className="text-white/50 text-sm">← Cambiar de operador</button>
       <h1 className="text-xl font-bold">{selected.name}</h1>
       <div className="flex gap-3">
@@ -546,11 +546,18 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const syncingRef = useRef(false);
   const runSync = useCallback(async () => {
     if (syncingRef.current || !isOnline || !localEvent) return;
-    const opsToSync = await getPendingOps();
+    // La cola es compartida con /puerta (mismo IndexedDB, distinto origen de
+    // operaciones) -- 'parking_paid' es exclusivo de la puerta, así que
+    // /caja lo deja pasar de largo en vez de mandarlo a un endpoint que no
+    // lo entiende. Se sincroniza igual, solo que desde /puerta.
+    const opsToSync = (await getPendingOps()).filter((o) => o.op.type !== 'parking_paid');
     if (opsToSync.length === 0) return;
     syncingRef.current = true;
     try {
-      const results = await syncMutation.mutateAsync({ eventId: localEvent.id, registerId: registerId ?? undefined, ops: opsToSync.slice(0, 50).map((o) => o.op) as QueuedOp[] });
+      const results = await syncMutation.mutateAsync({
+        eventId: localEvent.id, registerId: registerId ?? undefined,
+        ops: opsToSync.slice(0, 50).map((o) => o.op) as Exclude<QueuedOp, { type: 'parking_paid' }>[],
+      });
       for (const [opId, res] of Object.entries(results)) {
         await markOpSynced(opId, res.result, res.conflictNote);
         if (res.result === 'conflict') toast.warning(`Conflicto al sincronizar: ${res.conflictNote || 'revisar con supervisor'}`);
@@ -638,40 +645,36 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
 
   if (!localEvent) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex items-center justify-center p-6 text-center">
+      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex items-center justify-center p-6 text-center">
         <p className="text-white/60">{isOnline ? 'Cargando evento…' : 'Sin conexión y sin datos guardados todavía. Conéctate una vez para descargar el evento.'}</p>
       </div>
     );
   }
 
+  const onCerrarTurno = async () => {
+    // Protocolo de pendientes (§13, riesgo 2): no cerrar turno con ops sin
+    // sincronizar -- se resuelve en la UI, no en el servidor.
+    const stillPending = await pendingOpsCount();
+    if (stillPending > 0) { toast.error(`Todavía hay ${stillPending} operación${stillPending > 1 ? 'es' : ''} sin sincronizar. Espera a que termine.`); return; }
+    setShowCloseForm(true);
+  };
+
+  // `fixed inset-0` (no `min-h-screen`) a propósito en TODAS las pantallas de
+  // /caja: saca la pantalla del flujo normal del documento, así el body de
+  // atrás nunca tiene por qué ser más alto que el viewport y no hay rebote
+  // (rubber-band) al arrastrar en iOS/iPadOS -- pedido explícito del dueño,
+  // la pantalla debe quedar fija sin ningún movimiento. `overscroll-none`
+  // en la pantalla y `overscroll-contain` en cada zona con scroll interno
+  // (grilla, ventas recientes, carrito) evitan que ESAS regiones encadenen
+  // el rebote hacia afuera al llegar a su propio borde.
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white">
-      <header className="sticky top-0 z-10 bg-[#150d13]/80 backdrop-blur-xl border-b border-white/10 px-4 py-3 flex items-center justify-between">
+    <div className="fixed inset-0 overflow-hidden overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col">
+      <header className="shrink-0 z-10 bg-[#150d13]/80 backdrop-blur-xl border-b border-white/10 px-4 py-3 flex items-center justify-between">
         <div>
           <p className="font-bold leading-tight">{localEvent.title}</p>
           <p className="text-xs text-white/50">{operator.name} · {operator.role}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <SyncBadge online={isOnline} pending={pending} />
-          {view !== 'menu' && (
-            <Button variant="outline" size="sm" className="border-white/15 text-white" onClick={() => { setView('menu'); setSelectedOrderId(null); }}>
-              ← Volver
-            </Button>
-          )}
-          <Button
-            variant="outline" size="sm" className="border-white/15 text-white"
-            disabled={shiftClose.isPending}
-            onClick={async () => {
-              // Protocolo de pendientes (§13, riesgo 2): no cerrar turno con
-              // ops sin sincronizar -- se resuelve en la UI, no en el servidor.
-              const stillPending = await pendingOpsCount();
-              if (stillPending > 0) { toast.error(`Todavía hay ${stillPending} operación${stillPending > 1 ? 'es' : ''} sin sincronizar. Espera a que termine.`); return; }
-              setShowCloseForm(true);
-            }}
-          >
-            Cerrar turno
-          </Button>
-        </div>
+        <SyncBadge online={isOnline} pending={pending} />
       </header>
 
       {scanning && (
@@ -721,10 +724,13 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         />
       )}
 
-      {/* "Nueva venta" (view === 'sale') usa el ancho completo -- el resto de
-          las vistas son listas/formularios angostos que se mantienen
-          centrados con su propio max-w-lg, en vez de angostar todo por igual. */}
-      <main className="p-4">
+      <div className="flex-1 flex min-h-0">
+        <CajaSidebar view={view} setView={setView} setSelectedOrderId={setSelectedOrderId} isSupervisor={isSupervisor} onCerrarTurno={onCerrarTurno} closingTurno={shiftClose.isPending} />
+
+        {/* "Nueva venta" (view === 'sale') usa el ancho completo -- el resto de
+            las vistas son listas/formularios angostos que se mantienen
+            centrados con su propio max-w-lg, en vez de angostar todo por igual. */}
+        <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain p-4">
         {view === 'menu' && (
           <div className="max-w-lg mx-auto space-y-6">
             <div>
@@ -856,7 +862,8 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
             <CajaDashboard eventId={localEvent.id} />
           </div>
         )}
-      </main>
+        </main>
+      </div>
 
       {postSaleConfirms.length > 0 && (() => {
         const c = postSaleConfirms[0];
@@ -885,6 +892,61 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         );
       })()}
     </div>
+  );
+}
+
+/** Franja de navegación entre las 4 secciones de /caja -- antes se llegaba a
+ * cada una desde botones grandes en `view === 'menu'` y se volvía con "←
+ * Volver" en el header; ahora queda siempre visible a la izquierda, mismo
+ * criterio que el dashboard de referencia que pidió el dueño. */
+function CajaSidebar({ view, setView, setSelectedOrderId, isSupervisor, onCerrarTurno, closingTurno }: {
+  view: View;
+  setView: (v: View) => void;
+  setSelectedOrderId: (id: number | null) => void;
+  isSupervisor: boolean;
+  onCerrarTurno: () => void;
+  closingTurno: boolean;
+}) {
+  const go = (v: View) => { setSelectedOrderId(null); setView(v); };
+  const items: { view: View; label: string; icon: typeof ShoppingCart }[] = [
+    { view: 'sale', label: 'Nueva venta', icon: ShoppingCart },
+    { view: 'menu', label: 'Buscar', icon: Search },
+    { view: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    ...(isSupervisor ? [{ view: 'conflicts' as View, label: 'Conflictos', icon: AlertTriangle }] : []),
+  ];
+  // La ficha de un cliente (view === 'sheet') se llega desde una búsqueda o
+  // un escaneo, no es un destino propio del sidebar -- se resalta "Buscar"
+  // mientras se está ahí, para que el ícono activo nunca quede "apagado".
+  const activeView = view === 'sheet' ? 'menu' : view;
+  return (
+    <nav className="w-16 md:w-20 shrink-0 border-r border-white/10 flex flex-col items-center py-4 gap-1">
+      <img src="/candyland/logo-isotipo.webp" alt="" aria-hidden className="h-8 w-8 rounded-lg mb-3" />
+      {items.map((it) => {
+        const Icon = it.icon;
+        const active = activeView === it.view;
+        return (
+          <button
+            key={it.view}
+            onClick={() => go(it.view)}
+            className={`w-12 md:w-16 flex flex-col items-center gap-1 py-2 rounded-xl transition-colors ${active ? 'bg-primary/20 text-primary' : 'text-white/50 hover:text-white/80'}`}
+            aria-label={it.label}
+          >
+            <Icon className="w-5 h-5" />
+            <span className="text-[10px] font-medium leading-none text-center hidden md:block">{it.label}</span>
+          </button>
+        );
+      })}
+      <div className="flex-1" />
+      <button
+        onClick={onCerrarTurno}
+        disabled={closingTurno}
+        className="w-12 md:w-16 flex flex-col items-center gap-1 py-2 rounded-xl text-white/50 hover:text-red-300 disabled:opacity-40"
+        aria-label="Cerrar turno"
+      >
+        <LogOut className="w-5 h-5" />
+        <span className="text-[10px] font-medium leading-none text-center hidden md:block">Cerrar turno</span>
+      </button>
+    </nav>
   );
 }
 
@@ -994,11 +1056,18 @@ function CustomerSheet({ orderId, onRedeem, onCheckIn, canVoid, onVoid, voiding 
 // Mismo agrupado que el admin (Dashboard.tsx CARTA_CATEGORIES): la cajera ve
 // las mismas categorías con las que se cargó la carta. `extra` son los
 // addons que TAMBIÉN se venden en la web (estacionamiento, covers).
-const CATEGORY_META: Record<string, { label: string; emoji: string }> = {
-  consumo: { label: 'Tragos y comida', emoji: '🍹' },
-  locker: { label: 'Guardarropía', emoji: '🧥' },
-  merch: { label: 'Merch', emoji: '🎁' },
-  extra: { label: 'Extras', emoji: '🎫' },
+const CATEGORY_META: Record<string, { label: string; emoji: string; color: string }> = {
+  consumo: { label: 'Tragos y comida', emoji: '🍹', color: '#f472b6' },
+  locker: { label: 'Guardarropía', emoji: '🧥', color: '#818cf8' },
+  merch: { label: 'Merch', emoji: '🎁', color: '#fbbf24' },
+  extra: { label: 'Extras', emoji: '🎫', color: '#34d399' },
+};
+
+const PAYMENT_METHOD_META: Record<'efectivo' | 'debito' | 'credito' | 'qr', { label: string; badgeClass: string }> = {
+  efectivo: { label: 'Efectivo', badgeClass: 'bg-emerald-500/15 text-emerald-300' },
+  debito: { label: 'Débito', badgeClass: 'bg-sky-500/15 text-sky-300' },
+  credito: { label: 'Crédito', badgeClass: 'bg-sky-500/15 text-sky-300' },
+  qr: { label: 'QR', badgeClass: 'bg-violet-500/15 text-violet-300' },
 };
 
 function NewSale({ eventId, registerId, catalogVersion, onSale }: {
@@ -1039,13 +1108,6 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
   const [favorites, setFavorites] = useState<number[]>(() => getFavoriteIds());
   const [editingFavorites, setEditingFavorites] = useState(false);
   const FAVORITES_TAB = '__favoritos__';
-  // Solo mobile (< sm): el panel de cobro completo tapaba toda la grilla de
-  // productos porque `sticky bottom-4` sin tope de altura, en un viewport
-  // chico con solo 2 columnas de productos, termina cubriendo casi toda la
-  // pantalla apenas hay algo en el carrito. En tablet/desktop (sm: en
-  // adelante) el panel de siempre sigue igual, sin este estado. Arranca
-  // colapsado -- se expande recién cuando el cajero quiere cobrar.
-  const [cartExpanded, setCartExpanded] = useState(false);
 
   // Mantener presionada una tarjeta muestra sus ingredientes/sabores (pedido
   // explícito del dueño, para responder preguntas del cliente en el momento).
@@ -1108,6 +1170,11 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerSearchResults, setCustomerSearchResults] = useState<CajaAttendee[]>([]);
   const utils = trpc.useUtils();
+
+  // "Ventas recientes" de la tabla de abajo -- mismo endpoint que ya usa el
+  // Dashboard de caja (react-query lo cachea por `eventId`, así que no es
+  // una llamada nueva al servidor si ya se pidió antes en este turno).
+  const { data: dashboardData } = trpc.caja.dashboard.useQuery({ eventId });
 
   useEffect(() => {
     if (!customerSearch.trim()) { setCustomerSearchResults([]); return; }
@@ -1177,6 +1244,14 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
   // "Favoritos" va primero, solo si la cajera ya marcó al menos uno.
   const sectionTabs = Array.from(new Set(catalog.map((p) => p.groupName || p.category)));
   const tabs = favorites.length > 0 ? [FAVORITES_TAB, ...sectionTabs] : sectionTabs;
+  // Un grupo (ej. "Tragos") no tiene color propio -- se tiñe el círculo con
+  // el color de SU categoría padre (consumo/locker/merch/extra), tomando el
+  // primer producto de ese grupo para saber a qué categoría pertenece.
+  const tabColor = (t: string) => {
+    if (t === FAVORITES_TAB) return '#fbbf24';
+    const item = catalog.find((p) => (p.groupName || p.category) === t);
+    return CATEGORY_META[item?.category ?? '']?.color ?? '#f472b6';
+  };
   const productsInTab = tab === FAVORITES_TAB
     ? catalog.filter((p) => favorites.includes(p.id))
     : catalog.filter((p) => (p.groupName || p.category) === tab);
@@ -1260,7 +1335,6 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
       return;
     }
     setCart({});
-    setCartExpanded(false);
     setBuyerEmail('');
     setBalance(null);
     setRedeemInput('');
@@ -1295,8 +1369,8 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-5">
-      <div className="flex items-center justify-between gap-3">
+    <div className="h-full flex flex-col gap-5">
+      <div className="shrink-0 flex items-center justify-between gap-3">
         <h2 className="text-xl font-bold">Nueva venta</h2>
         {catalog.length > 0 && (
           <button
@@ -1309,7 +1383,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
       </div>
 
       {editingFavorites && (
-        <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+        <p className="shrink-0 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
           Toca los productos que más vendes para agregarlos a "⭐ Favoritos" -- mientras este modo esté activo, tocar un producto no lo agrega a la venta.
         </p>
       )}
@@ -1317,303 +1391,312 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
       {catalog.length === 0 ? (
         <p className="text-white/50 text-sm">Todavía no hay productos cargados para este evento. Se cargan desde Admin → Carta de la Fiesta.</p>
       ) : (
-        <div className="flex gap-4 items-start">
-          {/* Categorías en columna, siempre visibles de un vistazo -- sin scroll horizontal. */}
-          <div className="w-40 md:w-48 shrink-0 flex flex-col gap-2">
-            {tabs.map((t) => {
-              const meta = t === FAVORITES_TAB ? { label: 'Favoritos', emoji: '⭐' } : (CATEGORY_META[t] ?? { label: t, emoji: '🛍️' });
-              return (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={`text-left px-4 py-2.5 rounded-2xl text-sm font-medium transition-colors ${tab === t ? 'bg-primary text-white' : 'bg-white/5 text-white/60'}`}
-                >
-                  {meta.emoji} {meta.label}
-                </button>
-              );
-            })}
-          </div>
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-5">
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-5">
+            {/* Categorías como círculos, en fila -- con scroll horizontal si no caben. */}
+            <div className="shrink-0 flex gap-4 overflow-x-auto pb-1">
+              {tabs.map((t) => {
+                const meta = t === FAVORITES_TAB ? { label: 'Favoritos', emoji: '⭐' } : (CATEGORY_META[t] ?? { label: t, emoji: '🛍️' });
+                const active = tab === t;
+                const color = tabColor(t);
+                return (
+                  <button key={t} onClick={() => setTab(t)} className="flex flex-col items-center gap-1 shrink-0 w-16">
+                    <span
+                      className="w-14 h-14 rounded-full grid place-items-center text-2xl transition-all"
+                      style={{ backgroundColor: color + (active ? '33' : '18'), boxShadow: active ? `0 0 0 2px ${color}` : undefined }}
+                    >
+                      {meta.emoji}
+                    </span>
+                    <span className={`text-[11px] font-medium text-center leading-tight truncate w-full ${active ? 'text-white' : 'text-white/50'}`}>{meta.label}</span>
+                  </button>
+                );
+              })}
+            </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 flex-1 min-w-0">
-            {productsInTab.map((p) => {
-              const left = p.totalStock - p.soldCount;
-              const noStock = left <= 0;
-              const isFavorite = favorites.includes(p.id);
-              // Botón de emergencia de cocina (o el admin): bloqueo REAL, a
-              // diferencia del aviso suave de "Sin stock" de arriba (que
-              // avisa pero deja vender igual, por discrepancias normales de
-              // inventario -- ver server/caja/sale.ts).
-              const soldOut = p.status === 'soldout';
-              return (
-                <button
-                  key={p.id}
-                  disabled={soldOut && !editingFavorites}
-                  onClick={() => {
-                    if (longPressed.current) { longPressed.current = false; return; }
-                    editingFavorites ? onToggleFavorite(p.id) : add(p.id);
-                  }}
-                  onPointerDown={(e) => startLongPress(p, e)}
-                  onPointerUp={cancelLongPress}
-                  onPointerLeave={cancelLongPress}
-                  onPointerCancel={cancelLongPress}
-                  onContextMenu={(e) => e.preventDefault()}
-                  className="relative select-none rounded-3xl p-4 min-h-[88px] text-left border active:scale-95 transition-transform backdrop-blur-sm disabled:active:scale-100"
-                  style={{
-                    backgroundColor: (p.color || '#f472b6') + '14', borderColor: (p.color || '#f472b6') + '50', boxShadow: `0 0 20px -10px ${p.color || '#f472b6'}`,
-                    WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: 'manipulation',
-                    filter: soldOut ? 'grayscale(1)' : undefined,
-                  }}
-                >
-                  {soldOut && (
-                    <div className="absolute inset-0 z-10 overflow-hidden rounded-3xl pointer-events-none">
-                      <div className="absolute left-[-15%] right-[-15%] top-1/2 -translate-y-1/2 -rotate-[10deg] bg-red-600 text-white text-[11px] font-extrabold uppercase tracking-widest text-center py-1 shadow-lg">
-                        Agotado
+            {/* Grilla de productos -- tocar suma una unidad; el stepper +/- ahora vive en el carrito, no acá (ver panel derecho). Ocupa TODO el espacio restante de la columna, con scroll propio si no caben todos, en vez de empujar "Ventas recientes" fuera de la pantalla. */}
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain grid grid-cols-2 sm:grid-cols-3 gap-3 content-start">
+              {productsInTab.map((p) => {
+                const left = p.totalStock - p.soldCount;
+                const noStock = left <= 0;
+                const isFavorite = favorites.includes(p.id);
+                // Botón de emergencia de cocina (o el admin): bloqueo REAL, a
+                // diferencia del aviso suave de "Sin stock" de arriba (que
+                // avisa pero deja vender igual, por discrepancias normales de
+                // inventario -- ver server/caja/sale.ts).
+                const soldOut = p.status === 'soldout';
+                return (
+                  <button
+                    key={p.id}
+                    disabled={soldOut && !editingFavorites}
+                    onClick={() => {
+                      if (longPressed.current) { longPressed.current = false; return; }
+                      editingFavorites ? onToggleFavorite(p.id) : add(p.id);
+                    }}
+                    onPointerDown={(e) => startLongPress(p, e)}
+                    onPointerUp={cancelLongPress}
+                    onPointerLeave={cancelLongPress}
+                    onPointerCancel={cancelLongPress}
+                    onContextMenu={(e) => e.preventDefault()}
+                    className="relative select-none rounded-3xl p-4 min-h-[88px] text-left border active:scale-95 transition-transform backdrop-blur-sm disabled:active:scale-100"
+                    style={{
+                      backgroundColor: (p.color || '#f472b6') + '14', borderColor: (p.color || '#f472b6') + '50', boxShadow: `0 0 20px -10px ${p.color || '#f472b6'}`,
+                      WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: 'manipulation',
+                      filter: soldOut ? 'grayscale(1)' : undefined,
+                    }}
+                  >
+                    {soldOut && (
+                      <div className="absolute inset-0 z-10 overflow-hidden rounded-3xl pointer-events-none">
+                        <div className="absolute left-[-15%] right-[-15%] top-1/2 -translate-y-1/2 -rotate-[10deg] bg-red-600 text-white text-[11px] font-extrabold uppercase tracking-widest text-center py-1 shadow-lg">
+                          Agotado
+                        </div>
+                      </div>
+                    )}
+                    {editingFavorites && (
+                      <span className={`absolute top-2 right-2 text-lg leading-none ${isFavorite ? '' : 'opacity-30'}`}>
+                        {isFavorite ? '⭐' : '☆'}
+                      </span>
+                    )}
+                    {!editingFavorites && !soldOut && noStock && (
+                      <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide bg-red-500/90 text-white px-2 py-0.5 rounded-full">
+                        Sin stock
+                      </span>
+                    )}
+                    {p.description && (
+                      <span className="absolute bottom-2 right-2 text-[10px] text-white/30" aria-hidden>ⓘ</span>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <span className="text-3xl leading-none">{p.emoji || CATEGORY_META[p.category]?.emoji || '🛍️'}</span>
+                      <div className="min-w-0">
+                        <p className="font-semibold break-words">{p.name}</p>
+                        <p className="text-sm text-white/60">${p.price.toLocaleString('es-CL')}</p>
                       </div>
                     </div>
-                  )}
-                  {editingFavorites && (
-                    <span className={`absolute top-2 right-2 text-lg leading-none ${isFavorite ? '' : 'opacity-30'}`}>
-                      {isFavorite ? '⭐' : '☆'}
-                    </span>
-                  )}
-                  {!editingFavorites && !soldOut && noStock && (
-                    <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide bg-red-500/90 text-white px-2 py-0.5 rounded-full">
-                      Sin stock
-                    </span>
-                  )}
-                  {p.description && (
-                    <span className="absolute bottom-2 right-2 text-[10px] text-white/30" aria-hidden>ⓘ</span>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <span className="text-3xl leading-none">{p.emoji || CATEGORY_META[p.category]?.emoji || '🛍️'}</span>
-                    <div className="min-w-0">
-                      <p className="font-semibold break-words">{p.name}</p>
-                      <p className="text-sm text-white/60">${p.price.toLocaleString('es-CL')}</p>
-                    </div>
-                  </div>
-                  {!editingFavorites && cart[p.id] > 0 && (
-                    <div className="mt-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                      <button onClick={() => remove(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">−</button>
-                      <span className="font-bold">{cart[p.id]}</span>
-                      <button onClick={() => add(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">+</button>
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-            {productsInTab.length === 0 && (
-              <p className="col-span-full text-white/50 text-sm">
-                {tab === FAVORITES_TAB ? 'Todavía no marcaste ningún favorito.' : 'Nada cargado en esta sección todavía.'}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {hasItems && (() => {
-        // Contenido del panel de cobro, extraído tal cual -- se muestra dos
-        // veces (desktop/tablet sin cambios, mobile en una hoja aparte) sin
-        // duplicar la lógica. Es una expresión JSX calculada una sola vez
-        // por render, no un componente nuevo: si fuera un componente función
-        // definido acá adentro, React lo remontaría en cada tecla (identidad
-        // nueva en cada render) y los inputs (buscador de cliente, email,
-        // código de descuento) perderían el foco mientras se escribe.
-        const panelInner = (
-          <>
-          <div className="space-y-1 max-h-32 overflow-y-auto">
-            {cartLines.map((p) => (
-              <div key={p.id} className="flex justify-between text-sm text-white/70">
-                <span>{p.emoji ? `${p.emoji} ` : ''}{p.name} × {cart[p.id]}</span>
-                <span>${(p.price * cart[p.id]).toLocaleString('es-CL')}</span>
-              </div>
-            ))}
-          </div>
-          {/* Código de descuento -- solo vista previa, el servidor lo
-              revalida al cobrar. Sin señal simplemente no se puede aplicar. */}
-          <div className="space-y-1">
-            <div className="flex gap-2">
-              <Input
-                value={discountCode}
-                onChange={(e) => { setDiscountCode(e.target.value.toUpperCase()); setDiscountResult(null); }}
-                placeholder="Código de descuento (opcional)"
-                className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
-              />
-              <Button size="sm" variant="outline" className="border-white/15 text-white shrink-0" disabled={!discountCode.trim() || validateDiscount.isPending} onClick={applyDiscount}>
-                {validateDiscount.isPending ? '…' : 'Aplicar'}
-              </Button>
-            </div>
-            {discountResult?.valid && discountResult.discount && (
-              <p className="text-xs text-green-400">✓ Descuento aplicado: {discountResult.discount.discountType === 'percentage' ? `${discountResult.discount.discountValue}%` : `$${Number(discountResult.discount.discountValue).toLocaleString('es-CL')}`}</p>
-            )}
-            {discountResult && !discountResult.valid && (
-              <p className="text-xs text-red-400">{discountResult.message || 'Código no válido'}</p>
-            )}
-          </div>
-
-          {/* Guardarropía: el número de la percha lo asigna el sistema solo,
-              correlativo -- acá solo se pide el nombre del cliente. */}
-          {needsLockerTag && (
-            <div className="space-y-1">
-              <label className="text-xs text-white/50 uppercase tracking-wide">🧥 ¿A nombre de quién? (guardarropía)</label>
-              <Input
-                value={lockerCustomerName}
-                onChange={(e) => setLockerCustomerName(e.target.value)}
-                placeholder="Nombre de la persona"
-                className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
-              />
-              <p className="text-xs text-white/40">El número de percha se asigna solo al confirmar.</p>
-              {tooManyLockers && <p className="text-xs text-red-400">Cobra los abrigos de a uno para poder asignar un número a cada uno.</p>}
-            </div>
-          )}
-
-          {/* Nombre para cocina (pedido explícito del dueño): un número de
-              comanda es difícil de memorizar para ir a buscarlo, un nombre no. */}
-          {hasKitchenItems && (
-            <div className="space-y-1">
-              <label className="text-xs text-white/50 uppercase tracking-wide">🍽️ ¿A nombre de quién?</label>
-              <Input
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Cualquier nombre, para que cocina lo llame"
-                className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
-              />
-            </div>
-          )}
-
-          <div className="flex justify-between text-lg font-bold border-t border-white/10 pt-2">
-            <span>Total</span>
-            <span>${total.toLocaleString('es-CL')}</span>
-          </div>
-
-          {!showEmailStep ? (
-            <div className="space-y-2">
-              <div className="relative">
-                <Input
-                  value={customerSearch}
-                  onChange={(e) => setCustomerSearch(e.target.value)}
-                  placeholder="🔍 Buscar cliente por nombre (Playcoins)"
-                  className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
-                />
-                {customerSearchResults.length > 0 && (
-                  <div className="absolute z-10 mt-1 w-full bg-[#1a1017] border border-white/15 rounded-xl overflow-hidden shadow-xl max-h-48 overflow-y-auto">
-                    {customerSearchResults.map((a) => (
-                      <button
-                        key={a.orderId}
-                        onClick={() => pickCustomer(a)}
-                        className="w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/10 border-b border-white/5 last:border-0"
-                      >
-                        <span className="font-medium">{a.buyerName}</span>
-                        <span className="block text-xs text-white/40">{a.buyerEmail}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {customerSearch.trim() && customerSearchResults.length === 0 && (
-                  <p className="text-xs text-white/40 mt-1">Nadie que ya haya entrado coincide con "{customerSearch.trim()}".</p>
-                )}
-              </div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <button onClick={() => setShowEmailStep(true)} className="text-sm text-white/50 underline">
-                  + Registrar email del cliente — opcional
-                </button>
-                <button onClick={() => setScanningCustomer(true)} className="text-sm text-white/50 underline">
-                  📷 Asociar a un cliente
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {associatedName && <p className="text-xs text-white/50">Asociado a: <b className="text-white/80">{associatedName}</b></p>}
-              <Input
-                value={buyerEmail}
-                onChange={(e) => { setBuyerEmail(e.target.value); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
-                placeholder="email@cliente.cl"
-                className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
-              />
-              <div className="flex items-center gap-3">
-                <Button size="sm" variant="outline" className="border-white/15 text-white" disabled={!buyerEmail.trim() || checkingBalance} onClick={checkBalance}>
-                  {checkingBalance ? 'Consultando…' : 'Consultar saldo'}
-                </Button>
-                <button
-                  onClick={() => { setShowEmailStep(false); setBuyerEmail(''); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
-                  className="text-xs text-white/40 underline"
-                >
-                  Omitir
-                </button>
-              </div>
-              {balance != null && (
-                canRedeem(balance) ? (
-                  <div>
-                    <p className="text-xs text-white/50">Saldo: {balance} Playcoins (${balance.toLocaleString('es-CL')})</p>
-                    <Input
-                      type="number" inputMode="numeric" min={0} max={Math.min(balance, total)}
-                      value={redeemInput} onChange={(e) => setRedeemInput(e.target.value)}
-                      placeholder="Canjear cuántos Playcoins"
-                      className="h-9 mt-1 bg-white/10 border-white/15 text-white placeholder:text-white/40"
-                    />
-                  </div>
-                ) : (
-                  <p className="text-xs text-white/40">Saldo: {balance} Playcoins (mínimo {PLAYCOINS_MIN_REDEEM_BALANCE} para canjear)</p>
-                )
+                    {!editingFavorites && cart[p.id] > 0 && (
+                      <span className="absolute top-2 right-2 w-6 h-6 rounded-full bg-primary text-white text-xs font-bold grid place-items-center">
+                        {cart[p.id]}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+              {productsInTab.length === 0 && (
+                <p className="col-span-full text-white/50 text-sm">
+                  {tab === FAVORITES_TAB ? 'Todavía no marcaste ningún favorito.' : 'Nada cargado en esta sección todavía.'}
+                </p>
               )}
             </div>
-          )}
 
-          <div className="grid grid-cols-4 gap-2">
-            {(['efectivo', 'debito', 'credito', 'qr'] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setPaymentMethod(m)}
-                className={`h-10 rounded-lg text-xs font-medium capitalize ${paymentMethod === m ? 'bg-primary text-white' : 'bg-white/5 text-white/50'}`}
-              >
-                {m === 'qr' ? '📲 QR' : m}
-              </button>
-            ))}
+            {/* Ventas recientes de la noche -- mismos datos que el Dashboard, para confirmar rápido sin salir de la venta. Alto acotado con scroll propio: nunca empuja el resto de la pantalla ni queda cortada. */}
+            {dashboardData && dashboardData.recentSales.length > 0 && (
+              <div className="shrink-0 max-h-56 flex flex-col bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden">
+                <p className="shrink-0 px-4 pt-3 pb-2 text-xs uppercase tracking-wide text-white/50">Ventas recientes</p>
+                <div className="overflow-auto overscroll-contain">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-white/40 text-xs">
+                        <th className="px-4 py-1.5 font-medium">Cliente</th>
+                        <th className="px-4 py-1.5 font-medium">N° orden</th>
+                        <th className="px-4 py-1.5 font-medium">Método</th>
+                        <th className="px-4 py-1.5 font-medium text-right">Monto</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dashboardData.recentSales.map((s: any, i: number) => {
+                        const pm = PAYMENT_METHOD_META[s.paymentMethod as keyof typeof PAYMENT_METHOD_META];
+                        return (
+                          <tr key={i} className="border-t border-white/5">
+                            <td className="px-4 py-2 truncate max-w-[160px]">{s.buyerName || '—'}</td>
+                            <td className="px-4 py-2 font-mono text-white/60">{s.orderNumber}</td>
+                            <td className="px-4 py-2">
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${pm?.badgeClass ?? 'bg-white/10 text-white/60'}`}>{pm?.label ?? s.paymentMethod}</span>
+                            </td>
+                            <td className="px-4 py-2 text-right font-semibold">${s.total.toLocaleString('es-CL')}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
-          <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={tooManyLockers} onClick={startCheckout}>
-            {paymentMethod === 'efectivo' ? 'Cobrar en efectivo' : paymentMethod === 'qr' ? 'Cobrado en terminal — Confirmar' : 'Cobrar con máquina'}
-          </Button>
-          </>
-        );
 
-        return (
-          <>
-            {/* Tablet/desktop (sm: en adelante): el panel de siempre, sin
-                ningún cambio de comportamiento. */}
-            <div className="hidden sm:block sticky bottom-4 bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-2xl p-4 space-y-3">
-              {panelInner}
-            </div>
+          {/* Panel de carrito persistente al costado -- antes era una barra pegada abajo, ahora siempre visible mientras se arma la venta. */}
+          <aside className="w-full lg:w-96 shrink-0 min-h-0 lg:self-stretch flex flex-col overflow-y-auto overscroll-contain bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-3xl p-4 space-y-4">
+            {/* Tarjeta de cliente: lo que el carrito necesite en este momento -- guardarropía/cocina (si aplica) y Playcoins. */}
+            <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-3 space-y-3">
+              <p className="text-xs uppercase tracking-wide text-white/45">Cliente</p>
 
-            {/* Mobile (menos de sm): barra compacta fija abajo -- nunca tapa
-                la grilla de productos -- que se expande a una hoja con el
-                mismo panel de arriba cuando el cajero toca "Ver carrito". */}
-            <div className="sm:hidden">
-              {!cartExpanded ? (
-                <button
-                  onClick={() => setCartExpanded(true)}
-                  className="fixed inset-x-4 bottom-4 z-20 h-14 px-5 rounded-2xl bg-primary text-white shadow-xl flex items-center justify-between font-semibold"
-                >
-                  <span>🛒 Ver carrito ({cartLines.reduce((n, p) => n + (cart[p.id] || 0), 0)})</span>
-                  <span>${total.toLocaleString('es-CL')} ▲</span>
-                </button>
-              ) : (
-                <div className="fixed inset-0 z-30 bg-black/70 backdrop-blur-sm flex flex-col justify-end" onClick={() => setCartExpanded(false)}>
-                  <div
-                    className="max-h-[85vh] overflow-y-auto bg-[#150d13] border-t border-white/10 rounded-t-3xl p-4 space-y-3"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex items-center justify-between pb-1">
-                      <p className="font-bold">Carrito</p>
-                      <button onClick={() => setCartExpanded(false)} className="text-white/50 text-sm">✕ Cerrar</button>
-                    </div>
-                    {panelInner}
+              {/* Guardarropía: el número de la percha lo asigna el sistema
+                  solo, correlativo -- acá solo se pide el nombre del cliente. */}
+              {needsLockerTag && (
+                <div className="space-y-1">
+                  <label className="text-xs text-white/50">🧥 ¿A nombre de quién? (guardarropía)</label>
+                  <Input
+                    value={lockerCustomerName}
+                    onChange={(e) => setLockerCustomerName(e.target.value)}
+                    placeholder="Nombre de la persona"
+                    className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                  />
+                  <p className="text-xs text-white/40">El número de percha se asigna solo al confirmar.</p>
+                  {tooManyLockers && <p className="text-xs text-red-400">Cobra los abrigos de a uno para poder asignar un número a cada uno.</p>}
+                </div>
+              )}
+
+              {/* Nombre para cocina (pedido explícito del dueño): un número
+                  de comanda es difícil de memorizar para ir a buscarlo, un nombre no. */}
+              {hasKitchenItems && (
+                <div className="space-y-1">
+                  <label className="text-xs text-white/50">🍽️ ¿A nombre de quién?</label>
+                  <Input
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="Cualquier nombre, para que cocina lo llame"
+                    className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                  />
+                </div>
+              )}
+
+              {!showEmailStep ? (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Input
+                      value={customerSearch}
+                      onChange={(e) => setCustomerSearch(e.target.value)}
+                      placeholder="🔍 Buscar cliente (Playcoins)"
+                      className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                    />
+                    {customerSearchResults.length > 0 && (
+                      <div className="absolute z-10 mt-1 w-full bg-[#1a1017] border border-white/15 rounded-xl overflow-hidden shadow-xl max-h-48 overflow-y-auto">
+                        {customerSearchResults.map((a) => (
+                          <button
+                            key={a.orderId}
+                            onClick={() => pickCustomer(a)}
+                            className="w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/10 border-b border-white/5 last:border-0"
+                          >
+                            <span className="font-medium">{a.buyerName}</span>
+                            <span className="block text-xs text-white/40">{a.buyerEmail}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {customerSearch.trim() && customerSearchResults.length === 0 && (
+                      <p className="text-xs text-white/40 mt-1">Nadie que ya haya entrado coincide con "{customerSearch.trim()}".</p>
+                    )}
                   </div>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <button onClick={() => setShowEmailStep(true)} className="text-xs text-white/50 underline">
+                      + Registrar email
+                    </button>
+                    <button onClick={() => setScanningCustomer(true)} className="text-xs text-white/50 underline">
+                      📷 Asociar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {associatedName && <p className="text-xs text-white/50">Asociado a: <b className="text-white/80">{associatedName}</b></p>}
+                  <Input
+                    value={buyerEmail}
+                    onChange={(e) => { setBuyerEmail(e.target.value); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
+                    placeholder="email@cliente.cl"
+                    className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                  />
+                  <div className="flex items-center gap-3">
+                    <Button size="sm" variant="outline" className="border-white/15 text-white" disabled={!buyerEmail.trim() || checkingBalance} onClick={checkBalance}>
+                      {checkingBalance ? 'Consultando…' : 'Consultar saldo'}
+                    </Button>
+                    <button
+                      onClick={() => { setShowEmailStep(false); setBuyerEmail(''); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
+                      className="text-xs text-white/40 underline"
+                    >
+                      Omitir
+                    </button>
+                  </div>
+                  {balance != null && (
+                    canRedeem(balance) ? (
+                      <div>
+                        <p className="text-xs text-white/50">Saldo: {balance} Playcoins (${balance.toLocaleString('es-CL')})</p>
+                        <Input
+                          type="number" inputMode="numeric" min={0} max={Math.min(balance, total)}
+                          value={redeemInput} onChange={(e) => setRedeemInput(e.target.value)}
+                          placeholder="Canjear cuántos Playcoins"
+                          className="h-9 mt-1 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-xs text-white/40">Saldo: {balance} Playcoins (mínimo {PLAYCOINS_MIN_REDEEM_BALANCE} para canjear)</p>
+                    )
+                  )}
                 </div>
               )}
             </div>
-          </>
-        );
-      })()}
+
+            {/* Método de pago -- mismo lugar visual que las pestañas Delivery/Dine In/Takeaway de la referencia. */}
+            <div className="grid grid-cols-4 gap-2">
+              {(['efectivo', 'debito', 'credito', 'qr'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setPaymentMethod(m)}
+                  className={`h-11 rounded-xl text-xs font-semibold capitalize transition-colors ${paymentMethod === m ? 'bg-primary text-white' : 'bg-white/5 text-white/50'}`}
+                >
+                  {m === 'qr' ? '📲 QR' : m}
+                </button>
+              ))}
+            </div>
+
+            {/* Líneas del carrito -- el stepper +/- vive acá, ya no en la tarjeta del producto. */}
+            <div className="space-y-1.5 flex-1 min-h-24 overflow-y-auto overscroll-contain">
+              {hasItems ? cartLines.map((p) => (
+                <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate">{p.emoji ? `${p.emoji} ` : ''}{p.name}</p>
+                    <p className="text-xs text-white/40">${(p.price * cart[p.id]).toLocaleString('es-CL')}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => remove(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">−</button>
+                    <span className="font-bold w-4 text-center">{cart[p.id]}</span>
+                    <button onClick={() => add(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">+</button>
+                  </div>
+                </div>
+              )) : (
+                <p className="text-sm text-white/40 text-center py-3">Carrito vacío -- toca un producto para agregarlo.</p>
+              )}
+            </div>
+
+            {/* Código de descuento -- solo vista previa, el servidor lo
+                revalida al cobrar. Sin señal simplemente no se puede aplicar. */}
+            <div className="space-y-1">
+              <div className="flex gap-2">
+                <Input
+                  value={discountCode}
+                  onChange={(e) => { setDiscountCode(e.target.value.toUpperCase()); setDiscountResult(null); }}
+                  placeholder="Código de descuento"
+                  className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                />
+                <Button size="sm" variant="outline" className="border-white/15 text-white shrink-0" disabled={!discountCode.trim() || validateDiscount.isPending} onClick={applyDiscount}>
+                  {validateDiscount.isPending ? '…' : 'Aplicar'}
+                </Button>
+              </div>
+              {discountResult?.valid && discountResult.discount && (
+                <p className="text-xs text-green-400">✓ Descuento aplicado: {discountResult.discount.discountType === 'percentage' ? `${discountResult.discount.discountValue}%` : `$${Number(discountResult.discount.discountValue).toLocaleString('es-CL')}`}</p>
+              )}
+              {discountResult && !discountResult.valid && (
+                <p className="text-xs text-red-400">{discountResult.message || 'Código no válido'}</p>
+              )}
+            </div>
+
+            <div className="flex justify-between text-lg font-bold border-t border-white/10 pt-3">
+              <span>Total</span>
+              <span>${total.toLocaleString('es-CL')}</span>
+            </div>
+
+            <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={!hasItems || tooManyLockers} onClick={startCheckout}>
+              {paymentMethod === 'efectivo' ? 'Cobrar en efectivo' : paymentMethod === 'qr' ? 'Cobrado en terminal — Confirmar' : 'Cobrar con máquina'}
+            </Button>
+          </aside>
+        </div>
+      )}
 
       {paymentStep === 'card' && (
         <div className="fixed inset-0 z-30 bg-black/90 backdrop-blur-sm flex items-center justify-center p-6">

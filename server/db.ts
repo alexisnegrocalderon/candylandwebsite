@@ -13,6 +13,7 @@ import { monthKeyFor } from '../shared/ambassadorProgram';
 import { normalizeTandaSchedule, nextPhase } from '../shared/tandaSchedule';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, type PnlExpense } from '../shared/expenses';
+import { isParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
@@ -38,6 +39,28 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+/** Descarta el pool cacheado para que la próxima `getDb()` cree uno nuevo --
+ * llamado desde el `onError` de tRPC (ver server/_core/app.ts) cuando una
+ * consulta falla con pinta de problema de conexión. Una función serverless
+ * de Vercel puede quedar "tibia" reusando el mismo pool durante horas; si
+ * TiDB cierra una conexión por su lado (inactividad) o invalida un prepared
+ * statement cacheado tras un cambio de esquema en cualquier tabla, ese pool
+ * queda envenenado y cada consulta siguiente falla igual hasta que Vercel
+ * recicla la función sola -- podían ser minutos u horas. Esto lo hace
+ * autorecuperable en el siguiente request en vez de esperar ese reciclado. */
+export function resetDb() {
+  const stale = _db;
+  _db = null;
+  if (stale) {
+    try {
+      (stale.$client as unknown as { end?: (cb?: (err?: unknown) => void) => void }).end?.(() => {});
+    } catch {
+      // Best-effort: el pool ya está descartado igual, un error acá no debe
+      // impedir que la próxima request arme uno nuevo.
+    }
+  }
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -90,13 +113,13 @@ export async function getUserByOpenId(openId: string) {
 export async function getPublishedEvents() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(events).where(eq(events.status, 'published')).orderBy(events.eventDate);
+  return db.select().from(events).where(eq(events.status, 'published')).orderBy(desc(events.eventDate));
 }
 
 export async function getAllEvents() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(events).orderBy(desc(events.createdAt));
+  return db.select().from(events).orderBy(desc(events.eventDate));
 }
 
 // Publicados + pasados (para la sección "Próximos Eventos" de la home: pasados en
@@ -712,20 +735,21 @@ export async function deleteBlockedCustomer(id: number) {
 // recargo por servicio (%) que se suma a toda venta nueva)
 export async function getSiteSettings() {
   const db = await getDb();
-  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
+  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) return row;
-  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
+  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
 }
 
 export async function updateSiteSettings(data: {
-  instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number;
+  instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number; cardFeePercent?: number; parkingVenueFeeClp?: number;
   kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const updateData: any = { ...data };
   if (data.serviceFeePercent !== undefined) updateData.serviceFeePercent = String(data.serviceFeePercent);
+  if (data.cardFeePercent !== undefined) updateData.cardFeePercent = String(data.cardFeePercent);
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) {
     await db.update(siteSettings).set(updateData).where(eq(siteSettings.id, row.id));
@@ -773,6 +797,40 @@ export function parseAttendeeRuts(attendeeDataJson: string | null | undefined): 
       }
     }
     return ruts;
+  } catch {
+    return [];
+  }
+}
+
+/** Titular + acompañantes de una orden, cada uno con SU PROPIO nombre y RUT
+ * (a diferencia de `parseAttendeeNames`/`parseAttendeeRuts`, que devuelven
+ * dos listas planas que solo calzan entre sí si nunca falta un campo) --
+ * agrupa por "slot" usando el sufijo `_nombre`/`_rut` de la clave
+ * (`buyer__nombre`+`buyer__rut` → un slot, `acceso__acomp1_nombre`+
+ * `acceso__acomp1_rut` → otro, etc.), así cada nombre queda pareado con SU
+ * RUT aunque algún campo venga vacío. Usado en Puerta para mostrar todas las
+ * personas de un acceso, no solo la del titular. */
+export function parseAttendees(attendeeDataJson: string | null | undefined): { name: string; rut: string | null }[] {
+  if (!attendeeDataJson) return [];
+  try {
+    const parsed = JSON.parse(attendeeDataJson);
+    const campos = parsed?.campos ?? {};
+    const bySlot = new Map<string, { name?: string; rut?: string }>();
+    const order: string[] = [];
+    for (const [key, value] of Object.entries(campos)) {
+      if (typeof value !== 'string' || !value.trim()) continue;
+      const m = key.match(/^(.*)_(nombre|rut)$/i);
+      if (!m) continue;
+      const [, slot, field] = m;
+      if (!bySlot.has(slot)) { bySlot.set(slot, {}); order.push(slot); }
+      const entry = bySlot.get(slot)!;
+      if (field.toLowerCase() === 'nombre') entry.name = value.trim();
+      else entry.rut = normalizeRut(value);
+    }
+    return order
+      .map((slot) => bySlot.get(slot)!)
+      .filter((e) => !!e.name)
+      .map((e) => ({ name: e.name!, rut: e.rut ?? null }));
   } catch {
     return [];
   }
@@ -2230,18 +2288,21 @@ export async function getCajaSnapshot(eventId: number) {
 
   const attendees = approvedOrders.map((o: any) => {
     const ts = ticketsByOrder.get(o.id) ?? [];
-    // Los nombres de todos los asistentes de la orden: es lo que el
-    // anfitrion compara contra la cedula en la puerta. Van en el snapshot
-    // para que la ficha funcione sin senal.
-    const attendeeNames = parseAttendeeNames(o.attendeeData);
+    // Titular + acompañantes con nombre Y rut propios: es lo que el
+    // anfitrión compara persona por persona contra la cédula en la puerta.
+    // Van en el snapshot para que la ficha funcione sin señal. Si la orden
+    // no tiene attendeeData parseable (ventas manuales/invitaciones viejas),
+    // se cae al titular solo con el RUT que se le pudo cruzar por email.
+    const parsedAttendees = parseAttendees(o.attendeeData);
     return {
       orderId: o.id,
       orderNumber: o.orderNumber,
       buyerName: o.buyerName,
       buyerEmail: o.buyerEmail,
       buyerPhone: o.buyerPhone,
-      rut: parseBuyerRut(o.attendeeData) ?? rutByEmail.get((o.buyerEmail || '').trim().toLowerCase()) ?? null,
-      attendeeNames: attendeeNames.length > 0 ? attendeeNames : [o.buyerName],
+      attendees: parsedAttendees.length > 0
+        ? parsedAttendees
+        : [{ name: o.buyerName, rut: parseBuyerRut(o.attendeeData) ?? rutByEmail.get((o.buyerEmail || '').trim().toLowerCase()) ?? null }],
       access: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'acceso').map((t: any) => ({
         ticketCode: t.ticketCode,
         status: t.status,
@@ -2255,6 +2316,33 @@ export async function getCajaSnapshot(eventId: number) {
       extras: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'extra').map((t: any) => ({ displayCode: t.displayCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name })),
     };
   });
+
+  // El estacionamiento cobrado en la puerta (server/caja/parkingPaid.ts)
+  // vive en una orden aparte del mismo comprador (misma persona, otra
+  // orden) -- sin esto quedaría como una fila fantasma sin acceso en vez de
+  // aparecer dentro de los extras de la persona real. Se fusiona por
+  // `buyerEmail` (salvo los placeholder, compartidos por varias personas
+  // distintas -- ver PLACEHOLDER_BUYER_EMAILS) hacia la fila que sí tiene un
+  // acceso, y se descartan las filas que quedaron vacías tras la fusión.
+  const byBuyerEmail = new Map<string, typeof attendees>();
+  for (const a of attendees) {
+    const email = (a.buyerEmail || '').trim().toLowerCase();
+    if (!email || PLACEHOLDER_BUYER_EMAILS.has(email)) continue;
+    const list = byBuyerEmail.get(email) ?? [];
+    list.push(a);
+    byBuyerEmail.set(email, list);
+  }
+  const mergedAway = new Set<number>();
+  for (const group of Array.from(byBuyerEmail.values())) {
+    if (group.length < 2) continue;
+    const primary = group.find((a) => a.access.length > 0) ?? group[0];
+    for (const other of group) {
+      if (other === primary) continue;
+      primary.extras = [...primary.extras, ...other.extras];
+      if (other.access.length === 0) mergedAway.add(other.orderId);
+    }
+  }
+  const mergedAttendees = attendees.filter((a) => !mergedAway.has(a.orderId));
 
   // La carta que ve la cajera: los addons de la web ('extra') MÁS la carta de
   // la fiesta ('consumo' = tragos y comida, 'locker' = guardarropía, 'merch').
@@ -2319,7 +2407,7 @@ export async function getCajaSnapshot(eventId: number) {
 
   return {
     event: { id: event.id, title: event.title, slug: event.slug },
-    attendees,
+    attendees: mergedAttendees,
     catalog,
     gifts,
     staffComps,
@@ -2436,7 +2524,7 @@ export async function getCajaDashboard(eventId: number) {
   const recentSales = [...cajaOrders]
     .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 10)
-    .map((o: any) => ({ orderNumber: o.orderNumber, total: Number(o.total), createdAt: o.createdAt, paymentMethod: o.paymentMethod }));
+    .map((o: any) => ({ orderNumber: o.orderNumber, buyerName: o.buyerName, total: Number(o.total), createdAt: o.createdAt, paymentMethod: o.paymentMethod }));
 
   return {
     totalSales,
@@ -2717,7 +2805,24 @@ const CASH_COLLECTED_COLUMNS = {
   total: orders.total,
   missionTopupStatus: orders.missionTopupStatus,
   missionTopupAmount: orders.missionTopupAmount,
+  channel: orders.channel,
+  paymentMethod: orders.paymentMethod,
 };
+
+// Métodos de pago de caja que sí pagan comisión de tarjeta (efectivo no).
+const CARD_LIKE_CAJA_METHODS = new Set(['debito', 'credito', 'qr']);
+
+/** Base sobre la que se calcula la comisión de Mercado Pago de un evento: el
+ * total de las órdenes aprobadas pagadas con tarjeta -- toda la web (se
+ * asume pagada vía Mercado Pago Checkout) más las de caja con
+ * débito/crédito/QR. El efectivo en caja no paga comisión. */
+function cardFeeBaseFromOrders(rows: { channel: string | null; paymentMethod: string | null; total: string | number }[]): number {
+  return rows.reduce((sum, r) => {
+    const isWeb = r.channel === 'web';
+    const isCajaCard = r.channel === 'caja' && r.paymentMethod != null && CARD_LIKE_CAJA_METHODS.has(r.paymentMethod);
+    return (isWeb || isCajaCard) ? sum + Number(r.total) : sum;
+  }, 0);
+}
 
 /** Materializa las copias del mes de los gastos recurrentes (suscripciones).
  *
@@ -3026,6 +3131,8 @@ export async function getEventPnl(eventId: number) {
   }));
   const grossIncome = monthIncomes.find((i) => i.eventId === eventId)?.grossIncome ?? 0;
   const prorationWeight = prorationWeights(monthIncomes).get(eventId) ?? 0;
+  const cardFeeBase = cardFeeBaseFromOrders((incomeByEvent.get(eventId) ?? []) as any);
+  const cardFeePercent = Number((await getSiteSettings()).cardFeePercent ?? 3.5);
 
   // Costo de mercadería vendida. `cogsCoverage` dice qué porcentaje de las
   // unidades tenía costo cargado: sin ese dato el margen mentiría en silencio.
@@ -3067,6 +3174,8 @@ export async function getEventPnl(eventId: number) {
     grossIncome,
     cogs,
     ambassadorCommissions: commissionsTotal,
+    cardFeeBase,
+    cardFeePercent,
     directExpenses: (directRows as any[]).map(toPnlExpense),
     generalExpenses: (generalRows as any[]).map(toPnlExpense),
     prorationWeight,
@@ -3120,18 +3229,15 @@ async function buildPnlWarnings(params: {
       }
     }
 
-    // Comisiones de Mercado Pago: no se pueden calcular solas, hay que cargar
-    // la liquidación. Si el mes tuvo ventas web y no hay ningún gasto de
-    // comisiones, la utilidad está inflada.
-    if (params.grossIncome > 0) {
-      const commissionExpenses = await db.select({ id: expenses.id }).from(expenses)
-        .where(and(eq(expenses.periodMonth, params.monthKey), eq(expenses.category, 'comisiones')));
-      if ((commissionExpenses as any[]).length === 0) {
-        warnings.push(
-          `No hay ningún gasto de categoría "Comisiones" en ${params.monthKey}. ` +
-          `Las comisiones de Mercado Pago (~3,5%) no se calculan solas: cargalas desde la liquidación o la utilidad queda inflada.`,
-        );
-      }
+    // La comisión de Mercado Pago ahora se calcula sola (ver cardFeeBase en
+    // getEventPnl) -- un gasto manual viejo de categoría "comisiones" cargado
+    // a este evento duplicaría el descuento.
+    const manualCommissionExpenses = params.directRows.filter((e) => e.category === 'comisiones');
+    if (manualCommissionExpenses.length > 0) {
+      warnings.push(
+        `Hay ${manualCommissionExpenses.length} gasto(s) manual(es) de categoría "Comisiones" cargado(s) a este evento. ` +
+        `La comisión de tarjeta ya se descuenta sola: borrá esos gastos o marcalos como excluidos del P&L para no restarla dos veces.`,
+      );
     }
   }
 
@@ -3217,6 +3323,7 @@ export async function getPnlComparison(eventIds?: number[]) {
     for (const [id, w] of Array.from(weights.entries())) weightByEvent.set(id, w);
   }
 
+  const cardFeePercent = Number((await getSiteSettings()).cardFeePercent ?? 3.5);
   const eventIdSet = eventIds?.length ? new Set(eventIds) : null;
   return (allEvents as any[])
     .filter((e) => !eventIdSet || eventIdSet.has(e.id))
@@ -3227,6 +3334,8 @@ export async function getPnlComparison(eventIds?: number[]) {
         grossIncome: incomeOf(e.id),
         cogs: cogsByEvent.get(e.id) ?? 0,
         ambassadorCommissions: commissionsByEvent.get(e.id) ?? 0,
+        cardFeeBase: cardFeeBaseFromOrders((incomeByEvent.get(e.id) ?? []) as any),
+        cardFeePercent,
         directExpenses: (directByEvent.get(e.id) ?? []).map(toPnlExpense),
         generalExpenses: (generalByMonth.get(monthKey) ?? []).map(toPnlExpense),
         prorationWeight: weightByEvent.get(e.id) ?? 0,
@@ -3238,11 +3347,64 @@ export async function getPnlComparison(eventIds?: number[]) {
         monthKey,
         ivaApplies: e.ivaApplies === 1,
         grossIncome: pnl.grossIncome,
-        totalExpenses: pnl.cogs + pnl.directExpensesTotal + pnl.generalExpensesAssigned + pnl.ambassadorCommissions,
+        totalExpenses: pnl.cogs + pnl.directExpensesTotal + pnl.generalExpensesAssigned + pnl.ambassadorCommissions + pnl.cardFeeAmount,
         netProfit: pnl.netProfit,
         marginPercent: pnl.marginPercent,
       };
     });
+}
+
+/** Conteo exacto de autos por origen (online / puerta / staff), para poder
+ * cuadrar contra los autos realmente estacionados y saber cuánto pagarle al
+ * establecimiento (docs del feature: "Terminal de estacionamiento en
+ * /puerta"). Un ticket de Estacionamiento SIEMPRE nace en `status:'used'`
+ * (online al retirarse en /caja, en la puerta al momento de cobrar), así que
+ * "vendido" y "auto que llegó" son lo mismo acá -- no hace falta distinguir
+ * comprado-pero-no-retirado. */
+export async function getParkingReport(eventId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const allTicketTypes = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
+  const parkingTypeIds = new Set(
+    (allTicketTypes as any[]).filter((tt) => tt.category === 'extra' && isParkingTicketType(tt.name)).map((tt) => tt.id),
+  );
+  if (parkingTypeIds.size === 0) {
+    return { online: 0, puerta: 0, staff: 0, totalPaid: 0, totalCars: 0, venueFeePerCarClp: 0, amountOwedToVenueClp: 0, puertaByMethod: { efectivo: 0, debito: 0, credito: 0 } };
+  }
+
+  const parkingTickets = await db.select().from(tickets).where(and(
+    eq(tickets.eventId, eventId),
+    inArray(tickets.ticketTypeId, Array.from(parkingTypeIds)),
+    ne(tickets.status, 'cancelled'),
+  ));
+  const orderIds = Array.from(new Set((parkingTickets as any[]).map((t) => t.orderId)));
+  const relatedOrders = orderIds.length
+    ? await db.select({ id: orders.id, paymentMethod: orders.paymentMethod, paymentId: orders.paymentId }).from(orders).where(inArray(orders.id, orderIds))
+    : [];
+  const orderById = new Map<number, any>((relatedOrders as any[]).map((o) => [o.id, o]));
+
+  const origins = (parkingTickets as any[]).map((t) => {
+    const o = orderById.get(t.orderId);
+    return classifyParkingOrigin({ orderPaymentMethod: o?.paymentMethod ?? '', orderPaymentId: o?.paymentId ?? null });
+  });
+  const counts = summarizeParkingCounts(origins);
+
+  const puertaByMethod = { efectivo: 0, debito: 0, credito: 0 };
+  for (const t of parkingTickets as any[]) {
+    const o = orderById.get(t.orderId);
+    if (o?.paymentId?.startsWith('PUERTA-PARKING-') && o.paymentMethod in puertaByMethod) {
+      (puertaByMethod as any)[o.paymentMethod] += 1;
+    }
+  }
+
+  const venueFeePerCarClp = Number((await getSiteSettings()).parkingVenueFeeClp ?? 3000);
+  return {
+    ...counts,
+    venueFeePerCarClp,
+    amountOwedToVenueClp: counts.totalPaid * venueFeePerCarClp,
+    puertaByMethod,
+  };
 }
 
 /** Resumen del mes: totales por categoría y por medio de pago, IVA acumulado,

@@ -13,12 +13,10 @@ export interface CajaAttendee {
   buyerName: string;
   buyerEmail: string;
   buyerPhone: string | null;
-  /** RUT de quien compró (no uno por asistente -- `attendeeData` no lo
-   * separa por persona). `null` si la compra no lo capturó. */
-  rut: string | null;
-  /** Nombres de todos los asistentes de la orden -- es lo que el anfitrión
-   * compara contra la cédula en la puerta. */
-  attendeeNames: string[];
+  /** Titular + acompañantes, cada uno con su propio nombre y RUT -- es lo
+   * que el anfitrión compara persona por persona contra la cédula en la
+   * puerta. `rut` es `null` si esa persona no lo tiene capturado. */
+  attendees: { name: string; rut: string | null }[];
   access: { ticketCode: string; status: string; typeName: string; accesoSlug: string | null; groupSize: number | null }[];
   extras: { displayCode: string | null; status: string; typeName: string }[];
 }
@@ -83,6 +81,7 @@ export interface CajaStaffComp {
 export type QueuedOp =
   | { opId: string; type: 'redeem'; displayCode: string; clientAt: string }
   | { opId: string; type: 'checkin'; ticketCode: string; clientAt: string }
+  | { opId: string; type: 'parking_paid'; ticketCode: string; paymentMethod: 'efectivo' | 'debito' | 'credito'; clientAt: string }
   | {
       opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number }[];
       paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr'; clientAt: string;
@@ -263,7 +262,7 @@ export async function searchInsideAttendeesLocal(query: string): Promise<CajaAtt
   const all = await cajaDB.attendees.toArray();
   return all
     .filter((a) => a.access.some((acc) => acc.status === 'used'))
-    .filter((a) => a.buyerName.toLowerCase().includes(q) || a.attendeeNames.some((n) => n.toLowerCase().includes(q)))
+    .filter((a) => a.buyerName.toLowerCase().includes(q) || a.attendees.some((p) => p.name.toLowerCase().includes(q)))
     .slice(0, 20);
 }
 
@@ -308,6 +307,21 @@ export async function enqueueOp(op: QueuedOp) {
         attendee.access = attendee.access.map((a) =>
           a.ticketCode.toUpperCase() === op.ticketCode.toUpperCase() ? { ...a, status: 'used' } : a
         );
+        await cajaDB.attendees.put(attendee);
+      }
+    }
+  }
+
+  // Estacionamiento cobrado en la puerta: se agrega localmente al toque para
+  // que un re-escaneo en la misma sesión ya lo vea pagado (server/caja/
+  // parkingPaid.ts hace lo mismo del lado del servidor, esto solo evita
+  // esperar la próxima sincronización de 60s del snapshot).
+  if (op.type === 'parking_paid') {
+    const idx = await cajaDB.codes.get(op.ticketCode.toUpperCase());
+    if (idx) {
+      const attendee = await cajaDB.attendees.get(idx.orderId);
+      if (attendee) {
+        attendee.extras = [...attendee.extras, { displayCode: null, status: 'used', typeName: 'Estacionamiento' }];
         await cajaDB.attendees.put(attendee);
       }
     }

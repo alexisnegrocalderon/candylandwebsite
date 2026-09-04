@@ -71,86 +71,105 @@ export default function EventDetail() {
     );
   }
 
+  const dateLabel = new Date(event.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Santiago' });
+
   return (
     <div className="min-h-screen pt-24 pb-16">
       <div className="container">
-        {/* Hero */}
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          /* El flyer real es retrato (3:4). Con `aspect-[21/9]` + `object-cover`
-           * se recortaba justo la parte de arriba y abajo del diseño -- el
-           * mismo bug que ya se arregló en el panel de la home
-           * (FeaturedEventPanel). Acá el texto va ENCIMA del flyer, así que
-           * en vez de cambiar la proporción del contenedor (que dejaría un
-           * hero altísimo en escritorio) el flyer se muestra completo con
-           * `object-contain` sobre una copia difuminada de sí mismo, que
-           * rellena los costados sin recortar nada. */
-          className="relative rounded-3xl overflow-hidden mb-12 aspect-[4/5] sm:aspect-[16/10] lg:aspect-[21/9]"
-        >
-          {event.imageUrl ? (
-            <>
-              <img
-                src={event.imageUrl}
-                alt=""
-                aria-hidden
-                className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-60"
-              />
-              {/* `object-top` + el padding de abajo dejan el flyer arriba y
-               * la franja de texto (título/fecha, que va superpuesta) cae
-               * sobre el fondo difuminado en vez de taparle la parte de
-               * abajo del diseño, que es justo donde el flyer trae la hora
-               * y el dress code. */}
-              <img
-                src={event.imageUrl}
-                alt={event.title}
-                className="relative w-full h-full object-contain object-top pb-24 md:pb-28"
-              />
-            </>
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-primary/20 to-secondary/20" />
-          )}
-          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent" />
-          <div className="absolute bottom-0 left-0 right-0 p-8 md:p-12">
-            <div className="flex items-center gap-2 text-primary text-sm mb-3">
-              <Calendar className="w-4 h-4" />
-              <span>{new Date(event.eventDate).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Santiago' })}</span>
-            </div>
-            <h1 className="font-heading text-4xl md:text-6xl lg:text-7xl tracking-tight">{event.title}</h1>
-          </div>
-        </motion.div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-          {/* Info */}
-          <div className="lg:col-span-2">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
-            >
-              <div className="flex flex-wrap gap-4 mb-8">
-                {event.venue && (
-                  <div className="flex items-center gap-2 px-4 py-2 bg-card rounded-full border border-border/50">
-                    <MapPin className="w-4 h-4 text-primary" />
-                    <span className="text-sm">{event.venue}</span>
-                  </div>
-                )}
-                {event.doorsOpen && (
-                  <div className="flex items-center gap-2 px-4 py-2 bg-card rounded-full border border-border/50">
-                    <Clock className="w-4 h-4 text-primary" />
-                    <span className="text-sm">Puertas: {new Date(event.doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' })}</span>
-                  </div>
-                )}
+        {/* En mobile/tablet es un stack normal (flyer banner, luego info,
+         * luego CTA). En escritorio pasa a ser una grilla de 3 columnas:
+         * flyer fijo a la izquierda, contenido que scrollea al medio, CTA
+         * fijo a la derecha -- así ambos quedan siempre visibles mientras
+         * se lee la descripción, en vez de perderse arriba de la pantalla. */}
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,380px)_1fr_minmax(0,340px)] gap-8 lg:gap-10 items-start">
+          {/* Flyer */}
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            /* El flyer real es retrato (3:4). Con `aspect-[21/9]` + `object-cover`
+             * se recortaba justo la parte de arriba y abajo del diseño -- el
+             * mismo bug que ya se arregló en el panel de la home
+             * (FeaturedEventPanel). En mobile el texto va ENCIMA del flyer,
+             * así que en vez de cambiar la proporción del contenedor (que
+             * dejaría un hero altísimo en escritorio) el flyer se muestra
+             * completo con `object-contain` sobre una copia difuminada de sí
+             * mismo, que rellena los costados sin recortar nada. En
+             * escritorio el flyer pasa a ser una columna angosta fija
+             * (`lg:sticky`) al costado izquierdo, sin overlay de texto. */
+            className="relative rounded-3xl overflow-hidden mb-12 lg:mb-0 aspect-[4/5] sm:aspect-[16/10] lg:aspect-[3/4] lg:sticky lg:top-24"
+          >
+            {event.imageUrl ? (
+              <>
+                <img
+                  src={event.imageUrl}
+                  alt=""
+                  aria-hidden
+                  className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-60"
+                />
+                {/* `object-top` + el padding de abajo dejan el flyer arriba y
+                 * la franja de texto (título/fecha, superpuesta solo en
+                 * mobile) cae sobre el fondo difuminado en vez de taparle la
+                 * parte de abajo del diseño, que es justo donde el flyer
+                 * trae la hora y el dress code. */}
+                <img
+                  src={event.imageUrl}
+                  alt={event.title}
+                  className="relative w-full h-full object-contain object-top pb-24 md:pb-28 lg:pb-0"
+                />
+              </>
+            ) : (
+              <div className="w-full h-full bg-gradient-to-br from-primary/20 to-secondary/20" />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent lg:hidden" />
+            {/* Título superpuesto: solo en mobile/tablet. En escritorio el
+             * flyer queda fijo y siempre visible, así que superponer el
+             * título ahí sería chrome redundante -- pasa a ser un
+             * encabezado normal arriba de la columna central. */}
+            <div className="absolute bottom-0 left-0 right-0 p-8 md:p-12 lg:hidden">
+              <div className="flex items-center gap-2 text-primary text-sm mb-3">
+                <Calendar className="w-4 h-4" />
+                <span>{dateLabel}</span>
               </div>
+              <h1 className="font-heading text-4xl md:text-6xl tracking-tight">{event.title}</h1>
+            </div>
+          </motion.div>
 
-              {event.description && (
-                <div className="prose prose-invert max-w-none">
-                  <p className="text-muted-foreground text-lg leading-relaxed whitespace-pre-wrap">{event.description}</p>
+          {/* Info -- columna central, la única que scrollea con contenido */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+          >
+            <div className="hidden lg:block mb-8">
+              <div className="flex items-center gap-2 text-primary text-sm mb-3">
+                <Calendar className="w-4 h-4" />
+                <span>{dateLabel}</span>
+              </div>
+              <h1 className="font-heading text-5xl xl:text-6xl tracking-tight">{event.title}</h1>
+            </div>
+
+            <div className="flex flex-wrap gap-4 mb-8">
+              {event.venue && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-card rounded-full border border-border/50">
+                  <MapPin className="w-4 h-4 text-primary" />
+                  <span className="text-sm">{event.venue}</span>
                 </div>
               )}
-            </motion.div>
-          </div>
+              {event.doorsOpen && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-card rounded-full border border-border/50">
+                  <Clock className="w-4 h-4 text-primary" />
+                  <span className="text-sm">Puertas: {new Date(event.doorsOpen).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' })}</span>
+                </div>
+              )}
+            </div>
+
+            {event.description && (
+              <div className="prose prose-invert max-w-none">
+                <p className="text-muted-foreground text-lg leading-relaxed whitespace-pre-wrap">{event.description}</p>
+              </div>
+            )}
+          </motion.div>
 
           {/* CTA de compra — los tipos de entrada y precios se muestran recién
            * dentro del wizard conversacional, no acá. */}
@@ -158,7 +177,6 @@ export default function EventDetail() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.4 }}
-            className="lg:col-span-1"
           >
             <div className="sticky top-24 bg-card border border-border/50 rounded-2xl p-6 text-center">
               {isPast ? (

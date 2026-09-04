@@ -197,6 +197,12 @@ export type PnlInput = {
   cogs: number;
   /** Comisiones de embajadores devengadas por este evento. */
   ambassadorCommissions: number;
+  /** Suma de órdenes de este evento pagadas con tarjeta (web completo, más
+   * caja con débito/crédito/QR) -- la base sobre la que se calcula la
+   * comisión de Mercado Pago. Default 0 (sin comisión) si no se pasa. */
+  cardFeeBase?: number;
+  /** % de comisión de tarjeta configurado en Ajustes (siteSettings.cardFeePercent). */
+  cardFeePercent?: number;
   /** Gastos imputados directamente a este evento. */
   directExpenses: PnlExpense[];
   /** Gastos generales prorrateables del mes (los del mes COMPLETO, no la
@@ -215,6 +221,9 @@ export type PnlResult = {
   generalExpensesAssigned: number;
   prorationWeight: number;
   ambassadorCommissions: number;
+  cardFeeBase: number;
+  cardFeePercent: number;
+  cardFeeAmount: number;
   iva: { debitoFiscal: number; creditoFiscal: number; ivaAPagar: number; remanenteCredito: number };
   netIncome: number;
   netProfit: number;
@@ -231,6 +240,12 @@ export type PnlResult = {
  */
 export function computePnl(input: PnlInput): PnlResult {
   const { ivaApplies, grossIncome, cogs, ambassadorCommissions, prorationWeight } = input;
+  const cardFeeBase = input.cardFeeBase ?? 0;
+  const cardFeePercent = input.cardFeePercent ?? 0;
+
+  // Comisión de Mercado Pago: costo real sobre lo efectivamente cobrado con
+  // tarjeta (web completo + caja con débito/crédito/QR), no lleva IVA propio.
+  const cardFeeAmount = Math.round(cardFeeBase * cardFeePercent / 100);
 
   // Gastos directos, al costo que corresponde según si el evento declara.
   let directExpensesTotal = 0;
@@ -266,7 +281,7 @@ export function computePnl(input: PnlInput): PnlResult {
   const remanenteCredito = Math.max(0, creditoFiscal - debitoFiscal);
 
   const netIncome = ivaApplies ? grossIncome - debitoFiscal : grossIncome;
-  const netProfit = netIncome - cogs - directExpensesTotal - generalAssigned - ambassadorCommissions;
+  const netProfit = netIncome - cogs - directExpensesTotal - generalAssigned - ambassadorCommissions - cardFeeAmount;
 
   return {
     grossIncome,
@@ -279,6 +294,9 @@ export function computePnl(input: PnlInput): PnlResult {
     generalExpensesAssigned: generalAssigned,
     prorationWeight,
     ambassadorCommissions,
+    cardFeeBase,
+    cardFeePercent,
+    cardFeeAmount,
     iva: { debitoFiscal, creditoFiscal, ivaAPagar, remanenteCredito },
     netIncome,
     netProfit,

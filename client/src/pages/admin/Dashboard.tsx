@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -63,21 +63,50 @@ const onMutationError = (error: unknown) => {
 
 // Los inputs datetime-local no llevan zona horaria — si se manda tal cual al
 // servidor (que corre en UTC), "21:00" se guarda como 21:00 UTC, que son las
-// 17:00 en Chile. Mismo criterio de hora fija (UTC-4, continental sin cambio
-// de horario) ya usado en CANDYLAND.eventDate (client/src/config/candyland.ts).
-const CHILE_OFFSET_MS = 4 * 60 * 60 * 1000;
+// 17:00 en Chile. Chile cambia de horario (UTC-3 en horario de verano,
+// ~sep-abr; UTC-4 en invierno), así que el offset se calcula para cada fecha
+// puntual con la zona horaria real America/Santiago en vez de asumir uno fijo
+// — mismo criterio con el que EventDetail.tsx y Ticket.tsx ya muestran la hora.
+
+/** Offset de America/Santiago (en ms, a sumar a UTC para obtener hora Chile) para un instante dado. */
+function chileOffsetMs(date: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Santiago',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(date).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== 'literal') acc[p.type] = p.value;
+    return acc;
+  }, {});
+  // Instante que la wall-clock de Chile representa, interpretado como si fuera UTC.
+  const asUtc = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour) === 24 ? 0 : Number(parts.hour), Number(parts.minute), Number(parts.second)
+  );
+  return asUtc - date.getTime();
+}
 
 /** DB (UTC) → valor para un <input type="datetime-local"> mostrando hora de Chile. */
 function toChileInputValue(dateInput: string | Date | null | undefined): string {
   if (!dateInput) return '';
-  const chileTime = new Date(new Date(dateInput).getTime() - CHILE_OFFSET_MS);
+  const date = new Date(dateInput);
+  const chileTime = new Date(date.getTime() + chileOffsetMs(date));
   return chileTime.toISOString().slice(0, 16);
 }
 
 /** Valor de un <input type="datetime-local"> (hora de Chile, sin zona) → ISO con offset, para mandar al servidor. */
 function fromChileInputValue(value: string): string {
   if (!value) return '';
-  return `${value}:00-04:00`;
+  // Se interpreta primero la wall-clock ingresada como si fuera UTC solo para
+  // ubicar la fecha/hora y así calcular el offset de Chile que le corresponde.
+  const naiveUtc = new Date(`${value}:00Z`);
+  const offsetMs = chileOffsetMs(naiveUtc);
+  const totalMinutes = offsetMs / 60000;
+  const sign = totalMinutes < 0 ? '-' : '+';
+  const abs = Math.abs(totalMinutes);
+  const hh = String(Math.floor(abs / 60)).padStart(2, '0');
+  const mm = String(abs % 60).padStart(2, '0');
+  return `${value}:00${sign}${hh}:${mm}`;
 }
 
 /* Debe coincidir con los ids de CANDYLAND.accesos (client/src/config/candyland.ts)
@@ -835,7 +864,7 @@ function EventDescriptionAiFields({
  * dueña del formulario de "Nueva Entrada" para este evento (antes vivía en
  * EventsManager, gateado por comparar `newTicket.eventId === event.id` --
  * más simple tenerlo local ahora que cada evento ya es su propio componente). */
-function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number, adminPassword: string) => Promise<void> }) {
+function EventCard({ event, onDeleted, expanded, onToggleExpand }: { event: any; onDeleted: (id: number, adminPassword: string) => Promise<void>; expanded: boolean; onToggleExpand: () => void }) {
   const utils = trpc.useUtils();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(() => eventFormFromEvent(event));
@@ -884,6 +913,33 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number, a
   return (
     <Card>
       <CardContent className="pt-6">
+        {/* Cabecera siempre visible -- el resto de la card (formulario/resumen,
+         * entradas, tanda, stock, Misión 300) solo se monta si `expanded` es
+         * true, para no disparar todas esas queries de golpe con decenas de
+         * eventos en la lista. */}
+        <div className="w-full flex justify-between items-center gap-3">
+          <button type="button" onClick={onToggleExpand} className="min-w-0 flex-1 text-left">
+            <h3 className="font-semibold text-lg truncate">{event.title}</h3>
+            <p className="text-muted-foreground text-sm truncate">/{event.slug} | {event.status} | {new Date(event.eventDate).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
+          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {!expanded && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { onToggleExpand(); setEditing(true); }}
+              >
+                <Edit className="w-3 h-3" />
+              </Button>
+            )}
+            <button type="button" onClick={onToggleExpand} className="p-1">
+              {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+            </button>
+          </div>
+        </div>
+
+        {expanded && (
+        <div className="mt-4 border-t border-border/50 pt-4">
         {editing ? (
           <div className="space-y-4">
             <h4 className="font-semibold text-sm">Editar Evento</h4>
@@ -944,11 +1000,7 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number, a
             </div>
           </div>
         ) : (
-          <div className="flex justify-between items-start">
-            <div>
-              <h3 className="font-semibold text-lg">{event.title}</h3>
-              <p className="text-muted-foreground text-sm">/{event.slug} | {event.status} | {new Date(event.eventDate).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
-            </div>
+          <div className="flex justify-end items-start">
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
                 <Edit className="w-3 h-3" />
@@ -1035,6 +1087,8 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number, a
             </div>
           </div>
         )}
+        </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -1050,6 +1104,10 @@ function EventsManager() {
     status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false,
   });
   const [showEventForm, setShowEventForm] = useState(false);
+  // Cada card arranca colapsada -- con decenas de eventos (incluyendo
+  // ediciones antiguas que ahora se cargan como historial) mostrar todo
+  // siempre hacía la lista eterna. Solo uno abierto a la vez, tipo acordeón.
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const events = eventsData ?? [];
 
@@ -1145,7 +1203,13 @@ function EventsManager() {
 
       <div className="space-y-4">
         {events.map((event: any) => (
-          <EventCard key={event.id} event={event} onDeleted={handleDeleteEvent} />
+          <EventCard
+            key={event.id}
+            event={event}
+            onDeleted={handleDeleteEvent}
+            expanded={expandedId === event.id}
+            onToggleExpand={() => setExpandedId(expandedId === event.id ? null : event.id)}
+          />
         ))}
       </div>
     </div>
@@ -5496,6 +5560,10 @@ function EventPnlReport({ eventId, refreshKey }: { eventId: number; refreshKey: 
           {data.ambassadorCommissions > 0 && (
             <PnlRow label="Comisiones de embajadores" amount={data.ambassadorCommissions} negative />
           )}
+          {data.cardFeeAmount > 0 && (
+            <PnlRow label={`Comisión de tarjeta (${data.cardFeePercent}%)`} amount={data.cardFeeAmount} negative
+              hint="Sobre las ventas web (completo) y las de caja pagadas con débito, crédito o QR -- el efectivo no paga comisión." />
+          )}
 
           <PnlRow label="Utilidad neta" amount={data.netProfit} strong />
         </div>
@@ -6282,6 +6350,8 @@ function SettingsManager() {
   const [followers, setFollowers] = useState('');
   const [posts, setPosts] = useState('');
   const [feePercent, setFeePercent] = useState('');
+  const [cardFeePercent, setCardFeePercent] = useState('');
+  const [parkingVenueFeeClp, setParkingVenueFeeClp] = useState('');
   const [vendorName, setVendorName] = useState('');
   const [vendorEmail, setVendorEmail] = useState('');
   const [ogImageUrl, setOgImageUrl] = useState('');
@@ -6291,6 +6361,8 @@ function SettingsManager() {
       setFollowers(String(settings.instagramFollowers ?? 0));
       setPosts(String(settings.instagramPosts ?? 0));
       setFeePercent(String(settings.serviceFeePercent ?? 0));
+      setCardFeePercent(String((settings as any).cardFeePercent ?? 3.5));
+      setParkingVenueFeeClp(String((settings as any).parkingVenueFeeClp ?? 3000));
       setVendorName((settings as any).kitchenVendorName ?? '');
       setVendorEmail((settings as any).kitchenVendorEmail ?? '');
       setOgImageUrl((settings as any).ogImageUrl ?? '');
@@ -6303,6 +6375,14 @@ function SettingsManager() {
 
   const handleSaveFee = () => {
     updateSettings.mutate({ serviceFeePercent: Number(feePercent) || 0 });
+  };
+
+  const handleSaveCardFee = () => {
+    updateSettings.mutate({ cardFeePercent: Number(cardFeePercent) || 0 });
+  };
+
+  const handleSaveParkingVenueFee = () => {
+    updateSettings.mutate({ parkingVenueFeeClp: Number(parkingVenueFeeClp) || 0 });
   };
 
   const handleSaveVendor = () => {
@@ -6365,6 +6445,40 @@ function SettingsManager() {
             <Input type="number" step="0.01" min="0" max="100" value={feePercent} onChange={(e) => setFeePercent(e.target.value)} className="mt-1" />
           </div>
           <WriteButton onClick={handleSaveFee} disabled={updateSettings.isPending} className="interactive">
+            {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
+          </WriteButton>
+        </CardContent>
+      </Card>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Comisión de tarjeta (Mercado Pago)</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Porcentaje que se descuenta solo, como costo, en el resultado (P&L) de cada evento — tanto de las ventas
+            web como de las ventas en caja pagadas con débito, crédito o QR (el efectivo no paga comisión). Ajusta
+            este número cuando tengas el % exacto de tu liquidación de Mercado Pago.
+          </p>
+          <div className="max-w-xs">
+            <Label>Comisión (%)</Label>
+            <Input type="number" step="0.01" min="0" max="100" value={cardFeePercent} onChange={(e) => setCardFeePercent(e.target.value)} className="mt-1" />
+          </div>
+          <WriteButton onClick={handleSaveCardFee} disabled={updateSettings.isPending} className="interactive">
+            {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
+          </WriteButton>
+        </CardContent>
+      </Card>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Estacionamiento — pago al establecimiento</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Cuánto le pagas al establecimiento por CADA auto que pagó estacionamiento (online o en la puerta) — los
+            autos de staff con estacionamiento gratis no cuentan acá. Se usa en el reporte "Estacionamiento" del
+            admin para calcular el monto a pagar.
+          </p>
+          <div className="max-w-xs">
+            <Label>Monto por auto (CLP)</Label>
+            <Input type="number" step="1" min="0" value={parkingVenueFeeClp} onChange={(e) => setParkingVenueFeeClp(e.target.value)} className="mt-1" />
+          </div>
+          <WriteButton onClick={handleSaveParkingVenueFee} disabled={updateSettings.isPending} className="interactive">
             {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
           </WriteButton>
         </CardContent>
@@ -7000,6 +7114,70 @@ function EventOverview() {
   );
 }
 
+/** Conteo exacto de autos por origen, para cuadrar contra los autos
+ * estacionados y saber cuánto pagarle al establecimiento -- ver
+ * server/db.ts getParkingReport y el flujo de cobro en /puerta. */
+function ParkingReportView() {
+  const { data: events } = trpc.events.listAll.useQuery();
+  const { data: defaultEvent } = trpc.events.getActiveForCaja.useQuery();
+  const [selected, setSelected] = useState<number | null>(null);
+  const eventId = selected ?? defaultEvent?.id ?? events?.[0]?.id ?? null;
+
+  const { data } = trpc.cajaReports.parkingReport.useQuery({ eventId: eventId! }, { enabled: !!eventId });
+
+  if (!eventId) {
+    return <p className="text-sm text-muted-foreground">Todavía no hay eventos cargados.</p>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-heading text-2xl">Estacionamiento</h2>
+        <Select value={String(eventId)} onValueChange={(v) => setSelected(Number(v))}>
+          <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {(events ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard icon={Ticket} colorClass="bg-violet-electric" value={data?.online ?? 0} label="Pagado online" />
+        <StatCard icon={Car} colorClass="bg-primary" value={data?.puerta ?? 0} label="Pagado en puerta" />
+        <StatCard icon={Gift} colorClass="bg-amber-500" value={data?.staff ?? 0} label="Gratis (staff)" />
+        <StatCard icon={ShoppingBag} colorClass="bg-green-600" value={data?.totalCars ?? 0} label="Total autos" />
+      </div>
+
+      {data && data.puerta > 0 && (
+        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+          <CardHeader><CardTitle>Cobrado en la puerta, por método</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4 text-sm">
+              <p>Efectivo: <strong>{data.puertaByMethod.efectivo}</strong></p>
+              <p>Débito: <strong>{data.puertaByMethod.debito}</strong></p>
+              <p>Crédito: <strong>{data.puertaByMethod.credito}</strong></p>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">Para cuadrar contra el efectivo/tarjeta contado esa noche en /caja.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5 border-l-4 border-l-amber-500">
+        <CardHeader><CardTitle>A pagar al establecimiento</CardTitle></CardHeader>
+        <CardContent>
+          <p className="text-3xl font-bold tabular-nums">
+            ${(data?.amountOwedToVenueClp ?? 0).toLocaleString('es-CL')}
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {data?.totalPaid ?? 0} autos pagados (online + puerta) × ${(data?.venueFeePerCarClp ?? 0).toLocaleString('es-CL')} — costo del arriendo del estacionamiento, no es ingreso de Mansion Playroom.
+            Los autos de staff con estacionamiento gratis no cuentan acá. Ajustable en Ajustes → Estacionamiento.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 const ADMIN_SECTIONS = [
   // Primera del menú: es el resumen de la noche, lo que el dueño mira en vivo
   // y al día siguiente. Las secciones de abajo siguen siendo las del detalle.
@@ -7010,6 +7188,7 @@ const ADMIN_SECTIONS = [
   { id: 'sales-origin', label: 'Ventas por Origen', icon: Compass, render: () => <SalesByOriginView /> },
   { id: 'orders-caja', label: 'Ventas Caja', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
   { id: 'manual-access', label: 'Accesos Manuales', icon: Gift, render: () => <ManualAccessSection /> },
+  { id: 'parking', label: 'Estacionamiento', icon: Car, render: () => <ParkingReportView /> },
   { id: 'discounts', label: 'Descuentos', icon: Percent, render: () => <DiscountsManager /> },
   { id: 'community', label: 'Códigos Comunidad', icon: Users, render: () => <CommunityCodesManager /> },
   { id: 'blocked-customers', label: 'Bloqueo de Clientes', icon: Ban, render: () => <BlockedCustomersManager /> },
