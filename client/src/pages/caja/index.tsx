@@ -1039,6 +1039,13 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
   const [favorites, setFavorites] = useState<number[]>(() => getFavoriteIds());
   const [editingFavorites, setEditingFavorites] = useState(false);
   const FAVORITES_TAB = '__favoritos__';
+  // Solo mobile (< sm): el panel de cobro completo tapaba toda la grilla de
+  // productos porque `sticky bottom-4` sin tope de altura, en un viewport
+  // chico con solo 2 columnas de productos, termina cubriendo casi toda la
+  // pantalla apenas hay algo en el carrito. En tablet/desktop (sm: en
+  // adelante) el panel de siempre sigue igual, sin este estado. Arranca
+  // colapsado -- se expande recién cuando el cajero quiere cobrar.
+  const [cartExpanded, setCartExpanded] = useState(false);
 
   // Mantener presionada una tarjeta muestra sus ingredientes/sabores (pedido
   // explícito del dueño, para responder preguntas del cliente en el momento).
@@ -1253,6 +1260,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
       return;
     }
     setCart({});
+    setCartExpanded(false);
     setBuyerEmail('');
     setBalance(null);
     setRedeemInput('');
@@ -1402,8 +1410,16 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
         </div>
       )}
 
-      {hasItems && (
-        <div className="sticky bottom-4 bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-2xl p-4 space-y-3">
+      {hasItems && (() => {
+        // Contenido del panel de cobro, extraído tal cual -- se muestra dos
+        // veces (desktop/tablet sin cambios, mobile en una hoja aparte) sin
+        // duplicar la lógica. Es una expresión JSX calculada una sola vez
+        // por render, no un componente nuevo: si fuera un componente función
+        // definido acá adentro, React lo remontaría en cada tecla (identidad
+        // nueva en cada render) y los inputs (buscador de cliente, email,
+        // código de descuento) perderían el foco mientras se escribe.
+        const panelInner = (
+          <>
           <div className="space-y-1 max-h-32 overflow-y-auto">
             {cartLines.map((p) => (
               <div key={p.id} className="flex justify-between text-sm text-white/70">
@@ -1557,8 +1573,47 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
           <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={tooManyLockers} onClick={startCheckout}>
             {paymentMethod === 'efectivo' ? 'Cobrar en efectivo' : paymentMethod === 'qr' ? 'Cobrado en terminal — Confirmar' : 'Cobrar con máquina'}
           </Button>
-        </div>
-      )}
+          </>
+        );
+
+        return (
+          <>
+            {/* Tablet/desktop (sm: en adelante): el panel de siempre, sin
+                ningún cambio de comportamiento. */}
+            <div className="hidden sm:block sticky bottom-4 bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-2xl p-4 space-y-3">
+              {panelInner}
+            </div>
+
+            {/* Mobile (menos de sm): barra compacta fija abajo -- nunca tapa
+                la grilla de productos -- que se expande a una hoja con el
+                mismo panel de arriba cuando el cajero toca "Ver carrito". */}
+            <div className="sm:hidden">
+              {!cartExpanded ? (
+                <button
+                  onClick={() => setCartExpanded(true)}
+                  className="fixed inset-x-4 bottom-4 z-20 h-14 px-5 rounded-2xl bg-primary text-white shadow-xl flex items-center justify-between font-semibold"
+                >
+                  <span>🛒 Ver carrito ({cartLines.reduce((n, p) => n + (cart[p.id] || 0), 0)})</span>
+                  <span>${total.toLocaleString('es-CL')} ▲</span>
+                </button>
+              ) : (
+                <div className="fixed inset-0 z-30 bg-black/70 backdrop-blur-sm flex flex-col justify-end" onClick={() => setCartExpanded(false)}>
+                  <div
+                    className="max-h-[85vh] overflow-y-auto bg-[#150d13] border-t border-white/10 rounded-t-3xl p-4 space-y-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between pb-1">
+                      <p className="font-bold">Carrito</p>
+                      <button onClick={() => setCartExpanded(false)} className="text-white/50 text-sm">✕ Cerrar</button>
+                    </div>
+                    {panelInner}
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {paymentStep === 'card' && (
         <div className="fixed inset-0 z-30 bg-black/90 backdrop-blur-sm flex items-center justify-center p-6">
