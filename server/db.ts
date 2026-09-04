@@ -90,7 +90,7 @@ export async function getUserByOpenId(openId: string) {
 export async function getPublishedEvents() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(events).where(eq(events.status, 'published')).orderBy(events.eventDate);
+  return db.select().from(events).where(eq(events.status, 'published')).orderBy(desc(events.eventDate));
 }
 
 export async function getAllEvents() {
