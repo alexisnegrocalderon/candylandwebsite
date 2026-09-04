@@ -41,6 +41,28 @@ export async function getDb() {
   return _db;
 }
 
+/** Descarta el pool cacheado para que la próxima `getDb()` cree uno nuevo --
+ * llamado desde el `onError` de tRPC (ver server/_core/app.ts) cuando una
+ * consulta falla con pinta de problema de conexión. Una función serverless
+ * de Vercel puede quedar "tibia" reusando el mismo pool durante horas; si
+ * TiDB cierra una conexión por su lado (inactividad) o invalida un prepared
+ * statement cacheado tras un cambio de esquema en cualquier tabla, ese pool
+ * queda envenenado y cada consulta siguiente falla igual hasta que Vercel
+ * recicla la función sola -- podían ser minutos u horas. Esto lo hace
+ * autorecuperable en el siguiente request en vez de esperar ese reciclado. */
+export function resetDb() {
+  const stale = _db;
+  _db = null;
+  if (stale) {
+    try {
+      (stale.$client as unknown as { end?: (cb?: (err?: unknown) => void) => void }).end?.(() => {});
+    } catch {
+      // Best-effort: el pool ya está descartado igual, un error acá no debe
+      // impedir que la próxima request arme uno nuevo.
+    }
+  }
+}
+
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) throw new Error("User openId is required for upsert");
   const db = await getDb();
