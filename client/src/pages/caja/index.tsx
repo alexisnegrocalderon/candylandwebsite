@@ -51,7 +51,7 @@ export default function CajaApp() {
 
   if (loadingDevice) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] flex items-center justify-center">
+      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -73,7 +73,7 @@ function DeviceEnroll() {
   });
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
+    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
       <h1 className="text-xl font-bold">Enrolar este dispositivo</h1>
       <p className="text-white/60 text-sm text-center max-w-xs">Pide el código de enrolamiento a un administrador (Panel Admin → Caja → Dispositivos).</p>
       <Input
@@ -94,7 +94,7 @@ function OperatorGate() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] flex items-center justify-center">
+      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -172,7 +172,7 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
   // denominaciones: si hay turno abierto, pedirlo sería el bug de nuevo.
   if (registerId !== undefined && !shiftStarted && shiftLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex items-center justify-center">
+      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex items-center justify-center">
         <p className="text-white/60 text-sm">Revisando si hay un turno abierto…</p>
       </div>
     );
@@ -203,7 +203,7 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
+    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
       <h1 className="text-xl font-bold">Hola, {operator.name} 👋</h1>
       <p className="text-white/60 text-sm">Elige tu caja para este turno</p>
       <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
@@ -274,7 +274,7 @@ function DenominationCounter({ initialQuantities, onComplete, onExit, finalLabel
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
+    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
       <button onClick={back} className="text-white/50 text-sm self-start">← Volver</button>
       <p className="text-white/40 text-xs uppercase tracking-wide">Paso {step + 1} de {DENOMINATIONS.length}</p>
       <h1 className="text-xl font-bold text-center">{denom.label}</h1>
@@ -428,7 +428,7 @@ function PinLogin() {
 
   if (!selected) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-8 p-6">
+      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-8 p-6">
         <h1 className="text-2xl font-bold tracking-tight">Mansion Playroom · Caja</h1>
         <p className="text-white/60 text-sm -mt-6">Toca tu nombre</p>
         <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
@@ -455,7 +455,7 @@ function PinLogin() {
   const submit = (finalPin: string) => login.mutate({ operatorId: selected.id, pin: finalPin });
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
+    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
       <button onClick={() => { setSelected(null); setPin(''); }} className="text-white/50 text-sm">← Cambiar de operador</button>
       <h1 className="text-xl font-bold">{selected.name}</h1>
       <div className="flex gap-3">
@@ -645,7 +645,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
 
   if (!localEvent) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex items-center justify-center p-6 text-center">
+      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex items-center justify-center p-6 text-center">
         <p className="text-white/60">{isOnline ? 'Cargando evento…' : 'Sin conexión y sin datos guardados todavía. Conéctate una vez para descargar el evento.'}</p>
       </div>
     );
@@ -659,8 +659,16 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
     setShowCloseForm(true);
   };
 
+  // `fixed inset-0` (no `min-h-screen`) a propósito en TODAS las pantallas de
+  // /caja: saca la pantalla del flujo normal del documento, así el body de
+  // atrás nunca tiene por qué ser más alto que el viewport y no hay rebote
+  // (rubber-band) al arrastrar en iOS/iPadOS -- pedido explícito del dueño,
+  // la pantalla debe quedar fija sin ningún movimiento. `overscroll-none`
+  // en la pantalla y `overscroll-contain` en cada zona con scroll interno
+  // (grilla, ventas recientes, carrito) evitan que ESAS regiones encadenen
+  // el rebote hacia afuera al llegar a su propio borde.
   return (
-    <div className="h-screen overflow-hidden bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col">
+    <div className="fixed inset-0 overflow-hidden overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col">
       <header className="shrink-0 z-10 bg-[#150d13]/80 backdrop-blur-xl border-b border-white/10 px-4 py-3 flex items-center justify-between">
         <div>
           <p className="font-bold leading-tight">{localEvent.title}</p>
@@ -722,7 +730,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         {/* "Nueva venta" (view === 'sale') usa el ancho completo -- el resto de
             las vistas son listas/formularios angostos que se mantienen
             centrados con su propio max-w-lg, en vez de angostar todo por igual. */}
-        <main className="flex-1 min-w-0 min-h-0 overflow-y-auto p-4">
+        <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain p-4">
         {view === 'menu' && (
           <div className="max-w-lg mx-auto space-y-6">
             <div>
@@ -1406,7 +1414,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
             </div>
 
             {/* Grilla de productos -- tocar suma una unidad; el stepper +/- ahora vive en el carrito, no acá (ver panel derecho). Ocupa TODO el espacio restante de la columna, con scroll propio si no caben todos, en vez de empujar "Ventas recientes" fuera de la pantalla. */}
-            <div className="flex-1 min-h-0 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-3 content-start">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain grid grid-cols-2 sm:grid-cols-3 gap-3 content-start">
               {productsInTab.map((p) => {
                 const left = p.totalStock - p.soldCount;
                 const noStock = left <= 0;
@@ -1482,7 +1490,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
             {dashboardData && dashboardData.recentSales.length > 0 && (
               <div className="shrink-0 max-h-56 flex flex-col bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden">
                 <p className="shrink-0 px-4 pt-3 pb-2 text-xs uppercase tracking-wide text-white/50">Ventas recientes</p>
-                <div className="overflow-auto">
+                <div className="overflow-auto overscroll-contain">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left text-white/40 text-xs">
@@ -1514,7 +1522,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
           </div>
 
           {/* Panel de carrito persistente al costado -- antes era una barra pegada abajo, ahora siempre visible mientras se arma la venta. */}
-          <aside className="w-full lg:w-96 shrink-0 min-h-0 lg:self-stretch flex flex-col overflow-y-auto bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-3xl p-4 space-y-4">
+          <aside className="w-full lg:w-96 shrink-0 min-h-0 lg:self-stretch flex flex-col overflow-y-auto overscroll-contain bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-3xl p-4 space-y-4">
             {/* Tarjeta de cliente: lo que el carrito necesite en este momento -- guardarropía/cocina (si aplica) y Playcoins. */}
             <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-3 space-y-3">
               <p className="text-xs uppercase tracking-wide text-white/45">Cliente</p>
@@ -1638,7 +1646,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
             </div>
 
             {/* Líneas del carrito -- el stepper +/- vive acá, ya no en la tarjeta del producto. */}
-            <div className="space-y-1.5 flex-1 min-h-24 overflow-y-auto">
+            <div className="space-y-1.5 flex-1 min-h-24 overflow-y-auto overscroll-contain">
               {hasItems ? cartLines.map((p) => (
                 <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
                   <div className="min-w-0">
