@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -6351,6 +6351,7 @@ function SettingsManager() {
   const [posts, setPosts] = useState('');
   const [feePercent, setFeePercent] = useState('');
   const [cardFeePercent, setCardFeePercent] = useState('');
+  const [parkingVenueFeeClp, setParkingVenueFeeClp] = useState('');
   const [vendorName, setVendorName] = useState('');
   const [vendorEmail, setVendorEmail] = useState('');
   const [ogImageUrl, setOgImageUrl] = useState('');
@@ -6361,6 +6362,7 @@ function SettingsManager() {
       setPosts(String(settings.instagramPosts ?? 0));
       setFeePercent(String(settings.serviceFeePercent ?? 0));
       setCardFeePercent(String((settings as any).cardFeePercent ?? 3.5));
+      setParkingVenueFeeClp(String((settings as any).parkingVenueFeeClp ?? 3000));
       setVendorName((settings as any).kitchenVendorName ?? '');
       setVendorEmail((settings as any).kitchenVendorEmail ?? '');
       setOgImageUrl((settings as any).ogImageUrl ?? '');
@@ -6377,6 +6379,10 @@ function SettingsManager() {
 
   const handleSaveCardFee = () => {
     updateSettings.mutate({ cardFeePercent: Number(cardFeePercent) || 0 });
+  };
+
+  const handleSaveParkingVenueFee = () => {
+    updateSettings.mutate({ parkingVenueFeeClp: Number(parkingVenueFeeClp) || 0 });
   };
 
   const handleSaveVendor = () => {
@@ -6456,6 +6462,23 @@ function SettingsManager() {
             <Input type="number" step="0.01" min="0" max="100" value={cardFeePercent} onChange={(e) => setCardFeePercent(e.target.value)} className="mt-1" />
           </div>
           <WriteButton onClick={handleSaveCardFee} disabled={updateSettings.isPending} className="interactive">
+            {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
+          </WriteButton>
+        </CardContent>
+      </Card>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Estacionamiento — pago al establecimiento</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Cuánto le pagas al establecimiento por CADA auto que pagó estacionamiento (online o en la puerta) — los
+            autos de staff con estacionamiento gratis no cuentan acá. Se usa en el reporte "Estacionamiento" del
+            admin para calcular el monto a pagar.
+          </p>
+          <div className="max-w-xs">
+            <Label>Monto por auto (CLP)</Label>
+            <Input type="number" step="1" min="0" value={parkingVenueFeeClp} onChange={(e) => setParkingVenueFeeClp(e.target.value)} className="mt-1" />
+          </div>
+          <WriteButton onClick={handleSaveParkingVenueFee} disabled={updateSettings.isPending} className="interactive">
             {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
           </WriteButton>
         </CardContent>
@@ -7091,6 +7114,70 @@ function EventOverview() {
   );
 }
 
+/** Conteo exacto de autos por origen, para cuadrar contra los autos
+ * estacionados y saber cuánto pagarle al establecimiento -- ver
+ * server/db.ts getParkingReport y el flujo de cobro en /puerta. */
+function ParkingReportView() {
+  const { data: events } = trpc.events.listAll.useQuery();
+  const { data: defaultEvent } = trpc.events.getActiveForCaja.useQuery();
+  const [selected, setSelected] = useState<number | null>(null);
+  const eventId = selected ?? defaultEvent?.id ?? events?.[0]?.id ?? null;
+
+  const { data } = trpc.cajaReports.parkingReport.useQuery({ eventId: eventId! }, { enabled: !!eventId });
+
+  if (!eventId) {
+    return <p className="text-sm text-muted-foreground">Todavía no hay eventos cargados.</p>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-heading text-2xl">Estacionamiento</h2>
+        <Select value={String(eventId)} onValueChange={(v) => setSelected(Number(v))}>
+          <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {(events ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard icon={Ticket} colorClass="bg-violet-electric" value={data?.online ?? 0} label="Pagado online" />
+        <StatCard icon={Car} colorClass="bg-primary" value={data?.puerta ?? 0} label="Pagado en puerta" />
+        <StatCard icon={Gift} colorClass="bg-amber-500" value={data?.staff ?? 0} label="Gratis (staff)" />
+        <StatCard icon={ShoppingBag} colorClass="bg-green-600" value={data?.totalCars ?? 0} label="Total autos" />
+      </div>
+
+      {data && data.puerta > 0 && (
+        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+          <CardHeader><CardTitle>Cobrado en la puerta, por método</CardTitle></CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4 text-sm">
+              <p>Efectivo: <strong>{data.puertaByMethod.efectivo}</strong></p>
+              <p>Débito: <strong>{data.puertaByMethod.debito}</strong></p>
+              <p>Crédito: <strong>{data.puertaByMethod.credito}</strong></p>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">Para cuadrar contra el efectivo/tarjeta contado esa noche en /caja.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5 border-l-4 border-l-amber-500">
+        <CardHeader><CardTitle>A pagar al establecimiento</CardTitle></CardHeader>
+        <CardContent>
+          <p className="text-3xl font-bold tabular-nums">
+            ${(data?.amountOwedToVenueClp ?? 0).toLocaleString('es-CL')}
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {data?.totalPaid ?? 0} autos pagados (online + puerta) × ${(data?.venueFeePerCarClp ?? 0).toLocaleString('es-CL')} — costo del arriendo del estacionamiento, no es ingreso de Mansion Playroom.
+            Los autos de staff con estacionamiento gratis no cuentan acá. Ajustable en Ajustes → Estacionamiento.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 const ADMIN_SECTIONS = [
   // Primera del menú: es el resumen de la noche, lo que el dueño mira en vivo
   // y al día siguiente. Las secciones de abajo siguen siendo las del detalle.
@@ -7101,6 +7188,7 @@ const ADMIN_SECTIONS = [
   { id: 'sales-origin', label: 'Ventas por Origen', icon: Compass, render: () => <SalesByOriginView /> },
   { id: 'orders-caja', label: 'Ventas Caja', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
   { id: 'manual-access', label: 'Accesos Manuales', icon: Gift, render: () => <ManualAccessSection /> },
+  { id: 'parking', label: 'Estacionamiento', icon: Car, render: () => <ParkingReportView /> },
   { id: 'discounts', label: 'Descuentos', icon: Percent, render: () => <DiscountsManager /> },
   { id: 'community', label: 'Códigos Comunidad', icon: Users, render: () => <CommunityCodesManager /> },
   { id: 'blocked-customers', label: 'Bloqueo de Clientes', icon: Ban, render: () => <BlockedCustomersManager /> },

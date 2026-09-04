@@ -83,6 +83,7 @@ export interface CajaStaffComp {
 export type QueuedOp =
   | { opId: string; type: 'redeem'; displayCode: string; clientAt: string }
   | { opId: string; type: 'checkin'; ticketCode: string; clientAt: string }
+  | { opId: string; type: 'parking_paid'; ticketCode: string; paymentMethod: 'efectivo' | 'debito' | 'credito'; clientAt: string }
   | {
       opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number }[];
       paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr'; clientAt: string;
@@ -308,6 +309,21 @@ export async function enqueueOp(op: QueuedOp) {
         attendee.access = attendee.access.map((a) =>
           a.ticketCode.toUpperCase() === op.ticketCode.toUpperCase() ? { ...a, status: 'used' } : a
         );
+        await cajaDB.attendees.put(attendee);
+      }
+    }
+  }
+
+  // Estacionamiento cobrado en la puerta: se agrega localmente al toque para
+  // que un re-escaneo en la misma sesión ya lo vea pagado (server/caja/
+  // parkingPaid.ts hace lo mismo del lado del servidor, esto solo evita
+  // esperar la próxima sincronización de 60s del snapshot).
+  if (op.type === 'parking_paid') {
+    const idx = await cajaDB.codes.get(op.ticketCode.toUpperCase());
+    if (idx) {
+      const attendee = await cajaDB.attendees.get(idx.orderId);
+      if (attendee) {
+        attendee.extras = [...attendee.extras, { displayCode: null, status: 'used', typeName: 'Estacionamiento' }];
         await cajaDB.attendees.put(attendee);
       }
     }

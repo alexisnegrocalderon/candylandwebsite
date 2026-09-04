@@ -546,11 +546,18 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const syncingRef = useRef(false);
   const runSync = useCallback(async () => {
     if (syncingRef.current || !isOnline || !localEvent) return;
-    const opsToSync = await getPendingOps();
+    // La cola es compartida con /puerta (mismo IndexedDB, distinto origen de
+    // operaciones) -- 'parking_paid' es exclusivo de la puerta, así que
+    // /caja lo deja pasar de largo en vez de mandarlo a un endpoint que no
+    // lo entiende. Se sincroniza igual, solo que desde /puerta.
+    const opsToSync = (await getPendingOps()).filter((o) => o.op.type !== 'parking_paid');
     if (opsToSync.length === 0) return;
     syncingRef.current = true;
     try {
-      const results = await syncMutation.mutateAsync({ eventId: localEvent.id, registerId: registerId ?? undefined, ops: opsToSync.slice(0, 50).map((o) => o.op) as QueuedOp[] });
+      const results = await syncMutation.mutateAsync({
+        eventId: localEvent.id, registerId: registerId ?? undefined,
+        ops: opsToSync.slice(0, 50).map((o) => o.op) as Exclude<QueuedOp, { type: 'parking_paid' }>[],
+      });
       for (const [opId, res] of Object.entries(results)) {
         await markOpSynced(opId, res.result, res.conflictNote);
         if (res.result === 'conflict') toast.warning(`Conflicto al sincronizar: ${res.conflictNote || 'revisar con supervisor'}`);

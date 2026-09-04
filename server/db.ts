@@ -13,6 +13,7 @@ import { monthKeyFor } from '../shared/ambassadorProgram';
 import { normalizeTandaSchedule, nextPhase } from '../shared/tandaSchedule';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, type PnlExpense } from '../shared/expenses';
+import { isParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
@@ -712,14 +713,14 @@ export async function deleteBlockedCustomer(id: number) {
 // recargo por servicio (%) que se suma a toda venta nueva)
 export async function getSiteSettings() {
   const db = await getDb();
-  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
+  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) return row;
-  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
+  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
 }
 
 export async function updateSiteSettings(data: {
-  instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number; cardFeePercent?: number;
+  instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number; cardFeePercent?: number; parkingVenueFeeClp?: number;
   kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null;
 }) {
   const db = await getDb();
@@ -2257,6 +2258,33 @@ export async function getCajaSnapshot(eventId: number) {
     };
   });
 
+  // El estacionamiento cobrado en la puerta (server/caja/parkingPaid.ts)
+  // vive en una orden aparte del mismo comprador (misma persona, otra
+  // orden) -- sin esto quedaría como una fila fantasma sin acceso en vez de
+  // aparecer dentro de los extras de la persona real. Se fusiona por
+  // `buyerEmail` (salvo los placeholder, compartidos por varias personas
+  // distintas -- ver PLACEHOLDER_BUYER_EMAILS) hacia la fila que sí tiene un
+  // acceso, y se descartan las filas que quedaron vacías tras la fusión.
+  const byBuyerEmail = new Map<string, typeof attendees>();
+  for (const a of attendees) {
+    const email = (a.buyerEmail || '').trim().toLowerCase();
+    if (!email || PLACEHOLDER_BUYER_EMAILS.has(email)) continue;
+    const list = byBuyerEmail.get(email) ?? [];
+    list.push(a);
+    byBuyerEmail.set(email, list);
+  }
+  const mergedAway = new Set<number>();
+  for (const group of Array.from(byBuyerEmail.values())) {
+    if (group.length < 2) continue;
+    const primary = group.find((a) => a.access.length > 0) ?? group[0];
+    for (const other of group) {
+      if (other === primary) continue;
+      primary.extras = [...primary.extras, ...other.extras];
+      if (other.access.length === 0) mergedAway.add(other.orderId);
+    }
+  }
+  const mergedAttendees = attendees.filter((a) => !mergedAway.has(a.orderId));
+
   // La carta que ve la cajera: los addons de la web ('extra') MÁS la carta de
   // la fiesta ('consumo' = tragos y comida, 'locker' = guardarropía, 'merch').
   // Los accesos quedan fuera a propósito: no se venden en la barra.
@@ -2320,7 +2348,7 @@ export async function getCajaSnapshot(eventId: number) {
 
   return {
     event: { id: event.id, title: event.title, slug: event.slug },
-    attendees,
+    attendees: mergedAttendees,
     catalog,
     gifts,
     staffComps,
@@ -3265,6 +3293,59 @@ export async function getPnlComparison(eventIds?: number[]) {
         marginPercent: pnl.marginPercent,
       };
     });
+}
+
+/** Conteo exacto de autos por origen (online / puerta / staff), para poder
+ * cuadrar contra los autos realmente estacionados y saber cuánto pagarle al
+ * establecimiento (docs del feature: "Terminal de estacionamiento en
+ * /puerta"). Un ticket de Estacionamiento SIEMPRE nace en `status:'used'`
+ * (online al retirarse en /caja, en la puerta al momento de cobrar), así que
+ * "vendido" y "auto que llegó" son lo mismo acá -- no hace falta distinguir
+ * comprado-pero-no-retirado. */
+export async function getParkingReport(eventId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const allTicketTypes = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
+  const parkingTypeIds = new Set(
+    (allTicketTypes as any[]).filter((tt) => tt.category === 'extra' && isParkingTicketType(tt.name)).map((tt) => tt.id),
+  );
+  if (parkingTypeIds.size === 0) {
+    return { online: 0, puerta: 0, staff: 0, totalPaid: 0, totalCars: 0, venueFeePerCarClp: 0, amountOwedToVenueClp: 0, puertaByMethod: { efectivo: 0, debito: 0, credito: 0 } };
+  }
+
+  const parkingTickets = await db.select().from(tickets).where(and(
+    eq(tickets.eventId, eventId),
+    inArray(tickets.ticketTypeId, Array.from(parkingTypeIds)),
+    ne(tickets.status, 'cancelled'),
+  ));
+  const orderIds = Array.from(new Set((parkingTickets as any[]).map((t) => t.orderId)));
+  const relatedOrders = orderIds.length
+    ? await db.select({ id: orders.id, paymentMethod: orders.paymentMethod, paymentId: orders.paymentId }).from(orders).where(inArray(orders.id, orderIds))
+    : [];
+  const orderById = new Map<number, any>((relatedOrders as any[]).map((o) => [o.id, o]));
+
+  const origins = (parkingTickets as any[]).map((t) => {
+    const o = orderById.get(t.orderId);
+    return classifyParkingOrigin({ orderPaymentMethod: o?.paymentMethod ?? '', orderPaymentId: o?.paymentId ?? null });
+  });
+  const counts = summarizeParkingCounts(origins);
+
+  const puertaByMethod = { efectivo: 0, debito: 0, credito: 0 };
+  for (const t of parkingTickets as any[]) {
+    const o = orderById.get(t.orderId);
+    if (o?.paymentId?.startsWith('PUERTA-PARKING-') && o.paymentMethod in puertaByMethod) {
+      (puertaByMethod as any)[o.paymentMethod] += 1;
+    }
+  }
+
+  const venueFeePerCarClp = Number((await getSiteSettings()).parkingVenueFeeClp ?? 3000);
+  return {
+    ...counts,
+    venueFeePerCarClp,
+    amountOwedToVenueClp: counts.totalPaid * venueFeePerCarClp,
+    puertaByMethod,
+  };
 }
 
 /** Resumen del mes: totales por categoría y por medio de pago, IVA acumulado,
