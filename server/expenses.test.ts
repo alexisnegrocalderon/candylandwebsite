@@ -294,3 +294,34 @@ describe("computePnl en los bordes", () => {
     expect(sinComision.netProfit - conComision.netProfit).toBe(25000);
   });
 });
+
+describe("computePnl con comisión de tarjeta", () => {
+  it("sin cardFeeBase/cardFeePercent no resta nada (compatibilidad hacia atrás)", () => {
+    const r = computePnl({
+      ivaApplies: false, grossIncome: 500000, cogs: 0, ambassadorCommissions: 0,
+      directExpenses: [], generalExpenses: [], prorationWeight: 0,
+    });
+    expect(r.cardFeeAmount).toBe(0);
+    expect(r.netProfit).toBe(500000);
+  });
+
+  it("descuenta el % configurado sobre la base de ventas con tarjeta", () => {
+    const r = computePnl({
+      ivaApplies: false, grossIncome: 1000000, cogs: 0, ambassadorCommissions: 0,
+      cardFeeBase: 700000, cardFeePercent: 3.5,
+      directExpenses: [], generalExpenses: [], prorationWeight: 0,
+    });
+    expect(r.cardFeeAmount).toBe(24500); // 3.5% de 700.000
+    expect(r.netProfit).toBe(1000000 - 24500);
+  });
+
+  it("la base de comisión es independiente del ingreso total (efectivo no paga comisión)", () => {
+    // $500.000 en efectivo (sin comisión) + $200.000 con tarjeta.
+    const r = computePnl({
+      ivaApplies: false, grossIncome: 700000, cogs: 0, ambassadorCommissions: 0,
+      cardFeeBase: 200000, cardFeePercent: 3.5,
+      directExpenses: [], generalExpenses: [], prorationWeight: 0,
+    });
+    expect(r.cardFeeAmount).toBe(7000); // 3.5% de 200.000, no de 700.000
+  });
+});
