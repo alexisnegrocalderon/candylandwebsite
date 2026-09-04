@@ -31,9 +31,9 @@ type Ficha = {
    * invitación especial instantánea (un solo QR para todo un grupo). */
   groupSize: number | null;
   status: string;
-  attendeeNames: string[];
-  /** RUT de quien compró -- no hay uno por asistente, ver `caja/db.ts`. */
-  rut: string | null;
+  /** Titular + acompañantes, cada uno con su propio nombre y RUT -- ver
+   * `caja/db.ts`. */
+  attendees: { name: string; rut: string | null }[];
   extras: { typeName: string; status: string }[];
   buyerName: string;
 };
@@ -202,8 +202,7 @@ function Scanner({ operatorName }: { operatorName: string }) {
       accesoSlug: acc.accesoSlug,
       groupSize: acc.groupSize ?? null,
       status: acc.status,
-      attendeeNames: attendee.attendeeNames ?? [attendee.buyerName],
-      rut: attendee.rut ?? null,
+      attendees: attendee.attendees?.length ? attendee.attendees : [{ name: attendee.buyerName, rut: null }],
       extras: attendee.extras.map((e) => ({ typeName: e.typeName, status: e.status })),
       buyerName: attendee.buyerName,
     };
@@ -217,7 +216,7 @@ function Scanner({ operatorName }: { operatorName: string }) {
     if (!f) {
       // Sin ficha local: puede ser de otro evento o de una compra hecha
       // en el último minuto, todavía no descargada.
-      setFicha({ ticketCode: code, typeName: '', accesoSlug: null, groupSize: null, status: 'desconocido', attendeeNames: [], rut: null, extras: [], buyerName: '' });
+      setFicha({ ticketCode: code, typeName: '', accesoSlug: null, groupSize: null, status: 'desconocido', attendees: [], extras: [], buyerName: '' });
     } else {
       setFicha(f);
     }
@@ -362,24 +361,30 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
               <p className="text-sm text-white/60 mt-1.5">{personas} {personas === 1 ? 'persona' : 'personas'}</p>
             </div>
 
-            {/* El RUT se compara letra por letra con el carnet -- va en su
-             * propia tarjeta, con el mismo peso visual que el nombre, no
-             * como una línea chica al final. */}
-            <div className="glass-surface rounded-3xl p-5 mb-4">
-              <p className="text-xs uppercase tracking-widest text-white/45 mb-3">A nombre de</p>
-              <div className="space-y-2 mb-4">
-                {ficha.attendeeNames.map((n, i) => (
-                  <p key={i} className="text-2xl font-bold leading-snug">{n}</p>
-                ))}
-              </div>
-              {ficha.rut ? (
-                <div className="pt-3 border-t border-white/10">
-                  <p className="text-xs uppercase tracking-widest text-white/45 mb-1">RUT</p>
-                  <p className="text-3xl font-mono font-bold tracking-wider">{ficha.rut}</p>
-                </div>
-              ) : (
-                <p className="text-sm text-amber-200/80 pt-3 border-t border-white/10">RUT no registrado — pídelo verbalmente</p>
-              )}
+            {/* Cada persona del acceso con SU nombre y SU RUT -- no solo el
+             * titular -- porque el anfitrión compara a cada una contra su
+             * propia cédula. El tamaño de letra se achica un poco a medida
+             * que hay más personas, para que todas quepan sin scroll en un
+             * Dúo/Trío/grupo sin dejar de leerse bien. */}
+            <div className="glass-surface rounded-3xl p-5 mb-4 divide-y divide-white/10">
+              {ficha.attendees.map((p, i) => {
+                const n = ficha.attendees.length;
+                const nameSize = n <= 1 ? 'text-2xl' : n === 2 ? 'text-xl' : 'text-lg';
+                const rutSize = n <= 1 ? 'text-4xl' : n === 2 ? 'text-3xl' : 'text-2xl';
+                return (
+                  <div key={i} className={i === 0 ? 'pb-3.5' : 'py-3.5'}>
+                    <p className="text-xs uppercase tracking-widest text-white/45 mb-1">
+                      {ficha.attendees.length > 1 ? `Persona ${i + 1}` : 'A nombre de'}
+                    </p>
+                    <p className={`${nameSize} font-bold leading-snug`}>{p.name}</p>
+                    {p.rut ? (
+                      <p className={`${rutSize} font-mono font-bold tracking-wider mt-1`}>{p.rut}</p>
+                    ) : (
+                      <p className="text-sm text-amber-200/80 mt-1">RUT no registrado — pídelo verbalmente</p>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {estacionamiento.length > 0 && (

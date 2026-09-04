@@ -780,6 +780,40 @@ export function parseAttendeeRuts(attendeeDataJson: string | null | undefined): 
   }
 }
 
+/** Titular + acompañantes de una orden, cada uno con SU PROPIO nombre y RUT
+ * (a diferencia de `parseAttendeeNames`/`parseAttendeeRuts`, que devuelven
+ * dos listas planas que solo calzan entre sí si nunca falta un campo) --
+ * agrupa por "slot" usando el sufijo `_nombre`/`_rut` de la clave
+ * (`buyer__nombre`+`buyer__rut` → un slot, `acceso__acomp1_nombre`+
+ * `acceso__acomp1_rut` → otro, etc.), así cada nombre queda pareado con SU
+ * RUT aunque algún campo venga vacío. Usado en Puerta para mostrar todas las
+ * personas de un acceso, no solo la del titular. */
+export function parseAttendees(attendeeDataJson: string | null | undefined): { name: string; rut: string | null }[] {
+  if (!attendeeDataJson) return [];
+  try {
+    const parsed = JSON.parse(attendeeDataJson);
+    const campos = parsed?.campos ?? {};
+    const bySlot = new Map<string, { name?: string; rut?: string }>();
+    const order: string[] = [];
+    for (const [key, value] of Object.entries(campos)) {
+      if (typeof value !== 'string' || !value.trim()) continue;
+      const m = key.match(/^(.*)_(nombre|rut)$/i);
+      if (!m) continue;
+      const [, slot, field] = m;
+      if (!bySlot.has(slot)) { bySlot.set(slot, {}); order.push(slot); }
+      const entry = bySlot.get(slot)!;
+      if (field.toLowerCase() === 'nombre') entry.name = value.trim();
+      else entry.rut = normalizeRut(value);
+    }
+    return order
+      .map((slot) => bySlot.get(slot)!)
+      .filter((e) => !!e.name)
+      .map((e) => ({ name: e.name!, rut: e.rut ?? null }));
+  } catch {
+    return [];
+  }
+}
+
 /** RUT del comprador (no de acompañantes) de una orden, para Puerta -- lee
  * específicamente la clave `buyer__rut` de attendeeData, la fuente de
  * verdad real (a diferencia de customers.rut, ver upsertCustomerFromOrder). */
@@ -2232,18 +2266,21 @@ export async function getCajaSnapshot(eventId: number) {
 
   const attendees = approvedOrders.map((o: any) => {
     const ts = ticketsByOrder.get(o.id) ?? [];
-    // Los nombres de todos los asistentes de la orden: es lo que el
-    // anfitrion compara contra la cedula en la puerta. Van en el snapshot
-    // para que la ficha funcione sin senal.
-    const attendeeNames = parseAttendeeNames(o.attendeeData);
+    // Titular + acompañantes con nombre Y rut propios: es lo que el
+    // anfitrión compara persona por persona contra la cédula en la puerta.
+    // Van en el snapshot para que la ficha funcione sin señal. Si la orden
+    // no tiene attendeeData parseable (ventas manuales/invitaciones viejas),
+    // se cae al titular solo con el RUT que se le pudo cruzar por email.
+    const parsedAttendees = parseAttendees(o.attendeeData);
     return {
       orderId: o.id,
       orderNumber: o.orderNumber,
       buyerName: o.buyerName,
       buyerEmail: o.buyerEmail,
       buyerPhone: o.buyerPhone,
-      rut: parseBuyerRut(o.attendeeData) ?? rutByEmail.get((o.buyerEmail || '').trim().toLowerCase()) ?? null,
-      attendeeNames: attendeeNames.length > 0 ? attendeeNames : [o.buyerName],
+      attendees: parsedAttendees.length > 0
+        ? parsedAttendees
+        : [{ name: o.buyerName, rut: parseBuyerRut(o.attendeeData) ?? rutByEmail.get((o.buyerEmail || '').trim().toLowerCase()) ?? null }],
       access: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'acceso').map((t: any) => ({
         ticketCode: t.ticketCode,
         status: t.status,
