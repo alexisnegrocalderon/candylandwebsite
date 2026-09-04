@@ -83,8 +83,11 @@ export function costumeBadge() {
 }
 
 /** La banda de aniversario: franja ciruela con el kicker en dorado,
- * mayúsculas espaciadas. Va pegada arriba del encabezado. */
-function anniversaryBand() {
+ * mayúsculas espaciadas. Va pegada arriba del encabezado. Exportada además
+ * de usarse dentro de `emailHero` -- `buildMailingBlastEmail` arma su propio
+ * hero a medida (con un banner de imagen opcional antes) y la necesita
+ * suelta. */
+export function anniversaryBand() {
   return `<div style="background-color:${PLUM};padding:11px 20px;text-align:center;">
       <p style="color:${ACCENT.gold.solid};font-size:11px;font-weight:800;letter-spacing:3px;margin:0;">${EVENT_BRAND.kicker}</p>
     </div>`;

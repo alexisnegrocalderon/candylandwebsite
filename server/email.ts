@@ -1,5 +1,10 @@
 import { formatChileDate, formatChileDateTime } from '../shared/chileDate';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
+import { BRAND, EVENT_BRAND } from '../shared/eventBrand';
+import {
+  ACCENT, INK, MUTED, FAINT, BORDER, EMAIL_BASE_URL, LOGO_URL,
+  card, sectionTitle, grid, costumeBadge, anniversaryBand, emailShell, emailHero,
+} from './emailLayout';
 
 interface SendEmailInput {
   to: string;
@@ -14,7 +19,7 @@ interface SendEmailInput {
   attachments?: { filename: string; content: Buffer | string }[];
 }
 
-export const BRAND_NAME = 'Mansion Playroom';
+export const BRAND_NAME = BRAND.nombre;
 const DEFAULT_FROM_ADDRESS = 'onboarding@resend.dev';
 
 /** Arma el header `from` con el nombre de marca siempre fijo, sin depender de
@@ -74,50 +79,13 @@ export async function sendEmail(input: SendEmailInput) {
   }
 }
 
-/** Base para links/imágenes del email. `mansionplayroom.cl` (el valor por
- * defecto de APP_URL en el resto del server, ver server/qr.ts) todavía no
- * está conectado a este proyecto de Vercel — devuelve 404 — así que se usa
- * el dominio de Vercel que sí sirve los assets, hasta que se conecte el
- * dominio propio (ahí alcanza con setear APP_URL en Vercel). */
-const EMAIL_BASE_URL = process.env.APP_URL && process.env.APP_URL !== 'https://mansionplayroom.cl'
-  ? process.env.APP_URL
-  : 'https://candylandwebsite.vercel.app';
-
-/** Paleta pastel para los acentos de cada sección (rosa/celeste/amarillo/lila). */
-const ACCENT = {
-  pink: { bg: '#FCEEF4', text: '#D9538F', solid: '#EC5FA3' },
-  blue: { bg: '#EAF6FA', text: '#3AA0BE', solid: '#5FC2DE' },
-  yellow: { bg: '#FEF8E4', text: '#C89A2E', solid: '#F0C24B' },
-  lilac: { bg: '#F3EDFB', text: '#8B6FC9', solid: '#A98CE0' },
-} as const;
-
-const INK = '#3D2A35';
-const MUTED = '#7A6670';
-const FAINT = '#9A8A92';
-const BORDER = '#F2D9E4';
-
-function card(inner: string, opts?: { bg?: string; border?: boolean; padding?: string }) {
-  return `<div style="background:${opts?.bg ?? '#FFFFFF'};border-radius:20px;padding:${opts?.padding ?? '24px'};${opts?.border === false ? '' : `border:1px solid ${BORDER};`}margin-bottom:20px;">${inner}</div>`;
-}
-
-function sectionTitle(emoji: string, text: string) {
-  return `<h3 style="color:${INK};font-size:19px;font-weight:800;margin:0 0 14px;">${emoji} ${text}</h3>`;
-}
-
-/** Grilla de N columnas usando <table> (no flex/grid) — mucho más confiable
- * en Outlook/clientes de correo viejos que no soportan CSS moderno. */
-function grid(cells: string[], cols: number) {
-  const rows: string[][] = [];
-  for (let i = 0; i < cells.length; i += cols) rows.push(cells.slice(i, i + cols));
-  const width = Math.floor(100 / cols);
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:8px 8px;margin:0 -8px 8px;">
-    ${rows.map(row => `<tr>${row.map(c => `<td width="${width}%" valign="top" style="padding:0;">${c}</td>`).join('')}${row.length < cols ? `<td width="${(cols - row.length) * width}%"></td>` : ''}</tr>`).join('')}
-  </table>`;
-}
-
 /** Copia estática de reglas/valores/contenido del evento — se mantiene
  * alineada a mano con `client/src/config/candyland.ts` (no se importa
- * directo porque ese archivo vive del lado del cliente). */
+ * directo porque ese archivo vive del lado del cliente). El dress code
+ * YA NO se hardcodea acá: antes decía "Candy Sensual..." (el de la fiesta
+ * ANTERIOR) sin importar qué evento estuviera vendiendo el sitio en ese
+ * momento -- se lee de `shared/eventBrand.ts`, la misma fuente que usa
+ * `candyland.ts`, para que los dos lados no puedan volver a desalinearse. */
 const CONTENT = {
   valores: ['❤️ Respeto', '🤝 Consentimiento', '🕊️ Libertad'],
   edadMinima: 18,
@@ -140,7 +108,7 @@ const CONTENT = {
   ],
   antesDeVenir: [
     { emoji: '🪪', titulo: 'Documento', texto: 'Carnet o pasaporte vigente. Evento exclusivo para mayores de 18 años.' },
-    { emoji: '👗', titulo: 'Dress Code', texto: 'Candy Sensual: brillos, colores pastel, rosa, accesorios, lencería, vinilo o lo que te haga sentir increíble. Deja la ropa deportiva para otro día. 🍭✨' },
+    { emoji: '🎭', titulo: 'Dress Code', texto: EVENT_BRAND.dressCode },
     { emoji: '🚗', titulo: 'Estacionamiento', texto: 'Contamos con estacionamiento privado dentro del recinto.' },
     { emoji: '🚕', titulo: 'Cómo llegar', texto: 'En tu vehículo, o fácil en Uber, Didi o taxi.' },
   ],
@@ -184,7 +152,6 @@ export function buildOrderEmail(data: {
   extras?: { name: string; quantity: number; codes: string[] }[];
 }) {
   const ticketNames = data.items.map(i => i.name).join(', ');
-  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
   const ticketUrl = data.ticketCode ? `${EMAIL_BASE_URL}/verificar/${data.ticketCode}` : '';
   const calendarUrl = data.ticketCode ? `${EMAIL_BASE_URL}/api/calendar/${data.ticketCode}.ics` : '';
   const partyUrl = data.ticketCode ? `${EMAIL_BASE_URL}/fiesta/${data.ticketCode}` : '';
@@ -194,38 +161,18 @@ export function buildOrderEmail(data: {
   const qrUrl = data.ticketCode ? `${EMAIL_BASE_URL}/api/qr/${data.ticketCode}.png` : data.qrImageUrl;
   const whatsappShareUrl = `https://wa.me/?text=${encodeURIComponent(`Usa mi código ${data.ambassadorCode} para comprar tu entrada en Mansion Playroom 🍭 ${EMAIL_BASE_URL}`)}`;
 
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- Le dice a los clientes compatibles (Apple Mail, Outlook) que este email
-       está diseñado para verse en claro y que NO lo reprocesen en modo oscuro.
-       Gmail lo ignora y aplica su inversión igual, así que además NO se usan
-       gradientes de fondo en ningún lado: Gmail no sabe invertir un
-       linear-gradient pero sí invierte el color del texto, y esa mezcla dejaba
-       el título del encabezado casi del mismo tono que su fondo (invisible).
-       Con background-color sólido, fondo y texto se invierten juntos y el
-       texto sigue legible tanto en claro como en oscuro. -->
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
-
-    <!-- HERO -->
-    <div style="background-color:${ACCENT.pink.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
-      <p style="font-size:52px;margin:0 0 12px;">🍭</p>
-      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Tu compra fue confirmada!</h1>
-      <p style="color:${MUTED};font-size:15px;margin:0 0 24px;">La cuenta regresiva para ${data.eventTitle} ya comenzó.</p>
-      <a href="${EMAIL_BASE_URL}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;letter-spacing:0.3px;box-shadow:0 8px 20px rgba(236,95,163,0.35);">Ver ${data.eventTitle}</a>
-    </div>
-
-    <div style="padding:32px 24px 0;">
-
+  return emailShell({
+    preheader: `Tu ${ticketNames} ya está reservado para ${data.eventTitle}.`,
+    hero: emailHero({
+      accent: 'pink',
+      emoji: '🍭',
+      title: '¡Tu compra fue confirmada!',
+      subtitle: `La cuenta regresiva para ${data.eventTitle} ya comenzó.`,
+      cta: { href: EMAIL_BASE_URL, label: `Ver ${data.eventTitle}` },
+      anniversary: true,
+      costume: true,
+    }),
+    body: `
       <!-- SALUDO -->
       <h2 style="color:${INK};font-size:22px;font-weight:800;margin:0 0 6px;">👋 Hola ${data.buyerName}</h2>
       <p style="color:${MUTED};font-size:15px;margin:0 0 28px;">
@@ -296,7 +243,7 @@ export function buildOrderEmail(data: {
                sin degradé CSS (Outlook desktop no lo soporta), un borde sólido
                grueso es el tratamiento más seguro entre clientes de correo. -->
           <div style="display:inline-block;background:${ACCENT.pink.bg};border:3px solid ${ACCENT.pink.solid};border-radius:20px;padding:16px;">
-            <p style="color:${ACCENT.pink.text};font-size:11px;font-weight:800;letter-spacing:2px;margin:0 0 10px;">🍭 CANDYLAND</p>
+            <p style="color:${ACCENT.pink.text};font-size:11px;font-weight:800;letter-spacing:2px;margin:0 0 10px;">${EVENT_BRAND.ticketLabel}</p>
             <img src="${qrUrl}" alt="Código QR de tu entrada" style="width:200px;height:200px;border-radius:12px;background:#fff;padding:8px;display:block;" />
           </div>
           <p style="color:${MUTED};font-size:12px;margin:14px 0 20px;">Presenta este código QR y tu carnet en la entrada</p>
@@ -405,20 +352,8 @@ export function buildOrderEmail(data: {
           <strong>Equipo Mansion Playroom</strong>
         </p>
       </div>
-    </div>
-
-    <!-- FOOTER -->
-    <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:8px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
-      <p style="margin:0 0 8px;">
-        <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>
-        <a href="https://www.mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Web</a>
-      </p>
-      <p style="color:${FAINT};font-size:11px;margin:0;">© ${new Date().getFullYear()} Mansion Playroom · Valparaíso, Chile</p>
-    </div>
-  </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 /** Se manda cuando NO se cumple la meta de 300: pide completar la diferencia con un link de pago. */
@@ -430,30 +365,15 @@ export function buildMissionTopupEmail(data: {
   topupAmount: number;
   paymentUrl: string;
 }) {
-  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
-
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
-
-    <!-- HERO -->
-    <div style="background-color:${ACCENT.yellow.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
-      <p style="font-size:52px;margin:0 0 12px;">🍭</p>
-      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Casi, ${data.buyerName}!</h1>
-      <p style="color:${MUTED};font-size:15px;margin:0;">No juntamos las 300 personas para ${data.eventTitle} — falta completar tu diferencia.</p>
-    </div>
-
-    <div style="padding:32px 24px 0;">
+  return emailShell({
+    preheader: `Falta completar tu diferencia para ${data.eventTitle}.`,
+    hero: emailHero({
+      accent: 'yellow',
+      emoji: '🍭',
+      title: `¡Casi, ${data.buyerName}!`,
+      subtitle: `No juntamos las 300 personas para ${data.eventTitle} — falta completar tu diferencia.`,
+    }),
+    body: `
       <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">
         Para <strong style="color:${INK};">${data.eventTitle}</strong> (${data.eventDate}) no llegamos a las 300 personas de la Misión,
         así que para asegurar tu entrada falta completar la diferencia — igual pagaste como máximo el 60% del valor
@@ -470,100 +390,8 @@ export function buildMissionTopupEmail(data: {
           <p style="color:${FAINT};font-size:12px;margin:16px 0 0;">Tu entrada con código QR llega automáticamente apenas se confirme este pago.</p>
         </div>
       `)}
-    </div>
-
-    <!-- FOOTER -->
-    <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:8px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
-      <p style="margin:0 0 8px;">
-        <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>
-        <a href="https://www.mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Web</a>
-      </p>
-      <p style="color:${FAINT};font-size:11px;margin:0;">© ${new Date().getFullYear()} Mansion Playroom · Valparaíso, Chile</p>
-    </div>
-  </div>
-</body>
-</html>`;
-}
-
-/** Se manda una sola vez a quienes compraron por la ticketera anterior (antes
- * de tener sitio propio) -- junto con el correo final normal (buildOrderEmail),
- * para avisarles que la venta ahora es por este sitio y que su entrada ya
- * quedó migrada sin que tengan que hacer nada. */
-export function buildMigrationAnnouncementEmail(data: {
-  buyerName: string;
-  eventTitle: string;
-  eventDate: string;
-  ticketCode: string;
-  total: number;
-}) {
-  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
-  const ticketUrl = `${EMAIL_BASE_URL}/verificar/${data.ticketCode}`;
-
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
-
-    <!-- HERO -->
-    <div style="background-color:${ACCENT.lilac.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
-      <p style="font-size:52px;margin:0 0 12px;">✨</p>
-      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Tenemos novedades, ${data.buyerName}!</h1>
-      <p style="color:${MUTED};font-size:15px;margin:0;">Tu entrada a ${data.eventTitle} sigue 100% asegurada.</p>
-    </div>
-
-    <div style="padding:32px 24px 0;">
-      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">
-        Compraste tu entrada cuando todavía vendíamos por la plataforma anterior — y queremos contarte que
-        <strong style="color:${INK};">ya tenemos nuestro propio sitio de venta de entradas</strong>. Tu compra ya está
-        migrada acá, al mismo valor que pagaste (<strong style="color:${INK};">$${data.total.toLocaleString('es-CL')}</strong>),
-        sin que tengas que hacer nada ni pagar diferencia. La fecha del evento sigue exactamente igual.
-      </p>
-
-      ${sectionTitle('🎟', 'Tu entrada ya está lista')}
-      ${card(`
-        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 16px;">
-          Junto a este correo te llegó otro con tu código QR definitivo — guárdalo, es lo único que necesitas
-          presentar en la puerta.
-        </p>
-        <div style="text-align:center;">
-          <a href="${ticketUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:800;font-size:14px;">Ver mi entrada</a>
-        </div>
-      `, { bg: ACCENT.pink.bg, border: false })}
-
-      ${sectionTitle('🌐', 'Nuestro nuevo sitio')}
-      ${card(`
-        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 16px;">
-          Desde ahora, todas las próximas fiestas de Mansion Playroom se venden directo desde nuestra propia web —
-          entradas, código de embajador y tu QR, todo en un solo lugar.
-        </p>
-        <div style="text-align:center;">
-          <a href="${EMAIL_BASE_URL}" style="display:inline-block;background:#fff;color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};">Conocer el sitio</a>
-        </div>
-      `)}
-    </div>
-
-    <!-- FOOTER -->
-    <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:8px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
-      <p style="margin:0 0 8px;">
-        <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>
-        <a href="https://www.mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Web</a>
-      </p>
-      <p style="color:${FAINT};font-size:11px;margin:0;">© ${new Date().getFullYear()} Mansion Playroom · Valparaíso, Chile</p>
-    </div>
-  </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 /** Se manda cuando el conteo de referidos de un embajador cruza EXACTO un
@@ -575,32 +403,18 @@ export function buildTierUpEmail(data: {
   ambassadorCode: string;
   referralCount: number;
 }) {
-  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
   const tier = tierForCount(data.referralCount)!;
   const next = nextTierForCount(data.referralCount);
 
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
-
-    <!-- HERO -->
-    <div style="background-color:${ACCENT.yellow.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
-      <p style="font-size:52px;margin:0 0 12px;">${tier.emoji}</p>
-      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Llegaste a nivel ${tier.name}, ${data.buyerName}!</h1>
-      <p style="color:${MUTED};font-size:15px;margin:0;">Ya vendiste ${data.referralCount} entradas con tu código — te lo ganaste.</p>
-    </div>
-
-    <div style="padding:32px 24px 0;">
+  return emailShell({
+    preheader: `Llegaste a nivel ${tier.name} con ${data.referralCount} ventas.`,
+    hero: emailHero({
+      accent: 'yellow',
+      emoji: tier.emoji,
+      title: `¡Llegaste a nivel ${tier.name}, ${data.buyerName}!`,
+      subtitle: `Ya vendiste ${data.referralCount} entradas con tu código — te lo ganaste.`,
+    }),
+    body: `
       ${sectionTitle('🎁', 'Tu premio')}
       ${card(`
         <p style="color:${INK};font-size:18px;font-weight:800;margin:0 0 6px;">${tier.reward}</p>
@@ -626,20 +440,8 @@ export function buildTierUpEmail(data: {
         <p style="color:${INK};font-size:26px;font-weight:800;font-family:monospace;margin:0 0 20px;">${data.ambassadorCode}</p>
         <a href="${EMAIL_BASE_URL}/mis-referidos" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;">Ver Hall de la Fama</a>
       </div>
-    </div>
-
-    <!-- FOOTER -->
-    <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:24px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
-      <p style="margin:0 0 8px;">
-        <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>
-        <a href="https://www.mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Web</a>
-      </p>
-      <p style="color:${FAINT};font-size:11px;margin:0;">© ${new Date().getFullYear()} Mansion Playroom · Valparaíso, Chile</p>
-    </div>
-  </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 /** Se manda cuando al embajador le falta EXACTAMENTE 1 venta para el
@@ -650,31 +452,17 @@ export function buildAlmostTierEmail(data: {
   ambassadorCode: string;
   referralCount: number;
 }) {
-  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
   const next = nextTierForCount(data.referralCount)!;
 
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
-
-    <!-- HERO -->
-    <div style="background-color:${ACCENT.lilac.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
-      <p style="font-size:52px;margin:0 0 12px;">🔥</p>
-      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Estás a 1 venta, ${data.buyerName}!</h1>
-      <p style="color:${MUTED};font-size:15px;margin:0;">Una entrada más y desbloqueas nivel ${next.name}.</p>
-    </div>
-
-    <div style="padding:32px 24px 0;">
+  return emailShell({
+    preheader: `Una entrada más y desbloqueas nivel ${next.name}.`,
+    hero: emailHero({
+      accent: 'lilac',
+      emoji: '🔥',
+      title: `¡Estás a 1 venta, ${data.buyerName}!`,
+      subtitle: `Una entrada más y desbloqueas nivel ${next.name}.`,
+    }),
+    body: `
       ${sectionTitle(next.emoji, `Te espera nivel ${next.name}`)}
       ${card(`
         <p style="color:${INK};font-size:18px;font-weight:800;margin:0 0 10px;">${next.reward}</p>
@@ -688,20 +476,8 @@ export function buildAlmostTierEmail(data: {
         <p style="color:${INK};font-size:26px;font-weight:800;font-family:monospace;margin:0 0 20px;">${data.ambassadorCode}</p>
         <a href="https://wa.me/?text=${encodeURIComponent(`Usa mi código ${data.ambassadorCode} para comprar tu entrada en Mansion Playroom 🍭 ${EMAIL_BASE_URL}`)}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;">Compartir por WhatsApp</a>
       </div>
-    </div>
-
-    <!-- FOOTER -->
-    <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:24px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
-      <p style="margin:0 0 8px;">
-        <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>
-        <a href="https://www.mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Web</a>
-      </p>
-      <p style="color:${FAINT};font-size:11px;margin:0;">© ${new Date().getFullYear()} Mansion Playroom · Valparaíso, Chile</p>
-    </div>
-  </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 /** Resumen semanal para un embajador VIP (pedido explícito del dueño): sus
@@ -724,17 +500,12 @@ export function buildAmbassadorApplicationEmail(data: {
   whatsappLink: string;
   instagramLink: string;
 }) {
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  // Interno (el dueño se lo manda a sí mismo) -- sin hero ni pie, mismo
+  // criterio que el resto de los avisos operativos de más abajo.
+  return emailShell({
+    footer: false,
+    rawBody: true,
+    body: `
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
     <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">👑 Nueva postulación a embajador</h1>
     <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.name}</p>
@@ -764,8 +535,8 @@ export function buildAmbassadorApplicationEmail(data: {
       Revísala en el panel: Embajadores VIP → Postulaciones. Desde ahí la apruebas y se crea el embajador con su código.
     </p>
   </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 /** Confirmación al postulante. Repite requisitos y tareas a propósito: así le
@@ -776,32 +547,20 @@ export function buildApplicationReceivedEmail(data: {
   requirements: string[];
   tasks: string[];
 }) {
-  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
   const lista = (items: string[]) => items
     .map((t) => `<p style="color:${INK};font-size:14px;margin:0 0 6px;">• ${t}</p>`)
     .join('');
 
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
-
-    <div style="background-color:${ACCENT.lilac.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
-      <p style="font-size:44px;margin:0 0 12px;">👑</p>
-      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">Recibimos tu postulación, ${data.name}</h1>
-      <p style="color:${MUTED};font-size:15px;margin:0;">Te vamos a escribir por WhatsApp para contarte cómo sigue.</p>
-    </div>
-
-    <div style="padding:32px 24px 0;">
+  return emailShell({
+    preheader: `Recibimos tu postulación a embajador, ${data.name}.`,
+    footer: false,
+    hero: emailHero({
+      accent: 'lilac',
+      emoji: '👑',
+      title: `Recibimos tu postulación, ${data.name}`,
+      subtitle: 'Te vamos a escribir por WhatsApp para contarte cómo sigue.',
+    }),
+    body: `
       ${sectionTitle('✅', 'Lo que pedimos')}
       ${card(lista(data.requirements))}
 
@@ -818,10 +577,8 @@ export function buildApplicationReceivedEmail(data: {
       <p style="color:${FAINT};font-size:12px;text-align:center;margin:24px 0 0;">
         Si no postulaste tú, ignora este correo y no pasa nada.
       </p>
-    </div>
-  </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 /** Bienvenida al aprobar: su código y el link a su panel. Sin esto el admin
@@ -832,29 +589,16 @@ export function buildAmbassadorWelcomeEmail(data: {
   panelUrl: string;
   tasks: string[];
 }) {
-  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
-
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
-
-    <div style="background-color:${ACCENT.yellow.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
-      <p style="font-size:48px;margin:0 0 12px;">🎉</p>
-      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">¡Quedaste, ${data.name}!</h1>
-      <p style="color:${MUTED};font-size:15px;margin:0;">Ya eres embajador de Mansion Playroom.</p>
-    </div>
-
-    <div style="padding:32px 24px 0;">
+  return emailShell({
+    preheader: `Ya eres embajador de Mansion Playroom, ${data.name}.`,
+    footer: false,
+    hero: emailHero({
+      accent: 'yellow',
+      emoji: '🎉',
+      title: `¡Quedaste, ${data.name}!`,
+      subtitle: 'Ya eres embajador de Mansion Playroom.',
+    }),
+    body: `
       ${sectionTitle('🎟', 'Tu código')}
       ${card(`
         <p style="color:${INK};font-size:32px;font-weight:800;font-family:monospace;margin:0 0 8px;text-align:center;">${data.code}</p>
@@ -876,10 +620,8 @@ export function buildAmbassadorWelcomeEmail(data: {
       <div style="text-align:center;margin-top:24px;">
         <a href="${data.panelUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;">Ver mi panel</a>
       </div>
-    </div>
-  </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 export function buildAmbassadorWeeklyEmail(data: {
@@ -904,7 +646,6 @@ export function buildAmbassadorWeeklyEmail(data: {
     linkUrl?: string | null;
   } | null;
 }) {
-  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
   const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
   const m = data.material;
   const tieneMaterial = !!m && !!(m.storiesText || m.reelText || m.postText || m.countdownText || m.linkUrl);
@@ -920,22 +661,16 @@ export function buildAmbassadorWeeklyEmail(data: {
        </div>`
     : '';
 
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
-
-    <!-- HERO -->
+  // Hero a medida (kicker de texto en vez del emoji gigante de siempre) --
+  // se arma entero acá con `rawBody` en vez de usar `emailHero`, que asume
+  // un emoji como elemento central.
+  return emailShell({
+    preheader: `Tu semana como embajador, ${data.name}.`,
+    footer: false,
+    rawBody: true,
+    body: `
     <div style="background-color:${ACCENT.lilac.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
+      <img src="${LOGO_URL}" alt="${BRAND.nombre}" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Tu semana como embajador</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">Hola ${data.name}</h1>
       <p style="color:${MUTED};font-size:15px;margin:0;">
@@ -1023,9 +758,8 @@ export function buildAmbassadorWeeklyEmail(data: {
         <a href="${data.panelUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;">Ver mi panel</a>
       </div>
     </div>
-  </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 /** Resumen de ingresos del día del evento, enviado por el cron de las 3am
@@ -1039,17 +773,11 @@ export function buildCheckinSummaryEmail(data: {
 }) {
   const fecha = formatChileDate(data.eventDate, { withYear: true, withWeekday: false });
   const pct = data.expectedCount > 0 ? Math.round((data.insideCount / data.expectedCount) * 100) : 0;
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  // Interno (cron 3am, el dueño se lo manda a sí mismo) -- sin hero ni pie.
+  return emailShell({
+    footer: false,
+    rawBody: true,
+    body: `
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
     <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">🚪 ${data.eventTitle}</h1>
     <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">Resumen de ingresos — ${fecha}</p>
@@ -1060,8 +788,8 @@ export function buildCheckinSummaryEmail(data: {
       <p style="color:${MUTED};font-size:13px;margin:0;">${pct}% de las entradas vendidas ya hicieron check-in en la puerta.</p>
     `)}
   </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 /** Cuadre de caja al cerrar un turno (pedido explícito del usuario): muestra
@@ -1105,17 +833,11 @@ export function buildShiftCloseEmail(data: {
     </div>
   `;
 
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  // Interno (el dueño se lo manda a sí mismo al cerrar turno) -- sin hero ni pie.
+  return emailShell({
+    footer: false,
+    rawBody: true,
+    body: `
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
     <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">🔒 Turno cerrado — ${data.eventTitle}</h1>
     <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.registerName} · ${data.operatorName} · ${formatChileDateTime(data.closedAt)}</p>
@@ -1149,8 +871,8 @@ export function buildShiftCloseEmail(data: {
       `).join('')}
     `)}
   </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 /** Tarjeta opcional de "próximo evento destacado" para el mailing masivo
@@ -1161,17 +883,11 @@ export function buildShiftCloseEmail(data: {
  * explícito del usuario: un solo botón por sub-tab que arma PDF+email con
  * todo). `lines` son pares label/valor ya formateados por el caller. */
 export function buildSimpleReportEmail(data: { title: string; subtitle: string; lines: { label: string; value: string }[] }) {
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  // Interno -- sin hero ni pie.
+  return emailShell({
+    footer: false,
+    rawBody: true,
+    body: `
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
     <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">${data.title}</h1>
     <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.subtitle} — el detalle completo va en el PDF adjunto.</p>
@@ -1183,8 +899,8 @@ export function buildSimpleReportEmail(data: { title: string; subtitle: string; 
       </div>
     `).join(''))}
   </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 /** Rendición con el proveedor de cocina (pedido explícito del usuario):
@@ -1199,17 +915,11 @@ export function buildKitchenVendorEmail(data: {
   venueShare: number;
 }) {
   const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+  // Interno (va a cc del proveedor de cocina, no a un cliente) -- sin hero ni pie.
+  return emailShell({
+    footer: false,
+    rawBody: true,
+    body: `
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
     <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">🍽️ Rendición de cocina — ${data.eventTitle}</h1>
     <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">Para ${data.vendorName} — el detalle completo por producto va en el PDF adjunto.</p>
@@ -1221,8 +931,8 @@ export function buildKitchenVendorEmail(data: {
       <p style="color:${MUTED};font-size:13px;margin:0;">Le corresponde a ${BRAND_NAME}: <strong style="color:${INK};">${money(data.venueShare)}</strong></p>
     `)}
   </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 export type MailingEventInfo = {
@@ -1261,7 +971,6 @@ export function buildMailingBlastEmail(data: {
    * romper llamadas existentes que no pasen este parámetro. */
   eventSections?: Partial<MailingEventSections>;
 }) {
-  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
   const greeting = data.buyerName ? `¡Hola, ${data.buyerName}!` : '¡Hola!';
   const eventInfo = data.eventInfo;
   const showBanner = data.eventSections?.banner ?? true;
@@ -1269,31 +978,25 @@ export function buildMailingBlastEmail(data: {
   const showMission300 = data.eventSections?.mission300 ?? true;
   const showVenueGrid = data.eventSections?.venueGrid ?? true;
 
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
-  ${data.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${data.preheader}</div>` : ''}
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
-
-    ${eventInfo?.imageUrl && showBanner ? `<img src="${eventInfo.imageUrl}" alt="${eventInfo.title}" style="display:block;width:100%;height:auto;" />` : ''}
-
-    <!-- HERO -->
-    <div style="background-color:${ACCENT.pink.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
-      <p style="font-size:52px;margin:0 0 12px;">🍬</p>
-      <p style="color:${MUTED};font-size:14px;margin:0 0 4px;">${greeting}</p>
-      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0;">${data.headline}</h1>
-    </div>
-
-    <div style="padding:32px 24px 0;">
+  return emailShell({
+    preheader: data.preheader,
+    beforeContainer: eventInfo?.imageUrl && showBanner
+      ? `<img src="${eventInfo.imageUrl}" alt="${eventInfo.title}" style="display:block;width:100%;height:auto;" />`
+      : undefined,
+    // Hero a medida (saludo chico arriba del titular, sin subtítulo ni CTA
+    // en el encabezado -- el CTA de la campaña va más abajo, después de los
+    // párrafos) -- no usa `emailHero`, que asume ese otro orden.
+    hero: `
+      ${anniversaryBand()}
+      <div style="background-color:${ACCENT.pink.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+        <img src="${LOGO_URL}" alt="${BRAND.nombre}" style="height:64px;width:auto;margin-bottom:24px;" />
+        <p style="font-size:52px;margin:0 0 12px;">🍬</p>
+        <p style="color:${MUTED};font-size:14px;margin:0 0 4px;">${greeting}</p>
+        <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 16px;">${data.headline}</h1>
+        ${costumeBadge()}
+      </div>
+    `,
+    body: `
       ${data.paragraphs.map((p) => `
         <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 20px;">${p}</p>
       `).join('')}
@@ -1335,20 +1038,8 @@ export function buildMailingBlastEmail(data: {
       <div style="text-align:center;padding:${data.highlightLabel && data.highlightValue ? '24px' : '8px'} 0 8px;">
         <a href="${data.ctaUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(236,95,163,0.35);">${data.ctaText || 'Ver más'}</a>
       </div>
-    </div>
-
-    <!-- FOOTER -->
-    <div style="text-align:center;padding:24px;border-top:1px solid ${BORDER};margin-top:8px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:24px;width:auto;margin-bottom:12px;opacity:0.7;" />
-      <p style="margin:0 0 8px;">
-        <a href="https://instagram.com/mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Instagram</a>
-        <a href="https://www.mansionplayroom.cl" style="color:${FAINT};font-size:12px;text-decoration:none;margin:0 8px;">Web</a>
-      </p>
-      <p style="color:${FAINT};font-size:11px;margin:0;">© ${new Date().getFullYear()} Mansion Playroom · Valparaíso, Chile</p>
-    </div>
-  </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 /** Se manda al DESTINATARIO cuando alguien le invitó un trago y el pago se
@@ -1365,29 +1056,16 @@ export function buildGiftEmail(data: {
   message?: string | null;
   eventTitle: string;
 }) {
-  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
-
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
-
-    <div style="background-color:${ACCENT.pink.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
-      <p style="font-size:52px;margin:0 0 12px;">🍹</p>
-      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">${data.fromAlias} te invitó un trago</h1>
-      <p style="color:${MUTED};font-size:15px;margin:0;">${data.drinkName}</p>
-    </div>
-
-    <div style="padding:32px 24px 0;">
+  return emailShell({
+    preheader: `${data.fromAlias} te invitó un ${data.drinkName}.`,
+    footer: false,
+    hero: emailHero({
+      accent: 'pink',
+      emoji: '🍹',
+      title: `${data.fromAlias} te invitó un trago`,
+      subtitle: data.drinkName,
+    }),
+    body: `
       ${data.message ? card(
         `<p style="color:${INK};font-size:15px;font-style:italic;margin:0;text-align:center;">"${data.message}"</p>`,
         { bg: ACCENT.yellow.bg, border: false },
@@ -1407,12 +1085,10 @@ export function buildGiftEmail(data: {
 
       <p style="color:${FAINT};font-size:12px;text-align:center;margin:24px 0 0;line-height:1.6;">
         Recibiste este correo porque alguien te invitó un trago en la fiesta.<br>
-        Mansion Playroom
+        ${BRAND.nombre}
       </p>
-    </div>
-  </div>
-</body>
-</html>`;
+    `,
+  });
 }
 
 /** Recordatorio a quien dejó la compra a medio camino.
@@ -1431,7 +1107,6 @@ export function buildPendingReminderEmail(data: {
   checkoutUrl: string;
   customBody?: string;
 }) {
-  const logoUrl = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
   const primerNombre = data.buyerName.split(' ')[0];
 
   const fechaTexto = data.eventDate
@@ -1446,27 +1121,18 @@ export function buildPendingReminderEmail(data: {
     ? data.customBody.split('\n').filter((p) => p.trim())
     : parrafosPorDefecto;
 
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
-  <style>:root { color-scheme: light only; }</style>
-</head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
-
-    <div style="background-color:${ACCENT.pink.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
-      <img src="${logoUrl}" alt="Mansion Playroom" style="height:64px;width:auto;margin-bottom:24px;" />
-      <p style="font-size:48px;margin:0 0 12px;">🎟️</p>
-      <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">${primerNombre}, quedó pendiente tu acceso</h1>
-      ${fechaTexto ? `<p style="color:${MUTED};font-size:15px;margin:0;">${data.eventTitle} · ${fechaTexto}</p>` : ''}
-    </div>
-
-    <div style="padding:32px 24px 0;">
+  return emailShell({
+    preheader: `${data.eventTitle} te está esperando.`,
+    footer: false,
+    hero: emailHero({
+      accent: 'pink',
+      emoji: '🎟️',
+      title: `${primerNombre}, quedó pendiente tu acceso`,
+      subtitle: fechaTexto ? `${data.eventTitle} · ${fechaTexto}` : undefined,
+      anniversary: true,
+      costume: true,
+    }),
+    body: `
       ${cuerpo.map((p) => `<p style="color:${INK};font-size:15px;line-height:1.6;margin:0 0 16px;">${p}</p>`).join('')}
 
       <div style="text-align:center;margin:28px 0 8px;">
@@ -1478,9 +1144,6 @@ export function buildPendingReminderEmail(data: {
       <p style="color:${FAINT};font-size:12px;text-align:center;margin:16px 0 0;line-height:1.5;">
         Si ya compraste o cambiaste de idea, puedes ignorar este correo.
       </p>
-    </div>
-
-  </div>
-</body>
-</html>`;
+    `,
+  });
 }
