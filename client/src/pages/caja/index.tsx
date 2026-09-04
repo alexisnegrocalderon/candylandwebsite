@@ -660,8 +660,8 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col">
-      <header className="sticky top-0 z-10 bg-[#150d13]/80 backdrop-blur-xl border-b border-white/10 px-4 py-3 flex items-center justify-between">
+    <div className="h-screen overflow-hidden bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col">
+      <header className="shrink-0 z-10 bg-[#150d13]/80 backdrop-blur-xl border-b border-white/10 px-4 py-3 flex items-center justify-between">
         <div>
           <p className="font-bold leading-tight">{localEvent.title}</p>
           <p className="text-xs text-white/50">{operator.name} · {operator.role}</p>
@@ -722,7 +722,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         {/* "Nueva venta" (view === 'sale') usa el ancho completo -- el resto de
             las vistas son listas/formularios angostos que se mantienen
             centrados con su propio max-w-lg, en vez de angostar todo por igual. */}
-        <main className="flex-1 min-w-0 overflow-y-auto p-4">
+        <main className="flex-1 min-w-0 min-h-0 overflow-y-auto p-4">
         {view === 'menu' && (
           <div className="max-w-lg mx-auto space-y-6">
             <div>
@@ -1361,8 +1361,8 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
+    <div className="h-full flex flex-col gap-5">
+      <div className="shrink-0 flex items-center justify-between gap-3">
         <h2 className="text-xl font-bold">Nueva venta</h2>
         {catalog.length > 0 && (
           <button
@@ -1375,7 +1375,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
       </div>
 
       {editingFavorites && (
-        <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+        <p className="shrink-0 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
           Toca los productos que más vendes para agregarlos a "⭐ Favoritos" -- mientras este modo esté activo, tocar un producto no lo agrega a la venta.
         </p>
       )}
@@ -1383,16 +1383,10 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
       {catalog.length === 0 ? (
         <p className="text-white/50 text-sm">Todavía no hay productos cargados para este evento. Se cargan desde Admin → Carta de la Fiesta.</p>
       ) : (
-        <div className="flex flex-col lg:flex-row gap-5">
-          <div className="flex-1 min-w-0 space-y-5">
-            {/* Categorías + grilla reservan al menos 60% del alto de pantalla --
-                así "Ventas recientes" nunca queda pegada arriba cuando la
-                sección activa tiene pocos productos; le da prioridad visual
-                a la grilla, pedido explícito del dueño. Si la grilla ya es
-                más alta que eso (muchos productos), este mínimo no hace nada. */}
-            <div className="min-h-[60vh] flex flex-col gap-5">
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-5">
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-5">
             {/* Categorías como círculos, en fila -- con scroll horizontal si no caben. */}
-            <div className="flex gap-4 overflow-x-auto pb-1">
+            <div className="shrink-0 flex gap-4 overflow-x-auto pb-1">
               {tabs.map((t) => {
                 const meta = t === FAVORITES_TAB ? { label: 'Favoritos', emoji: '⭐' } : (CATEGORY_META[t] ?? { label: t, emoji: '🛍️' });
                 const active = tab === t;
@@ -1411,8 +1405,8 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
               })}
             </div>
 
-            {/* Grilla de productos -- tocar suma una unidad; el stepper +/- ahora vive en el carrito, no acá (ver panel derecho). */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {/* Grilla de productos -- tocar suma una unidad; el stepper +/- ahora vive en el carrito, no acá (ver panel derecho). Ocupa TODO el espacio restante de la columna, con scroll propio si no caben todos, en vez de empujar "Ventas recientes" fuera de la pantalla. */}
+            <div className="flex-1 min-h-0 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 gap-3 content-start">
               {productsInTab.map((p) => {
                 const left = p.totalStock - p.soldCount;
                 const noStock = left <= 0;
@@ -1483,13 +1477,12 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
                 </p>
               )}
             </div>
-            </div>
 
-            {/* Ventas recientes de la noche -- mismos datos que el Dashboard, para confirmar rápido sin salir de la venta. */}
+            {/* Ventas recientes de la noche -- mismos datos que el Dashboard, para confirmar rápido sin salir de la venta. Alto acotado con scroll propio: nunca empuja el resto de la pantalla ni queda cortada. */}
             {dashboardData && dashboardData.recentSales.length > 0 && (
-              <div className="bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden">
-                <p className="px-4 pt-3 pb-2 text-xs uppercase tracking-wide text-white/50">Ventas recientes</p>
-                <div className="overflow-x-auto">
+              <div className="shrink-0 max-h-56 flex flex-col bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden">
+                <p className="shrink-0 px-4 pt-3 pb-2 text-xs uppercase tracking-wide text-white/50">Ventas recientes</p>
+                <div className="overflow-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left text-white/40 text-xs">
@@ -1521,7 +1514,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
           </div>
 
           {/* Panel de carrito persistente al costado -- antes era una barra pegada abajo, ahora siempre visible mientras se arma la venta. */}
-          <aside className="w-full lg:w-96 shrink-0 lg:sticky lg:top-4 lg:self-stretch flex flex-col bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-3xl p-4 space-y-4">
+          <aside className="w-full lg:w-96 shrink-0 min-h-0 lg:self-stretch flex flex-col overflow-y-auto bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-3xl p-4 space-y-4">
             {/* Tarjeta de cliente: lo que el carrito necesite en este momento -- guardarropía/cocina (si aplica) y Playcoins. */}
             <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-3 space-y-3">
               <p className="text-xs uppercase tracking-wide text-white/45">Cliente</p>
