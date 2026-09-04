@@ -63,21 +63,50 @@ const onMutationError = (error: unknown) => {
 
 // Los inputs datetime-local no llevan zona horaria — si se manda tal cual al
 // servidor (que corre en UTC), "21:00" se guarda como 21:00 UTC, que son las
-// 17:00 en Chile. Mismo criterio de hora fija (UTC-4, continental sin cambio
-// de horario) ya usado en CANDYLAND.eventDate (client/src/config/candyland.ts).
-const CHILE_OFFSET_MS = 4 * 60 * 60 * 1000;
+// 17:00 en Chile. Chile cambia de horario (UTC-3 en horario de verano,
+// ~sep-abr; UTC-4 en invierno), así que el offset se calcula para cada fecha
+// puntual con la zona horaria real America/Santiago en vez de asumir uno fijo
+// — mismo criterio con el que EventDetail.tsx y Ticket.tsx ya muestran la hora.
+
+/** Offset de America/Santiago (en ms, a sumar a UTC para obtener hora Chile) para un instante dado. */
+function chileOffsetMs(date: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Santiago',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(date).reduce<Record<string, string>>((acc, p) => {
+    if (p.type !== 'literal') acc[p.type] = p.value;
+    return acc;
+  }, {});
+  // Instante que la wall-clock de Chile representa, interpretado como si fuera UTC.
+  const asUtc = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour) === 24 ? 0 : Number(parts.hour), Number(parts.minute), Number(parts.second)
+  );
+  return asUtc - date.getTime();
+}
 
 /** DB (UTC) → valor para un <input type="datetime-local"> mostrando hora de Chile. */
 function toChileInputValue(dateInput: string | Date | null | undefined): string {
   if (!dateInput) return '';
-  const chileTime = new Date(new Date(dateInput).getTime() - CHILE_OFFSET_MS);
+  const date = new Date(dateInput);
+  const chileTime = new Date(date.getTime() + chileOffsetMs(date));
   return chileTime.toISOString().slice(0, 16);
 }
 
 /** Valor de un <input type="datetime-local"> (hora de Chile, sin zona) → ISO con offset, para mandar al servidor. */
 function fromChileInputValue(value: string): string {
   if (!value) return '';
-  return `${value}:00-04:00`;
+  // Se interpreta primero la wall-clock ingresada como si fuera UTC solo para
+  // ubicar la fecha/hora y así calcular el offset de Chile que le corresponde.
+  const naiveUtc = new Date(`${value}:00Z`);
+  const offsetMs = chileOffsetMs(naiveUtc);
+  const totalMinutes = offsetMs / 60000;
+  const sign = totalMinutes < 0 ? '-' : '+';
+  const abs = Math.abs(totalMinutes);
+  const hh = String(Math.floor(abs / 60)).padStart(2, '0');
+  const mm = String(abs % 60).padStart(2, '0');
+  return `${value}:00${sign}${hh}:${mm}`;
 }
 
 /* Debe coincidir con los ids de CANDYLAND.accesos (client/src/config/candyland.ts)
