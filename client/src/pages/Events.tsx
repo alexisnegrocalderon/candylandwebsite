@@ -37,7 +37,7 @@ export default function Events() {
         <motion.div {...reveal} className="mb-16">
           <p className="text-sm uppercase tracking-[0.3em] text-primary mb-4">Calendario</p>
           <h1 className="font-heading text-5xl md:text-7xl tracking-tight">
-            Próximos <span className="text-gradient">Eventos</span>
+            Eventos <span className="text-gradient">PlayRoom</span>
           </h1>
         </motion.div>
 

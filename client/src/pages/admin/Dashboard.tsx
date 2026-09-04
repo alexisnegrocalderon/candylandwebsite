@@ -864,7 +864,7 @@ function EventDescriptionAiFields({
  * dueña del formulario de "Nueva Entrada" para este evento (antes vivía en
  * EventsManager, gateado por comparar `newTicket.eventId === event.id` --
  * más simple tenerlo local ahora que cada evento ya es su propio componente). */
-function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number, adminPassword: string) => Promise<void> }) {
+function EventCard({ event, onDeleted, expanded, onToggleExpand }: { event: any; onDeleted: (id: number, adminPassword: string) => Promise<void>; expanded: boolean; onToggleExpand: () => void }) {
   const utils = trpc.useUtils();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(() => eventFormFromEvent(event));
@@ -913,6 +913,33 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number, a
   return (
     <Card>
       <CardContent className="pt-6">
+        {/* Cabecera siempre visible -- el resto de la card (formulario/resumen,
+         * entradas, tanda, stock, Misión 300) solo se monta si `expanded` es
+         * true, para no disparar todas esas queries de golpe con decenas de
+         * eventos en la lista. */}
+        <div className="w-full flex justify-between items-center gap-3">
+          <button type="button" onClick={onToggleExpand} className="min-w-0 flex-1 text-left">
+            <h3 className="font-semibold text-lg truncate">{event.title}</h3>
+            <p className="text-muted-foreground text-sm truncate">/{event.slug} | {event.status} | {new Date(event.eventDate).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
+          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {!expanded && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { onToggleExpand(); setEditing(true); }}
+              >
+                <Edit className="w-3 h-3" />
+              </Button>
+            )}
+            <button type="button" onClick={onToggleExpand} className="p-1">
+              {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+            </button>
+          </div>
+        </div>
+
+        {expanded && (
+        <div className="mt-4 border-t border-border/50 pt-4">
         {editing ? (
           <div className="space-y-4">
             <h4 className="font-semibold text-sm">Editar Evento</h4>
@@ -973,11 +1000,7 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number, a
             </div>
           </div>
         ) : (
-          <div className="flex justify-between items-start">
-            <div>
-              <h3 className="font-semibold text-lg">{event.title}</h3>
-              <p className="text-muted-foreground text-sm">/{event.slug} | {event.status} | {new Date(event.eventDate).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
-            </div>
+          <div className="flex justify-end items-start">
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
                 <Edit className="w-3 h-3" />
@@ -1064,6 +1087,8 @@ function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number, a
             </div>
           </div>
         )}
+        </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -1079,6 +1104,10 @@ function EventsManager() {
     status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false,
   });
   const [showEventForm, setShowEventForm] = useState(false);
+  // Cada card arranca colapsada -- con decenas de eventos (incluyendo
+  // ediciones antiguas que ahora se cargan como historial) mostrar todo
+  // siempre hacía la lista eterna. Solo uno abierto a la vez, tipo acordeón.
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const events = eventsData ?? [];
 
@@ -1174,7 +1203,13 @@ function EventsManager() {
 
       <div className="space-y-4">
         {events.map((event: any) => (
-          <EventCard key={event.id} event={event} onDeleted={handleDeleteEvent} />
+          <EventCard
+            key={event.id}
+            event={event}
+            onDeleted={handleDeleteEvent}
+            expanded={expandedId === event.id}
+            onToggleExpand={() => setExpandedId(expandedId === event.id ? null : event.id)}
+          />
         ))}
       </div>
     </div>
