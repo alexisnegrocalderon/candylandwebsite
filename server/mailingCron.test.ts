@@ -1,13 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import * as db from "./db";
 import { sendEmail } from "./email";
-import { processMailingCronBatch } from "./mailing";
+import { processMailingCronBatch, AUTOMATED_EMAIL_DAILY_CAP } from "./mailing";
 
 vi.mock("./db", () => ({
   getPendingMailingRecipients: vi.fn(),
   markMailingRecipientResult: vi.fn(),
   addCustomerTag: vi.fn(),
   getFeaturedEvent: vi.fn(),
+  countAutomatedEmailsSentToday: vi.fn(),
 }));
 
 vi.mock("./email", async () => {
@@ -19,6 +20,7 @@ const getPendingMailingRecipientsMock = vi.mocked(db.getPendingMailingRecipients
 const markMailingRecipientResultMock = vi.mocked(db.markMailingRecipientResult);
 const addCustomerTagMock = vi.mocked(db.addCustomerTag);
 const sendEmailMock = vi.mocked(sendEmail);
+const countSentTodayMock = vi.mocked(db.countAutomatedEmailsSentToday);
 
 const baseRecipient = {
   id: 1,
@@ -35,6 +37,9 @@ const baseRecipient = {
 describe("processMailingCronBatch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Por defecto, presupuesto diario intacto: cada caso que no lo esté
+    // probando se comporta como antes de que existiera.
+    countSentTodayMock.mockResolvedValue(0);
   });
 
   it("manda cada pendiente, lo marca sent y taguea al cliente con el nombre de la campaña", async () => {
@@ -90,5 +95,56 @@ describe("processMailingCronBatch", () => {
 
     expect(sendEmailMock).not.toHaveBeenCalled();
     expect(result).toEqual({ processed: 0, sent: 0, failed: 0, campaignsTouched: 0 });
+  });
+});
+
+/* El presupuesto diario es lo que hace segura la frecuencia alta: con el cron
+ * cada 15 minutos, el tope por corrida ya no es el tope del día, y sin este
+ * freno 96 corridas vaciarían la cuota de Resend dejando sin cupo a la
+ * confirmación de compra con el QR de la entrada. */
+describe("processMailingCronBatch — presupuesto diario", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("no manda nada cuando el presupuesto del día ya se gastó", async () => {
+    countSentTodayMock.mockResolvedValue(AUTOMATED_EMAIL_DAILY_CAP);
+
+    const result = await processMailingCronBatch();
+
+    expect(result).toEqual({ processed: 0, sent: 0, failed: 0, campaignsTouched: 0 });
+    // Ni siquiera consulta pendientes: no tiene sentido traerlos para nada.
+    expect(getPendingMailingRecipientsMock).not.toHaveBeenCalled();
+    expect(sendEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("pide solo lo que queda de presupuesto, no la tanda completa", async () => {
+    // Queda cupo para 3 correos en el día.
+    countSentTodayMock.mockResolvedValue(AUTOMATED_EMAIL_DAILY_CAP - 3);
+    getPendingMailingRecipientsMock.mockResolvedValue([]);
+
+    await processMailingCronBatch();
+
+    expect(getPendingMailingRecipientsMock).toHaveBeenCalledWith(3);
+  });
+
+  it("con presupuesto de sobra pide la tanda entera de la corrida", async () => {
+    countSentTodayMock.mockResolvedValue(0);
+    getPendingMailingRecipientsMock.mockResolvedValue([]);
+
+    await processMailingCronBatch();
+
+    const pedido = getPendingMailingRecipientsMock.mock.calls[0][0];
+    expect(pedido).toBeLessThan(AUTOMATED_EMAIL_DAILY_CAP);
+    expect(pedido).toBeGreaterThan(0);
+  });
+
+  it("un presupuesto pasado de largo no pide una cantidad negativa", async () => {
+    countSentTodayMock.mockResolvedValue(AUTOMATED_EMAIL_DAILY_CAP + 20);
+
+    const result = await processMailingCronBatch();
+
+    expect(result.sent).toBe(0);
+    expect(getPendingMailingRecipientsMock).not.toHaveBeenCalled();
   });
 });

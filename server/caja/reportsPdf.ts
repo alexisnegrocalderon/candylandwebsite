@@ -1,12 +1,31 @@
 import PDFDocument from "pdfkit";
-import { money, INK, MUTED, drawTable } from "./pdfHelpers";
+import { money, INK, MUTED, drawTable, drawBarChart, drawReportHeader } from "./pdfHelpers";
 
 type ProfitRow = { name: string; category: string; unitsSold: number; revenue: number; cost: number | null; profit: number | null; marginPercent: number | null };
 
-/** PDF consolidado del sub-tab "Ventas" de Gastos y P&L (pedido explícito
- * del usuario: un solo botón que junta todo, en vez de uno por tabla). Hoy
- * cubre el margen por producto -- es la tabla central de esa sub-tab. */
-export function buildVentasReportPdf(eventTitle: string, rows: ProfitRow[]): Promise<Buffer> {
+export type SalesBreakdown = {
+  web: { total: number; count: number; byMethod: { method: string; count: number; total: number }[] };
+  caja: { total: number; count: number; byMethod: { method: string; count: number; total: number }[] };
+  total: number;
+};
+
+const METHOD_LABELS: Record<string, string> = {
+  efectivo: "Efectivo",
+  debito: "Débito",
+  credito: "Crédito",
+  qr: "QR / transferencia",
+  "sin medio": "Sin medio registrado",
+};
+
+/** PDF de ventas del evento: de dónde salió la plata y qué producto dejó
+ * margen.
+ *
+ * Antes solo traía la tabla de margen por producto, sobre precios de lista.
+ * Faltaba lo primero que se pregunta al cerrar una fiesta: cuánto entró por
+ * la web y cuánto en la puerta, y dentro de la caja cuánto fue efectivo y
+ * cuánto tarjeta -- que es lo que se cuadra contra el banco y contra el
+ * cajón. */
+export function buildVentasReportPdf(eventTitle: string, rows: ProfitRow[], breakdown?: SalesBreakdown | null): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: 40 });
     const chunks: Buffer[] = [];
@@ -14,13 +33,56 @@ export function buildVentasReportPdf(eventTitle: string, rows: ProfitRow[]): Pro
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    doc.fontSize(18).fillColor(INK).text(`Reporte de ventas — ${eventTitle}`);
-    doc.moveDown(1);
-
     const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
     const totalProfit = rows.reduce((s, r) => s + (r.profit ?? 0), 0);
-    doc.fontSize(11).fillColor(MUTED).text(`Ingresos totales: ${money(totalRevenue)} · Utilidad total: ${money(totalProfit)}`);
-    doc.moveDown(1);
+
+    drawReportHeader(doc, {
+      title: "Ventas del evento",
+      eventTitle,
+      subtitle: breakdown
+        ? `Recaudado: ${money(breakdown.total)} · ${breakdown.web.count + breakdown.caja.count} venta(s) aprobadas`
+        : undefined,
+      note: "Lo recaudado es la plata que entró de verdad. La tabla de productos usa precios de lista, así que sus totales pueden no coincidir: son dos preguntas distintas.",
+    });
+
+    if (breakdown) {
+      doc.fontSize(13).fillColor(INK).text("De dónde salió la plata");
+      doc.moveDown(0.5);
+      const chartBottom = drawBarChart(
+        doc,
+        [{ name: "Recaudado", color: INK }],
+        [
+          { label: "Web", values: [breakdown.web.total] },
+          { label: "Caja", values: [breakdown.caja.total] },
+        ],
+        doc.x, doc.y + 12, doc.page.width - doc.page.margins.left - doc.page.margins.right, 90,
+      );
+      doc.y = chartBottom + 14;
+
+      const filas: (string | { text: string; color?: string })[][] = [];
+      filas.push([{ text: "Ventas web" }, String(breakdown.web.count), money(breakdown.web.total)]);
+      for (const m of breakdown.web.byMethod) {
+        filas.push([`    ${METHOD_LABELS[m.method] ?? m.method}`, String(m.count), money(m.total)]);
+      }
+      filas.push([{ text: "Ventas en caja" }, String(breakdown.caja.count), money(breakdown.caja.total)]);
+      for (const m of breakdown.caja.byMethod) {
+        filas.push([`    ${METHOD_LABELS[m.method] ?? m.method}`, String(m.count), money(m.total)]);
+      }
+      filas.push([{ text: "Total recaudado" }, String(breakdown.web.count + breakdown.caja.count), money(breakdown.total)]);
+
+      const after = drawTable(
+        doc,
+        [{ label: "Origen", width: 240 }, { label: "Ventas", width: 80 }, { label: "Monto", width: 120 }],
+        filas,
+        doc.y,
+      );
+      doc.y = after + 20;
+    }
+
+    doc.fontSize(13).fillColor(INK).text("Margen por producto");
+    doc.moveDown(0.3);
+    doc.fontSize(10).fillColor(MUTED).text(`A precio de lista: ${money(totalRevenue)} · utilidad ${money(totalProfit)}`);
+    doc.moveDown(0.6);
 
     if (rows.length === 0) {
       doc.fontSize(10).fillColor(MUTED).text("Sin ventas registradas en este evento.");

@@ -16,6 +16,17 @@ export function isFinePointer(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(pointer: fine)').matches;
 }
 
+/** Mismo corte que el breakpoint `md` de Tailwind (768px) -- para elegir qué
+ * asset servir (ej. el video mobile-cropped del Hero) en vez de dejar que
+ * CSS lo achique en pantalla, que gastaría el ancho de banda del video de
+ * escritorio en un celular igual. Se captura una sola vez al montar (mismo
+ * criterio que `isFinePointer`), no reacciona a un resize/rotación en vivo:
+ * es un video de fondo decorativo, no vale la pena la complejidad de un
+ * listener para eso. */
+export function isMobileViewport(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
+}
+
 /** Scroll a un elemento por id, usando Lenis si está activo (desktop) o nativo. */
 export function scrollToId(id: string) {
   const el = document.getElementById(id);

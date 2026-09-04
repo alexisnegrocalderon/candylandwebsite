@@ -6,6 +6,71 @@
 
 export const money = (n: number) => `$${Math.round(n).toLocaleString("es-CL")}`;
 
+/** Encabezado común de todos los reportes descargables.
+ *
+ * Existía uno distinto por PDF, así que los cuatro se veían como documentos
+ * de sistemas diferentes. Además ninguno decía CUÁNDO se generó ni en qué
+ * hora: un PDF de plata sin fecha de emisión no sirve para discutir con
+ * nadie, y "las 3 de la mañana" significa cosas distintas según la zona.
+ *
+ * Devuelve el `y` desde donde seguir escribiendo. */
+export function drawReportHeader(
+  doc: PDFKit.PDFDocument,
+  opts: { title: string; eventTitle: string; subtitle?: string; note?: string },
+): number {
+  doc.fontSize(18).fillColor(INK).text(opts.title);
+  doc.fontSize(12).fillColor(INK).text(opts.eventTitle);
+  doc.moveDown(0.3);
+
+  const emitido = new Intl.DateTimeFormat("es-CL", {
+    timeZone: "America/Santiago",
+    dateStyle: "long",
+    timeStyle: "short",
+  }).format(new Date());
+  doc.fontSize(9).fillColor(MUTED).text(`Mansion Playroom · emitido el ${emitido} (hora de Chile)`);
+
+  if (opts.subtitle) doc.fontSize(10).fillColor(MUTED).text(opts.subtitle);
+  if (opts.note) {
+    doc.moveDown(0.2);
+    doc.fontSize(8).fillColor(MUTED).text(opts.note);
+  }
+
+  doc.moveDown(0.6);
+  const y = doc.y;
+  doc.moveTo(doc.page.margins.left, y)
+    .lineTo(doc.page.width - doc.page.margins.right, y)
+    .strokeColor(BORDER).stroke();
+  doc.y = y + 12;
+  return doc.y;
+}
+
+/** Fila de "etiqueta ..... monto", el patrón de todo estado de resultados.
+ * `strong` para los subtotales, `negative` para lo que resta. */
+export function drawAmountRow(
+  doc: PDFKit.PDFDocument,
+  label: string,
+  amount: number,
+  opts: { strong?: boolean; negative?: boolean; hint?: string } = {},
+): void {
+  const left = doc.page.margins.left;
+  const right = doc.page.width - doc.page.margins.right;
+  const y = doc.y;
+
+  doc.fontSize(opts.strong ? 11 : 10).fillColor(opts.strong ? INK : MUTED);
+  doc.text(label, left, y, { width: right - left - 110 });
+  const labelBottom = doc.y;
+
+  doc.fontSize(opts.strong ? 11 : 10)
+    .fillColor(opts.negative ? RED : opts.strong ? INK : MUTED)
+    .text(`${opts.negative ? "-" : ""}${money(Math.abs(amount))}`, right - 110, y, { width: 110, align: "right" });
+
+  doc.y = Math.max(labelBottom, doc.y);
+  if (opts.hint) {
+    doc.fontSize(8).fillColor(MUTED).text(opts.hint, left + 12, doc.y, { width: right - left - 120 });
+  }
+  doc.moveDown(0.35);
+}
+
 export const INK = "#1a1a1a";
 export const MUTED = "#666666";
 export const BORDER = "#dddddd";

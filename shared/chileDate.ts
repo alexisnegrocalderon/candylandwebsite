@@ -48,3 +48,51 @@ export function formatChileShortDate(date: Date | string): string {
   const d = date instanceof Date ? date : new Date(date);
   return d.toLocaleDateString('es-CL', { timeZone: CHILE_TZ });
 }
+
+/** La HORA del día (0-23) de un instante, en hora de Chile.
+ *
+ * `new Date(x).getHours()` devuelve la hora del runtime, que en Vercel es
+ * UTC: el gráfico de "horas punta" del admin quedaba corrido 3-4 horas, y
+ * una fiesta de 21:00 a 05:00 aparecía repartida donde no era. Misma razón
+ * que el resto de este archivo, pero para la hora suelta en vez de un texto
+ * formateado.
+ *
+ * Se usa la zona IANA para que el horario de verano se resuelva solo. */
+export function chileHourOf(date: Date | string): number {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  const hour = new Intl.DateTimeFormat('en-US', {
+    timeZone: CHILE_TZ,
+    hour: 'numeric',
+    hour12: false,
+  }).format(d);
+  // `hour12: false` puede devolver "24" a la medianoche según el motor.
+  return Number(hour) % 24;
+}
+
+/** La medianoche de HOY en hora de Chile, como instante.
+ *
+ * Para ventanas de "lo que va del día": con un runtime en UTC, usar la
+ * medianoche UTC corre la ventana 3-4 horas, así que un presupuesto diario se
+ * reiniciaría a las 20:00 o 21:00 de Chile -- en plena venta.
+ *
+ * Chile es UTC-3 en verano y UTC-4 en invierno, así que en vez de fijar un
+ * offset se prueban los dos y se toma el que de verdad cae a las 00:00 del
+ * mismo día en Chile. Es más simple y más honesto que hacer aritmética de
+ * offsets, y no se rompe cuando cambia el horario. */
+export function startOfChileDay(now: Date = new Date()): Date {
+  const dayFmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: CHILE_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  const [y, m, d] = dayFmt.format(now).split('-').map(Number);
+
+  for (const offsetHours of [4, 3]) {
+    const candidate = new Date(Date.UTC(y, m - 1, d, offsetHours, 0, 0));
+    if (chileHourOf(candidate) === 0 && dayFmt.format(candidate) === dayFmt.format(now)) {
+      return candidate;
+    }
+  }
+  // El día en que empieza el horario de verano, la medianoche local no
+  // existe (el reloj salta de 23:59 a 01:00). UTC-3 deja la ventana un poco
+  // más ancha que el día real, que es el lado seguro para un presupuesto.
+  return new Date(Date.UTC(y, m - 1, d, 3, 0, 0));
+}

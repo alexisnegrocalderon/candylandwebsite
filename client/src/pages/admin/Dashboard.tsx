@@ -1,5 +1,5 @@
 import '@/admin.css';
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { startRegistration } from '@simplewebauthn/browser';
@@ -10,12 +10,12 @@ import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -28,9 +28,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
+import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
+import { computePhasePrice, nextPhase, normalizeTandaSchedule, type TandaPhase } from '@shared/tandaSchedule';
 import {
   EXPENSE_CATEGORIES, EXPENSE_DOCUMENT_TYPES, EXPENSE_PAYMENT_METHODS,
   categoryLabel, documentTypeLabel, paymentMethodLabel, deriveAmounts,
@@ -125,25 +127,155 @@ function StockHistoryDialog({ ticketTypeId, ticketName }: { ticketTypeId: number
   );
 }
 
-function TicketTypesList({
-  eventId, onEdit,
-}: { eventId: number; onEdit: (tt: any) => void }) {
-  const { data: ticketTypesData, refetch } = trpc.events.listTicketTypes.useQuery({ eventId });
-  const deleteTicketType = trpc.events.deleteTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
-  const ticketTypes = ticketTypesData ?? [];
+/** Arma el form-state de edición a partir de la fila que ya vino del server
+ * -- mismo shape que `emptyTicketForm` de EventsManager (sin `eventId`, ese
+ * ya lo fija la fila / la lista). */
+function ticketFormFromTt(tt: any) {
+  return {
+    name: tt.name as string,
+    category: (tt.category || 'acceso') as 'acceso' | 'extra',
+    accesoSlug: (tt.accesoSlug || '') as '' | AccesoSlug,
+    price: Number(tt.price),
+    originalPrice: tt.originalPrice ? Number(tt.originalPrice) : 0,
+    totalStock: tt.totalStock as number,
+    description: (tt.description || '') as string,
+    costPrice: tt.costPrice ? Number(tt.costPrice) : 0,
+    color: (tt.color || '') as string,
+    internalCode: (tt.internalCode || '') as string,
+    stockPoolId: (tt.stockPoolId ?? null) as number | null,
+  };
+}
 
-  if (ticketTypes.length === 0) {
-    return <p className="text-muted-foreground text-xs mt-3">Todavía no hay entradas para este evento.</p>;
+/** Fila de un tipo de entrada: edita en el lugar (estado local `editing`),
+ * mismo criterio que AmbassadorRow/StockPoolRow. Antes el formulario de
+ * editar (~15 campos) se renderizaba UNA sola vez, después de toda la lista
+ * de entradas + Cupos compartidos + Misión 300, al fondo de la card del
+ * evento -- editar la primera entrada de diez obligaba a bajar toda la
+ * pantalla para encontrar el formulario. Acá se expande pegado a ESTA fila,
+ * dentro de su propia sublista (Accesos o Extras). */
+function TicketTypeRow({ tt, eventId }: { tt: any; eventId: number }) {
+  const utils = trpc.useUtils();
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(() => ticketFormFromTt(tt));
+  const deleteTicketType = trpc.events.deleteTicketType.useMutation({
+    onSuccess: () => utils.events.listTicketTypes.invalidate(),
+    onError: onMutationError,
+  });
+  const updateTicketType = trpc.events.updateTicketType.useMutation({
+    onSuccess: () => {
+      utils.events.listTicketTypes.invalidate();
+      utils.events.listStockPools.invalidate();
+      toast.success('Entrada actualizada');
+      setEditing(false);
+    },
+    onError: onMutationError,
+  });
+
+  const handleSave = () => {
+    if (!form.name || !form.price) return;
+    updateTicketType.mutate({
+      id: tt.id,
+      name: form.name,
+      category: form.category,
+      accesoSlug: form.category === 'extra' ? undefined : (form.accesoSlug || undefined),
+      stockPoolId: form.category === 'extra' ? null : form.stockPoolId,
+      price: form.price,
+      originalPrice: form.originalPrice || undefined,
+      totalStock: form.totalStock,
+      description: form.description,
+      costPrice: form.costPrice || undefined,
+      color: form.category === 'extra' ? (form.color || undefined) : undefined,
+      internalCode: form.category === 'extra' ? (form.internalCode || undefined) : undefined,
+    });
+  };
+
+  if (editing) {
+    return (
+      <div className="bg-muted/30 rounded-lg px-3 py-3 space-y-4">
+        <h4 className="font-semibold text-sm">Editar Tipo de Entrada</h4>
+        <div>
+          <Label>Categoría</Label>
+          <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v as 'acceso' | 'extra', accesoSlug: v === 'extra' ? '' : form.accesoSlug })}>
+            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="acceso">Acceso principal (Dúo, Soltera, Trío…)</SelectItem>
+              <SelectItem value="extra">Extra (estacionamiento, cover, etc.)</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground mt-1">Los extras aparecen solos en el paso de extras del checkout, para cualquier evento — no hace falta tocar código.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div><Label>Nombre</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="VIP, General..." /></div>
+          <div><Label>Precio (CLP)</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} className="mt-1" /></div>
+          <div>
+            <Label>Precio general (opcional, se muestra tachado)</Label>
+            <Input type="number" value={form.originalPrice} onChange={(e) => setForm({ ...form, originalPrice: Number(e.target.value) })} className="mt-1" placeholder="Ej: 20000" />
+          </div>
+          <div><Label>Stock Total</Label><Input type="number" value={form.totalStock} onChange={(e) => setForm({ ...form, totalStock: Number(e.target.value) })} className="mt-1" /></div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <Label>Costo (CLP)</Label>
+            <Input type="number" value={form.costPrice} onChange={(e) => setForm({ ...form, costPrice: Number(e.target.value) })} className="mt-1" placeholder="Opcional, para márgenes" />
+          </div>
+          {form.category === 'extra' && (
+            <>
+              <div>
+                <Label>Código interno (canje)</Label>
+                <Input value={form.internalCode} onChange={(e) => setForm({ ...form, internalCode: e.target.value.toUpperCase() })} className="mt-1" placeholder="PIS, LOC..." maxLength={6} />
+              </div>
+              <div>
+                <Label>Color (grilla de caja)</Label>
+                <Input type="color" value={form.color || '#f472b6'} onChange={(e) => setForm({ ...form, color: e.target.value })} className="mt-1 h-10" />
+              </div>
+            </>
+          )}
+        </div>
+        {form.category === 'extra' && (
+          <p className="text-xs text-muted-foreground -mt-2">El código interno es el prefijo del código de canje que recibe el comprador (ej. PIS-8F3K-29LX). Si se deja vacío, se genera uno automático a partir del nombre.</p>
+        )}
+        {form.category === 'acceso' && (
+          <div>
+            <Label>Tipo de acceso (conecta con la pregunta del checkout)</Label>
+            <Select value={form.accesoSlug} onValueChange={(v) => setForm({ ...form, accesoSlug: v as AccesoSlug })}>
+              <SelectTrigger className="mt-1"><SelectValue placeholder="Elegir…" /></SelectTrigger>
+              <SelectContent>
+                {ACCESO_SLUG_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground mt-1">Sin esto, la gente no va a poder comprar esta entrada desde el checkout.</p>
+          </div>
+        )}
+        {form.category === 'acceso' && (
+          <TicketPoolSelect eventId={eventId} value={form.stockPoolId} onChange={(v) => setForm({ ...form, stockPoolId: v })} />
+        )}
+        <div><Label>Descripción</Label><Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1" /></div>
+        <div className="flex gap-2">
+          <WriteButton onClick={handleSave} disabled={updateTicketType.isPending}>Guardar Cambios</WriteButton>
+          <Button variant="outline" onClick={() => { setForm(ticketFormFromTt(tt)); setEditing(false); }}>Cancelar</Button>
+        </div>
+      </div>
+    );
   }
 
-  const accesos = ticketTypes.filter((tt: any) => tt.category !== 'extra');
-  const extras = ticketTypes.filter((tt: any) => tt.category === 'extra');
-
-  const row = (tt: any) => (
-    <div key={tt.id} className="flex items-center justify-between text-sm bg-muted/30 rounded-lg px-3 py-2">
+  return (
+    <div className="flex items-center justify-between text-sm bg-muted/30 rounded-lg px-3 py-2">
       <div>
         <span className="font-semibold">{tt.name}</span>
-        <span className="text-muted-foreground ml-2">${Number(tt.price).toLocaleString('es-CL')} · stock {tt.totalStock} · vendidas {tt.soldCount ?? 0} · {tt.status}</span>
+        <span className="text-muted-foreground ml-2">
+          ${Number(tt.price).toLocaleString('es-CL')}
+          {tt.originalPrice && Number(tt.originalPrice) > Number(tt.price) && (
+            <span className="line-through ml-1">${Number(tt.originalPrice).toLocaleString('es-CL')}</span>
+          )}
+          {' '}· stock {tt.totalStock} · vendidas {tt.soldCount ?? 0} · {tt.status}
+        </span>
+        {tt.stockPoolId != null && (
+          <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-candy-blue/15 text-candy-blue" title="Esta entrada gasta de un cupo compartido con otras -- ver panel Cupos compartidos">
+            Cupo compartido: quedan {tt.poolRemaining} de {tt.poolTotalCap}
+          </span>
+        )}
         {tt.category === 'extra' ? (
           <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-violet-electric/15 text-violet-electric">Extra — aparece en el paso de extras del checkout</span>
         ) : tt.accesoSlug ? (
@@ -154,24 +286,366 @@ function TicketTypesList({
       </div>
       <div className="flex gap-2">
         <StockHistoryDialog ticketTypeId={tt.id} ticketName={tt.name} />
-        <Button variant="outline" size="sm" onClick={() => onEdit(tt)}><Edit className="w-3 h-3" /></Button>
-        <ConfirmDeleteButton description={`Vas a eliminar el tipo de entrada "${tt.name}".`} onConfirm={() => deleteTicketType.mutateAsync({ id: tt.id })} />
+        <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Edit className="w-3 h-3" /></Button>
+        <ConfirmDeleteButton description={`Vas a eliminar el tipo de entrada "${tt.name}".`} onConfirm={(adminPassword) => deleteTicketType.mutateAsync({ id: tt.id, adminPassword })} />
       </div>
     </div>
   );
+}
+
+function TicketTypesList({ eventId }: { eventId: number }) {
+  const { data: ticketTypesData } = trpc.events.listTicketTypes.useQuery({ eventId });
+  const ticketTypes = ticketTypesData ?? [];
+
+  if (ticketTypes.length === 0) {
+    return <p className="text-muted-foreground text-xs mt-3">Todavía no hay entradas para este evento.</p>;
+  }
+
+  const accesos = ticketTypes.filter((tt: any) => tt.category !== 'extra');
+  const extras = ticketTypes.filter((tt: any) => tt.category === 'extra');
 
   return (
     <div className="mt-3 space-y-4 border-t border-border/50 pt-3">
       {accesos.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Accesos</p>
-          {accesos.map(row)}
+          {accesos.map((tt: any) => <TicketTypeRow key={tt.id} tt={tt} eventId={eventId} />)}
         </div>
       )}
       {extras.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Extras</p>
-          {extras.map(row)}
+          {extras.map((tt: any) => <TicketTypeRow key={tt.id} tt={tt} eventId={eventId} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "Cerrar tanda y activar la siguiente" -- pedido explícito del dueño:
+ * cuando se agotan los cupos de la tanda vigente (ej. Founders), en vez de
+ * editar cada acceso a mano (cerrar el viejo, crear el nuevo, repetir por
+ * cada tipo de entrada), un solo diálogo lista TODOS los accesos hoy
+ * activos con su precio actual, pide el precio/stock de la fase nueva por
+ * fila (precargados con los valores actuales como punto de partida), y en
+ * un click cierra las filas viejas (quedan `soldout`, dejan de venderse) y
+ * crea las nuevas ya `active`. Sigue siendo 100% manual -- nada de esto se
+ * dispara solo por fecha ni por cupo agotado, el dueño decide cuándo.
+ *
+ * Reusa TicketPoolSelect para asignar opcionalmente un cupo compartido
+ * nuevo a alguna fila, sin forzarlo -- por defecto cada fila nueva usa su
+ * propio stock independiente, no un pool compartido cada vez.
+ *
+ * El precio nuevo se precarga con el que corresponde a la SIGUIENTE fase de
+ * la escala del evento (ver TandaScheduleEditor / shared/tandaSchedule.ts),
+ * pero sigue siendo un input editable como siempre -- pedido explícito del
+ * dueño: precargado, no bloqueado. */
+function AdvanceTandaDialog({ event }: { event: any }) {
+  const eventId = event.id;
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const { data: ticketTypesData } = trpc.events.listTicketTypes.useQuery({ eventId }, { enabled: open });
+  const activos = (ticketTypesData ?? []).filter((tt: any) => tt.category === 'acceso' && tt.status === 'active');
+
+  const schedule: TandaPhase[] = normalizeTandaSchedule(event.tandaDiscountSchedule);
+  const next = nextPhase(event.tandaPhaseIndex ?? 0, schedule);
+
+  type RowDraft = { newPrice: number; newTotalStock: number; newStockPoolId: number | null };
+  const [rows, setRows] = useState<Record<number, RowDraft>>({});
+
+  // Al abrir, precarga cada fila activa con el precio de la siguiente fase
+  // de la escala (si hay una y la fila tiene originalPrice cargado) --
+  // si no, cae al precio actual como punto de partida, igual que antes.
+  useEffect(() => {
+    if (open && activos.length > 0 && Object.keys(rows).length === 0) {
+      setRows(Object.fromEntries(activos.map((tt: any) => {
+        const seedPrice = next && tt.originalPrice
+          ? computePhasePrice(Number(tt.originalPrice), next.phase.percent)
+          : Number(tt.price);
+        return [tt.id, { newPrice: seedPrice, newTotalStock: tt.totalStock, newStockPoolId: null }];
+      })));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, ticketTypesData]);
+
+  const advanceTanda = trpc.events.advanceTanda.useMutation({
+    onSuccess: () => {
+      utils.events.listTicketTypes.invalidate();
+      utils.events.listStockPools.invalidate();
+      utils.events.listAll.invalidate();
+      toast.success('Tanda cerrada y nueva tanda activada');
+      setOpen(false);
+      setConfirming(false);
+      setRows({});
+    },
+    onError: onMutationError,
+  });
+
+  const handleSubmit = () => {
+    const payload = activos.map((tt: any) => {
+      const r = rows[tt.id] ?? { newPrice: Number(tt.price), newTotalStock: tt.totalStock, newStockPoolId: null };
+      return { oldTicketTypeId: tt.id, newPrice: r.newPrice, newTotalStock: r.newTotalStock, newStockPoolId: r.newStockPoolId };
+    });
+    advanceTanda.mutate({ eventId, rows: payload });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setConfirming(false); setRows({}); } }}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm"><ArrowRight className="w-3 h-3 mr-1" /> Cerrar tanda y activar la siguiente</Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Cerrar tanda actual y activar la siguiente</DialogTitle>
+        </DialogHeader>
+        {!next ? (
+          <p className="text-sm text-muted-foreground">Este evento ya está en la última fase de la escala (precio general). No queda ninguna fase siguiente para activar.</p>
+        ) : activos.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No hay ningún acceso activo en este evento todavía.</p>
+        ) : (
+          <>
+            <p className="text-xs font-medium">
+              Vas a pasar a la Fase {next.index + 1} — {next.phase.percent}% de descuento sobre el precio general.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Esto cierra para siempre cada acceso activo de abajo (deja de venderse) y crea uno nuevo con el precio y stock que definas acá, ya activo. No se puede deshacer -- si te equivocás, después hay que corregirlo a mano.
+            </p>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {activos.map((tt: any) => {
+                const r = rows[tt.id] ?? { newPrice: Number(tt.price), newTotalStock: tt.totalStock, newStockPoolId: null };
+                const pct = tt.originalPrice && Number(tt.originalPrice) > 0
+                  ? Math.round((1 - r.newPrice / Number(tt.originalPrice)) * 100)
+                  : null;
+                return (
+                  <div key={tt.id} className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end bg-muted/30 rounded-lg px-3 py-3">
+                    <div className="md:col-span-3 text-sm font-semibold">
+                      {tt.name} <span className="text-muted-foreground font-normal">— hoy ${Number(tt.price).toLocaleString('es-CL')}</span>
+                    </div>
+                    <div>
+                      <Label>Precio nuevo (CLP)</Label>
+                      <Input type="number" value={r.newPrice} onChange={(e) => setRows({ ...rows, [tt.id]: { ...r, newPrice: Number(e.target.value) } })} className="mt-1" />
+                      {pct !== null && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {pct > 0 ? `${pct}% de descuento vs. precio general (${Number(tt.originalPrice).toLocaleString('es-CL')})` : 'Igual o sobre el precio general'}
+                        </p>
+                      )}
+                      {!tt.originalPrice && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Sin precio general cargado -- no se pudo calcular el precio de fase automáticamente, se precargó el precio actual.</p>
+                      )}
+                    </div>
+                    <div>
+                      <Label>Stock nuevo</Label>
+                      <Input type="number" value={r.newTotalStock} onChange={(e) => setRows({ ...rows, [tt.id]: { ...r, newTotalStock: Number(e.target.value) } })} className="mt-1" />
+                    </div>
+                    <TicketPoolSelect eventId={eventId} value={r.newStockPoolId} onChange={(v) => setRows({ ...rows, [tt.id]: { ...r, newStockPoolId: v } })} />
+                  </div>
+                );
+              })}
+            </div>
+            {!confirming ? (
+              <Button variant="outline" onClick={() => setConfirming(true)}>Continuar</Button>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-destructive font-medium">¿Confirmás? Las {activos.length} entradas activas de arriba dejan de venderse ahora mismo y quedan reemplazadas por las nuevas.</p>
+                <div className="flex gap-2">
+                  <WriteButton onClick={handleSubmit} disabled={advanceTanda.isPending} className={buttonVariants({ variant: 'destructive' })}>
+                    Cerrar tanda y activar la siguiente
+                  </WriteButton>
+                  <Button variant="outline" onClick={() => setConfirming(false)}>Cancelar</Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Escala de descuentos por fase de ESTE evento (Fase 1 = 60%, Fase 2 =
+ * 50%...) -- editable acá, pedido explícito del dueño: un evento futuro
+ * puede querer una escala distinta. Mismo patrón fila-con-agregar/quitar que
+ * ProgramConfigTab, simplificado (sin min/max porque acá la fase ES la
+ * posición en el arreglo). Guarda con su propia mutación (mismo criterio
+ * que StockPoolRow/TicketTypeRow: cada pieza es dueña de su propio
+ * guardado, no todo pasa por el form grande de EventCard). Se muestra como
+ * sibling de AdvanceTandaDialog, no adentro: la escala se define una vez
+ * por evento y rara vez se toca, mientras "Cerrar tanda" se usa seguido
+ * durante la campaña -- meterla en el diálogo agregaría fricción cada vez
+ * que se abre para algo que casi nunca cambia.
+ *
+ * Cada fase acepta una fecha límite opcional -- pasada esa fecha (o si el
+ * cupo compartido de la fase se agota antes, lo que ocurra primero), el
+ * sistema pasa solo a la fase siguiente (ver server/tandaAutoAdvance.ts).
+ * Sin fecha, esa fase solo avanza con "Cerrar tanda" a mano, en cualquier
+ * momento -- mismo comportamiento que antes de esta ronda. */
+function TandaScheduleEditor({ event }: { event: any }) {
+  const utils = trpc.useUtils();
+  const [open, setOpen] = useState(false);
+  const [schedule, setSchedule] = useState<TandaPhase[]>(normalizeTandaSchedule(event.tandaDiscountSchedule));
+
+  const update = trpc.events.update.useMutation({
+    onSuccess: () => {
+      utils.events.listAll.invalidate();
+      toast.success('Escala de tandas guardada');
+      setOpen(false);
+    },
+    onError: onMutationError,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => {
+      setOpen(v);
+      if (v) setSchedule(normalizeTandaSchedule(event.tandaDiscountSchedule));
+    }}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">Escala de tandas</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Escala de descuentos por fase</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          % de descuento sobre el precio general de cada fase, en orden. Fase actual de este evento: {(event.tandaPhaseIndex ?? 0) + 1}.
+          Si le ponés fecha a una fase, pasa sola a la siguiente cuando llegue esa fecha. Si además esa fase vende con cupo
+          compartido y se agota antes, también pasa sola -- lo que ocurra primero. Dejalo vacío para que esa fase solo avance
+          con el botón manual, en cualquier momento.
+        </p>
+        <div className="space-y-2">
+          {schedule.map((phase, i) => (
+            <div key={i} className="flex items-end gap-3">
+              <div className="text-xs text-muted-foreground w-16">Fase {i + 1}</div>
+              <div>
+                <Label className="text-xs">% descuento</Label>
+                <Input type="number" value={phase.percent} onChange={(e) => setSchedule(schedule.map((x, j) => j === i ? { ...x, percent: Number(e.target.value) || 0 } : x))} className="w-24 mt-1" />
+              </div>
+              <div>
+                <Label className="text-xs">Fecha límite (opcional)</Label>
+                <Input type="datetime-local" value={toChileInputValue(phase.untilDate)} onChange={(e) => setSchedule(schedule.map((x, j) => j === i ? { ...x, untilDate: e.target.value ? fromChileInputValue(e.target.value) : null } : x))} className="mt-1" />
+              </div>
+              <Button variant="outline" size="sm" className="text-destructive" onClick={() => setSchedule(schedule.filter((_, j) => j !== i))}><Trash2 className="w-3 h-3" /></Button>
+            </div>
+          ))}
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setSchedule([...schedule, { percent: 0 }])}><Plus className="w-3 h-3 mr-1" /> Agregar fase</Button>
+        <WriteButton onClick={() => update.mutate({ id: event.id, tandaDiscountSchedule: schedule })} disabled={update.isPending}>
+          {update.isPending ? 'Guardando…' : 'Guardar escala'}
+        </WriteButton>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Cupos compartidos (stockPools) de un evento: varias entradas (ej. Dúo,
+ * Soltera, Trío de la Tanda "Founders") pueden gastar del mismo pozo en vez
+ * de tener cada una su propio totalStock independiente -- ver comentario en
+ * drizzle/schema.ts. Acá el admin ve el número REAL (vendidos / cap); lo
+ * que se esconde en la vista pública es solo TandaUrgencyCard en Home.tsx.
+ * Asignar un pool a una entrada se hace desde el formulario de esa entrada
+ * (el Select "Cupo compartido" más abajo), no desde acá -- este panel solo
+ * crea/edita/borra los pools en sí. */
+/** Fila de un cupo compartido: edita en el lugar (estado local `editing`),
+ * mismo criterio que AmbassadorRow más abajo -- sin esto, editar el cupo #1
+ * de 3 abría un formulario compartido DESPUÉS de toda la lista, obligando a
+ * bajar para encontrarlo. Acá el formulario reemplaza directamente esta
+ * fila, no se mueve nada más en la pantalla. */
+function StockPoolRow({ p, onSaved, onDelete }: { p: any; onSaved: () => void; onDelete: (id: number, adminPassword: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({ name: p.name, totalCap: p.totalCap });
+  const updatePool = trpc.events.updateStockPool.useMutation({
+    onSuccess: () => { onSaved(); toast.success('Cupo actualizado'); setEditing(false); },
+    onError: onMutationError,
+  });
+
+  if (editing) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end bg-muted/30 rounded-lg px-3 py-2">
+        <div className="md:col-span-2"><Label>Nombre</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" /></div>
+        <div><Label>Cupo total</Label><Input type="number" value={form.totalCap} onChange={(e) => setForm({ ...form, totalCap: Number(e.target.value) })} className="mt-1" /></div>
+        <div className="md:col-span-3 flex gap-2">
+          <WriteButton
+            onClick={() => { if (form.name.trim() && form.totalCap > 0) updatePool.mutate({ id: p.id, name: form.name.trim(), totalCap: form.totalCap }); }}
+            disabled={updatePool.isPending}
+          >
+            Guardar
+          </WriteButton>
+          <Button variant="outline" onClick={() => { setForm({ name: p.name, totalCap: p.totalCap }); setEditing(false); }}>Cancelar</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between text-sm bg-muted/30 rounded-lg px-3 py-2">
+      <span>
+        <span className="font-semibold">{p.name}</span>
+        <span className="text-muted-foreground ml-2">vendidas {p.sold} / {p.totalCap} · quedan {p.remaining}</span>
+      </span>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Edit className="w-3 h-3" /></Button>
+        <ConfirmDeleteButton description={`Vas a eliminar el cupo compartido "${p.name}". Solo se puede si ninguna entrada lo está usando.`} onConfirm={(adminPassword) => onDelete(p.id, adminPassword)} />
+      </div>
+    </div>
+  );
+}
+
+function StockPoolsPanel({ eventId }: { eventId: number }) {
+  const { data: poolsData, refetch, error: poolsError } = trpc.events.listStockPools.useQuery({ eventId });
+  const createPool = trpc.events.createStockPool.useMutation({ onSuccess: () => { refetch(); toast.success('Cupo compartido creado'); setShowForm(false); setForm({ name: '', totalCap: 40 }); }, onError: onMutationError });
+  const deletePool = trpc.events.deleteStockPool.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const utils = trpc.useUtils();
+
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: 'Founders', totalCap: 40 });
+
+  const pools = poolsData ?? [];
+
+  // Las entradas que usan un pool muestran su remanente en la misma consulta
+  // (events.listTicketTypes) -- invalidar acá para que se refresque tanto
+  // después de crear como después de editar/borrar una fila.
+  const onSaved = () => { refetch(); utils.events.listTicketTypes.invalidate(); };
+
+  const handleCreate = async () => {
+    if (!form.name.trim() || form.totalCap <= 0) return;
+    await createPool.mutateAsync({ eventId, name: form.name.trim(), totalCap: form.totalCap });
+    onSaved();
+  };
+
+  const handleDelete = async (id: number) => {
+    await deletePool.mutateAsync({ id });
+    onSaved();
+  };
+
+  return (
+    <div className="mt-3 border-t border-border/50 pt-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cupos compartidos</span>
+        <Button variant="outline" size="sm" onClick={() => { setForm({ name: 'Founders', totalCap: 40 }); setShowForm(!showForm); }}>
+          <Plus className="w-3 h-3 mr-1" /> Cupo compartido
+        </Button>
+      </div>
+      {poolsError && (
+        <p className="text-xs text-destructive mt-1">No se pudo cargar la lista de cupos: {poolsError.message}</p>
+      )}
+      {!poolsError && pools.length === 0 && !showForm && (
+        <p className="text-xs text-muted-foreground mt-1">Ninguno todavía. Un cupo compartido hace que varias entradas (ej. Dúo + Soltera + Trío) gasten de un mismo pozo total, en vez de cada una tener su propio stock independiente.</p>
+      )}
+      {pools.length > 0 && (
+        <div className="space-y-2 mt-2">
+          {pools.map((p: any) => (
+            <StockPoolRow key={p.id} p={p} onSaved={onSaved} onDelete={handleDelete} />
+          ))}
+        </div>
+      )}
+      {showForm && (
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+          <div className="md:col-span-2"><Label>Nombre</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="Founders" /></div>
+          <div><Label>Cupo total</Label><Input type="number" value={form.totalCap} onChange={(e) => setForm({ ...form, totalCap: Number(e.target.value) })} className="mt-1" /></div>
+          <div className="md:col-span-3 flex gap-2">
+            <WriteButton onClick={handleCreate} disabled={createPool.isPending}>Crear</WriteButton>
+            <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
+          </div>
         </div>
       )}
     </div>
@@ -229,25 +703,353 @@ function Mission300Panel({ eventId }: { eventId: number }) {
   );
 }
 
+/** Selector "Cupo compartido" dentro del form de una entrada (solo
+ * category="acceso"): ninguno, o uno de los pools ya creados para este
+ * evento (ver StockPoolsPanel, más arriba en la misma pantalla). */
+function TicketPoolSelect({ eventId, value, onChange }: { eventId: number; value: number | null; onChange: (v: number | null) => void }) {
+  const { data: poolsData } = trpc.events.listStockPools.useQuery({ eventId }, { enabled: !!eventId });
+  const pools = poolsData ?? [];
+
+  return (
+    <div>
+      <Label>Cupo compartido (opcional)</Label>
+      <Select value={value != null ? String(value) : 'none'} onValueChange={(v) => onChange(v === 'none' ? null : Number(v))}>
+        <SelectTrigger className="mt-1"><SelectValue placeholder="Ninguno" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="none">Ninguno — stock propio de esta entrada</SelectItem>
+          {pools.map((p: any) => (
+            <SelectItem key={p.id} value={String(p.id)}>{p.name} (quedan {p.remaining} de {p.totalCap})</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground mt-1">
+        Si eliges uno, esta entrada gasta del mismo pozo que las demás entradas que también lo usen (ej. Dúo + Soltera de la Tanda Founders comparten un único cupo de 40). Deja el "Stock Total" de arriba en un número igual o mayor al cupo del pool -- si no, esa entrada se agotaría sola antes de llegar al límite compartido. Créalo primero en "Cupos compartidos", debajo de la lista de entradas.
+      </p>
+    </div>
+  );
+}
+
+/** Arma el form-state de edición de un evento a partir de la fila del
+ * server -- mismo shape que `newEvent` de EventsManager. */
+function eventFormFromEvent(event: any) {
+  return {
+    title: event.title as string, slug: event.slug as string, description: (event.description || '') as string,
+    shortDescription: (event.shortDescription || '') as string, venue: (event.venue || '') as string,
+    address: (event.address || '') as string, mapsUrl: (event.mapsUrl || '') as string,
+    eventDate: toChileInputValue(event.eventDate), doorsOpen: toChileInputValue(event.doorsOpen),
+    status: (event.status || 'draft') as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past',
+    imageUrl: (event.imageUrl || '') as string, featured: !!event.featured,
+    missionForceClosed: !!event.missionForceClosed, ivaApplies: !!event.ivaApplies,
+  };
+}
+
+/** Miniatura en vivo de la URL del flyer/imagen mientras se escribe/pega
+ * (pedido implícito -- se detectó que el admin cargó un evento con una URL
+ * que no carga como imagen, ej. un link "compartir" de Instagram/Drive/
+ * iCloud en vez del archivo directo, y el flyer quedó en blanco en el sitio
+ * público sin ningún aviso). `key={url}` fuerza que el <img> se remonte en
+ * cada cambio, así reintenta cargar desde cero sin necesidad de debounce ni
+ * useEffect. Mismo criterio que ya usa Checkout.tsx (SquareImageOption):
+ * useState + onError, y la misma caja de advertencia ámbar ya usada más
+ * abajo en este archivo (ver PnlWarnings). */
+function FlyerUrlPreview({ url }: { url: string }) {
+  const [status, setStatus] = useState<'idle' | 'ok' | 'error'>('idle');
+  if (!url.trim()) return null;
+  return (
+    <div className="mt-2 flex items-start gap-3">
+      <div className="w-16 aspect-[3/4] rounded-lg overflow-hidden glass-candy shrink-0 flex items-center justify-center">
+        {status === 'error' ? (
+          <ImageOff className="w-5 h-5 text-muted-foreground" />
+        ) : (
+          <img
+            key={url}
+            src={url}
+            alt=""
+            className="w-full h-full object-cover"
+            onLoad={() => setStatus('ok')}
+            onError={() => setStatus('error')}
+          />
+        )}
+      </div>
+      {status === 'ok' && (
+        <p className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">✓ Se ve bien, así se va a ver en la home.</p>
+      )}
+      {status === 'error' && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 space-y-1">
+          <p className="font-medium">⚠️ Esa URL no carga como imagen.</p>
+          <p>Los links para "compartir" de Instagram, Google Drive o iCloud casi nunca sirven -- son una página, no la foto directa. Pega el link directo al archivo (que termine en .jpg, .png, etc.), o sube la imagen a Imgur, Cloudinary, o algún bucket/CDN y usa ese link.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Botón "Generar con IA" para descripción corta + completa de un evento
+ * (pedido explícito del dueño, 02/09) -- mismo molde que el objetivo de
+ * MailingComposer.tsx: un campo de idea/tema TRANSITORIO (no se guarda en la
+ * base, no existe columna para eso hoy, ver drizzle/schema.ts) y un click
+ * llena ambos campos, que el dueño puede seguir editando a mano después. Se
+ * usa tanto en el form de crear evento como en el de editar (EventCard). */
+function EventDescriptionAiFields({
+  title, venue, address, eventDateInputValue, onGenerated,
+}: {
+  title: string;
+  venue?: string;
+  address?: string;
+  eventDateInputValue?: string;
+  onGenerated: (result: { shortDescription: string; description: string }) => void;
+}) {
+  const [idea, setIdea] = useState('');
+  const generate = trpc.events.generateDescription.useMutation({
+    onSuccess: (data) => { onGenerated(data); toast.success('Descripción generada -- revísala antes de guardar'); },
+    onError: onMutationError,
+  });
+
+  const handleGenerate = () => {
+    if (!title.trim()) { toast.error('Ponle un título al evento primero'); return; }
+    generate.mutate({
+      title: title.trim(),
+      venue: venue?.trim() || undefined,
+      address: address?.trim() || undefined,
+      eventDateISO: eventDateInputValue ? fromChileInputValue(eventDateInputValue) : undefined,
+      idea: idea.trim() || undefined,
+    });
+  };
+
+  return (
+    <div className="bg-muted/30 rounded-lg p-3 space-y-2">
+      <Label>Idea/tema para la IA (opcional -- no se guarda)</Label>
+      <Input value={idea} onChange={(e) => setIdea(e.target.value)} placeholder="Ej: Halloween, disfraz obligatorio" className="mt-1" />
+      <WriteButton type="button" variant="outline" size="sm" onClick={handleGenerate} disabled={generate.isPending}>
+        {generate.isPending ? <><Loader2 className="w-3 h-3 mr-2 animate-spin" /> Generando…</> : <><Sparkles className="w-3 h-3 mr-2" /> Generar descripciones con IA</>}
+      </WriteButton>
+    </div>
+  );
+}
+
+/** Card de un evento: edita en el lugar (estado local `editing`), mismo
+ * criterio que AmbassadorRow/StockPoolRow/TicketTypeRow. Antes el formulario
+ * de editar vivía en una card fija ANTES de toda la lista de eventos --
+ * editar el evento #5 de 10 mandaba arriba de todo. Acá el formulario
+ * reemplaza directamente la cabecera de la card de ESE evento. También es
+ * dueña del formulario de "Nueva Entrada" para este evento (antes vivía en
+ * EventsManager, gateado por comparar `newTicket.eventId === event.id` --
+ * más simple tenerlo local ahora que cada evento ya es su propio componente). */
+function EventCard({ event, onDeleted }: { event: any; onDeleted: (id: number, adminPassword: string) => Promise<void> }) {
+  const utils = trpc.useUtils();
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(() => eventFormFromEvent(event));
+  const updateEvent = trpc.events.update.useMutation({
+    onSuccess: () => { utils.events.listAll.invalidate(); toast.success('Evento actualizado'); setEditing(false); },
+    onError: onMutationError,
+  });
+
+  const emptyTicketForm = { name: '', category: 'acceso' as 'acceso' | 'extra', accesoSlug: '' as '' | AccesoSlug, price: 0, originalPrice: 0, totalStock: 0, description: '', costPrice: 0, color: '', internalCode: '', stockPoolId: null as number | null };
+  const [newTicket, setNewTicket] = useState(emptyTicketForm);
+  const [showTicketForm, setShowTicketForm] = useState(false);
+  const createTicketType = trpc.events.createTicketType.useMutation({
+    onSuccess: () => { utils.events.listTicketTypes.invalidate(); toast.success('Entrada creada'); },
+    onError: onMutationError,
+  });
+
+  const handleSaveEvent = () => {
+    if (!form.title || !form.slug || !form.eventDate) return;
+    updateEvent.mutate({
+      id: event.id,
+      ...form,
+      featured: form.featured ? 1 : 0,
+      missionForceClosed: form.missionForceClosed ? 1 : 0,
+      ivaApplies: form.ivaApplies ? 1 : 0,
+      eventDate: fromChileInputValue(form.eventDate),
+      doorsOpen: fromChileInputValue(form.doorsOpen),
+    });
+  };
+
+  const handleCreateTicketType = async () => {
+    if (!newTicket.name || !newTicket.price) return;
+    await createTicketType.mutateAsync({
+      eventId: event.id,
+      ...newTicket,
+      accesoSlug: newTicket.category === 'extra' ? undefined : (newTicket.accesoSlug || undefined),
+      stockPoolId: newTicket.category === 'extra' ? null : newTicket.stockPoolId,
+      originalPrice: newTicket.originalPrice || undefined,
+      costPrice: newTicket.costPrice || undefined,
+      color: newTicket.category === 'extra' ? (newTicket.color || undefined) : undefined,
+      internalCode: newTicket.category === 'extra' ? (newTicket.internalCode || undefined) : undefined,
+    });
+    setNewTicket(emptyTicketForm);
+    setShowTicketForm(false);
+  };
+
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        {editing ? (
+          <div className="space-y-4">
+            <h4 className="font-semibold text-sm">Editar Evento</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div><Label>Título</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="mt-1" /></div>
+              <div><Label>Slug (URL)</Label><Input value={form.slug} onChange={(e) => setForm({ ...form, slug: e.target.value })} className="mt-1" /></div>
+              <div><Label>Venue</Label><Input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })} className="mt-1" /></div>
+              <div><Label>Dirección</Label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} className="mt-1" /></div>
+              <div><Label>Link de Google Maps</Label><Input value={form.mapsUrl} onChange={(e) => setForm({ ...form, mapsUrl: e.target.value })} className="mt-1" placeholder="https://maps.app.goo.gl/..." /></div>
+              <div><Label>Fecha del evento</Label><Input type="datetime-local" value={form.eventDate} onChange={(e) => setForm({ ...form, eventDate: e.target.value })} className="mt-1" /></div>
+              <div><Label>Apertura de puertas</Label><Input type="datetime-local" value={form.doorsOpen} onChange={(e) => setForm({ ...form, doorsOpen: e.target.value })} className="mt-1" /></div>
+            </div>
+            <EventDescriptionAiFields
+              title={form.title}
+              venue={form.venue}
+              address={form.address}
+              eventDateInputValue={form.eventDate}
+              onGenerated={(r) => setForm({ ...form, shortDescription: r.shortDescription, description: r.description })}
+            />
+            <div><Label>Descripción corta</Label><Input value={form.shortDescription} onChange={(e) => setForm({ ...form, shortDescription: e.target.value })} className="mt-1" /></div>
+            <div><Label>Descripción completa</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1 h-24" /></div>
+            <div>
+              <Label>URL del flyer/imagen</Label>
+              <div className="mt-1"><ImageUploadField value={form.imageUrl} onChange={(url) => setForm({ ...form, imageUrl: url })} pathPrefix="events" /></div>
+              <Input value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} className="mt-2" placeholder="https://..." />
+              <FlyerUrlPreview url={form.imageUrl} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+              <div>
+                <Label>Estado</Label>
+                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v as any })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">Borrador (oculto)</SelectItem>
+                    <SelectItem value="published">Publicado (próximo)</SelectItem>
+                    <SelectItem value="soldout">Agotado</SelectItem>
+                    <SelectItem value="past">Pasado (aparece en blanco y negro)</SelectItem>
+                    <SelectItem value="cancelled">Cancelado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
+                <input type="checkbox" checked={form.featured} onChange={(e) => setForm({ ...form, featured: e.target.checked })} className="w-4 h-4 accent-primary" />
+                <span className="text-sm">Destacar como próximo evento</span>
+              </label>
+              <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
+                <input type="checkbox" checked={form.missionForceClosed} onChange={(e) => setForm({ ...form, missionForceClosed: e.target.checked })} className="w-4 h-4 accent-primary" />
+                <span className="text-sm">Cerrar Misión 300 (cobrar valor general ya)</span>
+              </label>
+              <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
+                <input type="checkbox" checked={form.ivaApplies} onChange={(e) => setForm({ ...form, ivaApplies: e.target.checked })} className="w-4 h-4 accent-primary" />
+                <span className="text-sm">Este evento se declara al SII (IVA 19%)</span>
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <WriteButton onClick={handleSaveEvent} disabled={updateEvent.isPending}>Guardar Cambios</WriteButton>
+              <Button variant="outline" onClick={() => { setForm(eventFormFromEvent(event)); setEditing(false); }}>Cancelar</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-between items-start">
+            <div>
+              <h3 className="font-semibold text-lg">{event.title}</h3>
+              <p className="text-muted-foreground text-sm">/{event.slug} | {event.status} | {new Date(event.eventDate).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+                <Edit className="w-3 h-3" />
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { setNewTicket(emptyTicketForm); setShowTicketForm(true); }}>
+                <Plus className="w-3 h-3 mr-1" /> Entrada
+              </Button>
+              <ConfirmDeleteButton description={`Vas a eliminar el evento "${event.title}" completo, con todas sus entradas.`} onConfirm={(adminPassword) => onDeleted(event.id, adminPassword)} />
+            </div>
+          </div>
+        )}
+        <TicketTypesList eventId={event.id} />
+        <div className="mt-3 flex flex-wrap items-start gap-3">
+          <AdvanceTandaDialog event={event} />
+          <TandaScheduleEditor event={event} />
+        </div>
+        <StockPoolsPanel eventId={event.id} />
+        <Mission300Panel eventId={event.id} />
+        {showTicketForm && (
+          <div className="mt-4 border-t border-border/50 pt-4 space-y-4">
+            <h4 className="font-semibold text-sm">Nuevo Tipo de Entrada</h4>
+            <div>
+              <Label>Categoría</Label>
+              <Select value={newTicket.category} onValueChange={(v) => setNewTicket({ ...newTicket, category: v as 'acceso' | 'extra', accesoSlug: v === 'extra' ? '' : newTicket.accesoSlug })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="acceso">Acceso principal (Dúo, Soltera, Trío…)</SelectItem>
+                  <SelectItem value="extra">Extra (estacionamiento, cover, etc.)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">Los extras aparecen solos en el paso de extras del checkout, para cualquier evento — no hace falta tocar código.</p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div><Label>Nombre</Label><Input value={newTicket.name} onChange={(e) => setNewTicket({ ...newTicket, name: e.target.value })} className="mt-1" placeholder="VIP, General..." /></div>
+              <div><Label>Precio (CLP)</Label><Input type="number" value={newTicket.price} onChange={(e) => setNewTicket({ ...newTicket, price: Number(e.target.value) })} className="mt-1" /></div>
+              <div>
+                <Label>Precio general (opcional, se muestra tachado)</Label>
+                <Input type="number" value={newTicket.originalPrice} onChange={(e) => setNewTicket({ ...newTicket, originalPrice: Number(e.target.value) })} className="mt-1" placeholder="Ej: 20000" />
+              </div>
+              <div><Label>Stock Total</Label><Input type="number" value={newTicket.totalStock} onChange={(e) => setNewTicket({ ...newTicket, totalStock: Number(e.target.value) })} className="mt-1" /></div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label>Costo (CLP)</Label>
+                <Input type="number" value={newTicket.costPrice} onChange={(e) => setNewTicket({ ...newTicket, costPrice: Number(e.target.value) })} className="mt-1" placeholder="Opcional, para márgenes" />
+              </div>
+              {newTicket.category === 'extra' && (
+                <>
+                  <div>
+                    <Label>Código interno (canje)</Label>
+                    <Input value={newTicket.internalCode} onChange={(e) => setNewTicket({ ...newTicket, internalCode: e.target.value.toUpperCase() })} className="mt-1" placeholder="PIS, LOC..." maxLength={6} />
+                  </div>
+                  <div>
+                    <Label>Color (grilla de caja)</Label>
+                    <Input type="color" value={newTicket.color || '#f472b6'} onChange={(e) => setNewTicket({ ...newTicket, color: e.target.value })} className="mt-1 h-10" />
+                  </div>
+                </>
+              )}
+            </div>
+            {newTicket.category === 'extra' && (
+              <p className="text-xs text-muted-foreground -mt-2">El código interno es el prefijo del código de canje que recibe el comprador (ej. PIS-8F3K-29LX). Si se deja vacío, se genera uno automático a partir del nombre.</p>
+            )}
+            {newTicket.category === 'acceso' && (
+              <div>
+                <Label>Tipo de acceso (conecta con la pregunta del checkout)</Label>
+                <Select value={newTicket.accesoSlug} onValueChange={(v) => setNewTicket({ ...newTicket, accesoSlug: v as AccesoSlug })}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Elegir…" /></SelectTrigger>
+                  <SelectContent>
+                    {ACCESO_SLUG_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">Sin esto, la gente no va a poder comprar esta entrada desde el checkout.</p>
+              </div>
+            )}
+            {newTicket.category === 'acceso' && (
+              <TicketPoolSelect eventId={event.id} value={newTicket.stockPoolId} onChange={(v) => setNewTicket({ ...newTicket, stockPoolId: v })} />
+            )}
+            <div><Label>Descripción</Label><Input value={newTicket.description} onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })} className="mt-1" /></div>
+            <div className="flex gap-2">
+              <WriteButton onClick={handleCreateTicketType} disabled={createTicketType.isPending}>Crear Entrada</WriteButton>
+              <Button variant="outline" onClick={() => { setShowTicketForm(false); setNewTicket(emptyTicketForm); }}>Cancelar</Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function EventsManager() {
   const { data: eventsData, refetch } = trpc.events.listAll.useQuery();
   const createEvent = trpc.events.create.useMutation({ onSuccess: () => { refetch(); toast.success('Evento creado'); }, onError: onMutationError });
   const deleteEvent = trpc.events.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
-  const updateEvent = trpc.events.update.useMutation({ onSuccess: () => { refetch(); toast.success('Evento actualizado'); }, onError: onMutationError });
-  const utils = trpc.useUtils();
-  const createTicketType = trpc.events.createTicketType.useMutation({ onSuccess: () => { utils.events.listTicketTypes.invalidate(); toast.success('Entrada creada'); }, onError: onMutationError });
-  const updateTicketType = trpc.events.updateTicketType.useMutation({ onSuccess: () => { utils.events.listTicketTypes.invalidate(); toast.success('Entrada actualizada'); }, onError: onMutationError });
 
   const [newEvent, setNewEvent] = useState({
     title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '',
     status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false,
   });
-  const emptyTicketForm = { eventId: 0, name: '', category: 'acceso' as 'acceso' | 'extra', accesoSlug: '' as '' | AccesoSlug, price: 0, totalStock: 0, description: '', costPrice: 0, color: '', internalCode: '' };
-  const [newTicket, setNewTicket] = useState(emptyTicketForm);
   const [showEventForm, setShowEventForm] = useState(false);
-  const [showTicketForm, setShowTicketForm] = useState(false);
-  const [editingEventId, setEditingEventId] = useState<number | null>(null);
-  const [editingTicketId, setEditingTicketId] = useState<number | null>(null);
 
   const events = eventsData ?? [];
 
@@ -261,44 +1063,13 @@ function EventsManager() {
       eventDate: fromChileInputValue(newEvent.eventDate),
       doorsOpen: fromChileInputValue(newEvent.doorsOpen),
     };
-    if (editingEventId) {
-      await updateEvent.mutateAsync({ id: editingEventId, ...payload });
-      setEditingEventId(null);
-    } else {
-      await createEvent.mutateAsync(payload);
-    }
+    await createEvent.mutateAsync(payload);
     setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', status: 'draft', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false });
     setShowEventForm(false);
   };
 
-  const handleCreateTicketType = async () => {
-    if (!newTicket.eventId || !newTicket.name || !newTicket.price) return;
-    const payload = {
-      ...newTicket,
-      accesoSlug: newTicket.category === 'extra' ? undefined : (newTicket.accesoSlug || undefined),
-      costPrice: newTicket.costPrice || undefined,
-      color: newTicket.category === 'extra' ? (newTicket.color || undefined) : undefined,
-      internalCode: newTicket.category === 'extra' ? (newTicket.internalCode || undefined) : undefined,
-    };
-    if (editingTicketId) {
-      const { eventId, ...data } = payload;
-      await updateTicketType.mutateAsync({ id: editingTicketId, ...data });
-      setEditingTicketId(null);
-    } else {
-      await createTicketType.mutateAsync(payload);
-    }
-    setNewTicket(emptyTicketForm);
-    setShowTicketForm(false);
-  };
-
-  const handleEditTicketType = (tt: any) => {
-    setEditingTicketId(tt.id);
-    setNewTicket({
-      eventId: tt.eventId, name: tt.name, category: tt.category || 'acceso', accesoSlug: tt.accesoSlug || '',
-      price: Number(tt.price), totalStock: tt.totalStock, description: tt.description || '',
-      costPrice: tt.costPrice ? Number(tt.costPrice) : 0, color: tt.color || '', internalCode: tt.internalCode || '',
-    });
-    setShowTicketForm(true);
+  const handleDeleteEvent = async (id: number, adminPassword: string) => {
+    await deleteEvent.mutateAsync({ id, adminPassword });
   };
 
   return (
@@ -322,9 +1093,21 @@ function EventsManager() {
               <div><Label>Fecha del evento</Label><Input type="datetime-local" value={newEvent.eventDate} onChange={(e) => setNewEvent({ ...newEvent, eventDate: e.target.value })} className="mt-1" /></div>
               <div><Label>Apertura de puertas</Label><Input type="datetime-local" value={newEvent.doorsOpen} onChange={(e) => setNewEvent({ ...newEvent, doorsOpen: e.target.value })} className="mt-1" /></div>
             </div>
+            <EventDescriptionAiFields
+              title={newEvent.title}
+              venue={newEvent.venue}
+              address={newEvent.address}
+              eventDateInputValue={newEvent.eventDate}
+              onGenerated={(r) => setNewEvent({ ...newEvent, shortDescription: r.shortDescription, description: r.description })}
+            />
             <div><Label>Descripción corta</Label><Input value={newEvent.shortDescription} onChange={(e) => setNewEvent({ ...newEvent, shortDescription: e.target.value })} className="mt-1" /></div>
-            <div><Label>Descripción completa</Label><textarea value={newEvent.description} onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })} className="mt-1 w-full h-24 bg-input border border-border rounded-md p-2 text-foreground" /></div>
-            <div><Label>URL del flyer/imagen</Label><Input value={newEvent.imageUrl} onChange={(e) => setNewEvent({ ...newEvent, imageUrl: e.target.value })} className="mt-1" placeholder="https://..." /></div>
+            <div><Label>Descripción completa</Label><Textarea value={newEvent.description} onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })} className="mt-1 h-24" /></div>
+            <div>
+              <Label>URL del flyer/imagen</Label>
+              <div className="mt-1"><ImageUploadField value={newEvent.imageUrl} onChange={(url) => setNewEvent({ ...newEvent, imageUrl: url })} pathPrefix="events" /></div>
+              <Input value={newEvent.imageUrl} onChange={(e) => setNewEvent({ ...newEvent, imageUrl: e.target.value })} className="mt-2" placeholder="https://..." />
+              <FlyerUrlPreview url={newEvent.imageUrl} />
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
               <div>
                 <Label>Estado</Label>
@@ -353,9 +1136,7 @@ function EventsManager() {
               </label>
             </div>
             <div className="flex gap-2">
-              <WriteButton onClick={handleCreateEvent} disabled={createEvent.isPending || updateEvent.isPending}>
-                {editingEventId ? 'Guardar Cambios' : 'Crear Evento'}
-              </WriteButton>
+              <WriteButton onClick={handleCreateEvent} disabled={createEvent.isPending}>Crear Evento</WriteButton>
               <Button variant="outline" onClick={() => setShowEventForm(false)}>Cancelar</Button>
             </div>
           </CardContent>
@@ -364,106 +1145,7 @@ function EventsManager() {
 
       <div className="space-y-4">
         {events.map((event: any) => (
-          <Card key={event.id}>
-            <CardContent className="pt-6">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="font-semibold text-lg">{event.title}</h3>
-                  <p className="text-muted-foreground text-sm">/{event.slug} | {event.status} | {new Date(event.eventDate).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}</p>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => {
-                    setEditingEventId(event.id);
-                    setNewEvent({
-                      title: event.title, slug: event.slug, description: event.description || '',
-                      shortDescription: event.shortDescription || '', venue: event.venue || '',
-                      address: event.address || '',
-                      mapsUrl: event.mapsUrl || '',
-                      eventDate: toChileInputValue(event.eventDate),
-                      doorsOpen: toChileInputValue(event.doorsOpen),
-                      status: event.status || 'draft',
-                      imageUrl: event.imageUrl || '',
-                      featured: !!event.featured,
-                      missionForceClosed: !!event.missionForceClosed,
-                      ivaApplies: !!event.ivaApplies,
-                    });
-                    setShowEventForm(true);
-                  }}>
-                    <Edit className="w-3 h-3" />
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => { setEditingTicketId(null); setNewTicket({ ...emptyTicketForm, eventId: event.id }); setShowTicketForm(true); }}>
-                    <Plus className="w-3 h-3 mr-1" /> Entrada
-                  </Button>
-                  <ConfirmDeleteButton description={`Vas a eliminar el evento "${event.title}" completo, con todas sus entradas.`} onConfirm={() => deleteEvent.mutateAsync({ id: event.id })} />
-                </div>
-              </div>
-              <TicketTypesList eventId={event.id} onEdit={handleEditTicketType} />
-              <Mission300Panel eventId={event.id} />
-              {showTicketForm && newTicket.eventId === event.id && (
-                <div className="mt-4 border-t border-border/50 pt-4 space-y-4">
-                  <h4 className="font-semibold text-sm">{editingTicketId ? 'Editar Tipo de Entrada' : 'Nuevo Tipo de Entrada'}</h4>
-                  <div>
-                    <Label>Categoría</Label>
-                    <Select value={newTicket.category} onValueChange={(v) => setNewTicket({ ...newTicket, category: v as 'acceso' | 'extra', accesoSlug: v === 'extra' ? '' : newTicket.accesoSlug })}>
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="acceso">Acceso principal (Dúo, Soltera, Trío…)</SelectItem>
-                        <SelectItem value="extra">Extra (estacionamiento, cover, etc.)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground mt-1">Los extras aparecen solos en el paso de extras del checkout, para cualquier evento — no hace falta tocar código.</p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div><Label>Nombre</Label><Input value={newTicket.name} onChange={(e) => setNewTicket({ ...newTicket, name: e.target.value })} className="mt-1" placeholder="VIP, General..." /></div>
-                    <div><Label>Precio (CLP)</Label><Input type="number" value={newTicket.price} onChange={(e) => setNewTicket({ ...newTicket, price: Number(e.target.value) })} className="mt-1" /></div>
-                    <div><Label>Stock Total</Label><Input type="number" value={newTicket.totalStock} onChange={(e) => setNewTicket({ ...newTicket, totalStock: Number(e.target.value) })} className="mt-1" /></div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <Label>Costo (CLP)</Label>
-                      <Input type="number" value={newTicket.costPrice} onChange={(e) => setNewTicket({ ...newTicket, costPrice: Number(e.target.value) })} className="mt-1" placeholder="Opcional, para márgenes" />
-                    </div>
-                    {newTicket.category === 'extra' && (
-                      <>
-                        <div>
-                          <Label>Código interno (canje)</Label>
-                          <Input value={newTicket.internalCode} onChange={(e) => setNewTicket({ ...newTicket, internalCode: e.target.value.toUpperCase() })} className="mt-1" placeholder="PIS, LOC..." maxLength={6} />
-                        </div>
-                        <div>
-                          <Label>Color (grilla de caja)</Label>
-                          <Input type="color" value={newTicket.color || '#f472b6'} onChange={(e) => setNewTicket({ ...newTicket, color: e.target.value })} className="mt-1 h-10" />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  {newTicket.category === 'extra' && (
-                    <p className="text-xs text-muted-foreground -mt-2">El código interno es el prefijo del código de canje que recibe el comprador (ej. PIS-8F3K-29LX). Si se deja vacío, se genera uno automático a partir del nombre.</p>
-                  )}
-                  {newTicket.category === 'acceso' && (
-                    <div>
-                      <Label>Tipo de acceso (conecta con la pregunta del checkout)</Label>
-                      <Select value={newTicket.accesoSlug} onValueChange={(v) => setNewTicket({ ...newTicket, accesoSlug: v as AccesoSlug })}>
-                        <SelectTrigger className="mt-1"><SelectValue placeholder="Elegir…" /></SelectTrigger>
-                        <SelectContent>
-                          {ACCESO_SLUG_OPTIONS.map((o) => (
-                            <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground mt-1">Sin esto, la gente no va a poder comprar esta entrada desde el checkout.</p>
-                    </div>
-                  )}
-                  <div><Label>Descripción</Label><Input value={newTicket.description} onChange={(e) => setNewTicket({ ...newTicket, description: e.target.value })} className="mt-1" /></div>
-                  <div className="flex gap-2">
-                    <WriteButton onClick={handleCreateTicketType} disabled={createTicketType.isPending || updateTicketType.isPending}>
-                      {editingTicketId ? 'Guardar Cambios' : 'Crear Entrada'}
-                    </WriteButton>
-                    <Button variant="outline" onClick={() => { setShowTicketForm(false); setEditingTicketId(null); setNewTicket(emptyTicketForm); }}>Cancelar</Button>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <EventCard key={event.id} event={event} onDeleted={handleDeleteEvent} />
         ))}
       </div>
     </div>
@@ -554,7 +1236,7 @@ function DiscountsManager() {
                     <MessageCircle className="w-3 h-3" />
                   </Button>
                 </a>
-                <ConfirmDeleteButton description={`Vas a eliminar el código de descuento "${d.code}".`} onConfirm={() => deleteDiscount.mutateAsync({ id: d.id })} />
+                <ConfirmDeleteButton description={`Vas a eliminar el código de descuento "${d.code}".`} onConfirm={(adminPassword) => deleteDiscount.mutateAsync({ id: d.id, adminPassword })} />
               </div>
             </CardContent>
           </Card>
@@ -635,7 +1317,7 @@ function CommunityCodesManager() {
                     <MessageCircle className="w-3 h-3" />
                   </Button>
                 </a>
-                <ConfirmDeleteButton description={`Vas a eliminar el código de comunidad "${c.code}".`} onConfirm={() => deleteCode.mutateAsync({ id: c.id })} />
+                <ConfirmDeleteButton description={`Vas a eliminar el código de comunidad "${c.code}".`} onConfirm={(adminPassword) => deleteCode.mutateAsync({ id: c.id, adminPassword })} />
               </div>
             </CardContent>
           </Card>
@@ -718,7 +1400,7 @@ function BlockedCustomersManager() {
                 <WriteButton variant="outline" size="sm" onClick={() => updateBlocked.mutateAsync({ id: b.id, isActive: b.isActive ? 0 : 1 })}>
                   {b.isActive ? 'Desactivar' : 'Reactivar'}
                 </WriteButton>
-                <ConfirmDeleteButton description={`Vas a eliminar el bloqueo del RUT "${b.rut}".`} onConfirm={() => deleteBlocked.mutateAsync({ id: b.id })} />
+                <ConfirmDeleteButton description={`Vas a eliminar el bloqueo del RUT "${b.rut}".`} onConfirm={(adminPassword) => deleteBlocked.mutateAsync({ id: b.id, adminPassword })} />
               </div>
             </CardContent>
           </Card>
@@ -1319,9 +2001,15 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const [dateTo, setDateTo] = useState('');
   const [search, setSearch] = useState('');
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
+  // Antes esta vista no tenía filtro de evento: la lista y los totales
+  // mezclaban TODAS las fiestas de la historia y se leían como si fueran de
+  // una sola. Con dos eventos publicados a la vez eso deja de ser un detalle.
+  const [eventFilter, setEventFilter] = useState<string>('all');
+  const { data: eventsList } = trpc.events.listAll.useQuery();
+  const eventId = eventFilter === 'all' ? undefined : Number(eventFilter);
 
-  const { data: ordersData, refetch: refetchOrders } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter, channel });
-  const { data: stats, refetch: refetchStats } = trpc.orders.getStats.useQuery({ channel });
+  const { data: ordersData, refetch: refetchOrders } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter, channel, eventId });
+  const { data: stats, refetch: refetchStats } = trpc.orders.getStats.useQuery({ channel, eventId });
   const { data: orderTickets, isFetching: loadingTickets } = trpc.orders.getTickets.useQuery(
     { orderId: expandedOrderId ?? 0 },
     { enabled: expandedOrderId !== null }
@@ -1373,7 +2061,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
 
   // Al cambiar de filtro la selección deja de tener sentido (y podría arrastrar
   // ids de órdenes que ya no están en pantalla).
-  useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, channel, search]);
+  useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, channel, search, eventFilter]);
 
   const filterParams = () => {
     const params = new URLSearchParams();
@@ -1381,6 +2069,10 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
     if (dateFrom) params.set('dateFrom', dateFrom);
     if (dateTo) params.set('dateTo', dateTo);
     params.set('channel', channel);
+    // El backend ya soportaba filtrar el export por evento; simplemente nadie
+    // se lo mandaba, así que el CSV y el PDF traían todas las fiestas aunque
+    // en pantalla estuvieras viendo una sola.
+    if (eventId) params.set('eventId', String(eventId));
     return params;
   };
   const exportUrl = () => `/api/admin/orders/export.csv?${filterParams().toString()}`;
@@ -1392,6 +2084,13 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         <h2 className="font-heading text-2xl">{channel === 'caja' ? 'Ventas en Caja' : 'Ventas Web'}</h2>
         <div className="flex flex-wrap items-center gap-2">
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, email o N° de orden…" className="max-w-xs" />
+          <Select value={eventFilter} onValueChange={setEventFilter}>
+            <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los eventos</SelectItem>
+              {(eventsList ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -1408,13 +2107,21 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
             <Button variant="outline" className="interactive">Descargar CSV</Button>
           </DownloadLink>
           <a href={printUrl()} target="_blank" rel="noopener noreferrer">
-            <Button variant="outline" className="interactive">Descargar PDF</Button>
+            {/* Abre una página lista para imprimir, no descarga un archivo:
+                decía "Descargar PDF" y no descargaba nada. */}
+            <Button variant="outline" className="interactive">Ver para imprimir</Button>
           </a>
         </div>
       </div>
 
       {pendingCount > 0 && !remindersMode && (
-        <p className="text-sm text-yellow-500">⚠️ {pendingCount} orden{pendingCount > 1 ? 'es' : ''} sin pagar — usa el filtro "Sin pagar" para seleccionarlas y mandarles un recordatorio.</p>
+        <p className="text-sm text-yellow-500">
+          ⚠️ {pendingCount} orden{pendingCount > 1 ? 'es' : ''} sin pagar — usa el filtro "Sin pagar" para seleccionarlas y mandarles un recordatorio ya mismo.
+          {' '}
+          <span className="text-muted-foreground">
+            (Además, un cron diario ya les manda un recordatorio solo cada 3 días, hasta 3 veces por orden — esto es para mandar uno extra ya, ej. antes de que suba el precio.)
+          </span>
+        </p>
       )}
 
       {remindersMode && (
@@ -1572,7 +2279,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                           )}
                           <ConfirmDeleteButton
                             description={`Vas a eliminar la compra "${order.orderNumber}" de ${order.buyerName}.`}
-                            onConfirm={() => deleteOrder.mutateAsync({ id: order.id })}
+                            onConfirm={(adminPassword) => deleteOrder.mutateAsync({ id: order.id, adminPassword })}
                             disabled={deleteOrder.isPending}
                           />
                         </div>
@@ -1743,7 +2450,7 @@ function CustomersView() {
           <a href={printUrl()} target="_blank" rel="noopener noreferrer">
             <Button variant="outline" className="interactive">
               <Download className="w-4 h-4 mr-2" />
-              Descargar PDF
+              Ver para imprimir
             </Button>
           </a>
         </div>
@@ -1857,6 +2564,369 @@ function CustomersView() {
   );
 }
 
+/** Contactos que dejaron su correo sin comprar todavía (hoy el único gancho
+ * es "avísame antes de que suba el precio", ver LeadCaptureInline en
+ * Home.tsx) -- con $0 de pauta y 8 semanas de campaña, esta lista es la
+ * principal defensa contra la gente que visita el sitio y se pierde para
+ * siempre por no comprar en el momento. */
+function LeadsView() {
+  const { data, refetch, isLoading } = trpc.leads.listAll.useQuery();
+  const deleteLead = trpc.leads.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const allLeads = data ?? [];
+
+  // Filtro en memoria: son cientos de filas, no miles, y ya se traen todas
+  // de una consulta sin paginar -- no hace falta tocar el servidor.
+  const [search, setSearch] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<string>('all');
+  const [convertedFilter, setConvertedFilter] = useState<'all' | 'yes' | 'no'>('all');
+
+  const availableSources = Array.from(new Set(allLeads.map((l: any) => l.utmSource).filter(Boolean))) as string[];
+
+  const leads = allLeads.filter((l: any) => {
+    if (convertedFilter === 'yes' && !l.convertedOrderId) return false;
+    if (convertedFilter === 'no' && l.convertedOrderId) return false;
+    if (sourceFilter !== 'all' && l.utmSource !== sourceFilter) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      const haystack = `${l.email} ${l.phone ?? ''} ${l.instagram ?? ''}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const exportCsv = () => {
+    const header = ['Fecha', 'Email', 'Teléfono', 'Instagram', 'Origen', 'UTM Source', 'UTM Medium', 'UTM Campaign', 'Convertido'];
+    const lines = leads.map((l: any) => [
+      formatChileShortDate(new Date(l.createdAt)), l.email, l.phone ?? '', l.instagram ?? '',
+      l.source, l.utmSource ?? '', l.utmMedium ?? '', l.utmCampaign ?? '', l.convertedOrderId ? 'Sí' : 'No',
+    ].map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','));
+    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center flex-wrap gap-3">
+        <div>
+          <h2 className="font-heading text-2xl">Leads</h2>
+          <p className="text-muted-foreground text-sm mt-1">Contactos que dejaron su correo sin comprar todavía -- desde el gancho "avísame antes de que suba el precio" en la home.</p>
+        </div>
+        <Button variant="outline" onClick={exportCsv} disabled={leads.length === 0}><Download className="w-4 h-4 mr-2" /> Exportar CSV ({leads.length})</Button>
+      </div>
+
+      {allLeads.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por email, teléfono o Instagram…" className="max-w-xs" />
+          <Select value={sourceFilter} onValueChange={setSourceFilter}>
+            <SelectTrigger className="w-44"><SelectValue placeholder="Origen (UTM)" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Cualquier origen</SelectItem>
+              {availableSources.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={convertedFilter} onValueChange={(v) => setConvertedFilter(v as 'all' | 'yes' | 'no')}>
+            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="no">Sin convertir</SelectItem>
+              <SelectItem value="yes">Convertidos</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
+      {isLoading ? (
+        <p className="text-muted-foreground text-sm">Cargando…</p>
+      ) : allLeads.length === 0 ? (
+        <p className="text-muted-foreground text-sm">Todavía no hay leads.</p>
+      ) : leads.length === 0 ? (
+        <p className="text-muted-foreground text-sm">Ningún lead coincide con el filtro.</p>
+      ) : (
+        <div className="space-y-2">
+          {leads.map((l: any) => (
+            <Card key={l.id}>
+              <CardContent className="pt-4 flex justify-between items-center flex-wrap gap-2">
+                <div>
+                  <span className="font-semibold">{l.email}</span>
+                  {l.phone && <span className="text-muted-foreground text-sm ml-3">{l.phone}</span>}
+                  {l.instagram && <span className="text-muted-foreground text-sm ml-3">@{l.instagram.replace(/^@/, '')}</span>}
+                  <span className="text-xs ml-3 px-2 py-0.5 rounded-full bg-primary/15 text-primary">{l.source}</span>
+                  {l.utmSource && (
+                    <span className="text-xs ml-2 px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                      {l.utmSource}{l.utmMedium ? ` · ${l.utmMedium}` : ''}
+                    </span>
+                  )}
+                  {l.convertedOrderId ? (
+                    <span className="text-xs ml-2 px-2 py-0.5 rounded-full bg-green-500/15 text-green-600">✅ Convertido</span>
+                  ) : null}
+                  <span className="text-muted-foreground text-xs ml-3">{formatChileShortDate(new Date(l.createdAt))}</span>
+                </div>
+                <ConfirmDeleteButton description={`Vas a eliminar el lead "${l.email}".`} onConfirm={(adminPassword) => deleteLead.mutateAsync({ id: l.id, adminPassword })} />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const UTM_SOURCE_PRESETS = [
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'whatsapp', label: 'WhatsApp' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'otro', label: 'Otro…' },
+];
+
+const UTM_MEDIUM_PRESETS: Record<string, { value: string; label: string }[]> = {
+  instagram: [
+    { value: 'historia', label: 'Historia' },
+    { value: 'bio', label: 'Bio / link en la biografía' },
+    { value: 'reel', label: 'Reel' },
+    { value: 'post', label: 'Post' },
+    { value: 'dm', label: 'Mensaje directo' },
+  ],
+  whatsapp: [
+    { value: 'grupo', label: 'Grupo' },
+    { value: 'estado', label: 'Estado' },
+    { value: 'mensaje-directo', label: 'Mensaje directo' },
+  ],
+  tiktok: [
+    { value: 'video', label: 'Video' },
+    { value: 'bio', label: 'Bio' },
+  ],
+  otro: [],
+};
+
+/** Deja el texto listo para un parámetro UTM: minúsculas, sin tildes,
+ * espacios como guiones -- para que "Founders" y "founders" no terminen
+ * como dos filas distintas en el reporte de abajo. */
+function slugifyUtm(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** Arma el link etiquetado ANTES de compartirlo -- así la venta se organiza
+ * sola en "Ventas por Origen" de abajo, sin depender de que nadie anote a
+ * mano de dónde vino cada comprador ni de acordarse la sintaxis UTM. */
+function UtmLinkBuilder() {
+  const [source, setSource] = useState('instagram');
+  const [customSource, setCustomSource] = useState('');
+  const [medium, setMedium] = useState('historia');
+  const [customMedium, setCustomMedium] = useState('');
+  const [campaign, setCampaign] = useState('');
+  const [content, setContent] = useState('');
+  const [path, setPath] = useState('/');
+  const [copied, setCopied] = useState(false);
+
+  const mediumOptions = UTM_MEDIUM_PRESETS[source] ?? [];
+  const effectiveSource = slugifyUtm(source === 'otro' ? customSource : source);
+  const effectiveMedium = slugifyUtm(medium === 'otro' ? customMedium : medium);
+
+  const link = useMemo(() => {
+    try {
+      const cleanPath = path.trim() || '/';
+      const url = new URL(cleanPath.startsWith('/') ? cleanPath : `/${cleanPath}`, window.location.origin);
+      if (effectiveSource) url.searchParams.set('utm_source', effectiveSource);
+      if (effectiveMedium) url.searchParams.set('utm_medium', effectiveMedium);
+      if (campaign.trim()) url.searchParams.set('utm_campaign', slugifyUtm(campaign));
+      if (content.trim()) url.searchParams.set('utm_content', slugifyUtm(content));
+      return url.toString();
+    } catch {
+      return '';
+    }
+  }, [effectiveSource, effectiveMedium, campaign, content, path]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard puede fallar (permiso denegado, contexto no seguro) -- el
+      // link ya queda visible y seleccionable a mano, no es bloqueante.
+    }
+  };
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader><CardTitle>Generador de links</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Arma el link ANTES de compartirlo en cada lugar -- así la venta se organiza sola abajo, sin que tengas que anotar nada a mano.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Label>Dónde lo vas a compartir</Label>
+            <Select
+              value={source}
+              onValueChange={(v) => { setSource(v); setMedium((UTM_MEDIUM_PRESETS[v] ?? [])[0]?.value ?? 'otro'); }}
+            >
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {UTM_SOURCE_PRESETS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {source === 'otro' && (
+              <Input className="mt-2" placeholder="ej: tiktok, email, flyer físico" value={customSource} onChange={(e) => setCustomSource(e.target.value)} />
+            )}
+          </div>
+          <div>
+            <Label>Formato</Label>
+            <Select value={medium} onValueChange={setMedium}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {mediumOptions.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                <SelectItem value="otro">Otro…</SelectItem>
+              </SelectContent>
+            </Select>
+            {medium === 'otro' && (
+              <Input className="mt-2" placeholder="ej: carrusel, historia destacada" value={customMedium} onChange={(e) => setCustomMedium(e.target.value)} />
+            )}
+          </div>
+          <div>
+            <Label>Campaña (opcional)</Label>
+            <Input className="mt-1" placeholder="ej: founders, disfraz" value={campaign} onChange={(e) => setCampaign(e.target.value)} />
+          </div>
+          <div>
+            <Label>Variante (opcional)</Label>
+            <Input className="mt-1" placeholder="ej: v1, v2 -- para probar dos versiones" value={content} onChange={(e) => setContent(e.target.value)} />
+          </div>
+          <div className="md:col-span-2">
+            <Label>Página de destino</Label>
+            <Input className="mt-1 font-mono text-xs" value={path} onChange={(e) => setPath(e.target.value)} placeholder="/ (home) o /eventos/tu-slug" />
+          </div>
+        </div>
+        <div>
+          <Label>Link listo para compartir</Label>
+          <div className="flex items-center gap-2 mt-1">
+            <Input readOnly value={link} className="font-mono text-xs" onFocus={(e) => e.target.select()} />
+            <Button type="button" onClick={copy} className="interactive shrink-0">{copied ? '✓ Copiado' : 'Copiar'}</Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** "Ventas por origen" (atribución UTM, agujero 2 del plan de ventas): con
+ * $0 de pauta, saber qué reel/historia/link trae ventas de verdad es la
+ * única ventaja competitiva que hay. Agrupa ventas web ya aprobadas por
+ * utm_source/medium/campaign (client/src/lib/utm.ts captura, Checkout.tsx
+ * las manda). Lo que no vino de un link etiquetado (directo, buscador,
+ * embajador con su propio código) cae en "(sin UTM)" -- también es
+ * información útil: cuánto de la venta no se explica por ningún link. */
+function SalesByOriginView() {
+  // Con dos eventos publicados, mezclar las campañas de las dos fiestas hace
+  // el reporte inútil: lo que se quiere saber es qué link trajo ventas de
+  // ESTA campaña.
+  const [eventFilter, setEventFilter] = useState<string>('all');
+  const { data: eventsList } = trpc.events.listAll.useQuery();
+  const { data, isLoading } = trpc.orders.salesByOrigin.useQuery({
+    eventId: eventFilter === 'all' ? undefined : Number(eventFilter),
+  });
+  const rows = data ?? [];
+
+  const totalRevenue = rows.reduce((s, r) => s + r.revenue, 0);
+  const totalOrders = rows.reduce((s, r) => s + r.ordersCount, 0);
+
+  // El chart agrupa solo por utmSource -- medium/campaña quedan en la tabla
+  // de abajo. Con pocas fuentes activas (instagram, whatsapp, directo) un
+  // chart por cada combinación se vería como ruido.
+  const bySource = useMemo(() => {
+    const map = new Map<string, { name: string; revenue: number; ordersCount: number }>();
+    for (const r of rows) {
+      const acc = map.get(r.utmSource) ?? { name: r.utmSource, revenue: 0, ordersCount: 0 };
+      acc.revenue += r.revenue;
+      acc.ordersCount += r.ordersCount;
+      map.set(r.utmSource, acc);
+    }
+    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
+  }, [rows]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-heading text-2xl">Ventas por Origen</h2>
+          <p className="text-muted-foreground text-sm mt-1">
+            De dónde vinieron las ventas web ya aprobadas, según el link que usó cada comprador para entrar al sitio. Lo que no viene de un link etiquetado (directo, buscador, embajador con su propio código) cae en "(sin UTM)".
+          </p>
+        </div>
+        <Select value={eventFilter} onValueChange={setEventFilter}>
+          <SelectTrigger className="w-52 shrink-0"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los eventos</SelectItem>
+            {(eventsList ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <UtmLinkBuilder />
+
+      {isLoading ? (
+        <p className="text-muted-foreground text-sm">Cargando…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-muted-foreground text-sm">Todavía no hay ventas aprobadas para reportar.</p>
+      ) : (
+        <>
+          <p className="text-sm text-muted-foreground">
+            {totalOrders} orden{totalOrders === 1 ? '' : 'es'} · ${totalRevenue.toLocaleString('es-CL')} en total
+          </p>
+
+          {bySource.length > 1 && (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={bySource} layout="vertical" margin={{ left: 24 }}>
+                  <CartesianGrid stroke="hsl(var(--border))" />
+                  <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `$${Number(v).toLocaleString('es-CL')}`} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
+                  <Tooltip formatter={(v: number) => `$${v.toLocaleString('es-CL')}`} />
+                  <Bar dataKey="revenue" radius={[0, 4, 4, 0]}>
+                    {bySource.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-muted-foreground border-b border-border">
+                  <th className="py-2 pr-4">Origen</th>
+                  <th className="py-2 pr-4">Medio</th>
+                  <th className="py-2 pr-4">Campaña</th>
+                  <th className="py-2 pr-4 text-right">Órdenes</th>
+                  <th className="py-2 text-right">Ingresos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} className="border-b border-border/50">
+                    <td className="py-2 pr-4 font-medium">{r.utmSource}</td>
+                    <td className="py-2 pr-4 text-muted-foreground">{r.utmMedium ?? '—'}</td>
+                    <td className="py-2 pr-4 text-muted-foreground">{r.utmCampaign ?? '—'}</td>
+                    <td className="py-2 pr-4 text-right">{r.ordersCount}</td>
+                    <td className="py-2 text-right font-medium">${r.revenue.toLocaleString('es-CL')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function MailingSection() {
   const [search, setSearch] = useState('');
   const [accessType, setAccessType] = useState<string>('all');
@@ -1887,6 +2957,20 @@ function MailingSection() {
   const availableTags = tagsData ?? [];
 
   const bulkTagFromCsv = trpc.customers.bulkTagFromCsv.useMutation();
+  // "Cargar leads sin convertir como audiencia" (ver server/db.ts
+  // syncLeadsAsMailingAudience): convierte cada lead en un `customers`
+  // mínimo taggeado "leads", así el resto del flujo de acá abajo (filtrar
+  // por etiqueta, seleccionar, enviar/programar) es EL MISMO que ya usa el
+  // dueño para clientes reales -- ninguna UI nueva que aprender.
+  const syncLeads = trpc.leads.syncAsAudience.useMutation({
+    onSuccess: (rows) => {
+      refetchTags();
+      if (rows.length === 0) { toast.info('No hay leads sin convertir para este filtro.'); return; }
+      setTagFilter('leads');
+      toast.success(`${rows.length} lead(s) cargados. Filtrados por la etiqueta "leads" para que los veas abajo.`);
+    },
+    onError: onMutationError,
+  });
 
   const toggleSelected = (id: number) => {
     setSelectedIds((prev) => {
@@ -2020,6 +3104,13 @@ function MailingSection() {
                 {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
               </SelectContent>
             </Select>
+            <WriteButton
+              variant="outline"
+              onClick={() => syncLeads.mutate({ eventId: eventFilter === 'all' ? undefined : Number(eventFilter) })}
+              disabled={syncLeads.isPending}
+            >
+              {syncLeads.isPending ? 'Cargando…' : 'Cargar leads sin convertir como audiencia'}
+            </WriteButton>
 
             <div className="ml-auto flex flex-col items-end gap-1">
               <input
@@ -2328,7 +3419,7 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
   expanded: boolean;
   onToggleExpand: () => void;
   onUpdate: (data: { name?: string; code?: string; commissionPercent?: number | null; contact?: string; email?: string; instagram?: string; active?: number }) => Promise<unknown>;
-  onDelete: () => Promise<unknown>;
+  onDelete: (adminPassword: string) => Promise<unknown>;
   updating: boolean;
   deleting: boolean;
 }) {
@@ -2405,7 +3496,7 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
           <Button variant="outline" size="sm" disabled={updating} onClick={() => onUpdate({ active: ambassador.active ? 0 : 1 })}>
             {ambassador.active ? 'Desactivar' : 'Activar'}
           </Button>
-          <ConfirmDeleteButton description={`Vas a eliminar al embajador "${ambassador.name}" (${ambassador.code}). Sus clientes exclusivos quedan libres; las comisiones ya generadas se conservan.`} onConfirm={onDelete} disabled={deleting} />
+          <ConfirmDeleteButton description={`Vas a eliminar al embajador "${ambassador.name}" (${ambassador.code}). Sus clientes exclusivos quedan libres; las comisiones ya generadas se conservan.`} onConfirm={(adminPassword) => onDelete(adminPassword)} disabled={deleting} />
         </div>
       </td>
     </tr>
@@ -2802,7 +3893,7 @@ function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
                       updating={updateAmbassador.isPending}
                       deleting={deleteAmbassador.isPending}
                       onUpdate={(data) => updateAmbassador.mutateAsync({ id: a.id, ...data })}
-                      onDelete={() => deleteAmbassador.mutateAsync({ id: a.id })}
+                      onDelete={(adminPassword) => deleteAmbassador.mutateAsync({ id: a.id, adminPassword })}
                     />
                     {expandedId === a.id && (
                       <AmbassadorProfileRow
@@ -3356,6 +4447,8 @@ function CajaAdminView() {
       </div>
 
       {activeEventId && <ResetTestDataCard eventId={activeEventId} eventTitle={events.find((e: any) => e.id === activeEventId)?.title ?? ''} />}
+      <RecurringExpensesPanel />
+      <AdminAuditPanel />
       {activeEventId && <OperatorsManager eventId={activeEventId} />}
       {activeEventId && <RegistersManager eventId={activeEventId} />}
       {activeEventId && <DevicesManager eventId={activeEventId} />}
@@ -3371,6 +4464,8 @@ function CajaAdminView() {
  * compras web, check-ins de /puerta ni canjes de extras (ver
  * db.resetEventTestData). */
 function ResetTestDataCard({ eventId, eventTitle }: { eventId: number; eventTitle: string }) {
+  // Es el borrado más destructivo del panel, así que también pide la clave.
+  const [resetPassword, setResetPassword] = useState('');
   const reset = trpc.caja.resetTestData.useMutation({
     onSuccess: (data) => toast.success(`Listo -- se borraron ${data.ordersDeleted} venta(s) de prueba y se repuso la carta.`),
     onError: onMutationError,
@@ -3396,9 +4491,21 @@ function ResetTestDataCard({ eventId, eventTitle }: { eventId: number; eventTitl
                 Se van a borrar todas las ventas hechas directo en caja, los turnos y las comandas de cocina/guardarropía de este evento, y se va a reponer el stock y quitar el "agotado" de la carta. Esta acción no se puede deshacer. Las compras web, los check-ins de puerta y los canjes de estacionamiento/piscolón NO se tocan.
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <Input
+              type="password"
+              autoFocus
+              value={resetPassword}
+              onChange={(e) => setResetPassword(e.target.value)}
+              placeholder="Tu clave de admin"
+            />
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction onClick={() => reset.mutate({ eventId })}>Sí, reiniciar</AlertDialogAction>
+              <AlertDialogCancel onClick={() => setResetPassword('')}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={!resetPassword || reset.isPending}
+                onClick={(e) => { e.preventDefault(); reset.mutate({ eventId, adminPassword: resetPassword }); }}
+              >
+                Sí, reiniciar
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -3470,7 +4577,7 @@ function OperatorsManager({ eventId }: { eventId: number }) {
                 </WriteButton>
                 <ConfirmDeleteButton
                   description={`Vas a eliminar al operador "${op.name}". Si ya tiene ventas, turnos o canjes registrados, no se va a poder -- desactívalo en ese caso.`}
-                  onConfirm={() => deleteOperator.mutateAsync({ id: op.id })}
+                  onConfirm={(adminPassword) => deleteOperator.mutateAsync({ id: op.id, adminPassword })}
                 />
               </div>
             </div>
@@ -3502,7 +4609,7 @@ function RegistersManager({ eventId }: { eventId: number }) {
               {r.name}{!r.active ? ' (inactiva)' : ''}
               <ConfirmDeleteButton
                 description={`Vas a eliminar la caja "${r.name}". Si ya tiene ventas o turnos registrados, no se va a poder -- desactívala en ese caso.`}
-                onConfirm={() => deleteRegister.mutateAsync({ id: r.id })}
+                onConfirm={(adminPassword) => deleteRegister.mutateAsync({ id: r.id, adminPassword })}
               />
             </span>
           ))}
@@ -3549,7 +4656,7 @@ function DevicesManager({ eventId }: { eventId: number }) {
                 </WriteButton>
                 <ConfirmDeleteButton
                   description={`Vas a eliminar el dispositivo "${d.name}".`}
-                  onConfirm={() => deleteDevice.mutateAsync({ id: d.id })}
+                  onConfirm={(adminPassword) => deleteDevice.mutateAsync({ id: d.id, adminPassword })}
                 />
               </div>
             </div>
@@ -3737,6 +4844,54 @@ function ProfitReport({ eventId }: { eventId: number }) {
  * sub-tab en vez de uno por cada tabla individual. El admin siempre recibe
  * el correo; el diálogo deja elegir además a qué operadores con email
  * cargado del evento mandárselo (el "staff que le corresponde al área"). */
+/** Los cuatro reportes descargables del evento, juntos.
+ *
+ * El de resultado y el de movimientos no existían, y los otros dos vivían
+ * escondidos dentro de sus pestañas, así que había que acordarse de dónde
+ * estaba cada uno. Son PDF de verdad armados en el servidor (pdfkit), no una
+ * página que el navegador imprime: se descargan, se adjuntan a un correo y se
+ * ven igual en cualquier aparato. */
+function EventReportDownloads({ eventId }: { eventId: number }) {
+  const isDemo = useIsDemo();
+
+  const REPORTS = [
+    { file: 'ventas', label: 'Ventas del evento', hint: 'De dónde salió la plata (web y caja, por medio de pago) y qué producto dejó margen.' },
+    { file: 'gastos', label: 'Gastos del evento', hint: 'Cada compra con su fecha, proveedor, documento y forma de pago.' },
+    { file: 'resultado', label: 'Resultado (P&L)', hint: 'Qué entró, qué se fue restando y cuánto quedó. Con el IVA del período si el evento se declara.' },
+    { file: 'movimientos', label: 'Movimientos detallados', hint: 'El registro completo de los terminales, operación por operación. No se puede editar ni borrar.' },
+  ];
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle>Descargar reportes de este evento</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Todos en hora de Chile y con la fecha de emisión impresa, para que sirvan como respaldo.
+        </p>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {REPORTS.map((r) => (
+          <div key={r.file} className="rounded-xl border border-border/50 p-4 flex flex-col gap-2">
+            <div>
+              <p className="font-semibold text-sm">{r.label}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{r.hint}</p>
+            </div>
+            {isDemo ? (
+              <Button variant="outline" size="sm" disabled title={DEMO_TOOLTIP} className="self-start">Descargar PDF</Button>
+            ) : (
+              <a href={`/api/admin/gastos/${r.file}.pdf?eventId=${eventId}`} target="_blank" rel="noopener noreferrer" className="self-start">
+                <Button variant="outline" size="sm" className="interactive">
+                  <Download className="w-4 h-4 mr-2" /> Descargar PDF
+                </Button>
+              </a>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ReportToolbar({ eventId, kind }: { eventId: number; kind: 'ventas' | 'gastos' }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
@@ -3937,15 +5092,25 @@ const emptyExpenseForm = {
   ivaExempt: false,
   amountTotal: 0,
   paymentMethod: 'transferencia' as ExpensePaymentMethod,
-  recurrence: 'none' as 'none' | 'mensual',
+  recurrence: 'none' as 'none' | 'mensual' | 'por_evento',
   excludeFromPnl: false,
   prorate: true,
   notes: '',
+  // Turno de cuyo cajón salió el efectivo, cuando se pagó en efectivo durante
+  // el evento. `null` = no salió de ninguna caja (plata de la productora).
+  paidFromShiftId: null as number | null,
 };
 
 function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }) {
   const [show, setShow] = useState(false);
   const [form, setForm] = useState(emptyExpenseForm);
+  // Solo tiene sentido preguntar por el cajón si el gasto es en efectivo y de
+  // un evento puntual, así que la consulta se hace recién ahí.
+  const cashFromDrawerApplies = form.paymentMethod === 'efectivo' && form.scope === 'evento' && !!form.eventId;
+  const { data: openShifts } = trpc.cajaReports.openShifts.useQuery(
+    { eventId: form.eventId ?? undefined },
+    { enabled: cashFromDrawerApplies },
+  );
   const create = trpc.expenses.create.useMutation({
     onSuccess: () => { onSaved(); toast.success('Gasto registrado'); setForm(emptyExpenseForm); setShow(false); },
     onError: onMutationError,
@@ -3955,7 +5120,7 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
   const preview = deriveAmounts({ amountTotal: form.amountTotal, documentType: form.documentType, ivaExempt: form.ivaExempt });
 
   const canSave = form.amountTotal > 0 && form.description.trim().length > 0
-    && (form.scope === 'general' || !!form.eventId);
+    && (form.scope === 'general' || form.recurrence === 'por_evento' || !!form.eventId);
 
   const handleSave = () => {
     create.mutate({
@@ -3964,6 +5129,10 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
       documentNumber: form.documentNumber || undefined,
       notes: form.notes || undefined,
       eventId: form.scope === 'evento' ? form.eventId : null,
+      // Si el gasto dejó de ser en efectivo (o de un evento) después de
+      // haber elegido caja, la marca se limpia: si no, el cierre de ese
+      // turno restaría plata que nunca salió del cajón.
+      paidFromShiftId: cashFromDrawerApplies ? form.paidFromShiftId : null,
       expenseDate: form.expenseDate ? fromChileInputValue(form.expenseDate) : new Date().toISOString(),
     } as any);
   };
@@ -3984,15 +5153,29 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <Label>¿A qué se imputa?</Label>
-                <Select value={form.scope} onValueChange={(v) => setForm({ ...form, scope: v as 'evento' | 'general' })}>
+                <Select
+                  value={form.scope}
+                  disabled={form.recurrence !== 'none'}
+                  onValueChange={(v) => setForm({ ...form, scope: v as 'evento' | 'general' })}
+                >
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="evento">Un evento puntual</SelectItem>
                     <SelectItem value="general">La productora (se reparte entre los eventos del mes)</SelectItem>
                   </SelectContent>
                 </Select>
+                {form.recurrence === 'mensual' && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Las suscripciones van siempre a la productora y se reparten entre los eventos del mes.
+                  </p>
+                )}
+                {form.recurrence === 'por_evento' && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Se copia solo a cada evento que hagas, completo. No elijas un evento acá: va a todos.
+                  </p>
+                )}
               </div>
-              {form.scope === 'evento' && (
+              {form.scope === 'evento' && form.recurrence !== 'por_evento' && (
                 <div>
                   <Label>Evento</Label>
                   <Select value={form.eventId ? String(form.eventId) : ''} onValueChange={(v) => setForm({ ...form, eventId: Number(v) })}>
@@ -4065,6 +5248,34 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
               </div>
             </div>
 
+            {/* Efectivo sacado del cajón durante la fiesta (hielo de última
+                hora, propina al proveedor). Marcarlo acá es lo que hace que
+                el cierre de ESA caja no lo lea como plata faltante. */}
+            {cashFromDrawerApplies && (
+              <div>
+                <Label>¿Salió del cajón de alguna caja?</Label>
+                <Select
+                  value={form.paidFromShiftId ? String(form.paidFromShiftId) : 'none'}
+                  onValueChange={(v) => setForm({ ...form, paidFromShiftId: v === 'none' ? null : Number(v) })}
+                >
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No — se pagó con plata de la productora</SelectItem>
+                    {(openShifts ?? []).map((s: any) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.registerName} · abrió {s.operatorName} ({formatChileDateTime(s.openedAt)})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {(openShifts ?? []).length === 0
+                    ? 'No hay turnos abiertos en este evento ahora mismo. Se marca solo mientras la caja está abierta: al cerrarla, el monto se descuenta del efectivo esperado.'
+                    : 'Al cerrar esa caja, este monto se descuenta del efectivo esperado -- si no lo marcas, aparece como faltante.'}
+                </p>
+              </div>
+            )}
+
             {form.documentType === 'factura' && (
               <div className="rounded-xl bg-muted/40 px-4 py-3 text-sm">
                 {form.ivaExempt
@@ -4080,9 +5291,38 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
                   <span className="text-sm">Factura exenta (sin IVA)</span>
                 </label>
               )}
+              {/* Dos formas de repetirse, porque los eventos de esta
+                  productora NO son mensuales: hay meses con dos fiestas y
+                  meses sin ninguna. Una suscripción sigue el calendario y es
+                  de la productora; un costo fijo de fiesta (el DJ, la
+                  seguridad) sigue a los eventos y se carga completo a cada
+                  uno. Atar el segundo al calendario cobraba de más los meses
+                  con dos fiestas y de menos los meses sin ninguna. */}
               <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input type="checkbox" checked={form.recurrence === 'mensual'} onChange={(e) => setForm({ ...form, recurrence: e.target.checked ? 'mensual' : 'none' })} className="w-4 h-4 accent-primary" />
-                <span className="text-sm">Se repite todos los meses (suscripción)</span>
+                <input
+                  type="checkbox"
+                  checked={form.recurrence === 'mensual'}
+                  onChange={(e) => setForm({
+                    ...form,
+                    recurrence: e.target.checked ? 'mensual' : 'none',
+                    ...(e.target.checked ? { scope: 'general' as const, eventId: null } : {}),
+                  })}
+                  className="w-4 h-4 accent-primary"
+                />
+                <span className="text-sm">Se repite todos los meses (suscripción de la productora)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.recurrence === 'por_evento'}
+                  onChange={(e) => setForm({
+                    ...form,
+                    recurrence: e.target.checked ? 'por_evento' : 'none',
+                    ...(e.target.checked ? { scope: 'evento' as const, eventId: null } : {}),
+                  })}
+                  className="w-4 h-4 accent-primary"
+                />
+                <span className="text-sm">Se repite en cada evento (DJ, seguridad, arriendo…)</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" checked={form.excludeFromPnl} onChange={(e) => setForm({ ...form, excludeFromPnl: e.target.checked })} className="w-4 h-4 accent-primary" />
@@ -4192,7 +5432,7 @@ function ExpensesList({ events, refreshKey, onChanged }: { events: any[]; refres
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span className="font-semibold tabular-nums">${r.amountTotal.toLocaleString('es-CL')}</span>
-                <ConfirmDeleteButton description={`Vas a eliminar el gasto "${r.description}".`} onConfirm={() => remove.mutateAsync({ id: r.id })} />
+                <ConfirmDeleteButton description={`Vas a eliminar el gasto "${r.description}".`} onConfirm={(adminPassword) => remove.mutateAsync({ id: r.id, adminPassword })} />
               </div>
             </div>
           ))}
@@ -4342,6 +5582,62 @@ function PnlComparison({ refreshKey, events }: { refreshKey: number; events: any
   );
 }
 
+/** Panel de preguntas simples sobre ventas/movimientos con IA (pedido
+ * explícito del dueño, 02/09) -- responde solo con datos YA agregados del
+ * sistema (server/adminQa.ts: getOrderStats, getSalesByUtmOrigin, el P&L del
+ * evento seleccionado), nunca inventa un número que no tenga. Sin historial
+ * persistido en base: las últimas preguntas/respuestas quedan solo en estado
+ * local de esta sesión (se pierden al recargar) -- cada pregunta es
+ * independiente, esto no es una conversación multi-turno. */
+function AdminAiQaPanel({ eventId }: { eventId: number | null }) {
+  const [question, setQuestion] = useState('');
+  const [history, setHistory] = useState<{ question: string; answer: string }[]>([]);
+  const ask = trpc.cajaReports.askAi.useMutation({
+    onSuccess: (data, variables) => {
+      setHistory((h) => [{ question: variables.question, answer: data.answer }, ...h].slice(0, 5));
+      setQuestion('');
+    },
+    onError: onMutationError,
+  });
+
+  const handleAsk = () => {
+    if (question.trim().length < 3 || ask.isPending) return;
+    ask.mutate({ question: question.trim(), eventId: eventId ?? undefined });
+  };
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base"><Sparkles className="w-4 h-4 text-primary" /> Preguntale a la IA</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">Preguntas simples sobre ventas, origen y plata del evento seleccionado arriba -- si no tiene el dato, lo dice en vez de inventarlo.</p>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Input
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder="Ej: ¿Cuánto llevamos vendido? ¿De dónde vienen más ventas?"
+            onKeyDown={(e) => { if (e.key === 'Enter') handleAsk(); }}
+          />
+          <WriteButton onClick={handleAsk} disabled={ask.isPending || question.trim().length < 3}>
+            {ask.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Preguntando…</> : <><Sparkles className="w-4 h-4 mr-2" /> Preguntar</>}
+          </WriteButton>
+        </div>
+        {history.length > 0 && (
+          <div className="space-y-3 pt-2 border-t border-border/50">
+            {history.map((h, i) => (
+              <div key={i} className="text-sm">
+                <p className="font-semibold">{h.question}</p>
+                <p className="text-muted-foreground whitespace-pre-wrap mt-0.5">{h.answer}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function GastosView() {
   const { data: eventsData } = trpc.events.listAll.useQuery();
   const events = eventsData ?? [];
@@ -4369,7 +5665,10 @@ function GastosView() {
         )}
       </div>
 
+      <AdminAiQaPanel eventId={activeEventId} />
+
       {activeEventId && <EventPnlReport eventId={activeEventId} refreshKey={refreshKey} />}
+      {activeEventId && <EventReportDownloads eventId={activeEventId} />}
       <PnlComparison refreshKey={refreshKey} events={events} />
 
       <Tabs defaultValue="ventas">
@@ -4489,7 +5788,7 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
             <Button variant="outline" size="sm" className="interactive">Exportar CSV</Button>
           </DownloadLink>
           <a href={printUrl()} target="_blank" rel="noopener noreferrer">
-            <Button variant="outline" size="sm" className="interactive">Descargar PDF</Button>
+            <Button variant="outline" size="sm" className="interactive">Ver para imprimir</Button>
           </a>
         </div>
       </CardHeader>
@@ -4513,7 +5812,10 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 mt-3 text-sm">
+            {/* Cuatro medios de pago, no tres: el QR/transferencia se cobra
+                en caja y se guarda desde siempre, pero este panel no lo
+                mostraba -- esa plata quedaba fuera del cuadre a la vista. */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-sm">
               <div className="rounded-lg bg-muted/50 p-3">
                 <p className="text-xs text-muted-foreground mb-1">💵 Efectivo</p>
                 <p>${r.countedCash.toLocaleString('es-CL')} contado</p>
@@ -4532,7 +5834,50 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
                 <p className="text-xs text-muted-foreground">${r.expectedCredit.toLocaleString('es-CL')} esperado</p>
                 {diffLabel(r.creditDiff)}
               </div>
+              <div className="rounded-lg bg-muted/50 p-3">
+                <p className="text-xs text-muted-foreground mb-1">📱 QR/transferencia</p>
+                <p>${(r.countedQr ?? 0).toLocaleString('es-CL')} contado</p>
+                <p className="text-xs text-muted-foreground">${(r.expectedQr ?? 0).toLocaleString('es-CL')} esperado</p>
+                {diffLabel(r.qrDiff ?? 0)}
+              </div>
             </div>
+
+            {/* Débito + crédito juntos. El desglose depende de que la
+                cajera haya elegido bien el tipo de tarjeta, y la noche de
+                Candyland demostró que no se puede dar por hecho: cerró con
+                $0 esperados en crédito y $200.500 en el voucher, así que por
+                separado se leía "faltan $977.000 y sobran $200.500" cuando el
+                hueco real era $776.500. Este total es el que manda. */}
+            {(() => {
+              const counted = r.countedDebit + r.countedCredit;
+              const expected = r.expectedDebit + r.expectedCredit;
+              const splitDudoso = (r.expectedCredit === 0 && r.countedCredit > 0) || (r.expectedDebit === 0 && r.countedDebit > 0);
+              return (
+                <div className="mt-3 rounded-lg bg-muted/50 p-3 text-sm">
+                  <p className="text-xs text-muted-foreground mb-1">💳 Tarjetas (débito + crédito)</p>
+                  <p>${counted.toLocaleString('es-CL')} contado · <span className="text-muted-foreground">${expected.toLocaleString('es-CL')} esperado</span></p>
+                  {diffLabel(counted - expected)}
+                  {splitDudoso && (
+                    <p className="text-xs text-amber-500 mt-1">
+                      El desglose de arriba no es confiable en este turno: el sistema no registró ninguna venta de un tipo de tarjeta
+                      que sí aparece en el voucher, o sea que el selector de la tablet quedó fijo toda la noche. Mira este total, no las dos tarjetas por separado.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Cómo se arma el "esperado" del efectivo, en una línea: sin
+                esto la resta del fondo y de los gastos pagados del cajón
+                parecían un descuadre sin explicación. */}
+            <p className="mt-2 text-xs text-muted-foreground">
+              Esperado en efectivo = ${r.openingCash.toLocaleString('es-CL')} de fondo
+              {' + '}${(r.expectedCash + (r.cashPaidOut ?? 0)).toLocaleString('es-CL')} de ventas
+              {(r.cashPaidOut ?? 0) > 0 && <> {' − '}${(r.cashPaidOut ?? 0).toLocaleString('es-CL')} de gastos pagados del cajón</>}
+              {' = '}<strong>${(r.expectedCash + r.openingCash).toLocaleString('es-CL')}</strong>
+            </p>
+
+            {expandedId === r.id && <ShiftSalesDetail shiftId={r.id} />}
 
             {expandedId === r.id && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-border/50">
@@ -4565,6 +5910,210 @@ function ShiftClosingsReport({ events }: { events: { id: number; title: string }
  * diferencia de ConfirmDeleteButton, acá además hay que escribir la clave de
  * admin, así que el diálogo queda controlado a mano en vez de usar el
  * genérico. */
+/** Detalle venta por venta de un turno, dentro de "Ver detalle".
+ *
+ * Con una diferencia grande al cerrar, los totales por medio de pago no
+ * alcanzan para explicarla: hay que poder comparar línea por línea contra el
+ * voucher de la máquina. Arriba de todo van las repeticiones sospechosas,
+ * que es donde suele estar la plata que no calza: el POS de tarjetas es una
+ * máquina aparte, así que una venta registrada dos veces en la tablet infla
+ * el esperado sin que haya entrado un peso más. */
+function ShiftSalesDetail({ shiftId }: { shiftId: number }) {
+  const { data, isLoading } = trpc.cajaReports.shiftSales.useQuery({ shiftId });
+
+  if (isLoading) return <p className="mt-4 pt-4 border-t border-border/50 text-sm text-muted-foreground">Cargando las ventas del turno…</p>;
+  if (!data) return null;
+
+  const byMethod = new Map<string, { count: number; total: number }>();
+  for (const s of data.sales) {
+    const key = s.paymentMethod ?? 'sin medio';
+    const entry = byMethod.get(key) ?? { count: 0, total: 0 };
+    entry.count += 1;
+    entry.total += s.total;
+    byMethod.set(key, entry);
+  }
+
+  const duplicateMoney = data.possibleDuplicates.reduce((sum, d) => sum + d.total * (d.count - 1), 0);
+
+  return (
+    <div className="mt-4 pt-4 border-t border-border/50 space-y-4">
+      <div>
+        <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Ventas de este turno ({data.sales.length})</p>
+        <div className="flex flex-wrap gap-2">
+          {Array.from(byMethod.entries()).map(([method, v]) => (
+            <span key={method} className="rounded-lg bg-muted/50 px-3 py-1.5 text-sm">
+              {method}: <strong>${v.total.toLocaleString('es-CL')}</strong> <span className="text-muted-foreground">({v.count})</span>
+            </span>
+          ))}
+          {data.sales.length === 0 && <span className="text-sm text-muted-foreground">Sin ventas registradas en la ventana de este turno.</span>}
+        </div>
+      </div>
+
+      {data.possibleDuplicates.length > 0 && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
+          <p className="text-sm font-semibold">
+            ⚠️ {data.possibleDuplicates.length} venta(s) repetida(s) sospechosa(s) — hasta ${duplicateMoney.toLocaleString('es-CL')} de más en el esperado
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Mismo monto y mismo medio de pago con menos de 90 segundos de diferencia. Es una sospecha, no una certeza:
+            dos clientes distintos pueden pagar lo mismo casi al mismo tiempo. Compara contra el voucher de la máquina antes de dar nada por hecho.
+          </p>
+          <div className="mt-3 space-y-1">
+            {data.possibleDuplicates.map((d, i) => (
+              <p key={i} className="text-sm">
+                {d.count}× ${d.total.toLocaleString('es-CL')} en {d.paymentMethod ?? 'sin medio'} — {formatChileDateTime(d.firstAt)} → {formatChileDateTime(d.lastAt)}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {data.sales.length > 0 && (
+        <details>
+          <summary className="text-sm cursor-pointer text-muted-foreground hover:text-foreground">Ver las {data.sales.length} ventas una por una</summary>
+          <div className="mt-2 max-h-72 overflow-y-auto rounded-lg border border-border/50">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                <tr>
+                  <th className="text-left px-3 py-2 font-medium">Hora</th>
+                  <th className="text-left px-3 py-2 font-medium">Medio</th>
+                  <th className="text-right px-3 py-2 font-medium">Monto</th>
+                  <th className="text-left px-3 py-2 font-medium">Cajera</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.sales.map((s) => (
+                  <tr key={s.id} className="border-t border-border/40">
+                    <td className="px-3 py-1.5 whitespace-nowrap">{formatChileDateTime(s.createdAt)}</td>
+                    <td className="px-3 py-1.5">{s.paymentMethod ?? '—'}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">${s.total.toLocaleString('es-CL')}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{s.operatorName ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+/** Bitácora de acciones destructivas del panel.
+ *
+ * Todo lo que pasa por los terminales ya quedaba auditado en el ledger
+ * `ops`. El lado admin no dejaba nada: borrar una compra, editar un gasto o
+ * eliminar un evento no se podía reconstruir después. */
+/** Las suscripciones activas (gastos marcados "se repite todos los meses").
+ *
+ * Hasta ahora no se veían en ninguna parte: se marcaban al crear el gasto y
+ * después generaban una copia cada mes sin que nadie pudiera revisarlas. Si
+ * alguna quedó cargada a un evento puntual, acá se ve marcada -- esa es la
+ * combinación que le seguía restando a esa fiesta todos los meses. */
+function RecurringExpensesPanel() {
+  const { data } = trpc.cajaReports.recurringExpenses.useQuery();
+  const rows = data ?? [];
+  if (rows.length === 0) return null;
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle>Gastos que se repiten solos</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          De cada uno sale una copia automática, y esa copia es la que entra al resultado. Para darlo de baja, ponle fecha de término o elimínalo.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {rows.map((r: any) => (
+          <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/50 p-3">
+            <div>
+              <p className="font-semibold">{r.description}</p>
+              <p className="text-xs text-muted-foreground">
+                {categoryLabel(r.category)}{r.supplier ? ` · ${r.supplier}` : ''} · desde {formatChileShortDate(r.expenseDate)}
+                {r.recurrenceEndsAt ? ` · termina ${formatChileShortDate(r.recurrenceEndsAt)}` : ' · sin fecha de término'}
+              </p>
+              <p className="text-xs mt-1">
+                {r.recurrence === 'por_evento'
+                  ? <span className="text-primary">Se copia a cada evento que hagas, completo.</span>
+                  : <span className="text-muted-foreground">Suscripción de la productora: se reparte entre los eventos del mes.</span>}
+              </p>
+              {r.recurrence === 'mensual' && r.eventId && (
+                <p className="text-xs text-amber-600 mt-1">
+                  ⚠️ Está cargado a "{r.eventTitle}": se le resta a ese evento todos los meses, aunque la fiesta ya haya pasado.
+                  Si es un costo fijo de cada fiesta, debería ser "se repite en cada evento".
+                </p>
+              )}
+            </div>
+            <span className="font-semibold tabular-nums shrink-0">
+              ${r.amountTotal.toLocaleString('es-CL')}{r.recurrence === 'por_evento' ? '/evento' : '/mes'}
+            </span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AdminAuditPanel() {
+  const { data } = trpc.cajaReports.adminAudit.useQuery({ limit: 200 });
+  const rows = data ?? [];
+
+  const LABELS: Record<string, string> = {
+    'orders.delete': 'Eliminó una compra',
+    'events.delete': 'Eliminó un evento',
+    'events.deleteTicketType': 'Eliminó un tipo de entrada',
+    'expenses.delete': 'Eliminó un gasto',
+    'expenses.update': 'Editó un gasto',
+    'blockedCustomers.delete': 'Sacó un RUT de la lista de bloqueo',
+    'discounts.delete': 'Eliminó un código de descuento',
+    'communityCodes.delete': 'Eliminó un código de comunidad',
+    'leads.delete': 'Eliminó un lead',
+    'ambassadors.delete': 'Eliminó un embajador',
+    'operators.delete': 'Eliminó un operador',
+    'devices.delete': 'Eliminó un dispositivo',
+    'registers.delete': 'Eliminó una caja',
+    'caja.resetTestData': 'Reinició los datos de prueba de un evento',
+    'cajaReports.deleteShiftClosing': 'Eliminó un cierre de turno',
+  };
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle>Qué se borró o se editó</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Cada acción destructiva del panel queda registrada acá con su fecha. Lo que pasa en los terminales
+          (ventas, canjes, anulaciones) tiene su propio registro en el ledger de caja, que no se borra nunca.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 && <p className="text-sm text-muted-foreground">Todavía no se ha borrado ni editado nada desde el panel.</p>}
+        {rows.length > 0 && (
+          <div className="max-h-96 overflow-y-auto rounded-lg border border-border/50">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                <tr>
+                  <th className="text-left px-3 py-2 font-medium">Cuándo</th>
+                  <th className="text-left px-3 py-2 font-medium">Qué pasó</th>
+                  <th className="text-left px-3 py-2 font-medium">Sobre</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r: any) => (
+                  <tr key={r.id} className="border-t border-border/40">
+                    <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">{formatChileDateTime(r.createdAt)}</td>
+                    <td className="px-3 py-1.5">{LABELS[r.action] ?? r.action}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{r.targetType ? `${r.targetType} #${r.targetId}` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function DeleteShiftClosingButton({ shiftId, label, onDeleted }: { shiftId: number; label: string; onDeleted: () => void }) {
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
@@ -4604,7 +6153,7 @@ function DeleteShiftClosingButton({ shiftId, label, onDeleted }: { shiftId: numb
           <WriteButton
             variant="destructive"
             disabled={!password || deleteShift.isPending}
-            onClick={() => deleteShift.mutate({ shiftId, password })}
+            onClick={() => deleteShift.mutate({ shiftId, adminPassword: password })}
           >
             {deleteShift.isPending ? 'Eliminando…' : 'Eliminar'}
           </WriteButton>
@@ -4735,6 +6284,7 @@ function SettingsManager() {
   const [feePercent, setFeePercent] = useState('');
   const [vendorName, setVendorName] = useState('');
   const [vendorEmail, setVendorEmail] = useState('');
+  const [ogImageUrl, setOgImageUrl] = useState('');
 
   useEffect(() => {
     if (settings) {
@@ -4743,6 +6293,7 @@ function SettingsManager() {
       setFeePercent(String(settings.serviceFeePercent ?? 0));
       setVendorName((settings as any).kitchenVendorName ?? '');
       setVendorEmail((settings as any).kitchenVendorEmail ?? '');
+      setOgImageUrl((settings as any).ogImageUrl ?? '');
     }
   }, [settings]);
 
@@ -4756,6 +6307,10 @@ function SettingsManager() {
 
   const handleSaveVendor = () => {
     updateSettings.mutate({ kitchenVendorName: vendorName || null, kitchenVendorEmail: vendorEmail || null });
+  };
+
+  const handleSaveOgImage = () => {
+    updateSettings.mutate({ ogImageUrl: ogImageUrl.trim() || null });
   };
 
   return (
@@ -4829,6 +6384,20 @@ function SettingsManager() {
           </WriteButton>
         </CardContent>
       </Card>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Imagen para compartir en redes (OG)</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Se usa cuando alguien comparte el sitio (no un evento puntual) en WhatsApp/Instagram/Facebook. Cada evento
+            usa su propio flyer automáticamente en su página. Si dejas esto vacío, se usa la imagen de siempre.
+          </p>
+          <ImageUploadField value={ogImageUrl} onChange={setOgImageUrl} pathPrefix="site" />
+          <Input value={ogImageUrl} onChange={(e) => setOgImageUrl(e.target.value)} className="mt-2" placeholder="https://..." />
+          <WriteButton onClick={handleSaveOgImage} disabled={updateSettings.isPending} className="interactive">
+            {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
+          </WriteButton>
+        </CardContent>
+      </Card>
       <WebauthnSecurityCard />
     </div>
   );
@@ -4886,6 +6455,203 @@ const emptyProduct = (category: CartaCategory) => ({
   description: '',
 });
 
+/** Arma el form-state de edición de un producto a partir de la fila del
+ * server -- mismo shape que `emptyProduct()`. */
+function productFormFromP(p: any) {
+  return {
+    name: p.name as string,
+    category: p.category as CartaCategory,
+    groupName: (p.groupName ?? '') as string,
+    emoji: (p.emoji ?? EMOJI_SUGGESTIONS[p.category as CartaCategory][0]) as string,
+    color: (p.color ?? CARTA_CATEGORIES.find((c) => c.id === p.category)!.color) as string,
+    price: Number(p.price),
+    costPrice: p.costPrice != null ? Number(p.costPrice) : 0,
+    totalStock: Number(p.totalStock),
+    sortOrder: Number(p.sortOrder ?? 0),
+    toKitchen: Number(p.toKitchen ?? 0),
+    description: (p.description ?? '') as string,
+  };
+}
+
+/** Card de un producto de la carta: edita en el lugar (estado local
+ * `editing`), mismo criterio que AmbassadorRow/StockPoolRow/TicketTypeRow/
+ * EventCard. Antes el formulario de editar vivía en una card fija ANTES de
+ * toda la grilla de productos -- editar el producto #8 de 15 mandaba arriba
+ * de todo. Acá el formulario reemplaza directamente el contenido de LA card
+ * de ese producto. `toggleSoldOut`/borrar quedan en CartaManager (mismas
+ * mutations para toda la grilla, no hace falta una por card). */
+function CartaProductCard({ p, meta, onToggleSoldOut, toggling, onDelete }: {
+  p: any;
+  meta: typeof CARTA_CATEGORIES[number];
+  onToggleSoldOut: (id: number, nextStatus: 'active' | 'soldout') => void;
+  toggling: boolean;
+  onDelete: (id: number, adminPassword: string) => Promise<void>;
+}) {
+  const utils = trpc.useUtils();
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(() => productFormFromP(p));
+  const updateType = trpc.events.updateTicketType.useMutation({
+    onSuccess: () => { utils.events.listTicketTypes.invalidate(); toast.success('Producto actualizado'); setEditing(false); },
+    onError: onMutationError,
+  });
+
+  const handleSave = () => {
+    if (!form.name.trim()) { toast.error('Ponle un nombre al producto'); return; }
+    if (form.price <= 0) { toast.error('El precio tiene que ser mayor a 0'); return; }
+    updateType.mutate({
+      id: p.id,
+      name: form.name.trim(),
+      category: form.category,
+      groupName: form.groupName.trim() || undefined,
+      emoji: form.emoji || undefined,
+      color: form.color,
+      price: form.price,
+      costPrice: form.costPrice || undefined,
+      totalStock: form.totalStock,
+      sortOrder: form.sortOrder,
+      toKitchen: form.toKitchen,
+      description: form.description.trim() || undefined,
+    });
+  };
+
+  if (editing) {
+    return (
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5 md:col-span-2">
+        <CardContent className="pt-6 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2">
+              <Label>Nombre</Label>
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="Ej: Piscola" />
+            </div>
+            <div>
+              <Label>Sección</Label>
+              <Input value={form.groupName} onChange={(e) => setForm({ ...form, groupName: e.target.value })} className="mt-1" placeholder="Ej: Tragos" />
+              <p className="text-muted-foreground text-xs mt-1">Arma las pestañas de la grilla en /caja.</p>
+            </div>
+          </div>
+
+          <div>
+            <Label>Ingredientes / sabores especiales</Label>
+            <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1" placeholder="Ej: Pisco, jugo de maracuyá natural, un toque de menta" rows={2} />
+            <p className="text-muted-foreground text-xs mt-1">Opcional. Aparece en /caja al mantener presionada la tarjeta del producto, para que la cajera pueda responder preguntas del cliente.</p>
+          </div>
+
+          <div>
+            <Label>Ícono</Label>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {EMOJI_SUGGESTIONS[form.category].map((em) => (
+                <button
+                  key={em}
+                  onClick={() => setForm({ ...form, emoji: em })}
+                  className={`w-11 h-11 rounded-xl text-2xl leading-none flex items-center justify-center border transition-colors interactive ${form.emoji === em ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted'}`}
+                >
+                  {em}
+                </button>
+              ))}
+              <Input
+                value={form.emoji}
+                onChange={(e) => setForm({ ...form, emoji: e.target.value.slice(0, 4) })}
+                className="w-20 h-11 text-center text-xl"
+                aria-label="Otro emoji"
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label>Color del botón</Label>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {COLOR_PALETTE.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setForm({ ...form, color: c })}
+                  style={{ backgroundColor: c }}
+                  className={`w-9 h-9 rounded-full transition-transform interactive ${form.color === c ? 'ring-2 ring-offset-2 ring-foreground scale-110' : ''}`}
+                  aria-label={`Color ${c}`}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div><Label>Precio</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} className="mt-1" /></div>
+            <div>
+              <Label>Costo</Label>
+              <Input type="number" value={form.costPrice} onChange={(e) => setForm({ ...form, costPrice: Number(e.target.value) })} className="mt-1" />
+              <p className="text-muted-foreground text-xs mt-1">Para ver el margen. Si no se carga, ese dato se pierde para siempre.</p>
+            </div>
+            <div>
+              <Label>Stock</Label>
+              <Input type="number" value={form.totalStock} onChange={(e) => setForm({ ...form, totalStock: Number(e.target.value) })} className="mt-1" />
+              <p className="text-muted-foreground text-xs mt-1">Solo avisa: nunca impide vender.</p>
+            </div>
+            <div>
+              <Label>Orden</Label>
+              <Input type="number" value={form.sortOrder} onChange={(e) => setForm({ ...form, sortOrder: Number(e.target.value) })} className="mt-1" />
+              <p className="text-muted-foreground text-xs mt-1">Menor = más arriba. Pon los más vendidos primero.</p>
+            </div>
+          </div>
+
+          <label className="flex items-start gap-3 cursor-pointer">
+            <Checkbox checked={form.toKitchen === 1} onCheckedChange={(v) => setForm({ ...form, toKitchen: v ? 1 : 0 })} className="mt-0.5" />
+            <span className="text-sm">
+              Lo prepara la cocina
+              <span className="block text-muted-foreground text-xs">Al venderse genera una comanda en la pantalla de cocina con el número de pedido.</span>
+            </span>
+          </label>
+
+          <div className="flex gap-2">
+            <WriteButton onClick={handleSave} disabled={updateType.isPending}>Guardar cambios</WriteButton>
+            <Button variant="outline" onClick={() => { setForm(productFormFromP(p)); setEditing(false); }}>Cancelar</Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const left = Number(p.totalStock) - Number(p.soldCount);
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardContent className="pt-4 flex items-center gap-3">
+        <div
+          className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0"
+          style={{ backgroundColor: (p.color || meta.color) + '22' }}
+        >
+          {p.emoji || meta.emoji}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold truncate flex items-center gap-2">
+            {p.name}
+            {p.status === 'soldout' && (
+              <span className="text-[10px] font-bold uppercase tracking-wide text-red-600 bg-red-100 px-1.5 py-0.5 rounded">Agotado</span>
+            )}
+          </p>
+          <p className="text-muted-foreground text-sm">
+            ${Number(p.price).toLocaleString('es-CL')}
+            {p.costPrice != null && <span className="ml-2 text-xs">margen ${(Number(p.price) - Number(p.costPrice)).toLocaleString('es-CL')}</span>}
+          </p>
+          <p className={`text-xs mt-0.5 ${left <= 0 ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
+            {left <= 0 ? 'Sin stock (igual se puede vender)' : `Quedan ${left}`}
+            {Number(p.toKitchen) === 1 && <span className="ml-2">· va a cocina</span>}
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <WriteButton
+            variant="outline"
+            size="sm"
+            disabled={toggling}
+            onClick={() => onToggleSoldOut(p.id, p.status === 'soldout' ? 'active' : 'soldout')}
+            className={p.status === 'soldout' ? 'text-green-600 border-green-300' : 'text-red-600 border-red-300'}
+          >
+            {p.status === 'soldout' ? 'Reponer' : <><Ban className="w-3 h-3 mr-1" /> Agotar</>}
+          </WriteButton>
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Edit className="w-3 h-3" /></Button>
+          <ConfirmDeleteButton description={`Vas a eliminar "${p.name}" de la carta.`} onConfirm={(adminPassword) => onDelete(p.id, adminPassword)} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function CartaManager() {
   const { data: events } = trpc.events.listAll.useQuery();
   const [eventId, setEventId] = useState<number | null>(null);
@@ -4896,18 +6662,17 @@ function CartaManager() {
 
   const [tab, setTab] = useState<CartaCategory>('consumo');
   const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(emptyProduct('consumo'));
 
-  const onSaved = (msg: string) => {
-    utils.events.listTicketTypes.invalidate();
-    refetch();
-    toast.success(msg);
-    setShowForm(false);
-    setEditingId(null);
-  };
-  const createType = trpc.events.createTicketType.useMutation({ onSuccess: () => onSaved('Producto creado'), onError: onMutationError });
-  const updateType = trpc.events.updateTicketType.useMutation({ onSuccess: () => onSaved('Producto actualizado'), onError: onMutationError });
+  const createType = trpc.events.createTicketType.useMutation({
+    onSuccess: () => {
+      utils.events.listTicketTypes.invalidate();
+      refetch();
+      toast.success('Producto creado');
+      setShowForm(false);
+    },
+    onError: onMutationError,
+  });
   const deleteType = trpc.events.deleteTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
   // Mismo endpoint que edita el producto (events.updateTicketType ya acepta
   // `status`) -- así el admin puede agotar/reponer sin depender de /cocina.
@@ -4919,24 +6684,7 @@ function CartaManager() {
   const products = (allTypes ?? []).filter((t: any) => t.category === tab);
   const meta = CARTA_CATEGORIES.find((c) => c.id === tab)!;
 
-  const openNew = () => { setForm(emptyProduct(tab)); setEditingId(null); setShowForm(true); };
-  const openEdit = (p: any) => {
-    setForm({
-      name: p.name,
-      category: p.category,
-      groupName: p.groupName ?? '',
-      emoji: p.emoji ?? EMOJI_SUGGESTIONS[tab][0],
-      color: p.color ?? meta.color,
-      price: Number(p.price),
-      costPrice: p.costPrice != null ? Number(p.costPrice) : 0,
-      totalStock: Number(p.totalStock),
-      sortOrder: Number(p.sortOrder ?? 0),
-      toKitchen: Number(p.toKitchen ?? 0),
-      description: p.description ?? '',
-    });
-    setEditingId(p.id);
-    setShowForm(true);
-  };
+  const openNew = () => { setForm(emptyProduct(tab)); setShowForm(true); };
 
   const save = async () => {
     if (!activeId) return;
@@ -4956,12 +6704,14 @@ function CartaManager() {
       description: form.description.trim() || undefined,
     };
     try {
-      if (editingId) await updateType.mutateAsync({ id: editingId, ...payload });
-      else await createType.mutateAsync({ eventId: activeId, ...payload });
+      await createType.mutateAsync({ eventId: activeId, ...payload });
     } catch {
       // onMutationError ya avisó; se deja el formulario abierto para reintentar
     }
   };
+
+  const handleDelete = async (id: number, adminPassword: string) => { await deleteType.mutateAsync({ id, adminPassword }); };
+  const handleToggleSoldOut = (id: number, nextStatus: 'active' | 'soldout') => { toggleSoldOut.mutate({ id, status: nextStatus }); };
 
   // Agrupadas por sección para que la lista se lea como la carta de verdad.
   const groups = products.reduce((acc: Record<string, any[]>, p: any) => {
@@ -5088,10 +6838,8 @@ function CartaManager() {
             </label>
 
             <div className="flex gap-2">
-              <WriteButton onClick={save} disabled={createType.isPending || updateType.isPending}>
-                {editingId ? 'Guardar cambios' : 'Crear producto'}
-              </WriteButton>
-              <Button variant="outline" onClick={() => { setShowForm(false); setEditingId(null); }}>Cancelar</Button>
+              <WriteButton onClick={save} disabled={createType.isPending}>Crear producto</WriteButton>
+              <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
             </div>
           </CardContent>
         </Card>
@@ -5109,50 +6857,16 @@ function CartaManager() {
         <div key={groupName} className="space-y-2">
           <h3 className="font-heading text-lg">{groupName}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {(items as any[]).map((p) => {
-              const left = Number(p.totalStock) - Number(p.soldCount);
-              return (
-                <Card key={p.id} className="rounded-2xl border-0 shadow-md shadow-black/5">
-                  <CardContent className="pt-4 flex items-center gap-3">
-                    <div
-                      className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0"
-                      style={{ backgroundColor: (p.color || meta.color) + '22' }}
-                    >
-                      {p.emoji || meta.emoji}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold truncate flex items-center gap-2">
-                        {p.name}
-                        {p.status === 'soldout' && (
-                          <span className="text-[10px] font-bold uppercase tracking-wide text-red-600 bg-red-100 px-1.5 py-0.5 rounded">Agotado</span>
-                        )}
-                      </p>
-                      <p className="text-muted-foreground text-sm">
-                        ${Number(p.price).toLocaleString('es-CL')}
-                        {p.costPrice != null && <span className="ml-2 text-xs">margen ${(Number(p.price) - Number(p.costPrice)).toLocaleString('es-CL')}</span>}
-                      </p>
-                      <p className={`text-xs mt-0.5 ${left <= 0 ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
-                        {left <= 0 ? 'Sin stock (igual se puede vender)' : `Quedan ${left}`}
-                        {Number(p.toKitchen) === 1 && <span className="ml-2">· va a cocina</span>}
-                      </p>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <WriteButton
-                        variant="outline"
-                        size="sm"
-                        disabled={toggleSoldOut.isPending}
-                        onClick={() => toggleSoldOut.mutate({ id: p.id, status: p.status === 'soldout' ? 'active' : 'soldout' })}
-                        className={p.status === 'soldout' ? 'text-green-600 border-green-300' : 'text-red-600 border-red-300'}
-                      >
-                        {p.status === 'soldout' ? 'Reponer' : <><Ban className="w-3 h-3 mr-1" /> Agotar</>}
-                      </WriteButton>
-                      <Button variant="outline" size="sm" onClick={() => openEdit(p)}><Edit className="w-3 h-3" /></Button>
-                      <ConfirmDeleteButton description={`Vas a eliminar "${p.name}" de la carta.`} onConfirm={() => deleteType.mutateAsync({ id: p.id })} />
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+            {(items as any[]).map((p) => (
+              <CartaProductCard
+                key={p.id}
+                p={p}
+                meta={meta}
+                onToggleSoldOut={handleToggleSoldOut}
+                toggling={toggleSoldOut.isPending}
+                onDelete={handleDelete}
+              />
+            ))}
           </div>
         </div>
       ))}
@@ -5160,16 +6874,147 @@ function CartaManager() {
   );
 }
 
+/** Vista "Evento": la noche completa en una sola pantalla.
+ *
+ * El dueño marcó los cuatro dolores del admin -- tener que saltar entre
+ * secciones, cuánto vendió, qué pasó en la caja, si dio ganancia -- y dijo
+ * que lo usa tanto en vivo como después. Hasta ahora eso vivía repartido
+ * entre Ventas Web, Ventas Caja, Caja y Gastos y P&L, cada una con su propio
+ * selector de evento (o sin ninguno).
+ *
+ * Esta vista NO reemplaza a esas secciones: el trabajo de detalle (editar una
+ * orden, cargar un gasto) se sigue haciendo ahí. Acá se ve la noche entera de
+ * un vistazo, con un solo selector que manda para toda la pantalla. */
+function EventOverview() {
+  const { data: events } = trpc.events.listAll.useQuery();
+  const { data: defaultEvent } = trpc.events.getActiveForCaja.useQuery();
+  const [selected, setSelected] = useState<number | null>(null);
+  // Arranca en el evento que /caja considera "el de esta noche", no en el
+  // primero de la lista: `listAll` ordena por creación, así que un evento de
+  // prueba creado después quedaría seleccionado por defecto.
+  const eventId = selected ?? defaultEvent?.id ?? events?.[0]?.id ?? null;
+
+  const { data: webStats } = trpc.orders.getStats.useQuery({ channel: 'web', eventId: eventId! }, { enabled: !!eventId });
+  const { data: cajaStats } = trpc.orders.getStats.useQuery({ channel: 'caja', eventId: eventId! }, { enabled: !!eventId });
+  const { data: pnl } = trpc.cajaReports.eventPnl.useQuery({ eventId: eventId! }, { enabled: !!eventId });
+  const { data: closings } = trpc.cajaReports.shiftClosings.useQuery({ eventId: eventId! }, { enabled: !!eventId });
+  const { data: peak } = trpc.cajaReports.peakHours.useQuery({ eventId: eventId! }, { enabled: !!eventId });
+
+  if (!eventId) {
+    return <p className="text-sm text-muted-foreground">Todavía no hay eventos cargados.</p>;
+  }
+
+  const webRevenue = Number(webStats?.totalRevenue ?? 0);
+  const cajaRevenue = Number(cajaStats?.totalRevenue ?? 0);
+  const gastos = (pnl?.directExpensesTotal ?? 0) + (pnl?.generalExpensesAssigned ?? 0);
+  const resultado = pnl?.netProfit ?? null;
+
+  // Solo las horas con movimiento: una fiesta ocupa 8 de las 24 horas del
+  // día, así que pintar las 24 deja el gráfico casi vacío (que es como se
+  // veía hasta ahora).
+  const peakRows = (peak ?? []).filter((h: any) => h.count > 0);
+  const peakMax = Math.max(1, ...peakRows.map((h: any) => h.count));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-heading text-2xl">La noche completa</h2>
+        <Select value={String(eventId)} onValueChange={(v) => setSelected(Number(v))}>
+          <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {(events ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard icon={Ticket} colorClass="bg-violet-electric" value={`$${webRevenue.toLocaleString('es-CL')}`} label="Ventas web" />
+        <StatCard icon={ShoppingBag} colorClass="bg-primary" value={`$${cajaRevenue.toLocaleString('es-CL')}`} label="Ventas en caja" />
+        <StatCard icon={Receipt} colorClass="bg-amber-500" value={`$${gastos.toLocaleString('es-CL')}`} label="Gastos del evento" />
+        <StatCard
+          icon={DollarSign}
+          colorClass={resultado != null && resultado < 0 ? 'bg-destructive' : 'bg-green-600'}
+          value={resultado != null ? `$${resultado.toLocaleString('es-CL')}` : '—'}
+          label={resultado != null && resultado < 0 ? 'Pérdida' : 'Ganancia'}
+        />
+      </div>
+
+      {(pnl?.warnings?.length ?? 0) > 0 && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 space-y-1">
+          <p className="text-sm font-semibold">Ojo con estos números</p>
+          {pnl!.warnings.map((w: string, i: number) => <p key={i} className="text-sm text-muted-foreground">{w}</p>)}
+        </div>
+      )}
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>La caja de esa noche</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {(closings ?? []).length === 0 && (
+            <p className="text-sm text-muted-foreground">Todavía no hay turnos cerrados en este evento.</p>
+          )}
+          {(closings ?? []).map((r: any) => {
+            const cardCounted = r.countedCard ?? (r.countedDebit + r.countedCredit);
+            const cardExpected = r.expectedCard ?? (r.expectedDebit + r.expectedCredit);
+            return (
+              <div key={r.id} className="rounded-xl border border-border/50 p-3">
+                <p className="font-semibold">{r.registerName} · {r.operatorName}</p>
+                <p className="text-xs text-muted-foreground">
+                  {formatChileDateTime(r.openedAt)} → {r.closedAt ? formatChileDateTime(r.closedAt) : '—'} · {r.salesCount} ventas
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2 text-sm">
+                  <p>Efectivo: <strong>${r.countedCash.toLocaleString('es-CL')}</strong> <span className="text-muted-foreground">de ${(r.expectedCash + r.openingCash).toLocaleString('es-CL')}</span></p>
+                  <p>Tarjetas: <strong>${cardCounted.toLocaleString('es-CL')}</strong> <span className="text-muted-foreground">de ${cardExpected.toLocaleString('es-CL')}</span></p>
+                  <p>QR: <strong>${(r.countedQr ?? 0).toLocaleString('es-CL')}</strong> <span className="text-muted-foreground">de ${(r.expectedQr ?? 0).toLocaleString('es-CL')}</span></p>
+                </div>
+              </div>
+            );
+          })}
+          <p className="text-xs text-muted-foreground">El detalle venta por venta está en Gastos y P&amp;L → Cierres de turno.</p>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader>
+          <CardTitle>A qué hora se movió la caja</CardTitle>
+          <p className="text-sm text-muted-foreground">Operaciones por hora, en hora de Chile.</p>
+        </CardHeader>
+        <CardContent>
+          {peakRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Todavía no hay movimientos de caja en este evento.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {peakRows.map((h: any) => (
+                <div key={h.hour} className="flex items-center gap-3 text-sm">
+                  <span className="w-12 shrink-0 tabular-nums text-muted-foreground">{String(h.hour).padStart(2, '0')}:00</span>
+                  <div className="flex-1 h-5 rounded-md bg-muted overflow-hidden">
+                    <div className="h-full bg-primary rounded-md" style={{ width: `${(h.count / peakMax) * 100}%` }} />
+                  </div>
+                  <span className="w-10 shrink-0 tabular-nums text-right">{h.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 const ADMIN_SECTIONS = [
+  // Primera del menú: es el resumen de la noche, lo que el dueño mira en vivo
+  // y al día siguiente. Las secciones de abajo siguen siendo las del detalle.
+  { id: 'overview', label: 'Evento', icon: LayoutDashboard, render: () => <EventOverview /> },
   { id: 'events', label: 'Eventos', icon: Calendar, render: () => <EventsManager /> },
   { id: 'carta', label: 'Carta de la Fiesta', icon: Martini, render: () => <CartaManager /> },
   { id: 'orders-web', label: 'Ventas Web', icon: Ticket, render: () => <OrdersView channel="web" /> },
+  { id: 'sales-origin', label: 'Ventas por Origen', icon: Compass, render: () => <SalesByOriginView /> },
   { id: 'orders-caja', label: 'Ventas Caja', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
   { id: 'manual-access', label: 'Accesos Manuales', icon: Gift, render: () => <ManualAccessSection /> },
   { id: 'discounts', label: 'Descuentos', icon: Percent, render: () => <DiscountsManager /> },
   { id: 'community', label: 'Códigos Comunidad', icon: Users, render: () => <CommunityCodesManager /> },
   { id: 'blocked-customers', label: 'Bloqueo de Clientes', icon: Ban, render: () => <BlockedCustomersManager /> },
   { id: 'customers', label: 'Clientes', icon: Contact, render: () => <CustomersView /> },
+  { id: 'leads', label: 'Leads', icon: UserPlus, render: () => <LeadsView /> },
   { id: 'mailing', label: 'Mailing', icon: Mail, render: () => <MailingSection /> },
   { id: 'mailing-history', label: 'Historial de Mailing', icon: History, render: () => <MailingHistoryView /> },
   { id: 'referrals', label: 'Referidos', icon: Trophy, render: () => <ReferralsView /> },

@@ -120,6 +120,22 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
   });
   const [shiftStarted, setShiftStarted] = useState(() => sessionStorage.getItem('caja_shift_opened') === '1');
 
+  // El servidor manda: si ya hay un turno abierto para esta caja, se entra a
+  // vender sin volver a pedir el efectivo inicial, aunque `sessionStorage`
+  // esté vacío (la PWA se reinició, se cerró la pestaña, la tablet estuvo
+  // bloqueada). `sessionStorage` queda solo como caché optimista para que la
+  // pantalla no parpadee y para funcionar sin conexión.
+  const { data: serverShift, isLoading: shiftLoading } = trpc.caja.currentShift.useQuery(
+    { registerId: registerId ?? undefined },
+    { enabled: registerId !== undefined, refetchOnWindowFocus: true },
+  );
+  useEffect(() => {
+    if (serverShift && !shiftStarted) {
+      sessionStorage.setItem('caja_shift_opened', '1');
+      setShiftStarted(true);
+    }
+  }, [serverShift, shiftStarted]);
+
   const chooseRegister = (id: number | null) => {
     setRegisterId(id);
     if (id !== null) sessionStorage.setItem('caja_register_id', String(id));
@@ -128,13 +144,39 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
 
   const openWithCash = async (openingCash: number) => {
     if (!event) return;
-    await shiftOpen.mutateAsync({
-      opId: newOpId(), eventId: event.id, registerId: registerId ?? undefined,
-      openingCash, clientAt: (await correctedNow()).toISOString(),
-    });
-    sessionStorage.setItem('caja_shift_opened', '1');
-    setShiftStarted(true);
+    try {
+      const opened = await shiftOpen.mutateAsync({
+        opId: newOpId(), eventId: event.id, registerId: registerId ?? undefined,
+        openingCash, clientAt: (await correctedNow()).toISOString(),
+      });
+      // Si el turno ya estaba abierto, el monto recién contado NO se aplica
+      // (el fondo del turno es el original). Antes esto pasaba en silencio y
+      // la cajera quedaba creyendo que había redeclarado la caja.
+      if (opened.alreadyOpen) {
+        toast.info(
+          `Ya había un turno abierto en esta caja con fondo de $${opened.openingCash.toLocaleString('es-CL')}. ` +
+          'Se mantiene ese fondo -- el conteo que acabas de hacer no lo reemplaza.',
+          { duration: 10000 },
+        );
+      }
+      sessionStorage.setItem('caja_shift_opened', '1');
+      setShiftStarted(true);
+    } catch (err: any) {
+      // Sin esto el turno fallaba en silencio y la cajera seguía en la
+      // pantalla de conteo sin entender por qué no pasaba nada.
+      toast.error(err?.message ?? 'No se pudo abrir el turno. Revisa la conexión e intenta de nuevo.', { duration: 8000 });
+    }
   };
+
+  // Mientras se pregunta al servidor no se muestra el contador de
+  // denominaciones: si hay turno abierto, pedirlo sería el bug de nuevo.
+  if (registerId !== undefined && !shiftStarted && shiftLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex items-center justify-center">
+        <p className="text-white/60 text-sm">Revisando si hay un turno abierto…</p>
+      </div>
+    );
+  }
 
   if (registerId !== undefined && shiftStarted) {
     return (
@@ -171,7 +213,13 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
           </button>
         ))}
       </div>
-      <button onClick={() => chooseRegister(null)} className="text-white/50 text-sm underline">Continuar sin caja asignada</button>
+      {/* Con cajas configuradas, "sin caja asignada" es un pie de bug: ese
+       * turno se lleva las ventas de TODAS las cajas al cuadrar (el cierre
+       * filtra por `registerId`), así que el arqueo de las otras cajas queda
+       * corto. Solo se ofrece si el evento no tiene ninguna caja cargada. */}
+      {(registersList ?? []).length === 0 && (
+        <button onClick={() => chooseRegister(null)} className="text-white/50 text-sm underline">Continuar sin caja asignada</button>
+      )}
     </div>
   );
 }
@@ -309,6 +357,19 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
         <div>
           <h2 className="text-lg font-bold">Cuadre de caja</h2>
           <p className="text-white/60 text-sm mt-1">Efectivo contado: <b>${countedCash.toLocaleString('es-CL')}</b>. Ahora anota los totales de los vouchers de las máquinas.</p>
+        </div>
+
+        {/* El voucher del POS solo cubre desde el último cierre de lote de la
+         * máquina. Si el lote se cerró durante la noche (varias máquinas lo
+         * hacen solas de madrugada), el comprobante del final trae únicamente
+         * una parte y el cuadre muestra un faltante enorme que no es plata
+         * perdida. Avisarlo acá es más barato que descubrirlo al otro día. */}
+        <div className="rounded-2xl border border-amber-400/30 bg-amber-400/10 px-4 py-3">
+          <p className="text-amber-200/90 text-xs leading-relaxed">
+            Fíjate que el voucher sea el del <b>cierre de lote completo</b> de la noche. Si la máquina cerró
+            lote antes (varias lo hacen solas de madrugada), ese comprobante trae solo una parte y el cuadre
+            va a marcar un faltante que no existe. Si hay más de un comprobante, súmalos.
+          </p>
         </div>
 
         <div className="space-y-3">
@@ -635,17 +696,27 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
           loading={shiftClose.isPending}
           onCancel={() => setShowCloseForm(false)}
           onSubmit={async (counts) => {
-            const report = await shiftClose.mutateAsync({
-              opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined,
-              ...counts, clientAt: (await correctedNow()).toISOString(),
-            });
-            const cuadra = Math.abs(report.cashDiff) < 1 && Math.abs(report.debitDiff) < 1 && Math.abs(report.creditDiff) < 1 && Math.abs(report.qrDiff) < 1;
-            toast.success(cuadra ? '✅ Turno cerrado — la caja cuadra perfecto' : '⚠️ Turno cerrado — revisa el correo, hay diferencias en el cuadre');
-            if (!report.emailSent) {
-              toast.warning('No se pudo enviar el PDF de cierre por correo — revisa con el admin antes de irte.');
+            // Sin try/catch, un cierre que fallaba (sin señal, turno ya
+            // cerrado desde otra tablet) dejaba el formulario colgado sin
+            // ningún aviso: la cajera se iba creyendo que había cerrado.
+            try {
+              const report = await shiftClose.mutateAsync({
+                opId: newOpId(), eventId: localEvent.id, registerId: registerId ?? undefined,
+                ...counts, clientAt: (await correctedNow()).toISOString(),
+              });
+              const cuadra = Math.abs(report.cashDiff) < 1 && Math.abs(report.debitDiff) < 1 && Math.abs(report.creditDiff) < 1 && Math.abs(report.qrDiff) < 1;
+              toast.success(cuadra ? '✅ Turno cerrado — la caja cuadra perfecto' : '⚠️ Turno cerrado — revisa el correo, hay diferencias en el cuadre');
+              if (!report.emailSent) {
+                toast.warning('No se pudo enviar el PDF de cierre por correo — revisa con el admin antes de irte.');
+              }
+              onCloseShift();
+              logout.mutate();
+            } catch (err: any) {
+              toast.error(
+                err?.message ?? 'No se pudo cerrar el turno. El turno sigue abierto -- revisa la conexión e intenta de nuevo.',
+                { duration: 10000 },
+              );
             }
-            onCloseShift();
-            logout.mutate();
           }}
         />
       )}
@@ -949,11 +1020,14 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
     lockerCustomerName?: string,
     kitchenTicketNumber?: string,
     customerName?: string,
-  ) => void;
+  ) => void | Promise<void>;
 }) {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito' | 'qr'>('debito');
+  // Venta en curso: bloquea el botón de confirmar hasta que la venta quedó
+  // encolada, para que un doble toque no registre la misma venta dos veces.
+  const [confirming, setConfirming] = useState(false);
   // Pantalla intermedia antes de finalizar el cobro (pedido explícito del
   // dueño): con tarjeta hay que confirmar que la máquina aprobó el pago
   // antes de dar la venta por hecha; con efectivo hay que pedir el monto
@@ -1125,6 +1199,32 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
   };
 
   const confirm = async () => {
+    // Guarda contra el doble toque. El POS de tarjetas es una máquina
+    // APARTE: la tablet solo REGISTRA lo que ya se cobró ahí. Sin esta
+    // guarda, dos toques (o uno solo en una tablet lenta, porque el modal
+    // seguía abierto durante los await de abajo) generaban DOS ventas con
+    // opId distinto -- `applyOp` no las deduplica porque son ops distintas
+    // -- contra UN solo cobro real en el POS. Cada repetición infla el
+    // esperado del cierre sin que haya entrado un peso más.
+    await confirmWith(paymentMethod);
+  };
+
+  /** Confirma fijando el medio de pago del mismo click. No alcanza con
+   * `setPaymentMethod(m)` y después `confirm()`: el estado todavía no se
+   * actualizó cuando corre el handler, así que la venta se guardaría con el
+   * medio anterior -- justo el error que dejó la noche entera anotada como
+   * débito. */
+  const confirmWith = async (method: 'efectivo' | 'debito' | 'credito' | 'qr') => {
+    if (confirming) return;
+    setConfirming(true);
+    try {
+      await runConfirm(method);
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const runConfirm = async (method: 'efectivo' | 'debito' | 'credito' | 'qr' = paymentMethod) => {
     const cartItems = Object.entries(cart).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId: Number(ticketTypeId), quantity }));
     const redeemAmount = balance != null ? clampRedeemAmount(Number(redeemInput || 0), Math.min(balance, total)) : 0;
     // El número de comanda/percha se genera ACÁ, en la tablet, antes de
@@ -1132,14 +1232,26 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
     // / nextLockerTagNumber).
     const kitchenTicketNumber = hasKitchenItems ? await nextKitchenTicketNumber() : undefined;
     const lockerTag = needsLockerTag ? await nextLockerTagNumber() : undefined;
-    onSale(
-      cartItems, paymentMethod, buyerEmail.trim() || undefined, redeemAmount || undefined,
-      discountResult?.valid ? discountCode.trim() : undefined,
-      lockerTag,
-      needsLockerTag ? lockerCustomerName.trim() : undefined,
-      kitchenTicketNumber,
-      hasKitchenItems ? customerName.trim() : undefined,
-    );
+    // `onSale` encola la venta en IndexedDB. Antes se llamaba sin `await` y
+    // el carrito se vaciaba igual: si el encolado fallaba, la venta
+    // desaparecía de la pantalla sin quedar registrada en ningún lado. Ahora
+    // el carrito solo se limpia cuando la venta quedó realmente encolada.
+    try {
+      await onSale(
+        cartItems, method, buyerEmail.trim() || undefined, redeemAmount || undefined,
+        discountResult?.valid ? discountCode.trim() : undefined,
+        lockerTag,
+        needsLockerTag ? lockerCustomerName.trim() : undefined,
+        kitchenTicketNumber,
+        hasKitchenItems ? customerName.trim() : undefined,
+      );
+    } catch (err: any) {
+      toast.error(
+        err?.message ?? 'No se pudo registrar la venta. El carrito queda como está -- intenta de nuevo.',
+        { duration: 10000 },
+      );
+      return;
+    }
     setCart({});
     setBuyerEmail('');
     setBalance(null);
@@ -1453,15 +1565,29 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
           <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-4">
             <p className="text-xs uppercase tracking-widest text-white/40">Cobrar con máquina</p>
             <p className="font-heading font-extrabold text-5xl">${total.toLocaleString('es-CL')}</p>
-            <p className="text-white/60 text-sm">Pasa la tarjeta ({paymentMethod}) en el POS y espera la aprobación antes de confirmar.</p>
-            <div className="space-y-2 pt-2">
-              <Button className="w-full h-12 bg-primary hover:bg-primary/90" onClick={confirm}>
-                Pago aprobado — Confirmar venta
-              </Button>
-              <Button variant="outline" className="w-full h-11 border-white/15 text-white/70" onClick={() => setPaymentStep(null)}>
-                Cancelar y volver
-              </Button>
+            <p className="text-white/60 text-sm">Pasa la tarjeta en el POS y espera la aprobación.</p>
+            {/* La noche de Candyland cerró con CERO ventas anotadas como
+             * crédito y $200.500 de crédito en el voucher de la máquina: el
+             * selector venía en "débito" por defecto y nadie lo movió nunca.
+             * Por eso acá no se confirma con un botón genérico -- se elige
+             * el tipo de tarjeta en el mismo momento en que se ve en el POS,
+             * que es el único instante en que la cajera realmente lo sabe. */}
+            <p className="text-white/40 text-xs">¿Con qué pagó? Tiene que calzar con el voucher.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(['debito', 'credito'] as const).map((m) => (
+                <Button
+                  key={m}
+                  className={`h-14 text-base font-semibold ${paymentMethod === m ? 'bg-primary hover:bg-primary/90' : 'bg-white/[0.06] hover:bg-white/[0.12] text-white'}`}
+                  disabled={confirming}
+                  onClick={() => { setPaymentMethod(m); confirmWith(m); }}
+                >
+                  {confirming && paymentMethod === m ? 'Registrando…' : m === 'debito' ? 'Débito' : 'Crédito'}
+                </Button>
+              ))}
             </div>
+            <Button variant="outline" className="w-full h-11 border-white/15 text-white/70" disabled={confirming} onClick={() => setPaymentStep(null)}>
+              Cancelar y volver
+            </Button>
           </div>
         </div>
       )}
@@ -1492,8 +1618,8 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
                 )
               )}
               <div className="space-y-2 pt-2">
-                <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={!validAmount} onClick={confirm}>
-                  Confirmar venta
+                <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={!validAmount || confirming} onClick={confirm}>
+                  {confirming ? 'Registrando…' : 'Confirmar venta'}
                 </Button>
                 <Button variant="outline" className="w-full h-11 border-white/15 text-white/70" onClick={() => setPaymentStep(null)}>
                   Cancelar y volver

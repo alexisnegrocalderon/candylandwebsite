@@ -1,8 +1,9 @@
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
-import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid } from './db';
+import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid, matchLeadForOrder } from './db';
 import { attributeAmbassadorSale } from './ambassadorProgram';
+import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
 import { eq, and, sql, isNotNull, ne, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
@@ -75,6 +76,11 @@ export async function applyPaymentResult(input: {
       for (const item of items) {
         await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
       }
+      // Esta compra puede ser justo la que agota el cupo compartido de la
+      // tanda vigente -- chequea acá mismo si toca pasar de fase sola, en
+      // vez de esperar el próximo poll de otro visitante (ver
+      // server/tandaAutoAdvance.ts).
+      if (order.eventId) await checkAndAdvanceTandaIfNeeded(order.eventId);
     }
 
     if (isMissionDeposit) {
@@ -110,7 +116,12 @@ export async function approveMissionTopupWithoutPayment(orderId: number) {
   if (!order) throw new Error('Orden no encontrada');
   if (order.missionTopupStatus !== 'pending') throw new Error('Esta orden no tiene un pago de diferencia pendiente');
 
-  await db.update(orders).set({ missionTopupStatus: 'paid' }).where(eq(orders.id, order.id));
+  // `missionTopupAmount: '0'` no es opcional: `cashCollectedFromOrders`
+  // (shared/expenses.ts) suma ese campo como plata recaudada, así que sin
+  // ponerlo en cero cada "aprobar sin pagar" le sumaba al resultado plata
+  // que nunca entró. Las otras dos rutas equivalentes de este archivo ya lo
+  // hacían; ésta se había quedado atrás.
+  await db.update(orders).set({ missionTopupStatus: 'paid', missionTopupAmount: '0' }).where(eq(orders.id, order.id));
   if (!order.emailSent) await processApprovedOrder(order);
 
   return { success: true };
@@ -458,6 +469,10 @@ async function processApprovedOrder(order: any) {
   const priorCustomer = await getCustomerForAttribution(order.buyerEmail);
 
   await upsertCustomerFromOrder(order, orderAccesoSlugs);
+  // Si esta compra la hizo alguien que antes dejó su correo como lead
+  // ("avísame antes de que suba el precio"), lo marca convertido -- nunca
+  // lanza, no puede bloquear la confirmación de una compra real.
+  await matchLeadForOrder(order);
   // Playcoins (pedido explícito del usuario): 25 por cada $1.000 CLP
   // gastados, misma regla para web y caja -- ver shared/playcoins.ts.
   await awardPlaycoins({ email: order.buyerEmail, totalClp: Number(order.total), reason: 'earn_web', orderId: order.id });

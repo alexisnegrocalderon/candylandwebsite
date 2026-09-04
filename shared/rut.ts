@@ -28,3 +28,25 @@ export function isValidChileanPhone(phoneInput: string): boolean {
   const clean = phoneInput.trim().replace(/[\s-]/g, '');
   return /^(\+?56)?9\d{8}$/.test(clean);
 }
+
+/** Formatea un RUT EN VIVO mientras se escribe: pone los puntos cada 3 dígitos
+ * y el guion antes del dígito verificador solo -- pedido explícito del dueño
+ * (antes había que escribir el guion a mano). Se recalcula ENTERO desde lo
+ * que hay tipeado en cada tecla (no parchea el string formateado anterior),
+ * así el backspace funciona solo: borrar cualquier carácter (dígito, punto o
+ * guion) siempre achica el RUT limpio de abajo, sin lógica especial para
+ * "saltarse" el guion o los puntos.
+ *
+ * `normalizeRut` (arriba) ya limpia puntos/espacios y no toca el guion -- como
+ * acá siempre se pone como mucho UN guion, `normalizeRut(formatRutLive(x))`
+ * da siempre "NNNNNNNN-D" o un prefijo de eso, nunca doble guion. No hace
+ * falta tocar `normalizeRut`/`isValidRut` para que sigan validando igual. */
+export function formatRutLive(raw: string): string {
+  const clean = raw.replace(/[^0-9kK]/g, '').toUpperCase().slice(0, 9);
+  if (clean.length <= 1) return clean;
+
+  const dv = clean.slice(-1);
+  const body = clean.slice(0, -1).replace(/\D/g, '');
+  const groupedBody = body.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${groupedBody}-${dv}`;
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `siteSettings` ADD `ogImageUrl` varchar(1024);

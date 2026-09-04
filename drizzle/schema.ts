@@ -1,4 +1,5 @@
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex } from "drizzle-orm/mysql-core";
+import { sql } from "drizzle-orm";
 
 /**
  * Core user table backing auth flow.
@@ -53,6 +54,17 @@ export const events = mysqlTable("events", {
   // que su resultado se calcula 100% bruto. Es una decisión por FIESTA, no
   // global -- mismo patrón int-como-booleano que `featured`.
   ivaApplies: int("ivaApplies").default(0).notNull(),
+  // Escala de descuentos de las tandas de este evento, en % sobre
+  // originalPrice (ej. [60, 50, 40, 30, 0] -- Founders 60%, luego 50%...).
+  // La posición en el arreglo ES la fase, no hace falta un número de fase
+  // aparte por tramo (a diferencia de ambassadorProgramConfig.commissionScale,
+  // donde cada tramo necesita min/max Y percent correlacionados). `null` =
+  // evento sin escala propia todavía -- se usa DEFAULT_TANDA_SCHEDULE.
+  tandaDiscountSchedule: json("tandaDiscountSchedule"), // number[]
+  // Índice (0-based) de la fase HOY vigente. Arranca en 0 porque la tanda
+  // "Founders" ya en producción para el evento real de hoy ES la fase 1/60%
+  // -- el default de columna cubre ese caso sin backfill.
+  tandaPhaseIndex: int("tandaPhaseIndex").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -90,6 +102,14 @@ export const ticketTypes = mysqlTable("ticketTypes", {
   originalPrice: decimal("originalPrice", { precision: 10, scale: 0 }),
   totalStock: int("totalStock").notNull(),
   soldCount: int("soldCount").default(0).notNull(),
+  // Si esta fila pertenece a un cupo REALMENTE compartido con otras filas
+  // (ej. Tanda "Founders": Dúo, Soltera, Trío... todas gastan del mismo pozo
+  // de 40, no de un totalStock independiente cada una) -- ver `stockPools`
+  // más abajo. `null` = esta fila sigue funcionando exactamente como hoy,
+  // con su propio totalStock/soldCount. No es un reemplazo de esos dos
+  // campos: siguen sumando por fila (para el historial y el admin), el pool
+  // es una validación ADICIONAL que se suma encima al crear la orden.
+  stockPoolId: int("stockPoolId"),
   maxPerOrder: int("maxPerOrder").default(10).notNull(),
   sortOrder: int("sortOrder").default(0).notNull(),
   status: mysqlEnum("status", ["active", "soldout", "hidden"]).default("active").notNull(),
@@ -117,6 +137,27 @@ export const ticketTypes = mysqlTable("ticketTypes", {
 
 export type TicketType = typeof ticketTypes.$inferSelect;
 export type InsertTicketType = typeof ticketTypes.$inferInsert;
+
+// Cupo compartido entre varias filas de ticketTypes (ej. Tanda "Founders"
+// del 2º aniversario: Dúo + Soltera + Soltero + Trío + Grupo comparten un
+// único pozo de 40 entradas -- comprar cualquiera de ellas gasta del mismo
+// contador, no de uno independiente por acceso). El cap vive en UN solo
+// lugar para que editarlo una vez alcance y no se desincronice entre filas.
+// El remanente real se calcula en server/db.ts (getStockPoolRemaining):
+// totalCap - SUM(soldCount) de todas las ticketTypes con este stockPoolId.
+export const stockPools = mysqlTable("stockPools", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  name: varchar("name", { length: 100 }).notNull(),
+  totalCap: int("totalCap").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  eventIdx: index("stockPools_event_idx").on(table.eventId),
+}));
+
+export type StockPool = typeof stockPools.$inferSelect;
+export type InsertStockPool = typeof stockPools.$inferInsert;
 
 // Historial de cambios de stock por tipo de entrada (ej. subir el cupo de
 // "soltero" cuando entran más solteros aceptados) -- registro de auditoría,
@@ -198,6 +239,17 @@ export const orders = mysqlTable("orders", {
   // así que se perdía. Se usa para mostrar los nombres en el ticket público
   // y en el email de confirmación.
   attendeeData: text("attendeeData"),
+  // Atribución UTM (pedido explícito del dueño): con $0 de pauta, es la
+  // única forma de saber qué reel/historia/link realmente trae ventas, no
+  // solo leads. Se capturan de la URL al aterrizar (client/src/lib/utm.ts),
+  // se guardan en localStorage, y Checkout.tsx los manda acá al crear la
+  // orden -- "último toque gana" (ver comentario en utm.ts). Quedan null en
+  // ventas que no vinieron de un link etiquetado (directo, buscador,
+  // embajador vía su propio código, caja).
+  utmSource: varchar("utmSource", { length: 100 }),
+  utmMedium: varchar("utmMedium", { length: 100 }),
+  utmCampaign: varchar("utmCampaign", { length: 100 }),
+  utmContent: varchar("utmContent", { length: 100 }),
   // --- Módulo /caja (docs/ARQUITECTURA-CAJA.md §0.4, §4.3) ---
   // Canal de la venta: web = checkout normal, caja = venta presencial en el
   // evento, import = migración de la ticketera anterior (ya usado por
@@ -293,6 +345,40 @@ export const communityCodes = mysqlTable("communityCodes", {
 export type CommunityCode = typeof communityCodes.$inferSelect;
 export type InsertCommunityCode = typeof communityCodes.$inferInsert;
 
+// Leads: alguien que dejó su contacto sin comprar todavía (hoy el único
+// gancho es "avisame antes de que suba el precio" en UrgencySection, ver
+// LeadCaptureInline en Home.tsx). Sin esto, cualquiera que visite el sitio
+// y no compre en el momento se pierde para siempre -- con $0 de pauta y
+// 8 semanas de campaña, es la principal defensa contra esa fuga (ver plan
+// de ventas del aniversario).
+export const leads = mysqlTable("leads", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull(),
+  phone: varchar("phone", { length: 20 }),
+  instagram: varchar("instagram", { length: 100 }),
+  eventId: int("eventId"),
+  // De dónde vino el gancho -- hoy solo existe 'price_alert' ("avisame antes
+  // de que suba el precio"), se deja como texto libre por si se agrega un
+  // gancho de lista de espera antes de abrir venta ("avisame cuando abra").
+  source: varchar("source", { length: 50 }).default('price_alert').notNull(),
+  utmSource: varchar("utmSource", { length: 100 }),
+  utmMedium: varchar("utmMedium", { length: 100 }),
+  utmCampaign: varchar("utmCampaign", { length: 100 }),
+  // Si este lead terminó comprando, qué orden generó -- se completa a mano
+  // desde el admin (todavía no hay matcheo automático por email).
+  convertedOrderId: int("convertedOrderId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  // Mismo email puede volver a dejar su contacto para OTRO evento más
+  // adelante sin chocar -- pero reenviar el mismo formulario para el mismo
+  // evento actualiza el lead existente en vez de duplicarlo (ver
+  // db.createLead, onDuplicateKeyUpdate).
+  emailEventIdx: uniqueIndex("leads_email_event_idx").on(table.email, table.eventId),
+}));
+
+export type Lead = typeof leads.$inferSelect;
+export type InsertLead = typeof leads.$inferInsert;
+
 // Lista de bloqueo de clientes: si el RUT del comprador o de algún
 // acompañante coincide (normalizado, coincidencia exacta), createOrder
 // rechaza la compra antes de crear la orden y antes de cualquier cobro.
@@ -324,6 +410,13 @@ export const siteSettings = mysqlTable("siteSettings", {
   // no por evento -- si cambia de proveedor, se actualiza acá.
   kitchenVendorName: varchar("kitchenVendorName", { length: 255 }),
   kitchenVendorEmail: varchar("kitchenVendorEmail", { length: 320 }),
+  // Imagen por defecto al compartir el sitio en redes (Open Graph/Twitter)
+  // cuando la página no es de un evento puntual -- cada evento sigue usando
+  // su propio `imageUrl` en su página de detalle. null = usa el flyer
+  // estático de siempre (og-candyland.jpg). Se sirve inyectada del lado del
+  // servidor, ver server/ssrMeta.ts -- un campo editable acá solo no
+  // alcanzaría para cambiar el preview de WhatsApp/Facebook (SPA sin SSR).
+  ogImageUrl: varchar("ogImageUrl", { length: 1024 }),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -693,6 +786,38 @@ export type InsertOp = typeof ops.$inferInsert;
 // canal 'caja' dentro de la ventana del turno (nunca ventas web). `top*` es
 // un snapshot (no un cálculo en vivo) para que el reporte de un evento
 // pasado no cambie si se generan más ventas después.
+/** Rastro de las acciones destructivas del panel de admin.
+ *
+ * Todo lo que pasa por los terminales queda auditado en el ledger `ops`
+ * (append-only, idempotente por opId). El lado admin no tenía nada
+ * equivalente: borrar una compra, editar un gasto, eliminar un evento o
+ * cambiar un precio no dejaba ningún rastro, así que después no había forma
+ * de reconstruir por qué un número había cambiado.
+ *
+ * Se guarda aparte de `ops` a propósito: `ops` es la bitácora de la
+ * operación de la fiesta (una cajera, un dispositivo, un evento), y mezclarle
+ * acciones de admin ensuciaría los conteos que ya salen de esa tabla. */
+export const adminAuditLog = mysqlTable("adminAuditLog", {
+  id: int("id").autoincrement().primaryKey(),
+  // Ruta tRPC que se ejecutó, ej. "orders.delete" -- es lo que hace el
+  // registro legible sin tener que adivinar a qué botón corresponde.
+  action: varchar("action", { length: 100 }).notNull(),
+  targetType: varchar("targetType", { length: 50 }),
+  targetId: varchar("targetId", { length: 64 }),
+  eventId: int("eventId"),
+  // Foto de lo que se borró o de cómo estaba antes de editarse. Sin esto el
+  // registro dice QUE pasó pero no QUÉ se perdió, que es justo lo que se
+  // necesita para reconstruir.
+  payload: json("payload"),
+  ip: varchar("ip", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("adminAuditLog_created_idx").on(t.createdAt),
+  index("adminAuditLog_action_idx").on(t.action),
+]);
+
+export type AdminAuditLogRow = typeof adminAuditLog.$inferSelect;
+
 export const shifts = mysqlTable("shifts", {
   id: int("id").autoincrement().primaryKey(),
   eventId: int("eventId").notNull(),
@@ -714,13 +839,35 @@ export const shifts = mysqlTable("shifts", {
   // la app del banco. Sin esta columna, la plata cobrada por QR simplemente
   // desaparecería del arqueo del turno.
   expectedQr: decimal("expectedQr", { precision: 10, scale: 0 }),
+  // Efectivo que SALIÓ del cajón durante el turno para pagar gastos
+  // (`expenses.paidFromShiftId`). Se congela al cerrar, igual que `expected*`:
+  // si un gasto se edita después, el arqueo de esa noche no cambia. Sin esta
+  // resta, la plata usada para pagar un proveedor se leía como faltante.
+  cashPaidOut: decimal("cashPaidOut", { precision: 10, scale: 0 }),
   salesCount: int("salesCount"),
   redeemsCount: int("redeemsCount"),
   topCustomers: json("topCustomers"), // [{ name, email, total }]
   topProducts: json("topProducts"), // [{ name, quantity, revenue }]
   status: mysqlEnum("status", ["open", "closed"]).default("open").notNull(),
+  // Llave de unicidad del turno ABIERTO de una caja. `openShift` hace
+  // SELECT-y-después-INSERT sin transacción, así que dos tablets que abren a
+  // la vez podían crear dos turnos abiertos en la misma caja -- y ahí el
+  // arqueo de cada uno solo cubre parte de la noche mientras el cajón tiene
+  // todo (la diferencia gigante del evento pasado). Al ser NULL cuando el
+  // turno está cerrado, el índice único no estorba al historial: MySQL no
+  // compara filas con NULL entre sí, así que se pueden cerrar todos los
+  // turnos que se quiera sobre la misma caja.
+  openKey: varchar("openKey", { length: 64 }).generatedAlwaysAs(
+    sql`(case when \`status\` = 'open' then concat(\`eventId\`, '-', ifnull(\`registerId\`, 'x')) else null end)`,
+    // VIRTUAL y no STORED a propósito: TiDB (la base de producción) no
+    // permite agregar una columna generada STORED a una tabla que ya existe,
+    // pero sí una VIRTUAL, y sí acepta índices sobre ella.
+    { mode: 'virtual' },
+  ),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (t) => [
+  uniqueIndex("shifts_open_unique").on(t.openKey),
+]);
 
 export type Shift = typeof shifts.$inferSelect;
 export type InsertShift = typeof shifts.$inferInsert;
@@ -1117,10 +1264,22 @@ export const expenses = mysqlTable("expenses", {
   // mandar por hielo). Sin esto, closeShift lo lee como plata faltante.
   paidFromShiftId: int("paidFromShiftId"),
 
-  // Suscripciones y gastos fijos: la fila con recurrence='mensual' es la
-  // PLANTILLA, y las copias de cada mes apuntan a ella con recurringParentId.
-  // Se materializan solas al pedir el reporte de ese mes, sin cron.
-  recurrence: mysqlEnum("recurrence", ["none", "mensual"]).default("none").notNull(),
+  // Gastos que se repiten. La fila con `recurrence` distinta de 'none' es la
+  // PLANTILLA (nunca entra a ningún resultado por sí misma); las copias
+  // apuntan a ella con `recurringParentId` y se materializan solas al pedir
+  // el reporte, sin cron.
+  //
+  // - 'mensual': una suscripción de la productora (un software, una bodega).
+  //   Se copia una vez por mes y se reparte entre los eventos de ese mes.
+  // - 'por_evento': un costo fijo de CADA fiesta (el DJ, la seguridad, el
+  //   arriendo del local). Se copia una vez por evento y se carga completo a
+  //   esa fiesta. Existe porque los eventos de esta productora no son
+  //   mensuales: atarlos al calendario cobraba de más los meses con dos
+  //   fiestas y de menos los meses sin ninguna.
+  //
+  // Una plantilla 'por_evento' lleva `scope='evento'` con `eventId` en NULL
+  // -- es el catálogo, no un gasto de una fiesta puntual.
+  recurrence: mysqlEnum("recurrence", ["none", "mensual", "por_evento"]).default("none").notNull(),
   recurrenceEndsAt: timestamp("recurrenceEndsAt"),
   recurringParentId: int("recurringParentId"),
 
@@ -1147,6 +1306,10 @@ export const expenses = mysqlTable("expenses", {
   // copia por plantilla y por mes, aunque dos pestañas pidan el reporte al
   // mismo tiempo.
   recurringMonthUnique: uniqueIndex("expenses_recurring_month_unique").on(table.recurringParentId, table.periodMonth),
+  // Lo mismo para las plantillas 'por_evento': una sola copia por plantilla y
+  // por evento. MySQL trata los NULL como distintos entre sí, así que los
+  // gastos normales (sin `recurringParentId`) no chocan nunca con este único.
+  recurringEventUnique: uniqueIndex("expenses_recurring_event_unique").on(table.recurringParentId, table.eventId),
 }));
 
 export type Expense = typeof expenses.$inferSelect;

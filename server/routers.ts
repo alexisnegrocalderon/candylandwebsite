@@ -14,6 +14,7 @@ import { checkInTicket } from "./caja/checkin";
 import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
+import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import * as applications from "./ambassadorApplications";
 import {
   AMBASSADOR_REQUIREMENTS, AMBASSADOR_TASKS, instagramLinkFor, sanitizeApplicantName,
@@ -54,6 +55,8 @@ import { buildKitchenVendorPdf } from "./caja/kitchenVendorPdf";
 import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
 import { sendPendingReminders, generateReminderCopy } from "./orderReminders";
+import { generateEventDescription } from "./eventDescriptions";
+import { answerSalesQuestion } from "./adminQa";
 import { parseCsv, extractEmailColumn } from "./csv";
 import QRCode from "qrcode";
 import { consumeBackupCode, createTotpSecret, generateBackupCodes, parseBackupCodes, safeCompare, totpUri, verifyTotp } from "./adminSecurity";
@@ -70,6 +73,42 @@ const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== 'admin') throw new TRPCError({ code: 'FORBIDDEN', message: 'Admin access required' });
   return next({ ctx });
 });
+
+/** Acción destructiva del panel: exige la clave de admin EN CADA LLAMADA,
+ * además de la sesión.
+ *
+ * `adminProcedure` solo mira una cookie que dura 7 días: el 2FA protege
+ * ENTRAR al panel, no BORRAR. Con la sesión abierta en el teléfono, un toque
+ * equivocado -- o cualquiera que agarre el aparato desbloqueado -- puede
+ * borrar una compra, un evento o el historial de caja sin que nada lo frene.
+ * El dueño pidió explícitamente que se pida la clave cada vez.
+ *
+ * El límite por IP es el mismo de los logins, y acá importa más: a
+ * diferencia del login, este camino no tiene segundo factor, así que sin el
+ * límite sería un oráculo cómodo para adivinar la clave a fuerza bruta. */
+const adminPasswordInput = z.object({
+  adminPassword: z.string().min(1, 'Ingresa tu clave de admin'),
+});
+
+const adminPasswordProcedure = adminProcedure
+  .input(adminPasswordInput)
+  .use(async (opts) => {
+    const ipKey = `admin-reauth:${clientIp(opts.ctx)}`;
+    if (!(await db.checkIpRateLimit(ipKey))) {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+    }
+
+    const parsed = adminPasswordInput.safeParse(await opts.getRawInput());
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    // `safeCompare` y no `!==`: tiempo constante, mismo criterio que ya usa
+    // el login de admin.
+    if (!adminPassword || !parsed.success || !safeCompare(parsed.data.adminPassword, adminPassword)) {
+      await db.recordIpFailedAttempt(ipKey);
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Clave de admin incorrecta' });
+    }
+
+    return opts.next({ ctx: opts.ctx });
+  });
 
 // Qué bloques de la tarjeta de evento incluir en un mail de mailing masivo --
 // mismo shape usado por mailing.renderPreview, mailing.sendBatch y
@@ -104,14 +143,32 @@ const expenseInputSchema = z.object({
   ivaAmountOverride: z.number().int().nonnegative().optional(),
   paymentMethod: z.enum(['efectivo', 'tarjeta', 'transferencia', 'otro']),
   paidFromShiftId: z.number().nullable().optional(),
-  recurrence: z.enum(['none', 'mensual']).optional(),
+  recurrence: z.enum(['none', 'mensual', 'por_evento']).optional(),
   recurrenceEndsAt: z.string().nullable().optional(),
   excludeFromPnl: z.boolean().optional(),
   prorate: z.boolean().optional(),
   receiptUrl: z.string().optional(),
   notes: z.string().max(500).optional(),
-}).refine((v) => v.scope !== 'evento' || !!v.eventId, {
+// Una plantilla 'por_evento' es el catálogo de un costo fijo de cada fiesta,
+// no un gasto de una fiesta puntual: va con scope 'evento' pero SIN eventId,
+// porque se copia a todas. Por eso queda exenta de la regla de abajo.
+}).refine((v) => v.recurrence === 'por_evento' || v.scope !== 'evento' || !!v.eventId, {
   message: 'Un gasto de evento necesita que elijas a qué evento va',
+  path: ['eventId'],
+// Una suscripción se paga todos los meses; un evento pasa una vez. Cargar
+// una suscripción a un evento hacía que `materializeRecurringExpenses` le
+// creara una copia a ESA fiesta cada mes para siempre, así que su resultado
+// seguía empeorando meses después de que terminó. Un costo que se repite
+// todos los meses es de la productora; el que se repite en cada fiesta va con
+// 'por_evento', que sí se carga completo a cada una.
+}).refine((v) => v.recurrence !== 'mensual' || v.scope === 'general', {
+  message: 'Un gasto que se repite todos los meses va a la productora. Si es un costo fijo de cada fiesta (el DJ, la seguridad), usa "se repite en cada evento".',
+  path: ['recurrence'],
+}).refine((v) => v.recurrence !== 'por_evento' || v.scope === 'evento', {
+  message: 'Un costo fijo de cada fiesta se imputa a los eventos, no a la productora.',
+  path: ['recurrence'],
+}).refine((v) => v.recurrence !== 'por_evento' || !v.eventId, {
+  message: 'Un costo fijo de cada fiesta no se carga a una fiesta puntual: se copia a todas automáticamente.',
   path: ['eventId'],
 });
 
@@ -508,6 +565,11 @@ export const appRouter = router({
     getTicketTypes: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input }) => {
       const event = await db.getEventBySlug(input.slug);
       if (!event) return [];
+      // Cualquier visitante viendo precios dispara el chequeo de avance
+      // automático de tanda (por fecha o cupo agotado) -- ver
+      // server/tandaAutoAdvance.ts. Home.tsx ya hace polling de esta misma
+      // consulta cada 30s, así que no hace falta ningún cron nuevo.
+      await checkAndAdvanceTandaIfNeeded(event.id);
       return db.getTicketTypesByEventId(event.id);
     }),
     // Admin
@@ -558,12 +620,23 @@ export const appRouter = router({
       featured: z.number().optional(),
       missionForceClosed: z.number().optional(),
       ivaApplies: z.number().optional(),
+      // Escala de descuentos por fase de este evento -- ver
+      // shared/tandaSchedule.ts (TandaPhase[]: % + fecha límite opcional
+      // por fase, para el avance automático). Editable desde el admin, por
+      // evento.
+      tandaDiscountSchedule: z.array(z.object({
+        percent: z.number().min(0).max(100),
+        untilDate: z.string().nullable().optional(),
+      })).optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return db.updateEvent(id, data);
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteEvent(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const before = await db.getEventById(input.id);
+      const result = await db.deleteEvent(input.id);
+      await db.recordAdminAudit({ action: 'events.delete', targetType: 'event', targetId: input.id, eventId: input.id, payload: before ?? null, ip: clientIp(ctx) });
+      return result;
     }),
     // Ticket types management
     listTicketTypes: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
@@ -589,6 +662,9 @@ export const appRouter = router({
       emoji: z.string().max(8).optional(),
       groupName: z.string().max(50).optional(),
       toKitchen: z.number().min(0).max(1).optional(),
+      // Cupo compartido (stockPools) -- null/omitido = sigue usando su propio
+      // totalStock, como hoy.
+      stockPoolId: z.number().nullable().optional(),
     })).mutation(async ({ input }) => {
       return db.createTicketType(input);
     }),
@@ -612,15 +688,70 @@ export const appRouter = router({
       emoji: z.string().max(8).optional(),
       groupName: z.string().max(50).optional(),
       toKitchen: z.number().min(0).max(1).optional(),
+      stockPoolId: z.number().nullable().optional(),
     })).mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
       return db.updateTicketType(id, data, ctx.user.id);
     }),
-    deleteTicketType: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteTicketType(input.id);
+    deleteTicketType: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteTicketType(input.id);
+      await db.recordAdminAudit({ action: 'events.deleteTicketType', targetType: 'ticketType', targetId: input.id, ip: clientIp(ctx) });
+      return result;
+    }),
+    // "Cerrar tanda y activar la siguiente" -- cierra cada fila hoy activa
+    // (queda soldout) y crea la siguiente ya activa, con precio/stock
+    // nuevos. Avance de fase 100% manual, ver comentario en db.advanceTanda.
+    advanceTanda: adminProcedure.input(z.object({
+      eventId: z.number(),
+      rows: z.array(z.object({
+        oldTicketTypeId: z.number(),
+        newPrice: z.number(),
+        newTotalStock: z.number(),
+        newStockPoolId: z.number().nullable().optional(),
+      })).min(1),
+    })).mutation(async ({ input }) => {
+      return db.advanceTanda(input.eventId, input.rows);
     }),
     ticketStockHistory: adminReadProcedure.input(z.object({ ticketTypeId: z.number() })).query(async ({ input }) => {
       return db.getTicketStockHistory(input.ticketTypeId);
+    }),
+    // Cupos compartidos (stockPools) -- ver drizzle/schema.ts. El admin ve el
+    // número real siempre; lo que se esconde es solo la vista pública.
+    listStockPools: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getStockPoolsByEventId(input.eventId);
+    }),
+    createStockPool: adminProcedure.input(z.object({
+      eventId: z.number(),
+      name: z.string().min(1),
+      totalCap: z.number().int().positive(),
+    })).mutation(async ({ input }) => {
+      return db.createStockPool(input);
+    }),
+    updateStockPool: adminProcedure.input(z.object({
+      id: z.number(),
+      name: z.string().min(1).optional(),
+      totalCap: z.number().int().positive().optional(),
+    })).mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      return db.updateStockPool(id, data);
+    }),
+    deleteStockPool: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      return db.deleteStockPool(input.id);
+    }),
+    // IA: descripción corta + completa a partir de los datos del evento y una
+    // idea/tema libre y opcional (no se guarda, ver server/eventDescriptions.ts).
+    generateDescription: adminProcedure.input(z.object({
+      title: z.string().min(1),
+      venue: z.string().optional(),
+      address: z.string().optional(),
+      eventDateISO: z.string().optional(),
+      idea: z.string().max(500).optional(),
+    })).mutation(async ({ input }) => {
+      try {
+        return await generateEventDescription(input);
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar la descripción.' });
+      }
     }),
   }),
 
@@ -671,6 +802,12 @@ export const appRouter = router({
       // Datos por asistente/tipo de acceso (JSON serializado). Se adjunta a la
       // preferencia de Mercado Pago como metadata; no requiere migración de schema.
       attendeeData: z.string().optional(),
+      // Atribución UTM (ver client/src/lib/utm.ts): de dónde vino la venta
+      // cuando no es por código de embajador.
+      utmSource: z.string().max(100).optional(),
+      utmMedium: z.string().max(100).optional(),
+      utmCampaign: z.string().max(100).optional(),
+      utmContent: z.string().max(100).optional(),
     })).mutation(async ({ input }) => {
       const result = await db.createOrder(input);
       // Descuento del 100%: la orden ya quedó aprobada en createOrder (sin
@@ -698,11 +835,19 @@ export const appRouter = router({
       limit: z.number().optional(),
       status: z.string().optional(),
       channel: z.enum(['web', 'caja']).optional(),
+      eventId: z.number().optional(),
     }).optional()).query(async ({ input }) => {
-      return db.getAllOrders(input?.page ?? 1, input?.limit ?? 50, input?.status, input?.channel);
+      return db.getAllOrders(input?.page ?? 1, input?.limit ?? 50, input?.status, input?.channel, input?.eventId);
     }),
-    getStats: adminReadProcedure.input(z.object({ channel: z.enum(['web', 'caja']).optional() }).optional()).query(async ({ input }) => {
-      return db.getOrderStats(input?.channel);
+    getStats: adminReadProcedure.input(z.object({
+      channel: z.enum(['web', 'caja']).optional(),
+      eventId: z.number().optional(),
+    }).optional()).query(async ({ input }) => {
+      return db.getOrderStats(input?.channel, input?.eventId);
+    }),
+    // "Ventas por origen" (atribución UTM, agujero 2 del plan de ventas).
+    salesByOrigin: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
+      return db.getSalesByUtmOrigin(input?.eventId);
     }),
     // Mismos filtros y mismas columnas que el CSV (server/adminRoutes.ts) --
     // alimenta la vista de impresión/PDF, para que ambos formatos muestren
@@ -816,8 +961,13 @@ export const appRouter = router({
     // Eliminar una compra (pedido explícito del usuario): irreversible, la
     // confirmación con ventana de diálogo vive en el admin, acá solo se
     // ejecuta el borrado en cascada.
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteOrderCascade(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      // La foto se toma ANTES de borrar: después no queda nada que mirar, y
+      // reconstruir una venta desaparecida es justo lo que no se podía hacer.
+      const before = await db.getOrderById(input.id);
+      const result = await db.deleteOrderCascade(input.id);
+      await db.recordAdminAudit({ action: 'orders.delete', targetType: 'order', targetId: input.id, eventId: before?.eventId ?? null, payload: before ?? null, ip: clientIp(ctx) });
+      return result;
     }),
   }),
 
@@ -874,7 +1024,17 @@ export const appRouter = router({
 
     me: publicProcedure.query(({ ctx }) => ctx.operator),
 
-    activeEvent: doorProcedure.query(async () => {
+    /* El evento sale del operador que inició sesión (`operators.eventId`),
+     * no de la heurística "el evento publicado con fecha más cercana a
+     * ahora". Con dos eventos publicados a la vez esa heurística puede
+     * apuntar al equivocado y un check-in queda cargado a la fiesta que no
+     * es. /caja ya lo había resuelto usando el evento del dispositivo
+     * enrolado; estas pantallas no tienen dispositivo a propósito (el
+     * anfitrión usa su propio teléfono), pero el operador sí trae su evento.
+     * La heurística queda solo como respaldo para un operador viejo sin
+     * evento asignado. */
+    activeEvent: doorProcedure.query(async ({ ctx }) => {
+      if (ctx.operator?.eventId) return (await db.getEventById(ctx.operator.eventId)) ?? undefined;
       return db.getActiveEventForCaja();
     }),
 
@@ -952,7 +1112,17 @@ export const appRouter = router({
 
     me: publicProcedure.query(({ ctx }) => ctx.operator),
 
-    activeEvent: kitchenProcedure.query(async () => {
+    /* El evento sale del operador que inició sesión (`operators.eventId`),
+     * no de la heurística "el evento publicado con fecha más cercana a
+     * ahora". Con dos eventos publicados a la vez esa heurística puede
+     * apuntar al equivocado y un check-in queda cargado a la fiesta que no
+     * es. /caja ya lo había resuelto usando el evento del dispositivo
+     * enrolado; estas pantallas no tienen dispositivo a propósito (el
+     * anfitrión usa su propio teléfono), pero el operador sí trae su evento.
+     * La heurística queda solo como respaldo para un operador viejo sin
+     * evento asignado. */
+    activeEvent: kitchenProcedure.query(async ({ ctx }) => {
+      if (ctx.operator?.eventId) return (await db.getEventById(ctx.operator.eventId)) ?? undefined;
       return db.getActiveEventForCaja();
     }),
 
@@ -1032,7 +1202,17 @@ export const appRouter = router({
 
     me: publicProcedure.query(({ ctx }) => ctx.operator),
 
-    activeEvent: guardarropiaProcedure.query(async () => {
+    /* El evento sale del operador que inició sesión (`operators.eventId`),
+     * no de la heurística "el evento publicado con fecha más cercana a
+     * ahora". Con dos eventos publicados a la vez esa heurística puede
+     * apuntar al equivocado y un check-in queda cargado a la fiesta que no
+     * es. /caja ya lo había resuelto usando el evento del dispositivo
+     * enrolado; estas pantallas no tienen dispositivo a propósito (el
+     * anfitrión usa su propio teléfono), pero el operador sí trae su evento.
+     * La heurística queda solo como respaldo para un operador viejo sin
+     * evento asignado. */
+    activeEvent: guardarropiaProcedure.query(async ({ ctx }) => {
+      if (ctx.operator?.eventId) return (await db.getEventById(ctx.operator.eventId)) ?? undefined;
       return db.getActiveEventForCaja();
     }),
 
@@ -1279,8 +1459,10 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateDiscountCode(id, data);
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteDiscountCode(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteDiscountCode(input.id);
+      await db.recordAdminAudit({ action: 'discounts.delete', targetType: 'discountCode', targetId: input.id, ip: clientIp(ctx) });
+      return result;
     }),
   }),
 
@@ -1294,6 +1476,7 @@ export const appRouter = router({
       serviceFeePercent: z.number().min(0).max(100).optional(),
       kitchenVendorName: z.string().nullable().optional(),
       kitchenVendorEmail: z.string().email().nullable().optional(),
+      ogImageUrl: z.string().url().nullable().optional(),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings(input);
     }),
@@ -1335,8 +1518,41 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateCommunityCode(id, data);
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteCommunityCode(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteCommunityCode(input.id);
+      await db.recordAdminAudit({ action: 'communityCodes.delete', targetType: 'communityCode', targetId: input.id, ip: clientIp(ctx) });
+      return result;
+    }),
+  }),
+
+  leads: router({
+    // Público: se llama desde LeadCaptureInline en Home.tsx, sin login.
+    create: publicProcedure.input(z.object({
+      email: z.string().email(),
+      phone: z.string().optional(),
+      instagram: z.string().optional(),
+      eventId: z.number().optional(),
+      source: z.string().optional(),
+      utmSource: z.string().optional(),
+      utmMedium: z.string().optional(),
+      utmCampaign: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      return db.createLead(input);
+    }),
+    // Admin
+    listAll: adminReadProcedure.query(async () => {
+      return db.getAllLeads();
+    }),
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteLead(input.id);
+      await db.recordAdminAudit({ action: 'leads.delete', targetType: 'lead', targetId: input.id, ip: clientIp(ctx) });
+      return result;
+    }),
+    // Convierte los leads sin convertir en audiencia de mailing (ver
+    // db.syncLeadsAsMailingAudience) -- devuelve filas de `customers` para
+    // que el selector de audiencia del admin no necesite ningún cambio.
+    syncAsAudience: adminProcedure.input(z.object({ eventId: z.number().optional() }).optional()).mutation(async ({ input }) => {
+      return db.syncLeadsAsMailingAudience({ eventId: input?.eventId });
     }),
   }),
 
@@ -1356,13 +1572,17 @@ export const appRouter = router({
     create: adminProcedure.input(expenseInputSchema).mutation(async ({ input, ctx }) => {
       return db.createExpense({ ...input, createdByUserId: ctx.user.id });
     }),
-    update: adminProcedure.input(expenseInputSchema.partial().extend({ id: z.number() }))
-      .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        return db.updateExpense(id, data);
+    update: adminPasswordProcedure.input(expenseInputSchema.partial().extend({ id: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { id, adminPassword: _pw, ...data } = input as any;
+        const result = await db.updateExpense(id, data);
+        await db.recordAdminAudit({ action: 'expenses.update', targetType: 'expense', targetId: id, eventId: (data as any).eventId ?? null, payload: data, ip: clientIp(ctx) });
+        return result;
       }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteExpense(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteExpense(input.id);
+      await db.recordAdminAudit({ action: 'expenses.delete', targetType: 'expense', targetId: input.id, ip: clientIp(ctx) });
+      return result;
     }),
     monthSummary: adminReadProcedure.input(z.object({ monthKey: z.string() })).query(async ({ input }) => {
       return db.getMonthlyExpenseSummary(input.monthKey);
@@ -1392,8 +1612,10 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateBlockedCustomer(id, data);
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteBlockedCustomer(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteBlockedCustomer(input.id);
+      await db.recordAdminAudit({ action: 'blockedCustomers.delete', targetType: 'blockedCustomer', targetId: input.id, ip: clientIp(ctx) });
+      return result;
     }),
   }),
 
@@ -1449,8 +1671,10 @@ export const appRouter = router({
       const { id, ...data } = input;
       return db.updateExclusiveAmbassador(id, data);
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
-      return db.deleteExclusiveAmbassador(input.id);
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteExclusiveAmbassador(input.id);
+      await db.recordAdminAudit({ action: 'ambassadors.delete', targetType: 'ambassador', targetId: input.id, ip: clientIp(ctx) });
+      return result;
     }),
     // Reporte histórico por evento (el del PR original). Se conserva porque
     // sigue siendo la forma de saber cuánto se pagó en una fiesta puntual.
@@ -1853,6 +2077,25 @@ export const appRouter = router({
       if (!ctx.device) throw new TRPCError({ code: 'FORBIDDEN', message: 'Este dispositivo no está enrolado' });
       return db.listActiveRegisters(ctx.device.eventId);
     }),
+    // Turno abierto de ESTA caja, según el servidor. Es la fuente de verdad:
+    // antes el cliente solo miraba `sessionStorage`, que se borra cuando la
+    // tablet reinicia la PWA (pantalla bloqueada un rato largo, otra app en
+    // primer plano, pestaña cerrada) -- y ahí le volvía a pedir el efectivo
+    // inicial a la cajera aunque el turno siguiera abierto en la base. Ese
+    // era el bug que reportó el dueño del evento pasado.
+    currentShift: operatorProcedure.input(z.object({
+      registerId: z.number().optional(),
+    })).query(async ({ input, ctx }) => {
+      if (!ctx.device) throw new TRPCError({ code: 'FORBIDDEN', message: 'Este dispositivo no está enrolado' });
+      const shift = await db.getOpenShift(ctx.device.eventId, input.registerId);
+      if (!shift) return null;
+      return {
+        shiftId: shift.id,
+        openingCash: Number(shift.openingCash),
+        openedAt: shift.openedAt,
+        openedByOperatorId: shift.operatorId,
+      };
+    }),
     // Apertura de turno con cuadre de caja (pedido explícito del usuario):
     // pide el efectivo inicial declarado por la cajera. Idempotente por
     // evento+caja (un refresh de página no duplica el turno abierto).
@@ -1863,17 +2106,25 @@ export const appRouter = router({
       const rawDb = await db.getDb();
       if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
       if (!ctx.operator) throw new TRPCError({ code: 'UNAUTHORIZED' });
-      const shiftId = await db.openShift({
+      const opened = await db.openShift({
         eventId: input.eventId, operatorId: ctx.operator.operatorId,
         registerId: input.registerId, openingCash: input.openingCash,
       });
       const { applyOp } = await import('./caja/ops');
       await applyOp(rawDb, {
         id: input.opId, type: 'shift_open', eventId: input.eventId, operatorId: ctx.operator.operatorId,
-        registerId: input.registerId, targetType: 'operator', targetId: String(ctx.operator.operatorId),
-        payload: { openingCash: input.openingCash, shiftId }, clientAt: new Date(input.clientAt),
+        registerId: input.registerId, targetType: 'operator', targetId: String(opened.shiftId),
+        // `declaredCash` es lo que la cajera acaba de contar; `openingCash`
+        // es el que quedó vigente. Cuando el turno ya estaba abierto los dos
+        // difieren, y el ledger tiene que mostrar esa diferencia en vez de
+        // registrar un fondo que nunca se aplicó.
+        payload: {
+          openingCash: opened.openingCash, declaredCash: input.openingCash,
+          alreadyOpen: opened.alreadyOpen, shiftId: opened.shiftId,
+        },
+        clientAt: new Date(input.clientAt),
       }, async () => ({ result: 'applied' as const }));
-      return { shiftId };
+      return opened;
     }),
     // Protocolo de pendientes (§13, riesgo 2): el cliente NO debe llamar esto
     // con ops sin sincronizar -- se bloquea en la UI, no acá, porque cerrar
@@ -2052,8 +2303,10 @@ export const appRouter = router({
     // veces que haga falta mientras siga probando). Ver db.resetEventTestData
     // para el detalle exacto de qué toca y qué deja intacto (nunca compras
     // web, check-ins de puerta ni canjes de extras).
-    resetTestData: adminProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input }) => {
-      return db.resetEventTestData(input.eventId);
+    resetTestData: adminPasswordProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.resetEventTestData(input.eventId);
+      await db.recordAdminAudit({ action: 'caja.resetTestData', targetType: 'event', targetId: input.eventId, eventId: input.eventId, payload: result, ip: clientIp(ctx) });
+      return result;
     }),
   }),
 
@@ -2093,9 +2346,11 @@ export const appRouter = router({
     // Borrado real (pedido explícito del usuario: que no se vayan
     // acumulando) -- bloqueado si el operador ya tiene historial, ver
     // db.operatorHasHistory.
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       try {
-        return await db.deleteOperator(input.id);
+        const result = await db.deleteOperator(input.id);
+        await db.recordAdminAudit({ action: 'operators.delete', targetType: 'operator', targetId: input.id, ip: clientIp(ctx) });
+        return result;
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo eliminar el operador.' });
       }
@@ -2253,9 +2508,11 @@ export const appRouter = router({
     }),
     // Ningún dispositivo queda referenciado desde otra tabla (ver
     // db.deleteDevice), así que este borrado nunca se bloquea por historial.
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       try {
-        return await db.deleteDevice(input.id);
+        const result = await db.deleteDevice(input.id);
+        await db.recordAdminAudit({ action: 'devices.delete', targetType: 'device', targetId: input.id, ip: clientIp(ctx) });
+        return result;
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo eliminar el dispositivo.' });
       }
@@ -2271,9 +2528,11 @@ export const appRouter = router({
       const id = await db.createRegister(input.eventId, input.name);
       return { id };
     }),
-    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       try {
-        return await db.deleteRegister(input.id);
+        const result = await db.deleteRegister(input.id);
+        await db.recordAdminAudit({ action: 'registers.delete', targetType: 'register', targetId: input.id, ip: clientIp(ctx) });
+        return result;
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo eliminar la caja.' });
       }
@@ -2284,6 +2543,21 @@ export const appRouter = router({
   cajaReports: router({
     profit: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getProfitReport(input.eventId);
+    }),
+    // IA: preguntas simples sobre ventas/movimientos, con los datos ya
+    // agregados del sistema (ver server/adminQa.ts). adminProcedure (no
+    // adminReadProcedure) porque dispara una llamada a IA con costo, mismo
+    // criterio que mailing/recordatorios.
+    askAi: adminProcedure.input(z.object({
+      question: z.string().min(3).max(500),
+      eventId: z.number().optional(),
+    })).mutation(async ({ input }) => {
+      try {
+        const answer = await answerSalesQuestion(input.question, input.eventId);
+        return { answer };
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar la respuesta.' });
+      }
     }),
     kitchenVendorReport: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getKitchenVendorReport(input.eventId);
@@ -2386,19 +2660,44 @@ export const appRouter = router({
     shiftClosings: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
       return db.listShiftClosings(input?.eventId);
     }),
+    // Turnos todavía abiertos: los necesita el formulario de gastos para
+    // ofrecer "se pagó con plata del cajón de esta caja". Sin marcarlo, ese
+    // efectivo aparece como faltante en el arqueo de esa caja.
+    // Suscripciones activas (gastos que se repiten todos los meses). Hoy no
+    // se ven en ningún lado del panel: se marcan al crear el gasto y después
+    // generan una copia cada mes sin que nadie pueda revisarlas ni darlas de
+    // baja.
+    recurringExpenses: adminReadProcedure.query(async () => {
+      return db.listRecurringExpenses();
+    }),
+    // Bitácora de acciones destructivas del panel. Los terminales ya tenían
+    // el ledger `ops`; el lado admin no dejaba ningún rastro.
+    adminAudit: adminReadProcedure.input(z.object({ limit: z.number().min(1).max(500).optional() }).optional()).query(async ({ input }) => {
+      return db.listAdminAudit(input?.limit ?? 200);
+    }),
+    openShifts: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
+      return db.listOpenShifts(input?.eventId);
+    }),
+    // Detalle venta por venta de un turno: con una diferencia grande, los
+    // totales por medio de pago no alcanzan para explicarla -- hay que poder
+    // comparar contra el voucher de la máquina línea por línea.
+    shiftSales: adminReadProcedure.input(z.object({ shiftId: z.number() })).query(async ({ input }) => {
+      return db.getShiftSales(input.shiftId);
+    }),
     // Eliminar un cierre de turno (pedido explícito del usuario, para sacar
     // pruebas/cierres de práctica de los reportes reales) -- doble
     // verificación: además del diálogo de confirmación en el admin, pide la
     // misma clave que auth.adminLogin.
-    deleteShiftClosing: adminProcedure.input(z.object({
+    // Antes comparaba la clave con `!==` (sin tiempo constante) y sin
+    // ningún límite de intentos. Ahora usa el mismo procedure que el resto
+    // de las acciones destructivas, para que el arreglo valga en todas.
+    deleteShiftClosing: adminPasswordProcedure.input(z.object({
       shiftId: z.number(),
-      password: z.string(),
-    })).mutation(async ({ input }) => {
-      const adminPassword = process.env.ADMIN_PASSWORD;
-      if (!adminPassword || input.password !== adminPassword) {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Contraseña incorrecta' });
-      }
-      return db.deleteShiftClosing(input.shiftId);
+    })).mutation(async ({ input, ctx }) => {
+      const before = await db.getShiftSales(input.shiftId);
+      const result = await db.deleteShiftClosing(input.shiftId);
+      await db.recordAdminAudit({ action: 'cajaReports.deleteShiftClosing', targetType: 'shift', targetId: input.shiftId, payload: { salesCount: before?.sales.length ?? null }, ip: clientIp(ctx) });
+      return result;
     }),
   }),
 });

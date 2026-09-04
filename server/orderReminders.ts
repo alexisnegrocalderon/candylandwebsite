@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { eq, inArray } from 'drizzle-orm';
-import { getDb } from './db';
+import { eq, inArray, and, lte } from 'drizzle-orm';
+import { getDb, countAutomatedEmailsSentToday } from './db';
 import { orders, events } from '../drizzle/schema';
-import { invokeLLM } from './_core/llm';
+import { invokeLLM, extractContent } from './_core/llm';
 import { sendEmail, buildPendingReminderEmail } from './email';
+import { AUTOMATED_EMAIL_DAILY_CAP } from './mailing';
 
 /* Recordatorio a quien dejó la compra a medio camino.
  *
@@ -95,6 +96,101 @@ export async function sendPendingReminders(params: {
   return resultado;
 }
 
+/* ── Cron diario de carrito abandonado ─────────────────────────
+ * Pedido explícito del dueño: la herramienta de arriba (sendPendingReminders)
+ * ya existía como botón manual en Ventas Web, pero nadie la usaba
+ * sistemáticamente -- con $0 de pauta y 8 semanas de campaña, cada orden que
+ * queda `pending` y nunca recibe un recordatorio es plata que se dejó sobre
+ * la mesa. Esto la corre sola, todos los días (dentro del mismo cron de
+ * mailing -- ver server/cronRoutes.ts: Vercel Hobby solo permite crons
+ * diarios y como mucho 2 en total, confirmado en vivo al desplegar), con una
+ * cadencia conservadora por orden para no transformarse en spam. */
+
+/** No molestar a alguien que todavía está llenando el formulario de compra:
+ * recién es candidata a un recordatorio 3 horas después de crearse. */
+const ABANDONED_CART_MIN_AGE_MS = 3 * 60 * 60 * 1000;
+
+/** Cadencia entre recordatorios de una misma orden (pedido explícito del
+ * dueño: "revisar cada 3 días"). */
+const ABANDONED_CART_REMINDER_GAP_MS = 3 * 24 * 60 * 60 * 1000;
+
+/** Tope de recordatorios por orden -- sin esto, una orden pending que nunca
+ * se paga recibiría un correo cada 3 días para siempre. */
+const ABANDONED_CART_MAX_REMINDERS = 3;
+
+/** Tope duro de recordatorios por CORRIDA del cron -- comparte la cuota
+ * diaria de Resend (~100/día en el plan free) con el mailing masivo
+ * (server/mailing.ts, CRON_MAX_PER_RUN=50) y, más importante, con los
+ * correos transaccionales del sitio (confirmación de compra, Misión 300):
+ * esos nunca deben quedarse sin cupo por vaciar la cuota en recordatorios.
+ * Configurable por env var por si el dueño sube de plan. */
+const ABANDONED_CART_CRON_CAP = Number(process.env.ABANDONED_CART_CRON_CAP) || 10;
+
+/** Ids de las órdenes `pending` elegibles para el recordatorio automático,
+ * de la más vieja a la más nueva (a las que llevan más tiempo esperando les
+ * toca primero si el tope de la corrida no alcanza para todas). Reglas:
+ * - Solo canal 'web' -- caja/import no tienen un checkout al que volver.
+ * - El evento todavía no pasó: "tu entrada te espera" para una fiesta que
+ *   ya fue no tiene sentido y se ve mal.
+ * - Al menos `ABANDONED_CART_MIN_AGE_MS` desde que se creó la orden.
+ * - Si ya recibió un recordatorio, que hayan pasado al menos
+ *   `ABANDONED_CART_REMINDER_GAP_MS` desde el último, y que no haya llegado
+ *   ya a `ABANDONED_CART_MAX_REMINDERS`. */
+async function getOrdersDueForAbandonedCartReminder(): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const now = Date.now();
+  const cutoffCreated = new Date(now - ABANDONED_CART_MIN_AGE_MS);
+
+  const candidatas = await db
+    .select({
+      id: orders.id,
+      createdAt: orders.createdAt,
+      reminderSentAt: orders.reminderSentAt,
+      reminderCount: orders.reminderCount,
+      eventDate: events.eventDate,
+    })
+    .from(orders)
+    .leftJoin(events, eq(orders.eventId, events.id))
+    .where(and(
+      eq(orders.paymentStatus, 'pending'),
+      eq(orders.channel, 'web'),
+      lte(orders.createdAt, cutoffCreated),
+    ))
+    .orderBy(orders.createdAt);
+
+  return candidatas
+    .filter((o) => {
+      if (o.eventDate && new Date(o.eventDate).getTime() < now) return false;
+      if ((o.reminderCount ?? 0) >= ABANDONED_CART_MAX_REMINDERS) return false;
+      if (o.reminderSentAt && now - new Date(o.reminderSentAt).getTime() < ABANDONED_CART_REMINDER_GAP_MS) return false;
+      return true;
+    })
+    .map((o) => o.id);
+}
+
+export type AbandonedCartCronResult = ReminderResult & { eligible: number };
+
+/** Se llama una vez por día desde server/cronRoutes.ts, dentro de la misma
+ * corrida del cron de mailing (Vercel Hobby solo permite 2 crons y los dos
+ * ya están ocupados -- ver el comentario en cronRoutes.ts). */
+export async function runAbandonedCartCron(): Promise<AbandonedCartCronResult> {
+  const eligible = await getOrdersDueForAbandonedCartReminder();
+
+  // Presupuesto diario compartido con el mailing masivo. Al pasar el cron de
+  // diario a cada hora (Vercel Pro), el tope por corrida dejó de ser el tope
+  // del día: sin este freno, 24 corridas podrían vaciar la cuota de Resend y
+  // dejar sin cupo a la confirmación de compra con el QR de la entrada.
+  const sentToday = await countAutomatedEmailsSentToday();
+  const dailyRemaining = AUTOMATED_EMAIL_DAILY_CAP - sentToday;
+  if (dailyRemaining <= 0) return { sent: 0, skipped: [], failed: [], eligible: eligible.length };
+
+  const orderIds = eligible.slice(0, Math.min(ABANDONED_CART_CRON_CAP, dailyRemaining));
+  if (orderIds.length === 0) return { sent: 0, skipped: [], failed: [], eligible: eligible.length };
+  const resultado = await sendPendingReminders({ orderIds });
+  return { ...resultado, eligible: eligible.length };
+}
+
 /* ── Generación con IA del cuerpo del correo ──────────────────
  * Mismo molde que `generateMailingTemplate` (server/mailing.ts): prompt de
  * sistema + json_schema + validación con zod, para que un error de la IA no
@@ -136,11 +232,6 @@ Tono: cercano, chileno neutro, tuteo. Cálido y relajado, como quien avisa "oye,
 Estructura: entre 1 y 3 párrafos cortos. El primero recuerda que la compra quedó a medio camino. El resto puede recordar por qué vale la pena la noche o facilitar retomar. NO escribas saludo ("Hola X") ni despedida ni firma: la plantilla del correo ya los pone.
 
 Responde ÚNICAMENTE con el JSON pedido, sin explicaciones.`;
-
-function extractContent(message: { content: string | Array<{ type: string; text?: string }> }): string {
-  if (typeof message.content === 'string') return message.content;
-  return message.content.map((p) => (p.type === 'text' ? p.text ?? '' : '')).join('');
-}
 
 /** Reescribe el cuerpo del recordatorio a partir de una idea del dueño. */
 export async function generateReminderCopy(idea: string): Promise<ReminderCopy> {

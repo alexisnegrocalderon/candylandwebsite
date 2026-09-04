@@ -1,0 +1,2 @@
+ALTER TABLE `expenses` MODIFY COLUMN `recurrence` enum('none','mensual','por_evento') NOT NULL DEFAULT 'none';--> statement-breakpoint
+ALTER TABLE `expenses` ADD CONSTRAINT `expenses_recurring_event_unique` UNIQUE(`recurringParentId`,`eventId`);

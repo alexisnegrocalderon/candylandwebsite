@@ -160,7 +160,7 @@ export function MailingComposer({
         ctaUrl,
         eventSections,
       });
-      toast.success(`Campaña "${campaignTag}" guardada -- el cron diario la va a ir mandando. Seguí el progreso en Historial.`);
+      toast.success(`Campaña "${campaignTag}" guardada -- el cron diario la va a ir mandando. Sigue el progreso en Historial.`);
       resetComposer();
       onDone();
     } catch (err) {

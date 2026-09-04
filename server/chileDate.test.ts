@@ -55,18 +55,31 @@ describe('formatChileShortDate', () => {
 
 describe('la configuración del evento', () => {
   it('EVENTO.eventDate y EVENTO.fechaTexto dicen lo mismo', () => {
+    // formatChileDate devuelve "<día de semana>, <día> de <mes>" -- se
+    // deriva dinámicamente de EVENTO.eventDate en vez de hardcodear el
+    // evento vigente (antes decía literal "sábado"/"agosto" de Candyland, y
+    // el test rompió apenas cambió el evento a otra fecha).
     const formateado = formatChileDate(EVENTO.eventDate);
-    // fechaTexto es "Sábado 08 de Agosto"; se comparan en minúsculas y sin el
-    // cero a la izquierda, que es solo cosmético.
-    expect(formateado.toLowerCase()).toContain('sábado');
-    expect(formateado.toLowerCase()).toContain('agosto');
-    expect(EVENTO.fechaTexto.toLowerCase()).toContain('sábado');
-    expect(EVENTO.fechaTexto.toLowerCase()).toContain('agosto');
+    const [weekday, diaYMes] = formateado.split(', ');
+    const mes = diaYMes.replace(/^\d+\s*de\s*/, '');
+    expect(EVENTO.fechaTexto.toLowerCase()).toContain(weekday);
+    expect(EVENTO.fechaTexto.toLowerCase()).toContain(mes);
+    // El día numérico sí tiene que calzar exacto entre ambos, sin importar
+    // el evento (se comparan en minúsculas y sin el cero a la izquierda,
+    // que es solo cosmético).
     expect(formatChileDate(EVENTO.eventDate).replace(/\D/g, ''))
       .toBe(EVENTO.fechaTexto.replace(/\D/g, '').replace(/^0/, ''));
   });
 
-  it('la hora del evento coincide con horarioTexto', () => {
-    expect(EVENTO.horarioTexto).toContain(formatChileTime(EVENTO.eventDate));
+  it('si horarioTexto muestra una hora, coincide con eventDate', () => {
+    // Cuando el horario real todavía no está confirmado, EVENTO usa un texto
+    // sin números (ej. "Hora por confirmar") y `eventDate` lleva una hora
+    // marcador solo para que el countdown y el JSON-LD tengan un valor
+    // válido -- no hay nada que comparar en ese caso. Si horarioTexto SÍ
+    // muestra una hora, tiene que ser la real (el bug que este test cubre:
+    // publicar una hora que no coincide con la real).
+    if (/\d/.test(EVENTO.horarioTexto)) {
+      expect(EVENTO.horarioTexto).toContain(formatChileTime(EVENTO.eventDate));
+    }
   });
 });

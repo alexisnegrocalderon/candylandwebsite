@@ -325,6 +325,13 @@ html {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  /* Contraste contra el video del Hero (madera oscura + neón, con bastante
+   * detalle detrás en cualquier momento del loop): un borde oscuro por letra
+   * -- funciona sobre CUALQUIER fondo, a diferencia de un drop-shadow de un
+   * solo color que solo se nota contra tramos claros. `text-shadow` de apoyo
+   * detrás para separar aún más la letra del fondo sin tapar el degradé. */
+  -webkit-text-stroke: 1.5px oklch(0.16 0.02 30 / 0.6);
+  text-shadow: 0 2px 10px oklch(0.12 0.02 30 / 0.55);
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.3s ease, background-position 0.5s ease;
 }
 

@@ -32,6 +32,11 @@ export default function Prices() {
 
   const accesos = (liveTickets ?? []).filter((t: any) => t.category === 'acceso' && t.status !== 'hidden');
   const missionOpen = !!event?.eventDate && isMissionActiveForEvent(event);
+  // Tanda vigente (fuera de la ventana de Misión 300, ver TandaUrgencyCard en
+  // Home.tsx -- mismo dato, mismo criterio): si algún acceso tiene precio
+  // general tachado, el copy de arriba deja de decir "estos son los valores
+  // generales" -- ya no es cierto, el que se muestra es el de la tanda.
+  const anyTandaDiscount = !missionOpen && accesos.some((t: any) => t.originalPrice && Number(t.originalPrice) > Number(t.price));
 
   return (
     <div className="min-h-dvh pt-24 pb-16">
@@ -42,7 +47,9 @@ export default function Prices() {
           <p className="text-muted-foreground text-sm text-center mb-10">
             {missionOpen
               ? 'Mientras dure la Misión 300, todos los accesos principales tienen precio de abono.'
-              : 'Estos son los valores generales de cada acceso.'}
+              : anyTandaDiscount
+                ? 'Estos son los precios de la tanda vigente -- el valor general va tachado al lado.'
+                : 'Estos son los valores generales de cada acceso.'}
           </p>
 
           {accesos.length === 0 ? (
@@ -61,8 +68,13 @@ export default function Prices() {
                     <div className="text-right shrink-0">
                       {depositPrice !== null && depositPrice < generalPrice ? (
                         <>
-                          <p className="line-through text-muted-foreground text-sm">{formatCLP(generalPrice)}</p>
+                          <p className="line-through text-muted-foreground/70 text-xs tabular-nums">{formatCLP(generalPrice)}</p>
                           <p className="font-heading font-extrabold text-xl text-gradient-candy">{formatCLP(depositPrice)}</p>
+                        </>
+                      ) : t.originalPrice && Number(t.originalPrice) > generalPrice ? (
+                        <>
+                          <p className="line-through text-muted-foreground/70 text-xs tabular-nums">{formatCLP(Number(t.originalPrice))}</p>
+                          <p className="font-heading font-extrabold text-xl text-gradient-candy">{formatCLP(generalPrice)}</p>
                         </>
                       ) : (
                         <p className="font-heading font-extrabold text-xl">{formatCLP(generalPrice)}</p>

@@ -1,17 +1,22 @@
 import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, orders, orderItems, tickets, discountCodes, communityCodes, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
 import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
+import { chileHourOf, startOfChileDay } from '../shared/chileDate';
+import { matchLeadForOrder as matchLeadForOrderImpl, syncLeadsAsMailingAudience as syncLeadsAsMailingAudienceImpl } from './leadsMailing';
 import { monthKeyFor } from '../shared/ambassadorProgram';
+import { normalizeTandaSchedule, nextPhase } from '../shared/tandaSchedule';
+import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, type PnlExpense } from '../shared/expenses';
 import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
+import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening, findPossibleDuplicateSales, cardTotals } from './caja/shiftMath';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -200,8 +205,35 @@ export async function getTicketTypesByEventId(eventId: number) {
   if (!db) return [];
   const existing = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId)).orderBy(ticketTypes.sortOrder);
   const created = await ensureDefaultExtraTicketTypes(eventId, existing);
-  if (!created) return existing;
-  return db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId)).orderBy(ticketTypes.sortOrder);
+  const rows = created
+    ? await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId)).orderBy(ticketTypes.sortOrder)
+    : existing;
+  return attachStockPoolInfo(rows);
+}
+
+/** Le suma a cada fila con `stockPoolId` el remanente REAL del pool
+ * compartido (`poolRemaining`) y su cap (`poolTotalCap`) -- así el
+ * frontend (público o admin) no tiene que hacer una consulta aparte por
+ * cada fila. `poolTotalCap` viaja en la respuesta para que Home.tsx pueda
+ * calcular la barra de progreso (tandaPct) sin volver a pedirlo -- que
+ * viaje en el JSON no es lo mismo que mostrarlo: la UI pública tiene que
+ * seguir sin IMPRIMIR ese número en ningún texto (ver TandaUrgencyCard). */
+async function attachStockPoolInfo<T extends { stockPoolId: number | null }>(
+  rows: T[],
+): Promise<(T & { poolRemaining: number | null; poolTotalCap: number | null })[]> {
+  const poolIds = Array.from(new Set(rows.map((r) => r.stockPoolId).filter((id): id is number => id != null)));
+  if (poolIds.length === 0) return rows.map((r) => ({ ...r, poolRemaining: null, poolTotalCap: null }));
+
+  const poolInfoById = new Map<number, { remaining: number; totalCap: number }>();
+  await Promise.all(poolIds.map(async (id) => {
+    const info = await getStockPoolRemaining(id);
+    if (info) poolInfoById.set(id, { remaining: info.remaining, totalCap: info.pool.totalCap });
+  }));
+
+  return rows.map((r) => {
+    const info = r.stockPoolId != null ? poolInfoById.get(r.stockPoolId) : undefined;
+    return { ...r, poolRemaining: info?.remaining ?? null, poolTotalCap: info?.totalCap ?? null };
+  });
 }
 
 export async function createTicketType(data: any) {
@@ -272,6 +304,160 @@ export async function deleteTicketType(id: number) {
   if (!db) throw new Error("Database not available");
   await db.delete(ticketTypes).where(eq(ticketTypes.id, id));
   return { success: true };
+}
+
+/** "Cerrar esta tanda y activar la siguiente" (flujo del admin, pedido
+ * explícito del dueño: el avance de fase queda MANUAL -- nada acá se
+ * dispara solo por fecha ni por cupo agotado, solo lo arma este llamado).
+ * Para cada fila hoy activa: la marca `soldout` (mismo status que
+ * TandaUrgencyCard en Home.tsx ya trata como "tanda terminada", no hace
+ * falta un valor nuevo de status) y crea una fila NUEVA con el mismo
+ * eventId/accesoSlug/category/name/originalPrice -- el precio general es el
+ * techo fijo entre fases, solo cambia el precio VIGENTE -- pero con el
+ * price/totalStock/stockPoolId de la fase nueva que cargó el admin, ya en
+ * `status: 'active'`.
+ *
+ * Sin `db.transaction()` explícita -- mismo criterio que el resto de este
+ * archivo (ver markMailingRecipientResult): si se corta a mitad de camino,
+ * el peor caso es una tanda con algunas filas ya cerradas y otras aún por
+ * abrir, visible y corregible a mano en el admin, no un dato perdido. Una
+ * fila que ya no existe o es de otro evento se salta sin abortar el resto. */
+export async function advanceTanda(
+  eventId: number,
+  rows: { oldTicketTypeId: number; newPrice: number; newTotalStock: number; newStockPoolId?: number | null }[],
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) throw new Error("Evento no encontrado");
+  const schedule = normalizeTandaSchedule(event.tandaDiscountSchedule);
+  const next = nextPhase(event.tandaPhaseIndex, schedule);
+
+  let count = 0;
+  for (const row of rows) {
+    const [old] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, row.oldTicketTypeId)).limit(1);
+    if (!old || old.eventId !== eventId) continue;
+
+    await db.update(ticketTypes).set({ status: 'soldout' }).where(eq(ticketTypes.id, row.oldTicketTypeId));
+
+    await db.insert(ticketTypes).values({
+      eventId,
+      name: old.name,
+      accesoSlug: old.accesoSlug,
+      category: old.category,
+      description: old.description,
+      price: String(row.newPrice),
+      originalPrice: old.originalPrice ?? undefined,
+      totalStock: row.newTotalStock,
+      maxPerOrder: old.maxPerOrder,
+      sortOrder: old.sortOrder,
+      status: 'active',
+      stockPoolId: row.newStockPoolId ?? null,
+    });
+    count++;
+  }
+
+  // Avanza la fase del evento junto con las filas, en el mismo llamado --
+  // así el próximo click de "Cerrar tanda" ya precarga el % correcto. Si ya
+  // se llegó al final de la escala (`next` null), NO se toca el índice:
+  // "Cerrar tanda" sigue funcionando como herramienta manual libre (ej. un
+  // ajuste de precio ad-hoc fuera de la escala), solo deja de avanzar la
+  // fase automáticamente una vez agotada.
+  if (next) {
+    await db.update(events).set({ tandaPhaseIndex: next.index }).where(eq(events.id, eventId));
+  }
+
+  return { success: true, count, newPhaseIndex: next ? next.index : event.tandaPhaseIndex };
+}
+
+// Cupos compartidos (stockPools) -- ver comentario en drizzle/schema.ts.
+// El admin sigue viendo el número real (vendidos / cap); lo que se esconde
+// es solo la vista pública (TandaUrgencyCard en Home.tsx).
+
+/** Para el panel del admin: cada pool con su remanente REAL calculado
+ * (nunca se esconde acá -- eso es solo en la vista pública). */
+export async function getStockPoolsByEventId(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const pools = await db.select().from(stockPools).where(eq(stockPools.eventId, eventId)).orderBy(desc(stockPools.createdAt));
+  return Promise.all(pools.map(async (pool) => {
+    const info = await getStockPoolRemaining(pool.id);
+    return { ...pool, sold: info?.sold ?? 0, remaining: info?.remaining ?? pool.totalCap };
+  }));
+}
+
+export async function createStockPool(data: { eventId: number; name: string; totalCap: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(stockPools).values(data);
+  return { success: true };
+}
+
+export async function updateStockPool(id: number, data: { name?: string; totalCap?: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(stockPools).set(data).where(eq(stockPools.id, id));
+  return { success: true };
+}
+
+/** Solo se puede borrar un pool que ya no tiene ninguna ticketType apuntándole
+ * -- si no, quedarían filas con un stockPoolId fantasma y createOrder dejaría
+ * de aplicar el límite compartido sin que nadie lo haya decidido a propósito. */
+export async function deleteStockPool(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [inUse] = await db.select({ id: ticketTypes.id }).from(ticketTypes).where(eq(ticketTypes.stockPoolId, id)).limit(1);
+  if (inUse) throw new Error('Este cupo compartido todavía tiene accesos asignados -- desasígnalos antes de borrarlo.');
+  await db.delete(stockPools).where(eq(stockPools.id, id));
+  return { success: true };
+}
+
+/** Remanente real de un cupo compartido: cap total menos lo YA VENDIDO
+ * (soldCount, no pending) de todas las ticketTypes que apuntan a este pool
+ * -- mismo criterio que "totalStock - soldCount" por fila, solo que sumado
+ * entre varias filas en vez de una. */
+export async function getStockPoolRemaining(poolId: number): Promise<{ pool: StockPool; remaining: number; sold: number } | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [pool] = await db.select().from(stockPools).where(eq(stockPools.id, poolId)).limit(1);
+  if (!pool) return null;
+  const [row] = await db
+    .select({ sold: sql<number>`coalesce(sum(${ticketTypes.soldCount}), 0)` })
+    .from(ticketTypes)
+    .where(eq(ticketTypes.stockPoolId, poolId));
+  const sold = Number(row?.sold ?? 0);
+  return { pool, remaining: Math.max(0, pool.totalCap - sold), sold };
+}
+
+/** Parte pura de la validación de cupo compartido en createOrder(): recibe
+ * el remanente YA CALCULADO de cada pool involucrado (ver
+ * getStockPoolRemaining, que sí toca la base de datos) para poder testearla
+ * sola. Suma lo pedido para cada pool EN ESTA MISMA orden -- alguien puede
+ * pedir un Dúo + una Soltera del mismo pozo en una sola compra -- y tira si
+ * el total pedido supera el remanente real de ese pool. Un pool en
+ * `poolRemainingById` que no aparece (ej. se borró entre que se leyó y se
+ * validó) no bloquea la compra: mejor vender de más por una carrera rarísima
+ * que trabar el checkout entero por un pool fantasma. */
+export function validateStockPoolCapacity(
+  items: { ticketTypeId: number; quantity: number }[],
+  ticketTypesForEvent: { id: number; stockPoolId: number | null }[],
+  poolRemainingById: Map<number, { remaining: number; name: string }>,
+): void {
+  const poolRequested = new Map<number, number>();
+  for (const item of items) {
+    const tt = ticketTypesForEvent.find((t) => t.id === item.ticketTypeId);
+    if (tt?.stockPoolId != null) {
+      poolRequested.set(tt.stockPoolId, (poolRequested.get(tt.stockPoolId) ?? 0) + item.quantity);
+    }
+  }
+  for (const [poolId, requested] of Array.from(poolRequested.entries())) {
+    const poolInfo = poolRemainingById.get(poolId);
+    if (!poolInfo) continue;
+    if (requested > poolInfo.remaining) {
+      throw new Error(`Quedan solo ${poolInfo.remaining} cupos de "${poolInfo.name}" -- no alcanza para esta compra`);
+    }
+  }
 }
 
 /** Datos públicos de un ticket para la página "Mi entrada" (/verificar/:ticketCode)
@@ -439,6 +625,60 @@ export async function deleteCommunityCode(id: number) {
   return { success: true };
 }
 
+// Leads (captura de contacto sin compra, ver drizzle/schema.ts)
+export async function createLead(data: {
+  email: string; phone?: string; instagram?: string; eventId?: number;
+  source?: string; utmSource?: string; utmMedium?: string; utmCampaign?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const email = data.email.trim().toLowerCase();
+  const values = { ...data, email, source: data.source ?? 'price_alert' };
+  // Reenviar el mismo formulario para el mismo evento actualiza el lead
+  // existente (mismo email + eventId) en vez de duplicarlo -- ver el índice
+  // único en drizzle/schema.ts.
+  await db.insert(leads).values(values).onDuplicateKeyUpdate({
+    set: { phone: values.phone, instagram: values.instagram, source: values.source },
+  });
+  return { success: true };
+}
+
+export async function getAllLeads() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(leads).orderBy(desc(leads.createdAt));
+}
+
+export async function deleteLead(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(leads).where(eq(leads.id, id));
+  return { success: true };
+}
+
+/** Cuando una compra se aprueba, marca cualquier lead que dejó ESE correo
+ * como convertido (ver la lógica real en `server/leadsMailing.ts`, separada
+ * para poder probarla con un doble de base, mismo criterio que
+ * `server/caja/sale.ts`). Nunca lanza: se llama desde `processApprovedOrder`
+ * y un problema acá no puede bloquear la confirmación de una compra real. */
+export async function matchLeadForOrder(order: { buyerEmail: string; id: number }): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await matchLeadForOrderImpl(db, order);
+  } catch (err) {
+    console.warn('[leads] no se pudo marcar como convertido', order.id, err);
+  }
+}
+
+/** Convierte los leads sin convertir en audiencia de mailing (lógica real en
+ * `server/leadsMailing.ts`). */
+export async function syncLeadsAsMailingAudience(filter: { eventId?: number } = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  return syncLeadsAsMailingAudienceImpl(db, filter);
+}
+
 // Lista de bloqueo de clientes (por RUT) -- ver el chequeo en createOrder.
 export async function getAllBlockedCustomers() {
   const db = await getDb();
@@ -472,15 +712,15 @@ export async function deleteBlockedCustomer(id: number) {
 // recargo por servicio (%) que se suma a toda venta nueva)
 export async function getSiteSettings() {
   const db = await getDb();
-  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null };
+  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) return row;
-  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null };
+  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
 }
 
 export async function updateSiteSettings(data: {
   instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number;
-  kitchenVendorName?: string | null; kitchenVendorEmail?: string | null;
+  kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -563,6 +803,10 @@ export async function createOrder(input: {
   ambassadorCode?: string;
   communityCode?: string;
   attendeeData?: string;
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmContent?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -601,6 +845,11 @@ export async function createOrder(input: {
   for (const item of input.items) {
     const tt = tts.find(t => t.id === item.ticketTypeId);
     if (!tt) throw new Error(`Ticket type ${item.ticketTypeId} not found`);
+    // Una fila cerrada por "Cerrar tanda" (manual o automático, ver
+    // server/tandaAutoAdvance.ts) queda `status: 'soldout'` -- sin este
+    // chequeo, alguien con el id viejo guardado podría seguir comprando al
+    // precio de la fase anterior indefinidamente mientras le quedara stock.
+    if (tt.status !== 'active') throw new Error(`${tt.name} ya no está disponible a este precio -- actualizá la página e intentá de nuevo.`);
     const available = tt.totalStock - tt.soldCount;
     if (item.quantity > available) throw new Error(`Not enough stock for ${tt.name}`);
     const useDeposit = missionOpen && tt.category === 'acceso';
@@ -611,6 +860,24 @@ export async function createOrder(input: {
     subtotal += lineTotal;
     if (tt.category === 'acceso') accesoSubtotal += lineTotal;
   }
+
+  // Cupo compartido (stockPools): además del stock por fila de arriba, si
+  // algún item pertenece a un pool hay que sumar TODO lo pedido para ese
+  // mismo pool EN ESTA MISMA orden (alguien puede pedir un Dúo + una Soltera
+  // en una sola compra, ambos del mismo pozo de 40) y rechazar si supera el
+  // remanente real. Este es el bloqueo de verdad -- la home solo lo muestra,
+  // acá es donde se hace cumplir. El remanente se calcula acá (necesita DB)
+  // y la validación en sí vive en validateStockPoolCapacity(), pura, para
+  // poder testearla sin base de datos.
+  const poolIdsInOrder = Array.from(new Set(
+    input.items.map((i) => tts.find((t) => t.id === i.ticketTypeId)?.stockPoolId).filter((id): id is number => id != null),
+  ));
+  const poolRemainingById = new Map<number, { remaining: number; name: string }>();
+  for (const poolId of poolIdsInOrder) {
+    const info = await getStockPoolRemaining(poolId);
+    if (info) poolRemainingById.set(poolId, { remaining: info.remaining, name: info.pool.name });
+  }
+  validateStockPoolCapacity(input.items, tts, poolRemainingById);
 
   // Apply discount — solo sobre el subtotal de accesos, nunca sobre extras.
   let discountAmount = 0;
@@ -668,6 +935,10 @@ export async function createOrder(input: {
     paymentStatus: 'pending',
     missionDeposit: missionDeposit ? 1 : 0,
     attendeeData: input.attendeeData,
+    utmSource: input.utmSource,
+    utmMedium: input.utmMedium,
+    utmCampaign: input.utmCampaign,
+    utmContent: input.utmContent,
   });
 
   const orderId = orderResult.insertId;
@@ -710,9 +981,53 @@ export async function createOrder(input: {
     for (const item of input.items) {
       await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
     }
+    // Esta compra gratis puede ser justo la que agota el cupo compartido de
+    // la tanda vigente -- chequea acá mismo si toca pasar de fase sola (ver
+    // server/tandaAutoAdvance.ts).
+    await checkAndAdvanceTandaIfNeeded(event.id);
   }
 
   return { orderId, orderNumber, total, isFree };
+}
+
+/** Reporte "ventas por origen" (agujero 2 del plan de ventas: con $0 de
+ * pauta, saber qué reel/historia/link trae ventas de verdad es la única
+ * ventaja competitiva que hay). Agrupa por utmSource/utmMedium/utmCampaign,
+ * solo ventas web ya aprobadas -- pending no es venta todavía, caja/import
+ * nunca traen UTM porque no pasan por un link. Las que no vinieron de un
+ * link etiquetado (directo, buscador, embajador con su propio código) caen
+ * en el grupo "(sin UTM)", que sigue siendo información útil: cuánto de la
+ * venta total no se puede explicar por ningún link. */
+export async function getSalesByUtmOrigin(eventId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Sin `eventId` este reporte mezclaba las campañas de todas las fiestas, que
+  // es justo lo contrario de para lo que sirve: saber qué contenido trajo
+  // ventas de ESTA campaña.
+  const conditions = [eq(orders.paymentStatus, 'approved'), eq(orders.channel, 'web')];
+  if (eventId) conditions.push(eq(orders.eventId, eventId));
+
+  const rows = await db
+    .select({
+      utmSource: orders.utmSource,
+      utmMedium: orders.utmMedium,
+      utmCampaign: orders.utmCampaign,
+      ordersCount: sql<number>`count(*)`,
+      revenue: sql<number>`sum(${orders.total})`,
+    })
+    .from(orders)
+    .where(and(...conditions))
+    .groupBy(orders.utmSource, orders.utmMedium, orders.utmCampaign)
+    .orderBy(desc(sql`sum(${orders.total})`));
+
+  return rows.map((r) => ({
+    utmSource: r.utmSource ?? '(sin UTM)',
+    utmMedium: r.utmMedium ?? null,
+    utmCampaign: r.utmCampaign ?? null,
+    ordersCount: Number(r.ordersCount),
+    revenue: Number(r.revenue ?? 0),
+  }));
 }
 
 /** Parte pura de createManualOrder(): valida stock y calcula el precio de
@@ -1043,7 +1358,7 @@ export async function listManualOrders() {
 /** `channel`: 'web' = ventas del sitio (incluye 'import', la migración de la
  * ticketera anterior -- nunca fueron ventas de caja); 'caja' = solo ventas
  * presenciales. Nunca se mezclan en pantalla (pedido explícito del usuario). */
-export async function getAllOrders(page: number = 1, limit: number = 50, status?: string, channel?: 'web' | 'caja') {
+export async function getAllOrders(page: number = 1, limit: number = 50, status?: string, channel?: 'web' | 'caja', eventId?: number) {
   const db = await getDb();
   if (!db) return { orders: [], total: 0 };
 
@@ -1052,6 +1367,9 @@ export async function getAllOrders(page: number = 1, limit: number = 50, status?
   if (status) conditions.push(eq(orders.paymentStatus, status as any));
   if (channel === 'caja') conditions.push(eq(orders.channel, 'caja'));
   else if (channel === 'web') conditions.push(sql`${orders.channel} != 'caja'`);
+  // Sin este filtro, Ventas Web y Ventas Caja mezclaban las órdenes de todas
+  // las fiestas en una sola lista.
+  if (eventId) conditions.push(eq(orders.eventId, eventId));
   const query = db.select().from(orders)
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(orders.createdAt)).limit(limit).offset(offset);
@@ -1142,6 +1460,15 @@ export function computeOrderDeleteEffects(
  *   saldo con `adjustPlaycoinsManually`, que agrega una fila nueva de
  *   ajuste y mantiene la auditoría completa.
  * Qué ajustar exactamente sale de computeOrderDeleteEffects(). */
+/** La orden cruda, para la foto que guarda la bitácora antes de borrarla.
+ * Devuelve `null` si no existe. */
+export async function getOrderById(orderId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  return order ?? null;
+}
+
 export async function deleteOrderCascade(orderId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1202,6 +1529,20 @@ export async function resetEventTestData(eventId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+  // Freno de mano: si el evento YA tiene un turno cerrado, esto dejó de ser
+  // un evento de prueba y pasó a ser plata real. Un click acá borraría las
+  // ventas de la noche entera, y el arqueo ya cerrado quedaría apuntando a
+  // ventas que no existen. Se puede seguir reiniciando mientras se prueba
+  // (ningún turno cerrado todavía), que es para lo que se hizo el botón.
+  const [closedShift] = await db.select({ id: shifts.id }).from(shifts)
+    .where(and(eq(shifts.eventId, eventId), eq(shifts.status, 'closed'))).limit(1);
+  if (closedShift) {
+    throw new Error(
+      'Este evento ya tiene un cierre de caja guardado, así que sus ventas no son de prueba. ' +
+      'Si de verdad quieres reiniciarlo, elimina primero el cierre de turno desde Gastos y P&L.',
+    );
+  }
+
   const cajaOrders = await db.select({ id: orders.id }).from(orders)
     .where(and(eq(orders.eventId, eventId), eq(orders.channel, 'caja')));
   const orderIds = cajaOrders.map((o) => o.id);
@@ -1217,10 +1558,12 @@ export async function resetEventTestData(eventId: number) {
     await deleteOrderCascade(id);
   }
 
-  await db.delete(ops).where(and(
-    eq(ops.eventId, eventId),
-    inArray(ops.type, ['sale', 'shift_open', 'shift_close', 'manual_adjust', 'locker_return', 'kitchen_update', 'void_code']),
-  ));
+  // El ledger `ops` NO se toca. Es la única prueba de que esas operaciones
+  // existieron -- incluidas las anulaciones y los ajustes de supervisor, o
+  // sea justo lo que habría que auditar si alguien usara este botón para
+  // tapar algo. Borrarlo dejaba al sistema sin forma de contradecir a nadie.
+  // Las ventas ya se revirtieron arriba, así que el conteo de plata queda
+  // limpio igual; lo que sobrevive es el registro de qué pasó.
   await db.delete(shifts).where(eq(shifts.eventId, eventId));
 
   // soldCount de la carta ya vuelve a 0 solo al revertir cada venta arriba
@@ -1229,7 +1572,7 @@ export async function resetEventTestData(eventId: number) {
   await db.update(ticketTypes).set({ soldCount: 0, status: 'active' })
     .where(and(eq(ticketTypes.eventId, eventId), inArray(ticketTypes.category, ['consumo', 'locker', 'merch'])));
 
-  return { ordersDeleted: orderIds.length };
+  return { ordersDeleted: orderIds.length, opsPreserved: true };
 }
 
 // Export completo (sin paginar) para CSV — filtra por evento/rango de fechas/estado.
@@ -1266,11 +1609,18 @@ export async function getOrdersForExport(filters: { eventId?: number; dateFrom?:
   return rows;
 }
 
-export async function getOrderStats(channel?: 'web' | 'caja') {
+export async function getOrderStats(channel?: 'web' | 'caja', eventId?: number) {
   const db = await getDb();
   if (!db) return { totalOrders: 0, totalRevenue: 0, approvedOrders: 0 };
 
-  const where = channel === 'caja' ? eq(orders.channel, 'caja') : channel === 'web' ? sql`${orders.channel} != 'caja'` : undefined;
+  // `eventId` no estaba y por eso "Ingresos Totales" sumaba TODAS las fiestas
+  // de la historia mientras el panel lo mostraba como si fuera del evento que
+  // estás mirando.
+  const conditions = [];
+  if (channel === 'caja') conditions.push(eq(orders.channel, 'caja'));
+  else if (channel === 'web') conditions.push(sql`${orders.channel} != 'caja'`);
+  if (eventId) conditions.push(eq(orders.eventId, eventId));
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
   const [stats] = await db.select({
     totalOrders: sql<number>`COUNT(*)`,
     totalRevenue: sql<number>`COALESCE(SUM(CASE WHEN paymentStatus = 'approved' THEN total ELSE 0 END), 0)`,
@@ -2153,6 +2503,52 @@ export async function resolveConflict(rawDb: any, params: { opId: string; eventI
 /** Utilidad/margen por producto de un evento -- unitCost queda congelado al
  * momento de la venta (§12), así que si el costo cambia después esto sigue
  * reflejando la utilidad real de ESE evento, no la de hoy. */
+/** Cómo se compone lo recaudado de un evento: por canal (web vs caja) y, en
+ * caja, por medio de pago.
+ *
+ * `getProfitReport` responde "qué producto dejó más margen" sobre precios de
+ * lista; esto responde "de dónde salió la plata", que es otra pregunta y la
+ * que hace falta para cuadrar contra el banco y contra el cajón. */
+export async function getEventSalesBreakdown(eventId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const rows = await db.select({
+    channel: orders.channel,
+    paymentMethod: orders.paymentMethod,
+    total: orders.total,
+  }).from(orders).where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved')));
+
+  let webTotal = 0, webCount = 0, cajaTotal = 0, cajaCount = 0;
+  const cajaByMethod = new Map<string, { count: number; total: number }>();
+  const webByMethod = new Map<string, { count: number; total: number }>();
+
+  for (const r of rows as any[]) {
+    const amount = Number(r.total);
+    const key = r.paymentMethod ?? 'sin medio';
+    if (r.channel === 'caja') {
+      cajaTotal += amount; cajaCount += 1;
+      const e = cajaByMethod.get(key) ?? { count: 0, total: 0 };
+      e.count += 1; e.total += amount; cajaByMethod.set(key, e);
+    } else {
+      webTotal += amount; webCount += 1;
+      const e = webByMethod.get(key) ?? { count: 0, total: 0 };
+      e.count += 1; e.total += amount; webByMethod.set(key, e);
+    }
+  }
+
+  const toList = (m: Map<string, { count: number; total: number }>) =>
+    Array.from(m.entries())
+      .map(([method, v]) => ({ method, ...v }))
+      .sort((a, b) => b.total - a.total);
+
+  return {
+    web: { total: webTotal, count: webCount, byMethod: toList(webByMethod) },
+    caja: { total: cajaTotal, count: cajaCount, byMethod: toList(cajaByMethod) },
+    total: webTotal + cajaTotal,
+  };
+}
+
 export async function getProfitReport(eventId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -2376,6 +2772,96 @@ export async function materializeRecurringExpenses(monthKey: string) {
   }
 }
 
+/** Las suscripciones activas: los gastos marcados como "se repite todos los
+ * meses", que son las plantillas de las que sale una copia cada mes.
+ *
+ * No se veían en ninguna parte del panel: se marcaban al crear el gasto y
+ * después seguían generando copias sin que nadie pudiera revisarlas ni darlas
+ * de baja. Se incluye `eventId` a propósito -- una plantilla cargada a un
+ * evento es la combinación que le sigue restando a esa fiesta todos los
+ * meses, y ahora se ve. */
+/** Materializa los gastos fijos DE CADA FIESTA para un evento puntual.
+ *
+ * Los eventos de esta productora no son mensuales: hay meses con dos fiestas
+ * y meses sin ninguna. Atar un costo fijo de fiesta al calendario mensual
+ * cobraba de más en los primeros y de menos en los segundos. Una plantilla
+ * `recurrence='por_evento'` (el DJ, la seguridad, el arriendo del local) se
+ * copia una vez por evento y se carga completa a esa fiesta.
+ *
+ * Idempotente por el único (recurringParentId, eventId), así que dos pestañas
+ * pidiendo el reporte al mismo tiempo no duplican nada -- mismo criterio que
+ * `materializeRecurringExpenses`, y por eso tampoco necesita cron. */
+export async function materializeEventRecurringExpenses(eventId: number) {
+  const db = await getDb();
+  if (!db) return;
+
+  const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) return;
+  const eventDate = new Date(event.eventDate);
+
+  const templates = await db.select().from(expenses).where(eq(expenses.recurrence, 'por_evento'));
+
+  for (const t of templates as any[]) {
+    // Una plantilla nunca se aplica hacia atrás: cargar hoy "el DJ de cada
+    // fiesta" no puede cambiarle el resultado a las fiestas que ya pasaron y
+    // que el dueño ya revisó.
+    if (new Date(t.expenseDate) > eventDate) continue;
+    if (t.recurrenceEndsAt && new Date(t.recurrenceEndsAt) < eventDate) continue;
+
+    await db.insert(expenses).values({
+      scope: 'evento',
+      eventId,
+      periodMonth: monthKeyFor(event.eventDate),
+      // La fecha de la copia es la de la fiesta, no la de la plantilla: así
+      // cae en el mes correcto y se ordena junto al resto de esa noche.
+      expenseDate: eventDate,
+      category: t.category,
+      description: t.description,
+      supplier: t.supplier,
+      supplierRut: t.supplierRut,
+      documentType: t.documentType,
+      documentNumber: t.documentNumber,
+      ivaExempt: t.ivaExempt,
+      amountTotal: t.amountTotal,
+      netAmount: t.netAmount,
+      ivaAmount: t.ivaAmount,
+      paymentMethod: t.paymentMethod,
+      recurrence: 'none',
+      recurringParentId: t.id,
+      excludeFromPnl: t.excludeFromPnl,
+      prorate: t.prorate,
+      notes: t.notes,
+      createdByUserId: t.createdByUserId,
+    }).onDuplicateKeyUpdate({ set: { id: sql`id` } });
+  }
+}
+
+export async function listRecurringExpenses() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(expenses)
+    .where(ne(expenses.recurrence, 'none'))
+    .orderBy(desc(expenses.expenseDate));
+
+  const eventIds = Array.from(new Set(rows.map((r: any) => r.eventId).filter((id: any) => id != null)));
+  const eventRows = eventIds.length ? await db.select({ id: events.id, title: events.title }).from(events).where(inArray(events.id, eventIds)) : [];
+  const titleById = new Map(eventRows.map((e: any) => [e.id, e.title]));
+
+  return rows.map((r: any) => ({
+    id: r.id,
+    description: r.description,
+    supplier: r.supplier,
+    category: r.category,
+    amountTotal: Number(r.amountTotal),
+    scope: r.scope,
+    recurrence: r.recurrence as 'mensual' | 'por_evento',
+    eventId: r.eventId,
+    eventTitle: r.eventId ? (titleById.get(r.eventId) ?? `Evento #${r.eventId}`) : null,
+    expenseDate: r.expenseDate,
+    recurrenceEndsAt: r.recurrenceEndsAt,
+  }));
+}
+
 export async function listExpenses(filters: {
   eventId?: number;
   monthKey?: string;
@@ -2385,14 +2871,23 @@ export async function listExpenses(filters: {
   const db = await getDb();
   if (!db) return [];
 
+  // Mismo criterio que getEventPnl: las copias de los gastos fijos de cada
+  // fiesta se crean al pedir la lista, así el dueño las ve junto al resto en
+  // vez de "aparecer" recién en el reporte.
+  if (filters.eventId) await materializeEventRecurringExpenses(filters.eventId);
+  if (filters.monthKey) await materializeRecurringExpenses(filters.monthKey);
+
   const conditions = [];
   if (filters.eventId) conditions.push(eq(expenses.eventId, filters.eventId));
   if (filters.monthKey) conditions.push(eq(expenses.periodMonth, filters.monthKey));
   if (filters.scope) conditions.push(eq(expenses.scope, filters.scope));
   if (filters.category) conditions.push(eq(expenses.category, filters.category as any));
+  // Las plantillas nunca aparecen en la lista de gastos: no son plata gastada,
+  // son la regla de la que salen las copias. Se ven en su propio panel.
+  conditions.push(eq(expenses.recurrence, 'none'));
 
   const rows = await db.select().from(expenses)
-    .where(conditions.length ? and(...conditions) : undefined)
+    .where(and(...conditions))
     .orderBy(desc(expenses.expenseDate))
     .limit(500);
 
@@ -2504,6 +2999,9 @@ export async function getEventPnl(eventId: number) {
 
   const monthKey = monthKeyFor(event.eventDate);
   await materializeRecurringExpenses(monthKey);
+  // Los costos fijos de CADA fiesta (el DJ, la seguridad) se copian a este
+  // evento antes de calcular: si no, el resultado saldría sin ellos.
+  await materializeEventRecurringExpenses(eventId);
 
   // Ingreso del evento y de todos los eventos del mismo mes (para el peso del
   // prorrateo). Se traen las órdenes aprobadas una sola vez y se agrupa acá:
@@ -2554,14 +3052,14 @@ export async function getEventPnl(eventId: number) {
     eq(expenses.scope, 'evento'),
     eq(expenses.eventId, eventId),
     eq(expenses.excludeFromPnl, 0),
-    ne(expenses.recurrence, 'mensual'),
+    eq(expenses.recurrence, 'none'),
   ));
   const generalRows = await db.select().from(expenses).where(and(
     eq(expenses.scope, 'general'),
     eq(expenses.periodMonth, monthKey),
     eq(expenses.excludeFromPnl, 0),
     eq(expenses.prorate, 1),
-    ne(expenses.recurrence, 'mensual'),
+    eq(expenses.recurrence, 'none'),
   ));
 
   const pnl = computePnl({
@@ -2688,7 +3186,7 @@ export async function getPnlComparison(eventIds?: number[]) {
 
   const allExpenses = await db.select().from(expenses).where(and(
     eq(expenses.excludeFromPnl, 0),
-    ne(expenses.recurrence, 'mensual'),
+    eq(expenses.recurrence, 'none'),
   ));
   const directByEvent = new Map<number, any[]>();
   const generalByMonth = new Map<string, any[]>();
@@ -2758,7 +3256,7 @@ export async function getMonthlyExpenseSummary(monthKey: string) {
 
   const rows = await db.select().from(expenses).where(and(
     eq(expenses.periodMonth, monthKey),
-    ne(expenses.recurrence, 'mensual'),
+    eq(expenses.recurrence, 'none'),
   ));
 
   const byCategory = new Map<string, number>();
@@ -2796,7 +3294,9 @@ export async function getPeakHours(eventId: number) {
   if (!db) return [];
   const rows = await db.select({ serverAt: ops.serverAt }).from(ops).where(eq(ops.eventId, eventId));
   const counts = new Array(24).fill(0);
-  for (const r of rows) counts[new Date(r.serverAt).getHours()]++;
+  // `getHours()` daba la hora del runtime, que en Vercel es UTC: el gráfico
+  // salía corrido 3-4 horas respecto de la hora real de la fiesta.
+  for (const r of rows) counts[chileHourOf(r.serverAt)]++;
   return counts.map((count, hour) => ({ hour, count }));
 }
 
@@ -2880,22 +3380,60 @@ export async function deleteRegister(id: number) {
 
 /** Cuadre de caja (pedido explícito del usuario): abre un turno persistido
  * con el efectivo inicial declarado por la cajera. Si ya hay un turno
- * abierto para el mismo evento+caja (p. ej. refresh de página), se reusa en
- * vez de crear uno nuevo -- así "abrir turno" es idempotente por sesión. */
+ * abierto para el mismo evento+caja (p. ej. refresh de página, o la tablet
+ * que reinició la PWA a mitad de la noche), se reusa en vez de crear uno
+ * nuevo -- así "abrir turno" es idempotente.
+ *
+ * Devuelve `alreadyOpen` y el `openingCash` que quedó REALMENTE vigente:
+ * antes esta función devolvía solo el id y el monto recién contado se
+ * descartaba en silencio, así que la cajera contaba las 9 denominaciones de
+ * nuevo, la UI le confirmaba que había abierto turno, y el cuadre final se
+ * calculaba con el fondo viejo. Ahora el llamador puede avisarle que el
+ * turno ya estaba abierto y con qué fondo. */
 export async function openShift(params: { eventId: number; operatorId: number; registerId?: number; openingCash: number }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const existing = await getOpenShift(params.eventId, params.registerId);
-  if (existing) return existing.id;
+  if (existing) {
+    return {
+      shiftId: existing.id,
+      alreadyOpen: true,
+      openingCash: Number(existing.openingCash),
+      openedAt: existing.openedAt,
+    };
+  }
 
-  const [result] = await db.insert(shifts).values({
-    eventId: params.eventId,
-    operatorId: params.operatorId,
-    registerId: params.registerId ?? null,
-    openingCash: String(params.openingCash),
-  });
-  return (result as unknown as { insertId: number }).insertId;
+  try {
+    const [result] = await db.insert(shifts).values({
+      eventId: params.eventId,
+      operatorId: params.operatorId,
+      registerId: params.registerId ?? null,
+      openingCash: String(params.openingCash),
+    });
+    return {
+      shiftId: (result as unknown as { insertId: number }).insertId,
+      alreadyOpen: false,
+      openingCash: params.openingCash,
+      openedAt: new Date(),
+    };
+  } catch (err: any) {
+    // Índice único `shifts_open_unique`: dos tablets que abrieron la misma
+    // caja en el mismo instante. El SELECT de arriba no alcanza porque esto
+    // no corre en una transacción -- acá se convierte la carrera en el mismo
+    // caso "ya estaba abierto" de siempre, en vez de un error críptico que
+    // dejaría a la cajera sin poder vender.
+    const isDuplicate = err?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(String(err?.message ?? ''));
+    if (!isDuplicate) throw err;
+    const raced = await getOpenShift(params.eventId, params.registerId);
+    if (!raced) throw err;
+    return {
+      shiftId: raced.id,
+      alreadyOpen: true,
+      openingCash: Number(raced.openingCash),
+      openedAt: raced.openedAt,
+    };
+  }
 }
 
 /** Turno abierto para un evento+caja (o "sin caja asignada" si registerId es
@@ -2938,28 +3476,54 @@ export async function closeShift(params: {
 
   const closedAt = new Date();
 
+  // Ventana del turno: desde que se abrió hasta que se cierra. El límite
+  // superior importa -- sin él, una venta que sincroniza desde una tablet
+  // offline JUSTO mientras se procesa el cierre entraba al esperado sin
+  // estar en el conteo físico del cajón.
   const shiftSalesConditions = [
     eq(orders.eventId, shift.eventId),
     eq(orders.channel, 'caja'),
     eq(orders.paymentStatus, 'approved'),
     gte(orders.createdAt, shift.openedAt),
+    lte(orders.createdAt, closedAt),
   ];
-  if (shift.registerId) shiftSalesConditions.push(eq(orders.registerId, shift.registerId));
-  const shiftSales = await db.select({ total: orders.total, paymentMethod: orders.paymentMethod })
-    .from(orders).where(and(...shiftSalesConditions));
+  // Turno CON caja asignada: solo sus ventas. Turno SIN caja asignada: solo
+  // las ventas que tampoco tienen caja -- antes no se filtraba nada, así que
+  // un turno sin caja se tragaba las ventas de TODAS las cajas del evento y
+  // su arqueo no significaba nada (crítico ahora que van a operar 2 cajas
+  // en paralelo).
+  shiftSalesConditions.push(
+    shift.registerId ? eq(orders.registerId, shift.registerId) : isNull(orders.registerId),
+  );
+  const fetchedSales = await db.select({
+    total: orders.total, paymentMethod: orders.paymentMethod,
+    createdAt: orders.createdAt, registerId: orders.registerId,
+  }).from(orders).where(and(...shiftSalesConditions));
+  // El SQL de arriba es solo para traer menos filas: quien decide qué venta
+  // es de este turno es `filterShiftSales`, que está probado en
+  // `server/caja/shiftMath.test.ts`. Antes esta decisión vivía únicamente en
+  // el SQL y por eso nunca se pudo probar.
+  const shiftSales = filterShiftSales(fetchedSales as any[], {
+    openedAt: shift.openedAt, closedAt, registerId: shift.registerId,
+  });
 
-  let expectedCash = 0, expectedDebit = 0, expectedCredit = 0, expectedQr = 0;
-  for (const s of shiftSales) {
-    const amount = Number(s.total);
-    if (s.paymentMethod === 'efectivo') expectedCash += amount;
-    else if (s.paymentMethod === 'debito') expectedDebit += amount;
-    else if (s.paymentMethod === 'credito') expectedCredit += amount;
-    else if (s.paymentMethod === 'qr') expectedQr += amount;
-  }
+  // Efectivo que SALIÓ del cajón durante el turno (pagarle al DJ, mandar por
+  // hielo): la columna `expenses.paidFromShiftId` existía desde siempre, se
+  // guardaba, y no la leía nadie -- el comentario del schema ya advertía que
+  // "sin esto, closeShift lo lee como plata faltante". Se resta del efectivo
+  // esperado: esa plata legítimamente ya no está en el cajón.
+  const drawerExpenses = await db.select({ amountTotal: expenses.amountTotal })
+    .from(expenses).where(eq(expenses.paidFromShiftId, shift.id));
+  const cashPaidOut = drawerExpenses.reduce((sum: number, e: any) => sum + Number(e.amountTotal ?? 0), 0);
+
+  const { expectedCash, expectedDebit, expectedCredit, expectedQr } = computeExpectedTotals(shiftSales, cashPaidOut);
 
   const redeemsCount = await db.select({ count: sql<number>`count(*)` }).from(ops).where(and(
-    eq(ops.eventId, shift.eventId), eq(ops.type, 'redeem'), eq(ops.result, 'applied'), gte(ops.serverAt, shift.openedAt),
-    ...(shift.registerId ? [eq(ops.registerId, shift.registerId)] : []),
+    eq(ops.eventId, shift.eventId), eq(ops.type, 'redeem'), eq(ops.result, 'applied'),
+    gte(ops.serverAt, shift.openedAt), lte(ops.serverAt, closedAt),
+    // Mismo criterio que las ventas de arriba: sin caja asignada cuenta
+    // solo lo suyo, no los canjes de las otras cajas.
+    shift.registerId ? eq(ops.registerId, shift.registerId) : isNull(ops.registerId),
   ));
 
   // "Cómo terminó la fiesta": top 3 clientes/productos del evento completo,
@@ -3016,6 +3580,7 @@ export async function closeShift(params: {
     expectedDebit: String(expectedDebit),
     expectedCredit: String(expectedCredit),
     expectedQr: String(expectedQr),
+    cashPaidOut: String(cashPaidOut),
     salesCount: shiftSales.length,
     redeemsCount: Number(redeemsCount[0]?.count ?? 0),
     topCustomers,
@@ -3044,7 +3609,11 @@ export async function closeShift(params: {
     expectedDebit,
     expectedCredit,
     expectedQr,
-    cashDiff: params.countedCash - expectedCash - Number(shift.openingCash),
+    // Efectivo sacado del cajón durante el turno (ya restado de expectedCash)
+    // -- se expone aparte para que el PDF y el correo lo muestren como línea
+    // propia en vez de que aparezca como un descuadre sin explicación.
+    cashPaidOut,
+    cashDiff: shiftCashDiff(params.countedCash, expectedCash, Number(shift.openingCash)),
     debitDiff: params.countedDebit - expectedDebit,
     creditDiff: params.countedCredit - expectedCredit,
     qrDiff: (params.countedQr ?? 0) - expectedQr,
@@ -3054,6 +3623,133 @@ export async function closeShift(params: {
     topProducts,
     shiftProducts,
   };
+}
+
+/** Las ventas que entraron en el arqueo de un turno YA CERRADO, una por una.
+ *
+ * Cuando un cierre da una diferencia grande, el total esperado por medio de
+ * pago no alcanza para explicarla: hay que poder mirar venta por venta y
+ * compararla contra el voucher de la máquina. Devuelve además las
+ * repeticiones sospechosas (`findPossibleDuplicateSales`), que es donde
+ * suele estar la plata que no calza. */
+/** Deja constancia de una acción destructiva del panel de admin.
+ *
+ * Nunca lanza: un fallo al escribir la bitácora no puede impedir que el
+ * dueño borre lo que decidió borrar. El registro es para poder reconstruir
+ * después, no una barrera -- la barrera es la clave que ya pidió
+ * `adminPasswordProcedure`. */
+export async function recordAdminAudit(entry: {
+  action: string;
+  targetType?: string | null;
+  targetId?: string | number | null;
+  eventId?: number | null;
+  payload?: unknown;
+  ip?: string | null;
+}) {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await db.insert(adminAuditLog).values({
+      action: entry.action,
+      targetType: entry.targetType ?? null,
+      targetId: entry.targetId != null ? String(entry.targetId) : null,
+      eventId: entry.eventId ?? null,
+      payload: (entry.payload ?? null) as any,
+      ip: entry.ip ?? null,
+    });
+  } catch (err) {
+    console.warn('[adminAudit] no se pudo registrar la acción', entry.action, err);
+  }
+}
+
+/** Bitácora de admin, lo más nuevo primero. */
+export async function listAdminAudit(limit = 200) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(adminAuditLog).orderBy(desc(adminAuditLog.createdAt)).limit(limit);
+}
+
+export async function getShiftSales(shiftId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [shift] = await db.select().from(shifts).where(eq(shifts.id, shiftId)).limit(1);
+  if (!shift) return null;
+
+  // Un turno abierto todavía no tiene `closedAt`: se usa "ahora" como tope,
+  // igual que hará el cierre cuando ocurra.
+  const closedAt = shift.closedAt ?? new Date();
+  const conditions = [
+    eq(orders.eventId, shift.eventId),
+    eq(orders.channel, 'caja'),
+    eq(orders.paymentStatus, 'approved'),
+    gte(orders.createdAt, shift.openedAt),
+    lte(orders.createdAt, closedAt),
+  ];
+  conditions.push(shift.registerId ? eq(orders.registerId, shift.registerId) : isNull(orders.registerId));
+  const rows = await db.select({
+    id: orders.id,
+    orderNumber: orders.orderNumber,
+    total: orders.total,
+    subtotal: orders.subtotal,
+    discount: orders.discount,
+    paymentMethod: orders.paymentMethod,
+    createdAt: orders.createdAt,
+    registerId: orders.registerId,
+    operatorId: orders.operatorId,
+  }).from(orders).where(and(...conditions)).orderBy(desc(orders.createdAt));
+
+  // Mismo criterio que el cierre: el SQL solo acota, la autoridad es el
+  // filtro probado.
+  const sales = filterShiftSales(rows as any[], {
+    openedAt: shift.openedAt, closedAt, registerId: shift.registerId,
+  });
+
+  const operatorIds = Array.from(new Set(sales.map((r: any) => r.operatorId).filter((id: any) => id != null)));
+  const operatorRows = operatorIds.length ? await db.select({ id: operators.id, name: operators.name }).from(operators).where(inArray(operators.id, operatorIds)) : [];
+  const operatorById = new Map(operatorRows.map((o: any) => [o.id, o.name]));
+
+  return {
+    shiftId: shift.id,
+    sales: sales.map((r: any) => ({
+      id: r.id,
+      orderNumber: r.orderNumber,
+      total: Number(r.total),
+      discount: Number(r.discount ?? 0),
+      paymentMethod: r.paymentMethod,
+      createdAt: r.createdAt,
+      operatorName: operatorById.get(r.operatorId) ?? null,
+    })),
+    possibleDuplicates: findPossibleDuplicateSales(sales as any[]),
+  };
+}
+
+/** Turnos ABIERTOS de un evento, con el nombre de caja y de quien lo abrió.
+ * Lo usa el formulario de gastos para poder marcar "esto se pagó con plata
+ * del cajón de la caja X": sin ese dato, el efectivo que sale para pagar a un
+ * proveedor se lee como faltante al cerrar el turno. */
+export async function listOpenShifts(eventId?: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(shifts.status, 'open')];
+  if (eventId) conditions.push(eq(shifts.eventId, eventId));
+  const rows = await db.select().from(shifts).where(and(...conditions)).orderBy(desc(shifts.openedAt));
+  if (rows.length === 0) return [];
+
+  const registerIds = Array.from(new Set(rows.map((r: any) => r.registerId).filter((id: any) => id != null)));
+  const operatorIds = Array.from(new Set(rows.map((r: any) => r.operatorId).filter((id: any) => id != null)));
+  const registerRows = registerIds.length ? await db.select({ id: registers.id, name: registers.name }).from(registers).where(inArray(registers.id, registerIds)) : [];
+  const operatorRows = operatorIds.length ? await db.select({ id: operators.id, name: operators.name }).from(operators).where(inArray(operators.id, operatorIds)) : [];
+  const registerById = new Map(registerRows.map((r: any) => [r.id, r.name]));
+  const operatorById = new Map(operatorRows.map((o: any) => [o.id, o.name]));
+
+  return rows.map((r: any) => ({
+    id: r.id,
+    eventId: r.eventId,
+    registerName: r.registerId ? (registerById.get(r.registerId) ?? 'Caja eliminada') : 'Sin caja asignada',
+    operatorName: operatorById.get(r.operatorId) ?? 'Operador eliminado',
+    openedAt: r.openedAt,
+    openingCash: Number(r.openingCash),
+  }));
 }
 
 /** Cierres de turno guardados, para comparar entre eventos y exportar a CSV
@@ -3092,9 +3788,32 @@ export async function listShiftClosings(eventId?: number) {
     expectedCash: Number(r.expectedCash ?? 0),
     expectedDebit: Number(r.expectedDebit ?? 0),
     expectedCredit: Number(r.expectedCredit ?? 0),
-    cashDiff: Number(r.countedCash ?? 0) - Number(r.expectedCash ?? 0) - Number(r.openingCash),
+    // QR/transferencia: closeShift ya lo calculaba y lo guardaba, pero ni
+    // este listado ni el panel ni el CSV lo devolvían -- al cuadrar desde
+    // /admin esa plata aparecía evaporada.
+    countedQr: Number(r.countedQr ?? 0),
+    expectedQr: Number(r.expectedQr ?? 0),
+    // Efectivo que salió del cajón para pagar gastos durante el turno -- ya
+    // viene restado de `expectedCash`, se muestra aparte para que el arqueo
+    // se pueda leer sin adivinar de dónde salió la resta.
+    cashPaidOut: Number(r.cashPaidOut ?? 0),
+    // "Esperado total" = ventas en efectivo del turno + el fondo inicial.
+    // Es contra ESTE número que se compara lo contado; exportarlo evita la
+    // resta a mano (y el descuadre falso) al reconciliar desde el CSV.
+    expectedCashWithOpening: expectedCashWithOpening(Number(r.expectedCash ?? 0), Number(r.openingCash)),
+    cashDiff: shiftCashDiff(Number(r.countedCash ?? 0), Number(r.expectedCash ?? 0), Number(r.openingCash)),
+    // Tarjetas sumadas: ver `cardTotals`. Cuando el tipo de tarjeta se eligió
+    // mal en la tablet, débito y crédito se descuadran en direcciones
+    // opuestas y sólo el total dice cuánta plata falta realmente.
+    countedCard: Number(r.countedDebit ?? 0) + Number(r.countedCredit ?? 0),
+    expectedCard: Number(r.expectedDebit ?? 0) + Number(r.expectedCredit ?? 0),
+    cardDiff: cardTotals({
+      countedDebit: Number(r.countedDebit ?? 0), countedCredit: Number(r.countedCredit ?? 0),
+      expectedDebit: Number(r.expectedDebit ?? 0), expectedCredit: Number(r.expectedCredit ?? 0),
+    }).diff,
     debitDiff: Number(r.countedDebit ?? 0) - Number(r.expectedDebit ?? 0),
     creditDiff: Number(r.countedCredit ?? 0) - Number(r.expectedCredit ?? 0),
+    qrDiff: Number(r.countedQr ?? 0) - Number(r.expectedQr ?? 0),
     salesCount: r.salesCount ?? 0,
     redeemsCount: r.redeemsCount ?? 0,
     topCustomers: r.topCustomers ?? [],
@@ -3441,6 +4160,40 @@ export async function getMailingCampaignRecipients(campaignId: number) {
  * la más nueva (cola justa: una campaña no se "salta" a otra que llegó
  * después) -- usado por el cron diario (server/mailing.ts). `limit` acota
  * cuántas filas trae de una, el cron corta antes por presupuesto de tiempo. */
+/** Cuántos correos automáticos salieron HOY (hora de Chile).
+ *
+ * Con los crons diarios de antes, el tope por corrida ERA el tope del día. Al
+ * pasar a Vercel Pro y correr cada 15 minutos, ese mismo tope se
+ * multiplicaría por 96 y vaciaría la cuota diaria de Resend en una hora --
+ * dejando sin cupo a los correos que de verdad no pueden fallar: la
+ * confirmación de compra con el QR de la entrada.
+ *
+ * Por eso el presupuesto pasa a ser diario y compartido: la frecuencia alta
+ * sirve para que un correo salga PRONTO, no para mandar más.
+ *
+ * Cuenta el mailing masivo y los recordatorios de carrito abandonado, que son
+ * los dos automáticos. Los transaccionales quedan fuera a propósito: son la
+ * reserva que este presupuesto protege, no algo que deba consumirlo. */
+export async function countAutomatedEmailsSentToday(now: Date = new Date()): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+
+  // Inicio del día en hora de Chile: con un runtime en UTC, usar medianoche
+  // UTC movería la ventana 3-4 horas y el presupuesto se reiniciaría a las
+  // 20:00 o 21:00 de Chile, en plena venta.
+  const dayStart = startOfChileDay(now);
+
+  const [mailing] = await db.select({ count: sql<number>`count(*)` })
+    .from(mailingRecipients)
+    .where(and(eq(mailingRecipients.status, 'sent'), gte(mailingRecipients.sentAt, dayStart)));
+
+  const [reminders] = await db.select({ count: sql<number>`count(*)` })
+    .from(orders)
+    .where(gte(orders.reminderSentAt, dayStart));
+
+  return Number(mailing?.count ?? 0) + Number(reminders?.count ?? 0);
+}
+
 export async function getPendingMailingRecipients(limit: number) {
   const db = await getDb();
   if (!db) return [];

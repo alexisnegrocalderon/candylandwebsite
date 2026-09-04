@@ -11,10 +11,15 @@ const COLUMNS = [
   { key: 'closedByName', label: 'Cerró' },
   { key: 'openedAt', label: 'Apertura' },
   { key: 'closedAt', label: 'Cierre' },
-  { key: 'openingCash', label: 'Efectivo inicial' },
+  { key: 'openingCash', label: 'Fondo inicial' },
+  { key: 'cashPaidOut', label: 'Gastos del cajón' },
+  { key: 'expectedCash', label: 'Esperado (con fondo)' },
   { key: 'countedCash', label: 'Efectivo contado' },
-  { key: 'expectedCash', label: 'Efectivo esperado' },
   { key: 'cashDiff', label: 'Diferencia efectivo' },
+  // QR/transferencia: se cobra en caja y se cuadra contra la app del banco,
+  // pero no salía en ningún reporte -- esa plata parecía evaporada.
+  { key: 'countedQr', label: 'QR contado' },
+  { key: 'qrDiff', label: 'Diferencia QR' },
   { key: 'salesCount', label: 'N° ventas' },
   { key: 'redeemsCount', label: 'N° canjes' },
 ];
@@ -53,6 +58,9 @@ function PrintShiftsContent() {
     countedCash: `$${Number(r.countedCash).toLocaleString('es-CL')}`,
     expectedCash: `$${(Number(r.expectedCash) + Number(r.openingCash)).toLocaleString('es-CL')}`,
     cashDiff: `${Number(r.cashDiff) >= 0 ? '+' : ''}$${Number(r.cashDiff).toLocaleString('es-CL')}`,
+    cashPaidOut: `$${Number(r.cashPaidOut ?? 0).toLocaleString('es-CL')}`,
+    countedQr: `$${Number(r.countedQr ?? 0).toLocaleString('es-CL')}`,
+    qrDiff: `${Number(r.qrDiff ?? 0) >= 0 ? '+' : ''}$${Number(r.qrDiff ?? 0).toLocaleString('es-CL')}`,
   }));
 
   return (

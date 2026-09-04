@@ -7,6 +7,19 @@ import { CANDYLAND } from '@/config/candyland';
 
 const INSTAGRAM_HANDLE = CANDYLAND.redes.instagram.split('/').filter(Boolean).pop();
 
+// Mismo objeto `reveal` que usa Home.tsx -- duplicado acá (no exportado
+// desde allá) para no crear un import cruzado entre páginas por 5 líneas.
+// Reemplaza la mezcla de `animate` (dispara al montar, sin importar si la
+// sección está en pantalla) y `whileInView` que tenía esta página: con
+// `animate`, un bloque más abajo del fold ya termina su animación antes de
+// que el usuario llegue a verlo -- entra "pop", sin transición real.
+const reveal = {
+  initial: { opacity: 0, y: 40 },
+  whileInView: { opacity: 1, y: 0 },
+  viewport: { once: true, margin: '400px' },
+  transition: { duration: 0.6, ease: [0.23, 1, 0.32, 1] as const },
+};
+
 /* Los tres valores de CANDYLAND.valores (Respeto, Consentimiento, Libertad),
  * explicados en concreto. En el config son solo tres palabras; acá se dice qué
  * significan en la práctica, que es lo que de verdad responde la duda de
@@ -45,12 +58,7 @@ export default function About() {
   return (
     <div className="min-h-screen pt-24 pb-16">
       <div className="container">
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          className="max-w-4xl"
-        >
+        <motion.div {...reveal} className="max-w-4xl">
           <p className="text-sm uppercase tracking-[0.3em] text-primary mb-4">Sobre Nosotros</p>
           <h1 className="font-heading text-5xl md:text-7xl tracking-tight mb-8">
             Creamos <span className="text-gradient">experiencias</span> inolvidables
@@ -63,20 +71,15 @@ export default function About() {
           </p>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.3 }}
-          className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16"
-        >
-          <div className="bg-card border border-border/50 rounded-2xl p-8">
+        <motion.div {...reveal} className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
+          <div className="glass-candy rounded-2xl p-8">
             <h2 className="font-heading text-2xl mb-4 text-gradient">Nuestra Visión</h2>
             <p className="text-muted-foreground leading-relaxed">
               Ser la referencia en eventos exclusivos en Latinoamérica, creando comunidades
               que comparten la pasión por las experiencias premium y la vida nocturna de calidad.
             </p>
           </div>
-          <div className="bg-card border border-border/50 rounded-2xl p-8">
+          <div className="glass-candy rounded-2xl p-8">
             <h2 className="font-heading text-2xl mb-4 text-gradient">Nuestra Misión</h2>
             <p className="text-muted-foreground leading-relaxed">
               Diseñar y producir eventos que superen todas las expectativas, con atención
@@ -87,13 +90,7 @@ export default function About() {
 
         {/* Los tres valores del config, explicados. Es la sección que responde
             la duda real de quien nunca ha ido: "¿es seguro?". */}
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.7 }}
-          className="max-w-3xl mb-16"
-        >
+        <motion.div {...reveal} className="max-w-3xl mb-16">
           <h2 className="font-heading text-3xl md:text-4xl tracking-tight mb-4">
             Cómo cuidamos <span className="text-gradient">el espacio</span>
           </h2>
@@ -118,13 +115,7 @@ export default function About() {
           </p>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.7 }}
-          className="max-w-3xl mb-16"
-        >
+        <motion.div {...reveal} className="max-w-3xl mb-16">
           <h2 className="font-heading text-3xl md:text-4xl tracking-tight mb-4">
             ¿Es tu <span className="text-gradient">primera vez</span>?
           </h2>
@@ -146,12 +137,7 @@ export default function About() {
           </Link>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.5 }}
-          className="text-center"
-        >
+        <motion.div {...reveal} className="text-center">
           <Link
             href="/eventos"
             className="inline-flex items-center gap-3 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold transition-all hover:scale-105 active:scale-95 glow-pink interactive"
