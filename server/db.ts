@@ -96,7 +96,7 @@ export async function getPublishedEvents() {
 export async function getAllEvents() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(events).orderBy(desc(events.createdAt));
+  return db.select().from(events).orderBy(desc(events.eventDate));
 }
 
 // Publicados + pasados (para la sección "Próximos Eventos" de la home: pasados en
