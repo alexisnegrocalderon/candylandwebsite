@@ -5560,6 +5560,10 @@ function EventPnlReport({ eventId, refreshKey }: { eventId: number; refreshKey: 
           {data.ambassadorCommissions > 0 && (
             <PnlRow label="Comisiones de embajadores" amount={data.ambassadorCommissions} negative />
           )}
+          {data.cardFeeAmount > 0 && (
+            <PnlRow label={`Comisión de tarjeta (${data.cardFeePercent}%)`} amount={data.cardFeeAmount} negative
+              hint="Sobre las ventas web (completo) y las de caja pagadas con débito, crédito o QR -- el efectivo no paga comisión." />
+          )}
 
           <PnlRow label="Utilidad neta" amount={data.netProfit} strong />
         </div>
@@ -6346,6 +6350,7 @@ function SettingsManager() {
   const [followers, setFollowers] = useState('');
   const [posts, setPosts] = useState('');
   const [feePercent, setFeePercent] = useState('');
+  const [cardFeePercent, setCardFeePercent] = useState('');
   const [vendorName, setVendorName] = useState('');
   const [vendorEmail, setVendorEmail] = useState('');
   const [ogImageUrl, setOgImageUrl] = useState('');
@@ -6355,6 +6360,7 @@ function SettingsManager() {
       setFollowers(String(settings.instagramFollowers ?? 0));
       setPosts(String(settings.instagramPosts ?? 0));
       setFeePercent(String(settings.serviceFeePercent ?? 0));
+      setCardFeePercent(String((settings as any).cardFeePercent ?? 3.5));
       setVendorName((settings as any).kitchenVendorName ?? '');
       setVendorEmail((settings as any).kitchenVendorEmail ?? '');
       setOgImageUrl((settings as any).ogImageUrl ?? '');
@@ -6367,6 +6373,10 @@ function SettingsManager() {
 
   const handleSaveFee = () => {
     updateSettings.mutate({ serviceFeePercent: Number(feePercent) || 0 });
+  };
+
+  const handleSaveCardFee = () => {
+    updateSettings.mutate({ cardFeePercent: Number(cardFeePercent) || 0 });
   };
 
   const handleSaveVendor = () => {
@@ -6429,6 +6439,23 @@ function SettingsManager() {
             <Input type="number" step="0.01" min="0" max="100" value={feePercent} onChange={(e) => setFeePercent(e.target.value)} className="mt-1" />
           </div>
           <WriteButton onClick={handleSaveFee} disabled={updateSettings.isPending} className="interactive">
+            {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
+          </WriteButton>
+        </CardContent>
+      </Card>
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Comisión de tarjeta (Mercado Pago)</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Porcentaje que se descuenta solo, como costo, en el resultado (P&L) de cada evento — tanto de las ventas
+            web como de las ventas en caja pagadas con débito, crédito o QR (el efectivo no paga comisión). Ajusta
+            este número cuando tengas el % exacto de tu liquidación de Mercado Pago.
+          </p>
+          <div className="max-w-xs">
+            <Label>Comisión (%)</Label>
+            <Input type="number" step="0.01" min="0" max="100" value={cardFeePercent} onChange={(e) => setCardFeePercent(e.target.value)} className="mt-1" />
+          </div>
+          <WriteButton onClick={handleSaveCardFee} disabled={updateSettings.isPending} className="interactive">
             {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
           </WriteButton>
         </CardContent>

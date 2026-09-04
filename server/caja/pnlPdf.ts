@@ -20,6 +20,9 @@ export type PnlReport = {
   generalExpensesAssigned: number;
   prorationWeight: number;
   ambassadorCommissions: number;
+  cardFeeBase: number;
+  cardFeePercent: number;
+  cardFeeAmount: number;
   iva: { debitoFiscal: number; creditoFiscal: number; ivaAPagar: number; remanenteCredito: number };
   netIncome: number;
   netProfit: number;
@@ -105,6 +108,13 @@ export function buildPnlReportPdf(r: PnlReport): Promise<Buffer> {
 
     if (r.ambassadorCommissions > 0) {
       drawAmountRow(doc, "Comisiones de embajadores", r.ambassadorCommissions, { negative: true });
+    }
+
+    if (r.cardFeeAmount > 0) {
+      drawAmountRow(doc, `Comisión de tarjeta (${r.cardFeePercent}%)`, r.cardFeeAmount, {
+        negative: true,
+        hint: "Sobre ventas web (completo) y caja con débito/crédito/QR -- el efectivo no paga comisión.",
+      });
     }
 
     doc.moveDown(0.5);

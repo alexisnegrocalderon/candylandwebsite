@@ -712,20 +712,21 @@ export async function deleteBlockedCustomer(id: number) {
 // recargo por servicio (%) que se suma a toda venta nueva)
 export async function getSiteSettings() {
   const db = await getDb();
-  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
+  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) return row;
-  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
+  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
 }
 
 export async function updateSiteSettings(data: {
-  instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number;
+  instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number; cardFeePercent?: number;
   kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const updateData: any = { ...data };
   if (data.serviceFeePercent !== undefined) updateData.serviceFeePercent = String(data.serviceFeePercent);
+  if (data.cardFeePercent !== undefined) updateData.cardFeePercent = String(data.cardFeePercent);
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) {
     await db.update(siteSettings).set(updateData).where(eq(siteSettings.id, row.id));
@@ -2717,7 +2718,24 @@ const CASH_COLLECTED_COLUMNS = {
   total: orders.total,
   missionTopupStatus: orders.missionTopupStatus,
   missionTopupAmount: orders.missionTopupAmount,
+  channel: orders.channel,
+  paymentMethod: orders.paymentMethod,
 };
+
+// Métodos de pago de caja que sí pagan comisión de tarjeta (efectivo no).
+const CARD_LIKE_CAJA_METHODS = new Set(['debito', 'credito', 'qr']);
+
+/** Base sobre la que se calcula la comisión de Mercado Pago de un evento: el
+ * total de las órdenes aprobadas pagadas con tarjeta -- toda la web (se
+ * asume pagada vía Mercado Pago Checkout) más las de caja con
+ * débito/crédito/QR. El efectivo en caja no paga comisión. */
+function cardFeeBaseFromOrders(rows: { channel: string | null; paymentMethod: string | null; total: string | number }[]): number {
+  return rows.reduce((sum, r) => {
+    const isWeb = r.channel === 'web';
+    const isCajaCard = r.channel === 'caja' && r.paymentMethod != null && CARD_LIKE_CAJA_METHODS.has(r.paymentMethod);
+    return (isWeb || isCajaCard) ? sum + Number(r.total) : sum;
+  }, 0);
+}
 
 /** Materializa las copias del mes de los gastos recurrentes (suscripciones).
  *
@@ -3026,6 +3044,8 @@ export async function getEventPnl(eventId: number) {
   }));
   const grossIncome = monthIncomes.find((i) => i.eventId === eventId)?.grossIncome ?? 0;
   const prorationWeight = prorationWeights(monthIncomes).get(eventId) ?? 0;
+  const cardFeeBase = cardFeeBaseFromOrders((incomeByEvent.get(eventId) ?? []) as any);
+  const cardFeePercent = Number((await getSiteSettings()).cardFeePercent ?? 3.5);
 
   // Costo de mercadería vendida. `cogsCoverage` dice qué porcentaje de las
   // unidades tenía costo cargado: sin ese dato el margen mentiría en silencio.
@@ -3067,6 +3087,8 @@ export async function getEventPnl(eventId: number) {
     grossIncome,
     cogs,
     ambassadorCommissions: commissionsTotal,
+    cardFeeBase,
+    cardFeePercent,
     directExpenses: (directRows as any[]).map(toPnlExpense),
     generalExpenses: (generalRows as any[]).map(toPnlExpense),
     prorationWeight,
@@ -3120,18 +3142,15 @@ async function buildPnlWarnings(params: {
       }
     }
 
-    // Comisiones de Mercado Pago: no se pueden calcular solas, hay que cargar
-    // la liquidación. Si el mes tuvo ventas web y no hay ningún gasto de
-    // comisiones, la utilidad está inflada.
-    if (params.grossIncome > 0) {
-      const commissionExpenses = await db.select({ id: expenses.id }).from(expenses)
-        .where(and(eq(expenses.periodMonth, params.monthKey), eq(expenses.category, 'comisiones')));
-      if ((commissionExpenses as any[]).length === 0) {
-        warnings.push(
-          `No hay ningún gasto de categoría "Comisiones" en ${params.monthKey}. ` +
-          `Las comisiones de Mercado Pago (~3,5%) no se calculan solas: cargalas desde la liquidación o la utilidad queda inflada.`,
-        );
-      }
+    // La comisión de Mercado Pago ahora se calcula sola (ver cardFeeBase en
+    // getEventPnl) -- un gasto manual viejo de categoría "comisiones" cargado
+    // a este evento duplicaría el descuento.
+    const manualCommissionExpenses = params.directRows.filter((e) => e.category === 'comisiones');
+    if (manualCommissionExpenses.length > 0) {
+      warnings.push(
+        `Hay ${manualCommissionExpenses.length} gasto(s) manual(es) de categoría "Comisiones" cargado(s) a este evento. ` +
+        `La comisión de tarjeta ya se descuenta sola: borrá esos gastos o marcalos como excluidos del P&L para no restarla dos veces.`,
+      );
     }
   }
 
@@ -3217,6 +3236,7 @@ export async function getPnlComparison(eventIds?: number[]) {
     for (const [id, w] of Array.from(weights.entries())) weightByEvent.set(id, w);
   }
 
+  const cardFeePercent = Number((await getSiteSettings()).cardFeePercent ?? 3.5);
   const eventIdSet = eventIds?.length ? new Set(eventIds) : null;
   return (allEvents as any[])
     .filter((e) => !eventIdSet || eventIdSet.has(e.id))
@@ -3227,6 +3247,8 @@ export async function getPnlComparison(eventIds?: number[]) {
         grossIncome: incomeOf(e.id),
         cogs: cogsByEvent.get(e.id) ?? 0,
         ambassadorCommissions: commissionsByEvent.get(e.id) ?? 0,
+        cardFeeBase: cardFeeBaseFromOrders((incomeByEvent.get(e.id) ?? []) as any),
+        cardFeePercent,
         directExpenses: (directByEvent.get(e.id) ?? []).map(toPnlExpense),
         generalExpenses: (generalByMonth.get(monthKey) ?? []).map(toPnlExpense),
         prorationWeight: weightByEvent.get(e.id) ?? 0,
@@ -3238,7 +3260,7 @@ export async function getPnlComparison(eventIds?: number[]) {
         monthKey,
         ivaApplies: e.ivaApplies === 1,
         grossIncome: pnl.grossIncome,
-        totalExpenses: pnl.cogs + pnl.directExpensesTotal + pnl.generalExpensesAssigned + pnl.ambassadorCommissions,
+        totalExpenses: pnl.cogs + pnl.directExpensesTotal + pnl.generalExpensesAssigned + pnl.ambassadorCommissions + pnl.cardFeeAmount,
         netProfit: pnl.netProfit,
         marginPercent: pnl.marginPercent,
       };

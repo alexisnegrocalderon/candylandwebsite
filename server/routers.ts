@@ -1474,6 +1474,7 @@ export const appRouter = router({
       instagramFollowers: z.number().optional(),
       instagramPosts: z.number().optional(),
       serviceFeePercent: z.number().min(0).max(100).optional(),
+      cardFeePercent: z.number().min(0).max(100).optional(),
       kitchenVendorName: z.string().nullable().optional(),
       kitchenVendorEmail: z.string().email().nullable().optional(),
       ogImageUrl: z.string().url().nullable().optional(),

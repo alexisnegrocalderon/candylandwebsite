@@ -405,6 +405,10 @@ export const siteSettings = mysqlTable("siteSettings", {
   instagramFollowers: int("instagramFollowers").default(0).notNull(),
   instagramPosts: int("instagramPosts").default(0).notNull(),
   serviceFeePercent: decimal("serviceFeePercent", { precision: 5, scale: 2 }).default("0").notNull(),
+  // Comisión de Mercado Pago (~3,5% por defecto, editable): se resta sola en
+  // el P&L de cada evento en vez de depender de que alguien cargue un gasto
+  // manual de categoría "comisiones" -- ver getEventPnl/computePnl.
+  cardFeePercent: decimal("cardFeePercent", { precision: 5, scale: 2 }).default("3.50").notNull(),
   // Proveedor único de cocina (pedido explícito del usuario): a quién
   // rendirle cuentas de lo vendido en productos `toKitchen`. Config global,
   // no por evento -- si cambia de proveedor, se actualiza acá.
