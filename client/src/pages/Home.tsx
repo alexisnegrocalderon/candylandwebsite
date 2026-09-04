@@ -1851,8 +1851,8 @@ export default function Home() {
       {showNoise && <div className="noise-overlay" />}
       <Hero />
       <ScrollStory />
-      <UpcomingEventsSection />
       <UrgencySection vendidos={vendidos} missionPricing={missionPricing} missionActive={missionActive} tanda={tanda} ticketsLoading={liveTicketsLoading} eventId={event?.id} />
+      <UpcomingEventsSection />
       <LineupSection />
       <ExperienceSection />
       <InfoSection />
