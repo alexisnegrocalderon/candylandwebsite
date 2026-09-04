@@ -1,7 +1,7 @@
 import { ops } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 
-export type OpType = "redeem" | "checkin" | "sale" | "void_code" | "note" | "shift_open" | "shift_close" | "manual_adjust" | "locker_return" | "kitchen_update";
+export type OpType = "redeem" | "checkin" | "sale" | "void_code" | "note" | "shift_open" | "shift_close" | "manual_adjust" | "locker_return" | "kitchen_update" | "parking_paid";
 export type OpResult = "applied" | "conflict" | "rejected";
 
 export type OpParams = {

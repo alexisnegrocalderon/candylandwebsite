@@ -409,6 +409,11 @@ export const siteSettings = mysqlTable("siteSettings", {
   // el P&L de cada evento en vez de depender de que alguien cargue un gasto
   // manual de categoría "comisiones" -- ver getEventPnl/computePnl.
   cardFeePercent: decimal("cardFeePercent", { precision: 5, scale: 2 }).default("3.50").notNull(),
+  // Monto que se le paga al establecimiento por CADA auto que pagó
+  // estacionamiento (online o en la puerta) -- no por los de staff gratis.
+  // Editable porque es un precio negociado con el dueño del estacionamiento,
+  // no algo que dependa del código -- ver getParkingReport.
+  parkingVenueFeeClp: int("parkingVenueFeeClp").default(3000).notNull(),
   // Proveedor único de cocina (pedido explícito del usuario): a quién
   // rendirle cuentas de lo vendido en productos `toKitchen`. Config global,
   // no por evento -- si cambia de proveedor, se actualiza acá.

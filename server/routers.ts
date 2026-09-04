@@ -11,6 +11,7 @@ import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
 import { redeemDisplayCode } from "./caja/redeem";
 import { checkInTicket } from "./caja/checkin";
+import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
@@ -1061,13 +1062,18 @@ export const appRouter = router({
       });
     }),
 
-    // Vaciado de la cola offline. Solo acepta operaciones de check-in: la
-    // puerta no vende ni canjea, aunque comparta la cola con la caja.
+    // Vaciado de la cola offline. Solo acepta check-in y cobro de
+    // estacionamiento: la puerta no vende de la carta ni canjea otros
+    // extras, aunque comparta la cola con la caja.
     sync: doorProcedure.input(z.object({
       eventId: z.number(),
-      ops: z.array(z.object({
-        type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string(),
-      })).max(50),
+      ops: z.array(z.discriminatedUnion('type', [
+        z.object({ type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string() }),
+        z.object({
+          type: z.literal('parking_paid'), opId: z.string(), ticketCode: z.string(),
+          paymentMethod: z.enum(['efectivo', 'debito', 'credito']), clientAt: z.string(),
+        }),
+      ])).max(50),
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await db.getDb();
       if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
@@ -1075,10 +1081,17 @@ export const appRouter = router({
       const results: Record<string, { result: string; conflictNote?: string }> = {};
       for (const op of input.ops) {
         try {
-          results[op.opId] = await checkInTicket(rawDb, {
-            opId: op.opId, ticketCode: op.ticketCode, eventId: input.eventId,
-            operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
-          });
+          if (op.type === 'checkin') {
+            results[op.opId] = await checkInTicket(rawDb, {
+              opId: op.opId, ticketCode: op.ticketCode, eventId: input.eventId,
+              operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
+            });
+          } else {
+            results[op.opId] = await sellParkingAtDoor(rawDb, {
+              opId: op.opId, ticketCode: op.ticketCode, eventId: input.eventId,
+              paymentMethod: op.paymentMethod, operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
+            });
+          }
         } catch (err) {
           results[op.opId] = { result: 'rejected', conflictNote: friendlySyncErrorMessage(err, op.opId) };
         }
@@ -1475,6 +1488,7 @@ export const appRouter = router({
       instagramPosts: z.number().optional(),
       serviceFeePercent: z.number().min(0).max(100).optional(),
       cardFeePercent: z.number().min(0).max(100).optional(),
+      parkingVenueFeeClp: z.number().min(0).optional(),
       kitchenVendorName: z.string().nullable().optional(),
       kitchenVendorEmail: z.string().email().nullable().optional(),
       ogImageUrl: z.string().url().nullable().optional(),
@@ -2642,6 +2656,9 @@ export const appRouter = router({
     }),
     pnlComparison: adminReadProcedure.input(z.object({ eventIds: z.array(z.number()).optional() }).optional()).query(async ({ input }) => {
       return db.getPnlComparison(input?.eventIds);
+    }),
+    parkingReport: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getParkingReport(input.eventId);
     }),
     peakHours: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getPeakHours(input.eventId);

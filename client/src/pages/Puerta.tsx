@@ -240,6 +240,18 @@ function Scanner({ operatorName }: { operatorName: string }) {
     setScanning(true);
   };
 
+  // No cierra la ficha (a diferencia de darAcceso): el anfitrión puede
+  // seguir viendo los nombres/RUT mientras confirma con el auto, y recién
+  // cierra con "Aprobar acceso" o "Volver a escanear".
+  const cobrarEstacionamiento = async (ticketCode: string, metodo: 'efectivo' | 'debito' | 'credito') => {
+    await enqueueOp({ opId: newOpId(), type: 'parking_paid', ticketCode, paymentMethod: metodo, clientAt: (await correctedNow()).toISOString() });
+    toast.success('Estacionamiento cobrado 🅿️');
+    refreshPending();
+    setFicha((prev) => (prev && prev.ticketCode === ticketCode)
+      ? { ...prev, extras: [...prev.extras, { typeName: 'Estacionamiento', status: 'used' }] }
+      : prev);
+  };
+
   const cerrar = () => { setFicha(null); setScanning(true); };
 
   return (
@@ -277,7 +289,14 @@ function Scanner({ operatorName }: { operatorName: string }) {
         </p>
       </QrScanner>
 
-      {ficha && <FichaVerificacion ficha={ficha} onAceptar={() => darAcceso(ficha.ticketCode)} onCerrar={cerrar} />}
+      {ficha && (
+        <FichaVerificacion
+          ficha={ficha}
+          onAceptar={() => darAcceso(ficha.ticketCode)}
+          onCerrar={cerrar}
+          onCobrarEstacionamiento={(metodo) => cobrarEstacionamiento(ficha.ticketCode, metodo)}
+        />
+      )}
 
       {buscando && (
         <BuscarPorNombre
@@ -297,13 +316,15 @@ function Scanner({ operatorName }: { operatorName: string }) {
 
 /* --- Ficha de verificación ------------------------------------------------ */
 
-function FichaVerificacion({ ficha, onAceptar, onCerrar }: {
+function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento }: {
   ficha: Ficha;
   onAceptar: () => void;
   onCerrar: () => void;
+  onCobrarEstacionamiento: (metodo: 'efectivo' | 'debito' | 'credito') => void;
 }) {
   const personas = personasForTicket(ficha.groupSize, ficha.accesoSlug);
   const puedeEntrar = ficha.status === 'valid';
+  const [cobrando, setCobrando] = useState(false);
 
   // El estacionamiento es lo primero que el anfitrión necesita saber para
   // decirle al auto dónde ir, así que va destacado y aparte del resto.
@@ -350,6 +371,31 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar }: {
                     {esVip(e.typeName) ? '⭐' : '🅿️'} {e.typeName}
                   </p>
                 ))}
+              </div>
+            )}
+
+            {/* Solo se ofrece cobrar si esta ficha todavía NO tiene
+             * estacionamiento -- online, de staff, o ya cobrado acá mismo.
+             * No es obligatorio antes de dar acceso: no trabar la fila por
+             * alguien que llegó a pie. */}
+            {estacionamiento.length === 0 && (
+              <div className="rounded-2xl bg-white/[0.04] border border-white/10 p-4 mb-3">
+                <p className="text-xs uppercase tracking-widest text-white/45 mb-2">¿Paga estacionamiento ahora?</p>
+                {cobrando ? (
+                  <p className="text-sm text-white/50">Cobrando…</p>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['efectivo', 'debito', 'credito'] as const).map((metodo) => (
+                      <button
+                        key={metodo}
+                        onClick={() => { setCobrando(true); onCobrarEstacionamiento(metodo); }}
+                        className="h-11 rounded-xl bg-candy-blue/15 border border-candy-blue/30 text-sm font-semibold capitalize"
+                      >
+                        {metodo}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
