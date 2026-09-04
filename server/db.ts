@@ -735,21 +735,25 @@ export async function deleteBlockedCustomer(id: number) {
 // recargo por servicio (%) que se suma a toda venta nueva)
 export async function getSiteSettings() {
   const db = await getDb();
-  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
+  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0 };
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) return row;
-  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null };
+  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0 };
 }
 
 export async function updateSiteSettings(data: {
   instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number; cardFeePercent?: number; parkingVenueFeeClp?: number;
-  kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null;
+  kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null; foundersPromoEnabled?: boolean;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const updateData: any = { ...data };
   if (data.serviceFeePercent !== undefined) updateData.serviceFeePercent = String(data.serviceFeePercent);
   if (data.cardFeePercent !== undefined) updateData.cardFeePercent = String(data.cardFeePercent);
+  // `foundersPromoEnabled` es int(0/1) en la base (mismo criterio que
+  // `missionForceClosed` en events) -- el resto del sistema lo maneja como
+  // boolean real, se convierte acá en el borde.
+  if (data.foundersPromoEnabled !== undefined) updateData.foundersPromoEnabled = data.foundersPromoEnabled ? 1 : 0;
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) {
     await db.update(siteSettings).set(updateData).where(eq(siteSettings.id, row.id));
@@ -4162,7 +4166,7 @@ export function excludeCustomersByTags<T extends { tags: unknown }>(rows: T[], e
   return rows.filter((c) => !Array.isArray(c.tags) || !c.tags.some((t: string) => excludeSet.has(t)));
 }
 
-export async function listCustomers(filters: { search?: string; accessType?: string; tag?: string; excludeTags?: string[]; eventId?: number } = {}) {
+export async function listCustomers(filters: { search?: string; accessType?: string; tag?: string; excludeTags?: string[]; eventId?: number; notPurchasedEventId?: number } = {}) {
   const db = await getDb();
   if (!db) return [];
   let rows = await db.select().from(customers).orderBy(desc(customers.lastSeenAt));
@@ -4196,6 +4200,17 @@ export async function listCustomers(filters: { search?: string; accessType?: str
     ));
     const emails = new Set(approvedOrders.map((o) => o.buyerEmail.toLowerCase()));
     rows = rows.filter((c: any) => emails.has(c.email.toLowerCase()));
+  }
+  // Inverso de `eventId` de arriba (pedido del aviso automático de primeros
+  // cupos, server/foundersPromo.ts): nunca tiene sentido ofrecerle "los
+  // primeros cupos" de un evento a quien ya lo compró.
+  if (filters.notPurchasedEventId) {
+    const approvedOrders = await db.select({ buyerEmail: orders.buyerEmail }).from(orders).where(and(
+      eq(orders.eventId, filters.notPurchasedEventId),
+      eq(orders.paymentStatus, 'approved'),
+    ));
+    const emails = new Set(approvedOrders.map((o) => o.buyerEmail.toLowerCase()));
+    rows = rows.filter((c: any) => !emails.has(c.email.toLowerCase()));
   }
   return rows;
 }

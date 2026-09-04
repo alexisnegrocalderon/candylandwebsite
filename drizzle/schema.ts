@@ -426,6 +426,14 @@ export const siteSettings = mysqlTable("siteSettings", {
   // servidor, ver server/ssrMeta.ts -- un campo editable acá solo no
   // alcanzaría para cambiar el preview de WhatsApp/Facebook (SPA sin SSR).
   ogImageUrl: varchar("ogImageUrl", { length: 1024 }),
+  // Aviso automático diario de "primeros cupos" (pedido explícito del
+  // dueño): cuando está prendido, un cron manda ~50 correos/día a clientes
+  // que todavía no compraron el evento destacado, con el cupo REAL del pool
+  // compartido resuelto al momento de mandar cada tanda (nunca la palabra
+  // "Founders" -- ver server/foundersPromo.ts). Arranca apagado a propósito
+  // -- desplegar el código no debe empezar a mandar correos solo, el dueño
+  // lo prende desde el admin cuando esté listo.
+  foundersPromoEnabled: int("foundersPromoEnabled").default(0).notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 

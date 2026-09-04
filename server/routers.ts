@@ -55,6 +55,8 @@ import { buildShiftClosePdf } from "./caja/shiftReportPdf";
 import { buildKitchenVendorPdf } from "./caja/kitchenVendorPdf";
 import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
+import { getFoundersPromoStatus, runFoundersPromoDaily, buildFoundersPromoContent } from "./foundersPromo";
+import { EMAIL_BASE_URL } from "./emailLayout";
 import { sendPendingReminders, generateReminderCopy } from "./orderReminders";
 import { generateEventDescription } from "./eventDescriptions";
 import { answerSalesQuestion } from "./adminQa";
@@ -1492,6 +1494,7 @@ export const appRouter = router({
       kitchenVendorName: z.string().nullable().optional(),
       kitchenVendorEmail: z.string().email().nullable().optional(),
       ogImageUrl: z.string().url().nullable().optional(),
+      foundersPromoEnabled: z.boolean().optional(),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings(input);
     }),
@@ -2492,6 +2495,34 @@ export const appRouter = router({
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo cancelar la campaña.' });
       }
+    }),
+
+    // Aviso automático diario de "primeros cupos" (server/foundersPromo.ts,
+    // pedido explícito del dueño). El on/off vive en settings.update
+    // (siteSettings.foundersPromoEnabled) -- estos 3 son solo estado en
+    // vivo, preview y disparo manual para probar antes de prender el cron.
+    foundersPromoStatus: adminReadProcedure.query(async () => {
+      return getFoundersPromoStatus();
+    }),
+    foundersPromoPreview: adminReadProcedure.query(async () => {
+      const status = await getFoundersPromoStatus();
+      if (status.remaining === null || !status.eventTitle) return { html: null, status };
+      const event = await db.getFeaturedEvent();
+      if (!event) return { html: null, status };
+      return {
+        html: buildMailingBlastEmail({
+          ...buildFoundersPromoContent(status.remaining, event),
+          buyerName: 'Camila',
+          ctaUrl: `${EMAIL_BASE_URL}/checkout/${event.slug}`,
+          eventInfo: null,
+        }),
+        status,
+      };
+    }),
+    // Dispara la corrida de hoy ya mismo (para probar, o para recuperar un
+    // día si el cron no llegó a correr) -- misma función que usa el cron.
+    foundersPromoRunNow: adminProcedure.mutation(async () => {
+      return runFoundersPromoDaily();
     }),
   }),
 
