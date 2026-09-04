@@ -86,8 +86,10 @@ export default function EventDetail() {
            * en vez de cambiar la proporción del contenedor (que dejaría un
            * hero altísimo en escritorio) el flyer se muestra completo con
            * `object-contain` sobre una copia difuminada de sí mismo, que
-           * rellena los costados sin recortar nada. */
-          className="relative rounded-3xl overflow-hidden mb-12 aspect-[4/5] sm:aspect-[16/10] lg:aspect-[21/9]"
+           * rellena los costados sin recortar nada. En escritorio se limita
+           * el ancho del bloque (en vez de ocupar todo el `.container`) para
+           * que el fondo difuminado no se vea tan estirado de borde a borde. */
+          className="relative rounded-3xl overflow-hidden mb-12 aspect-[4/5] sm:aspect-[16/10] lg:aspect-[3/4] lg:mx-auto lg:max-w-xl"
         >
           {event.imageUrl ? (
             <>
