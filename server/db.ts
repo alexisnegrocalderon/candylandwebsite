@@ -2502,7 +2502,7 @@ export async function getCajaDashboard(eventId: number) {
   const recentSales = [...cajaOrders]
     .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 10)
-    .map((o: any) => ({ orderNumber: o.orderNumber, total: Number(o.total), createdAt: o.createdAt, paymentMethod: o.paymentMethod }));
+    .map((o: any) => ({ orderNumber: o.orderNumber, buyerName: o.buyerName, total: Number(o.total), createdAt: o.createdAt, paymentMethod: o.paymentMethod }));
 
   return {
     totalSales,
