@@ -46,43 +46,49 @@
   }
 }
 
-/* Neumorfismo suave para /puerta (Puerta.tsx) -- fondo #0d0810 con dos
- * sombras suaves en la MISMA familia de tono (magenta-negro, no gris
- * neutro) para que el relieve se sienta parte de la marca y no "plateado".
- * El texto nunca lleva estas clases -- el relieve va solo en superficies y
- * botones, para no perder contraste de noche. */
-/* Deliberadamente SIN `background` acá: cada tarjeta trae su propio tinte de
- * color (bg-primary/10, bg-candy-blue/10, bg-white/[0.04], etc.) -- estas
- * clases solo aportan el relieve, así el neumorfismo convive con los
- * colores que ya distinguen acceso/estacionamiento/otros extras. */
-.neu-surface {
-  box-shadow:
-    6px 6px 14px oklch(0.02 0.02 318 / 0.85),
-    -6px -6px 14px oklch(0.16 0.03 322 / 0.55);
+/* Vidrio esmerilado para /puerta (Puerta.tsx) -- glassmorphism real (blur +
+ * transparencia + borde nítido + sombra de caída), no neumorfismo. El fondo
+ * de la pantalla lleva un glow radial fijo (ver `.puerta-bg` en Puerta.tsx,
+ * inline porque es un solo lugar) y estas clases dan la elevación de cada
+ * tarjeta/botón sobre ese fondo. */
+.glass-surface {
+  background: color-mix(in oklch, white 6%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid color-mix(in oklch, white 12%, transparent);
+  box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.5);
 }
 
-.neu-btn {
-  box-shadow:
-    5px 5px 10px oklch(0.02 0.02 318 / 0.85),
-    -5px -5px 10px oklch(0.16 0.03 322 / 0.5);
-  transition: box-shadow 0.12s ease;
+.glass-btn {
+  background: color-mix(in oklch, white 8%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid color-mix(in oklch, white 14%, transparent);
+  transition: background 0.12s ease, transform 0.12s ease;
 }
 
-.neu-btn:active {
-  box-shadow:
-    inset 3px 3px 8px oklch(0.02 0.02 318 / 0.8),
-    inset -3px -3px 8px oklch(0.16 0.03 322 / 0.4);
+.glass-btn:active {
+  background: color-mix(in oklch, white 12%, transparent);
+  transform: scale(0.98);
 }
 
-/* Botón principal (sólido, color de marca) -- se queda plano por color, pero
- * suma la misma sensación de elevación con una sombra teñida en vez del par
- * claro/oscuro neutro de arriba. */
-.neu-btn-primary {
-  box-shadow: 0 6px 18px oklch(0.70 0.19 340 / 0.35);
+/* Botón principal (degradado de marca) -- glow teñido en vez de la sombra
+ * neutra del vidrio, para que la acción principal destaque por color. */
+.glass-btn-primary {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-cherry));
+  box-shadow: 0 8px 30px -4px oklch(0.70 0.19 340 / 0.45);
   transition: box-shadow 0.12s ease, transform 0.12s ease;
 }
 
-.neu-btn-primary:active {
-  box-shadow: 0 2px 8px oklch(0.70 0.19 340 / 0.3);
+.glass-btn-primary:active {
+  box-shadow: 0 4px 14px -2px oklch(0.70 0.19 340 / 0.4);
   transform: scale(0.99);
+}
+
+/* Fondo de /puerta: negro con un glow radial sutil arriba (en vez del plano
+ * #0d0810 anterior) -- le da profundidad al vidrio esmerilado de encima. */
+.puerta-bg {
+  background:
+    radial-gradient(ellipse 120% 60% at 50% -10%, oklch(0.24 0.07 322 / 0.55), transparent),
+    #0a0710;
 }
