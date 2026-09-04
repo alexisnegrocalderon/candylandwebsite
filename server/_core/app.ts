@@ -8,6 +8,23 @@ import { registerBlobUploadRoutes } from "../blobUpload";
 import { appRouter } from "../routers";
 import { webhooksRouter } from "../webhooks";
 import { createContext } from "./context";
+import { resetDb } from "../db";
+
+// Errores de conexión típicos de un pool "envenenado" (socket cerrado por el
+// proveedor, prepared statement cacheado que quedó inválido tras un cambio
+// de esquema, etc.) -- ver el comentario de `resetDb` en server/db.ts. No es
+// una lista exhaustiva de todos los códigos de mysql2, es lo suficientemente
+// amplia para no dejar pasar el patrón real sin arriesgar falsos positivos
+// (un 500 de negocio normal, ej. "Falta el nombre del cliente", no calza
+// con ninguno de estos).
+const DB_CONNECTION_ERROR_PATTERN = /Failed query|ECONNRESET|ETIMEDOUT|ECONNREFUSED|PROTOCOL_CONNECTION_LOST|EPIPE|Too many connections|connection is in closed state|Unknown prepared statement/i;
+
+function looksLikeDbConnectionError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const message = String((error as { message?: unknown }).message ?? '');
+  const causeMessage = String((error as { cause?: { message?: unknown } }).cause?.message ?? '');
+  return DB_CONNECTION_ERROR_PATTERN.test(message) || DB_CONNECTION_ERROR_PATTERN.test(causeMessage);
+}
 
 /**
  * Arma la app Express con todas las rutas de API (tRPC, webhooks, oauth,
@@ -36,6 +53,16 @@ export function createApp(): Express {
     createExpressMiddleware({
       router: appRouter,
       createContext,
+      onError({ error }) {
+        // Autorrecuperación de un pool de base de datos envenenado -- ver
+        // `resetDb` en server/db.ts. Descartar el pool acá no repite esta
+        // request (el cliente ya recibió el 500 y reintenta solo), pero deja
+        // la SIGUIENTE con un pool sano en vez de fallar igual hasta que
+        // Vercel recicle la función por su cuenta.
+        if (looksLikeDbConnectionError(error) || looksLikeDbConnectionError(error.cause)) {
+          resetDb();
+        }
+      },
     })
   );
   return app;
