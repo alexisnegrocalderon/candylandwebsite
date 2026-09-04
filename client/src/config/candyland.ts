@@ -169,19 +169,17 @@ const ACCESOS: Acceso[] = [
       { name: 'acomp3_instagram', label: 'Acompañante 3 — Instagram (opcional)', type: 'text', required: false, placeholder: '@usuario' },
     ],
   },
-  {
-    id: 'cumpleaneros',
-    nombre: 'Cumpleañeros',
-    precio: 8000,
-    personas: 1,
-    descripcion: 'Si cumples el mes del evento, te celebramos con acceso especial.',
-    beneficios: ['1 acceso', 'Sorpresa de cumpleaños', 'Requiere carnet'],
-    estado: 'available',
-    exclusivoComunidad: false,
-    campos: [
-      { name: 'fecha_nacimiento', label: 'Fecha de nacimiento', type: 'date', required: true, help: 'Se valida en la entrada con tu carnet.' },
-    ],
-  },
+  // Cumpleañeros: fuera del sitio por ahora (decisión del dueño en el
+  // lanzamiento del 2º aniversario). No tiene precio Founders definido
+  // todavía y el viejo ($8.000) no corresponde a esta campaña -- dejarlo
+  // acá además hundía el "precio desde" del JSON-LD (PRECIO_MINIMO_ACCESO
+  // en Home.tsx) a $8.000, que no es un precio real de venta. Se vuelve a
+  // habilitar apenas se defina su valor.
+  // {
+  //   id: 'cumpleaneros',
+  //   nombre: 'Cumpleañeros',
+  //   ...
+  // },
 ];
 
 /* ═══════════════════════════════════════════════════════════════

@@ -79,10 +79,35 @@ export default function EventDetail() {
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
-          className="relative rounded-3xl overflow-hidden mb-12 aspect-[21/9]"
+          /* El flyer real es retrato (3:4). Con `aspect-[21/9]` + `object-cover`
+           * se recortaba justo la parte de arriba y abajo del diseño -- el
+           * mismo bug que ya se arregló en el panel de la home
+           * (FeaturedEventPanel). Acá el texto va ENCIMA del flyer, así que
+           * en vez de cambiar la proporción del contenedor (que dejaría un
+           * hero altísimo en escritorio) el flyer se muestra completo con
+           * `object-contain` sobre una copia difuminada de sí mismo, que
+           * rellena los costados sin recortar nada. */
+          className="relative rounded-3xl overflow-hidden mb-12 aspect-[4/5] sm:aspect-[16/10] lg:aspect-[21/9]"
         >
           {event.imageUrl ? (
-            <img src={event.imageUrl} alt={event.title} className="w-full h-full object-cover" />
+            <>
+              <img
+                src={event.imageUrl}
+                alt=""
+                aria-hidden
+                className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-60"
+              />
+              {/* `object-top` + el padding de abajo dejan el flyer arriba y
+               * la franja de texto (título/fecha, que va superpuesta) cae
+               * sobre el fondo difuminado en vez de taparle la parte de
+               * abajo del diseño, que es justo donde el flyer trae la hora
+               * y el dress code. */}
+              <img
+                src={event.imageUrl}
+                alt={event.title}
+                className="relative w-full h-full object-contain object-top pb-24 md:pb-28"
+              />
+            </>
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-primary/20 to-secondary/20" />
           )}
