@@ -1383,8 +1383,14 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
       {catalog.length === 0 ? (
         <p className="text-white/50 text-sm">Todavía no hay productos cargados para este evento. Se cargan desde Admin → Carta de la Fiesta.</p>
       ) : (
-        <div className="flex flex-col lg:flex-row gap-5 items-start">
+        <div className="flex flex-col lg:flex-row gap-5">
           <div className="flex-1 min-w-0 space-y-5">
+            {/* Categorías + grilla reservan al menos 60% del alto de pantalla --
+                así "Ventas recientes" nunca queda pegada arriba cuando la
+                sección activa tiene pocos productos; le da prioridad visual
+                a la grilla, pedido explícito del dueño. Si la grilla ya es
+                más alta que eso (muchos productos), este mínimo no hace nada. */}
+            <div className="min-h-[60vh] flex flex-col gap-5">
             {/* Categorías como círculos, en fila -- con scroll horizontal si no caben. */}
             <div className="flex gap-4 overflow-x-auto pb-1">
               {tabs.map((t) => {
@@ -1477,6 +1483,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
                 </p>
               )}
             </div>
+            </div>
 
             {/* Ventas recientes de la noche -- mismos datos que el Dashboard, para confirmar rápido sin salir de la venta. */}
             {dashboardData && dashboardData.recentSales.length > 0 && (
@@ -1514,7 +1521,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
           </div>
 
           {/* Panel de carrito persistente al costado -- antes era una barra pegada abajo, ahora siempre visible mientras se arma la venta. */}
-          <aside className="w-full lg:w-80 shrink-0 lg:sticky lg:top-4 bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-3xl p-4 space-y-4">
+          <aside className="w-full lg:w-96 shrink-0 lg:sticky lg:top-4 lg:self-stretch flex flex-col bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-3xl p-4 space-y-4">
             {/* Tarjeta de cliente: lo que el carrito necesite en este momento -- guardarropía/cocina (si aplica) y Playcoins. */}
             <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-3 space-y-3">
               <p className="text-xs uppercase tracking-wide text-white/45">Cliente</p>
@@ -1638,7 +1645,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
             </div>
 
             {/* Líneas del carrito -- el stepper +/- vive acá, ya no en la tarjeta del producto. */}
-            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+            <div className="space-y-1.5 flex-1 min-h-24 overflow-y-auto">
               {hasItems ? cartLines.map((p) => (
                 <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
                   <div className="min-w-0">
