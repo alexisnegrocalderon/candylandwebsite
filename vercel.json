@@ -71,6 +71,10 @@
     {
       "path": "/api/cron/checkin-summary",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/founders-promo",
+      "schedule": "0 14 * * *"
     }
   ]
 }

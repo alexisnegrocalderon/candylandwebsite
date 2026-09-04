@@ -7,6 +7,7 @@ import { useAuth } from '@/_core/hooks/useAuth';
 import { NOT_ADMIN_ERR_MSG } from '@shared/const';
 import { canOpenAdmin, useIsDemo, useDemoProps, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
+import { Switch } from '@/components/ui/switch';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
@@ -2991,6 +2992,102 @@ function SalesByOriginView() {
   );
 }
 
+/** Aviso automático diario de "primeros cupos" (pedido explícito del dueño,
+ * server/foundersPromo.ts) -- vive arriba de todo el resto de Mailing
+ * porque, a diferencia de las campañas manuales de abajo, esto corre solo
+ * todos los días una vez prendido. Arranca apagado a propósito: el toggle
+ * es la única forma de que empiece a mandar correos de verdad. */
+function FoundersPromoCard() {
+  const { data: settings, refetch: refetchSettings } = trpc.settings.get.useQuery();
+  const { data: status, refetch: refetchStatus } = trpc.mailing.foundersPromoStatus.useQuery();
+  const [showPreview, setShowPreview] = useState(false);
+  const { data: preview } = trpc.mailing.foundersPromoPreview.useQuery(undefined, { enabled: showPreview });
+
+  const toggle = trpc.settings.update.useMutation({
+    onSuccess: () => { refetchSettings(); refetchStatus(); },
+    onError: onMutationError,
+  });
+  const runNow = trpc.mailing.foundersPromoRunNow.useMutation({
+    onSuccess: (result) => {
+      refetchStatus();
+      if (!result.ran) {
+        const reasons: Record<string, string> = {
+          disabled: 'Está apagado.',
+          'no-event': 'No hay ningún evento destacado ahora mismo.',
+          'no-shared-pool': 'El evento no tiene un cupo compartido único activo (¿ya se cerró esa tanda?) -- se apagó solo.',
+          'sold-out': 'El cupo compartido ya se agotó -- se apagó solo.',
+          'audience-exhausted': 'Ya no queda nadie nuevo a quién mandarle -- se apagó solo.',
+        };
+        toast.info(reasons[result.reason] ?? 'No se mandó nada esta vez.');
+        return;
+      }
+      toast.success(`Mandado: ${result.sent} correo(s) (${result.failed} fallidos) -- quedan ${result.remaining} cupos.`);
+    },
+    onError: onMutationError,
+  });
+
+  const enabled = !!settings?.foundersPromoEnabled;
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5 bg-gradient-to-br from-primary/5 to-transparent">
+      <CardContent className="pt-6 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="font-heading text-lg">🍬 Aviso automático de primeros cupos</h3>
+            <p className="text-sm text-muted-foreground max-w-xl">
+              Todos los días le manda hasta {status?.dailyTarget ?? 50} correos a clientes/leads que todavía no compraron
+              el evento destacado, con el cupo REAL de esa tanda actualizado en cada envío. Nunca le repite el correo a
+              la misma persona. Presupuesto propio, no le quita cupo a las confirmaciones de compra ni a los
+              recordatorios de carrito.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-muted-foreground">{enabled ? 'Prendido' : 'Apagado'}</span>
+            <Switch checked={enabled} onCheckedChange={(v) => toggle.mutate({ foundersPromoEnabled: v })} disabled={toggle.isPending} />
+          </div>
+        </div>
+
+        {status && (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-xl bg-white/50 dark:bg-black/20 p-3 text-center">
+              <p className="text-2xl font-bold">{status.remaining ?? '—'}</p>
+              <p className="text-xs text-muted-foreground">cupos quedan</p>
+            </div>
+            <div className="rounded-xl bg-white/50 dark:bg-black/20 p-3 text-center">
+              <p className="text-2xl font-bold">{status.audienceSize}</p>
+              <p className="text-xs text-muted-foreground">todavía por avisar</p>
+            </div>
+            <div className="rounded-xl bg-white/50 dark:bg-black/20 p-3 text-center">
+              <p className="text-2xl font-bold truncate">{status.eventTitle ?? '—'}</p>
+              <p className="text-xs text-muted-foreground">evento</p>
+            </div>
+          </div>
+        )}
+
+        {status && status.remaining === null && (
+          <p className="text-xs text-amber-600 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+            ⚠️ No hay un cupo compartido único activo en el evento destacado (revisá "Cupos compartidos" en Eventos) --
+            mientras no lo haya, prender esto no manda nada.
+          </p>
+        )}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <WriteButton onClick={() => setShowPreview((v) => !v)} className="bg-white/70 dark:bg-black/30 text-foreground border border-border/50 hover:bg-white">
+            {showPreview ? 'Ocultar preview' : 'Ver preview de hoy'}
+          </WriteButton>
+          <WriteButton onClick={() => runNow.mutate()} disabled={runNow.isPending}>
+            {runNow.isPending ? 'Mandando…' : 'Mandar la tanda de hoy ahora'}
+          </WriteButton>
+        </div>
+
+        {showPreview && preview?.html && (
+          <iframe title="Preview aviso primeros cupos" srcDoc={preview.html} className="w-full h-96 rounded-xl border border-border/50 bg-white" />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function MailingSection() {
   const [search, setSearch] = useState('');
   const [accessType, setAccessType] = useState<string>('all');
@@ -3117,6 +3214,8 @@ function MailingSection() {
         <h2 className="font-heading text-2xl">Mailing</h2>
         <p className="text-sm text-muted-foreground">Arma una audiencia, genera el mail con IA, y mándalo -- cada envío exitoso queda etiquetado con el nombre de campaña para no repetir destinatarios.</p>
       </div>
+
+      <FoundersPromoCard />
 
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardContent className="pt-6 space-y-4">

@@ -6,6 +6,7 @@ import { sendEmail, buildCheckinSummaryEmail } from "./email";
 import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
 import { runAbandonedCartCron } from "./orderReminders";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
+import { runFoundersPromoDaily } from "./foundersPromo";
 import { isWeeklyEmailDay } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 
@@ -162,6 +163,24 @@ export function registerCronRoutes(app: Express) {
       res.json({ success: true, sent: true, insideCount: dashboard.insideCount, expectedCount: dashboard.expectedCount });
     } catch (err) {
       console.error('[Cron] Error mandando el resumen de ingresos:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  /* Aviso automático diario de "primeros cupos" (server/foundersPromo.ts).
+   * Presupuesto propio, no comparte AUTOMATED_EMAIL_DAILY_CAP -- ver el
+   * comentario de ese archivo para el porqué. Una corrida por día alcanza:
+   * es un envío directo (sendMailingBatch), no una cola que necesite
+   * drenarse de a poco como mailing-queue. Apagado por defecto
+   * (siteSettings.foundersPromoEnabled) -- el dueño lo prende desde el
+   * admin cuando esté listo, desplegar este endpoint no manda nada solo. */
+  app.get("/api/cron/founders-promo", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const result = await runFoundersPromoDaily();
+      res.json({ success: true, ...result });
+    } catch (err) {
+      console.error('[Cron] Error en el aviso de primeros cupos:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
   });
