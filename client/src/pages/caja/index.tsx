@@ -1522,7 +1522,17 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
           </div>
 
           {/* Panel de carrito persistente al costado -- antes era una barra pegada abajo, ahora siempre visible mientras se arma la venta. */}
-          <aside className="w-full lg:w-96 shrink-0 min-h-0 lg:self-stretch flex flex-col overflow-y-auto overscroll-contain bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-3xl p-4 space-y-4">
+          {/* `max-h-[48vh] lg:max-h-none` -- por debajo de `lg:` este panel
+              apila DEBAJO de la grilla (`flex-col` en el contenedor padre,
+              ver arriba), y sin tope de alto su contenido natural (cliente,
+              métodos de pago, carrito, descuento, total, botón de cobro,
+              ~500-600px) se comía casi toda la pantalla en un celular --
+              dejaba la grilla de productos reducida a una fila visible. Con
+              el tope, el panel scrollea internamente (ya tenía
+              `overflow-y-auto`) y la grilla recupera la mitad de la
+              pantalla. `lg:` en adelante (tablet en horizontal/desktop) usa
+              `self-stretch` de siempre, sin cambios. */}
+          <aside className="w-full max-h-[48vh] lg:max-h-none lg:w-96 shrink-0 min-h-0 lg:self-stretch flex flex-col overflow-y-auto overscroll-contain bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-3xl p-4 space-y-4">
             {/* Tarjeta de cliente: lo que el carrito necesite en este momento -- guardarropía/cocina (si aplica) y Playcoins. */}
             <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-3 space-y-3">
               <p className="text-xs uppercase tracking-wide text-white/45">Cliente</p>
