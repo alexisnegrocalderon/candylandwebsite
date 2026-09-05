@@ -3,8 +3,9 @@ import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/amba
 import { BRAND, EVENT_BRAND } from '../shared/eventBrand';
 import { type OrderEmailConfig, DEFAULT_ORDER_EMAIL_CONFIG, fillPlaceholders } from '../shared/emailTemplateConfig';
 import {
-  ACCENT, INK, MUTED, FAINT, BORDER, CARD_BG, EMAIL_BASE_URL, LOGO_URL,
+  ACCENT, INK, MUTED, FAINT, BORDER, CARD_BG, DISCO_BG, DISCO_HERO_BG, EMAIL_BASE_URL, LOGO_URL,
   card, sectionTitle, grid, costumeBadge, anniversaryBand, emailShell, emailHero,
+  pastelButton, glassButton,
 } from './emailLayout';
 
 interface SendEmailInput {
@@ -172,14 +173,17 @@ export function buildOrderEmail(data: {
 
   return emailShell({
     preheader: `Tu ${ticketNames} ya está reservado para ${data.eventTitle}.`,
+    pageBg: DISCO_BG,
     hero: emailHero({
       accent: 'pink',
-      emoji: '🍭',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🍭🪩',
       title: '¡Tu compra fue confirmada!',
       subtitle: `La cuenta regresiva para ${data.eventTitle} ya comenzó.`,
       cta: { href: EMAIL_BASE_URL, label: `Ver ${data.eventTitle}` },
       anniversary: true,
       costume: true,
+      ctaStyle: 'pastel',
     }),
     body: `
       <!-- SALUDO -->
@@ -188,20 +192,58 @@ export function buildOrderEmail(data: {
         ${fillPlaceholders(cfg.greetingText, { items: `<strong style="color:${INK};">${ticketNames}</strong>`, evento: data.eventTitle })}
       </p>
 
+      <!-- TU ENTRADA (primero, pedido explícito del dueño) -->
+      ${sectionTitle('🎟', 'Tu entrada')}
+      ${!data.ticketReady ? card(`
+        <p style="color:${INK};font-size:15px;font-weight:700;margin:0 0 8px;">Mientras la Misión 300 siga activa...</p>
+        <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 10px;">Tu QR aún no ha sido emitido.</p>
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0;">📩 Apenas finalice la misión, lo recibirás automáticamente por este mismo medio. No necesitas hacer nada más.</p>
+      `, { glow: 'yellow' }) : card(`
+        <div style="text-align:center;">
+          <!-- Marco temático con halo neón -- sin degradé CSS (Outlook desktop
+               no lo soporta), un borde sólido grueso + box-shadow es el
+               tratamiento más seguro entre clientes de correo. -->
+          <div style="display:inline-block;background:rgba(255,111,184,0.08);border:2px solid rgba(255,111,184,0.55);border-radius:20px;padding:16px;box-shadow:0 0 40px -8px rgba(${ACCENT.pink.glowRgb},0.5);">
+            <p style="color:${ACCENT.pink.text};font-size:11px;font-weight:800;letter-spacing:2px;margin:0 0 10px;">${EVENT_BRAND.ticketLabel}</p>
+            <img src="${qrUrl}" alt="Código QR de tu entrada" style="width:200px;height:200px;border-radius:12px;background:#fff;padding:8px;display:block;" />
+          </div>
+          <p style="color:${MUTED};font-size:12px;margin:14px 0 20px;">Presenta este código QR y tu carnet en la entrada</p>
+        </div>
+        <div style="margin-bottom:18px;">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Asistentes</p>
+          ${attendeeNamesList(data.attendeeNames ?? [])}
+        </div>
+        ${data.extras && data.extras.length > 0 ? `
+        <div style="margin-bottom:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.08);">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Incluye</p>
+          ${data.extras.map(e => `
+            <p style="color:${ACCENT.pink.text};font-size:14px;font-weight:700;margin:2px 0;">✅ ${e.quantity > 1 ? `${e.quantity}× ` : ''}${e.name}</p>
+            ${e.codes.map(code => `<p style="color:${MUTED};font-size:12px;font-family:monospace;letter-spacing:0.5px;margin:0 0 4px 20px;">${code}</p>`).join('')}
+          `).join('')}
+          <p style="color:${FAINT};font-size:11px;margin:8px 0 0;">Presenta estos códigos en caja el día del evento para canjearlos.</p>
+        </div>
+        ` : ''}
+        <div style="text-align:center;">
+          ${pastelButton(ticketUrl, 'Ver mi entrada', 'pink')}
+          ${glassButton(partyUrl, '🍬 Playmatch')}
+          ${glassButton(calendarUrl, '📅 Agendar')}
+        </div>
+      `, { glow: 'pink' })}
+
       <!-- TU EVENTO -->
       ${sectionTitle('📅', 'Tu evento')}
       ${card(`
-        <h3 style="color:${ACCENT.pink.text};font-size:20px;font-weight:800;margin:0 0 14px;">${data.eventTitle}</h3>
+        <h3 style="color:${ACCENT.blue.text};font-size:20px;font-weight:800;margin:0 0 14px;">${data.eventTitle}</h3>
         <p style="color:${INK};font-size:15px;margin:6px 0;">📅 ${data.eventDate}</p>
         ${data.doorsOpenText ? `<p style="color:${INK};font-size:15px;margin:6px 0;">🕘 ${data.doorsOpenText} hrs</p>` : ''}
         <p style="color:${INK};font-size:15px;margin:6px 0;">📍 ${data.venue}${data.address ? ` — ${data.address}` : ''}</p>
-        ${data.ticketReady && data.mapsUrl ? `<a href="${data.mapsUrl}" style="display:inline-block;color:${ACCENT.pink.text};font-size:13px;font-weight:700;text-decoration:none;margin:4px 0 0;">📍 Ver en Google Maps →</a>` : ''}
-        <div style="margin-top:16px;padding-top:16px;border-top:1px solid ${BORDER};">
+        ${data.ticketReady && data.mapsUrl ? `<a href="${data.mapsUrl}" style="display:inline-block;color:${ACCENT.blue.text};font-size:13px;font-weight:700;text-decoration:none;margin:4px 0 0;">📍 Ver en Google Maps →</a>` : ''}
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.08);">
           <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px;">Código de reserva</p>
           <p style="color:${INK};font-size:15px;font-weight:700;font-family:monospace;margin:0;">${data.orderNumber}</p>
         </div>
         ${!data.ticketReady ? `<p style="color:${FAINT};font-size:12px;margin:14px 0 0;">La dirección exacta será enviada unos días antes del evento.</p>` : ''}
-      `)}
+      `, { glow: 'blue' })}
 
       <!-- MISIÓN 300 -->
       ${data.isMissionDeposit ? `
@@ -215,73 +257,35 @@ export function buildOrderEmail(data: {
         <p style="color:${INK};font-size:14px;line-height:1.6;margin:0;">
           Cuando la misión finalice, recibirás automáticamente un nuevo correo con tu código QR definitivo.
         </p>
-      `, { bg: ACCENT.pink.bg, border: false })}
+      `, { glow: 'pink' })}
       ` : ''}
 
       <!-- RESUMEN DE COMPRA -->
       ${sectionTitle('🧾', 'Tu compra')}
       ${card(`
         ${data.items.map(item => `
-          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid ${BORDER};">
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
             <span style="color:${INK};font-size:14px;">${item.quantity}x ${item.name}</span>
             <span style="color:${INK};font-size:14px;font-weight:600;">$${item.price.toLocaleString('es-CL')}</span>
           </div>
         `).join('')}
         ${data.discount && data.discount > 0 ? `
-        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid ${BORDER};">
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
           <span style="color:${MUTED};font-size:14px;">Descuento</span>
           <span style="color:${ACCENT.pink.text};font-size:14px;font-weight:600;">-$${data.discount.toLocaleString('es-CL')}</span>
         </div>
         ` : ''}
         ${data.serviceFee && data.serviceFee > 0 ? `
-        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid ${BORDER};">
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
           <span style="color:${MUTED};font-size:14px;">Cargo por servicio</span>
           <span style="color:${INK};font-size:14px;font-weight:600;">$${data.serviceFee.toLocaleString('es-CL')}</span>
         </div>
         ` : ''}
         <div style="display:flex;justify-content:space-between;padding-top:14px;margin-top:6px;">
           <span style="color:${INK};font-size:16px;font-weight:800;">Total pagado</span>
-          <span style="color:${ACCENT.pink.text};font-size:18px;font-weight:800;">$${data.total.toLocaleString('es-CL')}</span>
+          <span style="color:${ACCENT.gold.text};font-size:18px;font-weight:800;text-shadow:0 0 20px rgba(${ACCENT.gold.glowRgb},0.4);">$${data.total.toLocaleString('es-CL')}</span>
         </div>
-      `)}
-
-      <!-- TU ENTRADA -->
-      ${sectionTitle('🎟', 'Tu entrada')}
-      ${!data.ticketReady ? card(`
-        <p style="color:${INK};font-size:15px;font-weight:700;margin:0 0 8px;">Mientras la Misión 300 siga activa...</p>
-        <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 10px;">Tu QR aún no ha sido emitido.</p>
-        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0;">📩 Apenas finalice la misión, lo recibirás automáticamente por este mismo medio. No necesitas hacer nada más.</p>
-      `, { bg: ACCENT.yellow.bg, border: false }) : card(`
-        <div style="text-align:center;">
-          <!-- Marco temático: borde grueso color marca + etiqueta arriba del QR --
-               sin degradé CSS (Outlook desktop no lo soporta), un borde sólido
-               grueso es el tratamiento más seguro entre clientes de correo. -->
-          <div style="display:inline-block;background:${ACCENT.pink.bg};border:3px solid ${ACCENT.pink.solid};border-radius:20px;padding:16px;">
-            <p style="color:${ACCENT.pink.text};font-size:11px;font-weight:800;letter-spacing:2px;margin:0 0 10px;">${EVENT_BRAND.ticketLabel}</p>
-            <img src="${qrUrl}" alt="Código QR de tu entrada" style="width:200px;height:200px;border-radius:12px;background:#fff;padding:8px;display:block;" />
-          </div>
-          <p style="color:${MUTED};font-size:12px;margin:14px 0 20px;">Presenta este código QR y tu carnet en la entrada</p>
-        </div>
-        <div style="margin-bottom:18px;">
-          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Asistentes</p>
-          ${attendeeNamesList(data.attendeeNames ?? [])}
-        </div>
-        ${data.extras && data.extras.length > 0 ? `
-        <div style="margin-bottom:18px;padding-top:14px;border-top:1px solid ${BORDER};">
-          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Incluye</p>
-          ${data.extras.map(e => `
-            <p style="color:${ACCENT.pink.text};font-size:14px;font-weight:700;margin:2px 0;">✅ ${e.quantity > 1 ? `${e.quantity}× ` : ''}${e.name}</p>
-            ${e.codes.map(code => `<p style="color:${MUTED};font-size:12px;font-family:monospace;letter-spacing:0.5px;margin:0 0 4px 20px;">${code}</p>`).join('')}
-          `).join('')}
-          <p style="color:${FAINT};font-size:11px;margin:8px 0 0;">Presenta estos códigos en caja el día del evento para canjearlos.</p>
-        </div>
-        ` : ''}
-        <div style="text-align:center;">
-          <a href="${ticketUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:800;font-size:14px;margin:0 6px 10px;">Ver mi entrada</a>
-          <a href="${partyUrl}" style="display:inline-block;background:${CARD_BG};color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};margin:0 6px 10px;">🍬 Entrar a Playmatch</a>
-          <a href="${calendarUrl}" style="display:inline-block;background:${CARD_BG};color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};margin:0 6px 10px;">📅 Agregar al calendario</a>
-        </div>
-      `)}
+      `, { glow: 'gold' })}
 
       <!-- QUÉ ES MANSION PLAYROOM -->
       ${cfg.sections.quienesSomos ? `
@@ -290,7 +294,7 @@ export function buildOrderEmail(data: {
         Más que una fiesta, somos un venue y una comunidad para adultos donde cada persona vive la experiencia a su manera.
       </p>
       ${grid(CONTENT.quienesSomos.map(x => `
-        <div style="background:${ACCENT.blue.bg};border-radius:16px;padding:16px;text-align:center;">
+        <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(95,194,222,0.18);border-radius:16px;padding:16px;text-align:center;">
           <p style="font-size:26px;margin:0 0 6px;">${x.emoji}</p>
           <p style="color:${INK};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
         </div>
@@ -302,7 +306,7 @@ export function buildOrderEmail(data: {
       ${cfg.sections.encontraras ? `
       ${sectionTitle('🛝', '¿Qué encontrarás?')}
       ${grid(CONTENT.encontraras.map(x => `
-        <div style="background:${ACCENT.lilac.bg};border-radius:16px;padding:14px;">
+        <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(150,110,255,0.18);border-radius:16px;padding:14px;">
           <p style="font-size:22px;margin:0 0 4px;">${x.emoji}</p>
           <p style="color:${INK};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
         </div>
@@ -314,7 +318,7 @@ export function buildOrderEmail(data: {
       ${cfg.sections.antesDeVenir ? `
       ${sectionTitle('🎒', 'Antes de venir')}
       ${grid(CONTENT.antesDeVenir.map(x => `
-        <div style="background:${ACCENT.yellow.bg};border-radius:16px;padding:16px;">
+        <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(212,165,55,0.18);border-radius:16px;padding:16px;">
           <p style="font-size:24px;margin:0 0 6px;">${x.emoji}</p>
           <p style="color:${INK};font-size:13px;font-weight:800;margin:0 0 4px;">${x.titulo}</p>
           <p style="color:${MUTED};font-size:12px;line-height:1.5;margin:0;">${x.texto}</p>
@@ -327,7 +331,7 @@ export function buildOrderEmail(data: {
       ${sectionTitle('❤️', 'Nuestros valores')}
       ${card(`
         <p style="color:${INK};font-size:16px;font-weight:700;margin:0;">${CONTENT.valores.join('&nbsp;&nbsp;·&nbsp;&nbsp;')}</p>
-      `, { bg: ACCENT.pink.bg, border: false })}
+      `, { glow: 'pink' })}
       ` : ''}
 
       <!-- EMBAJADOR -->
@@ -335,26 +339,26 @@ export function buildOrderEmail(data: {
       ${sectionTitle('🏆', 'Tu Código de Embajador')}
       ${card(`
         <div style="text-align:center;margin-bottom:16px;">
-          <p style="color:${INK};font-size:30px;font-weight:800;font-family:monospace;margin:0;">${data.ambassadorCode}</p>
+          <p style="color:${ACCENT.gold.text};font-size:30px;font-weight:800;font-family:monospace;margin:0;text-shadow:0 0 24px rgba(${ACCENT.gold.glowRgb},0.5);">${data.ambassadorCode}</p>
           <p style="color:${MUTED};font-size:13px;margin:8px 0 0;">Compártelo con tus amigos — cada compra realizada con tu código suma recompensas.</p>
         </div>
         ${AMBASSADOR_TIERS.map(t => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid ${BORDER};">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.08);">
             <span style="color:${INK};font-size:13px;font-weight:700;">${t.emoji} ${t.min} compras</span>
             <span style="color:${MUTED};font-size:13px;text-align:right;">${t.reward}</span>
           </div>
         `).join('')}
         <div style="text-align:center;margin-top:18px;">
-          <a href="${whatsappShareUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:12px 28px;border-radius:999px;font-weight:800;font-size:13px;">Compartir por WhatsApp</a>
+          ${pastelButton(whatsappShareUrl, 'Compartir por WhatsApp', 'gold')}
         </div>
-      `)}
+      `, { glow: 'pink' })}
       ` : ''}
 
       <!-- FAQ -->
       ${cfg.sections.faq ? `
       ${sectionTitle('❓', 'Preguntas rápidas')}
       ${card(CONTENT.faq.map((f, i) => `
-        <div style="${i > 0 ? `border-top:1px solid ${BORDER};padding-top:12px;margin-top:12px;` : ''}">
+        <div style="${i > 0 ? `border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;margin-top:12px;` : ''}">
           <p style="color:${INK};font-size:14px;font-weight:700;margin:0 0 4px;">${f.q}</p>
           <p style="color:${MUTED};font-size:13px;margin:0;">${f.a}</p>
         </div>
@@ -391,9 +395,11 @@ export function buildMissionTopupEmail(data: {
 }) {
   return emailShell({
     preheader: `Falta completar tu diferencia para ${data.eventTitle}.`,
+    pageBg: DISCO_BG,
     hero: emailHero({
       accent: 'yellow',
-      emoji: '🍭',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🍭🪩',
       title: `¡Casi, ${data.buyerName}!`,
       subtitle: `No juntamos las 300 personas para ${data.eventTitle} — falta completar tu diferencia.`,
     }),
@@ -408,12 +414,12 @@ export function buildMissionTopupEmail(data: {
       ${card(`
         <div style="text-align:center;">
           <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Orden ${data.orderNumber}</p>
-          <p style="color:${ACCENT.pink.text};font-size:32px;font-weight:800;margin:0 0 6px;">$${data.topupAmount.toLocaleString('es-CL')}</p>
+          <p style="color:${ACCENT.gold.text};font-size:32px;font-weight:800;margin:0 0 6px;text-shadow:0 0 24px rgba(${ACCENT.gold.glowRgb},0.5);">$${data.topupAmount.toLocaleString('es-CL')}</p>
           <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">Máximo el 60% del valor general — tu abono ya cuenta como parte de este monto.</p>
-          <a href="${data.paymentUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(236,95,163,0.35);">Pagar diferencia</a>
+          ${pastelButton(data.paymentUrl, 'Pagar diferencia', 'gold')}
           <p style="color:${FAINT};font-size:12px;margin:16px 0 0;">Tu entrada con código QR llega automáticamente apenas se confirme este pago.</p>
         </div>
-      `)}
+      `, { glow: 'gold' })}
     `,
   });
 }
@@ -1083,29 +1089,31 @@ export function buildGiftEmail(data: {
   return emailShell({
     preheader: `${data.fromAlias} te invitó un ${data.drinkName}.`,
     footer: false,
+    pageBg: DISCO_BG,
     hero: emailHero({
       accent: 'pink',
-      emoji: '🍹',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🍹🪩',
       title: `${data.fromAlias} te invitó un trago`,
       subtitle: data.drinkName,
     }),
     body: `
       ${data.message ? card(
         `<p style="color:${INK};font-size:15px;font-style:italic;margin:0;text-align:center;">"${data.message}"</p>`,
-        { bg: ACCENT.yellow.bg, border: false },
+        { glow: 'yellow' },
       ) : ''}
 
       ${card(`
         <p style="color:${FAINT};font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 12px;text-align:center;">Muestra este código en la barra</p>
-        <p style="color:${INK};font-size:32px;font-weight:800;letter-spacing:3px;margin:0;text-align:center;font-family:monospace;">${data.displayCode}</p>
-      `, { bg: ACCENT.pink.bg, border: false })}
+        <p style="color:${ACCENT.pink.text};font-size:32px;font-weight:800;letter-spacing:3px;margin:0;text-align:center;font-family:monospace;text-shadow:0 0 24px rgba(${ACCENT.pink.glowRgb},0.5);">${data.displayCode}</p>
+      `, { glow: 'pink' })}
 
       ${card(`
         <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0;">
           Es para <strong style="color:${INK};">${data.toAlias}</strong>, en ${data.eventTitle}.
           Si no alcanzas a cobrarlo esta noche, no se pierde: <strong style="color:${INK};">queda válido para la próxima fiesta</strong>.
         </p>
-      `)}
+      `, { glow: 'lilac' })}
 
       <p style="color:${FAINT};font-size:12px;text-align:center;margin:24px 0 0;line-height:1.6;">
         Recibiste este correo porque alguien te invitó un trago en la fiesta.<br>
@@ -1148,9 +1156,11 @@ export function buildPendingReminderEmail(data: {
   return emailShell({
     preheader: `${data.eventTitle} te está esperando.`,
     footer: false,
+    pageBg: DISCO_BG,
     hero: emailHero({
       accent: 'pink',
-      emoji: '🎟️',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🎟️🪩',
       title: `${primerNombre}, quedó pendiente tu acceso`,
       subtitle: fechaTexto ? `${data.eventTitle} · ${fechaTexto}` : undefined,
       anniversary: true,
@@ -1160,9 +1170,7 @@ export function buildPendingReminderEmail(data: {
       ${cuerpo.map((p) => `<p style="color:${INK};font-size:15px;line-height:1.6;margin:0 0 16px;">${p}</p>`).join('')}
 
       <div style="text-align:center;margin:28px 0 8px;">
-        <a href="${data.checkoutUrl}" style="display:inline-block;background:${ACCENT.pink.text};color:#FFFFFF;font-size:16px;font-weight:700;text-decoration:none;padding:16px 36px;border-radius:999px;">
-          Completar mi compra
-        </a>
+        ${pastelButton(data.checkoutUrl, 'Completar mi compra', 'pink')}
       </div>
 
       <p style="color:${FAINT};font-size:12px;text-align:center;margin:16px 0 0;line-height:1.5;">
