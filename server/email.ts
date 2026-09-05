@@ -1,6 +1,7 @@
 import { formatChileDate, formatChileDateTime } from '../shared/chileDate';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
 import { BRAND, EVENT_BRAND } from '../shared/eventBrand';
+import { type OrderEmailConfig, DEFAULT_ORDER_EMAIL_CONFIG, fillPlaceholders } from '../shared/emailTemplateConfig';
 import {
   ACCENT, INK, MUTED, FAINT, BORDER, CARD_BG, EMAIL_BASE_URL, LOGO_URL,
   card, sectionTitle, grid, costumeBadge, anniversaryBand, emailShell, emailHero,
@@ -155,7 +156,10 @@ export function buildOrderEmail(data: {
   ticketCode?: string;
   attendeeNames?: string[];
   extras?: { name: string; quantity: number; codes: string[] }[];
+  /** Textos + interruptores por sección editados desde el admin (shared/emailTemplateConfig.ts). */
+  templateConfig?: OrderEmailConfig;
 }) {
+  const cfg = data.templateConfig ?? DEFAULT_ORDER_EMAIL_CONFIG;
   const ticketNames = data.items.map(i => i.name).join(', ');
   const ticketUrl = data.ticketCode ? `${EMAIL_BASE_URL}/verificar/${data.ticketCode}` : '';
   const calendarUrl = data.ticketCode ? `${EMAIL_BASE_URL}/api/calendar/${data.ticketCode}.ics` : '';
@@ -181,8 +185,7 @@ export function buildOrderEmail(data: {
       <!-- SALUDO -->
       <h2 style="color:${INK};font-size:22px;font-weight:800;margin:0 0 6px;">👋 Hola ${data.buyerName}</h2>
       <p style="color:${MUTED};font-size:15px;margin:0 0 28px;">
-        Tu <strong style="color:${INK};">${ticketNames}</strong> ya está reservado para ${data.eventTitle} en Mansion Playroom. 🎉
-        Prepárate para vivir una noche llena de música, conexión y una experiencia completamente distinta.
+        ${fillPlaceholders(cfg.greetingText, { items: `<strong style="color:${INK};">${ticketNames}</strong>`, evento: data.eventTitle })}
       </p>
 
       <!-- TU EVENTO -->
@@ -281,6 +284,7 @@ export function buildOrderEmail(data: {
       `)}
 
       <!-- QUÉ ES MANSION PLAYROOM -->
+      ${cfg.sections.quienesSomos ? `
       ${sectionTitle('✨', '¿Qué es Mansion Playroom?')}
       <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 16px;">
         Más que una fiesta, somos un venue y una comunidad para adultos donde cada persona vive la experiencia a su manera.
@@ -292,8 +296,10 @@ export function buildOrderEmail(data: {
         </div>
       `), 3)}
       <p style="color:${MUTED};font-size:13px;margin:6px 0 24px;">Todo ocurre siempre bajo nuestros tres pilares: ${CONTENT.valores.join(' · ')}</p>
+      ` : ''}
 
       <!-- QUÉ ENCONTRARÁS -->
+      ${cfg.sections.encontraras ? `
       ${sectionTitle('🛝', '¿Qué encontrarás?')}
       ${grid(CONTENT.encontraras.map(x => `
         <div style="background:${ACCENT.lilac.bg};border-radius:16px;padding:14px;">
@@ -302,8 +308,10 @@ export function buildOrderEmail(data: {
         </div>
       `), 2)}
       <div style="margin-bottom:8px;"></div>
+      ` : ''}
 
       <!-- ANTES DE VENIR -->
+      ${cfg.sections.antesDeVenir ? `
       ${sectionTitle('🎒', 'Antes de venir')}
       ${grid(CONTENT.antesDeVenir.map(x => `
         <div style="background:${ACCENT.yellow.bg};border-radius:16px;padding:16px;">
@@ -312,14 +320,18 @@ export function buildOrderEmail(data: {
           <p style="color:${MUTED};font-size:12px;line-height:1.5;margin:0;">${x.texto}</p>
         </div>
       `), 2)}
+      ` : ''}
 
       <!-- NUESTROS VALORES -->
+      ${cfg.sections.valores ? `
       ${sectionTitle('❤️', 'Nuestros valores')}
       ${card(`
         <p style="color:${INK};font-size:16px;font-weight:700;margin:0;">${CONTENT.valores.join('&nbsp;&nbsp;·&nbsp;&nbsp;')}</p>
       `, { bg: ACCENT.pink.bg, border: false })}
+      ` : ''}
 
       <!-- EMBAJADOR -->
+      ${cfg.sections.embajador ? `
       ${sectionTitle('🏆', 'Tu Código de Embajador')}
       ${card(`
         <div style="text-align:center;margin-bottom:16px;">
@@ -336,8 +348,10 @@ export function buildOrderEmail(data: {
           <a href="${whatsappShareUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:12px 28px;border-radius:999px;font-weight:800;font-size:13px;">Compartir por WhatsApp</a>
         </div>
       `)}
+      ` : ''}
 
       <!-- FAQ -->
+      ${cfg.sections.faq ? `
       ${sectionTitle('❓', 'Preguntas rápidas')}
       ${card(CONTENT.faq.map((f, i) => `
         <div style="${i > 0 ? `border-top:1px solid ${BORDER};padding-top:12px;margin-top:12px;` : ''}">
@@ -345,6 +359,7 @@ export function buildOrderEmail(data: {
           <p style="color:${MUTED};font-size:13px;margin:0;">${f.a}</p>
         </div>
       `).join(''))}
+      ` : ''}
 
       <!-- INFO IMPORTANTE -->
       <p style="color:${FAINT};font-size:12px;line-height:1.6;margin:0 0 24px;">
@@ -358,9 +373,7 @@ export function buildOrderEmail(data: {
         <p style="font-size:32px;margin:0 0 8px;">🍭</p>
         <p style="color:${INK};font-size:16px;font-weight:800;margin:0 0 6px;">Nos vemos en ${data.eventTitle}</p>
         <p style="color:${MUTED};font-size:13px;line-height:1.6;margin:0;">
-          Ya eres parte de esta edición. Nosotros ponemos la música, el ambiente y la experiencia.<br/>
-          Tú solo preocúpate de llegar con ganas de disfrutar.<br/>
-          <strong>Equipo Mansion Playroom</strong>
+          ${fillPlaceholders(cfg.farewellText, { evento: data.eventTitle })}
         </p>
       </div>
     `,

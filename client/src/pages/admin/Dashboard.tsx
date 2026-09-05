@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -6617,6 +6617,174 @@ function SettingsManager() {
 }
 
 
+/* ─── Plantillas de correo ────────────────────────────────────────────────
+ * Editor de textos + interruptores por sección del correo de compra
+ * (buildOrderEmail), y botón de "mandar prueba" para los 4 correos de cara
+ * al cliente -- pedido pendiente de la sesión anterior que se cortó por
+ * límite de uso. Alcance acotado a buildOrderEmail para los toggles: es el
+ * único con secciones largas desacoplables (server/email.ts). */
+
+const EMAIL_TEMPLATE_SECTION_LABELS: { key: keyof typeof DEFAULT_ORDER_EMAIL_SECTIONS; label: string }[] = [
+  { key: 'quienesSomos', label: '¿Qué es Mansion Playroom?' },
+  { key: 'encontraras', label: '¿Qué encontrarás?' },
+  { key: 'antesDeVenir', label: 'Antes de venir' },
+  { key: 'valores', label: 'Nuestros valores' },
+  { key: 'embajador', label: 'Tu Código de Embajador' },
+  { key: 'faq', label: 'Preguntas rápidas' },
+];
+
+const DEFAULT_ORDER_EMAIL_SECTIONS = {
+  quienesSomos: true,
+  encontraras: true,
+  antesDeVenir: true,
+  valores: true,
+  embajador: true,
+  faq: true,
+};
+
+const TEST_EMAIL_TEMPLATE_OPTIONS: { value: 'order' | 'missionTopup' | 'pendingReminder' | 'gift'; label: string }[] = [
+  { value: 'order', label: 'Compra confirmada / entrada' },
+  { value: 'missionTopup', label: 'Misión 300 — falta completar diferencia' },
+  { value: 'pendingReminder', label: 'Recordatorio de carrito abandonado' },
+  { value: 'gift', label: 'Trago de regalo' },
+];
+
+function EmailTemplatesManager() {
+  const { data: config, refetch } = trpc.emailTemplates.getConfig.useQuery();
+  const [sections, setSections] = useState(DEFAULT_ORDER_EMAIL_SECTIONS);
+  const [greetingText, setGreetingText] = useState('');
+  const [farewellText, setFarewellText] = useState('');
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [testEmail, setTestEmail] = useState('');
+  const [testTemplate, setTestTemplate] = useState<'order' | 'missionTopup' | 'pendingReminder' | 'gift'>('order');
+
+  useEffect(() => {
+    if (config) {
+      setSections(config.sections);
+      setGreetingText(config.greetingText);
+      setFarewellText(config.farewellText);
+    }
+  }, [config]);
+
+  const saveConfig = trpc.emailTemplates.saveConfig.useMutation({ onSuccess: () => { refetch(); toast.success('Plantilla guardada'); }, onError: onMutationError });
+  const renderPreview = trpc.emailTemplates.renderPreview.useMutation();
+  const sendTest = trpc.emailTemplates.sendTest.useMutation();
+
+  const handlePreview = async () => {
+    try {
+      const { html } = await renderPreview.mutateAsync({ sections, greetingText, farewellText });
+      setPreviewHtml(html);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo generar la vista previa.');
+    }
+  };
+
+  // Vista previa siempre al día, mismo patrón que MailingComposer.
+  useEffect(() => {
+    const timer = setTimeout(() => { handlePreview(); }, 600);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sections, greetingText, farewellText]);
+
+  const handleSave = () => {
+    saveConfig.mutate({ sections, greetingText, farewellText });
+  };
+
+  const handleSendTest = async () => {
+    if (!testEmail.trim()) { toast.error('Escribe una casilla de correo primero.'); return; }
+    try {
+      await sendTest.mutateAsync({ toEmail: testEmail.trim(), templateType: testTemplate });
+      toast.success(`Prueba enviada a ${testEmail.trim()}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo enviar la prueba.');
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <h2 className="font-heading text-2xl">Plantillas de correo</h2>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Correo de compra confirmada</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Apaga las secciones informativas que no quieras mandar (la estructura de reserva, resumen de compra y
+            entrada/QR siempre se mandan) y edita los dos párrafos de texto libre. La vista previa se actualiza sola.
+          </p>
+          <div className="space-y-2 rounded-xl border border-border/50 p-3">
+            <Label>Secciones</Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {EMAIL_TEMPLATE_SECTION_LABELS.map(({ key, label }) => (
+                <div key={key} className="flex items-center gap-2">
+                  <Checkbox
+                    id={`email-section-${key}`}
+                    checked={sections[key]}
+                    onCheckedChange={(checked) => setSections((s) => ({ ...s, [key]: checked === true }))}
+                  />
+                  <Label htmlFor={`email-section-${key}`} className="font-normal cursor-pointer">{label}</Label>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Saludo (bajo "Hola {'{nombre}'}"). Puedes usar {'{{evento}}'}.</Label>
+            <Textarea value={greetingText} onChange={(e) => setGreetingText(e.target.value)} className="min-h-20" />
+          </div>
+          <div className="space-y-2">
+            <Label>Despedida (bajo "Nos vemos en {'{evento}'}"). Puedes usar {'{{evento}}'}.</Label>
+            <Textarea value={farewellText} onChange={(e) => setFarewellText(e.target.value)} className="min-h-20" />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <WriteButton onClick={handleSave} disabled={saveConfig.isPending} className="interactive">
+              {saveConfig.isPending ? 'Guardando…' : 'Guardar'}
+            </WriteButton>
+            <Button type="button" variant="outline" onClick={handlePreview} disabled={renderPreview.isPending}>
+              {renderPreview.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null} Actualizar vista previa
+            </Button>
+          </div>
+          {previewHtml && (
+            <div className="space-y-2">
+              <Label>Vista previa (datos de muestra)</Label>
+              <iframe srcDoc={previewHtml} className="w-full h-96 border rounded-xl bg-white" title="Vista previa del correo de compra" />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Mandar prueba</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Manda cualquiera de los 4 correos de cara al cliente a una casilla cualquiera, con datos de muestra --
+            para revisar cómo se ve realmente en la bandeja de entrada antes de que le llegue a un cliente real.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Plantilla</Label>
+              <Select value={testTemplate} onValueChange={(v) => setTestTemplate(v as typeof testTemplate)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {TEST_EMAIL_TEMPLATE_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Casilla de destino</Label>
+              <Input type="email" value={testEmail} onChange={(e) => setTestEmail(e.target.value)} placeholder="tu@correo.com" />
+            </div>
+          </div>
+          <WriteButton onClick={handleSendTest} disabled={sendTest.isPending} className="interactive">
+            {sendTest.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Enviando…</> : <><Send className="w-4 h-4 mr-2" /> Enviar prueba</>}
+          </WriteButton>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+
 /* ─── Carta de la fiesta ──────────────────────────────────────────────────
  * Los tragos, la comida, la guardarropía y el merch son `ticketTypes` con
  * categoría propia (consumo/locker/merch) del evento -- no una tabla nueva
@@ -7295,6 +7463,7 @@ const ADMIN_SECTIONS = [
   { id: 'leads', label: 'Leads', icon: UserPlus, render: () => <LeadsView /> },
   { id: 'mailing', label: 'Mailing', icon: Mail, render: () => <MailingSection /> },
   { id: 'mailing-history', label: 'Historial de Mailing', icon: History, render: () => <MailingHistoryView /> },
+  { id: 'email-templates', label: 'Plantillas de correo', icon: Send, render: () => <EmailTemplatesManager /> },
   { id: 'referrals', label: 'Referidos', icon: Trophy, render: () => <ReferralsView /> },
   { id: 'ambassadors', label: 'Embajadores VIP', icon: Crown, render: () => <AmbassadorsView /> },
   { id: 'party-gifts', label: 'Tragos de la Fiesta', icon: Martini, render: () => <PartyGiftsView /> },

@@ -50,7 +50,8 @@ import { friendlySyncErrorMessage } from "./caja/ops";
 import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKitchenProductStock, toggleKitchenProductSoldOut } from "./kitchen";
 import { listLockerItems, updateLockerItem } from "./locker";
 import { voidTicketCode } from "./caja/void";
-import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail } from "./email";
+import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail } from "./email";
+import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emailTemplateConfig";
 import { buildShiftClosePdf } from "./caja/shiftReportPdf";
 import { buildKitchenVendorPdf } from "./caja/kitchenVendorPdf";
 import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
@@ -68,6 +69,55 @@ import { buildAuthenticationOptions, buildRegistrationOptions, getRpIdAndOrigin,
 const SHIFT_CLOSE_REPORT_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 const APPLICATIONS_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 const APPLICATION_MAX_PER_HOUR = 5;
+
+// Datos ficticios para "mandar prueba" / vista previa de los correos de cara
+// al cliente desde el admin -- nunca datos de una orden real.
+const SAMPLE_ORDER_EMAIL_DATA = {
+  buyerName: 'Camila',
+  eventTitle: '2º Aniversario Mansion Playroom',
+  eventDate: 'Viernes 30 de octubre, 2026',
+  doorsOpenText: '23:00',
+  venue: 'La Mansión',
+  address: 'Valparaíso',
+  mapsUrl: 'https://maps.google.com',
+  orderNumber: 'MP-TEST123',
+  items: [
+    { name: 'Acceso Dúo', quantity: 1, price: 20000 },
+    { name: 'Estacionamiento', quantity: 1, price: 3000 },
+  ],
+  total: 15100,
+  discount: 9000,
+  serviceFee: 2100,
+  ambassadorCode: 'CAMI2026',
+  isMissionDeposit: false,
+  ticketReady: true,
+  ticketCode: 'TICKET-ABC123',
+  attendeeNames: ['Camila Fuentes', 'Jorge Alarcón'],
+  extras: [{ name: 'Estacionamiento', quantity: 1, codes: ['PK-ABC1'] }],
+};
+const SAMPLE_MISSION_TOPUP_DATA = {
+  buyerName: 'Camila',
+  eventTitle: '2º Aniversario Mansion Playroom',
+  eventDate: 'Viernes 30 de octubre, 2026',
+  orderNumber: 'MP-TEST123',
+  topupAmount: 8000,
+  paymentUrl: 'https://mansionplayroom.cl',
+};
+const SAMPLE_PENDING_REMINDER_DATA = {
+  buyerName: 'Camila',
+  eventTitle: '2º Aniversario Mansion Playroom',
+  eventDate: new Date(),
+  total: 20000,
+  checkoutUrl: 'https://mansionplayroom.cl',
+};
+const SAMPLE_GIFT_DATA = {
+  toAlias: 'Duende Rosa',
+  fromAlias: 'Zorro Plateado',
+  drinkName: 'Piscola',
+  displayCode: 'ABCD',
+  message: '¡Disfrútalo!',
+  eventTitle: '2º Aniversario Mansion Playroom',
+};
 
 // Escritura del panel: SOLO admin. El invitado de demostración (`viewer`)
 // nunca pasa por acá -- las queries de lectura usan `adminReadProcedure`,
@@ -1506,6 +1556,80 @@ export const appRouter = router({
       const dashboard = await db.getCajaDashboard(event.id);
       if (!dashboard) return null;
       return { eventTitle: event.title, insideCount: dashboard.insideCount, expectedCount: dashboard.expectedCount };
+    }),
+  }),
+
+  // Editor de textos + interruptores por sección del correo de compra, y
+  // botón de "mandar prueba" a una casilla cualquiera con cualquiera de los
+  // 4 correos de cara al cliente -- ver shared/emailTemplateConfig.ts para
+  // el porqué del alcance (solo buildOrderEmail tiene secciones largas
+  // desacoplables; los otros 3 son cortos y no las necesitan).
+  emailTemplates: router({
+    getConfig: adminReadProcedure.query(async () => {
+      const settings = await db.getSiteSettings();
+      return normalizeOrderEmailConfig((settings.emailTemplateConfig as any)?.orderEmail);
+    }),
+    saveConfig: adminProcedure.input(z.object({
+      sections: z.object({
+        quienesSomos: z.boolean(),
+        encontraras: z.boolean(),
+        antesDeVenir: z.boolean(),
+        valores: z.boolean(),
+        embajador: z.boolean(),
+        faq: z.boolean(),
+      }),
+      greetingText: z.string().min(1),
+      farewellText: z.string().min(1),
+    })).mutation(async ({ input }) => {
+      return db.updateSiteSettings({ emailTemplateConfig: { orderEmail: input } });
+    }),
+    // Vista previa en vivo del correo de compra con la config todavía sin
+    // guardar (mismo patrón que mailing.renderPreview) -- datos de muestra,
+    // nunca datos reales de una orden.
+    renderPreview: adminProcedure.input(z.object({
+      sections: z.object({
+        quienesSomos: z.boolean(),
+        encontraras: z.boolean(),
+        antesDeVenir: z.boolean(),
+        valores: z.boolean(),
+        embajador: z.boolean(),
+        faq: z.boolean(),
+      }),
+      greetingText: z.string(),
+      farewellText: z.string(),
+    })).mutation(async ({ input }) => {
+      return { html: buildOrderEmail({ ...SAMPLE_ORDER_EMAIL_DATA, templateConfig: input as OrderEmailConfig }) };
+    }),
+    sendTest: adminProcedure.input(z.object({
+      toEmail: z.string().email(),
+      templateType: z.enum(['order', 'missionTopup', 'pendingReminder', 'gift']),
+    })).mutation(async ({ input }) => {
+      let html: string;
+      let subject: string;
+      switch (input.templateType) {
+        case 'order': {
+          const settings = await db.getSiteSettings();
+          const templateConfig = normalizeOrderEmailConfig((settings.emailTemplateConfig as any)?.orderEmail);
+          html = buildOrderEmail({ ...SAMPLE_ORDER_EMAIL_DATA, templateConfig });
+          subject = '[PRUEBA] Tu compra fue confirmada';
+          break;
+        }
+        case 'missionTopup':
+          html = buildMissionTopupEmail(SAMPLE_MISSION_TOPUP_DATA);
+          subject = '[PRUEBA] Casi -- falta completar tu diferencia';
+          break;
+        case 'pendingReminder':
+          html = buildPendingReminderEmail(SAMPLE_PENDING_REMINDER_DATA);
+          subject = '[PRUEBA] Quedó pendiente tu acceso';
+          break;
+        case 'gift':
+          html = buildGiftEmail(SAMPLE_GIFT_DATA);
+          subject = '[PRUEBA] Te invitaron un trago';
+          break;
+      }
+      const result = await sendEmail({ to: input.toEmail, subject, html });
+      if (!result.success) throw new Error('Resend rechazó el envío -- revisa la configuración de RESEND_API_KEY/RESEND_FROM_EMAIL en Vercel.');
+      return { success: true };
     }),
   }),
 
