@@ -22,36 +22,49 @@ export const EMAIL_BASE_URL = process.env.APP_URL && process.env.APP_URL !== 'ht
 
 export const LOGO_URL = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
 
-/** Paleta pastel para los acentos de cada sección.
+/** Paleta candy, ahora en versión oscura (ver el porqué en el comentario de
+ * `emailShell` más abajo: el correo nace oscuro en vez de quedar claro y
+ * depender de que el cliente de correo lo invierta bien).
  *
- * `gold` es el agregado del 2º aniversario: los cuatro pasteles de siempre
- * (rosa/celeste/amarillo/lila) siguen intactos a propósito, así ningún correo
- * cambia de color por accidente -- el dorado es un acento NUEVO que solo usa
- * la banda de aniversario y el chip de disfraz. El tono sale del perfil
- * "rosa romántico + dorado elegante", que es el que mejor calza con la paleta
- * candy que los correos ya tenían. */
+ * Los cuatro acentos de siempre (rosa/celeste/amarillo/lila) mantienen el
+ * mismo `text`/`solid` vívido de antes -- son los que ya se leían bien y
+ * siguen leyéndose igual de bien sobre un fondo oscuro. Lo único que cambia
+ * es `bg`: pasa de pastel clarito a una versión oscura teñida del mismo tono,
+ * pensada como una "tarjeta con tinte de color" flotando sobre el fondo
+ * oscuro general, no como una tarjeta clara de por sí -- mismo criterio que
+ * ya usan /puerta y /caja en el sitio. `gold` es el agregado del 2º
+ * aniversario, para la banda y el chip de disfraz. */
 export const ACCENT = {
-  pink: { bg: '#FCEEF4', text: '#D9538F', solid: '#EC5FA3' },
-  blue: { bg: '#EAF6FA', text: '#3AA0BE', solid: '#5FC2DE' },
-  yellow: { bg: '#FEF8E4', text: '#C89A2E', solid: '#F0C24B' },
-  lilac: { bg: '#F3EDFB', text: '#8B6FC9', solid: '#A98CE0' },
-  gold: { bg: '#FBF5E6', text: '#A16207', solid: '#D4A537' },
+  pink: { bg: '#3A1F2E', text: '#F395C2', solid: '#EC5FA3' },
+  blue: { bg: '#1B2E36', text: '#7FD3EC', solid: '#5FC2DE' },
+  yellow: { bg: '#332A18', text: '#F0C24B', solid: '#F0C24B' },
+  lilac: { bg: '#2A2138', text: '#C4AEF0', solid: '#A98CE0' },
+  gold: { bg: '#332A14', text: '#E0BE6B', solid: '#D4A537' },
 } as const;
 
 export type AccentName = keyof typeof ACCENT;
 
-/** Ciruela profundo: el único color oscuro del sistema. Se reserva para la
- * banda de aniversario y el chip de disfraz -- es lo que hace que el correo
- * se lea "fecha especial" sin abandonar la identidad candy del resto. */
-export const PLUM = '#4A1D3F';
+/** Ciruela profundo: el color de la banda de aniversario y el chip de
+ * disfraz -- ahora un poco más oscuro que el fondo general para que la
+ * banda siga marcando su propio bloque en vez de fundirse con él. */
+export const PLUM = '#2E1327';
 
-export const INK = '#3D2A35';
-export const MUTED = '#7A6670';
-export const FAINT = '#9A8A92';
-export const BORDER = '#F2D9E4';
+/** Fondo del correo entero (antes blanco) -- mismo tono base oscuro que ya
+ * usan /puerta y /caja en el sitio, así la marca se siente consistente
+ * entre lo que se ve en el celular y lo que llega al correo. */
+export const PAGE_BG = '#150d13';
+/** Fondo de una tarjeta "neutra" (sin tinte de color) -- una superficie
+ * apenas más clara que el fondo general, para que se note el relieve sin
+ * dejar de ser oscura. */
+export const CARD_BG = '#221520';
+
+export const INK = '#F7EEF3';
+export const MUTED = '#B79AAB';
+export const FAINT = '#8C7186';
+export const BORDER = '#3A2436';
 
 export function card(inner: string, opts?: { bg?: string; border?: boolean; padding?: string }) {
-  return `<div style="background:${opts?.bg ?? '#FFFFFF'};border-radius:20px;padding:${opts?.padding ?? '24px'};${opts?.border === false ? '' : `border:1px solid ${BORDER};`}margin-bottom:20px;">${inner}</div>`;
+  return `<div style="background:${opts?.bg ?? CARD_BG};border-radius:20px;padding:${opts?.padding ?? '24px'};${opts?.border === false ? '' : `border:1px solid ${BORDER};`}margin-bottom:20px;">${inner}</div>`;
 }
 
 export function sectionTitle(emoji: string, text: string) {
@@ -152,13 +165,20 @@ export interface ShellOptions {
 /**
  * El `<!DOCTYPE>` + `<head>` + `<body>` + contenedor, una sola vez.
  *
- * ⚠️ NO USAR `linear-gradient` DE FONDO EN NINGÚN LADO. Gmail ignora el
- * `color-scheme` de abajo y aplica su propia inversión a modo oscuro igual:
- * sabe invertir el color del TEXTO pero no un gradiente, y esa mezcla dejaba
- * el título del encabezado casi del mismo tono que su fondo (invisible). Con
- * `background-color` sólido, fondo y texto se invierten juntos y el texto
- * sigue legible tanto en claro como en oscuro. Es un bug real ya resuelto:
- * no reintroducir gradientes.
+ * ⚠️ EL CORREO NACE OSCURO A PROPÓSITO -- antes declaraba `color-scheme:
+ * light` para pedirle a los clientes de correo que NO lo reprocesaran en
+ * modo oscuro, pero Gmail ignora esa meta etiqueta y aplica su propia
+ * inversión algorítmica igual: invierte fondos que detecta claros, pero no
+ * siempre el texto que va encima, dejando secciones enteras en blanco o con
+ * texto invisible. Declarar el correo YA oscuro de fábrica evita el problema
+ * de raíz -- Gmail solo re-invierte fondos que detecta claros, así que si ya
+ * es oscuro no tiene nada que tocar.
+ *
+ * ⚠️ NO USAR `linear-gradient` DE FONDO EN NINGÚN LADO. Un cliente que sí
+ * reprocesara el correo (o un futuro tema con degradé) invierte el color del
+ * TEXTO pero no un gradiente de fondo, y esa mezcla puede dejar un título
+ * casi del mismo tono que su fondo (invisible). Con `background-color`
+ * sólido, fondo y texto se invierten juntos si algo llega a re-procesarlos.
  */
 export function emailShell(o: ShellOptions) {
   const body = o.rawBody ? o.body : `<div style="padding:32px 24px 0;">${o.body}</div>`;
@@ -168,8 +188,8 @@ export function emailShell(o: ShellOptions) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="color-scheme" content="light">
-  <meta name="supported-color-schemes" content="light">
+  <meta name="color-scheme" content="dark">
+  <meta name="supported-color-schemes" content="dark">
   <style>
     /* El @import va PRIMERO: el CSS lo exige, si no el navegador/cliente lo
        descarta entero. Syne es la tipografía de títulos del sitio; Gmail
@@ -178,13 +198,13 @@ export function emailShell(o: ShellOptions) {
        ahí el correo pasa a hablar el mismo idioma tipográfico que
        mansionplayroom.cl. Degradación limpia: si no carga, no se nota. */
     @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&display=swap');
-    :root { color-scheme: light only; }
+    :root { color-scheme: dark; }
     h1, h2, h3 { font-family: 'Syne', 'Helvetica Neue', Arial, sans-serif; }
   </style>
 </head>
-<body style="margin:0;padding:0;background-color:#FFFFFF;font-family:'Helvetica Neue',Arial,sans-serif;">
+<body style="margin:0;padding:0;background-color:${PAGE_BG};font-family:'Helvetica Neue',Arial,sans-serif;">
   ${o.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${o.preheader}</div>` : ''}
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:#FFFFFF;">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:${PAGE_BG};">
     ${o.beforeContainer ?? ''}
     ${o.hero ?? ''}
     ${body}

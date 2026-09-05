@@ -2,7 +2,7 @@ import { formatChileDate, formatChileDateTime } from '../shared/chileDate';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
 import { BRAND, EVENT_BRAND } from '../shared/eventBrand';
 import {
-  ACCENT, INK, MUTED, FAINT, BORDER, EMAIL_BASE_URL, LOGO_URL,
+  ACCENT, INK, MUTED, FAINT, BORDER, CARD_BG, EMAIL_BASE_URL, LOGO_URL,
   card, sectionTitle, grid, costumeBadge, anniversaryBand, emailShell, emailHero,
 } from './emailLayout';
 
@@ -141,6 +141,11 @@ export function buildOrderEmail(data: {
   orderNumber: string;
   items: { name: string; quantity: number; price: number }[];
   total: number;
+  /** Monto de descuento ya aplicado (orders.discount) -- faltaba pasarlo
+   * desde webhooks.ts, así que nunca se mostraba en el correo aunque la
+   * orden sí lo tuviera guardado: el resumen sumaba items + cargo por
+   * servicio y el total no cerraba contra lo realmente cobrado. */
+  discount?: number;
   serviceFee?: number;
   ambassadorCode: string;
   isMissionDeposit?: boolean;
@@ -219,6 +224,12 @@ export function buildOrderEmail(data: {
             <span style="color:${INK};font-size:14px;font-weight:600;">$${item.price.toLocaleString('es-CL')}</span>
           </div>
         `).join('')}
+        ${data.discount && data.discount > 0 ? `
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid ${BORDER};">
+          <span style="color:${MUTED};font-size:14px;">Descuento</span>
+          <span style="color:${ACCENT.pink.text};font-size:14px;font-weight:600;">-$${data.discount.toLocaleString('es-CL')}</span>
+        </div>
+        ` : ''}
         ${data.serviceFee && data.serviceFee > 0 ? `
         <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid ${BORDER};">
           <span style="color:${MUTED};font-size:14px;">Cargo por servicio</span>
@@ -264,8 +275,8 @@ export function buildOrderEmail(data: {
         ` : ''}
         <div style="text-align:center;">
           <a href="${ticketUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:800;font-size:14px;margin:0 6px 10px;">Ver mi entrada</a>
-          <a href="${partyUrl}" style="display:inline-block;background:#fff;color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};margin:0 6px 10px;">🍬 Entrar a Playmatch</a>
-          <a href="${calendarUrl}" style="display:inline-block;background:#fff;color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};margin:0 6px 10px;">📅 Agregar al calendario</a>
+          <a href="${partyUrl}" style="display:inline-block;background:${CARD_BG};color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};margin:0 6px 10px;">🍬 Entrar a Playmatch</a>
+          <a href="${calendarUrl}" style="display:inline-block;background:${CARD_BG};color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};margin:0 6px 10px;">📅 Agregar al calendario</a>
         </div>
       `)}
 
