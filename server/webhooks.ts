@@ -280,6 +280,9 @@ async function sendMissionDepositEmail(order: any): Promise<{ success: boolean }
     address: event.address || undefined,
     orderNumber: order.orderNumber,
     items: emailItems,
+    // Sin esta línea el correo mostraba los precios de lista y un total muy
+    // menor, sin explicar la diferencia -- al cliente no le cuadraba la cuenta.
+    discount: Number(order.discount ?? 0),
     total: Number(order.total),
     serviceFee: Number(order.serviceFee ?? 0),
     ambassadorCode,
@@ -343,6 +346,9 @@ async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boo
     mapsUrl: event.mapsUrl || undefined,
     orderNumber: order.orderNumber,
     items: emailItems,
+    // Sin esta línea el correo mostraba los precios de lista y un total muy
+    // menor, sin explicar la diferencia -- al cliente no le cuadraba la cuenta.
+    discount: Number(order.discount ?? 0),
     total: Number(order.total),
     serviceFee: Number(order.serviceFee ?? 0),
     ambassadorCode: order.ambassadorCode || '',

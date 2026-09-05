@@ -2,8 +2,9 @@ import { formatChileDate, formatChileDateTime } from '../shared/chileDate';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
 import { BRAND, EVENT_BRAND } from '../shared/eventBrand';
 import {
-  ACCENT, INK, MUTED, FAINT, BORDER, EMAIL_BASE_URL, LOGO_URL,
-  card, sectionTitle, grid, costumeBadge, anniversaryBand, emailShell, emailHero,
+  ACCENT, INK, MUTED, FAINT, BORDER, BG, EMAIL_BASE_URL, LOGO_URL,
+  card, sectionTitle, grid, row, eyebrow, button,
+  costumeBadge, anniversaryBand, emailShell, emailHero,
 } from './emailLayout';
 
 interface SendEmailInput {
@@ -130,6 +131,37 @@ function attendeeNamesList(names: string[]): string {
   return names.map(n => `<p style="color:${INK};font-size:15px;font-weight:600;margin:2px 0;">👤 ${n}</p>`).join('');
 }
 
+/** Qué bloques opcionales muestra el correo de compra.
+ *
+ * Los cuatro primeros son la información que la persona necesita de verdad y
+ * vienen prendidos; los cinco últimos son material de marca que alargaba el
+ * correo a más de 10 bloques (en un celular, una pared) y vienen apagados.
+ * Nada se borró: el dueño los prende de a uno desde el admin. */
+export type OrderEmailSections = {
+  evento: boolean;
+  compra: boolean;
+  antesDeVenir: boolean;
+  embajador: boolean;
+  quienesSomos: boolean;
+  encontraras: boolean;
+  valores: boolean;
+  faq: boolean;
+  /** La tabla completa de niveles de embajador (3/5/10 compras). */
+  tiers: boolean;
+};
+
+export const DEFAULT_ORDER_EMAIL_SECTIONS: OrderEmailSections = {
+  evento: true,
+  compra: true,
+  antesDeVenir: true,
+  embajador: true,
+  quienesSomos: false,
+  encontraras: false,
+  valores: false,
+  faq: false,
+  tiers: false,
+};
+
 export function buildOrderEmail(data: {
   buyerName: string;
   eventTitle: string;
@@ -140,6 +172,10 @@ export function buildOrderEmail(data: {
   mapsUrl?: string;
   orderNumber: string;
   items: { name: string; quantity: number; price: number }[];
+  /** Descuento aplicado (código promocional). Sin esta línea la cuenta no le
+   * cuadra a quien compró con descuento: el correo mostraba los precios de
+   * lista y un total mucho menor, sin explicar la diferencia. */
+  discount?: number;
   total: number;
   serviceFee?: number;
   ambassadorCode: string;
@@ -150,7 +186,9 @@ export function buildOrderEmail(data: {
   ticketCode?: string;
   attendeeNames?: string[];
   extras?: { name: string; quantity: number; codes: string[] }[];
+  sections?: Partial<OrderEmailSections>;
 }) {
+  const s: OrderEmailSections = { ...DEFAULT_ORDER_EMAIL_SECTIONS, ...data.sections };
   const ticketNames = data.items.map(i => i.name).join(', ');
   const ticketUrl = data.ticketCode ? `${EMAIL_BASE_URL}/verificar/${data.ticketCode}` : '';
   const calendarUrl = data.ticketCode ? `${EMAIL_BASE_URL}/api/calendar/${data.ticketCode}.ics` : '';
@@ -162,171 +200,177 @@ export function buildOrderEmail(data: {
   const whatsappShareUrl = `https://wa.me/?text=${encodeURIComponent(`Usa mi código ${data.ambassadorCode} para comprar tu entrada en Mansion Playroom 🍭 ${EMAIL_BASE_URL}`)}`;
 
   return emailShell({
-    preheader: `Tu ${ticketNames} ya está reservado para ${data.eventTitle}.`,
+    preheader: data.ticketReady
+      ? `Tu entrada para ${data.eventTitle} — QR adentro.`
+      : `Ya estás en la Misión 300 para ${data.eventTitle}.`,
     hero: emailHero({
       accent: 'pink',
-      emoji: '🍭',
-      title: '¡Tu compra fue confirmada!',
-      subtitle: `La cuenta regresiva para ${data.eventTitle} ya comenzó.`,
-      cta: { href: EMAIL_BASE_URL, label: `Ver ${data.eventTitle}` },
+      emoji: data.ticketReady ? '🎟️' : '🍭',
+      title: data.ticketReady ? 'Tu entrada está lista' : '¡Ya estás adentro!',
+      subtitle: `${data.buyerName} · ${data.eventTitle}`,
       anniversary: true,
       costume: true,
     }),
     body: `
-      <!-- SALUDO -->
-      <h2 style="color:${INK};font-size:22px;font-weight:800;margin:0 0 6px;">👋 Hola ${data.buyerName}</h2>
-      <p style="color:${MUTED};font-size:15px;margin:0 0 28px;">
-        Tu <strong style="color:${INK};">${ticketNames}</strong> ya está reservado para ${data.eventTitle} en Mansion Playroom. 🎉
-        Prepárate para vivir una noche llena de música, conexión y una experiencia completamente distinta.
-      </p>
+      <!-- ── LA ENTRADA: primero, porque es lo único que se necesita en la
+           puerta. Antes quedaba cuarta, después de tres bloques de marca. ── -->
+      ${data.ticketReady ? `
+      ${card(`
+        <div style="text-align:center;">
+          ${eyebrow(EVENT_BRAND.ticketLabel, ACCENT.pink.text)}
+          <!-- La placa del QR va SIEMPRE en blanco: un QR sobre fondo oscuro
+               no lo lee ningún escáner. Es además lo que hace que la entrada
+               se vea como un troquel iluminado sobre el negro. -->
+          <div style="display:inline-block;background:#FFFFFF;border-radius:18px;padding:14px;">
+            <img src="${qrUrl}" alt="Código QR de tu entrada" width="196" height="196" style="width:196px;height:196px;display:block;" />
+          </div>
+          <p style="color:${MUTED};font-size:13px;margin:14px 0 0;">Muestra este código y tu carnet en la puerta.</p>
+          ${data.ticketCode ? `<p style="color:${INK};font-size:15px;font-weight:700;font-family:'Courier New',monospace;letter-spacing:2px;margin:8px 0 0;">${data.ticketCode}</p>` : ''}
+          <p style="color:${FAINT};font-size:11px;margin:6px 0 0;">¿No se ve el código? Toca "Ver mi entrada" y se abre a pantalla completa.</p>
+        </div>
 
-      <!-- TU EVENTO -->
+        <!-- Perforación: el troquel del ticket, en punteado -->
+        <div style="border-top:1px dashed ${BORDER};margin:20px 0 18px;"></div>
+
+        ${(data.attendeeNames ?? []).length > 0 ? `
+          ${eyebrow('Van')}
+          ${attendeeNamesList(data.attendeeNames ?? [])}
+        ` : ''}
+
+        ${data.extras && data.extras.length > 0 ? `
+          <div style="margin-top:16px;">
+            ${eyebrow('Incluye')}
+            ${data.extras.map(e => `
+              <p style="color:${ACCENT.pink.text};font-size:14px;font-weight:700;margin:2px 0;">✅ ${e.quantity > 1 ? `${e.quantity}× ` : ''}${e.name}</p>
+              ${e.codes.map(code => `<p style="color:${MUTED};font-size:12px;font-family:'Courier New',monospace;letter-spacing:1px;margin:0 0 4px 20px;">${code}</p>`).join('')}
+            `).join('')}
+            <p style="color:${FAINT};font-size:11px;margin:8px 0 0;">Canjéalos en caja el día del evento.</p>
+          </div>
+        ` : ''}
+
+        <div style="text-align:center;margin-top:20px;">
+          ${button(ticketUrl, 'Ver mi entrada', 'pink')}
+          <p style="margin:12px 0 0;">
+            <a href="${calendarUrl}" style="color:${MUTED};font-size:13px;text-decoration:none;margin:0 10px;">📅 Agendar</a>
+            <a href="${partyUrl}" style="color:${MUTED};font-size:13px;text-decoration:none;margin:0 10px;">🍬 Playmatch</a>
+          </p>
+        </div>
+      `, { glow: 'pink' })}
+      ` : `
+      ${card(`
+        ${eyebrow('Tu entrada', ACCENT.yellow.text)}
+        <p style="color:${INK};font-size:16px;font-weight:800;margin:0 0 8px;">Tu QR llega apenas cierre la Misión 300</p>
+        <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0;">
+          Compraste tu acceso antes de que se agotaran los primeros 300, así que tienes el valor de lanzamiento.
+          Cuando la misión termine te llega otro correo con el código definitivo. No tienes que hacer nada.
+        </p>
+      `, { bg: ACCENT.yellow.bg, glow: 'yellow' })}
+      `}
+
+      ${s.evento ? `
+      <!-- ── TU EVENTO ── -->
       ${sectionTitle('📅', 'Tu evento')}
       ${card(`
-        <h3 style="color:${ACCENT.pink.text};font-size:20px;font-weight:800;margin:0 0 14px;">${data.eventTitle}</h3>
+        <h3 style="color:${ACCENT.pink.text};font-size:20px;font-weight:800;margin:0 0 12px;">${data.eventTitle}</h3>
         <p style="color:${INK};font-size:15px;margin:6px 0;">📅 ${data.eventDate}</p>
         ${data.doorsOpenText ? `<p style="color:${INK};font-size:15px;margin:6px 0;">🕘 ${data.doorsOpenText} hrs</p>` : ''}
         <p style="color:${INK};font-size:15px;margin:6px 0;">📍 ${data.venue}${data.address ? ` — ${data.address}` : ''}</p>
-        ${data.ticketReady && data.mapsUrl ? `<a href="${data.mapsUrl}" style="display:inline-block;color:${ACCENT.pink.text};font-size:13px;font-weight:700;text-decoration:none;margin:4px 0 0;">📍 Ver en Google Maps →</a>` : ''}
-        <div style="margin-top:16px;padding-top:16px;border-top:1px solid ${BORDER};">
-          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px;">Código de reserva</p>
-          <p style="color:${INK};font-size:15px;font-weight:700;font-family:monospace;margin:0;">${data.orderNumber}</p>
-        </div>
-        ${!data.ticketReady ? `<p style="color:${FAINT};font-size:12px;margin:14px 0 0;">La dirección exacta será enviada unos días antes del evento.</p>` : ''}
+        ${data.ticketReady && data.mapsUrl ? `<a href="${data.mapsUrl}" style="display:inline-block;color:${ACCENT.blue.text};font-size:13px;font-weight:700;text-decoration:none;margin:6px 0 0;">Ver en Google Maps →</a>` : ''}
+        ${!data.ticketReady ? `<p style="color:${FAINT};font-size:12px;margin:12px 0 0;">La dirección exacta se envía unos días antes del evento.</p>` : ''}
+        <div style="margin-top:16px;">${costumeBadge()}</div>
       `)}
-
-      <!-- MISIÓN 300 -->
-      ${data.isMissionDeposit ? `
-      ${sectionTitle('🍬', 'Misión 300')}
-      ${card(`
-        <p style="color:${INK};font-size:16px;font-weight:800;margin:0 0 10px;">¡Eres parte de la Misión 300!</p>
-        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 10px;">
-          Compraste tu acceso antes de que se agotaran los primeros 300 asistentes, por lo que obtuviste el valor
-          especial de lanzamiento.
-        </p>
-        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0;">
-          Cuando la misión finalice, recibirás automáticamente un nuevo correo con tu código QR definitivo.
-        </p>
-      `, { bg: ACCENT.pink.bg, border: false })}
       ` : ''}
 
-      <!-- RESUMEN DE COMPRA -->
+      ${s.compra ? `
+      <!-- ── TU COMPRA (filas con tabla, ver el helper row) ── -->
       ${sectionTitle('🧾', 'Tu compra')}
       ${card(`
-        ${data.items.map(item => `
-          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid ${BORDER};">
-            <span style="color:${INK};font-size:14px;">${item.quantity}x ${item.name}</span>
-            <span style="color:${INK};font-size:14px;font-weight:600;">$${item.price.toLocaleString('es-CL')}</span>
-          </div>
-        `).join('')}
-        ${data.serviceFee && data.serviceFee > 0 ? `
-        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid ${BORDER};">
-          <span style="color:${MUTED};font-size:14px;">Cargo por servicio</span>
-          <span style="color:${INK};font-size:14px;font-weight:600;">$${data.serviceFee.toLocaleString('es-CL')}</span>
-        </div>
-        ` : ''}
-        <div style="display:flex;justify-content:space-between;padding-top:14px;margin-top:6px;">
-          <span style="color:${INK};font-size:16px;font-weight:800;">Total pagado</span>
-          <span style="color:${ACCENT.pink.text};font-size:18px;font-weight:800;">$${data.total.toLocaleString('es-CL')}</span>
-        </div>
-      `)}
-
-      <!-- TU ENTRADA -->
-      ${sectionTitle('🎟', 'Tu entrada')}
-      ${!data.ticketReady ? card(`
-        <p style="color:${INK};font-size:15px;font-weight:700;margin:0 0 8px;">Mientras la Misión 300 siga activa...</p>
-        <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 10px;">Tu QR aún no ha sido emitido.</p>
-        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0;">📩 Apenas finalice la misión, lo recibirás automáticamente por este mismo medio. No necesitas hacer nada más.</p>
-      `, { bg: ACCENT.yellow.bg, border: false }) : card(`
-        <div style="text-align:center;">
-          <!-- Marco temático: borde grueso color marca + etiqueta arriba del QR --
-               sin degradé CSS (Outlook desktop no lo soporta), un borde sólido
-               grueso es el tratamiento más seguro entre clientes de correo. -->
-          <div style="display:inline-block;background:${ACCENT.pink.bg};border:3px solid ${ACCENT.pink.solid};border-radius:20px;padding:16px;">
-            <p style="color:${ACCENT.pink.text};font-size:11px;font-weight:800;letter-spacing:2px;margin:0 0 10px;">${EVENT_BRAND.ticketLabel}</p>
-            <img src="${qrUrl}" alt="Código QR de tu entrada" style="width:200px;height:200px;border-radius:12px;background:#fff;padding:8px;display:block;" />
-          </div>
-          <p style="color:${MUTED};font-size:12px;margin:14px 0 20px;">Presenta este código QR y tu carnet en la entrada</p>
-        </div>
-        <div style="margin-bottom:18px;">
-          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Asistentes</p>
-          ${attendeeNamesList(data.attendeeNames ?? [])}
-        </div>
-        ${data.extras && data.extras.length > 0 ? `
-        <div style="margin-bottom:18px;padding-top:14px;border-top:1px solid ${BORDER};">
-          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Incluye</p>
-          ${data.extras.map(e => `
-            <p style="color:${ACCENT.pink.text};font-size:14px;font-weight:700;margin:2px 0;">✅ ${e.quantity > 1 ? `${e.quantity}× ` : ''}${e.name}</p>
-            ${e.codes.map(code => `<p style="color:${MUTED};font-size:12px;font-family:monospace;letter-spacing:0.5px;margin:0 0 4px 20px;">${code}</p>`).join('')}
-          `).join('')}
-          <p style="color:${FAINT};font-size:11px;margin:8px 0 0;">Presenta estos códigos en caja el día del evento para canjearlos.</p>
-        </div>
-        ` : ''}
-        <div style="text-align:center;">
-          <a href="${ticketUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:800;font-size:14px;margin:0 6px 10px;">Ver mi entrada</a>
-          <a href="${partyUrl}" style="display:inline-block;background:#fff;color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};margin:0 6px 10px;">🍬 Entrar a Playmatch</a>
-          <a href="${calendarUrl}" style="display:inline-block;background:#fff;color:${INK};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:700;font-size:14px;border:1px solid ${BORDER};margin:0 6px 10px;">📅 Agregar al calendario</a>
+        ${data.items.map(item => row(
+          `<span style="color:${INK};font-size:14px;">${item.quantity}× ${item.name}</span>`,
+          `<span style="color:${INK};font-size:14px;font-weight:600;white-space:nowrap;">$${item.price.toLocaleString('es-CL')}</span>`,
+        )).join('')}
+        ${data.discount && data.discount > 0 ? row(
+          `<span style="color:${ACCENT.blue.text};font-size:14px;">Descuento</span>`,
+          `<span style="color:${ACCENT.blue.text};font-size:14px;font-weight:600;white-space:nowrap;">−$${data.discount.toLocaleString('es-CL')}</span>`,
+        ) : ''}
+        ${data.serviceFee && data.serviceFee > 0 ? row(
+          `<span style="color:${MUTED};font-size:14px;">Cargo por servicio</span>`,
+          `<span style="color:${INK};font-size:14px;font-weight:600;white-space:nowrap;">$${data.serviceFee.toLocaleString('es-CL')}</span>`,
+        ) : ''}
+        ${row(
+          `<span style="color:${INK};font-size:16px;font-weight:800;">Total pagado</span>`,
+          `<span style="color:${ACCENT.pink.text};font-size:19px;font-weight:800;white-space:nowrap;">$${data.total.toLocaleString('es-CL')}</span>`,
+          { divider: false, padding: '14px 0 0' },
+        )}
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid ${BORDER};">
+          ${eyebrow('Código de reserva')}
+          <p style="color:${INK};font-size:15px;font-weight:700;font-family:'Courier New',monospace;letter-spacing:1px;margin:0;">${data.orderNumber}</p>
         </div>
       `)}
+      ` : ''}
 
-      <!-- QUÉ ES MANSION PLAYROOM -->
+      ${s.antesDeVenir ? `
+      <!-- ── ANTES DE VENIR ── -->
+      ${sectionTitle('🎒', 'Antes de venir')}
+      ${card(CONTENT.antesDeVenir.map((x, i) => `
+        <div style="${i > 0 ? `border-top:1px solid ${BORDER};padding-top:12px;margin-top:12px;` : ''}">
+          <p style="color:${INK};font-size:14px;font-weight:800;margin:0 0 3px;">${x.emoji} ${x.titulo}</p>
+          <p style="color:${MUTED};font-size:13px;line-height:1.55;margin:0;">${x.texto}</p>
+        </div>
+      `).join(''))}
+      ` : ''}
+
+      ${s.quienesSomos ? `
       ${sectionTitle('✨', '¿Qué es Mansion Playroom?')}
       <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 16px;">
         Más que una fiesta, somos un venue y una comunidad para adultos donde cada persona vive la experiencia a su manera.
       </p>
       ${grid(CONTENT.quienesSomos.map(x => `
-        <div style="background:${ACCENT.blue.bg};border-radius:16px;padding:16px;text-align:center;">
-          <p style="font-size:26px;margin:0 0 6px;">${x.emoji}</p>
+        <div style="background:${ACCENT.blue.bg};border:1px solid ${BORDER};border-radius:16px;padding:14px;text-align:center;">
+          <p style="font-size:24px;margin:0 0 6px;">${x.emoji}</p>
           <p style="color:${INK};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
         </div>
       `), 3)}
-      <p style="color:${MUTED};font-size:13px;margin:6px 0 24px;">Todo ocurre siempre bajo nuestros tres pilares: ${CONTENT.valores.join(' · ')}</p>
+      <div style="margin-bottom:20px;"></div>
+      ` : ''}
 
-      <!-- QUÉ ENCONTRARÁS -->
+      ${s.encontraras ? `
       ${sectionTitle('🛝', '¿Qué encontrarás?')}
       ${grid(CONTENT.encontraras.map(x => `
-        <div style="background:${ACCENT.lilac.bg};border-radius:16px;padding:14px;">
-          <p style="font-size:22px;margin:0 0 4px;">${x.emoji}</p>
+        <div style="background:${ACCENT.lilac.bg};border:1px solid ${BORDER};border-radius:16px;padding:14px;">
+          <p style="font-size:20px;margin:0 0 4px;">${x.emoji}</p>
           <p style="color:${INK};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
         </div>
       `), 2)}
-      <div style="margin-bottom:8px;"></div>
+      <div style="margin-bottom:20px;"></div>
+      ` : ''}
 
-      <!-- ANTES DE VENIR -->
-      ${sectionTitle('🎒', 'Antes de venir')}
-      ${grid(CONTENT.antesDeVenir.map(x => `
-        <div style="background:${ACCENT.yellow.bg};border-radius:16px;padding:16px;">
-          <p style="font-size:24px;margin:0 0 6px;">${x.emoji}</p>
-          <p style="color:${INK};font-size:13px;font-weight:800;margin:0 0 4px;">${x.titulo}</p>
-          <p style="color:${MUTED};font-size:12px;line-height:1.5;margin:0;">${x.texto}</p>
-        </div>
-      `), 2)}
-
-      <!-- NUESTROS VALORES -->
+      ${s.valores ? `
       ${sectionTitle('❤️', 'Nuestros valores')}
-      ${card(`
-        <p style="color:${INK};font-size:16px;font-weight:700;margin:0;">${CONTENT.valores.join('&nbsp;&nbsp;·&nbsp;&nbsp;')}</p>
-      `, { bg: ACCENT.pink.bg, border: false })}
+      ${card(`<p style="color:${INK};font-size:16px;font-weight:700;margin:0;text-align:center;">${CONTENT.valores.join('&nbsp;&nbsp;·&nbsp;&nbsp;')}</p>`, { bg: ACCENT.pink.bg })}
+      ` : ''}
 
-      <!-- EMBAJADOR -->
-      ${sectionTitle('🏆', 'Tu Código de Embajador')}
+      ${s.embajador ? `
+      <!-- ── EMBAJADOR ── -->
+      ${sectionTitle('🏆', 'Tu código de embajador')}
       ${card(`
-        <div style="text-align:center;margin-bottom:16px;">
-          <p style="color:${INK};font-size:30px;font-weight:800;font-family:monospace;margin:0;">${data.ambassadorCode}</p>
-          <p style="color:${MUTED};font-size:13px;margin:8px 0 0;">Compártelo con tus amigos — cada compra realizada con tu código suma recompensas.</p>
+        <div style="text-align:center;">
+          <p style="color:${ACCENT.gold.text};font-size:28px;font-weight:800;font-family:'Courier New',monospace;letter-spacing:3px;margin:0;">${data.ambassadorCode}</p>
+          <p style="color:${MUTED};font-size:13px;line-height:1.6;margin:10px 0 18px;">Compártelo: cada entrada comprada con tu código te suma recompensas.</p>
+          ${button(whatsappShareUrl, 'Compartir por WhatsApp', 'gold')}
         </div>
-        ${AMBASSADOR_TIERS.map(t => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid ${BORDER};">
-            <span style="color:${INK};font-size:13px;font-weight:700;">${t.emoji} ${t.min} compras</span>
-            <span style="color:${MUTED};font-size:13px;text-align:right;">${t.reward}</span>
-          </div>
-        `).join('')}
-        <div style="text-align:center;margin-top:18px;">
-          <a href="${whatsappShareUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:12px 28px;border-radius:999px;font-weight:800;font-size:13px;">Compartir por WhatsApp</a>
+        ${s.tiers ? `
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid ${BORDER};">
+          ${AMBASSADOR_TIERS.map(t => row(
+            `<span style="color:${INK};font-size:13px;font-weight:700;">${t.emoji} ${t.min} compras</span>`,
+            `<span style="color:${MUTED};font-size:13px;">${t.reward}</span>`,
+          )).join('')}
         </div>
-      `)}
+        ` : ''}
+      `, { glow: 'gold' })}
+      ` : ''}
 
-      <!-- FAQ -->
+      ${s.faq ? `
       ${sectionTitle('❓', 'Preguntas rápidas')}
       ${card(CONTENT.faq.map((f, i) => `
         <div style="${i > 0 ? `border-top:1px solid ${BORDER};padding-top:12px;margin-top:12px;` : ''}">
@@ -334,24 +378,21 @@ export function buildOrderEmail(data: {
           <p style="color:${MUTED};font-size:13px;margin:0;">${f.a}</p>
         </div>
       `).join(''))}
+      ` : ''}
 
-      <!-- INFO IMPORTANTE -->
-      <p style="color:${FAINT};font-size:12px;line-height:1.6;margin:0 0 24px;">
-        📌 Consulta nuestra
-        <a href="${EMAIL_BASE_URL}/politica-de-reembolso" style="color:${ACCENT.pink.text};">política de reembolso y condiciones de compra</a>.
-        Si no puedes asistir, puedes transferir tu acceso a otra persona escribiéndonos por Instagram antes del evento.
-      </p>
-
-      <!-- DESPEDIDA -->
-      <div style="text-align:center;padding:24px 0;">
-        <p style="font-size:32px;margin:0 0 8px;">🍭</p>
+      <!-- ── DESPEDIDA ── -->
+      <div style="text-align:center;padding:14px 0 6px;">
         <p style="color:${INK};font-size:16px;font-weight:800;margin:0 0 6px;">Nos vemos en ${data.eventTitle}</p>
         <p style="color:${MUTED};font-size:13px;line-height:1.6;margin:0;">
-          Ya eres parte de esta edición. Nosotros ponemos la música, el ambiente y la experiencia.<br/>
-          Tú solo preocúpate de llegar con ganas de disfrutar.<br/>
-          <strong>Equipo Mansion Playroom</strong>
+          Nosotros ponemos la música y el ambiente. Tú, las ganas.<br/>
+          <strong style="color:${INK};">Equipo Mansion Playroom</strong>
         </p>
       </div>
+
+      <p style="color:${FAINT};font-size:11px;line-height:1.6;margin:20px 0 0;text-align:center;">
+        ¿No puedes ir? Puedes transferir tu acceso escribiéndonos por Instagram antes del evento.
+        <a href="${EMAIL_BASE_URL}/politica-de-reembolso" style="color:${MUTED};">Política de reembolso</a>.
+      </p>
     `,
   });
 }
@@ -506,7 +547,7 @@ export function buildAmbassadorApplicationEmail(data: {
     footer: false,
     rawBody: true,
     body: `
-  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:${BG};color:${INK};">
     <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">👑 Nueva postulación a embajador</h1>
     <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.name}</p>
 
@@ -694,18 +735,19 @@ export function buildAmbassadorWeeklyEmail(data: {
           </div>`,
         ], 2)}
         <div style="padding:10px 0 0;">
-          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${BORDER};">
-            <span style="color:${MUTED};font-size:13px;">Comisión de este mes</span>
-            <span style="color:${INK};font-size:14px;font-weight:700;">${money(data.monthlyCommission)}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${BORDER};">
-            <span style="color:${MUTED};font-size:13px;">Comisión acumulada (histórica)</span>
-            <span style="color:${ACCENT.pink.text};font-size:14px;font-weight:800;">${money(data.totalCommission)}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;padding:6px 0;">
-            <span style="color:${MUTED};font-size:13px;">Tus clientes exclusivos</span>
-            <span style="color:${INK};font-size:14px;font-weight:700;">${data.exclusiveClientsCount}</span>
-          </div>
+          ${row(
+            `<span style="color:${MUTED};font-size:13px;">Comisión de este mes</span>`,
+            `<span style="color:${INK};font-size:14px;font-weight:700;">${money(data.monthlyCommission)}</span>`,
+          )}
+          ${row(
+            `<span style="color:${MUTED};font-size:13px;">Comisión acumulada (histórica)</span>`,
+            `<span style="color:${ACCENT.pink.text};font-size:14px;font-weight:800;">${money(data.totalCommission)}</span>`,
+          )}
+          ${row(
+            `<span style="color:${MUTED};font-size:13px;">Tus clientes exclusivos</span>`,
+            `<span style="color:${INK};font-size:14px;font-weight:700;">${data.exclusiveClientsCount}</span>`,
+            { divider: false },
+          )}
           ${data.monthlyExistingSales > 0 ? `
           <p style="color:${FAINT};font-size:11px;margin:10px 0 0;line-height:1.5;">
             Además hiciste ${data.monthlyExistingSales} venta${data.monthlyExistingSales === 1 ? '' : 's'} a clientes que ya estaban
@@ -778,7 +820,7 @@ export function buildCheckinSummaryEmail(data: {
     footer: false,
     rawBody: true,
     body: `
-  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:${BG};color:${INK};">
     <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">🚪 ${data.eventTitle}</h1>
     <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">Resumen de ingresos — ${fecha}</p>
 
@@ -823,10 +865,11 @@ export function buildShiftCloseEmail(data: {
   const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
   const diffRow = (label: string, counted: number, expected: number, diff: number) => `
     <div style="padding:8px 0;border-bottom:1px solid ${BORDER};">
-      <div style="display:flex;justify-content:space-between;">
-        <span style="color:${INK};font-size:14px;">${label}</span>
-        <span style="color:${INK};font-size:14px;font-weight:600;">${money(counted)} contado / ${money(expected)} esperado</span>
-      </div>
+      ${row(
+        `<span style="color:${INK};font-size:14px;">${label}</span>`,
+        `<span style="color:${INK};font-size:14px;font-weight:600;">${money(counted)} contado / ${money(expected)} esperado</span>`,
+        { divider: false, padding: '0' },
+      )}
       <p style="color:${Math.abs(diff) < 1 ? ACCENT.blue.text : diff > 0 ? ACCENT.yellow.text : '#D9538F'};font-size:12px;font-weight:700;margin:4px 0 0;">
         ${Math.abs(diff) < 1 ? '✓ Cuadra' : diff > 0 ? `▲ Sobran ${money(diff)}` : `▼ Faltan ${money(Math.abs(diff))}`}
       </p>
@@ -838,7 +881,7 @@ export function buildShiftCloseEmail(data: {
     footer: false,
     rawBody: true,
     body: `
-  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:${BG};color:${INK};">
     <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">🔒 Turno cerrado — ${data.eventTitle}</h1>
     <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.registerName} · ${data.operatorName} · ${formatChileDateTime(data.closedAt)}</p>
 
@@ -854,20 +897,22 @@ export function buildShiftCloseEmail(data: {
     ${card(`
       <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">🏆 Top 3 clientes (todo el evento)</p>
       ${data.topCustomers.length === 0 ? `<p style="color:${MUTED};font-size:13px;margin:0;">Sin ventas web registradas.</p>` : data.topCustomers.map((c, i) => `
-        <div style="display:flex;justify-content:space-between;padding:6px 0;">
-          <span style="color:${INK};font-size:14px;">${i + 1}. ${c.name} <span style="color:${FAINT};font-size:12px;">(${c.email})</span></span>
-          <span style="color:${INK};font-size:14px;font-weight:600;">${money(c.total)}</span>
-        </div>
+        ${row(
+          `<span style="color:${INK};font-size:14px;">${i + 1}. ${c.name} <span style="color:${FAINT};font-size:12px;">(${c.email})</span></span>`,
+          `<span style="color:${INK};font-size:14px;font-weight:600;">${money(c.total)}</span>`,
+          { divider: false, padding: '6px 0' },
+        )}
       `).join('')}
     `)}
 
     ${card(`
       <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">🥇 Top 3 productos más vendidos</p>
       ${data.topProducts.length === 0 ? `<p style="color:${MUTED};font-size:13px;margin:0;">Sin ventas registradas.</p>` : data.topProducts.map((p, i) => `
-        <div style="display:flex;justify-content:space-between;padding:6px 0;">
-          <span style="color:${INK};font-size:14px;">${i + 1}. ${p.name}</span>
-          <span style="color:${INK};font-size:14px;font-weight:600;">${p.quantity}x · ${money(p.revenue)}</span>
-        </div>
+        ${row(
+          `<span style="color:${INK};font-size:14px;">${i + 1}. ${p.name}</span>`,
+          `<span style="color:${INK};font-size:14px;font-weight:600;">${p.quantity}x · ${money(p.revenue)}</span>`,
+          { divider: false, padding: '6px 0' },
+        )}
       `).join('')}
     `)}
   </div>
@@ -888,15 +933,16 @@ export function buildSimpleReportEmail(data: { title: string; subtitle: string; 
     footer: false,
     rawBody: true,
     body: `
-  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:${BG};color:${INK};">
     <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">${data.title}</h1>
     <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.subtitle} — el detalle completo va en el PDF adjunto.</p>
 
     ${card(data.lines.map((l) => `
-      <div style="display:flex;justify-content:space-between;padding:6px 0;">
-        <span style="color:${MUTED};font-size:13px;">${l.label}</span>
-        <span style="color:${INK};font-size:13px;font-weight:600;">${l.value}</span>
-      </div>
+      ${row(
+        `<span style="color:${MUTED};font-size:13px;">${l.label}</span>`,
+        `<span style="color:${INK};font-size:13px;font-weight:600;">${l.value}</span>`,
+        { divider: false, padding: '6px 0' },
+      )}
     `).join(''))}
   </div>
     `,
@@ -920,7 +966,7 @@ export function buildKitchenVendorEmail(data: {
     footer: false,
     rawBody: true,
     body: `
-  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:${BG};color:${INK};">
     <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">🍽️ Rendición de cocina — ${data.eventTitle}</h1>
     <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">Para ${data.vendorName} — el detalle completo por producto va en el PDF adjunto.</p>
 
@@ -1136,9 +1182,7 @@ export function buildPendingReminderEmail(data: {
       ${cuerpo.map((p) => `<p style="color:${INK};font-size:15px;line-height:1.6;margin:0 0 16px;">${p}</p>`).join('')}
 
       <div style="text-align:center;margin:28px 0 8px;">
-        <a href="${data.checkoutUrl}" style="display:inline-block;background:${ACCENT.pink.text};color:#FFFFFF;font-size:16px;font-weight:700;text-decoration:none;padding:16px 36px;border-radius:999px;">
-          Completar mi compra
-        </a>
+        ${button(data.checkoutUrl, 'Completar mi compra', 'pink')}
       </div>
 
       <p style="color:${FAINT};font-size:12px;text-align:center;margin:16px 0 0;line-height:1.5;">
