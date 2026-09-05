@@ -35,11 +35,11 @@ export const LOGO_URL = `${EMAIL_BASE_URL}/candyland/logo-wordmark-email.png`;
  * ya usan /puerta y /caja en el sitio. `gold` es el agregado del 2º
  * aniversario, para la banda y el chip de disfraz. */
 export const ACCENT = {
-  pink: { bg: '#3A1F2E', text: '#F395C2', solid: '#EC5FA3' },
-  blue: { bg: '#1B2E36', text: '#7FD3EC', solid: '#5FC2DE' },
-  yellow: { bg: '#332A18', text: '#F0C24B', solid: '#F0C24B' },
-  lilac: { bg: '#2A2138', text: '#C4AEF0', solid: '#A98CE0' },
-  gold: { bg: '#332A14', text: '#E0BE6B', solid: '#D4A537' },
+  pink: { bg: '#3A1F2E', text: '#F395C2', solid: '#EC5FA3', glowRgb: '255,90,180', pastel: '#FFCBE3', pastelText: '#3A1330' },
+  blue: { bg: '#1B2E36', text: '#7FD3EC', solid: '#5FC2DE', glowRgb: '95,194,222', pastel: '#C7F3FF', pastelText: '#0F2A33' },
+  yellow: { bg: '#332A18', text: '#F0C24B', solid: '#F0C24B', glowRgb: '212,165,55', pastel: '#FBE7A8', pastelText: '#3A2C10' },
+  lilac: { bg: '#2A2138', text: '#C4AEF0', solid: '#A98CE0', glowRgb: '150,110,255', pastel: '#DCCCFF', pastelText: '#241A3D' },
+  gold: { bg: '#332A14', text: '#E0BE6B', solid: '#D4A537', glowRgb: '212,165,55', pastel: '#FBE7A8', pastelText: '#3A2C10' },
 } as const;
 
 export type AccentName = keyof typeof ACCENT;
@@ -58,12 +58,33 @@ export const PAGE_BG = '#150d13';
  * dejar de ser oscura. */
 export const CARD_BG = '#221520';
 
+/** Fondo negro mate para el rediseño "disco aniversario" -- opt-in vía
+ * `ShellOptions.pageBg`, solo lo usan los 4 correos de cara al cliente que
+ * pidió el dueño rediseñar (server/email.ts). El resto sigue con `PAGE_BG`
+ * de siempre: no se toca el aspecto de los otros 12 correos. */
+export const DISCO_BG = '#0A0A0C';
+/** Fondo del hero para el rediseño disco -- casi negro (en vez del
+ * `ACCENT[accent].bg` de siempre, un tinte más claro) para que el
+ * encabezado se funda con `DISCO_BG` en vez de leerse como un bloque de
+ * color aparte. Pasar a `emailHero({ heroBg: DISCO_HERO_BG })`. */
+export const DISCO_HERO_BG = '#120e0a';
+
 export const INK = '#F7EEF3';
 export const MUTED = '#B79AAB';
 export const FAINT = '#8C7186';
 export const BORDER = '#3A2436';
 
-export function card(inner: string, opts?: { bg?: string; border?: boolean; padding?: string }) {
+export function card(inner: string, opts?: { bg?: string; border?: boolean; padding?: string; glow?: AccentName }) {
+  // Tarjeta "glass" del rediseño disco: transparencia + borde sutil + un
+  // halo de color por fuera (box-shadow, no gradiente) que la hace ver
+  // flotando con relieve -- sin backdrop-filter real (Outlook no lo soporta),
+  // así se ve consistente en todos los clientes (Outlook solo pierde el
+  // halo, la tarjeta no se rompe). Opt-in vía `glow`; sin ese flag, `card()`
+  // se comporta exactamente igual que antes.
+  if (opts?.glow) {
+    const a = ACCENT[opts.glow];
+    return `<div style="background:rgba(255,255,255,0.045);border-radius:22px;padding:${opts?.padding ?? '24px'};border:1px solid rgba(255,255,255,0.10);margin-bottom:20px;box-shadow:0 0 0 1px rgba(${a.glowRgb},0.20),0 18px 50px -10px rgba(${a.glowRgb},0.30),0 0 60px -15px rgba(${a.glowRgb},0.20);">${inner}</div>`;
+  }
   return `<div style="background:${opts?.bg ?? CARD_BG};border-radius:20px;padding:${opts?.padding ?? '24px'};${opts?.border === false ? '' : `border:1px solid ${BORDER};`}margin-bottom:20px;">${inner}</div>`;
 }
 
@@ -86,6 +107,21 @@ export function grid(cells: string[], cols: number) {
 export function button(href: string, label: string, accent: AccentName = 'pink') {
   const a = ACCENT[accent];
   return `<a href="${href}" style="display:inline-block;background:${a.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;letter-spacing:0.3px;">${label}</a>`;
+}
+
+/** Botón píldora en pastel con halo de color -- CTA del rediseño disco (los
+ * 4 correos de cara al cliente). El resto de los correos sigue usando
+ * `button()` de siempre. */
+export function pastelButton(href: string, label: string, accent: AccentName = 'pink') {
+  const a = ACCENT[accent];
+  return `<a href="${href}" style="display:inline-block;background:${a.pastel};color:${a.pastelText};text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;letter-spacing:0.3px;box-shadow:0 0 0 1px rgba(${a.glowRgb},0.4),0 8px 24px -4px rgba(${a.glowRgb},0.35);">${label}</a>`;
+}
+
+/** Botón secundario "glass" (transparente con borde) -- para acciones
+ * secundarias del rediseño disco (ej. "Agendar", "Playmatch") al lado de un
+ * `pastelButton` principal. */
+export function glassButton(href: string, label: string) {
+  return `<a href="${href}" style="display:inline-block;background:rgba(255,255,255,0.05);color:${INK};text-decoration:none;padding:13px 26px;border-radius:999px;font-weight:700;font-size:13px;border:1px solid rgba(255,255,255,0.16);margin:0 4px 8px;">${label}</a>`;
 }
 
 /** El guiño de disfraz: chip dorado sobre ciruela. Se usa donde aporta
@@ -117,18 +153,30 @@ export interface HeroOptions {
   anniversary?: boolean;
   /** Chip "🎭 Disfraz obligatorio" bajo el título. */
   costume?: boolean;
+  /** `'pastel'` = CTA en pastel con halo (rediseño disco); default `'solid'`
+   * (el botón vívido de siempre, sin cambios para el resto de los correos). */
+  ctaStyle?: 'solid' | 'pastel';
+  /** Fondo del encabezado -- default `ACCENT[accent].bg`. Los 4 correos del
+   * rediseño disco pasan un tono casi negro (coherente con `DISCO_BG`) para
+   * que el encabezado se funda con el resto del correo en vez de leerse
+   * como un bloque de color aparte. */
+  heroBg?: string;
 }
 
 export function emailHero(o: HeroOptions) {
   const a = ACCENT[o.accent ?? 'pink'];
+  const ctaHtml = o.cta
+    ? (o.ctaStyle === 'pastel' ? pastelButton(o.cta.href, o.cta.label, o.accent ?? 'pink')
+      : `<a href="${o.cta.href}" style="display:inline-block;background:${a.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;letter-spacing:0.3px;">${o.cta.label}</a>`)
+    : '';
   return `${o.anniversary ? anniversaryBand() : ''}
-    <div style="background-color:${a.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+    <div style="background-color:${o.heroBg ?? a.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
       <img src="${LOGO_URL}" alt="${BRAND.nombre}" style="height:64px;width:auto;margin-bottom:24px;" />
       <p style="font-size:52px;margin:0 0 12px;">${o.emoji}</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">${o.title}</h1>
       ${o.subtitle ? `<p style="color:${MUTED};font-size:15px;margin:0 0 ${o.cta || o.costume ? '24px' : '0'};">${o.subtitle}</p>` : ''}
       ${o.costume ? `<p style="margin:0 0 ${o.cta ? '20px' : '0'};">${costumeBadge()}</p>` : ''}
-      ${o.cta ? `<a href="${o.cta.href}" style="display:inline-block;background:${a.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;letter-spacing:0.3px;">${o.cta.label}</a>` : ''}
+      ${ctaHtml}
     </div>`;
 }
 
@@ -160,6 +208,9 @@ export interface ShellOptions {
   footer?: boolean;
   /** No envolver el cuerpo en el padding estándar (para layouts a medida). */
   rawBody?: boolean;
+  /** Fondo del correo -- default `PAGE_BG`. Los 4 correos del rediseño disco
+   * pasan `DISCO_BG` (negro mate real); el resto no toca esto. */
+  pageBg?: string;
 }
 
 /**
@@ -182,6 +233,7 @@ export interface ShellOptions {
  */
 export function emailShell(o: ShellOptions) {
   const body = o.rawBody ? o.body : `<div style="padding:32px 24px 0;">${o.body}</div>`;
+  const pageBg = o.pageBg ?? PAGE_BG;
   return `
 <!DOCTYPE html>
 <html>
@@ -202,9 +254,9 @@ export function emailShell(o: ShellOptions) {
     h1, h2, h3 { font-family: 'Syne', 'Helvetica Neue', Arial, sans-serif; }
   </style>
 </head>
-<body style="margin:0;padding:0;background-color:${PAGE_BG};font-family:'Helvetica Neue',Arial,sans-serif;">
+<body style="margin:0;padding:0;background-color:${pageBg};font-family:'Helvetica Neue',Arial,sans-serif;">
   ${o.preheader ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0;">${o.preheader}</div>` : ''}
-  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:${PAGE_BG};">
+  <div style="max-width:600px;margin:0 auto;padding:0 0 40px;background-color:${pageBg};">
     ${o.beforeContainer ?? ''}
     ${o.hero ?? ''}
     ${body}
