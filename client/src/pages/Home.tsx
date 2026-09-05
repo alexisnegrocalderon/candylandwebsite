@@ -1150,7 +1150,7 @@ function TandaUrgencyCard({
            * círculo, sino algo que se note superpuesto. Rotado y con sombra
            * propia para que se lea como un objeto aparte, no como parte del
            * degradé de abajo. */}
-          <div aria-hidden className="absolute -top-3 left-1/2 -translate-x-1/2 -rotate-6 px-3 py-1 rounded-full bg-white text-cherry text-[10px] md:text-xs font-heading font-black uppercase tracking-wider shadow-[0_3px_10px_rgba(0,0,0,0.3)] ring-2 ring-cherry/15 z-10">
+          <div aria-hidden className="absolute -top-3 left-1/2 -translate-x-1/2 -rotate-6 px-3 py-1 rounded-full bg-white text-cherry text-[10px] md:text-xs font-heading font-black uppercase tracking-wider shadow-[0_3px_10px_rgba(0,0,0,0.3)] ring-2 ring-cherry/15 z-10 whitespace-nowrap">
             Quedan
           </div>
         </div>
