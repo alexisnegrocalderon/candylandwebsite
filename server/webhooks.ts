@@ -1,7 +1,8 @@
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
-import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid, matchLeadForOrder } from './db';
+import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid, matchLeadForOrder, getSiteSettings } from './db';
+import { normalizeOrderEmailConfig } from '../shared/emailTemplateConfig';
 import { attributeAmbassadorSale } from './ambassadorProgram';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
@@ -270,6 +271,7 @@ async function sendMissionDepositEmail(order: any): Promise<{ success: boolean }
   }
 
   const ambassadorCode = await ensureOwnAmbassadorCode(db, order);
+  const templateConfig = normalizeOrderEmailConfig((await getSiteSettings()).emailTemplateConfig as any);
 
   const html = buildOrderEmail({
     buyerName: order.buyerName,
@@ -286,6 +288,7 @@ async function sendMissionDepositEmail(order: any): Promise<{ success: boolean }
     ambassadorCode,
     isMissionDeposit: true,
     ticketReady: false,
+    templateConfig,
   });
 
   const result = await sendEmail({
@@ -333,6 +336,7 @@ async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boo
   if (!mainTicket) mainTicket = orderTickets[0];
 
   const extras = await getOrderExtras(order.id);
+  const templateConfig = normalizeOrderEmailConfig((await getSiteSettings()).emailTemplateConfig as any);
 
   const html = buildOrderEmail({
     buyerName: order.buyerName,
@@ -353,6 +357,7 @@ async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boo
     ticketCode: mainTicket?.ticketCode,
     attendeeNames: parseAttendeeNames(order.attendeeData),
     extras,
+    templateConfig,
   });
 
   const result = await sendEmail({

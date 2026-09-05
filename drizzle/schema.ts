@@ -434,6 +434,10 @@ export const siteSettings = mysqlTable("siteSettings", {
   // -- desplegar el código no debe empezar a mandar correos solo, el dueño
   // lo prende desde el admin cuando esté listo.
   foundersPromoEnabled: int("foundersPromoEnabled").default(0).notNull(),
+  // Textos editables + interruptores por sección del correo de compra
+  // (server/email.ts buildOrderEmail) -- forma en shared/emailTemplateConfig.ts.
+  // null = usar todos los valores por defecto (todas las secciones prendidas).
+  emailTemplateConfig: json("emailTemplateConfig"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 

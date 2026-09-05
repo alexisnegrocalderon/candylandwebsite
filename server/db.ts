@@ -13,6 +13,7 @@ import { monthKeyFor } from '../shared/ambassadorProgram';
 import { normalizeTandaSchedule, nextPhase } from '../shared/tandaSchedule';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, type PnlExpense } from '../shared/expenses';
+import type { EmailTemplateConfig } from '../shared/emailTemplateConfig';
 import { isParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
@@ -733,17 +734,20 @@ export async function deleteBlockedCustomer(id: number) {
 
 // Site settings (fila única — Instagram followers/posts para el footer, y el
 // recargo por servicio (%) que se suma a toda venta nueva)
+const SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0, emailTemplateConfig: null };
+
 export async function getSiteSettings() {
   const db = await getDb();
-  if (!db) return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0 };
+  if (!db) return SITE_SETTINGS_DEFAULTS;
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) return row;
-  return { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0 };
+  return SITE_SETTINGS_DEFAULTS;
 }
 
 export async function updateSiteSettings(data: {
   instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number; cardFeePercent?: number; parkingVenueFeeClp?: number;
   kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null; foundersPromoEnabled?: boolean;
+  emailTemplateConfig?: EmailTemplateConfig;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
