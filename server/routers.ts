@@ -1492,6 +1492,17 @@ export const appRouter = router({
     listGifts: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.listPartyGiftsForEvent(input.eventId);
     }),
+    // Denuncias de todos los eventos, para la sección "Denuncias" del admin:
+    // hasta ahora se guardaban en la base sin ninguna pantalla donde verlas.
+    listAllReports: adminReadProcedure.query(async () => {
+      return db.listAllPartyReports();
+    }),
+    setReportResolved: adminProcedure.input(z.object({
+      id: z.number(),
+      resolved: z.boolean(),
+    })).mutation(async ({ input }) => {
+      return db.setPartyReportResolved(input.id, input.resolved);
+    }),
   }),
 
   discounts: router({
@@ -1556,6 +1567,24 @@ export const appRouter = router({
       const dashboard = await db.getCajaDashboard(event.id);
       if (!dashboard) return null;
       return { eventTitle: event.title, insideCount: dashboard.insideCount, expectedCount: dashboard.expectedCount };
+    }),
+  }),
+
+  // Burbujas con números sobre cada ítem del menú del admin: el dueño tenía
+  // que entrar sección por sección para descubrir si había algo nuevo. El
+  // cliente manda cuándo miró cada sección por última vez (lo guarda en
+  // localStorage) y acá se cuenta lo que llegó después -- salvo las secciones
+  // de "pendiente de acción", que se cuentan siempre (ver getAdminBadgeCounts).
+  adminBadges: router({
+    counts: adminReadProcedure.input(z.object({
+      seenAt: z.record(z.string(), z.string().datetime()).default({}),
+    })).query(async ({ input }) => {
+      const parsed: Partial<Record<db.AdminBadgeSection, Date>> = {};
+      for (const [section, iso] of Object.entries(input.seenAt)) {
+        const date = new Date(iso);
+        if (!Number.isNaN(date.getTime())) parsed[section as db.AdminBadgeSection] = date;
+      }
+      return db.getAdminBadgeCounts(parsed);
     }),
   }),
 

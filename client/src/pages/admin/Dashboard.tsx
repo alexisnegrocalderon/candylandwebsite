@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -43,7 +43,7 @@ import { monthKeyFor } from '@shared/ambassadorProgram';
 import { formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
 import {
   SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
-  SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarTrigger,
+  SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuBadge, SidebarInset, SidebarTrigger,
 } from '@/components/ui/sidebar';
 
 /* Toda escritura del admin pasa por acá: sin esto, un error del servidor
@@ -108,6 +108,76 @@ function fromChileInputValue(value: string): string {
   const hh = String(Math.floor(abs / 60)).padStart(2, '0');
   const mm = String(abs % 60).padStart(2, '0');
   return `${value}:00${sign}${hh}:${mm}`;
+}
+
+/* ─── Burbujas de novedades del menú ──────────────────────────────────────
+ * El dueño tenía que entrar sección por sección para descubrir si había algo
+ * nuevo. Ahora cada ítem del menú puede mostrar un número.
+ *
+ * Las secciones de acá abajo son las de "nuevo desde que lo miraste": se
+ * guarda en este dispositivo cuándo se abrió cada una por última vez y el
+ * servidor cuenta lo que llegó después (server/db.ts getAdminBadgeCounts).
+ * Las otras que devuelve ese contador (postulaciones, denuncias, tragos sin
+ * retirar, turnos abiertos) son "pendientes de acción": no se limpian por
+ * mirarlas, sino al resolverlas, así que no llevan marca de visto.
+ *
+ * Se guarda en localStorage y no en la base a propósito: así no necesita
+ * migración ni backend, y el precio es que la cuenta es por dispositivo (el
+ * iPad y el computador llevan la suya). Si algún día molesta, se mueve a
+ * siteSettings sin tocar el resto. */
+const BADGE_SEEN_KEY = 'mp-admin-section-seen-v1';
+const BADGE_SEEN_SECTIONS = ['orders-web', 'orders-caja', 'leads', 'customers', 'referrals'] as const;
+
+function readSeenMap(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(BADGE_SEEN_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    // Safari en modo privado puede tirar excepción al leer localStorage.
+    return {};
+  }
+}
+
+function writeSeenMap(map: Record<string, string>) {
+  try { localStorage.setItem(BADGE_SEEN_KEY, JSON.stringify(map)); } catch { /* no pasa nada, se pierde la marca */ }
+}
+
+function useAdminBadges() {
+  const [seenAt, setSeenAt] = useState<Record<string, string>>(() => {
+    const stored = readSeenMap();
+    // Primera vez en este dispositivo: se marca todo como visto AHORA. Si no,
+    // la primera carga mostraría el historial entero como "nuevo", que es
+    // ruido y no información.
+    if (Object.keys(stored).length === 0) {
+      const now = new Date().toISOString();
+      const initial = Object.fromEntries(BADGE_SEEN_SECTIONS.map((s) => [s, now]));
+      writeSeenMap(initial);
+      return initial;
+    }
+    return stored;
+  });
+
+  const { data } = trpc.adminBadges.counts.useQuery({ seenAt }, {
+    refetchInterval: 60_000,
+    // Sin esto, el panel abierto de fondo en el iPad le pega al servidor toda
+    // la noche sin que nadie lo esté mirando (mismo criterio que Home.tsx).
+    refetchIntervalInBackground: false,
+    // Al marcar una sección como vista cambia el input y con él la clave de
+    // caché: sin esto las burbujas parpadearían a vacío en cada click.
+    placeholderData: (prev) => prev,
+  });
+
+  const markSeen = (section: string) => {
+    if (!(BADGE_SEEN_SECTIONS as readonly string[]).includes(section)) return;
+    setSeenAt((prev) => {
+      const next = { ...prev, [section]: new Date().toISOString() };
+      writeSeenMap(next);
+      return next;
+    });
+  };
+
+  return { counts: (data ?? {}) as Record<string, number>, markSeen };
 }
 
 /* Debe coincidir con los ids de CANDYLAND.accesos (client/src/config/candyland.ts)
@@ -7467,10 +7537,91 @@ const ADMIN_SECTIONS = [
   { id: 'referrals', label: 'Referidos', icon: Trophy, render: () => <ReferralsView /> },
   { id: 'ambassadors', label: 'Embajadores VIP', icon: Crown, render: () => <AmbassadorsView /> },
   { id: 'party-gifts', label: 'Tragos de la Fiesta', icon: Martini, render: () => <PartyGiftsView /> },
+  { id: 'denuncias', label: 'Denuncias', icon: ShieldAlert, render: () => <DenunciasView /> },
   { id: 'caja', label: 'Caja', icon: Store, render: () => <CajaAdminView /> },
   { id: 'gastos', label: 'Gastos y P&L', icon: Receipt, render: () => <GastosView /> },
   { id: 'settings', label: 'Ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },
 ] as const;
+
+/** Denuncias que la gente hace desde Playmatch durante la fiesta.
+ *
+ * Hasta ahora estas denuncias se guardaban en la base y NO había ninguna
+ * pantalla donde verlas -- eran invisibles para el local. Las sin resolver
+ * van primero y son las que cuenta la burbuja del menú: una denuncia que
+ * miraste pero no resolviste tiene que seguir contando. */
+function DenunciasView() {
+  const { data: reports, isLoading, refetch } = trpc.party.listAllReports.useQuery(undefined, { refetchInterval: 60_000 });
+  const setResolved = trpc.party.setReportResolved.useMutation({
+    onSuccess: () => { refetch(); },
+    onError: onMutationError,
+  });
+
+  const pendientes = reports?.filter((r) => !r.resolvedAt) ?? [];
+  const resueltas = reports?.filter((r) => r.resolvedAt) ?? [];
+
+  const Row = ({ r }: { r: any }) => (
+    <div className={`p-4 rounded-2xl border ${r.resolvedAt ? 'border-border/50 bg-card/50' : 'border-destructive/30 bg-destructive/5'}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm">
+            <span className="font-semibold">{r.reportedAlias ?? 'Perfil eliminado'}</span>
+            <span className="text-muted-foreground"> denunciado/a por </span>
+            <span className="font-semibold">{r.reporterAlias ?? 'perfil eliminado'}</span>
+          </p>
+          <p className="text-sm mt-1.5 break-words">{r.reason}</p>
+          <p className="text-xs text-muted-foreground mt-2">
+            {r.eventTitle ?? 'Evento eliminado'}
+            {r.reportedZone ? ` · zona ${r.reportedZone}` : ''}
+            {' · '}{formatChileDateTime(r.createdAt)}
+          </p>
+        </div>
+        <WriteButton
+          variant={r.resolvedAt ? 'outline' : 'default'}
+          size="sm"
+          className="shrink-0 interactive"
+          disabled={setResolved.isPending}
+          onClick={() => setResolved.mutate({ id: r.id, resolved: !r.resolvedAt })}
+        >
+          {r.resolvedAt ? 'Reabrir' : 'Marcar resuelta'}
+        </WriteButton>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-5">
+      <h2 className="font-heading text-2xl">Denuncias</h2>
+      <p className="text-muted-foreground text-sm">
+        Reportes que las personas hacen entre ellas desde Playmatch durante la fiesta. Las pendientes cuentan en la
+        burbuja del menú hasta que las marques como resueltas.
+      </p>
+
+      {isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
+
+      {!isLoading && pendientes.length === 0 && resueltas.length === 0 && (
+        <p className="text-sm text-muted-foreground">No hay denuncias registradas.</p>
+      )}
+
+      {pendientes.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Pendientes ({pendientes.length})
+          </h3>
+          {pendientes.map((r) => <Row key={r.id} r={r} />)}
+        </div>
+      )}
+
+      {resueltas.length > 0 && (
+        <div className="space-y-3 pt-2">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Resueltas ({resueltas.length})
+          </h3>
+          {resueltas.map((r) => <Row key={r.id} r={r} />)}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Tragos que se invitaron durante una fiesta. Lo importante para el local
  * es la última columna: los "pagado" que nadie retiró son plata cobrada
@@ -7565,6 +7716,12 @@ export default function AdminDashboard() {
 
   const { user, loading, isAuthenticated, logout } = useAuth();
   const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>('events');
+  const { counts: badgeCounts, markSeen } = useAdminBadges();
+
+  const openSection = (id: typeof ADMIN_SECTIONS[number]['id']) => {
+    setActiveSection(id);
+    markSeen(id);
+  };
 
   if (loading) {
     return (
@@ -7608,19 +7765,38 @@ export default function AdminDashboard() {
         </SidebarHeader>
         <SidebarContent className="px-2 py-2">
           <SidebarMenu>
-            {ADMIN_SECTIONS.map((section) => (
+            {ADMIN_SECTIONS.map((section) => {
+              const count = badgeCounts[section.id] ?? 0;
+              return (
               <SidebarMenuItem key={section.id}>
                 <SidebarMenuButton
                   isActive={activeSection === section.id}
-                  onClick={() => setActiveSection(section.id)}
-                  tooltip={section.label}
+                  onClick={() => openSection(section.id)}
+                  tooltip={count > 0 ? `${section.label} (${count})` : section.label}
                   className="h-10 rounded-xl data-[active=true]:bg-gradient-to-r data-[active=true]:from-primary/15 data-[active=true]:to-secondary/15 data-[active=true]:text-primary data-[active=true]:font-semibold"
                 >
+                  {/* El ícono va como hijo DIRECTO del botón a propósito:
+                      sidebarMenuButtonVariants lo dimensiona con `[&>svg]` y
+                      envolverlo en un span rompe el tamaño en modo colapsado. */}
                   <section.icon className="h-4 w-4" />
                   <span>{section.label}</span>
                 </SidebarMenuButton>
+                {count > 0 && (
+                  <>
+                    <SidebarMenuBadge className="bg-primary/15 text-primary font-bold">
+                      {count > 99 ? '99+' : count}
+                    </SidebarMenuBadge>
+                    {/* Con el menú colapsado a íconos, SidebarMenuBadge se
+                        esconde solo (sidebar.tsx) -- sin este puntito no se
+                        vería ninguna alerta. Va sobre el <li> (que es
+                        `relative`) y no dentro del botón, porque el botón
+                        tiene `overflow-hidden` y lo recortaría. */}
+                    <span className="pointer-events-none absolute left-6 top-1.5 hidden h-2 w-2 rounded-full bg-primary ring-2 ring-sidebar group-data-[collapsible=icon]:block" />
+                  </>
+                )}
               </SidebarMenuItem>
-            ))}
+              );
+            })}
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter className="p-3">

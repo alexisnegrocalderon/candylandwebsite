@@ -1,6 +1,6 @@
-import { eq, desc, and, sql, or, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
+import { eq, desc, and, sql, or, gt, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -1704,6 +1704,78 @@ export async function getOrderStats(channel?: 'web' | 'caja', eventId?: number) 
   }).from(orders).where(where);
 
   return stats;
+}
+
+/* Contadores para las burbujas del menú del admin (client/src/pages/admin/
+ * Dashboard.tsx). Un solo procedimiento agregado en vez de uno por sección:
+ * con ~9 secciones con burbuja, hacerlo por separado significaría 9 consultas
+ * en paralelo cada vez que refresca el panel.
+ *
+ * Hay DOS semánticas distintas a propósito:
+ *  - "nuevo desde que lo miraste" para lo informativo (ventas, leads,
+ *    clientes, referidos): usa `seenAt` y se limpia solo al entrar.
+ *  - "pendiente de acción" para lo que se resuelve, no se lee (postulaciones,
+ *    denuncias, tragos sin retirar, turnos sin cerrar): NO usa `seenAt`,
+ *    porque una denuncia que miraste pero no resolviste tiene que seguir
+ *    contando hasta que la resuelvas. */
+export type AdminBadgeSection =
+  | 'orders-web' | 'orders-caja' | 'leads' | 'customers' | 'referrals'
+  | 'ambassadors' | 'denuncias' | 'party-gifts' | 'caja';
+
+export async function getAdminBadgeCounts(seenAt: Partial<Record<AdminBadgeSection, Date>>): Promise<Record<AdminBadgeSection, number>> {
+  const empty: Record<AdminBadgeSection, number> = {
+    'orders-web': 0, 'orders-caja': 0, 'leads': 0, 'customers': 0, 'referrals': 0,
+    'ambassadors': 0, 'denuncias': 0, 'party-gifts': 0, 'caja': 0,
+  };
+  const db = await getDb();
+  if (!db) return empty;
+
+  const countRows = async (rows: Promise<{ n: number }[]>) => {
+    const [row] = await rows;
+    return Number(row?.n ?? 0);
+  };
+  // Sin marca de "visto" todavía (primera vez en este dispositivo) no se
+  // cuenta nada: mostrar de golpe el historial entero como "nuevo" sería
+  // ruido, no información.
+  const since = (s: AdminBadgeSection) => seenAt[s];
+
+  const [ordersWeb, ordersCaja, newLeads, newCustomers, newReferrals, pendingApplications, openReports, unclaimedGifts, openShifts] = await Promise.all([
+    // Mismo criterio de canal que `getOrderStats`: "web" es todo lo que no es
+    // caja (incluye las importadas). Solo aprobadas -- una orden pendiente o
+    // rechazada no es una venta que valga la pena avisar.
+    since('orders-web') ? countRows(db.select({ n: sql<number>`COUNT(*)` }).from(orders)
+      .where(and(sql`${orders.channel} != 'caja'`, eq(orders.paymentStatus, 'approved'), gt(orders.createdAt, since('orders-web')!)))) : 0,
+    since('orders-caja') ? countRows(db.select({ n: sql<number>`COUNT(*)` }).from(orders)
+      .where(and(eq(orders.channel, 'caja'), gt(orders.createdAt, since('orders-caja')!)))) : 0,
+    since('leads') ? countRows(db.select({ n: sql<number>`COUNT(*)` }).from(leads)
+      .where(gt(leads.createdAt, since('leads')!))) : 0,
+    since('customers') ? countRows(db.select({ n: sql<number>`COUNT(*)` }).from(customers)
+      .where(gt(customers.createdAt, since('customers')!))) : 0,
+    since('referrals') ? countRows(db.select({ n: sql<number>`COUNT(*)` }).from(referrals)
+      .where(gt(referrals.createdAt, since('referrals')!))) : 0,
+    // Pendientes de acción, sin `seenAt`:
+    countRows(db.select({ n: sql<number>`COUNT(*)` }).from(ambassadorApplications)
+      .where(eq(ambassadorApplications.status, 'pendiente'))),
+    countRows(db.select({ n: sql<number>`COUNT(*)` }).from(partyReports)
+      .where(isNull(partyReports.resolvedAt))),
+    // Tragos ya cobrados que nadie retiró: plata que se debe en la barra.
+    countRows(db.select({ n: sql<number>`COUNT(*)` }).from(partyGifts)
+      .where(eq(partyGifts.status, 'paid'))),
+    countRows(db.select({ n: sql<number>`COUNT(*)` }).from(shifts)
+      .where(eq(shifts.status, 'open'))),
+  ]);
+
+  return {
+    'orders-web': ordersWeb,
+    'orders-caja': ordersCaja,
+    'leads': newLeads,
+    'customers': newCustomers,
+    'referrals': newReferrals,
+    'ambassadors': pendingApplications,
+    'denuncias': openReports,
+    'party-gifts': unclaimedGifts,
+    'caja': openShifts,
+  };
 }
 
 // Referrals
@@ -4855,6 +4927,43 @@ export async function listPartyReports(eventId: number) {
     .where(eq(partyReports.eventId, eventId))
     .orderBy(desc(partyReports.createdAt));
   return rows;
+}
+
+/** Denuncias de TODOS los eventos, para la sección "Denuncias" del admin.
+ * Existía `listPartyReports` pero pide un eventId, y hasta ahora no había
+ * ninguna pantalla donde el dueño pudiera ver los reportes: se guardaban en
+ * la base y nadie los miraba. Las sin resolver van primero. */
+export async function listAllPartyReports(limit = 200) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: partyReports.id,
+    reason: partyReports.reason,
+    createdAt: partyReports.createdAt,
+    resolvedAt: partyReports.resolvedAt,
+    eventTitle: events.title,
+    reporterAlias: sql<string>`reporter.alias`,
+    reportedAlias: sql<string>`reported.alias`,
+    reportedZone: sql<string>`reported.zone`,
+  })
+    .from(partyReports)
+    .leftJoin(events, eq(events.id, partyReports.eventId))
+    .leftJoin(sql`${partyProfiles} as reporter`, sql`reporter.id = ${partyReports.reporterProfileId}`)
+    .leftJoin(sql`${partyProfiles} as reported`, sql`reported.id = ${partyReports.reportedProfileId}`)
+    .orderBy(sql`${partyReports.resolvedAt} is not null`, desc(partyReports.createdAt))
+    .limit(limit);
+}
+
+/** Marca una denuncia como resuelta (o la reabre). Es lo que limpia su
+ * burbuja en el menú: las denuncias cuentan como "pendiente de acción", no
+ * se limpian por mirarlas. */
+export async function setPartyReportResolved(id: number, resolved: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(partyReports)
+    .set({ resolvedAt: resolved ? new Date() : null })
+    .where(eq(partyReports.id, id));
+  return { success: true };
 }
 
 /** Borra lo que la gente escribió, 24h después de terminada la fiesta. Los
