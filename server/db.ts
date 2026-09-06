@@ -111,10 +111,20 @@ export async function getUserByOpenId(openId: string) {
 }
 
 // Events
+// Calendario público (/eventos): publicados + pasados + agotados -- si solo
+// filtrara 'published', un evento dejaba de aparecer por completo apenas se
+// lo marcaba "Pasado" en vez de seguir mostrándose "Finalizado" en blanco y
+// negro (como sí les pasa a los que siguen en 'published' con fecha vieja,
+// que es lo que el frontend usa para pintar esa etiqueta -- ver Events.tsx).
+// Mismo criterio de estados que `getHomeEvents()`, pero orden descendente
+// (evento futuro primero, después los pasados del más reciente al más viejo)
+// en vez del ascendente que usa la home.
 export async function getPublishedEvents() {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(events).where(eq(events.status, 'published')).orderBy(desc(events.eventDate));
+  return db.select().from(events)
+    .where(or(eq(events.status, 'published'), eq(events.status, 'past'), eq(events.status, 'soldout')))
+    .orderBy(desc(events.eventDate));
 }
 
 export async function getAllEvents() {
