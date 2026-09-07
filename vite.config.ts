@@ -195,18 +195,21 @@ export default defineConfig(({ command }) => {
       // activa la versión nueva y recarga la página apenas está lista.
       registerType: "autoUpdate",
       scope: "/caja/",
-      manifest: {
-        name: "Mansion Playroom · Caja",
-        short_name: "Caja",
-        start_url: "/caja",
-        scope: "/caja/",
-        display: "standalone",
-        background_color: "#0a0a0a",
-        theme_color: "#0a0a0a",
-        icons: [
-          { src: "/candyland/logo-isotipo.webp", sizes: "512x512", type: "image/webp" },
-        ],
-      },
+      // `manifest: false` A PROPÓSITO -- antes este plugin generaba
+      // manifest.webmanifest de Caja E INYECTABA su <link rel="manifest">
+      // en el ÚNICO index.html que comparte TODA la SPA, en tiempo de
+      // build. Admin/Puerta/Gastos corregían ese link a mano ya en el
+      // navegador (useInstallableApp.ts), pero esa corrección corre en un
+      // useEffect -- DESPUÉS del primer render -- y "Agregar a Inicio" de
+      // iOS podía leer el <head> antes de esa corrección, instalando Caja
+      // sin importar desde qué pantalla se compartiera (bug real). Ahora
+      // Caja tiene su propio archivo estático `client/public/caja.webmanifest`
+      // (mismo criterio que admin/puerta/gastos) y cada pantalla instalable
+      // recibe un HTML propio ya con su manifest correcto de fábrica -- ver
+      // `scripts/generate-pwa-html.mjs` y `vercel.json`. La generación del
+      // service worker de acá abajo (workbox) es un mecanismo aparte, no se
+      // toca.
+      manifest: false,
       workbox: {
         // Solo el shell de la app (JS/CSS/HTML) -- los datos (snapshot del
         // evento) viven en IndexedDB vía Dexie, no en la cache de Workbox.

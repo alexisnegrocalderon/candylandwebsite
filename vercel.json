@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "vite build && pnpm run build:api",
+  "buildCommand": "vite build && node scripts/generate-pwa-html.mjs && pnpm run build:api",
   "outputDirectory": "dist/public",
   "functions": {
     "api/index.js": {
@@ -14,7 +14,23 @@
       "destination": "/api"
     },
     {
-      "source": "/(admin|caja|gastos|puerta|cocina|guardarropia|checkout|pago)(/.*)?",
+      "source": "/admin(/.*)?",
+      "destination": "/admin.html"
+    },
+    {
+      "source": "/caja(/.*)?",
+      "destination": "/caja.html"
+    },
+    {
+      "source": "/puerta(/.*)?",
+      "destination": "/puerta.html"
+    },
+    {
+      "source": "/gastos(/.*)?",
+      "destination": "/gastos.html"
+    },
+    {
+      "source": "/(cocina|guardarropia|checkout|pago)(/.*)?",
       "destination": "/index.html"
     },
     {
