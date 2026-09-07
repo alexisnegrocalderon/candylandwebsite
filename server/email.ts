@@ -4,6 +4,7 @@ import { BRAND, EVENT_BRAND } from '../shared/eventBrand';
 import { type OrderEmailConfig, DEFAULT_ORDER_EMAIL_CONFIG, fillPlaceholders } from '../shared/emailTemplateConfig';
 import {
   ACCENT, INK, MUTED, FAINT, BORDER, CARD_BG, DISCO_BG, DISCO_HERO_BG, EMAIL_BASE_URL, LOGO_URL,
+  REPORT_INK, REPORT_MUTED, REPORT_FAINT, REPORT_BORDER,
   card, sectionTitle, grid, costumeBadge, anniversaryBand, emailShell, emailHero,
   pastelButton, glassButton,
 } from './emailLayout';
@@ -537,31 +538,31 @@ export function buildAmbassadorApplicationEmail(data: {
     rawBody: true,
     body: `
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
-    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">👑 Nueva postulación a embajador</h1>
-    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.name}</p>
+    <h1 style="color:${REPORT_INK};font-size:20px;font-weight:800;margin:0 0 4px;">👑 Nueva postulación a embajador</h1>
+    <p style="color:${REPORT_MUTED};font-size:13px;margin:0 0 20px;">${data.name}</p>
 
     ${card(`
-      <div style="padding:6px 0;border-bottom:1px solid ${BORDER};">
-        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Instagram</p>
-        <p style="margin:0;"><a href="${data.instagramLink}" style="color:${ACCENT.pink.text};font-size:15px;font-weight:700;text-decoration:none;">@${data.instagram}</a>
-        ${data.followers !== null ? `<span style="color:${MUTED};font-size:13px;"> · ${data.followers.toLocaleString('es-CL')} seguidores</span>` : ''}</p>
+      <div style="padding:6px 0;border-bottom:1px solid ${REPORT_BORDER};">
+        <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Instagram</p>
+        <p style="margin:0;"><a href="${data.instagramLink}" style="color:${ACCENT.pink.solid};font-size:15px;font-weight:700;text-decoration:none;">@${data.instagram}</a>
+        ${data.followers !== null ? `<span style="color:${REPORT_MUTED};font-size:13px;"> · ${data.followers.toLocaleString('es-CL')} seguidores</span>` : ''}</p>
       </div>
-      <div style="padding:6px 0;border-bottom:1px solid ${BORDER};">
-        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">WhatsApp</p>
-        <p style="margin:0;"><a href="${data.whatsappLink}" style="color:${ACCENT.blue.text};font-size:15px;font-weight:700;text-decoration:none;">${data.whatsapp}</a></p>
+      <div style="padding:6px 0;border-bottom:1px solid ${REPORT_BORDER};">
+        <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">WhatsApp</p>
+        <p style="margin:0;"><a href="${data.whatsappLink}" style="color:${ACCENT.blue.solid};font-size:15px;font-weight:700;text-decoration:none;">${data.whatsapp}</a></p>
       </div>
       <div style="padding:6px 0;">
-        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Correo</p>
-        <p style="color:${INK};font-size:14px;margin:0;">${data.email}</p>
+        <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Correo</p>
+        <p style="color:${REPORT_INK};font-size:14px;margin:0;">${data.email}</p>
       </div>
-    `)}
+    `, { bg: '#F9FAFB', borderColor: REPORT_BORDER })}
 
     ${data.message ? card(`
-      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Lo que escribió</p>
-      <p style="color:${INK};font-size:14px;margin:0;line-height:1.6;">${data.message}</p>
-    `) : ''}
+      <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Lo que escribió</p>
+      <p style="color:${REPORT_INK};font-size:14px;margin:0;line-height:1.6;">${data.message}</p>
+    `, { bg: '#F9FAFB', borderColor: REPORT_BORDER }) : ''}
 
-    <p style="color:${MUTED};font-size:13px;margin:0;">
+    <p style="color:${REPORT_MUTED};font-size:13px;margin:0;">
       Revísala en el panel: Embajadores VIP → Postulaciones. Desde ahí la apruebas y se crea el embajador con su código.
     </p>
   </div>
@@ -792,6 +793,70 @@ export function buildAmbassadorWeeklyEmail(data: {
   });
 }
 
+/** Correo resumen diario de novedades del admin (server/adminDigest.ts) --
+ * interruptor propio en Ajustes (shared/adminAlertsConfig.ts), apagado por
+ * defecto. Junta lo mismo que muestran las burbujas del menú del admin en
+ * un solo correo: lo nuevo de las últimas 24h + lo que sigue pendiente de
+ * resolver, para quien prefiera revisarlo por correo en vez de abrir el
+ * panel. */
+export function buildAdminDigestEmail(data: {
+  newOrdersWeb: number;
+  newOrdersCaja: number;
+  newWebRevenue: number;
+  newLeads: number;
+  newCustomers: number;
+  newReferrals: number;
+  pendingApplications: number;
+  openReports: number;
+  unclaimedGifts: number;
+  openShifts: number;
+}) {
+  const row = (label: string, value: number, opts?: { money?: boolean; warn?: boolean }) => {
+    if (value === 0) return '';
+    const shown = opts?.money ? `$${value.toLocaleString('es-CL')}` : value.toLocaleString('es-CL');
+    return `
+      <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid ${REPORT_BORDER};">
+        <span style="color:${REPORT_MUTED};font-size:14px;">${label}</span>
+        <span style="color:${opts?.warn ? '#C0392B' : REPORT_INK};font-size:14px;font-weight:700;">${shown}</span>
+      </div>
+    `;
+  };
+
+  const nuevo = [
+    row('Ventas web nuevas', data.newOrdersWeb),
+    row('Plata de ventas web nuevas', data.newWebRevenue, { money: true }),
+    row('Ventas en caja nuevas', data.newOrdersCaja),
+    row('Leads nuevos', data.newLeads),
+    row('Clientes nuevos', data.newCustomers),
+    row('Referidos nuevos', data.newReferrals),
+  ].join('');
+
+  const pendiente = [
+    row('Postulaciones de embajador sin responder', data.pendingApplications, { warn: true }),
+    row('Denuncias sin resolver', data.openReports, { warn: true }),
+    row('Tragos pagados sin retirar', data.unclaimedGifts),
+    row('Turnos de caja sin cerrar', data.openShifts, { warn: true }),
+  ].join('');
+
+  const nada = !nuevo && !pendiente;
+
+  // Interno (cron diario, el dueño se lo manda a sí mismo) -- sin hero ni pie.
+  return emailShell({
+    footer: false,
+    rawBody: true,
+    body: `
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+    <h1 style="color:${REPORT_INK};font-size:20px;font-weight:800;margin:0 0 4px;">📋 Resumen de novedades</h1>
+    <p style="color:${REPORT_MUTED};font-size:13px;margin:0 0 20px;">Últimas 24 horas + lo que sigue pendiente</p>
+
+    ${nada ? `${card(`<p style="color:${REPORT_MUTED};font-size:14px;margin:0;">Sin novedades ni pendientes. Todo tranquilo. 🍭</p>`, { bg: '#F9FAFB', borderColor: REPORT_BORDER })}` : ''}
+    ${nuevo ? `${card(`<p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px;">Nuevo</p>${nuevo}`, { bg: '#F9FAFB', borderColor: REPORT_BORDER })}` : ''}
+    ${pendiente ? `${card(`<p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px;">Pendiente de resolver</p>${pendiente}`, { bg: '#F9FAFB', borderColor: REPORT_BORDER })}` : ''}
+  </div>
+    `,
+  });
+}
+
 /** Resumen de ingresos del día del evento, enviado por el cron de las 3am
  * (server/cronRoutes.ts) -- el mismo número que se ve en vivo en Ajustes,
  * por si el dueño quiere revisarlo sin abrir el celular temprano. */
@@ -809,14 +874,14 @@ export function buildCheckinSummaryEmail(data: {
     rawBody: true,
     body: `
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
-    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">🚪 ${data.eventTitle}</h1>
-    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">Resumen de ingresos — ${fecha}</p>
+    <h1 style="color:${REPORT_INK};font-size:20px;font-weight:800;margin:0 0 4px;">🚪 ${data.eventTitle}</h1>
+    <p style="color:${REPORT_MUTED};font-size:13px;margin:0 0 20px;">Resumen de ingresos — ${fecha}</p>
 
     ${card(`
-      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Personas adentro</p>
-      <p style="color:${INK};font-size:32px;font-weight:800;margin:0 0 2px;">${data.insideCount.toLocaleString('es-CL')} <span style="color:${MUTED};font-size:16px;font-weight:600;">/ ${data.expectedCount.toLocaleString('es-CL')}</span></p>
-      <p style="color:${MUTED};font-size:13px;margin:0;">${pct}% de las entradas vendidas ya hicieron check-in en la puerta.</p>
-    `)}
+      <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Personas adentro</p>
+      <p style="color:${REPORT_INK};font-size:32px;font-weight:800;margin:0 0 2px;">${data.insideCount.toLocaleString('es-CL')} <span style="color:${REPORT_MUTED};font-size:16px;font-weight:600;">/ ${data.expectedCount.toLocaleString('es-CL')}</span></p>
+      <p style="color:${REPORT_MUTED};font-size:13px;margin:0;">${pct}% de las entradas vendidas ya hicieron check-in en la puerta.</p>
+    `, { bg: '#F9FAFB', borderColor: REPORT_BORDER })}
   </div>
     `,
   });
@@ -852,12 +917,12 @@ export function buildShiftCloseEmail(data: {
 }) {
   const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
   const diffRow = (label: string, counted: number, expected: number, diff: number) => `
-    <div style="padding:8px 0;border-bottom:1px solid ${BORDER};">
+    <div style="padding:8px 0;border-bottom:1px solid ${REPORT_BORDER};">
       <div style="display:flex;justify-content:space-between;">
-        <span style="color:${INK};font-size:14px;">${label}</span>
-        <span style="color:${INK};font-size:14px;font-weight:600;">${money(counted)} contado / ${money(expected)} esperado</span>
+        <span style="color:${REPORT_INK};font-size:14px;">${label}</span>
+        <span style="color:${REPORT_INK};font-size:14px;font-weight:600;">${money(counted)} contado / ${money(expected)} esperado</span>
       </div>
-      <p style="color:${Math.abs(diff) < 1 ? ACCENT.blue.text : diff > 0 ? ACCENT.yellow.text : '#D9538F'};font-size:12px;font-weight:700;margin:4px 0 0;">
+      <p style="color:${Math.abs(diff) < 1 ? ACCENT.blue.solid : diff > 0 ? ACCENT.yellow.solid : '#D9538F'};font-size:12px;font-weight:700;margin:4px 0 0;">
         ${Math.abs(diff) < 1 ? '✓ Cuadra' : diff > 0 ? `▲ Sobran ${money(diff)}` : `▼ Faltan ${money(Math.abs(diff))}`}
       </p>
     </div>
@@ -869,37 +934,37 @@ export function buildShiftCloseEmail(data: {
     rawBody: true,
     body: `
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
-    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">🔒 Turno cerrado — ${data.eventTitle}</h1>
-    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.registerName} · ${data.operatorName} · ${formatChileDateTime(data.closedAt)}</p>
+    <h1 style="color:${REPORT_INK};font-size:20px;font-weight:800;margin:0 0 4px;">🔒 Turno cerrado — ${data.eventTitle}</h1>
+    <p style="color:${REPORT_MUTED};font-size:13px;margin:0 0 20px;">${data.registerName} · ${data.operatorName} · ${formatChileDateTime(data.closedAt)}</p>
 
     ${card(`
-      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Cuadre de caja</p>
-      <p style="color:${MUTED};font-size:12px;margin:0 0 10px;">Efectivo inicial: ${money(data.openingCash)} · ${data.salesCount} ventas · ${data.redeemsCount} canjes</p>
+      <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Cuadre de caja</p>
+      <p style="color:${REPORT_MUTED};font-size:12px;margin:0 0 10px;">Efectivo inicial: ${money(data.openingCash)} · ${data.salesCount} ventas · ${data.redeemsCount} canjes</p>
       ${diffRow('💵 Efectivo', data.countedCash, data.expectedCash + data.openingCash, data.cashDiff)}
       ${diffRow('💳 Débito', data.countedDebit, data.expectedDebit, data.debitDiff)}
       ${diffRow('💳 Crédito', data.countedCredit, data.expectedCredit, data.creditDiff)}
       ${data.expectedQr || data.countedQr ? diffRow('📲 QR / Transferencia', data.countedQr ?? 0, data.expectedQr ?? 0, data.qrDiff ?? 0) : ''}
-    `)}
+    `, { bg: '#F9FAFB', borderColor: REPORT_BORDER })}
 
     ${card(`
-      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">🏆 Top 3 clientes (todo el evento)</p>
-      ${data.topCustomers.length === 0 ? `<p style="color:${MUTED};font-size:13px;margin:0;">Sin ventas web registradas.</p>` : data.topCustomers.map((c, i) => `
+      <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">🏆 Top 3 clientes (todo el evento)</p>
+      ${data.topCustomers.length === 0 ? `<p style="color:${REPORT_MUTED};font-size:13px;margin:0;">Sin ventas web registradas.</p>` : data.topCustomers.map((c, i) => `
         <div style="display:flex;justify-content:space-between;padding:6px 0;">
-          <span style="color:${INK};font-size:14px;">${i + 1}. ${c.name} <span style="color:${FAINT};font-size:12px;">(${c.email})</span></span>
-          <span style="color:${INK};font-size:14px;font-weight:600;">${money(c.total)}</span>
+          <span style="color:${REPORT_INK};font-size:14px;">${i + 1}. ${c.name} <span style="color:${REPORT_FAINT};font-size:12px;">(${c.email})</span></span>
+          <span style="color:${REPORT_INK};font-size:14px;font-weight:600;">${money(c.total)}</span>
         </div>
       `).join('')}
-    `)}
+    `, { bg: '#F9FAFB', borderColor: REPORT_BORDER })}
 
     ${card(`
-      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">🥇 Top 3 productos más vendidos</p>
-      ${data.topProducts.length === 0 ? `<p style="color:${MUTED};font-size:13px;margin:0;">Sin ventas registradas.</p>` : data.topProducts.map((p, i) => `
+      <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">🥇 Top 3 productos más vendidos</p>
+      ${data.topProducts.length === 0 ? `<p style="color:${REPORT_MUTED};font-size:13px;margin:0;">Sin ventas registradas.</p>` : data.topProducts.map((p, i) => `
         <div style="display:flex;justify-content:space-between;padding:6px 0;">
-          <span style="color:${INK};font-size:14px;">${i + 1}. ${p.name}</span>
-          <span style="color:${INK};font-size:14px;font-weight:600;">${p.quantity}x · ${money(p.revenue)}</span>
+          <span style="color:${REPORT_INK};font-size:14px;">${i + 1}. ${p.name}</span>
+          <span style="color:${REPORT_INK};font-size:14px;font-weight:600;">${p.quantity}x · ${money(p.revenue)}</span>
         </div>
       `).join('')}
-    `)}
+    `, { bg: '#F9FAFB', borderColor: REPORT_BORDER })}
   </div>
     `,
   });
@@ -919,15 +984,15 @@ export function buildSimpleReportEmail(data: { title: string; subtitle: string; 
     rawBody: true,
     body: `
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
-    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">${data.title}</h1>
-    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${data.subtitle} — el detalle completo va en el PDF adjunto.</p>
+    <h1 style="color:${REPORT_INK};font-size:20px;font-weight:800;margin:0 0 4px;">${data.title}</h1>
+    <p style="color:${REPORT_MUTED};font-size:13px;margin:0 0 20px;">${data.subtitle} — el detalle completo va en el PDF adjunto.</p>
 
     ${card(data.lines.map((l) => `
       <div style="display:flex;justify-content:space-between;padding:6px 0;">
-        <span style="color:${MUTED};font-size:13px;">${l.label}</span>
-        <span style="color:${INK};font-size:13px;font-weight:600;">${l.value}</span>
+        <span style="color:${REPORT_MUTED};font-size:13px;">${l.label}</span>
+        <span style="color:${REPORT_INK};font-size:13px;font-weight:600;">${l.value}</span>
       </div>
-    `).join(''))}
+    `).join(''), { bg: '#F9FAFB', borderColor: REPORT_BORDER })}
   </div>
     `,
   });
@@ -951,15 +1016,15 @@ export function buildKitchenVendorEmail(data: {
     rawBody: true,
     body: `
   <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
-    <h1 style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">🍽️ Rendición de cocina — ${data.eventTitle}</h1>
-    <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">Para ${data.vendorName} — el detalle completo por producto va en el PDF adjunto.</p>
+    <h1 style="color:${REPORT_INK};font-size:20px;font-weight:800;margin:0 0 4px;">🍽️ Rendición de cocina — ${data.eventTitle}</h1>
+    <p style="color:${REPORT_MUTED};font-size:13px;margin:0 0 20px;">Para ${data.vendorName} — el detalle completo por producto va en el PDF adjunto.</p>
 
     ${card(`
-      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Resumen del evento</p>
-      <p style="color:${MUTED};font-size:13px;margin:0 0 6px;">Ingresos totales: <strong style="color:${INK};">${money(data.totalRevenue)}</strong></p>
-      <p style="color:${MUTED};font-size:13px;margin:0 0 6px;">Le corresponde a ${data.vendorName}: <strong style="color:${INK};">${money(data.vendorShare)}</strong></p>
-      <p style="color:${MUTED};font-size:13px;margin:0;">Le corresponde a ${BRAND_NAME}: <strong style="color:${INK};">${money(data.venueShare)}</strong></p>
-    `)}
+      <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Resumen del evento</p>
+      <p style="color:${REPORT_MUTED};font-size:13px;margin:0 0 6px;">Ingresos totales: <strong style="color:${REPORT_INK};">${money(data.totalRevenue)}</strong></p>
+      <p style="color:${REPORT_MUTED};font-size:13px;margin:0 0 6px;">Le corresponde a ${data.vendorName}: <strong style="color:${REPORT_INK};">${money(data.vendorShare)}</strong></p>
+      <p style="color:${REPORT_MUTED};font-size:13px;margin:0;">Le corresponde a ${BRAND_NAME}: <strong style="color:${REPORT_INK};">${money(data.venueShare)}</strong></p>
+    `, { bg: '#F9FAFB', borderColor: REPORT_BORDER })}
   </div>
     `,
   });

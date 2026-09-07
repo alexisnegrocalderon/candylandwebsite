@@ -3,6 +3,7 @@ import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
 import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid, matchLeadForOrder, getSiteSettings } from './db';
 import { normalizeOrderEmailConfig } from '../shared/emailTemplateConfig';
+import { sendPushToAdmins } from './push';
 import { attributeAmbassadorSale } from './ambassadorProgram';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
@@ -579,6 +580,17 @@ async function processApprovedOrder(order: any) {
   // que sendMissionDepositEmail) -- si no, queda en 0 para poder reintentar.
   if (result.success) {
     await db.update(orders).set({ emailSent: 1 }).where(eq(orders.id, order.id));
+  }
+
+  // Push solo para ventas WEB (pedido explícito del dueño) -- las de caja
+  // las ve en vivo mientras cobra, no necesita que le avisen; 'import' es
+  // data migrada, no una venta nueva.
+  if (order.channel === 'web') {
+    await sendPushToAdmins('pushNewOrder', {
+      title: '🍭 Venta web nueva',
+      body: `${order.buyerName} — $${Number(order.total).toLocaleString('es-CL')}`,
+      url: '/admin',
+    });
   }
 }
 

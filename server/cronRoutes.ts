@@ -7,6 +7,7 @@ import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgra
 import { runAbandonedCartCron } from "./orderReminders";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { runFoundersPromoDaily } from "./foundersPromo";
+import { runAdminDigest } from "./adminDigest";
 import { isWeeklyEmailDay } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 
@@ -181,6 +182,23 @@ export function registerCronRoutes(app: Express) {
       res.json({ success: true, ...result });
     } catch (err) {
       console.error('[Cron] Error en el aviso de primeros cupos:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  /* Correo resumen diario de novedades del admin (server/adminDigest.ts).
+   * Interruptor propio (siteSettings.adminAlertsConfig.dailyDigestEmail),
+   * apagado por defecto -- mismo criterio que founders-promo. A diferencia
+   * del cron de check-in de las 3am, éste corre siempre (no depende de que
+   * haya evento hoy): las novedades de ventas/leads/postulaciones ocurren
+   * todos los días, con o sin fiesta. */
+  app.get("/api/cron/admin-digest", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const result = await runAdminDigest();
+      res.json(result);
+    } catch (err) {
+      console.error('[Cron] Error en el resumen diario del admin:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
   });

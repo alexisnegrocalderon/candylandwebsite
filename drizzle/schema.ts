@@ -438,6 +438,10 @@ export const siteSettings = mysqlTable("siteSettings", {
   // (server/email.ts buildOrderEmail) -- forma en shared/emailTemplateConfig.ts.
   // null = usar todos los valores por defecto (todas las secciones prendidas).
   emailTemplateConfig: json("emailTemplateConfig"),
+  // Interruptores de las alertas del admin (push + correo resumen) -- forma
+  // en shared/adminAlertsConfig.ts. null = todas apagadas (desplegar esto no
+  // debe empezar a mandar nada solo, mismo criterio que foundersPromoEnabled).
+  adminAlertsConfig: json("adminAlertsConfig"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -1335,3 +1339,27 @@ export const expenses = mysqlTable("expenses", {
 
 export type Expense = typeof expenses.$inferSelect;
 export type InsertExpense = typeof expenses.$inferInsert;
+
+// Suscripciones a notificaciones push del admin (Web Push estándar, sin
+// terceros) -- una fila por dispositivo/navegador que activó "Notificarme"
+// en Ajustes. `endpoint` identifica al dispositivo ante el navegador que lo
+// generó (FCM/APNs por debajo, pero el server nunca habla con esos
+// proveedores directo, solo con el endpoint vía la librería `web-push`).
+export const pushSubscriptions = mysqlTable("pushSubscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  // 512 y no más: con utf8mb4 (4 bytes/char) un UNIQUE de varchar(1024)
+  // supera los 3072 bytes que MySQL/TiDB permiten indexar (1024*4=4096) y la
+  // migración falla con "Specified key too long". Los endpoints reales de
+  // push (FCM/APNs/Mozilla) miden bastante menos que 512 caracteres.
+  endpoint: varchar("endpoint", { length: 512 }).notNull().unique(),
+  p256dh: varchar("p256dh", { length: 255 }).notNull(),
+  auth: varchar("auth", { length: 255 }).notNull(),
+  // Quién lo activó, solo informativo para poder listarlas en Ajustes
+  // ("iPad de recepción", etc.) -- no se usa para filtrar envíos, todas las
+  // suscripciones activas reciben todas las alertas prendidas.
+  label: varchar("label", { length: 100 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
+export type InsertPushSubscription = typeof pushSubscriptions.$inferInsert;

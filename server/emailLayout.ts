@@ -74,7 +74,19 @@ export const MUTED = '#B79AAB';
 export const FAINT = '#8C7186';
 export const BORDER = '#3A2436';
 
-export function card(inner: string, opts?: { bg?: string; border?: boolean; padding?: string; glow?: AccentName }) {
+/** Colores para los correos INTERNOS de fondo blanco (el dueño se los manda
+ * a sí mismo: resumen de novedades, postulación de embajador, cierre de
+ * turno, rendición de cocina, reportes simples -- todos con
+ * `background-color:#FFFFFF` fijo, nunca pasaron por el rediseño oscuro).
+ * `INK`/`MUTED`/`FAINT` de arriba son casi blancos a propósito para el fondo
+ * oscuro de los correos de cliente -- usarlos sobre blanco los deja
+ * ilegibles. Estas son las mismas tres escalas, pensadas para fondo claro. */
+export const REPORT_INK = '#1A1A1A';
+export const REPORT_MUTED = '#6B7280';
+export const REPORT_FAINT = '#9CA3AF';
+export const REPORT_BORDER = '#E5E7EB';
+
+export function card(inner: string, opts?: { bg?: string; border?: boolean; borderColor?: string; padding?: string; glow?: AccentName }) {
   // Tarjeta "glass" del rediseño disco: transparencia + borde sutil + un
   // halo de color por fuera (box-shadow, no gradiente) que la hace ver
   // flotando con relieve -- sin backdrop-filter real (Outlook no lo soporta),
@@ -85,7 +97,7 @@ export function card(inner: string, opts?: { bg?: string; border?: boolean; padd
     const a = ACCENT[opts.glow];
     return `<div style="background:rgba(255,255,255,0.045);border-radius:22px;padding:${opts?.padding ?? '24px'};border:1px solid rgba(255,255,255,0.10);margin-bottom:20px;box-shadow:0 0 0 1px rgba(${a.glowRgb},0.20),0 18px 50px -10px rgba(${a.glowRgb},0.30),0 0 60px -15px rgba(${a.glowRgb},0.20);">${inner}</div>`;
   }
-  return `<div style="background:${opts?.bg ?? CARD_BG};border-radius:20px;padding:${opts?.padding ?? '24px'};${opts?.border === false ? '' : `border:1px solid ${BORDER};`}margin-bottom:20px;">${inner}</div>`;
+  return `<div style="background:${opts?.bg ?? CARD_BG};border-radius:20px;padding:${opts?.padding ?? '24px'};${opts?.border === false ? '' : `border:1px solid ${opts?.borderColor ?? BORDER};`}margin-bottom:20px;">${inner}</div>`;
 }
 
 export function sectionTitle(emoji: string, text: string) {
