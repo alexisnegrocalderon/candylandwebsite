@@ -1,0 +1,19 @@
+{
+  "name": "Mansion Playroom · Caja",
+  "short_name": "Caja",
+  "description": "Venta en caja durante la fiesta",
+  "start_url": "/caja",
+  "scope": "/caja",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    {
+      "src": "/candyland/logo-isotipo.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "any"
+    }
+  ]
+}

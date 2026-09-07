@@ -31,7 +31,7 @@ export default function GastosApp() {
   useSeo({ title: 'Gastos — Mansion Playroom', description: '', path: '/gastos', noindex: true });
   // El SW es network-only (no cachea nada): existe únicamente porque Chrome
   // no ofrece "instalar" sin uno. iOS instala solo con el manifest.
-  useInstallableApp('/gastos.webmanifest', '/gastos/sw.js', '/gastos/', 'Gastos');
+  useInstallableApp('/gastos/sw.js', '/gastos/');
 
   const { data: user, isLoading } = trpc.auth.me.useQuery();
 
