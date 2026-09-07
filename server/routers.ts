@@ -52,6 +52,9 @@ import { listLockerItems, updateLockerItem } from "./locker";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail } from "./email";
 import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emailTemplateConfig";
+import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
+import { sendTestPushToAllAdmins, sendPushToAdmins } from "./push";
+import { runAdminDigest } from "./adminDigest";
 import { buildShiftClosePdf } from "./caja/shiftReportPdf";
 import { buildKitchenVendorPdf } from "./caja/kitchenVendorPdf";
 import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
@@ -1424,6 +1427,11 @@ export const appRouter = router({
         // viendo a esa persona mientras el equipo revisa.
         await db.reportPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id, input.reason.trim());
         await db.blockPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
+        await sendPushToAdmins('pushPartyReport', {
+          title: '⚠️ Nueva denuncia en la fiesta',
+          body: input.reason.trim().slice(0, 120),
+          url: '/admin',
+        });
         return { ok: true };
       }),
 
@@ -1585,6 +1593,60 @@ export const appRouter = router({
         if (!Number.isNaN(date.getTime())) parsed[section as db.AdminBadgeSection] = date;
       }
       return db.getAdminBadgeCounts(parsed);
+    }),
+  }),
+
+  // Push al /admin instalado + correo resumen diario (server/push.ts,
+  // server/adminDigest.ts) -- interruptores en shared/adminAlertsConfig.ts,
+  // todos apagados por defecto.
+  adminAlerts: router({
+    getConfig: adminReadProcedure.query(async () => {
+      const settings = await db.getSiteSettings();
+      return normalizeAdminAlertsConfig((settings as any).adminAlertsConfig);
+    }),
+    saveConfig: adminProcedure.input(z.object({
+      pushNewOrder: z.boolean(),
+      pushAmbassadorApplication: z.boolean(),
+      pushPartyReport: z.boolean(),
+      dailyDigestEmail: z.boolean(),
+    })).mutation(async ({ input }) => {
+      return db.updateSiteSettings({ adminAlertsConfig: input });
+    }),
+    // La clave pública VAPID no es secreta (viaja al navegador para armar la
+    // suscripción), pero igual queda detrás de admin para no publicarla sin
+    // razón -- si no está configurada, el cliente sabe que debe mostrar
+    // "todavía no disponible" en vez de intentar suscribirse.
+    getVapidPublicKey: adminReadProcedure.query(async () => {
+      return { publicKey: process.env.VAPID_PUBLIC_KEY ?? null };
+    }),
+    subscribe: adminProcedure.input(z.object({
+      endpoint: z.string().url().max(512),
+      p256dh: z.string(),
+      auth: z.string(),
+      label: z.string().max(100).optional(),
+    })).mutation(async ({ input }) => {
+      return db.savePushSubscription(input);
+    }),
+    unsubscribe: adminProcedure.input(z.object({ endpoint: z.string() })).mutation(async ({ input }) => {
+      return db.deletePushSubscription(input.endpoint);
+    }),
+    listSubscriptions: adminReadProcedure.query(async () => {
+      return db.listPushSubscriptions();
+    }),
+    removeSubscription: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      return db.deletePushSubscriptionById(input.id);
+    }),
+    // Manda un push de prueba a TODOS los dispositivos suscritos ahora mismo,
+    // sin importar los interruptores -- para confirmar que la suscripción de
+    // este dispositivo realmente funciona antes de confiar en las alertas.
+    sendTestPush: adminProcedure.mutation(async () => {
+      await sendTestPushToAllAdmins();
+      return { success: true };
+    }),
+    // Manda el correo resumen ya mismo (respeta el interruptor), mismo
+    // criterio que foundersPromoRunNow -- para probarlo sin esperar al cron.
+    sendDigestNow: adminProcedure.mutation(async () => {
+      return runAdminDigest();
     }),
   }),
 
@@ -2058,6 +2120,12 @@ export const appRouter = router({
       } catch (err) {
         console.error('[Postulaciones] Falló el envío de correos:', err);
       }
+
+      await sendPushToAdmins('pushAmbassadorApplication', {
+        title: '👑 Nueva postulación a embajador',
+        body: `${nombre.value} — @${ig.value}`,
+        url: '/admin',
+      });
 
       return { ok: true as const, alreadyPending: false as const };
     }),

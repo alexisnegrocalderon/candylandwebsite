@@ -6682,10 +6682,206 @@ function SettingsManager() {
         </CardContent>
       </Card>
       <WebauthnSecurityCard />
+      <AlertasCard />
     </div>
   );
 }
 
+/** Convierte la clave pública VAPID (base64url, como la devuelve el server)
+ * al Uint8Array que pide `pushManager.subscribe` -- transformación estándar
+ * de la spec de Web Push, no hay forma más corta con las APIs del browser. */
+function urlBase64ToUint8Array(base64String: string): BufferSource {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const array = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) array[i] = raw.charCodeAt(i);
+  return array;
+}
+
+/** Push al iPad instalado + correo resumen diario. Interruptores todos
+ * apagados por defecto (shared/adminAlertsConfig.ts) -- desplegar esto no
+ * debe empezar a notificar solo. */
+function AlertasCard() {
+  const { data: config, refetch: refetchConfig } = trpc.adminAlerts.getConfig.useQuery();
+  const { data: vapid } = trpc.adminAlerts.getVapidPublicKey.useQuery();
+  const { data: subscriptions, refetch: refetchSubs } = trpc.adminAlerts.listSubscriptions.useQuery(undefined, { refetchInterval: 60_000 });
+  const saveConfig = trpc.adminAlerts.saveConfig.useMutation({ onSuccess: () => refetchConfig(), onError: onMutationError });
+  const subscribe = trpc.adminAlerts.subscribe.useMutation();
+  const unsubscribe = trpc.adminAlerts.unsubscribe.useMutation();
+  const removeSubscription = trpc.adminAlerts.removeSubscription.useMutation({ onSuccess: () => refetchSubs() });
+  const sendTestPush = trpc.adminAlerts.sendTestPush.useMutation();
+  const sendDigestNow = trpc.adminAlerts.sendDigestNow.useMutation();
+
+  const [thisDeviceEndpoint, setThisDeviceEndpoint] = useState<string | null>(null);
+  const [subscribing, setSubscribing] = useState(false);
+
+  // Al cargar, revisa si ESTE dispositivo ya tiene una suscripción activa --
+  // el permiso y la suscripción viven en el navegador, no en la base, así
+  // que hay que preguntarle al service worker, no a `subscriptions` (esa
+  // lista es "todos los dispositivos", útil para verlos/borrarlos, no para
+  // saber el estado de este).
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.getRegistration('/admin/').then(async (reg) => {
+      const sub = await reg?.pushManager.getSubscription();
+      if (sub) setThisDeviceEndpoint(sub.endpoint);
+    }).catch(() => {});
+  }, []);
+
+  const notifSupported = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window;
+  const alreadyOn = !!thisDeviceEndpoint;
+
+  const handleActivate = async () => {
+    if (!vapid?.publicKey) { toast.error('Faltan configurar las claves VAPID en el servidor.'); return; }
+    setSubscribing(true);
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') { toast.error('No diste permiso de notificaciones -- revísalo en Ajustes del navegador.'); return; }
+
+      const reg = await navigator.serviceWorker.getRegistration('/admin/') ?? await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapid.publicKey),
+      });
+      const json = sub.toJSON();
+      await subscribe.mutateAsync({
+        endpoint: json.endpoint!,
+        p256dh: json.keys!.p256dh,
+        auth: json.keys!.auth,
+        label: navigator.userAgent.includes('iPad') ? 'iPad' : navigator.userAgent.includes('iPhone') ? 'iPhone' : 'Dispositivo',
+      });
+      setThisDeviceEndpoint(json.endpoint!);
+      refetchSubs();
+      toast.success('Notificaciones activadas en este dispositivo.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo activar. Revisa que la app esté agregada a la pantalla de inicio.');
+    } finally {
+      setSubscribing(false);
+    }
+  };
+
+  const handleDeactivate = async () => {
+    if (!thisDeviceEndpoint) return;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration('/admin/');
+      const sub = await reg?.pushManager.getSubscription();
+      await sub?.unsubscribe();
+      await unsubscribe.mutateAsync({ endpoint: thisDeviceEndpoint });
+      setThisDeviceEndpoint(null);
+      refetchSubs();
+      toast.success('Notificaciones desactivadas en este dispositivo.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo desactivar.');
+    }
+  };
+
+  const ALERT_TOGGLES: { key: 'pushNewOrder' | 'pushAmbassadorApplication' | 'pushPartyReport'; label: string; help: string }[] = [
+    { key: 'pushNewOrder', label: 'Venta web nueva', help: 'Push apenas se aprueba una compra en el sitio.' },
+    { key: 'pushAmbassadorApplication', label: 'Postulación de embajador', help: 'Push cuando alguien postula a Embajador VIP.' },
+    { key: 'pushPartyReport', label: 'Denuncia en la fiesta', help: 'Push cuando alguien reporta a otra persona desde Playmatch.' },
+  ];
+
+  const allOn = !!config && ALERT_TOGGLES.every((t) => config[t.key]) && config.dailyDigestEmail;
+  const setAll = (value: boolean) => {
+    if (!config) return;
+    saveConfig.mutate({ pushNewOrder: value, pushAmbassadorApplication: value, pushPartyReport: value, dailyDigestEmail: value });
+  };
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader><CardTitle>🔔 Alertas</CardTitle></CardHeader>
+      <CardContent className="space-y-5">
+        <p className="text-muted-foreground text-sm">
+          Push a este iPad (agregado a la pantalla de inicio) y correo resumen diario -- para enterarte de novedades sin
+          tener que revisar sección por sección.
+        </p>
+
+        {!notifSupported && (
+          <p className="text-xs text-destructive">Este navegador no soporta notificaciones push.</p>
+        )}
+
+        {notifSupported && (
+          <div className="flex flex-wrap items-center gap-2 p-3 rounded-xl border border-border/50">
+            <span className="text-sm flex-1 min-w-40">
+              {alreadyOn ? '✅ Activado en este dispositivo' : 'No activado en este dispositivo'}
+            </span>
+            {alreadyOn ? (
+              <Button variant="outline" size="sm" onClick={handleDeactivate}>Desactivar acá</Button>
+            ) : (
+              <WriteButton size="sm" onClick={handleActivate} disabled={subscribing || !vapid?.publicKey} className="interactive">
+                {subscribing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null} Activar notificaciones
+              </WriteButton>
+            )}
+            {alreadyOn && (
+              <Button variant="outline" size="sm" disabled={sendTestPush.isPending}
+                onClick={() => sendTestPush.mutate(undefined, { onSuccess: () => toast.success('Push de prueba enviado.'), onError: onMutationError })}>
+                Mandar prueba
+              </Button>
+            )}
+          </div>
+        )}
+
+        <div className="space-y-2 rounded-xl border border-border/50 p-3">
+          <div className="flex items-center justify-between">
+            <Label>Interruptores</Label>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Todas</span>
+              <Switch checked={allOn} onCheckedChange={setAll} disabled={saveConfig.isPending || !config} />
+            </div>
+          </div>
+          {ALERT_TOGGLES.map((t) => (
+            <div key={t.key} className="flex items-center justify-between gap-3 py-1.5">
+              <div>
+                <p className="text-sm">{t.label}</p>
+                <p className="text-xs text-muted-foreground">{t.help}</p>
+              </div>
+              <Switch
+                checked={!!config?.[t.key]}
+                disabled={saveConfig.isPending || !config}
+                onCheckedChange={(v) => config && saveConfig.mutate({ ...config, [t.key]: v })}
+              />
+            </div>
+          ))}
+          <div className="flex items-center justify-between gap-3 py-1.5 border-t border-border/50 pt-3 mt-1">
+            <div>
+              <p className="text-sm">Correo resumen diario</p>
+              <p className="text-xs text-muted-foreground">Todos los días, con las novedades de las últimas 24h + lo pendiente de resolver.</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Switch
+                checked={!!config?.dailyDigestEmail}
+                disabled={saveConfig.isPending || !config}
+                onCheckedChange={(v) => config && saveConfig.mutate({ ...config, dailyDigestEmail: v })}
+              />
+            </div>
+          </div>
+          {config?.dailyDigestEmail && (
+            <Button variant="outline" size="sm" disabled={sendDigestNow.isPending}
+              onClick={() => sendDigestNow.mutate(undefined, {
+                onSuccess: (r) => toast.success(r.sent ? 'Resumen enviado.' : `No se mandó: ${r.reason}`),
+                onError: onMutationError,
+              })}>
+              Mandar resumen ahora
+            </Button>
+          )}
+        </div>
+
+        {subscriptions && subscriptions.length > 0 && (
+          <div className="space-y-2">
+            <Label>Dispositivos con notificaciones activas ({subscriptions.length})</Label>
+            {subscriptions.map((s) => (
+              <div key={s.id} className="flex items-center justify-between gap-3 text-sm p-2 rounded-lg border border-border/50">
+                <span>{s.label || 'Dispositivo'} <span className="text-muted-foreground text-xs">· desde {formatChileShortDate(s.createdAt)}</span></span>
+                <Button variant="ghost" size="sm" onClick={() => removeSubscription.mutate({ id: s.id })}>Quitar</Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 /* ─── Plantillas de correo ────────────────────────────────────────────────
  * Editor de textos + interruptores por sección del correo de compra

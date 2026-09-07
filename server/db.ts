@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gt, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -14,6 +14,7 @@ import { normalizeTandaSchedule, nextPhase } from '../shared/tandaSchedule';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, type PnlExpense } from '../shared/expenses';
 import type { EmailTemplateConfig } from '../shared/emailTemplateConfig';
+import type { AdminAlertsConfig } from '../shared/adminAlertsConfig';
 import { isParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
@@ -758,6 +759,7 @@ export async function updateSiteSettings(data: {
   instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number; cardFeePercent?: number; parkingVenueFeeClp?: number;
   kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null; foundersPromoEnabled?: boolean;
   emailTemplateConfig?: EmailTemplateConfig;
+  adminAlertsConfig?: AdminAlertsConfig;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1776,6 +1778,54 @@ export async function getAdminBadgeCounts(seenAt: Partial<Record<AdminBadgeSecti
     'party-gifts': unclaimedGifts,
     'caja': openShifts,
   };
+}
+
+/** Plata de ventas web aprobadas desde `since` -- para el correo resumen
+ * diario (server/adminDigest.ts). Mismo criterio de canal que
+ * `getAdminBadgeCounts`/`getOrderStats`: "web" es todo lo que no es caja. */
+export async function getNewWebRevenue(since: Date): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [row] = await db.select({ total: sql<number>`COALESCE(SUM(total), 0)` }).from(orders)
+    .where(and(sql`${orders.channel} != 'caja'`, eq(orders.paymentStatus, 'approved'), gt(orders.createdAt, since)));
+  return Number(row?.total ?? 0);
+}
+
+// Suscripciones a notificaciones push del admin (server/push.ts)
+export async function savePushSubscription(data: { endpoint: string; p256dh: string; auth: string; label?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  // Reactivar "Notificarme" en el mismo dispositivo actualiza las claves en
+  // vez de duplicar la fila -- el navegador puede rotarlas al renovar la
+  // suscripción manteniendo el mismo endpoint.
+  await db.insert(pushSubscriptions).values(data).onDuplicateKeyUpdate({
+    set: { p256dh: data.p256dh, auth: data.auth, label: data.label },
+  });
+  return { success: true };
+}
+
+export async function deletePushSubscription(endpoint: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
+  return { success: true };
+}
+
+export async function listPushSubscriptions() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    id: pushSubscriptions.id,
+    label: pushSubscriptions.label,
+    createdAt: pushSubscriptions.createdAt,
+  }).from(pushSubscriptions).orderBy(desc(pushSubscriptions.createdAt));
+}
+
+export async function deletePushSubscriptionById(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, id));
+  return { success: true };
 }
 
 // Referrals
