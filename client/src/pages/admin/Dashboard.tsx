@@ -2867,7 +2867,17 @@ function UtmLinkBuilder() {
 
   const link = useMemo(() => {
     try {
-      const cleanPath = path.trim() || '/';
+      const trimmed = path.trim() || '/';
+      // Si pegaron la URL completa (ej. copiada de la barra del navegador) en
+      // vez de solo la ruta, se usa nada más su path -- así no arma un link
+      // roto tipo "mansionplayroom.cl/https://mansionplayroom.cl" (404 real
+      // que le pasó al dueño). El dominio siempre sale de window.location,
+      // nunca del que hayan pegado, para no terminar linkeando a otro sitio
+      // por error de tipeo.
+      let cleanPath = trimmed;
+      if (/^https?:\/\//i.test(trimmed)) {
+        try { cleanPath = new URL(trimmed).pathname || '/'; } catch { cleanPath = '/'; }
+      }
       const url = new URL(cleanPath.startsWith('/') ? cleanPath : `/${cleanPath}`, window.location.origin);
       if (effectiveSource) url.searchParams.set('utm_source', effectiveSource);
       if (effectiveMedium) url.searchParams.set('utm_medium', effectiveMedium);
