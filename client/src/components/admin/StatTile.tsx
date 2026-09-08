@@ -10,6 +10,7 @@ const TONE_GRADIENT: Record<string, string> = {
   count: 'from-[oklch(0.74_0.13_220)] to-[oklch(0.70_0.14_240)]',
   success: 'from-[oklch(0.75_0.15_150)] to-[oklch(0.72_0.14_170)]',
   alert: 'from-[oklch(0.75_0.16_60)] to-[oklch(0.70_0.18_40)]',
+  danger: 'from-[oklch(0.65_0.20_25)] to-[oklch(0.60_0.21_15)]',
 };
 
 export function StatTile({
@@ -23,7 +24,7 @@ export function StatTile({
   icon: LucideIcon;
   value: string | number;
   label: string;
-  tone?: 'revenue' | 'count' | 'success' | 'alert';
+  tone?: 'revenue' | 'count' | 'success' | 'alert' | 'danger';
   size?: 'md' | 'lg';
   className?: string;
 }) {
