@@ -207,10 +207,12 @@ export async function createEvent(data: any) {
   if (!db) throw new Error("Database not available");
   const eventDate = new Date(data.eventDate);
   const doorsOpen = data.doorsOpen ? new Date(data.doorsOpen) : undefined;
+  const eventEnd = data.eventEnd ? new Date(data.eventEnd) : undefined;
   await db.insert(events).values({
     ...data,
     eventDate,
     doorsOpen,
+    eventEnd,
     status: data.status || 'draft',
   });
   return { success: true };
@@ -222,6 +224,7 @@ export async function updateEvent(id: number, data: any) {
   const updateData: any = { ...data };
   if (data.eventDate) updateData.eventDate = new Date(data.eventDate);
   if (data.doorsOpen) updateData.doorsOpen = new Date(data.doorsOpen);
+  if (data.eventEnd) updateData.eventEnd = new Date(data.eventEnd);
   await db.update(events).set(updateData).where(eq(events.id, id));
   return { success: true };
 }
