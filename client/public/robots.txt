@@ -7,4 +7,45 @@ Disallow: /cocina
 Disallow: /fiesta
 Disallow: /api/
 
+# Bots de motores de respuesta con IA (AEO) -- declarados explícitos a
+# propósito, aunque el bloque `*` de arriba ya los permite por defecto:
+# deja claro que la decisión fue permitir, no un olvido, y da un lugar
+# fácil para bloquear puntualmente a futuro si el dueño cambia de idea
+# (basta con cambiar la línea Allow por Disallow del bot en cuestión).
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: Amazonbot
+Allow: /
+
 Sitemap: https://mansionplayroom.cl/sitemap.xml
