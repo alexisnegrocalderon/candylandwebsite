@@ -40,6 +40,7 @@ import { SwipeToDeleteCard } from '@/components/admin/SwipeToDeleteCard';
 import { SwipeToDeleteRow } from '@/components/admin/SwipeToDeleteRow';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { TableSkeleton } from '@/components/admin/TableSkeleton';
+import { useCoarsePointer } from '@/hooks/useCoarsePointer';
 import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
 import { computePhasePrice, nextPhase, normalizeTandaSchedule, type TandaPhase } from '@shared/tandaSchedule';
 import {
@@ -5758,8 +5759,10 @@ function ExpensesList({ events, refreshKey, onChanged }: { events: any[]; refres
     URL.revokeObjectURL(url);
   };
 
+  const coarse = useCoarsePointer();
+
   return (
-    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+    <Card className="admin-clay border-0">
       <CardHeader><CardTitle>Gastos registrados</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <div className="flex flex-wrap gap-3 items-end">
@@ -5787,36 +5790,54 @@ function ExpensesList({ events, refreshKey, onChanged }: { events: any[]; refres
           <Button variant="outline" onClick={exportCsv} disabled={rows.length === 0}>
             <Download className="w-4 h-4 mr-2" /> Exportar CSV
           </Button>
-          <span className="text-sm text-muted-foreground ml-auto">
-            {rows.length} gasto(s) · <strong className="text-foreground">${total.toLocaleString('es-CL')}</strong>
+          <span className="text-sm text-[var(--admin-muted)] ml-auto">
+            {rows.length} gasto(s) · <strong className="text-foreground tabular-nums">${total.toLocaleString('es-CL')}</strong>
           </span>
         </div>
 
-        <div className="space-y-2">
-          {rows.map((r: any) => (
-            <div key={r.id} className="flex items-center justify-between gap-3 text-sm bg-muted/30 rounded-lg px-3 py-2">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold">{r.description}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary">{categoryLabel(r.category)}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{documentTypeLabel(r.documentType)}</span>
-                  {r.excludeFromPnl === 1 && <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600">No resta del resultado</span>}
-                  {r.recurrence === 'mensual' && <span className="text-xs px-2 py-0.5 rounded-full bg-violet-electric/15 text-violet-electric">Mensual</span>}
+        {rows.length === 0 ? (
+          <EmptyState icon={Receipt} title="Sin gastos registrados con estos filtros" />
+        ) : (
+          <div className="space-y-2">
+            {rows.map((r: any) => {
+              const rowBody = (
+                <div className={`flex items-center justify-between gap-3 text-sm ${coarse ? 'p-3' : 'admin-clay-sm p-3'}`}>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold">{r.description}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary">{categoryLabel(r.category)}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-black/5 text-[var(--admin-muted)]">{documentTypeLabel(r.documentType)}</span>
+                      {r.excludeFromPnl === 1 && <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--admin-warning-bg)] text-[var(--admin-warning-text)]">No resta del resultado</span>}
+                      {r.recurrence === 'mensual' && <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--admin-send-bg)] text-[var(--admin-send-text)]">Mensual</span>}
+                    </div>
+                    <p className="text-sm text-[var(--admin-muted)] mt-0.5">
+                      {formatChileShortDate(r.expenseDate)} · {r.eventTitle ?? 'Productora'} · {paymentMethodLabel(r.paymentMethod)}
+                      {r.supplier ? ` · ${r.supplier}` : ''}
+                      {r.ivaAmount > 0 ? ` · IVA $${r.ivaAmount.toLocaleString('es-CL')}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="font-semibold tabular-nums">${r.amountTotal.toLocaleString('es-CL')}</span>
+                    {!coarse && (
+                      <ConfirmDeleteButton description={`Vas a eliminar el gasto "${r.description}".`} onConfirm={(adminPassword) => remove.mutateAsync({ id: r.id, adminPassword })} />
+                    )}
+                  </div>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {formatChileShortDate(r.expenseDate)} · {r.eventTitle ?? 'Productora'} · {paymentMethodLabel(r.paymentMethod)}
-                  {r.supplier ? ` · ${r.supplier}` : ''}
-                  {r.ivaAmount > 0 ? ` · IVA $${r.ivaAmount.toLocaleString('es-CL')}` : ''}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="font-semibold tabular-nums">${r.amountTotal.toLocaleString('es-CL')}</span>
-                <ConfirmDeleteButton description={`Vas a eliminar el gasto "${r.description}".`} onConfirm={(adminPassword) => remove.mutateAsync({ id: r.id, adminPassword })} />
-              </div>
-            </div>
-          ))}
-          {rows.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">Sin gastos registrados con estos filtros.</p>}
-        </div>
+              );
+              return coarse ? (
+                <SwipeToDeleteCard
+                  key={r.id}
+                  deleteDescription={`Vas a eliminar el gasto "${r.description}".`}
+                  onDelete={(adminPassword) => remove.mutateAsync({ id: r.id, adminPassword })}
+                >
+                  {rowBody}
+                </SwipeToDeleteCard>
+              ) : (
+                <div key={r.id}>{rowBody}</div>
+              );
+            })}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -5845,13 +5866,13 @@ function EventPnlReport({ eventId, refreshKey }: { eventId: number; refreshKey: 
   const positive = data.netProfit >= 0;
 
   return (
-    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+    <Card className="admin-clay border-0">
       <CardHeader><CardTitle>Resultado real de {data.title}</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         {data.warnings.length > 0 && (
-          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 space-y-1.5">
+          <div className="admin-clay-sm bg-[var(--admin-warning-bg)] px-4 py-3 space-y-1.5">
             {data.warnings.map((w: string, i: number) => (
-              <p key={i} className="text-xs text-amber-700 dark:text-amber-400">⚠️ {w}</p>
+              <p key={i} className="text-sm text-[var(--admin-warning-text)]">⚠️ {w}</p>
             ))}
           </div>
         )}
@@ -5883,22 +5904,24 @@ function EventPnlReport({ eventId, refreshKey }: { eventId: number; refreshKey: 
           <PnlRow label="Utilidad neta" amount={data.netProfit} strong />
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <div className={`rounded-xl px-4 py-3 ${positive ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-destructive/10 text-destructive'}`}>
-            <p className="text-xs uppercase tracking-wide font-semibold opacity-80">Margen</p>
-            <p className="text-2xl font-bold tabular-nums">{data.marginPercent != null ? `${data.marginPercent}%` : '—'}</p>
-          </div>
+        <BentoGrid className="md:grid-cols-2">
+          <StatTile
+            icon={Percent}
+            tone={positive ? 'success' : 'danger'}
+            value={data.marginPercent != null ? `${data.marginPercent}%` : '—'}
+            label="Margen"
+          />
           {data.ivaApplies && (
-            <div className="rounded-xl px-4 py-3 bg-muted/50">
-              <p className="text-xs uppercase tracking-wide font-semibold text-muted-foreground">IVA a pagar al SII</p>
-              <p className="text-2xl font-bold tabular-nums">${data.iva.ivaAPagar.toLocaleString('es-CL')}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
+            <div className="admin-clay p-5">
+              <p className="text-sm font-semibold text-[var(--admin-muted)]">IVA a pagar al SII</p>
+              <p className="font-heading text-3xl leading-none tabular-nums mt-2">${data.iva.ivaAPagar.toLocaleString('es-CL')}</p>
+              <p className="text-sm text-[var(--admin-muted)] mt-1.5">
                 Débito ${data.iva.debitoFiscal.toLocaleString('es-CL')} − crédito ${data.iva.creditoFiscal.toLocaleString('es-CL')}
                 {data.iva.remanenteCredito > 0 && ` · remanente a favor $${data.iva.remanenteCredito.toLocaleString('es-CL')}`}
               </p>
             </div>
           )}
-        </div>
+        </BentoGrid>
 
         {data.directByCategory.length > 0 && (
           <div>
@@ -7870,7 +7893,7 @@ function EventOverview() {
   const { data: peak } = trpc.cajaReports.peakHours.useQuery({ eventId: eventId! }, { enabled: !!eventId });
 
   if (!eventId) {
-    return <p className="text-sm text-muted-foreground">Todavía no hay eventos cargados.</p>;
+    return <EmptyState icon={Calendar} title="Todavía no hay eventos cargados" description="Crea un evento en la sección Eventos para ver su resumen acá." />;
   }
 
   const webRevenue = Number(webStats?.totalRevenue ?? 0);
@@ -7896,67 +7919,72 @@ function EventOverview() {
         </Select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard icon={Ticket} colorClass="bg-violet-electric" value={`$${webRevenue.toLocaleString('es-CL')}`} label="Ventas web" />
-        <StatCard icon={ShoppingBag} colorClass="bg-primary" value={`$${cajaRevenue.toLocaleString('es-CL')}`} label="Ventas en caja" />
-        <StatCard icon={Receipt} colorClass="bg-amber-500" value={`$${gastos.toLocaleString('es-CL')}`} label="Gastos del evento" />
-        <StatCard
-          icon={DollarSign}
-          colorClass={resultado != null && resultado < 0 ? 'bg-destructive' : 'bg-green-600'}
-          value={resultado != null ? `$${resultado.toLocaleString('es-CL')}` : '—'}
-          label={resultado != null && resultado < 0 ? 'Pérdida' : 'Ganancia'}
-        />
-      </div>
+      <BentoGrid>
+        <BentoTile><StatTile icon={Ticket} tone="revenue" value={`$${webRevenue.toLocaleString('es-CL')}`} label="Ventas web" /></BentoTile>
+        <BentoTile><StatTile icon={ShoppingBag} tone="revenue" value={`$${cajaRevenue.toLocaleString('es-CL')}`} label="Ventas en caja" /></BentoTile>
+        <BentoTile><StatTile icon={Receipt} tone="alert" value={`$${gastos.toLocaleString('es-CL')}`} label="Gastos del evento" /></BentoTile>
+        <BentoTile>
+          <StatTile
+            icon={DollarSign}
+            tone={resultado != null && resultado < 0 ? 'danger' : 'success'}
+            value={resultado != null ? `$${resultado.toLocaleString('es-CL')}` : '—'}
+            label={resultado != null && resultado < 0 ? 'Pérdida' : 'Ganancia'}
+          />
+        </BentoTile>
+      </BentoGrid>
 
       {(pnl?.warnings?.length ?? 0) > 0 && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 space-y-1">
-          <p className="text-sm font-semibold">Ojo con estos números</p>
-          {pnl!.warnings.map((w: string, i: number) => <p key={i} className="text-sm text-muted-foreground">{w}</p>)}
+        <div className="admin-clay-sm bg-[var(--admin-warning-bg)] p-4 space-y-1">
+          <p className="text-sm font-semibold text-[var(--admin-warning-text)]">Ojo con estos números</p>
+          {pnl!.warnings.map((w: string, i: number) => <p key={i} className="text-sm text-[var(--admin-warning-text)]">{w}</p>)}
         </div>
       )}
 
-      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <Card className="admin-clay border-0">
         <CardHeader><CardTitle>La caja de esa noche</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          {(closings ?? []).length === 0 && (
-            <p className="text-sm text-muted-foreground">Todavía no hay turnos cerrados en este evento.</p>
+          {(closings ?? []).length === 0 ? (
+            <EmptyState icon={Store} title="Todavía no hay turnos cerrados en este evento" />
+          ) : (
+            <>
+              {(closings ?? []).map((r: any) => {
+                const cardCounted = r.countedCard ?? (r.countedDebit + r.countedCredit);
+                const cardExpected = r.expectedCard ?? (r.expectedDebit + r.expectedCredit);
+                return (
+                  <div key={r.id} className="admin-clay-sm p-3">
+                    <p className="font-semibold">{r.registerName} · {r.operatorName}</p>
+                    <p className="text-sm text-[var(--admin-muted)]">
+                      {formatChileDateTime(r.openedAt)} → {r.closedAt ? formatChileDateTime(r.closedAt) : '—'} · {r.salesCount} ventas
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2 text-sm">
+                      <p>Efectivo: <strong className="tabular-nums">${r.countedCash.toLocaleString('es-CL')}</strong> <span className="text-[var(--admin-muted)]">de ${(r.expectedCash + r.openingCash).toLocaleString('es-CL')}</span></p>
+                      <p>Tarjetas: <strong className="tabular-nums">${cardCounted.toLocaleString('es-CL')}</strong> <span className="text-[var(--admin-muted)]">de ${cardExpected.toLocaleString('es-CL')}</span></p>
+                      <p>QR: <strong className="tabular-nums">${(r.countedQr ?? 0).toLocaleString('es-CL')}</strong> <span className="text-[var(--admin-muted)]">de ${(r.expectedQr ?? 0).toLocaleString('es-CL')}</span></p>
+                    </div>
+                  </div>
+                );
+              })}
+              <p className="text-sm text-[var(--admin-muted)]">El detalle venta por venta está en Gastos y P&amp;L → Cierres de turno.</p>
+            </>
           )}
-          {(closings ?? []).map((r: any) => {
-            const cardCounted = r.countedCard ?? (r.countedDebit + r.countedCredit);
-            const cardExpected = r.expectedCard ?? (r.expectedDebit + r.expectedCredit);
-            return (
-              <div key={r.id} className="rounded-xl border border-border/50 p-3">
-                <p className="font-semibold">{r.registerName} · {r.operatorName}</p>
-                <p className="text-xs text-muted-foreground">
-                  {formatChileDateTime(r.openedAt)} → {r.closedAt ? formatChileDateTime(r.closedAt) : '—'} · {r.salesCount} ventas
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2 text-sm">
-                  <p>Efectivo: <strong>${r.countedCash.toLocaleString('es-CL')}</strong> <span className="text-muted-foreground">de ${(r.expectedCash + r.openingCash).toLocaleString('es-CL')}</span></p>
-                  <p>Tarjetas: <strong>${cardCounted.toLocaleString('es-CL')}</strong> <span className="text-muted-foreground">de ${cardExpected.toLocaleString('es-CL')}</span></p>
-                  <p>QR: <strong>${(r.countedQr ?? 0).toLocaleString('es-CL')}</strong> <span className="text-muted-foreground">de ${(r.expectedQr ?? 0).toLocaleString('es-CL')}</span></p>
-                </div>
-              </div>
-            );
-          })}
-          <p className="text-xs text-muted-foreground">El detalle venta por venta está en Gastos y P&amp;L → Cierres de turno.</p>
         </CardContent>
       </Card>
 
-      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <Card className="admin-clay border-0">
         <CardHeader>
           <CardTitle>A qué hora se movió la caja</CardTitle>
-          <p className="text-sm text-muted-foreground">Operaciones por hora, en hora de Chile.</p>
+          <p className="text-sm text-[var(--admin-muted)]">Operaciones por hora, en hora de Chile.</p>
         </CardHeader>
         <CardContent>
           {peakRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Todavía no hay movimientos de caja en este evento.</p>
+            <EmptyState icon={Store} title="Todavía no hay movimientos de caja en este evento" />
           ) : (
             <div className="space-y-1.5">
               {peakRows.map((h: any) => (
                 <div key={h.hour} className="flex items-center gap-3 text-sm">
-                  <span className="w-12 shrink-0 tabular-nums text-muted-foreground">{String(h.hour).padStart(2, '0')}:00</span>
-                  <div className="flex-1 h-5 rounded-md bg-muted overflow-hidden">
-                    <div className="h-full bg-primary rounded-md" style={{ width: `${(h.count / peakMax) * 100}%` }} />
+                  <span className="w-12 shrink-0 tabular-nums text-[var(--admin-muted)]">{String(h.hour).padStart(2, '0')}:00</span>
+                  <div className="flex-1 h-5 rounded-md bg-black/5 overflow-hidden">
+                    <div className="h-full rounded-md bg-gradient-to-r from-primary to-secondary" style={{ width: `${(h.count / peakMax) * 100}%` }} />
                   </div>
                   <span className="w-10 shrink-0 tabular-nums text-right">{h.count}</span>
                 </div>
