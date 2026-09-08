@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "vite build && node scripts/generate-pwa-html.mjs && pnpm run build:api",
+  "buildCommand": "vite build && node scripts/generate-pwa-html.mjs && npx tsx scripts/generate-static-pages.ts && pnpm run build:api",
   "outputDirectory": "dist/public",
   "functions": {
     "api/index.js": {
@@ -36,6 +36,54 @@
     {
       "source": "/(cocina|guardarropia|checkout|pago)(/.*)?",
       "destination": "/index.html"
+    },
+    {
+      "source": "/nosotros",
+      "destination": "/nosotros.html"
+    },
+    {
+      "source": "/panoramas",
+      "destination": "/panoramas.html"
+    },
+    {
+      "source": "/panoramas/vina-del-mar",
+      "destination": "/panoramas/vina-del-mar.html"
+    },
+    {
+      "source": "/panoramas/valparaiso",
+      "destination": "/panoramas/valparaiso.html"
+    },
+    {
+      "source": "/blog",
+      "destination": "/blog.html"
+    },
+    {
+      "source": "/blog/que-son-las-fiestas-liberales",
+      "destination": "/blog/que-son-las-fiestas-liberales.html"
+    },
+    {
+      "source": "/blog/primera-vez-que-esperar",
+      "destination": "/blog/primera-vez-que-esperar.html"
+    },
+    {
+      "source": "/blog/dress-code-explicado",
+      "destination": "/blog/dress-code-explicado.html"
+    },
+    {
+      "source": "/blog/que-llevar",
+      "destination": "/blog/que-llevar.html"
+    },
+    {
+      "source": "/blog/como-llegar-y-estacionar",
+      "destination": "/blog/como-llegar-y-estacionar.html"
+    },
+    {
+      "source": "/politica-de-reembolso",
+      "destination": "/politica-de-reembolso.html"
+    },
+    {
+      "source": "/politica-de-privacidad",
+      "destination": "/politica-de-privacidad.html"
     },
     {
       "source": "/((?!assets/|candyland/|api/|robots\\.txt|sitemap\\.xml|llms\\.txt|favicon\\.ico|gastos\\.webmanifest|gastos/sw\\.js|puerta\\.webmanifest|puerta/sw\\.js|admin\\.webmanifest|admin/sw\\.js|fiesta\\.webmanifest|fiesta/sw\\.js|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)",
