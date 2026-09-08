@@ -677,6 +677,16 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         <SyncBadge online={isOnline} pending={pending} />
       </header>
 
+      {/* Fuera del horario real del evento, el servidor cambia solo a un
+          evento de pruebas permanente (ver caja.activeEvent) para que estas
+          ventas nunca contaminen el dashboard/P&L real -- este banner es
+          para que nadie piense que está vendiendo de verdad. */}
+      {localEvent.slug === 'pruebas-caja' && (
+        <div className="shrink-0 z-10 bg-amber-500 text-black text-xs font-bold text-center py-1.5 px-4">
+          🧪 Modo prueba -- estas ventas NO son reales
+        </div>
+      )}
+
       {scanning && (
         <div className="fixed inset-0 z-50 bg-[#0d0810] flex flex-col">
           <div className="flex items-center justify-between p-4 shrink-0">

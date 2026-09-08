@@ -13,7 +13,7 @@ import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceTo
 import { redeemDisplayCode } from "./caja/redeem";
 import { checkInTicket } from "./caja/checkin";
 import { sellParkingAtDoor } from "./caja/parkingPaid";
-import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage } from "../shared/party";
+import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
@@ -54,6 +54,7 @@ import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail } from "./email";
 import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emailTemplateConfig";
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
+import { normalizeFlashPromoPresets } from "../shared/flashPromoPresets";
 import { sendTestPushToAllAdmins, sendPushToAdmins, sendPushToProfile, sendPushToEventGuests } from "./push";
 import { runAdminDigest } from "./adminDigest";
 import { buildShiftClosePdf } from "./caja/shiftReportPdf";
@@ -659,7 +660,29 @@ export const appRouter = router({
       missionForceClosed: z.number().optional(),
       ivaApplies: z.number().optional(),
     })).mutation(async ({ input }) => {
-      return db.createEvent(input);
+      const result = await db.createEvent(input);
+      // La Carta de la Fiesta nace vacía si no se hace nada -- se le copia
+      // la del evento anterior automáticamente, sin bloquear la creación
+      // si algo falla (un evento sin carta copiada es mejor que ninguno).
+      try {
+        const created = await db.getEventBySlug(input.slug);
+        const previous = (await db.getAllEvents()).find((e) => e.id !== created?.id && new Date(e.eventDate) < new Date(input.eventDate));
+        if (created && previous) await db.copyCartaBetweenEvents(previous.id, created.id);
+      } catch (err) {
+        console.error('[events.create] No se pudo copiar la carta del evento anterior:', err);
+      }
+      return result;
+    }),
+    // Botón manual "Copiar carta del evento anterior" en Carta de la
+    // Fiesta -- mismo criterio que el automático de arriba, para poder
+    // repetirlo a mano (o arreglar un evento que quedó sin carta).
+    copyCartaFromPrevious: adminProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input }) => {
+      const target = await db.getEventById(input.eventId);
+      if (!target) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Evento no encontrado' });
+      const previous = (await db.getAllEvents()).find((e) => e.id !== target.id && new Date(e.eventDate) < new Date(target.eventDate));
+      if (!previous) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No hay un evento anterior del cual copiar' });
+      const copied = await db.copyCartaBetweenEvents(previous.id, target.id);
+      return { copied, from: previous.title };
     }),
     update: adminProcedure.input(z.object({
       id: z.number(),
@@ -1629,6 +1652,36 @@ export const appRouter = router({
     active: publicProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getActiveFlashPromo(input.eventId);
     }),
+    // Plantillas pregrabadas -- un toque en el admin solo RELLENA el
+    // formulario de `send`, nunca lo manda solo.
+    listPresets: adminReadProcedure.query(async () => {
+      const settings = await db.getSiteSettings();
+      return normalizeFlashPromoPresets((settings as any).flashPromoPresets);
+    }),
+    savePreset: adminProcedure.input(z.object({
+      id: z.string().optional(),
+      label: z.string().min(1).max(60),
+      message: z.string().min(3).max(200),
+      discountPercent: z.number().int().min(1).max(100),
+      minutes: z.number().int().min(1).max(180),
+      ticketTypeIds: z.array(z.number()).min(1),
+    })).mutation(async ({ input }) => {
+      const settings = await db.getSiteSettings();
+      const presets = normalizeFlashPromoPresets((settings as any).flashPromoPresets);
+      const id = input.id ?? nanoid(8);
+      const preset = { ...input, id };
+      const next = presets.some((p) => p.id === id)
+        ? presets.map((p) => p.id === id ? preset : p)
+        : [...presets, preset];
+      await db.updateSiteSettings({ flashPromoPresets: next });
+      return preset;
+    }),
+    deletePreset: adminProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
+      const settings = await db.getSiteSettings();
+      const presets = normalizeFlashPromoPresets((settings as any).flashPromoPresets);
+      await db.updateSiteSettings({ flashPromoPresets: presets.filter((p) => p.id !== input.id) });
+      return { success: true };
+    }),
   }),
 
   settings: router({
@@ -2314,9 +2367,19 @@ export const appRouter = router({
     // "published" simultáneos durante el cambio de fiesta. Ahora resuelve
     // directo desde el evento al que el dispositivo fue enrolado -- es un
     // arreglo de comportamiento, no solo plumbing.
+    // Si el evento real del dispositivo está FUERA de su horario de fiesta
+    // (puertas/fin de evento, `isPartyWindowOpen`), se vende contra un
+    // evento de pruebas permanente en su lugar -- así ninguna venta de
+    // prueba (probando días antes/después del evento real) contamina el
+    // dashboard/P&L del evento real, sin tocar ninguna de esas fórmulas
+    // (todas ya filtran por eventId, y acá cambia el eventId, no ellas).
+    // El operador/registro siguen siendo los del dispositivo real: nada
+    // los valida contra el eventId de la venta (ver server/caja/sale.ts).
     activeEvent: operatorProcedure.query(async ({ ctx }) => {
       if (!ctx.device) throw new TRPCError({ code: 'FORBIDDEN', message: 'Este dispositivo no está enrolado' });
-      return db.getEventById(ctx.device.eventId);
+      const real = await db.getEventById(ctx.device.eventId);
+      if (real && isPartyWindowOpen(real)) return real;
+      return db.getOrCreateCajaTestEvent();
     }),
     search: operatorProcedure.input(z.object({ eventId: z.number(), query: z.string() })).query(async ({ input }) => {
       return db.searchCajaCustomers(input.eventId, input.query);

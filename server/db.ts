@@ -171,6 +171,37 @@ export async function getFeaturedEvent() {
   return result[0];
 }
 
+/** Evento de pruebas permanente para Caja: cuando alguien vende fuera del
+ * horario real del evento activo (ver `isPartyWindowOpen`,
+ * `caja.activeEvent` en server/routers.ts), las ventas se registran acá en
+ * vez de contra el evento real -- así ningún reporte/P&L del evento real
+ * las suma jamás, sin tocar ninguna de esas fórmulas. `status: 'draft'` lo
+ * mantiene invisible en todo lo público (getPublishedEvents/getHomeEvents/
+ * etc. solo miran published/past/soldout). Se crea una sola vez; las
+ * siguientes llamadas lo reusan. */
+export async function getOrCreateCajaTestEvent() {
+  const db = await getDb();
+  if (!db) return null;
+  const existing = await getEventBySlug('pruebas-caja');
+  if (existing) return existing;
+
+  await db.insert(events).values({
+    title: '🧪 Pruebas de Caja (no borrar)',
+    slug: 'pruebas-caja',
+    status: 'draft',
+    eventDate: new Date(),
+  });
+  const created = await getEventBySlug('pruebas-caja');
+
+  // Primera vez: le copia la Carta del evento real más cercano para que no
+  // arranque vacío -- después se edita a mano como cualquier evento.
+  if (created) {
+    const closest = (await getAllEvents()).find((e) => e.id !== created.id);
+    if (closest) await copyCartaBetweenEvents(closest.id, created.id);
+  }
+  return created;
+}
+
 export async function createEvent(data: any) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -281,6 +312,46 @@ export async function createTicketType(data: any) {
     costPrice: data.costPrice !== undefined ? String(data.costPrice) : undefined,
   });
   return { success: true };
+}
+
+/** Copia la Carta de la Fiesta (consumo/locker/merch -- lo que se vende en
+ * Caja) de un evento a otro. `acceso`/`extra` quedan afuera a propósito:
+ * esos ya tienen su propio flujo de tandas/precios por evento y copiarlos
+ * arrastraría precios/stock viejos sin querer.
+ *
+ * NUNCA copia `stockPoolId`: los cupos compartidos (`stockPools`) están
+ * scopeados al evento viejo -- copiar la referencia dejaría el producto
+ * apuntando a un cupo ya cerrado (remanente ~0), pareciendo agotado desde
+ * el primer segundo. Cada producto copiado arranca con su propio
+ * `totalStock`, sin cupo compartido.
+ *
+ * No borra ni pisa lo que ya exista en `toEventId` -- si se corre dos
+ * veces, duplica (el llamador es responsable de no hacerlo dos veces
+ * seguidas sin querer). */
+export async function copyCartaBetweenEvents(fromEventId: number, toEventId: number): Promise<number> {
+  const source = await getTicketTypesByEventId(fromEventId);
+  const toCopy = source.filter((t) => ['consumo', 'locker', 'merch'].includes(t.category as string));
+  for (const t of toCopy) {
+    await createTicketType({
+      eventId: toEventId,
+      name: t.name,
+      category: t.category,
+      description: t.description ?? undefined,
+      price: Number(t.price),
+      originalPrice: t.originalPrice != null ? Number(t.originalPrice) : undefined,
+      totalStock: t.totalStock,
+      costPrice: t.costPrice != null ? Number(t.costPrice) : undefined,
+      color: t.color ?? undefined,
+      internalCode: t.internalCode ?? undefined,
+      emoji: t.emoji ?? undefined,
+      groupName: t.groupName ?? undefined,
+      toKitchen: t.toKitchen ?? undefined,
+      sortOrder: t.sortOrder ?? undefined,
+      status: 'active',
+      stockPoolId: null,
+    });
+  }
+  return toCopy.length;
 }
 
 export async function updateTicketType(id: number, data: any, changedByUserId?: number, changedByOperatorId?: number) {
@@ -790,6 +861,7 @@ export async function updateSiteSettings(data: {
   kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null; foundersPromoEnabled?: boolean;
   emailTemplateConfig?: EmailTemplateConfig;
   adminAlertsConfig?: AdminAlertsConfig;
+  flashPromoPresets?: import('../shared/flashPromoPresets').FlashPromoPreset[];
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
