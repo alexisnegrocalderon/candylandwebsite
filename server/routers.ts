@@ -52,6 +52,7 @@ import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKit
 import { listLockerItems, updateLockerItem } from "./locker";
 import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail } from "./email";
+import { formatChileDate, formatChileTime } from "../shared/chileDate";
 import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emailTemplateConfig";
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
 import { normalizeFlashPromoPresets } from "../shared/flashPromoPresets";
@@ -123,6 +124,35 @@ const SAMPLE_GIFT_DATA = {
   message: '¡Disfrútalo!',
   eventTitle: '2º Aniversario Mansion Playroom',
 };
+
+/** La vista previa/"mandar prueba" de correos de cara al cliente usa datos
+ * ficticios (arriba) para todo lo que es de la orden (comprador, ítems,
+ * montos) -- pero fecha/hora/lugar del evento SÍ tienen un dato real
+ * disponible, así que se reemplazan por los del evento destacado cuando
+ * existe uno, para que la vista previa nunca muestre una hora vieja que ya
+ * no coincide con lo cargado en Eventos. Mismo formateo que usa el envío
+ * real de correos (server/webhooks.ts) vía shared/chileDate.ts. */
+async function resolveOrderPreviewEventFields() {
+  const event = await db.getFeaturedEvent();
+  if (!event) return {};
+  return {
+    eventTitle: event.title,
+    eventDate: formatChileDate(new Date(event.eventDate)),
+    doorsOpenText: formatChileTime(new Date(event.doorsOpen ?? event.eventDate)),
+    venue: event.venue || SAMPLE_ORDER_EMAIL_DATA.venue,
+    address: event.address || SAMPLE_ORDER_EMAIL_DATA.address,
+    mapsUrl: event.mapsUrl || SAMPLE_ORDER_EMAIL_DATA.mapsUrl,
+  };
+}
+
+async function resolveMissionTopupPreviewEventFields() {
+  const event = await db.getFeaturedEvent();
+  if (!event) return {};
+  return {
+    eventTitle: event.title,
+    eventDate: formatChileDate(new Date(event.eventDate)),
+  };
+}
 
 // Escritura del panel: SOLO admin. El invitado de demostración (`viewer`)
 // nunca pasa por acá -- las queries de lectura usan `adminReadProcedure`,
@@ -1825,7 +1855,8 @@ export const appRouter = router({
       greetingText: z.string(),
       farewellText: z.string(),
     })).mutation(async ({ input }) => {
-      return { html: buildOrderEmail({ ...SAMPLE_ORDER_EMAIL_DATA, templateConfig: input as OrderEmailConfig }) };
+      const eventFields = await resolveOrderPreviewEventFields();
+      return { html: buildOrderEmail({ ...SAMPLE_ORDER_EMAIL_DATA, ...eventFields, templateConfig: input as OrderEmailConfig }) };
     }),
     sendTest: adminProcedure.input(z.object({
       toEmail: z.string().email(),
@@ -1837,14 +1868,17 @@ export const appRouter = router({
         case 'order': {
           const settings = await db.getSiteSettings();
           const templateConfig = normalizeOrderEmailConfig((settings.emailTemplateConfig as any)?.orderEmail);
-          html = buildOrderEmail({ ...SAMPLE_ORDER_EMAIL_DATA, templateConfig });
+          const eventFields = await resolveOrderPreviewEventFields();
+          html = buildOrderEmail({ ...SAMPLE_ORDER_EMAIL_DATA, ...eventFields, templateConfig });
           subject = '[PRUEBA] Tu compra fue confirmada';
           break;
         }
-        case 'missionTopup':
-          html = buildMissionTopupEmail(SAMPLE_MISSION_TOPUP_DATA);
+        case 'missionTopup': {
+          const eventFields = await resolveMissionTopupPreviewEventFields();
+          html = buildMissionTopupEmail({ ...SAMPLE_MISSION_TOPUP_DATA, ...eventFields });
           subject = '[PRUEBA] Casi -- falta completar tu diferencia';
           break;
+        }
         case 'pendingReminder':
           html = buildPendingReminderEmail(SAMPLE_PENDING_REMINDER_DATA);
           subject = '[PRUEBA] Quedó pendiente tu acceso';
