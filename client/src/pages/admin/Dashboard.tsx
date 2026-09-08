@@ -837,6 +837,7 @@ function eventFormFromEvent(event: any) {
     shortDescription: (event.shortDescription || '') as string, venue: (event.venue || '') as string,
     address: (event.address || '') as string, mapsUrl: (event.mapsUrl || '') as string,
     eventDate: toChileInputValue(event.eventDate), doorsOpen: toChileInputValue(event.doorsOpen),
+    eventEnd: toChileInputValue(event.eventEnd),
     status: (event.status || 'draft') as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past',
     imageUrl: (event.imageUrl || '') as string, featured: !!event.featured,
     missionForceClosed: !!event.missionForceClosed, ivaApplies: !!event.ivaApplies,
@@ -962,6 +963,7 @@ function EventCard({ event, onDeleted, expanded, onToggleExpand }: { event: any;
       ivaApplies: form.ivaApplies ? 1 : 0,
       eventDate: fromChileInputValue(form.eventDate),
       doorsOpen: fromChileInputValue(form.doorsOpen),
+      eventEnd: fromChileInputValue(form.eventEnd),
     });
   };
 
@@ -1022,6 +1024,11 @@ function EventCard({ event, onDeleted, expanded, onToggleExpand }: { event: any;
               <div><Label>Link de Google Maps</Label><Input value={form.mapsUrl} onChange={(e) => setForm({ ...form, mapsUrl: e.target.value })} className="mt-1" placeholder="https://maps.app.goo.gl/..." /></div>
               <div><Label>Fecha del evento</Label><Input type="datetime-local" value={form.eventDate} onChange={(e) => setForm({ ...form, eventDate: e.target.value })} className="mt-1" /></div>
               <div><Label>Apertura de puertas</Label><Input type="datetime-local" value={form.doorsOpen} onChange={(e) => setForm({ ...form, doorsOpen: e.target.value })} className="mt-1" /></div>
+              <div>
+                <Label>Fin del evento</Label>
+                <Input type="datetime-local" value={form.eventEnd} onChange={(e) => setForm({ ...form, eventEnd: e.target.value })} className="mt-1" />
+                <p className="text-xs text-muted-foreground mt-1">Si lo dejas vacío, se asume 12 horas después de la fecha del evento.</p>
+              </div>
             </div>
             <EventDescriptionAiFields
               title={form.title}
@@ -1171,7 +1178,7 @@ function EventsManager() {
   const deleteEvent = trpc.events.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
 
   const [newEvent, setNewEvent] = useState({
-    title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '',
+    title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', eventEnd: '',
     status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false,
   });
   const [showEventForm, setShowEventForm] = useState(false);
@@ -1191,9 +1198,10 @@ function EventsManager() {
       ivaApplies: newEvent.ivaApplies ? 1 : 0,
       eventDate: fromChileInputValue(newEvent.eventDate),
       doorsOpen: fromChileInputValue(newEvent.doorsOpen),
+      eventEnd: fromChileInputValue(newEvent.eventEnd),
     };
     await createEvent.mutateAsync(payload);
-    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', status: 'draft', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false });
+    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', eventEnd: '', status: 'draft', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false });
     setShowEventForm(false);
   };
 
@@ -1221,6 +1229,11 @@ function EventsManager() {
               <div><Label>Link de Google Maps</Label><Input value={newEvent.mapsUrl} onChange={(e) => setNewEvent({ ...newEvent, mapsUrl: e.target.value })} className="mt-1" placeholder="https://maps.app.goo.gl/..." /></div>
               <div><Label>Fecha del evento</Label><Input type="datetime-local" value={newEvent.eventDate} onChange={(e) => setNewEvent({ ...newEvent, eventDate: e.target.value })} className="mt-1" /></div>
               <div><Label>Apertura de puertas</Label><Input type="datetime-local" value={newEvent.doorsOpen} onChange={(e) => setNewEvent({ ...newEvent, doorsOpen: e.target.value })} className="mt-1" /></div>
+              <div>
+                <Label>Fin del evento</Label>
+                <Input type="datetime-local" value={newEvent.eventEnd} onChange={(e) => setNewEvent({ ...newEvent, eventEnd: e.target.value })} className="mt-1" />
+                <p className="text-xs text-muted-foreground mt-1">Si lo dejas vacío, se asume 12 horas después de la fecha del evento.</p>
+              </div>
             </div>
             <EventDescriptionAiFields
               title={newEvent.title}
