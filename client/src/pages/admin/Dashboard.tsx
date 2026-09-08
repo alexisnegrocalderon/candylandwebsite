@@ -37,6 +37,7 @@ import { StatTile } from '@/components/admin/StatTile';
 import { BentoGrid, BentoTile } from '@/components/admin/BentoGrid';
 import { RowActions, RowActionLink, RowActionButton } from '@/components/admin/RowActions';
 import { SwipeToDeleteCard } from '@/components/admin/SwipeToDeleteCard';
+import { SwipeToDeleteRow } from '@/components/admin/SwipeToDeleteRow';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { TableSkeleton } from '@/components/admin/TableSkeleton';
 import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
@@ -2329,11 +2330,12 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         />
       ) : (
         <>
-          {/* Tabla completa -- iPad horizontal y escritorio. Sin acción de
-              eliminar en la fila a propósito (pedido explícito del dueño):
-              en esta vista el swipe compite con el scroll horizontal de la
-              tabla, así que borrar queda solo en la vista de tarjetas de
-              abajo (iPhone), donde el gesto no choca con nada. */}
+          {/* Tabla completa -- iPad horizontal y escritorio. Cada fila usa
+              SwipeToDeleteRow, que solo activa el gesto en táctil
+              (`useCoarsePointer`, no un ancho de pantalla): en iPad el
+              swipe revela "Eliminar" igual que en la tarjeta de iPhone; en
+              mouse/escritorio real la fila se renderiza tal cual, sin
+              ningún rastro de borrar -- pedido explícito del dueño. */}
           <Card className="hidden md:block admin-clay border-0">
             <CardContent className="pt-6">
               <div className="overflow-x-auto">
@@ -2363,7 +2365,12 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                   <tbody>
                     {visibleOrders.map((order: any) => (
                       <Fragment key={order.id}>
-                        <tr className="border-b border-[var(--admin-glass-border)] hover:bg-white/40 transition-colors">
+                        <SwipeToDeleteRow
+                          className="border-b border-[var(--admin-glass-border)] hover:bg-white/40 transition-colors"
+                          deleteDescription={`Vas a eliminar la compra "${order.orderNumber}" de ${order.buyerName}.`}
+                          onDelete={(adminPassword) => deleteOrder.mutateAsync({ id: order.id, adminPassword })}
+                          deleteDisabled={deleteOrder.isPending}
+                        >
                           {remindersMode && (
                             <td className="py-2.5 px-3">
                               <Checkbox
@@ -2463,7 +2470,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                               )}
                             </RowActions>
                           </td>
-                        </tr>
+                        </SwipeToDeleteRow>
                         {expandedOrderId === order.id && (
                           <tr className="border-b border-[var(--admin-glass-border)] bg-white/30">
                             <td colSpan={remindersMode ? 10 : 8} className="py-3 px-3">
