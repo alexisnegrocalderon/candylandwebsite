@@ -8172,7 +8172,13 @@ export default function AdminDashboard() {
               </span>
             </div>
           </SidebarHeader>
-          <SidebarContent className="px-2 py-2">
+          {/* [transform:translateZ(0)] fuerza a Safari a componer esta zona
+              (la única que scrollea) en su propia capa -- sin esto, el
+              blur del panel padre (.admin-clay) queda a veces "pintado" en
+              una posición vieja al re-renderizar el menú en iPad/iPhone
+              (bug conocido de WebKit con backdrop-filter + overflow-y
+              anidados), dejando texto fantasma superpuesto entre ítems. */}
+          <SidebarContent className="px-2 py-2 [transform:translateZ(0)] isolate">
             {ADMIN_SECTION_GROUPS.map((group) => (
               <SidebarGroup key={group} className="py-1">
                 <SidebarGroupLabel className="text-[13px] tracking-wide">{group}</SidebarGroupLabel>
