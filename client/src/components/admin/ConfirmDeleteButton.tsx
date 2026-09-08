@@ -30,10 +30,17 @@ export function ConfirmDeleteButton({
   description,
   onConfirm,
   disabled,
+  className,
+  children,
 }: {
   description: string;
   onConfirm: (adminPassword: string) => void | Promise<unknown>;
   disabled?: boolean;
+  /** Reemplaza el look por defecto (botón chico con solo el ícono de
+   * tacho) -- usado por `SwipeToDeleteRow` para que el mismo diálogo de
+   * siempre se dispare desde el botón rojo "Eliminar" que revela el swipe. */
+  className?: string;
+  children?: React.ReactNode;
 }) {
   const demoProps = useDemoProps();
   const [open, setOpen] = useState(false);
@@ -60,9 +67,15 @@ export function ConfirmDeleteButton({
   return (
     <AlertDialog open={open} onOpenChange={(v) => (v ? setOpen(true) : close())}>
       <AlertDialogTrigger asChild>
-        <Button variant="outline" size="sm" className="text-destructive" {...demoProps} disabled={disabled || demoProps.disabled}>
-          <Trash2 className="w-3 h-3" />
-        </Button>
+        {children ? (
+          <button type="button" className={className} {...demoProps} disabled={disabled || demoProps.disabled}>
+            {children}
+          </button>
+        ) : (
+          <Button variant="outline" size="sm" className={`text-destructive ${className ?? ''}`} {...demoProps} disabled={disabled || demoProps.disabled}>
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        )}
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
