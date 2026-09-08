@@ -3624,11 +3624,94 @@ function MailingSection() {
   );
 }
 
+/** Tandas de envío INMEDIATO (aviso automático de primeros cupos + "Enviar
+ * a N clientes" desde MailingComposer) -- pedido explícito del dueño: poder
+ * ver la lista de correos mientras se van mandando, no solo el resumen
+ * final. Log aparte de mailingCampaigns/mailingRecipients a propósito (ver
+ * mailingSendLog en drizzle/schema.ts) -- puramente informativo, no cuenta
+ * para ningún presupuesto ni lo procesa ningún cron.
+ *
+ * Poll de 5s (no 30s como las campañas encoladas de abajo): una tanda de 50
+ * a ~250ms entre envíos tarda ~12-15s en total, así que un poll más corto
+ * de verdad se ve "en vivo" mientras corre. */
+function ImmediateSendBatches() {
+  const { data: batchesData, refetch } = trpc.mailing.listRecentSendBatches.useQuery(undefined, {
+    refetchInterval: 5_000,
+  });
+  const batches = batchesData ?? [];
+  const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null);
+
+  const { data: detailData } = trpc.mailing.getSendBatchDetail.useQuery(
+    { batchId: expandedBatchId ?? '' },
+    { enabled: expandedBatchId !== null, refetchInterval: 5_000 }
+  );
+  const detail = detailData ?? [];
+
+  if (batches.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-heading text-lg">Envíos inmediatos</h3>
+        <Button variant="outline" size="sm" onClick={() => refetch()} className="interactive">Actualizar</Button>
+      </div>
+      {batches.map((b: any) => {
+        const isExpanded = expandedBatchId === b.batchId;
+        const total = Number(b.total);
+        const sentCount = Number(b.sentCount);
+        return (
+          <Card key={b.batchId} className="rounded-2xl border-0 shadow-md shadow-black/5">
+            <CardContent className="pt-6 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold">
+                    {b.source === 'founders-promo' ? '🍬 Aviso de primeros cupos' : '✉️ Envío manual'}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {b.label} · {new Date(b.startedAt).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}
+                  </p>
+                </div>
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap bg-primary/10 text-primary">
+                  {sentCount}/{total}
+                </span>
+              </div>
+              <Button
+                type="button" variant="ghost" size="sm" className="text-xs h-7 px-2 -ml-2"
+                onClick={() => setExpandedBatchId(isExpanded ? null : b.batchId)}
+              >
+                {isExpanded ? <ChevronUp className="w-3.5 h-3.5 mr-1" /> : <ChevronDown className="w-3.5 h-3.5 mr-1" />}
+                {isExpanded ? 'Ocultar lista' : 'Ver lista de correos'}
+              </Button>
+              {isExpanded && (
+                <div className="max-h-52 overflow-y-auto rounded-lg border border-border/50 divide-y">
+                  {detail.map((row: any) => (
+                    <div key={row.id} className="px-3 py-2 text-xs flex justify-between gap-2">
+                      <span>{row.email}</span>
+                      <span className={row.success ? 'text-primary' : 'text-destructive'}>
+                        {row.success ? '✅ Enviado' : `❌ ${row.reason || 'Error'}`}
+                      </span>
+                    </div>
+                  ))}
+                  {detail.length === 0 && <p className="text-xs text-muted-foreground px-3 py-2">Cargando…</p>}
+                  {detail.length > 0 && detail.length < total && (
+                    <p className="text-xs text-muted-foreground px-3 py-2">Mandando el resto…</p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Historial de campañas de envío automático (pedido explícito del usuario):
  * las que se mandan con "Guardar para envío automático" en MailingComposer
- * quedan acá con su progreso, drenadas de a poco por el cron diario -- los
- * envíos inmediatos ("Enviar a N clientes") no pasan por acá, se quedan
- * igual que siempre en el resultado de la propia pantalla de Mailing. */
+ * quedan acá con su progreso, drenadas de a poco por el cron diario. Los
+ * envíos inmediatos (aviso de primeros cupos + "Enviar a N clientes") tienen
+ * su propia sección arriba (ImmediateSendBatches) -- log aparte, no se
+ * mezclan con estas campañas encoladas. */
 function MailingHistoryView() {
   const { data: campaignsData, refetch } = trpc.mailing.listCampaigns.useQuery(undefined, {
     refetchInterval: 30_000,
@@ -3659,6 +3742,8 @@ function MailingHistoryView() {
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()} className="interactive">Actualizar</Button>
       </div>
+
+      <ImmediateSendBatches />
 
       {campaigns.length === 0 && (
         <p className="text-sm text-muted-foreground">Todavía no hay ninguna campaña guardada para envío automático. Se arman desde la pestaña Mailing con "Guardar para envío automático".</p>

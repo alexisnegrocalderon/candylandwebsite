@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gt, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -4580,6 +4580,59 @@ export async function getMailingCampaignRecipients(campaignId: number) {
     .innerJoin(customers, eq(customers.id, mailingRecipients.customerId))
     .where(eq(mailingRecipients.campaignId, campaignId))
     .orderBy(mailingRecipients.id);
+}
+
+/** Registra una fila del log de envíos inmediatos (ver mailingSendLog en
+ * drizzle/schema.ts) -- puramente informativo para Historial de Mailing, no
+ * cuenta para ningún presupuesto ni lo procesa ningún cron. */
+export async function logMailingSend(input: {
+  batchId: string;
+  source: 'founders-promo' | 'manual';
+  label: string;
+  customerId: number;
+  email: string;
+  success: boolean;
+  reason?: string;
+}) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(mailingSendLog).values({
+    batchId: input.batchId,
+    source: input.source,
+    label: input.label,
+    customerId: input.customerId,
+    email: input.email,
+    success: input.success ? 1 : 0,
+    reason: input.reason ?? null,
+  });
+}
+
+/** Últimas tandas de envíos inmediatos, agrupadas por `batchId` -- para la
+ * sección "Envíos inmediatos" de Historial de Mailing. */
+export async function listRecentMailingSendBatches(limit = 10) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    batchId: mailingSendLog.batchId,
+    source: sql<'founders-promo' | 'manual'>`MIN(${mailingSendLog.source})`,
+    label: sql<string>`MIN(${mailingSendLog.label})`,
+    startedAt: sql<Date>`MIN(${mailingSendLog.sentAt})`,
+    total: sql<number>`COUNT(*)`,
+    sentCount: sql<number>`SUM(${mailingSendLog.success})`,
+  }).from(mailingSendLog)
+    .groupBy(mailingSendLog.batchId)
+    .orderBy(desc(sql`MIN(${mailingSendLog.sentAt})`))
+    .limit(limit);
+}
+
+/** Detalle fila por fila de una tanda de envío inmediato -- la lista en vivo
+ * de emails mientras corre (poll corto desde el admin). */
+export async function getMailingSendLogForBatch(batchId: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(mailingSendLog)
+    .where(eq(mailingSendLog.batchId, batchId))
+    .orderBy(mailingSendLog.sentAt);
 }
 
 /** Próximos destinatarios pendientes de campañas 'sending', de la más vieja a

@@ -1056,6 +1056,38 @@ export const mailingRecipients = mysqlTable("mailingRecipients", {
   campaignStatusIdx: index("mailing_recipients_campaign_status_idx").on(table.campaignId, table.status),
 }));
 
+/** Log de solo lectura de los envíos INMEDIATOS (los que no pasan por
+ * `mailingCampaigns`/`mailingRecipients`): el aviso automático de primeros
+ * cupos (`server/foundersPromo.ts`) y el botón manual "Enviar a N clientes"
+ * (`mailing.sendBatch`). A propósito NO es la misma tabla que
+ * `mailingRecipients` -- esa cuenta para el presupuesto diario compartido
+ * `AUTOMATED_EMAIL_DAILY_CAP` (protege los recordatorios de carrito
+ * abandonado), y el aviso de cupos tiene su propio presupuesto,
+ * deliberadamente aparte (ver comentario en `server/foundersPromo.ts`). Esta
+ * tabla es puramente informativa para el historial del admin -- nada la lee
+ * para decidir cuota ni la procesa un cron. */
+export const mailingSendLog = mysqlTable("mailingSendLog", {
+  id: int("id").autoincrement().primaryKey(),
+  // nanoid: agrupa las filas de una misma corrida de sendMailingBatch().
+  batchId: varchar("batchId", { length: 30 }).notNull(),
+  source: mysqlEnum("source", ["founders-promo", "manual"]).notNull(),
+  // content.subject de esa tanda -- para mostrar de qué se trató sin tener
+  // que ir a buscar contenido a otro lado.
+  label: varchar("label", { length: 255 }).notNull(),
+  customerId: int("customerId").notNull(),
+  // Denormalizado a propósito: es un log histórico, no hace falta join.
+  email: varchar("email", { length: 255 }).notNull(),
+  success: int("success").notNull(),
+  reason: varchar("reason", { length: 500 }),
+  sentAt: timestamp("sentAt").defaultNow().notNull(),
+}, (table) => ({
+  batchIdx: index("mailing_send_log_batch_idx").on(table.batchId),
+  sentAtIdx: index("mailing_send_log_sent_at_idx").on(table.sentAt),
+}));
+
+export type MailingSendLogRow = typeof mailingSendLog.$inferSelect;
+export type InsertMailingSendLogRow = typeof mailingSendLog.$inferInsert;
+
 export type MailingRecipient = typeof mailingRecipients.$inferSelect;
 export type InsertMailingRecipient = typeof mailingRecipients.$inferInsert;
 

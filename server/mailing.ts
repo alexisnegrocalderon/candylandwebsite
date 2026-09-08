@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { nanoid } from "nanoid";
 import { formatChileDate, formatChileTime } from "../shared/chileDate";
 import { invokeLLM, extractContent } from "./_core/llm";
 import { sendEmail, buildMailingBlastEmail, type MailingEventInfo, type MailingEventSections } from "./email";
@@ -130,11 +131,19 @@ export async function sendMailingBatch(
   ctaUrl: string,
   campaignTag?: string,
   eventInfo?: MailingEventInfo | null,
-  eventSections?: MailingEventSections
-): Promise<MailingSendResult[]> {
+  eventSections?: MailingEventSections,
+  // Quién dispara este envío -- solo para el log de Historial de Mailing
+  // (ver mailingSendLog en drizzle/schema.ts), no cambia nada del envío en
+  // sí. Los dos llamadores de hoy se identifican solos: el aviso automático
+  // de primeros cupos y el botón manual "Enviar a N clientes".
+  source: 'founders-promo' | 'manual' = 'manual'
+): Promise<{ batchId: string; results: MailingSendResult[] }> {
   const recipients = await db.listCustomersByIds(customerIds);
   const results: MailingSendResult[] = [];
   const cleanCampaignTag = campaignTag?.trim();
+  // Agrupa todas las filas de este log bajo una misma corrida -- así el
+  // admin ve "la tanda de hoy" como una sola entrada, no una por email.
+  const batchId = nanoid();
 
   for (const customer of recipients) {
     const html = buildMailingBlastEmail({
@@ -164,10 +173,29 @@ export async function sendMailingBatch(
       }
     }
 
+    // Log puramente informativo para Historial de Mailing (ver
+    // mailingSendLog) -- si falla, el correo ya se mandó igual, no aborta
+    // el lote. A propósito NO es mailingRecipients: esa tabla cuenta para
+    // el presupuesto diario compartido que protege los recordatorios de
+    // carrito abandonado (ver server/foundersPromo.ts).
+    try {
+      await db.logMailingSend({
+        batchId,
+        source,
+        label: content.subject,
+        customerId: customer.id,
+        email: customer.email,
+        success: sent.success,
+        reason: sent.reason,
+      });
+    } catch (err) {
+      console.error('[Mailing] No se pudo loguear el envío:', err);
+    }
+
     await sleep(THROTTLE_MS);
   }
 
-  return results;
+  return { batchId, results };
 }
 
 /** Crea una campaña de envío automático (pedido explícito del usuario): a
