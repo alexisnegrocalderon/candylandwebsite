@@ -44,6 +44,7 @@ import { formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
 import {
   SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
   SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuBadge, SidebarInset, SidebarTrigger,
+  SidebarGroup, SidebarGroupLabel,
 } from '@/components/ui/sidebar';
 
 /* Toda escritura del admin pasa por acá: sin esto, un error del servidor
@@ -7910,33 +7911,44 @@ function ParkingReportView() {
   );
 }
 
+// Agrupado por lo que el dueño realmente hace con cada sección (rediseño
+// visual, sin tocar ningún `id` -- las burbujas/`localStorage` de
+// useAdminBadges siguen funcionando igual). "Evento" pasó a llamarse
+// "Resumen de la noche": es la pantalla en vivo de la fiesta, y así deja de
+// confundirse con "Eventos" (el CRUD de la ficha del evento), que quedó en
+// el grupo de abajo.
+const ADMIN_SECTION_GROUPS = ['Hoy', 'Ventas', 'Eventos', 'Clientes', 'Marketing', 'Negocio'] as const;
+
 const ADMIN_SECTIONS = [
-  // Primera del menú: es el resumen de la noche, lo que el dueño mira en vivo
-  // y al día siguiente. Las secciones de abajo siguen siendo las del detalle.
-  { id: 'overview', label: 'Evento', icon: LayoutDashboard, render: () => <EventOverview /> },
-  { id: 'events', label: 'Eventos', icon: Calendar, render: () => <EventsManager /> },
-  { id: 'carta', label: 'Carta de la Fiesta', icon: Martini, render: () => <CartaManager /> },
-  { id: 'orders-web', label: 'Ventas Web', icon: Ticket, render: () => <OrdersView channel="web" /> },
-  { id: 'sales-origin', label: 'Ventas por Origen', icon: Compass, render: () => <SalesByOriginView /> },
-  { id: 'orders-caja', label: 'Ventas Caja', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
-  { id: 'manual-access', label: 'Accesos Manuales', icon: Gift, render: () => <ManualAccessSection /> },
-  { id: 'parking', label: 'Estacionamiento', icon: Car, render: () => <ParkingReportView /> },
-  { id: 'discounts', label: 'Descuentos', icon: Percent, render: () => <DiscountsManager /> },
-  { id: 'community', label: 'Códigos Comunidad', icon: Users, render: () => <CommunityCodesManager /> },
-  { id: 'blocked-customers', label: 'Bloqueo de Clientes', icon: Ban, render: () => <BlockedCustomersManager /> },
-  { id: 'customers', label: 'Clientes', icon: Contact, render: () => <CustomersView /> },
-  { id: 'leads', label: 'Leads', icon: UserPlus, render: () => <LeadsView /> },
-  { id: 'mailing', label: 'Mailing', icon: Mail, render: () => <MailingSection /> },
-  { id: 'mailing-history', label: 'Historial de Mailing', icon: History, render: () => <MailingHistoryView /> },
-  { id: 'email-templates', label: 'Plantillas de correo', icon: Send, render: () => <EmailTemplatesManager /> },
-  { id: 'referrals', label: 'Referidos', icon: Trophy, render: () => <ReferralsView /> },
-  { id: 'ambassadors', label: 'Embajadores VIP', icon: Crown, render: () => <AmbassadorsView /> },
-  { id: 'party-gifts', label: 'Tragos de la Fiesta', icon: Martini, render: () => <PartyGiftsView /> },
-  { id: 'flash-promo', label: 'Promo Flash', icon: Zap, render: () => <FlashPromoCard /> },
-  { id: 'denuncias', label: 'Denuncias', icon: ShieldAlert, render: () => <DenunciasView /> },
-  { id: 'caja', label: 'Caja', icon: Store, render: () => <CajaAdminView /> },
-  { id: 'gastos', label: 'Gastos y P&L', icon: Receipt, render: () => <GastosView /> },
-  { id: 'settings', label: 'Ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },
+  { id: 'overview', label: 'Resumen de la noche', group: 'Hoy', icon: LayoutDashboard, render: () => <EventOverview /> },
+  { id: 'caja', label: 'Caja', group: 'Hoy', icon: Store, render: () => <CajaAdminView /> },
+  { id: 'flash-promo', label: 'Promo Flash', group: 'Hoy', icon: Zap, render: () => <FlashPromoCard /> },
+  { id: 'denuncias', label: 'Denuncias', group: 'Hoy', icon: ShieldAlert, render: () => <DenunciasView /> },
+  { id: 'party-gifts', label: 'Tragos de la Fiesta', group: 'Hoy', icon: Martini, render: () => <PartyGiftsView /> },
+
+  { id: 'orders-web', label: 'Ventas Web', group: 'Ventas', icon: Ticket, render: () => <OrdersView channel="web" /> },
+  { id: 'orders-caja', label: 'Ventas Caja', group: 'Ventas', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
+  { id: 'sales-origin', label: 'Ventas por Origen', group: 'Ventas', icon: Compass, render: () => <SalesByOriginView /> },
+  { id: 'manual-access', label: 'Accesos Manuales', group: 'Ventas', icon: Gift, render: () => <ManualAccessSection /> },
+  { id: 'parking', label: 'Estacionamiento', group: 'Ventas', icon: Car, render: () => <ParkingReportView /> },
+
+  { id: 'events', label: 'Eventos', group: 'Eventos', icon: Calendar, render: () => <EventsManager /> },
+  { id: 'carta', label: 'Carta de la Fiesta', group: 'Eventos', icon: Martini, render: () => <CartaManager /> },
+  { id: 'discounts', label: 'Descuentos', group: 'Eventos', icon: Percent, render: () => <DiscountsManager /> },
+  { id: 'community', label: 'Códigos Comunidad', group: 'Eventos', icon: Users, render: () => <CommunityCodesManager /> },
+
+  { id: 'customers', label: 'Clientes', group: 'Clientes', icon: Contact, render: () => <CustomersView /> },
+  { id: 'leads', label: 'Leads', group: 'Clientes', icon: UserPlus, render: () => <LeadsView /> },
+  { id: 'blocked-customers', label: 'Bloqueo de Clientes', group: 'Clientes', icon: Ban, render: () => <BlockedCustomersManager /> },
+
+  { id: 'mailing', label: 'Mailing', group: 'Marketing', icon: Mail, render: () => <MailingSection /> },
+  { id: 'mailing-history', label: 'Historial de Mailing', group: 'Marketing', icon: History, render: () => <MailingHistoryView /> },
+  { id: 'email-templates', label: 'Plantillas de correo', group: 'Marketing', icon: Send, render: () => <EmailTemplatesManager /> },
+  { id: 'referrals', label: 'Referidos', group: 'Marketing', icon: Trophy, render: () => <ReferralsView /> },
+  { id: 'ambassadors', label: 'Embajadores VIP', group: 'Marketing', icon: Crown, render: () => <AmbassadorsView /> },
+
+  { id: 'gastos', label: 'Gastos y P&L', group: 'Negocio', icon: Receipt, render: () => <GastosView /> },
+  { id: 'settings', label: 'Ajustes', group: 'Negocio', icon: SettingsIcon, render: () => <SettingsManager /> },
 ] as const;
 
 /** Denuncias que la gente hace desde Playmatch durante la fiesta.
@@ -8121,7 +8133,7 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/10 to-background">
+      <div data-admin-theme="light-pro" className="min-h-screen flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -8133,8 +8145,8 @@ export default function AdminDashboard() {
 
   if (!canOpenAdmin(user?.role)) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary/10 to-background">
-        <div className="text-center">
+      <div data-admin-theme="light-pro" className="min-h-screen flex items-center justify-center">
+        <div className="admin-clay text-center p-8">
           <h2 className="font-heading text-3xl mb-4">Sin Permisos</h2>
           <p className="text-muted-foreground">No tienes permisos de administrador.</p>
         </div>
@@ -8147,85 +8159,96 @@ export default function AdminDashboard() {
   const active = ADMIN_SECTIONS.find((s) => s.id === activeSection) ?? ADMIN_SECTIONS[0];
 
   return (
-    <SidebarProvider>
-      <Sidebar collapsible="icon" className="border-r-0">
-        <SidebarHeader className="h-16 justify-center px-3">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shrink-0">
-              <LayoutDashboard className="w-4 h-4 text-primary-foreground" />
+    <SidebarProvider data-admin-theme="light-pro">
+      <Sidebar collapsible="icon" className="border-r-0 bg-transparent">
+        <div className="admin-clay-shell flex h-full w-full flex-col m-3 mr-0 group-data-[collapsible=icon]:mr-3">
+          <SidebarHeader className="h-16 justify-center px-3">
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 admin-clay-sm bg-gradient-to-br from-primary to-secondary flex items-center justify-center shrink-0">
+                <LayoutDashboard className="w-4 h-4 text-primary-foreground" />
+              </div>
+              <span className="font-heading text-lg tracking-tight group-data-[collapsible=icon]:hidden">
+                {isDemo ? 'Invitado (demo)' : 'Mansion Playroom'}
+              </span>
             </div>
-            <span className="font-heading text-lg tracking-tight group-data-[collapsible=icon]:hidden">
-              {isDemo ? 'Invitado (demo)' : 'Mansion Playroom'}
-            </span>
-          </div>
-        </SidebarHeader>
-        <SidebarContent className="px-2 py-2">
-          <SidebarMenu>
-            {ADMIN_SECTIONS.map((section) => {
-              const count = badgeCounts[section.id] ?? 0;
-              return (
-              <SidebarMenuItem key={section.id}>
-                <SidebarMenuButton
-                  isActive={activeSection === section.id}
-                  onClick={() => openSection(section.id)}
-                  tooltip={count > 0 ? `${section.label} (${count})` : section.label}
-                  className="h-10 rounded-xl data-[active=true]:bg-gradient-to-r data-[active=true]:from-primary/15 data-[active=true]:to-secondary/15 data-[active=true]:text-primary data-[active=true]:font-semibold"
-                >
-                  {/* El ícono va como hijo DIRECTO del botón a propósito:
-                      sidebarMenuButtonVariants lo dimensiona con `[&>svg]` y
-                      envolverlo en un span rompe el tamaño en modo colapsado. */}
-                  <section.icon className="h-4 w-4" />
-                  <span>{section.label}</span>
-                </SidebarMenuButton>
-                {count > 0 && (
-                  <>
-                    <SidebarMenuBadge className="bg-primary/15 text-primary font-bold">
-                      {count > 99 ? '99+' : count}
-                    </SidebarMenuBadge>
-                    {/* Con el menú colapsado a íconos, SidebarMenuBadge se
-                        esconde solo (sidebar.tsx) -- sin este puntito no se
-                        vería ninguna alerta. Va sobre el <li> (que es
-                        `relative`) y no dentro del botón, porque el botón
-                        tiene `overflow-hidden` y lo recortaría. */}
-                    <span className="pointer-events-none absolute left-6 top-1.5 hidden h-2 w-2 rounded-full bg-primary ring-2 ring-sidebar group-data-[collapsible=icon]:block" />
-                  </>
-                )}
-              </SidebarMenuItem>
-              );
-            })}
-          </SidebarMenu>
-        </SidebarContent>
-        <SidebarFooter className="p-3">
-          <button
-            onClick={() => logout()}
-            className="flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-destructive/10 hover:text-destructive transition-colors w-full text-left text-sm text-muted-foreground"
-          >
-            <LogOut className="h-4 w-4 shrink-0" />
-            <span className="group-data-[collapsible=icon]:hidden">Cerrar sesión</span>
-          </button>
-        </SidebarFooter>
+          </SidebarHeader>
+          <SidebarContent className="px-2 py-2">
+            {ADMIN_SECTION_GROUPS.map((group) => (
+              <SidebarGroup key={group} className="py-1">
+                <SidebarGroupLabel className="text-[13px] tracking-wide">{group}</SidebarGroupLabel>
+                <SidebarMenu>
+                  {ADMIN_SECTIONS.filter((s) => s.group === group).map((section) => {
+                    const count = badgeCounts[section.id] ?? 0;
+                    return (
+                    <SidebarMenuItem key={section.id}>
+                      <SidebarMenuButton
+                        isActive={activeSection === section.id}
+                        onClick={() => openSection(section.id)}
+                        tooltip={count > 0 ? `${section.label} (${count})` : section.label}
+                        className="h-10 rounded-xl text-[15px] data-[active=true]:bg-gradient-to-r data-[active=true]:from-primary/15 data-[active=true]:to-secondary/15 data-[active=true]:text-primary data-[active=true]:font-semibold"
+                      >
+                        {/* El ícono va como hijo DIRECTO del botón a propósito:
+                            sidebarMenuButtonVariants lo dimensiona con `[&>svg]` y
+                            envolverlo en un span rompe el tamaño en modo colapsado. */}
+                        <section.icon className="h-4 w-4" />
+                        <span>{section.label}</span>
+                      </SidebarMenuButton>
+                      {count > 0 && (
+                        <>
+                          <SidebarMenuBadge className="bg-primary/15 text-primary font-bold">
+                            {count > 99 ? '99+' : count}
+                          </SidebarMenuBadge>
+                          {/* Con el menú colapsado a íconos, SidebarMenuBadge se
+                              esconde solo (sidebar.tsx) -- sin este puntito no se
+                              vería ninguna alerta. Va sobre el <li> (que es
+                              `relative`) y no dentro del botón, porque el botón
+                              tiene `overflow-hidden` y lo recortaría. */}
+                          <span className="pointer-events-none absolute left-6 top-1.5 hidden h-2 w-2 rounded-full bg-primary ring-2 ring-sidebar group-data-[collapsible=icon]:block" />
+                        </>
+                      )}
+                    </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroup>
+            ))}
+          </SidebarContent>
+          <SidebarFooter className="p-3">
+            <button
+              onClick={() => logout()}
+              className="flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-destructive/10 hover:text-destructive transition-colors w-full text-left text-sm text-muted-foreground"
+            >
+              <LogOut className="h-4 w-4 shrink-0" />
+              <span className="group-data-[collapsible=icon]:hidden">Cerrar sesión</span>
+            </button>
+          </SidebarFooter>
+        </div>
       </Sidebar>
 
-      <SidebarInset className="bg-gradient-to-br from-background via-secondary/5 to-background">
-        <header className="flex items-center gap-3 h-16 px-6 border-b border-border/40">
-          <SidebarTrigger className="rounded-lg" />
-          <h1 className="font-heading text-2xl">{active.label}</h1>
-          {isDemo && (
-            <span className="ml-auto flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
-              <Eye className="h-3.5 w-3.5" />
-              Modo demo — solo lectura
-            </span>
-          )}
-        </header>
+      <SidebarInset className="bg-transparent">
+        <div className="p-3 pb-0">
+          <header className="admin-clay-shell admin-clay-sm flex items-center gap-3 h-16 px-6">
+            <SidebarTrigger className="rounded-lg" />
+            <h1 className="font-heading text-2xl">{active.label}</h1>
+            {isDemo && (
+              <span className="ml-auto flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-600">
+                <Eye className="h-3.5 w-3.5" />
+                Modo demo — solo lectura
+              </span>
+            )}
+          </header>
+        </div>
         <main className="p-6">
-          <motion.div
-            key={activeSection}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35 }}
-          >
-            {active.render()}
-          </motion.div>
+          <div className="max-w-[1400px] mx-auto">
+            <motion.div
+              key={activeSection}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35 }}
+            >
+              {active.render()}
+            </motion.div>
+          </div>
         </main>
       </SidebarInset>
     </SidebarProvider>

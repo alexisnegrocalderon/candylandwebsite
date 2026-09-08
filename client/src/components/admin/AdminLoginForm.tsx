@@ -80,8 +80,8 @@ export function AdminLoginForm() {
   // su hash guardado, y ni el sistema puede recuperarlos.
   if (backupCodes) {
     return (
-      <div className="min-h-screen pt-24 flex items-center justify-center px-4">
-        <div className="w-full max-w-md text-center">
+      <div data-admin-theme="light-pro" className="min-h-screen pt-24 flex items-center justify-center px-4">
+        <div className="admin-clay w-full max-w-md text-center p-8">
           <h2 className="font-heading text-2xl mb-2">Guarda estos códigos</h2>
           <p className="text-muted-foreground text-sm mb-5">
             Son tu única forma de entrar si pierdes el teléfono. Se muestran una sola vez —
@@ -89,7 +89,7 @@ export function AdminLoginForm() {
           </p>
           <div className="grid grid-cols-2 gap-2 mb-6">
             {backupCodes.map((c) => (
-              <code key={c} className="p-3 rounded-lg bg-muted font-mono text-sm tracking-wider">{c}</code>
+              <code key={c} className="admin-clay-sm p-3 font-mono text-sm tracking-wider">{c}</code>
             ))}
           </div>
           <Button onClick={entrar} className="interactive w-full h-12">Ya los guardé, entrar</Button>
@@ -101,8 +101,8 @@ export function AdminLoginForm() {
   // Configuración inicial del segundo factor.
   if (setup) {
     return (
-      <div className="min-h-screen pt-24 flex items-center justify-center px-4">
-        <div className="w-full max-w-sm text-center">
+      <div data-admin-theme="light-pro" className="min-h-screen pt-24 flex items-center justify-center px-4">
+        <div className="admin-clay w-full max-w-sm text-center p-8">
           <h2 className="font-heading text-2xl mb-2">Configura tu segundo factor</h2>
           <p className="text-muted-foreground text-sm mb-5">
             Escanea este código con Google Authenticator (o la app que uses) y escribe el número que aparece.
@@ -140,8 +140,8 @@ export function AdminLoginForm() {
   // Paso 2: el código.
   if (ticket) {
     return (
-      <div className="min-h-screen pt-24 flex items-center justify-center px-4">
-        <div className="w-full max-w-xs text-center">
+      <div data-admin-theme="light-pro" className="min-h-screen pt-24 flex items-center justify-center px-4">
+        <div className="admin-clay w-full max-w-xs text-center p-8">
           <h2 className="font-heading text-2xl mb-2">Código de verificación</h2>
           <p className="text-muted-foreground text-sm mb-5">
             Abre tu app de autenticación y escribe el número. También sirve uno de tus códigos de respaldo.
@@ -174,10 +174,10 @@ export function AdminLoginForm() {
 
   // Paso 1: la contraseña.
   return (
-    <div className="min-h-screen pt-24 flex items-center justify-center px-4">
+    <div data-admin-theme="light-pro" className="min-h-screen pt-24 flex items-center justify-center px-4">
       <form
         onSubmit={(e) => { e.preventDefault(); if (password) login.mutate({ password }); }}
-        className="text-center w-full max-w-xs"
+        className="admin-clay text-center w-full max-w-xs p-8"
       >
         <h2 className="font-heading text-3xl mb-4">Acceso Restringido</h2>
         <p className="text-muted-foreground mb-6">Ingresa la contraseña de administrador.</p>
