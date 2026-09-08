@@ -32,7 +32,7 @@
 import { eq, and } from 'drizzle-orm';
 import { getDb, getFeaturedEvent, getStockPoolRemaining, listCustomers, getSiteSettings, updateSiteSettings } from './db';
 import { ticketTypes } from '../drizzle/schema';
-import { sendMailingBatch, type MailingContent, type MailingSendResult } from './mailing';
+import { sendMailingBatch, type MailingContent } from './mailing';
 import { EMAIL_BASE_URL } from './emailLayout';
 import { EVENT_BRAND } from '../shared/eventBrand';
 
@@ -117,13 +117,14 @@ export async function runFoundersPromoDaily(): Promise<FoundersPromoRunResult> {
   const batch = eligible.slice(0, FOUNDERS_PROMO_DAILY_TARGET);
   const content = buildFoundersPromoContent(remaining, event);
   const ctaUrl = `${EMAIL_BASE_URL}/checkout/${event.slug}`;
-  const results: MailingSendResult[] = await sendMailingBatch(
+  const { results } = await sendMailingBatch(
     batch.map((c: any) => c.id),
     content,
     ctaUrl,
     FOUNDERS_PROMO_TAG,
     null,
     undefined,
+    'founders-promo',
   );
 
   return {

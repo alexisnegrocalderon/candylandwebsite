@@ -69,10 +69,13 @@ describe("runFoundersPromoDaily", () => {
     getDbMock.mockResolvedValue(fakeDbWithAccesos([{ stockPoolId: 1 }, { stockPoolId: 1 }]));
     getStockPoolRemainingMock.mockResolvedValue({ remaining: 8 } as any);
     listCustomersMock.mockResolvedValue([{ id: 1, email: 'a@test.cl' }, { id: 2, email: 'b@test.cl' }] as any);
-    sendMailingBatchMock.mockResolvedValue([
-      { customerId: 1, email: 'a@test.cl', success: true },
-      { customerId: 2, email: 'b@test.cl', success: true },
-    ]);
+    sendMailingBatchMock.mockResolvedValue({
+      batchId: 'batch-test',
+      results: [
+        { customerId: 1, email: 'a@test.cl', success: true },
+        { customerId: 2, email: 'b@test.cl', success: true },
+      ],
+    });
   });
 
   it("no hace nada si está apagado", async () => {
@@ -133,7 +136,10 @@ describe("runFoundersPromoDaily", () => {
   it("recorta la audiencia al tope diario", async () => {
     const many = Array.from({ length: FOUNDERS_PROMO_DAILY_TARGET + 10 }, (_, i) => ({ id: i + 1, email: `c${i}@test.cl` }));
     listCustomersMock.mockResolvedValue(many as any);
-    sendMailingBatchMock.mockResolvedValue(many.slice(0, FOUNDERS_PROMO_DAILY_TARGET).map((c) => ({ customerId: c.id, email: c.email, success: true })));
+    sendMailingBatchMock.mockResolvedValue({
+      batchId: 'batch-test',
+      results: many.slice(0, FOUNDERS_PROMO_DAILY_TARGET).map((c) => ({ customerId: c.id, email: c.email, success: true })),
+    });
 
     await runFoundersPromoDaily();
 

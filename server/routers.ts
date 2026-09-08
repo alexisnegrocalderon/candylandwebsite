@@ -2827,9 +2827,8 @@ export const appRouter = router({
       eventSections: mailingEventSectionsSchema,
     })).mutation(async ({ input }) => {
       const eventInfo = Object.values(input.eventSections).some(Boolean) ? await getMailingEventInfo() : null;
-      return {
-        results: await sendMailingBatch(input.customerIds, input.content, input.ctaUrl, input.campaignTag, eventInfo, input.eventSections),
-      };
+      const { batchId, results } = await sendMailingBatch(input.customerIds, input.content, input.ctaUrl, input.campaignTag, eventInfo, input.eventSections, 'manual');
+      return { batchId, results };
     }),
     // Cola de envío automática (pedido explícito del usuario): a diferencia
     // de sendBatch (manda ya mismo desde el navegador), esto solo guarda la
@@ -2853,6 +2852,15 @@ export const appRouter = router({
     }),
     getCampaignRecipients: adminReadProcedure.input(z.object({ campaignId: z.number() })).query(async ({ input }) => {
       return db.getMailingCampaignRecipients(input.campaignId);
+    }),
+    // Envíos inmediatos (aviso automático de primeros cupos + "Enviar a N
+    // clientes") -- log aparte de mailingCampaigns/mailingRecipients, ver
+    // mailingSendLog en drizzle/schema.ts.
+    listRecentSendBatches: adminReadProcedure.query(async () => {
+      return db.listRecentMailingSendBatches();
+    }),
+    getSendBatchDetail: adminReadProcedure.input(z.object({ batchId: z.string() })).query(async ({ input }) => {
+      return db.getMailingSendLogForBatch(input.batchId);
     }),
     // Frena el drenaje del cron para una campaña todavía 'sending' (pedido
     // explícito del usuario: no había forma de cancelar una programada).
