@@ -1,0 +1,19 @@
+{
+  "name": "Mansion Playroom · Playmatch",
+  "short_name": "Playmatch",
+  "description": "Conecta con gente en la fiesta",
+  "start_url": "/fiesta",
+  "scope": "/fiesta",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d0810",
+  "theme_color": "#0d0810",
+  "icons": [
+    {
+      "src": "/candyland/logo-isotipo.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "any"
+    }
+  ]
+}

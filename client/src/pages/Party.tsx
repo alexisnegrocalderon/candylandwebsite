@@ -14,6 +14,7 @@ import {
   ZONE_LABELS, sanitizeAlias, type PartyGender, type PartyZone,
 } from '@shared/party';
 import { rememberTicketCode } from '@/lib/lastTicketCode';
+import { useInstallableApp } from '@/hooks/useInstallableApp';
 
 const GENDER_LABELS: Record<PartyGender, string> = {
   hombre: 'Hombre',
@@ -28,6 +29,12 @@ const GENDER_LABELS: Record<PartyGender, string> = {
 export default function Party() {
   const [, params] = useRoute('/fiesta/:ticketCode');
   const ticketCode = params?.ticketCode ?? '';
+
+  // Requisito para que las notificaciones push funcionen en iOS (ver
+  // NotificationsPanel más abajo): solo registra el service worker, sin
+  // tocar el manifest -- ese ya viene correcto desde el HTML estático
+  // generado en el build (scripts/generate-pwa-html.mjs), igual que /admin.
+  useInstallableApp('/fiesta/sw.js', '/fiesta/');
 
   useSeo({
     title: 'Playmatch — Mansion Playroom',
@@ -46,6 +53,7 @@ export default function Party() {
   const [selected, setSelected] = useState<MansionPerson | null>(null);
   const [gifting, setGifting] = useState<{ profileId: number; alias: string } | null>(null);
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
 
   if (session.isLoading) {
     return (
@@ -72,6 +80,7 @@ export default function Party() {
         onOpenChat={(connectionId, alias) => { setSelected(null); setOpenChat({ connectionId, alias }); }}
         onGift={(profileId, alias) => { setSelected(null); setGifting({ profileId, alias }); }}
         onOpenInbox={() => setInboxOpen(true)}
+        onOpenNotifications={() => setNotifOpen(true)}
         selected={selected}
         onCloseCard={() => setSelected(null)}
       />
@@ -87,6 +96,7 @@ export default function Party() {
           />
         )}
         {inboxOpen && <GiftInbox ticketCode={ticketCode} onClose={() => setInboxOpen(false)} />}
+        {notifOpen && <NotificationsPanel ticketCode={ticketCode} onClose={() => setNotifOpen(false)} />}
         {openChat && (
           <Chat
             ticketCode={ticketCode}
@@ -244,7 +254,7 @@ function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreate
 
 /* --- La mansión ---------------------------------------------------------- */
 
-function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, onGift, onOpenInbox, selected, onCloseCard }: {
+function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, onGift, onOpenInbox, onOpenNotifications, selected, onCloseCard }: {
   ticketCode: string;
   myZone: PartyZone;
   onPick: (p: MansionPerson) => void;
@@ -252,6 +262,7 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, on
   onOpenChat: (connectionId: number, alias: string) => void;
   onGift: (profileId: number, alias: string) => void;
   onOpenInbox: () => void;
+  onOpenNotifications: () => void;
   selected: MansionPerson | null;
   onCloseCard: () => void;
 }) {
@@ -283,6 +294,13 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, on
           <p className="text-xs text-white/40">
             {mansion.data ? `${mansion.data.touchesLeft} toques` : ''}
           </p>
+          <button
+            onClick={onOpenNotifications}
+            className="h-9 px-3 rounded-full border border-white/15 text-sm"
+            aria-label="Notificaciones"
+          >
+            🔔
+          </button>
           <button
             onClick={onOpenInbox}
             className="relative h-9 px-3 rounded-full border border-white/15 text-sm"
@@ -587,6 +605,139 @@ function Chat({ ticketCode, connectionId, alias, onClose }: {
           <Send className="w-4.5 h-4.5" />
         </button>
       </div>
+    </motion.div>
+  );
+}
+
+/* --- Notificaciones -------------------------------------------------------
+ * Aviso de "te escribieron" + promos relámpago del anfitrión. Mismo flujo
+ * que la tarjeta de Alertas del admin (server/push.ts, VAPID) pero para el
+ * invitado: sin sesión, sin interruptores, un solo botón. */
+
+/** Convierte la clave pública VAPID (base64url) al formato que pide
+ * `pushManager.subscribe` -- misma transformación que el lado admin. */
+function urlBase64ToUint8Array(base64String: string): BufferSource {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const array = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) array[i] = raw.charCodeAt(i);
+  return array;
+}
+
+function isIos(): boolean {
+  return typeof navigator !== 'undefined' && /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+function isStandalone(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia?.('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
+}
+
+function NotificationsPanel({ ticketCode, onClose }: { ticketCode: string; onClose: () => void }) {
+  const { data: vapid } = trpc.party.getVapidPublicKey.useQuery();
+  const subscribe = trpc.party.pushSubscribe.useMutation();
+  const unsubscribe = trpc.party.pushUnsubscribe.useMutation();
+
+  const [thisDeviceEndpoint, setThisDeviceEndpoint] = useState<string | null>(null);
+  const [subscribing, setSubscribing] = useState(false);
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.getRegistration('/fiesta/').then(async (reg) => {
+      const sub = await reg?.pushManager.getSubscription();
+      if (sub) setThisDeviceEndpoint(sub.endpoint);
+    }).catch(() => {});
+  }, []);
+
+  const notifSupported = typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window;
+  const alreadyOn = !!thisDeviceEndpoint;
+  // En iPhone/iPad, Safari solo entrega push a una app agregada a Inicio --
+  // si todavía está abierta en una pestaña normal, hay que decirlo antes de
+  // que toque "Activar" y no le llegue nunca nada.
+  const needsInstallFirst = isIos() && !isStandalone();
+
+  const handleActivate = async () => {
+    if (!vapid?.publicKey) { toast.error('Las notificaciones todavía no están disponibles.'); return; }
+    setSubscribing(true);
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') { toast.error('No diste permiso de notificaciones -- revísalo en Ajustes del navegador.'); return; }
+
+      const reg = await navigator.serviceWorker.getRegistration('/fiesta/') ?? await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapid.publicKey),
+      });
+      const json = sub.toJSON();
+      await subscribe.mutateAsync({ ticketCode, endpoint: json.endpoint!, p256dh: json.keys!.p256dh, auth: json.keys!.auth });
+      setThisDeviceEndpoint(json.endpoint!);
+      toast.success('Notificaciones activadas 🔔');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo activar.');
+    } finally {
+      setSubscribing(false);
+    }
+  };
+
+  const handleDeactivate = async () => {
+    if (!thisDeviceEndpoint) return;
+    try {
+      const reg = await navigator.serviceWorker.getRegistration('/fiesta/');
+      const sub = await reg?.pushManager.getSubscription();
+      await sub?.unsubscribe();
+      await unsubscribe.mutateAsync({ endpoint: thisDeviceEndpoint });
+      setThisDeviceEndpoint(null);
+      toast.success('Notificaciones desactivadas.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo desactivar.');
+    }
+  };
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center sm:justify-center"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      onClick={onClose}
+    >
+      <motion.div
+        className="w-full sm:max-w-sm bg-[#1a0f18] rounded-t-3xl sm:rounded-3xl p-5 border border-white/10"
+        initial={{ y: 40 }} animate={{ y: 0 }} exit={{ y: 40 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-heading font-extrabold text-lg">🔔 Notificaciones</h2>
+          <button onClick={onClose} aria-label="Cerrar"><X className="w-5 h-5 text-white/50" /></button>
+        </div>
+        <p className="text-sm text-white/50 mb-4">
+          Avisa cuando alguien te escribe en Playmatch, y si el anfitrión larga una promo relámpago durante la fiesta.
+        </p>
+
+        {needsInstallFirst && (
+          <div className="mb-4 p-3.5 rounded-2xl bg-primary/12 border border-primary/30 text-sm space-y-1.5">
+            <p className="font-bold">Primero agrega Playmatch a Inicio</p>
+            <p className="text-white/60">
+              En iPhone/iPad las notificaciones solo funcionan si esta página está agregada a tu pantalla de inicio.
+              Toca <span className="font-semibold">Compartir</span> (el ícono de la cajita con la flecha) y después{' '}
+              <span className="font-semibold">"Agregar a Inicio"</span>. Vuelve a abrir Playmatch desde ese ícono nuevo y activa las notificaciones acá.
+            </p>
+          </div>
+        )}
+
+        {!notifSupported && !needsInstallFirst && (
+          <p className="text-xs text-white/40 mb-4">Este navegador no soporta notificaciones push.</p>
+        )}
+
+        {notifSupported && (
+          <button
+            onClick={alreadyOn ? handleDeactivate : handleActivate}
+            disabled={subscribing || needsInstallFirst || !vapid?.publicKey}
+            className="w-full h-12 rounded-full bg-primary font-bold disabled:opacity-35 disabled:bg-white/10"
+          >
+            {subscribing ? 'Activando…' : alreadyOn ? 'Desactivar notificaciones' : 'Activar notificaciones'}
+          </button>
+        )}
+      </motion.div>
     </motion.div>
   );
 }

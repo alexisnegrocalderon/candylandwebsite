@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gt, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -4942,7 +4942,10 @@ export async function sendPartyMessage(profileId: number, connectionId: number, 
   if (hidden.has(otherId)) return { ok: false as const, reason: 'Esta conversación no está abierta' };
 
   await db.insert(partyMessages).values({ connectionId, fromProfileId: profileId, body });
-  return { ok: true as const };
+  // otherId se devuelve para que el router pueda avisarle por push -- acá
+  // no se manda el push directo para no acoplar la capa de datos con
+  // web-push (mismo criterio que el resto de este archivo con sendPushToAdmins).
+  return { ok: true as const, otherId };
 }
 
 export async function blockPartyProfile(profileId: number, targetProfileId: number, eventId: number) {
@@ -5375,6 +5378,47 @@ export async function getPartyProfileContact(profileId: number) {
   const [order] = ticket ? await db.select().from(orders).where(eq(orders.id, ticket.orderId)).limit(1) : [null];
 
   return { alias: profile.alias as string, email: (order?.buyerEmail as string | undefined) ?? null };
+}
+
+/** El `ticketCode` de un perfil -- es el link al que hay que mandar de
+ * vuelta una notificación push (`/fiesta/<ticketCode>`), ya que no hay
+ * sesión de invitado guardada en ningún lado más. */
+export async function getPartyProfileTicketCode(profileId: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [profile] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, profileId)).limit(1);
+  if (!profile) return null;
+  const [ticket] = await db.select().from(tickets).where(eq(tickets.id, profile.ticketId)).limit(1);
+  return ticket?.ticketCode ?? null;
+}
+
+// Suscripciones push de invitados (Playmatch) -- server/push.ts.
+export async function savePartyPushSubscription(data: { profileId: number; eventId: number; endpoint: string; p256dh: string; auth: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(partyPushSubscriptions).values(data).onDuplicateKeyUpdate({
+    set: { profileId: data.profileId, eventId: data.eventId, p256dh: data.p256dh, auth: data.auth },
+  });
+  return { success: true };
+}
+
+export async function deletePartyPushSubscription(endpoint: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(partyPushSubscriptions).where(eq(partyPushSubscriptions.endpoint, endpoint));
+  return { success: true };
+}
+
+export async function listPartyPushSubscriptionsByProfile(profileId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(partyPushSubscriptions).where(eq(partyPushSubscriptions.profileId, profileId));
+}
+
+export async function listPartyPushSubscriptionsByEvent(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(partyPushSubscriptions).where(eq(partyPushSubscriptions.eventId, eventId));
 }
 
 // --- Segundo factor del panel de administración ---

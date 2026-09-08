@@ -1363,3 +1363,27 @@ export const pushSubscriptions = mysqlTable("pushSubscriptions", {
 
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = typeof pushSubscriptions.$inferInsert;
+
+// Suscripciones push de INVITADOS (Playmatch) -- separadas de
+// `pushSubscriptions` (que es solo del admin) porque acá cada fila
+// pertenece a un `partyProfiles.id` puntual (mensaje nuevo = 1
+// destinatario) y también hay que poder mandarle a TODOS los de un evento
+// a la vez (promo relámpago) sin joins pesados -- de ahí el `eventId`
+// denormalizado. No hay sesión de invitado: se resuelve desde el
+// `ticketCode` en el momento de suscribirse, igual que el resto de
+// Playmatch (ver `requirePartyProfile` en server/routers.ts).
+export const partyPushSubscriptions = mysqlTable("partyPushSubscriptions", {
+  id: int("id").autoincrement().primaryKey(),
+  profileId: int("profileId").notNull(),
+  eventId: int("eventId").notNull(),
+  endpoint: varchar("endpoint", { length: 512 }).notNull().unique(),
+  p256dh: varchar("p256dh", { length: 255 }).notNull(),
+  auth: varchar("auth", { length: 255 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  eventIdx: index("party_push_subscriptions_event_idx").on(table.eventId),
+  profileIdx: index("party_push_subscriptions_profile_idx").on(table.profileId),
+}));
+
+export type PartyPushSubscriptionRow = typeof partyPushSubscriptions.$inferSelect;
+export type InsertPartyPushSubscription = typeof partyPushSubscriptions.$inferInsert;

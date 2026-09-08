@@ -30,11 +30,15 @@
       "destination": "/gastos.html"
     },
     {
+      "source": "/fiesta(/.*)?",
+      "destination": "/fiesta.html"
+    },
+    {
       "source": "/(cocina|guardarropia|checkout|pago)(/.*)?",
       "destination": "/index.html"
     },
     {
-      "source": "/((?!assets/|candyland/|api/|robots\\.txt|sitemap\\.xml|llms\\.txt|favicon\\.ico|gastos\\.webmanifest|gastos/sw\\.js|puerta\\.webmanifest|puerta/sw\\.js|admin\\.webmanifest|admin/sw\\.js|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)",
+      "source": "/((?!assets/|candyland/|api/|robots\\.txt|sitemap\\.xml|llms\\.txt|favicon\\.ico|gastos\\.webmanifest|gastos/sw\\.js|puerta\\.webmanifest|puerta/sw\\.js|admin\\.webmanifest|admin/sw\\.js|fiesta\\.webmanifest|fiesta/sw\\.js|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)",
       "destination": "/api"
     }
   ],
