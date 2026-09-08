@@ -8161,7 +8161,7 @@ export default function AdminDashboard() {
   return (
     <SidebarProvider data-admin-theme="light-pro">
       <Sidebar collapsible="icon" className="border-r-0 bg-transparent">
-        <div className="admin-clay flex h-full w-full flex-col m-3 mr-0 group-data-[collapsible=icon]:mr-3">
+        <div className="admin-clay-shell flex h-full w-full flex-col m-3 mr-0 group-data-[collapsible=icon]:mr-3">
           <SidebarHeader className="h-16 justify-center px-3">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 admin-clay-sm bg-gradient-to-br from-primary to-secondary flex items-center justify-center shrink-0">
@@ -8172,13 +8172,7 @@ export default function AdminDashboard() {
               </span>
             </div>
           </SidebarHeader>
-          {/* [transform:translateZ(0)] fuerza a Safari a componer esta zona
-              (la única que scrollea) en su propia capa -- sin esto, el
-              blur del panel padre (.admin-clay) queda a veces "pintado" en
-              una posición vieja al re-renderizar el menú en iPad/iPhone
-              (bug conocido de WebKit con backdrop-filter + overflow-y
-              anidados), dejando texto fantasma superpuesto entre ítems. */}
-          <SidebarContent className="px-2 py-2 [transform:translateZ(0)] isolate">
+          <SidebarContent className="px-2 py-2">
             {ADMIN_SECTION_GROUPS.map((group) => (
               <SidebarGroup key={group} className="py-1">
                 <SidebarGroupLabel className="text-[13px] tracking-wide">{group}</SidebarGroupLabel>
@@ -8233,7 +8227,7 @@ export default function AdminDashboard() {
 
       <SidebarInset className="bg-transparent">
         <div className="p-3 pb-0">
-          <header className="admin-clay admin-clay-sm flex items-center gap-3 h-16 px-6">
+          <header className="admin-clay-shell admin-clay-sm flex items-center gap-3 h-16 px-6">
             <SidebarTrigger className="rounded-lg" />
             <h1 className="font-heading text-2xl">{active.label}</h1>
             {isDemo && (
