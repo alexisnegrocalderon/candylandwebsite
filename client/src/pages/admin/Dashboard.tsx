@@ -53,7 +53,7 @@ import { formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
 import {
   SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
   SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuBadge, SidebarInset, SidebarTrigger,
-  SidebarGroup, SidebarGroupLabel,
+  SidebarGroup, useSidebar,
 } from '@/components/ui/sidebar';
 
 /* Toda escritura del admin pasa por acá: sin esto, un error del servidor
@@ -8264,6 +8264,106 @@ function PartyGiftsView() {
   );
 }
 
+/** Menú lateral agrupado y desplegable -- pedido del dueño: con las 6 secciones
+ * (Hoy/Ventas/Eventos/Clientes/Marketing/Negocio) siempre abiertas de una, el
+ * menú se veía largo. Ahora cada grupo se abre/cierra tocando su título, y
+ * arranca abierto SOLO el grupo de la sección activa -- los demás quedan
+ * plegados hasta que se necesiten.
+ *
+ * Aparte como componente propio (no inline en AdminDashboard) porque necesita
+ * `useSidebar()`, que solo funciona DENTRO del árbol de `SidebarProvider` --
+ * llamarlo en el mismo componente que renderiza el Provider no sirve, todavía
+ * no existe el contexto en ese punto del render. */
+function AdminSidebarNav({
+  activeSection,
+  openSection,
+  badgeCounts,
+}: {
+  activeSection: typeof ADMIN_SECTIONS[number]['id'];
+  openSection: (id: typeof ADMIN_SECTIONS[number]['id']) => void;
+  badgeCounts: Record<string, number>;
+}) {
+  // Con el menú colapsado a solo íconos, no tiene sentido plegar/desplegar
+  // grupos -- ya se ve todo compacto, así que se ignora el estado y se
+  // muestran todos los ítems (mismo criterio que ya usa cada `<span>` de
+  // texto con `group-data-[collapsible=icon]:hidden`).
+  const { state: sidebarState } = useSidebar();
+  const iconOnly = sidebarState === 'collapsed';
+
+  const activeGroup = ADMIN_SECTIONS.find((s) => s.id === activeSection)?.group;
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(activeGroup ? [activeGroup] : []));
+
+  const toggleGroup = (group: string) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group); else next.add(group);
+      return next;
+    });
+  };
+
+  return (
+    <>
+      {ADMIN_SECTION_GROUPS.map((group) => {
+        const isOpen = iconOnly || openGroups.has(group);
+        const sections = ADMIN_SECTIONS.filter((s) => s.group === group);
+        const hasBadge = sections.some((s) => (badgeCounts[s.id] ?? 0) > 0);
+        return (
+          <SidebarGroup key={group} className="py-1">
+            <button
+              type="button"
+              onClick={() => toggleGroup(group)}
+              aria-expanded={isOpen}
+              className="flex w-full items-center justify-between rounded-md px-2 h-8 text-[13px] font-medium tracking-wide text-sidebar-foreground/70 hover:text-sidebar-foreground transition-colors group-data-[collapsible=icon]:hidden"
+            >
+              <span className="flex items-center gap-1.5">
+                {group}
+                {!isOpen && hasBadge && <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />}
+              </span>
+              <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isOpen && (
+              <SidebarMenu>
+                {sections.map((section) => {
+                  const count = badgeCounts[section.id] ?? 0;
+                  return (
+                    <SidebarMenuItem key={section.id}>
+                      <SidebarMenuButton
+                        isActive={activeSection === section.id}
+                        onClick={() => openSection(section.id)}
+                        tooltip={count > 0 ? `${section.label} (${count})` : section.label}
+                        className="h-10 rounded-xl text-[15px] data-[active=true]:bg-gradient-to-r data-[active=true]:from-primary/15 data-[active=true]:to-secondary/15 data-[active=true]:text-primary data-[active=true]:font-semibold"
+                      >
+                        {/* El ícono va como hijo DIRECTO del botón a propósito:
+                            sidebarMenuButtonVariants lo dimensiona con `[&>svg]` y
+                            envolverlo en un span rompe el tamaño en modo colapsado. */}
+                        <section.icon className="h-4 w-4" />
+                        <span>{section.label}</span>
+                      </SidebarMenuButton>
+                      {count > 0 && (
+                        <>
+                          <SidebarMenuBadge className="bg-primary/15 text-primary font-bold">
+                            {count > 99 ? '99+' : count}
+                          </SidebarMenuBadge>
+                          {/* Con el menú colapsado a íconos, SidebarMenuBadge se
+                              esconde solo (sidebar.tsx) -- sin este puntito no se
+                              vería ninguna alerta. Va sobre el <li> (que es
+                              `relative`) y no dentro del botón, porque el botón
+                              tiene `overflow-hidden` y lo recortaría. */}
+                          <span className="pointer-events-none absolute left-6 top-1.5 hidden h-2 w-2 rounded-full bg-primary ring-2 ring-sidebar group-data-[collapsible=icon]:block" />
+                        </>
+                      )}
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            )}
+          </SidebarGroup>
+        );
+      })}
+    </>
+  );
+}
+
 export default function AdminDashboard() {
   // El panel nunca debe aparecer en Google. robots.txt no basta -- ademas
   // publica la ruta a quien lo lea; la etiqueta noindex es lo que de verdad
@@ -8323,45 +8423,7 @@ export default function AdminDashboard() {
             </div>
           </SidebarHeader>
           <SidebarContent className="px-2 py-2">
-            {ADMIN_SECTION_GROUPS.map((group) => (
-              <SidebarGroup key={group} className="py-1">
-                <SidebarGroupLabel className="text-[13px] tracking-wide">{group}</SidebarGroupLabel>
-                <SidebarMenu>
-                  {ADMIN_SECTIONS.filter((s) => s.group === group).map((section) => {
-                    const count = badgeCounts[section.id] ?? 0;
-                    return (
-                    <SidebarMenuItem key={section.id}>
-                      <SidebarMenuButton
-                        isActive={activeSection === section.id}
-                        onClick={() => openSection(section.id)}
-                        tooltip={count > 0 ? `${section.label} (${count})` : section.label}
-                        className="h-10 rounded-xl text-[15px] data-[active=true]:bg-gradient-to-r data-[active=true]:from-primary/15 data-[active=true]:to-secondary/15 data-[active=true]:text-primary data-[active=true]:font-semibold"
-                      >
-                        {/* El ícono va como hijo DIRECTO del botón a propósito:
-                            sidebarMenuButtonVariants lo dimensiona con `[&>svg]` y
-                            envolverlo en un span rompe el tamaño en modo colapsado. */}
-                        <section.icon className="h-4 w-4" />
-                        <span>{section.label}</span>
-                      </SidebarMenuButton>
-                      {count > 0 && (
-                        <>
-                          <SidebarMenuBadge className="bg-primary/15 text-primary font-bold">
-                            {count > 99 ? '99+' : count}
-                          </SidebarMenuBadge>
-                          {/* Con el menú colapsado a íconos, SidebarMenuBadge se
-                              esconde solo (sidebar.tsx) -- sin este puntito no se
-                              vería ninguna alerta. Va sobre el <li> (que es
-                              `relative`) y no dentro del botón, porque el botón
-                              tiene `overflow-hidden` y lo recortaría. */}
-                          <span className="pointer-events-none absolute left-6 top-1.5 hidden h-2 w-2 rounded-full bg-primary ring-2 ring-sidebar group-data-[collapsible=icon]:block" />
-                        </>
-                      )}
-                    </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroup>
-            ))}
+            <AdminSidebarNav activeSection={activeSection} openSection={openSection} badgeCounts={badgeCounts} />
           </SidebarContent>
           <SidebarFooter className="p-3">
             <button
