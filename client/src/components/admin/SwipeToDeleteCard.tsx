@@ -29,19 +29,34 @@ export function SwipeToDeleteCard({
   const [swipeX, setSwipeX] = useState(0);
   const [dragging, setDragging] = useState(false);
   const startX = useRef<number | null>(null);
+  const startY = useRef<number | null>(null);
+  // null = todavía no se sabe si el dedo va horizontal o vertical (los
+  // primeros px deciden); una vez decidido no cambia hasta soltar, para que
+  // un swipe real no se corte a mitad de camino por un tembleque del dedo.
+  const horizontalLock = useRef<boolean | null>(null);
 
   const onTouchStart = (e: React.TouchEvent) => {
     startX.current = e.touches[0].clientX;
+    startY.current = e.touches[0].clientY;
+    horizontalLock.current = null;
     setDragging(true);
   };
   const onTouchMove = (e: React.TouchEvent) => {
-    if (startX.current === null) return;
-    const delta = e.touches[0].clientX - startX.current;
-    setSwipeX(delta > 0 ? 0 : Math.max(delta, -REVEAL_WIDTH));
+    if (startX.current === null || startY.current === null) return;
+    const deltaX = e.touches[0].clientX - startX.current;
+    const deltaY = e.touches[0].clientY - startY.current;
+    if (horizontalLock.current === null && (Math.abs(deltaX) > 6 || Math.abs(deltaY) > 6)) {
+      horizontalLock.current = Math.abs(deltaX) > Math.abs(deltaY);
+    }
+    if (!horizontalLock.current) return; // gesto vertical: se deja scrollear la página normal
+    setSwipeX(deltaX > 0 ? 0 : Math.max(deltaX, -REVEAL_WIDTH));
   };
   const onTouchEnd = () => {
     setDragging(false);
-    setSwipeX((x) => (x < -REVEAL_WIDTH / 2 ? -REVEAL_WIDTH : 0));
+    if (horizontalLock.current) {
+      setSwipeX((x) => (x < -REVEAL_WIDTH / 2 ? -REVEAL_WIDTH : 0));
+    }
+    horizontalLock.current = null;
   };
 
   return (
@@ -61,7 +76,7 @@ export function SwipeToDeleteCard({
         </ConfirmDeleteButton>
       </div>
       <div
-        className="relative bg-white"
+        className="relative bg-white touch-pan-y"
         style={{ transform: `translateX(${swipeX}px)`, transition: dragging ? 'none' : 'transform 150ms ease' }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
