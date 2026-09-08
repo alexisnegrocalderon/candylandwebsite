@@ -6931,6 +6931,21 @@ function FlashPromoCard() {
     onError: onMutationError,
   });
 
+  // Plantillas pregrabadas: tocar una solo rellena el formulario de arriba
+  // -- el envío real sigue siendo el botón "Enviar ahora", nunca un
+  // toque solo.
+  const { data: presets, refetch: refetchPresets } = trpc.flashPromo.listPresets.useQuery();
+  const savePreset = trpc.flashPromo.savePreset.useMutation({ onSuccess: () => { refetchPresets(); setSavingPresetName(''); }, onError: onMutationError });
+  const deletePreset = trpc.flashPromo.deletePreset.useMutation({ onSuccess: () => refetchPresets(), onError: onMutationError });
+  const [savingPresetName, setSavingPresetName] = useState<string | null>(null);
+
+  const applyPreset = (p: NonNullable<typeof presets>[number]) => {
+    setMessage(p.message);
+    setDiscountPercent(p.discountPercent);
+    setMinutes(p.minutes);
+    setSelectedIds(p.ticketTypeIds);
+  };
+
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
       <CardHeader><CardTitle>🎉 Promo relámpago</CardTitle></CardHeader>
@@ -6940,6 +6955,22 @@ function FlashPromoCard() {
           activas, con un descuento que solo aplica a los productos que elijas abajo -- en Caja les aparece la insignia
           "🔥 Promo Flash" y el descuento se aplica solo, sin código; para quien compra online, el código va en el push.
         </p>
+
+        {presets && presets.length > 0 && (
+          <div className="space-y-1.5">
+            <Label>Plantillas guardadas</Label>
+            <div className="flex flex-wrap gap-2">
+              {presets.map((p) => (
+                <span key={p.id} className="inline-flex items-center gap-1 rounded-full border border-border/50 pl-3 pr-1 py-1 text-sm">
+                  <button type="button" onClick={() => applyPreset(p)} className="hover:underline">⚡ {p.label}</button>
+                  <button type="button" aria-label="Eliminar plantilla" onClick={() => deletePreset.mutate({ id: p.id })}
+                    className="w-5 h-5 grid place-items-center rounded-full text-muted-foreground hover:bg-muted">×</button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div>
           <Label>Mensaje</Label>
           <Input
@@ -6980,13 +7011,31 @@ function FlashPromoCard() {
             </div>
           )}
         </div>
-        <WriteButton
-          onClick={() => send.mutate({ message: message.trim(), discountPercent, minutes, ticketTypeIds: selectedIds })}
-          disabled={send.isPending || message.trim().length < 3 || selectedIds.length === 0}
-          className="interactive"
-        >
-          {send.isPending ? 'Enviando…' : 'Enviar ahora'}
-        </WriteButton>
+        <div className="flex flex-wrap items-center gap-2">
+          <WriteButton
+            onClick={() => send.mutate({ message: message.trim(), discountPercent, minutes, ticketTypeIds: selectedIds })}
+            disabled={send.isPending || message.trim().length < 3 || selectedIds.length === 0}
+            className="interactive"
+          >
+            {send.isPending ? 'Enviando…' : 'Enviar ahora'}
+          </WriteButton>
+          {savingPresetName === null ? (
+            <Button variant="outline" size="sm" disabled={message.trim().length < 3 || selectedIds.length === 0}
+              onClick={() => setSavingPresetName('')}>
+              Guardar como plantilla
+            </Button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Input value={savingPresetName} onChange={(e) => setSavingPresetName(e.target.value)}
+                placeholder="Nombre corto, ej: Piscolas 50%" maxLength={60} className="h-9 w-56" autoFocus />
+              <Button size="sm" disabled={!savingPresetName.trim() || savePreset.isPending}
+                onClick={() => savePreset.mutate({ label: savingPresetName.trim(), message: message.trim(), discountPercent, minutes, ticketTypeIds: selectedIds })}>
+                Guardar
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setSavingPresetName(null)}>Cancelar</Button>
+            </div>
+          )}
+        </div>
 
         {result && (
           <div className="p-3.5 rounded-xl border border-border/50 text-sm space-y-1">
@@ -7439,6 +7488,13 @@ function CartaManager() {
     onError: onMutationError,
   });
   const deleteType = trpc.events.deleteTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  // Todo evento nuevo ya nace con la carta del anterior copiada sola --
+  // este botón es para repetirlo a mano (ej. arreglar un evento que quedó
+  // sin carta, o volver a copiar si hace falta).
+  const copyCarta = trpc.events.copyCartaFromPrevious.useMutation({
+    onSuccess: (r) => { utils.events.listTicketTypes.invalidate(); refetch(); toast.success(`Copiados ${r.copied} productos de "${r.from}"`); },
+    onError: onMutationError,
+  });
   // Mismo endpoint que edita el producto (events.updateTicketType ya acepta
   // `status`) -- así el admin puede agotar/reponer sin depender de /cocina.
   const toggleSoldOut = trpc.events.updateTicketType.useMutation({
@@ -7501,6 +7557,18 @@ function CartaManager() {
               {(events ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
             </SelectContent>
           </Select>
+          <Button
+            variant="outline"
+            disabled={!activeId || copyCarta.isPending}
+            onClick={() => {
+              if (!activeId) return;
+              if (window.confirm('¿Copiar la carta del evento anterior acá? Si ya hay productos cargados, se suman (no se reemplazan).')) {
+                copyCarta.mutate({ eventId: activeId });
+              }
+            }}
+          >
+            {copyCarta.isPending ? 'Copiando…' : 'Copiar carta del evento anterior'}
+          </Button>
           <WriteButton onClick={openNew} className="interactive"><Plus className="w-4 h-4 mr-2" /> Nuevo producto</WriteButton>
         </div>
       </div>

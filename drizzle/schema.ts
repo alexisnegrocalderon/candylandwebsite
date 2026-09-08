@@ -447,6 +447,10 @@ export const siteSettings = mysqlTable("siteSettings", {
   // en shared/adminAlertsConfig.ts. null = todas apagadas (desplegar esto no
   // debe empezar a mandar nada solo, mismo criterio que foundersPromoEnabled).
   adminAlertsConfig: json("adminAlertsConfig"),
+  // Plantillas de Promo Flash guardadas para activar con un toque durante
+  // la fiesta -- forma en shared/flashPromoPresets.ts. null = ninguna
+  // guardada todavía.
+  flashPromoPresets: json("flashPromoPresets"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
