@@ -110,9 +110,15 @@ export async function createCajaSale(
     if (validation.valid && validation.discount) {
       const disc = validation.discount;
       appliedDiscountId = disc.id;
+      // Promo relámpago (`applicableTicketTypeIds`): el % se calcula solo
+      // sobre las líneas de esos productos, no sobre todo el carrito.
+      const scopeIds = disc.applicableTicketTypeIds as number[] | null;
+      const eligibleTotal = scopeIds && scopeIds.length > 0
+        ? lineItems.filter((li) => scopeIds.includes(li.ticketTypeId)).reduce((sum, li) => sum + li.unitPrice * li.quantity, 0)
+        : total;
       discountAmount = disc.discountType === 'percentage'
-        ? Math.round(total * Number(disc.discountValue) / 100)
-        : Math.min(Number(disc.discountValue), total);
+        ? Math.round(eligibleTotal * Number(disc.discountValue) / 100)
+        : Math.min(Number(disc.discountValue), eligibleTotal);
     }
   }
 

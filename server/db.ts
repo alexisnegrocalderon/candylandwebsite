@@ -576,6 +576,36 @@ export async function validateDiscountCode(code: string, eventId: number) {
   return { valid: true, discount };
 }
 
+/** La promo relámpago activa ahora mismo para este evento (si hay alguna) --
+ * la usa Caja para pintar la insignia "Promo Flash" en los productos y para
+ * aplicar el descuento solo, sin que la cajera escriba ningún código.
+ * Se distingue de un código de descuento manual porque tiene
+ * `applicableTicketTypeIds` -- esos siempre son `null`. */
+export async function getActiveFlashPromo(eventId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const now = new Date();
+  const rows = await db.select().from(discountCodes)
+    .where(and(
+      eq(discountCodes.eventId, eventId),
+      eq(discountCodes.isActive, 1),
+      sql`${discountCodes.applicableTicketTypeIds} is not null`,
+      gt(discountCodes.validUntil, now),
+    ))
+    .orderBy(desc(discountCodes.validUntil))
+    .limit(1);
+  const promo = rows[0];
+  if (!promo) return null;
+  return {
+    code: promo.code,
+    ticketTypeIds: (promo.applicableTicketTypeIds as number[] | null) ?? [],
+    discountType: promo.discountType,
+    discountValue: Number(promo.discountValue),
+    expiresAt: promo.validUntil as Date,
+    message: promo.description ?? '',
+  };
+}
+
 export async function getAllDiscountCodes() {
   const db = await getDb();
   if (!db) return [];
@@ -958,6 +988,8 @@ export async function createOrder(input: {
   validateStockPoolCapacity(input.items, tts, poolRemainingById);
 
   // Apply discount — solo sobre el subtotal de accesos, nunca sobre extras.
+  // Si el código trae `applicableTicketTypeIds` (promo relámpago), se acota
+  // todavía más: solo sobre los accesos cuyo ticketTypeId esté en esa lista.
   let discountAmount = 0;
   let discountCodeId: number | undefined;
   if (input.discountCode) {
@@ -965,10 +997,16 @@ export async function createOrder(input: {
     if (validation.valid && validation.discount) {
       const disc = validation.discount;
       discountCodeId = disc.id;
+      const scopeIds = disc.applicableTicketTypeIds as number[] | null;
+      const eligibleSubtotal = scopeIds && scopeIds.length > 0
+        ? input.items
+          .filter((item) => tts.find((t) => t.id === item.ticketTypeId)?.category === 'acceso' && scopeIds.includes(item.ticketTypeId))
+          .reduce((sum, item) => sum + (unitPrices.get(item.ticketTypeId) ?? 0) * item.quantity, 0)
+        : accesoSubtotal;
       if (disc.discountType === 'percentage') {
-        discountAmount = Math.round(accesoSubtotal * Number(disc.discountValue) / 100);
+        discountAmount = Math.round(eligibleSubtotal * Number(disc.discountValue) / 100);
       } else {
-        discountAmount = Math.min(Number(disc.discountValue), accesoSubtotal);
+        discountAmount = Math.min(Number(disc.discountValue), eligibleSubtotal);
       }
       // Increment used count
       await db.update(discountCodes).set({ usedCount: sql`usedCount + 1` }).where(eq(discountCodes.id, disc.id));

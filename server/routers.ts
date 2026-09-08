@@ -1596,6 +1596,7 @@ export const appRouter = router({
       message: z.string().min(3).max(200),
       discountPercent: z.number().int().min(1).max(100),
       minutes: z.number().int().min(1).max(180),
+      ticketTypeIds: z.array(z.number()).min(1),
     })).mutation(async ({ input }) => {
       const event = await db.getActiveEventForCaja();
       if (!event) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No hay una fiesta activa ahora mismo' });
@@ -1612,6 +1613,7 @@ export const appRouter = router({
         validFrom: now,
         validUntil: expiresAt,
         isActive: 1,
+        applicableTicketTypeIds: input.ticketTypeIds,
       });
 
       const { sent } = await sendPushToEventGuests(event.id, {
@@ -1621,6 +1623,11 @@ export const appRouter = router({
       });
 
       return { code, expiresAt, sent };
+    }),
+    // Pública: Caja la pollea (sin login de cajero necesario para leerla)
+    // para pintar la insignia "Promo Flash" y aplicar el descuento solo.
+    active: publicProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return db.getActiveFlashPromo(input.eventId);
     }),
   }),
 

@@ -6903,10 +6903,32 @@ function FlashPromoCard() {
   const [message, setMessage] = useState('');
   const [discountPercent, setDiscountPercent] = useState(50);
   const [minutes, setMinutes] = useState(15);
-  const [result, setResult] = useState<{ code: string; expiresAt: Date; sent: number } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [result, setResult] = useState<{ code: string; expiresAt: Date; sent: number; products: string[] } | null>(null);
+
+  const { data: activeEvent } = trpc.events.getActiveForCaja.useQuery();
+  const { data: ticketTypes } = trpc.events.listTicketTypes.useQuery(
+    { eventId: activeEvent?.id! },
+    { enabled: !!activeEvent?.id },
+  );
+  // Solo lo que se vende en Caja -- la promo relámpago es para eso, y son
+  // los mismos productos que "Sin stock"/"Agotado" ya pintan en /caja.
+  const cajaProducts = useMemo(
+    () => (ticketTypes ?? []).filter((t: any) => ['consumo', 'locker', 'merch'].includes(t.category) && t.status === 'active'),
+    [ticketTypes],
+  );
+
+  const toggleId = (id: number) => {
+    setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  };
 
   const send = trpc.flashPromo.send.useMutation({
-    onSuccess: (r) => { setResult(r); setMessage(''); },
+    onSuccess: (r) => {
+      const products = cajaProducts.filter((p: any) => selectedIds.includes(p.id)).map((p: any) => p.name);
+      setResult({ ...r, products });
+      setMessage('');
+      setSelectedIds([]);
+    },
     onError: onMutationError,
   });
 
@@ -6916,8 +6938,8 @@ function FlashPromoCard() {
       <CardContent className="space-y-4">
         <p className="text-muted-foreground text-sm">
           Manda un push en vivo a todos los invitados de la fiesta que estén ahora mismo en Playmatch con notificaciones
-          activas, con un código de descuento que solo sirve mientras dure el tiempo que elijas -- ya sea que lo usen en
-          el checkout del sitio o lo digan en caja.
+          activas, con un descuento que solo aplica a los productos que elijas abajo -- en Caja les aparece la insignia
+          "🔥 Promo Flash" y el descuento se aplica solo, sin código; para quien compra online, el código va en el push.
         </p>
         <div>
           <Label>Mensaje</Label>
@@ -6941,9 +6963,27 @@ function FlashPromoCard() {
               onChange={(e) => setMinutes(Number(e.target.value))} className="mt-1" />
           </div>
         </div>
+        <div>
+          <Label>Productos en promo</Label>
+          {!activeEvent && <p className="text-xs text-muted-foreground mt-1">No hay una fiesta activa ahora mismo.</p>}
+          {activeEvent && cajaProducts.length === 0 && (
+            <p className="text-xs text-muted-foreground mt-1">La Carta de la Fiesta de este evento no tiene productos activos.</p>
+          )}
+          {cajaProducts.length > 0 && (
+            <div className="mt-1 max-h-48 overflow-y-auto space-y-1 rounded-xl border border-border/50 p-2">
+              {cajaProducts.map((p: any) => (
+                <label key={p.id} className="flex items-center gap-2 text-sm py-1 px-1 rounded-lg hover:bg-muted/50 cursor-pointer">
+                  <Checkbox checked={selectedIds.includes(p.id)} onCheckedChange={() => toggleId(p.id)} />
+                  <span>{p.emoji} {p.name}</span>
+                  <span className="text-xs text-muted-foreground ml-auto">${Number(p.price).toLocaleString('es-CL')}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
         <WriteButton
-          onClick={() => send.mutate({ message: message.trim(), discountPercent, minutes })}
-          disabled={send.isPending || message.trim().length < 3}
+          onClick={() => send.mutate({ message: message.trim(), discountPercent, minutes, ticketTypeIds: selectedIds })}
+          disabled={send.isPending || message.trim().length < 3 || selectedIds.length === 0}
           className="interactive"
         >
           {send.isPending ? 'Enviando…' : 'Enviar ahora'}
@@ -6954,6 +6994,7 @@ function FlashPromoCard() {
             <p>✅ Enviado a {result.sent} {result.sent === 1 ? 'dispositivo' : 'dispositivos'}.</p>
             <p>Código: <span className="font-mono font-bold">{result.code}</span> -- vale hasta las{' '}
               {new Date(result.expiresAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}.</p>
+            {result.products.length > 0 && <p>Productos: {result.products.join(', ')}.</p>}
           </div>
         )}
       </CardContent>
