@@ -5,6 +5,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminReadProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { nanoid } from "nanoid";
 import * as db from "./db";
 import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail, approveMissionTopupWithoutPayment } from "./webhooks";
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
@@ -53,7 +54,7 @@ import { voidTicketCode } from "./caja/void";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail } from "./email";
 import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emailTemplateConfig";
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
-import { sendTestPushToAllAdmins, sendPushToAdmins } from "./push";
+import { sendTestPushToAllAdmins, sendPushToAdmins, sendPushToProfile, sendPushToEventGuests } from "./push";
 import { runAdminDigest } from "./adminDigest";
 import { buildShiftClosePdf } from "./caja/shiftReportPdf";
 import { buildKitchenVendorPdf } from "./caja/kitchenVendorPdf";
@@ -1410,6 +1411,17 @@ export const appRouter = router({
 
         const res = await db.sendPartyMessage(actor.profile.id, input.connectionId, check.body);
         if (!res.ok) throw new TRPCError({ code: 'FORBIDDEN', message: res.reason });
+
+        // No se manda el contenido del mensaje en la notificación (privacidad) --
+        // solo avisa que llegó algo nuevo, con link de vuelta al chat.
+        const otherTicketCode = await db.getPartyProfileTicketCode(res.otherId);
+        if (otherTicketCode) {
+          await sendPushToProfile(res.otherId, {
+            title: '💌 Nuevo mensaje',
+            body: `${actor.profile.alias} te escribió en Playmatch`,
+            url: `/fiesta/${otherTicketCode}`,
+          });
+        }
         return { ok: true };
       }),
 
@@ -1434,6 +1446,31 @@ export const appRouter = router({
         });
         return { ok: true };
       }),
+
+    // --- Notificaciones push del invitado (mensaje nuevo, promos relámpago) ---
+    // La clave pública VAPID acá SÍ es pública sin gate: a diferencia del
+    // admin, el invitado no tiene sesión detrás de la cual esconderla.
+    getVapidPublicKey: publicProcedure.query(() => {
+      return { publicKey: process.env.VAPID_PUBLIC_KEY ?? null };
+    }),
+    pushSubscribe: publicProcedure.input(z.object({
+      ticketCode: z.string(),
+      endpoint: z.string().url().max(512),
+      p256dh: z.string(),
+      auth: z.string(),
+    })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      return db.savePartyPushSubscription({
+        profileId: actor.profile.id,
+        eventId: actor.event.id,
+        endpoint: input.endpoint,
+        p256dh: input.p256dh,
+        auth: input.auth,
+      });
+    }),
+    pushUnsubscribe: publicProcedure.input(z.object({ endpoint: z.string() })).mutation(async ({ input }) => {
+      return db.deletePartyPushSubscription(input.endpoint);
+    }),
 
     // --- Invitar un trago ---
     // Tres pasos porque el destinatario puede rechazar y nadie paga por un
@@ -1547,6 +1584,43 @@ export const appRouter = router({
       const result = await db.deleteDiscountCode(input.id);
       await db.recordAdminAudit({ action: 'discounts.delete', targetType: 'discountCode', targetId: input.id, ip: clientIp(ctx) });
       return result;
+    }),
+  }),
+
+  // Promo relámpago: un código con vencimiento (mismo `discountCodes` de
+  // siempre -- ya lo valida el checkout web Y la venta de Caja, así que no
+  // hace falta ningún flujo de compra nuevo) + un push en vivo a todos los
+  // invitados suscritos de la fiesta activa.
+  flashPromo: router({
+    send: adminProcedure.input(z.object({
+      message: z.string().min(3).max(200),
+      discountPercent: z.number().int().min(1).max(100),
+      minutes: z.number().int().min(1).max(180),
+    })).mutation(async ({ input }) => {
+      const event = await db.getActiveEventForCaja();
+      if (!event) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No hay una fiesta activa ahora mismo' });
+
+      const code = `FLASH${nanoid(4).toUpperCase()}`;
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + input.minutes * 60_000);
+      await db.createDiscountCode({
+        code,
+        description: input.message,
+        discountType: 'percentage',
+        discountValue: input.discountPercent,
+        eventId: event.id,
+        validFrom: now,
+        validUntil: expiresAt,
+        isActive: 1,
+      });
+
+      const { sent } = await sendPushToEventGuests(event.id, {
+        title: '🎉 Promo relámpago',
+        body: `${input.message} -- código ${code}, vale por ${input.minutes} min`,
+        url: `/eventos/${event.slug}`,
+      });
+
+      return { code, expiresAt, sent };
     }),
   }),
 

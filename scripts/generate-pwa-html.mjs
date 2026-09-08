@@ -29,6 +29,7 @@ const SCREENS = [
   { file: 'caja.html', manifest: '/caja.webmanifest', title: 'Caja' },
   { file: 'puerta.html', manifest: '/puerta.webmanifest', title: 'Puerta' },
   { file: 'gastos.html', manifest: '/gastos.webmanifest', title: 'Gastos' },
+  { file: 'fiesta.html', manifest: '/fiesta.webmanifest', title: 'Playmatch' },
 ];
 
 for (const screen of SCREENS) {

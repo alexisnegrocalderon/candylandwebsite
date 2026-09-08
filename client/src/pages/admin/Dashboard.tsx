@@ -6693,6 +6693,7 @@ function SettingsManager() {
       </Card>
       <WebauthnSecurityCard />
       <AlertasCard />
+      <FlashPromoCard />
     </div>
   );
 }
@@ -6886,6 +6887,73 @@ function AlertasCard() {
                 <Button variant="ghost" size="sm" onClick={() => removeSubscription.mutate({ id: s.id })}>Quitar</Button>
               </div>
             ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Promo relámpago: crea un código de descuento con vencimiento (mismo
+ * `discountCodes` de siempre -- lo valida el checkout web Y la venta de
+ * Caja, así que el código sirve tanto para pagar en línea como para decirlo
+ * en caja, siempre que sea DENTRO del tiempo) y avisa por push a todos los
+ * invitados de la fiesta activa que tengan notificaciones prendidas. */
+function FlashPromoCard() {
+  const [message, setMessage] = useState('');
+  const [discountPercent, setDiscountPercent] = useState(50);
+  const [minutes, setMinutes] = useState(15);
+  const [result, setResult] = useState<{ code: string; expiresAt: Date; sent: number } | null>(null);
+
+  const send = trpc.flashPromo.send.useMutation({
+    onSuccess: (r) => { setResult(r); setMessage(''); },
+    onError: onMutationError,
+  });
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader><CardTitle>🎉 Promo relámpago</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-muted-foreground text-sm">
+          Manda un push en vivo a todos los invitados de la fiesta que estén ahora mismo en Playmatch con notificaciones
+          activas, con un código de descuento que solo sirve mientras dure el tiempo que elijas -- ya sea que lo usen en
+          el checkout del sitio o lo digan en caja.
+        </p>
+        <div>
+          <Label>Mensaje</Label>
+          <Input
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Ej: Piscolas 50% OFF por los próximos 15 minutos"
+            maxLength={200}
+            className="mt-1"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label>% de descuento</Label>
+            <Input type="number" min={1} max={100} value={discountPercent}
+              onChange={(e) => setDiscountPercent(Number(e.target.value))} className="mt-1" />
+          </div>
+          <div>
+            <Label>Dura (minutos)</Label>
+            <Input type="number" min={1} max={180} value={minutes}
+              onChange={(e) => setMinutes(Number(e.target.value))} className="mt-1" />
+          </div>
+        </div>
+        <WriteButton
+          onClick={() => send.mutate({ message: message.trim(), discountPercent, minutes })}
+          disabled={send.isPending || message.trim().length < 3}
+          className="interactive"
+        >
+          {send.isPending ? 'Enviando…' : 'Enviar ahora'}
+        </WriteButton>
+
+        {result && (
+          <div className="p-3.5 rounded-xl border border-border/50 text-sm space-y-1">
+            <p>✅ Enviado a {result.sent} {result.sent === 1 ? 'dispositivo' : 'dispositivos'}.</p>
+            <p>Código: <span className="font-mono font-bold">{result.code}</span> -- vale hasta las{' '}
+              {new Date(result.expiresAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}.</p>
           </div>
         )}
       </CardContent>
