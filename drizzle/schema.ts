@@ -320,6 +320,11 @@ export const discountCodes = mysqlTable("discountCodes", {
   maxUses: int("maxUses"),
   usedCount: int("usedCount").default(0).notNull(),
   eventId: int("eventId"),
+  // Solo la promo relámpago la usa: lista de `ticketTypes.id` a los que se
+  // les aplica el descuento. `null` (todos los códigos manuales de
+  // Ajustes → Descuentos) = comportamiento de siempre, sobre el carrito
+  // completo -- no rompe nada existente.
+  applicableTicketTypeIds: json("applicableTicketTypeIds").$type<number[]>(),
   validFrom: timestamp("validFrom"),
   validUntil: timestamp("validUntil"),
   isActive: int("isActive").default(1).notNull(),

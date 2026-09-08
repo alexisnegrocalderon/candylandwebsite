@@ -1209,6 +1209,24 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
     }
   };
 
+  // Promo relámpago: mismo ritmo que el catálogo (60s, ver `caja.snapshot`
+  // más arriba) para que la insignia aparezca/desaparezca sola.
+  const { data: flashPromo } = trpc.flashPromo.active.useQuery({ eventId }, { refetchInterval: 60_000 });
+  const flashPromoActive = !!flashPromo && new Date(flashPromo.expiresAt) > new Date();
+
+  // Si el carrito tiene algún producto en promo relámpago y la cajera NO
+  // escribió un código a mano, se aplica solo -- el código manual, si lo
+  // hay, siempre manda (por si la cajera prefiere aplicar otro).
+  useEffect(() => {
+    if (!flashPromoActive || discountCode.trim()) return;
+    const hasFlashItem = Object.entries(cart).some(([id, qty]) => qty > 0 && flashPromo!.ticketTypeIds.includes(Number(id)));
+    if (hasFlashItem && discountResult?.discount?.code !== flashPromo!.code) {
+      setDiscountResult({ valid: true, discount: { code: flashPromo!.code, discountType: flashPromo!.discountType, discountValue: flashPromo!.discountValue } });
+    } else if (!hasFlashItem && discountResult?.discount?.code === flashPromo?.code) {
+      setDiscountResult(null);
+    }
+  }, [cart, flashPromoActive, flashPromo, discountCode]);
+
   // Guardarropía: el número de la percha lo genera la propia tablet al
   // confirmar (nextLockerTagNumber) -- acá solo se pide el nombre del
   // cliente, para poder ubicar la prenda por nombre en vez de por número.
@@ -1321,7 +1339,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
     try {
       await onSale(
         cartItems, method, buyerEmail.trim() || undefined, redeemAmount || undefined,
-        discountResult?.valid ? discountCode.trim() : undefined,
+        discountResult?.valid ? discountResult.discount.code : undefined,
         lockerTag,
         needsLockerTag ? lockerCustomerName.trim() : undefined,
         kitchenTicketNumber,
@@ -1424,6 +1442,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
                 // avisa pero deja vender igual, por discrepancias normales de
                 // inventario -- ver server/caja/sale.ts).
                 const soldOut = p.status === 'soldout';
+                const isFlashPromo = flashPromoActive && flashPromo!.ticketTypeIds.includes(p.id);
                 return (
                   <button
                     key={p.id}
@@ -1454,6 +1473,11 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
                     {editingFavorites && (
                       <span className={`absolute top-2 right-2 text-lg leading-none ${isFavorite ? '' : 'opacity-30'}`}>
                         {isFavorite ? '⭐' : '☆'}
+                      </span>
+                    )}
+                    {isFlashPromo && !soldOut && (
+                      <span className="absolute top-2 left-2 text-[10px] font-bold uppercase tracking-wide bg-amber-500 text-black px-2 py-0.5 rounded-full">
+                        🔥 Promo Flash
                       </span>
                     )}
                     {!editingFavorites && !soldOut && noStock && (
@@ -1677,22 +1701,30 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
             {/* Código de descuento -- solo vista previa, el servidor lo
                 revalida al cobrar. Sin señal simplemente no se puede aplicar. */}
             <div className="space-y-1">
-              <div className="flex gap-2">
-                <Input
-                  value={discountCode}
-                  onChange={(e) => { setDiscountCode(e.target.value.toUpperCase()); setDiscountResult(null); }}
-                  placeholder="Código de descuento"
-                  className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
-                />
-                <Button size="sm" variant="outline" className="border-white/15 text-white shrink-0" disabled={!discountCode.trim() || validateDiscount.isPending} onClick={applyDiscount}>
-                  {validateDiscount.isPending ? '…' : 'Aplicar'}
-                </Button>
-              </div>
-              {discountResult?.valid && discountResult.discount && (
-                <p className="text-xs text-green-400">✓ Descuento aplicado: {discountResult.discount.discountType === 'percentage' ? `${discountResult.discount.discountValue}%` : `$${Number(discountResult.discount.discountValue).toLocaleString('es-CL')}`}</p>
-              )}
-              {discountResult && !discountResult.valid && (
-                <p className="text-xs text-red-400">{discountResult.message || 'Código no válido'}</p>
+              {discountResult?.valid && !discountCode.trim() && discountResult.discount?.code === flashPromo?.code ? (
+                <p className="text-xs text-amber-400">
+                  🔥 Promo Flash aplicada automáticamente: {discountResult.discount.discountValue}% -- no hace falta código.
+                </p>
+              ) : (
+                <>
+                  <div className="flex gap-2">
+                    <Input
+                      value={discountCode}
+                      onChange={(e) => { setDiscountCode(e.target.value.toUpperCase()); setDiscountResult(null); }}
+                      placeholder="Código de descuento"
+                      className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                    />
+                    <Button size="sm" variant="outline" className="border-white/15 text-white shrink-0" disabled={!discountCode.trim() || validateDiscount.isPending} onClick={applyDiscount}>
+                      {validateDiscount.isPending ? '…' : 'Aplicar'}
+                    </Button>
+                  </div>
+                  {discountResult?.valid && discountResult.discount && (
+                    <p className="text-xs text-green-400">✓ Descuento aplicado: {discountResult.discount.discountType === 'percentage' ? `${discountResult.discount.discountValue}%` : `$${Number(discountResult.discount.discountValue).toLocaleString('es-CL')}`}</p>
+                  )}
+                  {discountResult && !discountResult.valid && (
+                    <p className="text-xs text-red-400">{discountResult.message || 'Código no válido'}</p>
+                  )}
+                </>
               )}
             </div>
 
