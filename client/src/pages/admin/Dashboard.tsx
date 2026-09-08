@@ -32,6 +32,14 @@ import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { MailingComposer } from '@/components/admin/MailingComposer';
+import { StatusBadge } from '@/components/admin/StatusBadge';
+import { StatTile } from '@/components/admin/StatTile';
+import { BentoGrid, BentoTile } from '@/components/admin/BentoGrid';
+import { RowActions, RowActionLink, RowActionButton } from '@/components/admin/RowActions';
+import { SwipeToDeleteCard } from '@/components/admin/SwipeToDeleteCard';
+import { SwipeToDeleteRow } from '@/components/admin/SwipeToDeleteRow';
+import { EmptyState } from '@/components/admin/EmptyState';
+import { TableSkeleton } from '@/components/admin/TableSkeleton';
 import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
 import { computePhasePrice, nextPhase, normalizeTandaSchedule, type TandaPhase } from '@shared/tandaSchedule';
 import {
@@ -2157,7 +2165,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const { data: eventsList } = trpc.events.listAll.useQuery();
   const eventId = eventFilter === 'all' ? undefined : Number(eventFilter);
 
-  const { data: ordersData, refetch: refetchOrders } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter, channel, eventId });
+  const { data: ordersData, isLoading: ordersLoading, refetch: refetchOrders } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter, channel, eventId });
   const { data: stats, refetch: refetchStats } = trpc.orders.getStats.useQuery({ channel, eventId });
   const { data: orderTickets, isFetching: loadingTickets } = trpc.orders.getTickets.useQuery(
     { orderId: expandedOrderId ?? 0 },
@@ -2298,179 +2306,293 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         onSent={() => { setSelectedIds(new Set()); refetchOrders(); }}
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard icon={DollarSign} colorClass="bg-[oklch(0.70_0.19_340)]" value={`$${Number(stats?.totalRevenue ?? 0).toLocaleString('es-CL')}`} label="Ingresos Totales" />
-        <StatCard icon={Ticket} colorClass="bg-[oklch(0.74_0.13_220)]" value={stats?.totalOrders ?? 0} label="Órdenes Totales" />
-        <StatCard icon={Users} colorClass="bg-[oklch(0.75_0.15_230)]" value={stats?.approvedOrders ?? 0} label="Pagos Aprobados" />
-      </div>
+      <BentoGrid>
+        <BentoTile span={2}>
+          <StatTile size="lg" icon={DollarSign} tone="revenue" value={`$${Number(stats?.totalRevenue ?? 0).toLocaleString('es-CL')}`} label="Ingresos Totales" />
+        </BentoTile>
+        <BentoTile>
+          <StatTile icon={Ticket} tone="count" value={stats?.totalOrders ?? 0} label="Órdenes Totales" />
+        </BentoTile>
+        <BentoTile>
+          <StatTile icon={Users} tone="success" value={stats?.approvedOrders ?? 0} label="Pagos Aprobados" />
+        </BentoTile>
+      </BentoGrid>
 
-      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-        <CardContent className="pt-6">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  {remindersMode && (
-                    <th className="text-left py-2 px-3 w-10">
-                      <Checkbox
-                        checked={allSelected}
-                        onCheckedChange={(v) => setSelectedIds(v ? new Set(ordersList.map((o: any) => o.id)) : new Set())}
-                        aria-label="Seleccionar todas"
-                      />
-                    </th>
-                  )}
-                  <th className="text-left py-2 px-3">Orden</th>
-                  <th className="text-left py-2 px-3">Comprador</th>
-                  <th className="text-left py-2 px-3">Total</th>
-                  <th className="text-left py-2 px-3">Extras</th>
-                  <th className="text-left py-2 px-3">Estado</th>
-                  <th className="text-left py-2 px-3">Fecha</th>
-                  {remindersMode && <th className="text-left py-2 px-3">Recordatorio</th>}
-                  <th className="text-left py-2 px-3">Contacto</th>
-                  <th className="text-left py-2 px-3">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleOrders.map((order: any) => (
-                  <Fragment key={order.id}>
-                    <tr className="border-b border-border/50">
+      {ordersLoading ? (
+        <div className="admin-clay p-6">
+          <TableSkeleton rows={6} />
+        </div>
+      ) : visibleOrders.length === 0 ? (
+        <EmptyState
+          icon={Ticket}
+          title={search.trim() ? 'Sin resultados para esa búsqueda' : 'Todavía no hay ventas acá'}
+          description={search.trim() ? 'Prueba con otro nombre, email o N° de orden.' : 'Cuando entren ventas para este filtro, van a aparecer en esta lista.'}
+        />
+      ) : (
+        <>
+          {/* Tabla completa -- iPad horizontal y escritorio. Cada fila usa
+              SwipeToDeleteRow, que solo activa el gesto en táctil
+              (`useCoarsePointer`, no un ancho de pantalla): en iPad el
+              swipe revela "Eliminar" igual que en la tarjeta de iPhone; en
+              mouse/escritorio real la fila se renderiza tal cual, sin
+              ningún rastro de borrar -- pedido explícito del dueño. */}
+          <Card className="hidden md:block admin-clay border-0">
+            <CardContent className="pt-6">
+              <div className="overflow-x-auto">
+                <table className="w-full text-[16px]">
+                  <thead>
+                    <tr className="border-b border-[var(--admin-glass-border)]">
                       {remindersMode && (
-                        <td className="py-2 px-3">
+                        <th className="text-left py-2.5 px-3 w-10">
                           <Checkbox
-                            checked={selectedIds.has(order.id)}
-                            onCheckedChange={() => toggleSelected(order.id)}
-                            aria-label={`Seleccionar ${order.orderNumber}`}
+                            checked={allSelected}
+                            onCheckedChange={(v) => setSelectedIds(v ? new Set(ordersList.map((o: any) => o.id)) : new Set())}
+                            aria-label="Seleccionar todas"
                           />
-                        </td>
+                        </th>
                       )}
-                      <td className="py-2 px-3 font-mono text-xs">{order.orderNumber}</td>
-                      <td className="py-2 px-3">{order.buyerName}<br/><span className="text-muted-foreground text-xs">{order.buyerEmail}</span></td>
-                      <td className="py-2 px-3">${Number(order.total).toLocaleString('es-CL')}</td>
-                      <td className="py-2 px-3">
-                        {order.extras && order.extras.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {order.extras.map((ex: { name: string; quantity: number }, i: number) => (
-                              <span key={i} className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs whitespace-nowrap">
-                                {ex.name}{ex.quantity > 1 ? ` ×${ex.quantity}` : ''}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground text-xs">—</span>
-                        )}
-                      </td>
-                      <td className="py-2 px-3">
-                        <span className={`px-2 py-0.5 rounded-full text-xs ${order.paymentStatus === 'approved' ? 'bg-green-500/20 text-green-400' : order.paymentStatus === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
-                          {order.paymentStatus}
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 text-muted-foreground">{formatChileShortDate(order.createdAt)}</td>
-                      {remindersMode && (
-                        <td className="py-2 px-3 text-xs">
-                          {order.reminderCount > 0 ? (
-                            <span className="text-yellow-500">
-                              {order.reminderCount}× · {order.reminderSentAt ? formatChileShortDate(order.reminderSentAt) : ''}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-                      )}
-                      <td className="py-2 px-3">
-                        <div className="flex gap-2">
-                          <a href={`mailto:${order.buyerEmail}`} className="text-primary text-xs underline">Email</a>
-                          {order.buyerPhone && (
-                            <a href={`https://wa.me/${String(order.buyerPhone).replace(/[^0-9]/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-primary text-xs underline">WhatsApp</a>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-2 px-3">
-                        <div className="flex items-center gap-2">
-                          {order.paymentStatus === 'approved' && (
-                            <>
-                              <button
-                                className="text-primary text-xs underline"
-                                onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
-                              >
-                                {expandedOrderId === order.id ? 'Ocultar' : 'Ver tickets'}
-                              </button>
-                              <button
-                                className="text-primary text-xs underline disabled:opacity-50"
-                                disabled={resendConfirmation.isPending}
-                                onClick={() => resendConfirmation.mutate({ orderNumber: order.orderNumber })}
-                              >
-                                Reenviar email
-                              </button>
-                              {order.missionTopupStatus === 'pending' && (
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <button className="text-green-500 text-xs underline disabled:opacity-50" disabled={approveMissionTopup.isPending}>
-                                      Aprobar sin pagar
-                                    </button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>¿Aprobar la diferencia de Misión 300 sin pago?</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        La orden "{order.orderNumber}" de {order.buyerName} queda como si hubiera pagado la diferencia — se genera su ticket con QR y se le manda el correo de confirmación ahora mismo, sin cobrar nada.
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                      <AlertDialogAction onClick={() => approveMissionTopup.mutate({ orderId: order.id })}>
-                                        Aprobar sin pagar
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              )}
-                            </>
-                          )}
-                          <ConfirmDeleteButton
-                            description={`Vas a eliminar la compra "${order.orderNumber}" de ${order.buyerName}.`}
-                            onConfirm={(adminPassword) => deleteOrder.mutateAsync({ id: order.id, adminPassword })}
-                            disabled={deleteOrder.isPending}
-                          />
-                        </div>
-                      </td>
+                      <th className="text-left py-2.5 px-3">Orden</th>
+                      <th className="text-left py-2.5 px-3">Comprador</th>
+                      <th className="text-left py-2.5 px-3">Total</th>
+                      <th className="text-left py-2.5 px-3">Extras</th>
+                      <th className="text-left py-2.5 px-3">Estado</th>
+                      <th className="text-left py-2.5 px-3">Fecha</th>
+                      {remindersMode && <th className="text-left py-2.5 px-3">Recordatorio</th>}
+                      <th className="text-left py-2.5 px-3">Contacto</th>
+                      <th className="text-left py-2.5 px-3">Acciones</th>
                     </tr>
-                    {expandedOrderId === order.id && (
-                      <tr className="border-b border-border/50 bg-muted/10">
-                        <td colSpan={remindersMode ? 10 : 8} className="py-3 px-3">
-                          {loadingTickets ? (
-                            <p className="text-xs text-muted-foreground">Cargando tickets...</p>
-                          ) : orderTickets && orderTickets.length > 0 ? (
-                            <div className="space-y-2">
-                              {['acceso', 'extra'].map((cat) => {
-                                const items = orderTickets.filter((t: any) => t.category === cat);
-                                if (items.length === 0) return null;
-                                return (
-                                  <div key={cat}>
-                                    <p className="text-xs font-medium text-muted-foreground mb-1">{cat === 'acceso' ? 'Entradas' : 'Extras'}</p>
-                                    <div className="flex flex-wrap gap-2">
-                                      {items.map((t: any) => (
-                                        <span key={t.ticketCode} className="px-2 py-1 rounded-lg bg-background border border-border text-xs font-mono">
-                                          {t.ticketTypeName} · {t.ticketCode} · <span className="text-muted-foreground">{t.status}</span>
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <p className="text-xs text-muted-foreground">Sin tickets generados.</p>
+                  </thead>
+                  <tbody>
+                    {visibleOrders.map((order: any) => (
+                      <Fragment key={order.id}>
+                        <SwipeToDeleteRow
+                          className="border-b border-[var(--admin-glass-border)] hover:bg-white/40 transition-colors"
+                          deleteDescription={`Vas a eliminar la compra "${order.orderNumber}" de ${order.buyerName}.`}
+                          onDelete={(adminPassword) => deleteOrder.mutateAsync({ id: order.id, adminPassword })}
+                          deleteDisabled={deleteOrder.isPending}
+                        >
+                          {remindersMode && (
+                            <td className="py-2.5 px-3">
+                              <Checkbox
+                                checked={selectedIds.has(order.id)}
+                                onCheckedChange={() => toggleSelected(order.id)}
+                                aria-label={`Seleccionar ${order.orderNumber}`}
+                              />
+                            </td>
                           )}
-                        </td>
-                      </tr>
+                          <td className="py-2.5 px-3 font-mono text-sm">{order.orderNumber}</td>
+                          <td className="py-2.5 px-3">{order.buyerName}<br/><span className="text-[var(--admin-muted)] text-sm">{order.buyerEmail}</span></td>
+                          <td className="py-2.5 px-3 tabular-nums">${Number(order.total).toLocaleString('es-CL')}</td>
+                          <td className="py-2.5 px-3">
+                            {order.extras && order.extras.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {order.extras.map((ex: { name: string; quantity: number }, i: number) => (
+                                  <span key={i} className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-sm whitespace-nowrap">
+                                    {ex.name}{ex.quantity > 1 ? ` ×${ex.quantity}` : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-[var(--admin-muted)] text-sm">—</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <StatusBadge status={order.paymentStatus} />
+                          </td>
+                          <td className="py-2.5 px-3 text-[var(--admin-muted)]">{formatChileShortDate(order.createdAt)}</td>
+                          {remindersMode && (
+                            <td className="py-2.5 px-3 text-sm">
+                              {order.reminderCount > 0 ? (
+                                <span className="text-[var(--admin-warning-text)]">
+                                  {order.reminderCount}× · {order.reminderSentAt ? formatChileShortDate(order.reminderSentAt) : ''}
+                                </span>
+                              ) : (
+                                <span className="text-[var(--admin-muted)]">—</span>
+                              )}
+                            </td>
+                          )}
+                          <td className="py-2.5 px-3">
+                            <RowActions>
+                              <RowActionLink icon={Mail} label="Enviar email" tone="mail" href={`mailto:${order.buyerEmail}`} />
+                              {order.buyerPhone && (
+                                <RowActionLink
+                                  icon={MessageCircle}
+                                  label="Escribir por WhatsApp"
+                                  tone="wa"
+                                  href={`https://wa.me/${String(order.buyerPhone).replace(/[^0-9]/g, '')}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                />
+                              )}
+                            </RowActions>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <RowActions>
+                              {order.paymentStatus === 'approved' && (
+                                <>
+                                  <RowActionButton
+                                    icon={Ticket}
+                                    label={expandedOrderId === order.id ? 'Ocultar tickets' : 'Ver tickets'}
+                                    tone="ticket"
+                                    onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                                  />
+                                  <RowActionButton
+                                    icon={Send}
+                                    label="Reenviar email"
+                                    tone="send"
+                                    disabled={resendConfirmation.isPending}
+                                    onClick={() => resendConfirmation.mutate({ orderNumber: order.orderNumber })}
+                                  />
+                                  {order.missionTopupStatus === 'pending' && (
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <button className="text-[var(--admin-success-text)] text-xs underline disabled:opacity-50" disabled={approveMissionTopup.isPending}>
+                                          Aprobar sin pagar
+                                        </button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>¿Aprobar la diferencia de Misión 300 sin pago?</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            La orden "{order.orderNumber}" de {order.buyerName} queda como si hubiera pagado la diferencia — se genera su ticket con QR y se le manda el correo de confirmación ahora mismo, sin cobrar nada.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                          <AlertDialogAction onClick={() => approveMissionTopup.mutate({ orderId: order.id })}>
+                                            Aprobar sin pagar
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  )}
+                                </>
+                              )}
+                            </RowActions>
+                          </td>
+                        </SwipeToDeleteRow>
+                        {expandedOrderId === order.id && (
+                          <tr className="border-b border-[var(--admin-glass-border)] bg-white/30">
+                            <td colSpan={remindersMode ? 10 : 8} className="py-3 px-3">
+                              {loadingTickets ? (
+                                <p className="text-sm text-[var(--admin-muted)]">Cargando tickets...</p>
+                              ) : orderTickets && orderTickets.length > 0 ? (
+                                <div className="space-y-2">
+                                  {['acceso', 'extra'].map((cat) => {
+                                    const items = orderTickets.filter((t: any) => t.category === cat);
+                                    if (items.length === 0) return null;
+                                    return (
+                                      <div key={cat}>
+                                        <p className="text-sm font-medium text-[var(--admin-muted)] mb-1">{cat === 'acceso' ? 'Entradas' : 'Extras'}</p>
+                                        <div className="flex flex-wrap gap-2">
+                                          {items.map((t: any) => (
+                                            <span key={t.ticketCode} className="px-2 py-1 rounded-lg bg-white border border-[var(--admin-glass-border)] text-sm font-mono">
+                                              {t.ticketTypeName} · {t.ticketCode} · <span className="text-[var(--admin-muted)]">{t.status}</span>
+                                            </span>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-[var(--admin-muted)]">Sin tickets generados.</p>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Tarjetas -- iPhone. Cada una con swipe-to-delete (deslizar
+              revela "Eliminar", hay que tocarlo -- mismo diálogo con clave
+              de admin de siempre). */}
+          <div className="md:hidden space-y-3">
+            {visibleOrders.map((order: any) => (
+              <SwipeToDeleteCard
+                key={order.id}
+                deleteDescription={`Vas a eliminar la compra "${order.orderNumber}" de ${order.buyerName}.`}
+                onDelete={(adminPassword) => deleteOrder.mutateAsync({ id: order.id, adminPassword })}
+                deleteDisabled={deleteOrder.isPending}
+              >
+                <div className="p-4 space-y-2.5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-mono text-sm text-[var(--admin-muted)]">{order.orderNumber}</p>
+                      <p className="font-medium truncate">{order.buyerName}</p>
+                      <p className="text-sm text-[var(--admin-muted)] truncate">{order.buyerEmail}</p>
+                    </div>
+                    <StatusBadge status={order.paymentStatus} />
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="tabular-nums font-medium">${Number(order.total).toLocaleString('es-CL')}</span>
+                    <span className="text-[var(--admin-muted)]">{formatChileShortDate(order.createdAt)}</span>
+                  </div>
+                  {order.extras && order.extras.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {order.extras.map((ex: { name: string; quantity: number }, i: number) => (
+                        <span key={i} className="px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs whitespace-nowrap">
+                          {ex.name}{ex.quantity > 1 ? ` ×${ex.quantity}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <RowActions>
+                    <RowActionLink icon={Mail} label="Enviar email" tone="mail" href={`mailto:${order.buyerEmail}`} />
+                    {order.buyerPhone && (
+                      <RowActionLink
+                        icon={MessageCircle}
+                        label="Escribir por WhatsApp"
+                        tone="wa"
+                        href={`https://wa.me/${String(order.buyerPhone).replace(/[^0-9]/g, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      />
                     )}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
+                    {order.paymentStatus === 'approved' && (
+                      <>
+                        <RowActionButton
+                          icon={Ticket}
+                          label={expandedOrderId === order.id ? 'Ocultar tickets' : 'Ver tickets'}
+                          tone="ticket"
+                          onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                        />
+                        <RowActionButton
+                          icon={Send}
+                          label="Reenviar email"
+                          tone="send"
+                          disabled={resendConfirmation.isPending}
+                          onClick={() => resendConfirmation.mutate({ orderNumber: order.orderNumber })}
+                        />
+                      </>
+                    )}
+                  </RowActions>
+                  {expandedOrderId === order.id && (
+                    loadingTickets ? (
+                      <p className="text-sm text-[var(--admin-muted)]">Cargando tickets...</p>
+                    ) : orderTickets && orderTickets.length > 0 ? (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {orderTickets.map((t: any) => (
+                          <span key={t.ticketCode} className="px-2 py-1 rounded-lg bg-white border border-[var(--admin-glass-border)] text-xs font-mono">
+                            {t.ticketTypeName} · {t.ticketCode} · <span className="text-[var(--admin-muted)]">{t.status}</span>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-[var(--admin-muted)]">Sin tickets generados.</p>
+                    )
+                  )}
+                </div>
+              </SwipeToDeleteCard>
+            ))}
           </div>
-        </CardContent>
-      </Card>
+        </>
+      )}
     </div>
   );
 }
