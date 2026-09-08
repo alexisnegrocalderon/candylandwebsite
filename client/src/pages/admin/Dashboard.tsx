@@ -8414,9 +8414,11 @@ export default function AdminDashboard() {
         <div className="admin-clay-shell flex h-full w-full flex-col m-3 mr-0 group-data-[collapsible=icon]:mr-3">
           <SidebarHeader className="h-16 justify-center px-3">
             <div className="flex items-center gap-2">
-              <div className="w-9 h-9 admin-clay-sm bg-gradient-to-br from-primary to-secondary flex items-center justify-center shrink-0">
-                <LayoutDashboard className="w-4 h-4 text-primary-foreground" />
-              </div>
+              <img
+                src="/candyland/logo-isotipo-transparent.png"
+                alt="Mansion Playroom"
+                className="h-9 w-9 object-contain shrink-0"
+              />
               <span className="font-heading text-lg tracking-tight group-data-[collapsible=icon]:hidden">
                 {isDemo ? 'Invitado (demo)' : 'Mansion Playroom'}
               </span>
