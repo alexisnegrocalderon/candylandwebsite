@@ -3,14 +3,12 @@ import { orders, orderItems, tickets, ticketTypes } from "../../drizzle/schema";
 import { applyOp } from "./ops";
 import { generateDisplayCode, fallbackInternalCode } from "./displayCode";
 import { isParkingTicketType, PLACEHOLDER_BUYER_EMAILS } from "../../shared/parking";
-import { verifyCardPin, spendPrepaidAuthoritative } from "../db";
 
 /** Resuelve y valida el cobro de estacionamiento para un ticket escaneado --
- * parte compartida entre `sellParkingAtDoor` (efectivo/débito/crédito) y
- * `payParkingWithSaldo` (saldo prepagado): busca el ticket y su orden,
- * encuentra el único producto "Estacionamiento" del evento, y aplica la
- * guarda contra cobro doble. No cobra nada -- eso lo hace cada camino según
- * su propio medio de pago. */
+ * busca el ticket y su orden, encuentra el único producto "Estacionamiento"
+ * del evento, y aplica la guarda contra cobro doble. No cobra nada -- eso lo
+ * hace `sellParkingAtDoor` según el medio de pago (efectivo/débito/crédito;
+ * nunca saldo -- decisión explícita del dueño, ese solo se gasta en caja). */
 async function resolveParkingCharge(db: any, params: { eventId: number; ticketCode: string }): Promise<
   | { ok: false; conflictNote: string }
   | { ok: true; buyerOrder: any; parkingType: any; price: number }
@@ -64,9 +62,8 @@ async function resolveParkingCharge(db: any, params: { eventId: number; ticketCo
   return { ok: true, buyerOrder, parkingType, price: Number(parkingType.price) };
 }
 
-/** Crea la orden+ítem+ticket del cobro de estacionamiento -- parte
- * compartida entre `sellParkingAtDoor` y `payParkingWithSaldo`, una vez que
- * el cobro (en el medio que sea) ya se validó/aplicó. */
+/** Crea la orden+ítem+ticket del cobro de estacionamiento, una vez que
+ * `sellParkingAtDoor` ya validó/aplicó el cobro. */
 async function createParkingOrderAndTicket(db: any, params: {
   eventId: number; opId: string; operatorId: number;
   buyerOrder: any; parkingType: any; price: number; paymentMethod: string; paymentId: string;
@@ -160,69 +157,6 @@ export async function sellParkingAtDoor(
         eventId: params.eventId, opId: params.opId, operatorId: params.operatorId,
         buyerOrder: charge.buyerOrder, parkingType: charge.parkingType, price: charge.price,
         paymentMethod: params.paymentMethod, paymentId: `PUERTA-PARKING-${params.opId}`,
-      });
-
-      return { result: "applied" as const };
-    }
-  );
-
-  return { result, conflictNote };
-}
-
-/** Cobra estacionamiento en la puerta con SALDO PREPAGADO (pedido explícito
- * del dueño, etapa 2 de la tarjeta de membresía) -- gemelo de
- * `sellParkingAtDoor`, pero SOLO se llama desde un procedure online directo
- * (`puerta.payParkingWithSaldo`), nunca desde `puerta.sync`: el saldo exige
- * conexión siempre, a diferencia de efectivo/débito/crédito.
- *
- * El email+PIN que paga es de quien está pagando en ese momento en la puerta
- * (tecleado ahí), no necesariamente el comprador del ticket escaneado --
- * mismo criterio que ya usa `handleCustomerScan` en /caja para Playcoins: el
- * QR es solo un atajo para identificar el ticket, la identidad de quién paga
- * la da el email+PIN. */
-export async function payParkingWithSaldo(
-  db: any,
-  params: {
-    opId: string;
-    eventId: number;
-    ticketCode: string;
-    buyerEmail: string;
-    cardPin: string;
-    operatorId: number;
-    clientAt: Date;
-  }
-) {
-  const code = params.ticketCode.trim().toUpperCase();
-  const payerEmail = params.buyerEmail.trim().toLowerCase();
-
-  const { result, conflictNote } = await applyOp(
-    db,
-    {
-      id: params.opId,
-      type: "parking_paid",
-      eventId: params.eventId,
-      operatorId: params.operatorId,
-      targetType: "ticket",
-      targetId: code,
-      payload: { ticketCode: code, paymentMethod: "saldo", payerEmail },
-      clientAt: params.clientAt,
-    },
-    async () => {
-      const charge = await resolveParkingCharge(db, { eventId: params.eventId, ticketCode: code });
-      if (!charge.ok) return { result: "rejected" as const, conflictNote: charge.conflictNote };
-
-      const pinCheck = await verifyCardPin({ email: payerEmail, pin: params.cardPin });
-      if (!pinCheck.ok) return { result: "rejected" as const, conflictNote: pinCheck.reason };
-
-      const spend = await spendPrepaidAuthoritative({
-        customerId: pinCheck.customerId, amountClp: charge.price, reason: "spend_puerta", opId: params.opId,
-      });
-      if (!spend.ok) return { result: "rejected" as const, conflictNote: spend.conflictNote };
-
-      await createParkingOrderAndTicket(db, {
-        eventId: params.eventId, opId: params.opId, operatorId: params.operatorId,
-        buyerOrder: charge.buyerOrder, parkingType: charge.parkingType, price: charge.price,
-        paymentMethod: "saldo", paymentId: `PUERTA-PARKING-${params.opId}`,
       });
 
       return { result: "applied" as const };

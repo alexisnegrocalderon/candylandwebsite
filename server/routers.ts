@@ -12,7 +12,7 @@ import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
 import { redeemDisplayCode } from "./caja/redeem";
 import { checkInTicket } from "./caja/checkin";
-import { sellParkingAtDoor, payParkingWithSaldo } from "./caja/parkingPaid";
+import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
@@ -1173,31 +1173,6 @@ export const appRouter = router({
         opId: input.opId,
         ticketCode: input.ticketCode,
         eventId: input.eventId,
-        operatorId: ctx.operator.operatorId,
-        clientAt: new Date(input.clientAt),
-      });
-    }),
-
-    // Cobro de estacionamiento con SALDO PREPAGADO (pedido explícito del
-    // dueño) -- procedure online DIRECTO, nunca dentro de `sync`: el saldo
-    // exige conexión siempre, a diferencia de efectivo/débito/crédito (que sí
-    // se pueden encolar offline, ver el discriminatedUnion de abajo).
-    payParkingWithSaldo: doorProcedure.input(z.object({
-      opId: z.string(),
-      eventId: z.number(),
-      ticketCode: z.string().min(1),
-      buyerEmail: z.string().email(),
-      cardPin: z.string().regex(/^\d{4}$/),
-      clientAt: z.string(),
-    })).mutation(async ({ input, ctx }) => {
-      const rawDb = await db.getDb();
-      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
-      return payParkingWithSaldo(rawDb, {
-        opId: input.opId,
-        eventId: input.eventId,
-        ticketCode: input.ticketCode,
-        buyerEmail: input.buyerEmail,
-        cardPin: input.cardPin,
         operatorId: ctx.operator.operatorId,
         clientAt: new Date(input.clientAt),
       });
@@ -2988,7 +2963,9 @@ export const appRouter = router({
   // Saldo prepagado en PLATA de la tarjeta de membresía (pedido explícito del
   // dueño) -- distinto e independiente de Playcoins. VER el saldo es público
   // (mismo criterio que playcoins.getBalanceByEmail); GASTARLO exige PIN, y
-  // eso vive en caja.sale/puerta.payParkingWithSaldo, no acá.
+  // eso vive en caja.sale, no acá. Nunca en /puerta -- decisión explícita del
+  // dueño: el estacionamiento se paga como extra online o en la puerta con
+  // efectivo/tarjeta, nunca con saldo.
   prepaid: router({
     getBalanceByEmail: publicProcedure.input(z.object({ email: z.string().email() })).query(async ({ input }) => {
       return db.getPrepaidBalance(input.email);
