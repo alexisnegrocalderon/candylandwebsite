@@ -7531,6 +7531,10 @@ const emptyProduct = (category: CartaCategory) => ({
   // presionada la tarjeta, para que la cajera pueda responder preguntas del
   // cliente sin ir a buscarlo.
   description: '',
+  // Solo tiene sentido en la pestaña "Extras de la web" (mismo criterio que
+  // el formulario de Eventos → "+ Entrada"): con un valor acá, este producto
+  // acredita saldo prepagado en vez de venderse como un derecho canjeable.
+  topupAmount: 0,
 });
 
 /** Arma el form-state de edición de un producto a partir de la fila del
@@ -7548,6 +7552,7 @@ function productFormFromP(p: any) {
     sortOrder: Number(p.sortOrder ?? 0),
     toKitchen: Number(p.toKitchen ?? 0),
     description: (p.description ?? '') as string,
+    topupAmount: p.topupAmount ? Number(p.topupAmount) : 0,
   };
 }
 
@@ -7589,6 +7594,7 @@ function CartaProductCard({ p, meta, onToggleSoldOut, toggling, onDelete }: {
       sortOrder: form.sortOrder,
       toKitchen: form.toKitchen,
       description: form.description.trim() || undefined,
+      topupAmount: form.category === 'extra' ? (form.topupAmount || null) : null,
     });
   };
 
@@ -7668,6 +7674,14 @@ function CartaProductCard({ p, meta, onToggleSoldOut, toggling, onDelete }: {
               <p className="text-muted-foreground text-xs mt-1">Menor = más arriba. Pon los más vendidos primero.</p>
             </div>
           </div>
+
+          {form.category === 'extra' && (
+            <div>
+              <Label>Carga de saldo (CLP, opcional)</Label>
+              <Input type="number" value={form.topupAmount || ''} onChange={(e) => setForm({ ...form, topupAmount: Number(e.target.value) })} className="mt-1" placeholder="Ej: 10000 -- convierte este extra en 'Cargar saldo'" />
+              <p className="text-muted-foreground text-xs mt-1">Con un valor acá, este extra no paga recargo por servicio, no genera ticket ni QR, y acredita saldo prepagado en la tarjeta de membresía en vez de un derecho canjeable.</p>
+            </div>
+          )}
 
           <label className="flex items-start gap-3 cursor-pointer">
             <Checkbox checked={form.toKitchen === 1} onCheckedChange={(v) => setForm({ ...form, toKitchen: v ? 1 : 0 })} className="mt-0.5" />
@@ -7787,6 +7801,7 @@ function CartaManager() {
       sortOrder: form.sortOrder,
       toKitchen: form.toKitchen,
       description: form.description.trim() || undefined,
+      topupAmount: form.category === 'extra' ? (form.topupAmount || undefined) : undefined,
     };
     try {
       await createType.mutateAsync({ eventId: activeId, ...payload });
@@ -7925,6 +7940,14 @@ function CartaManager() {
                 <p className="text-muted-foreground text-xs mt-1">Menor = más arriba. Pon los más vendidos primero.</p>
               </div>
             </div>
+
+            {form.category === 'extra' && (
+              <div>
+                <Label>Carga de saldo (CLP, opcional)</Label>
+                <Input type="number" value={form.topupAmount || ''} onChange={(e) => setForm({ ...form, topupAmount: Number(e.target.value) })} className="mt-1" placeholder="Ej: 10000 -- convierte este extra en 'Cargar saldo'" />
+                <p className="text-muted-foreground text-xs mt-1">Con un valor acá, este extra no paga recargo por servicio, no genera ticket ni QR, y acredita saldo prepagado en la tarjeta de membresía en vez de un derecho canjeable.</p>
+              </div>
+            )}
 
             <label className="flex items-start gap-3 cursor-pointer">
               <Checkbox checked={form.toKitchen === 1} onCheckedChange={(v) => setForm({ ...form, toKitchen: v ? 1 : 0 })} className="mt-0.5" />
