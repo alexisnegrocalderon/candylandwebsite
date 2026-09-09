@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, MotionConfig, useScroll, useTransform } from 'framer-motion';
 import {
+  ArrowRight,
   Calendar,
   Car,
   Cigarette,
@@ -21,6 +22,7 @@ import {
   VenetianMask,
 } from 'lucide-react';
 import { Link } from 'wouter';
+import { WalletCard } from '@/components/wallet/WalletCard';
 import {
   Accordion,
   AccordionContent,
@@ -560,6 +562,54 @@ function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'n
         )}
       </div>
     </Link>
+  );
+}
+
+/** Banner destacado de la Tarjeta PlayCard, justo después de la sección de
+ * precios (pedido explícito del dueño -- ahí es donde ya está la atención
+ * puesta en la compra, buen lugar para mostrar qué más trae la entrada).
+ * Reusa el componente real de la tarjeta (mismo que /verificar/:ticketCode
+ * y la página del blog que la explica), con datos de ejemplo. */
+function PlayCardBannerSection() {
+  return (
+    <section className="py-16 md:py-24 relative overflow-hidden">
+      <div className="container max-w-5xl">
+        <div className="glass-candy rounded-[32px] p-6 md:p-12 grid md:grid-cols-2 gap-8 md:gap-10 items-center">
+          <div>
+            <span className="inline-block px-3 py-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold uppercase tracking-wide mb-3">
+              💳 Novedad
+            </span>
+            <h2 className="font-heading font-extrabold text-3xl md:text-4xl tracking-tight mb-4 leading-[1.1]">
+              La <span className="text-gradient-candy">Tarjeta PlayCard</span>
+            </h2>
+            <p className="text-muted-foreground text-lg leading-relaxed mb-6">
+              Tu QR de acceso, saldo prepagado y Playcoins en un solo lugar. Nada de billetera, nada de tarjetas
+              físicas -- solo tu celular.
+            </p>
+            <Link
+              href="/blog/tarjeta-playcard"
+              className="btn-jelly inline-flex items-center gap-2 px-7 py-3.5 rounded-full bg-primary text-primary-foreground font-bold interactive"
+            >
+              Conocer la PlayCard <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
+          <div className="rounded-[28px] p-5 md:p-8" style={{
+            background: 'radial-gradient(120% 120% at 20% 0%, #241432, #0d0712 70%)',
+          }}>
+            <WalletCard
+              eventTitle=""
+              eventDateShort=""
+              holderName="Camila Fuentes"
+              ticketCode="MP-DEMOCARD2026"
+              qrImageUrl={null}
+              prepaidBalance={18500}
+              playcoins={1240}
+              movements={[]}
+            />
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1852,6 +1902,7 @@ export default function Home() {
       <Hero />
       <ScrollStory />
       <UrgencySection vendidos={vendidos} missionPricing={missionPricing} missionActive={missionActive} tanda={tanda} ticketsLoading={liveTicketsLoading} eventId={event?.id} />
+      <PlayCardBannerSection />
       <UpcomingEventsSection />
       <LineupSection />
       <ExperienceSection />
