@@ -150,7 +150,12 @@ function App() {
   // /gastos es la carga rápida de compras desde el celular: pantalla de
   // operación interna, instalable aparte, sin nada del sitio público.
   const isGastos = location.startsWith('/gastos');
-  const hideChrome = isCaja || isAdmin || isParty || isPuerta || isCocina || isGuardarropia || isGastos;
+  // /verificar es la tarjeta digital del invitado (QR + saldo + Playcoins):
+  // mismo criterio que /fiesta, es una pantalla propia y oscura, no una
+  // página de marketing -- la navbar pública ("Comprar entradas") no aporta
+  // nada ahí.
+  const isTicket = location.startsWith('/verificar');
+  const hideChrome = isCaja || isAdmin || isParty || isPuerta || isCocina || isGuardarropia || isGastos || isTicket;
   // Ni el cursor ni el scroll suave hacen nada en touch (ver isFinePointer),
   // así que en celular no se pide su chunk -- antes se importaban eager en
   // App.tsx y Lenis viajaba igual aunque nunca fuera a correr.

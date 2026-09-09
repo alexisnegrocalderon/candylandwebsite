@@ -253,6 +253,10 @@ function ticketFormFromTt(tt: any) {
     color: (tt.color || '') as string,
     internalCode: (tt.internalCode || '') as string,
     stockPoolId: (tt.stockPoolId ?? null) as number | null,
+    // Carga de saldo prepagado (pedido explícito del dueño): con valor,
+    // este extra acredita saldo en la tarjeta en vez de dar un derecho
+    // canjeable. 0 = producto normal.
+    topupAmount: tt.topupAmount ? Number(tt.topupAmount) : 0,
   };
 }
 
@@ -296,6 +300,7 @@ function TicketTypeRow({ tt, eventId }: { tt: any; eventId: number }) {
       costPrice: form.costPrice || undefined,
       color: form.category === 'extra' ? (form.color || undefined) : undefined,
       internalCode: form.category === 'extra' ? (form.internalCode || undefined) : undefined,
+      topupAmount: form.category === 'extra' ? (form.topupAmount || null) : null,
     });
   };
 
@@ -343,6 +348,13 @@ function TicketTypeRow({ tt, eventId }: { tt: any; eventId: number }) {
         </div>
         {form.category === 'extra' && (
           <p className="text-xs text-muted-foreground -mt-2">El código interno es el prefijo del código de canje que recibe el comprador (ej. PIS-8F3K-29LX). Si se deja vacío, se genera uno automático a partir del nombre.</p>
+        )}
+        {form.category === 'extra' && (
+          <div>
+            <Label>Carga de saldo (CLP, opcional)</Label>
+            <Input type="number" value={form.topupAmount || ''} onChange={(e) => setForm({ ...form, topupAmount: Number(e.target.value) })} className="mt-1" placeholder="Ej: 10000 -- convierte este extra en 'Cargar saldo'" />
+            <p className="text-xs text-muted-foreground mt-1">Con un valor acá, este extra no paga recargo por servicio, no genera ticket ni QR, y acredita saldo prepagado en la tarjeta de membresía en vez de un derecho canjeable.</p>
+          </div>
         )}
         {form.category === 'acceso' && (
           <div>
@@ -955,7 +967,7 @@ function EventCard({ event, onDeleted, expanded, onToggleExpand }: { event: any;
     onError: onMutationError,
   });
 
-  const emptyTicketForm = { name: '', category: 'acceso' as 'acceso' | 'extra', accesoSlug: '' as '' | AccesoSlug, price: 0, originalPrice: 0, totalStock: 0, description: '', costPrice: 0, color: '', internalCode: '', stockPoolId: null as number | null };
+  const emptyTicketForm = { name: '', category: 'acceso' as 'acceso' | 'extra', accesoSlug: '' as '' | AccesoSlug, price: 0, originalPrice: 0, totalStock: 0, description: '', costPrice: 0, color: '', internalCode: '', stockPoolId: null as number | null, topupAmount: 0 };
   const [newTicket, setNewTicket] = useState(emptyTicketForm);
   const [showTicketForm, setShowTicketForm] = useState(false);
   const createTicketType = trpc.events.createTicketType.useMutation({
@@ -988,6 +1000,7 @@ function EventCard({ event, onDeleted, expanded, onToggleExpand }: { event: any;
       costPrice: newTicket.costPrice || undefined,
       color: newTicket.category === 'extra' ? (newTicket.color || undefined) : undefined,
       internalCode: newTicket.category === 'extra' ? (newTicket.internalCode || undefined) : undefined,
+      topupAmount: newTicket.category === 'extra' ? (newTicket.topupAmount || undefined) : undefined,
     });
     setNewTicket(emptyTicketForm);
     setShowTicketForm(false);
@@ -1150,6 +1163,13 @@ function EventCard({ event, onDeleted, expanded, onToggleExpand }: { event: any;
             </div>
             {newTicket.category === 'extra' && (
               <p className="text-xs text-muted-foreground -mt-2">El código interno es el prefijo del código de canje que recibe el comprador (ej. PIS-8F3K-29LX). Si se deja vacío, se genera uno automático a partir del nombre.</p>
+            )}
+            {newTicket.category === 'extra' && (
+              <div>
+                <Label>Carga de saldo (CLP, opcional)</Label>
+                <Input type="number" value={newTicket.topupAmount || ''} onChange={(e) => setNewTicket({ ...newTicket, topupAmount: Number(e.target.value) })} className="mt-1" placeholder="Ej: 10000 -- convierte este extra en 'Cargar saldo'" />
+                <p className="text-xs text-muted-foreground mt-1">Con un valor acá, este extra no paga recargo por servicio, no genera ticket ni QR, y acredita saldo prepagado en la tarjeta de membresía en vez de un derecho canjeable.</p>
+              </div>
             )}
             {newTicket.category === 'acceso' && (
               <div>
@@ -7511,6 +7531,10 @@ const emptyProduct = (category: CartaCategory) => ({
   // presionada la tarjeta, para que la cajera pueda responder preguntas del
   // cliente sin ir a buscarlo.
   description: '',
+  // Solo tiene sentido en la pestaña "Extras de la web" (mismo criterio que
+  // el formulario de Eventos → "+ Entrada"): con un valor acá, este producto
+  // acredita saldo prepagado en vez de venderse como un derecho canjeable.
+  topupAmount: 0,
 });
 
 /** Arma el form-state de edición de un producto a partir de la fila del
@@ -7528,6 +7552,7 @@ function productFormFromP(p: any) {
     sortOrder: Number(p.sortOrder ?? 0),
     toKitchen: Number(p.toKitchen ?? 0),
     description: (p.description ?? '') as string,
+    topupAmount: p.topupAmount ? Number(p.topupAmount) : 0,
   };
 }
 
@@ -7569,6 +7594,7 @@ function CartaProductCard({ p, meta, onToggleSoldOut, toggling, onDelete }: {
       sortOrder: form.sortOrder,
       toKitchen: form.toKitchen,
       description: form.description.trim() || undefined,
+      topupAmount: form.category === 'extra' ? (form.topupAmount || null) : null,
     });
   };
 
@@ -7648,6 +7674,14 @@ function CartaProductCard({ p, meta, onToggleSoldOut, toggling, onDelete }: {
               <p className="text-muted-foreground text-xs mt-1">Menor = más arriba. Pon los más vendidos primero.</p>
             </div>
           </div>
+
+          {form.category === 'extra' && (
+            <div>
+              <Label>Carga de saldo (CLP, opcional)</Label>
+              <Input type="number" value={form.topupAmount || ''} onChange={(e) => setForm({ ...form, topupAmount: Number(e.target.value) })} className="mt-1" placeholder="Ej: 10000 -- convierte este extra en 'Cargar saldo'" />
+              <p className="text-muted-foreground text-xs mt-1">Con un valor acá, este extra no paga recargo por servicio, no genera ticket ni QR, y acredita saldo prepagado en la tarjeta de membresía en vez de un derecho canjeable.</p>
+            </div>
+          )}
 
           <label className="flex items-start gap-3 cursor-pointer">
             <Checkbox checked={form.toKitchen === 1} onCheckedChange={(v) => setForm({ ...form, toKitchen: v ? 1 : 0 })} className="mt-0.5" />
@@ -7767,6 +7801,7 @@ function CartaManager() {
       sortOrder: form.sortOrder,
       toKitchen: form.toKitchen,
       description: form.description.trim() || undefined,
+      topupAmount: form.category === 'extra' ? (form.topupAmount || undefined) : undefined,
     };
     try {
       await createType.mutateAsync({ eventId: activeId, ...payload });
@@ -7905,6 +7940,14 @@ function CartaManager() {
                 <p className="text-muted-foreground text-xs mt-1">Menor = más arriba. Pon los más vendidos primero.</p>
               </div>
             </div>
+
+            {form.category === 'extra' && (
+              <div>
+                <Label>Carga de saldo (CLP, opcional)</Label>
+                <Input type="number" value={form.topupAmount || ''} onChange={(e) => setForm({ ...form, topupAmount: Number(e.target.value) })} className="mt-1" placeholder="Ej: 10000 -- convierte este extra en 'Cargar saldo'" />
+                <p className="text-muted-foreground text-xs mt-1">Con un valor acá, este extra no paga recargo por servicio, no genera ticket ni QR, y acredita saldo prepagado en la tarjeta de membresía en vez de un derecho canjeable.</p>
+              </div>
+            )}
 
             <label className="flex items-start gap-3 cursor-pointer">
               <Checkbox checked={form.toKitchen === 1} onCheckedChange={(v) => setForm({ ...form, toKitchen: v ? 1 : 0 })} className="mt-0.5" />

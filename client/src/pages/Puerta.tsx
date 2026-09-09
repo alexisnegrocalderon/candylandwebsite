@@ -242,6 +242,10 @@ function Scanner({ operatorName }: { operatorName: string }) {
   // No cierra la ficha (a diferencia de darAcceso): el anfitrión puede
   // seguir viendo los nombres/RUT mientras confirma con el auto, y recién
   // cierra con "Aprobar acceso" o "Volver a escanear".
+  //
+  // Nunca con saldo (decisión explícita del dueño): el estacionamiento se
+  // paga como extra en el checkout online, o acá mismo en la puerta con
+  // efectivo/débito/crédito -- nunca descontando la tarjeta de membresía.
   const cobrarEstacionamiento = async (ticketCode: string, metodo: 'efectivo' | 'debito' | 'credito') => {
     await enqueueOp({ opId: newOpId(), type: 'parking_paid', ticketCode, paymentMethod: metodo, clientAt: (await correctedNow()).toISOString() });
     toast.success('Estacionamiento cobrado 🅿️');
@@ -325,11 +329,21 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
   ficha: Ficha;
   onAceptar: () => void;
   onCerrar: () => void;
-  onCobrarEstacionamiento: (metodo: 'efectivo' | 'debito' | 'credito') => void;
+  onCobrarEstacionamiento: (metodo: 'efectivo' | 'debito' | 'credito') => Promise<void>;
 }) {
   const personas = personasForTicket(ficha.groupSize, ficha.accesoSlug);
   const puedeEntrar = ficha.status === 'valid';
   const [cobrando, setCobrando] = useState(false);
+
+  const cobrarConMetodo = async (metodo: 'efectivo' | 'debito' | 'credito') => {
+    setCobrando(true);
+    try {
+      await onCobrarEstacionamiento(metodo);
+    } catch (err: any) {
+      toast.error(err?.message ?? 'No se pudo cobrar el estacionamiento -- intenta de nuevo.', { duration: 8000 });
+      setCobrando(false);
+    }
+  };
 
   // El estacionamiento es lo primero que el anfitrión necesita saber para
   // decirle al auto dónde ir, así que va destacado y aparte del resto.
@@ -418,7 +432,7 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
                     {(['efectivo', 'debito', 'credito'] as const).map((metodo) => (
                       <button
                         key={metodo}
-                        onClick={() => { setCobrando(true); onCobrarEstacionamiento(metodo); }}
+                        onClick={() => cobrarConMetodo(metodo)}
                         className="glass-btn h-12 rounded-xl text-sm font-semibold capitalize text-white/95"
                       >
                         {metodo}

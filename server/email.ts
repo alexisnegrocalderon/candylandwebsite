@@ -225,7 +225,7 @@ export function buildOrderEmail(data: {
         </div>
         ` : ''}
         <div style="text-align:center;">
-          ${pastelButton(ticketUrl, 'Ver mi entrada', 'pink')}
+          ${pastelButton(ticketUrl, 'Ver mi tarjeta', 'pink')}
           ${glassButton(partyUrl, '🍬 Playmatch')}
           ${glassButton(calendarUrl, '📅 Agendar')}
         </div>

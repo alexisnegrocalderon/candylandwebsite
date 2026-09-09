@@ -58,6 +58,30 @@ describe("computeOrderDeleteEffects", () => {
       { customerId: 7, delta: 20 },
     ]);
   });
+
+  it("sin ledger de saldo prepagado, prepaidReversals queda vacío (parámetro opcional)", () => {
+    const effects = computeOrderDeleteEffects({ paymentStatus: "approved", channel: "web" }, []);
+    expect(effects.prepaidReversals).toEqual([]);
+  });
+
+  it("invierte el signo de cada entrada del ledger de saldo prepagado ligada a la orden", () => {
+    const effects = computeOrderDeleteEffects(
+      { paymentStatus: "approved", channel: "web" },
+      [],
+      [{ customerId: 9, delta: 10000 }],
+    );
+    expect(effects.prepaidReversals).toEqual([{ customerId: 9, delta: -10000 }]);
+  });
+
+  it("playcoins y saldo prepagado se reversan de forma independiente", () => {
+    const effects = computeOrderDeleteEffects(
+      { paymentStatus: "approved", channel: "web" },
+      [{ customerId: 9, delta: 250 }],
+      [{ customerId: 9, delta: 10000 }],
+    );
+    expect(effects.playcoinsReversals).toEqual([{ customerId: 9, delta: -250 }]);
+    expect(effects.prepaidReversals).toEqual([{ customerId: 9, delta: -10000 }]);
+  });
 });
 
 describe("excludeCustomersByTags", () => {

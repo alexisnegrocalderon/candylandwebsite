@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gt, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -20,6 +20,8 @@ import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening, findPossibleDuplicateSales, cardTotals } from './caja/shiftMath';
+import { hashPin, verifyPin } from './caja/auth';
+import { isTopupProduct, topupChargeForLines } from '../shared/prepaid';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1100,10 +1102,20 @@ export async function createOrder(input: {
   // total YA con el descuento aplicado (entradas + extras) y se suma encima
   // -- se guarda el monto ya calculado en orders.serviceFee, no el %, para
   // que quede fijo aunque el % de siteSettings cambie después.
+  // Las líneas "carga de saldo" (topupAmount) quedan AFUERA de la base del
+  // recargo -- decisión explícita del dueño, el monto cargado entra completo
+  // a la tarjeta. `preTotal` (lo que efectivamente se cobra) sí las incluye;
+  // solo se excluyen de `feeBase`, la base sobre la que se calcula el %.
+  const topupCharge = topupChargeForLines(input.items.map((i) => ({
+    unitPrice: unitPrices.get(i.ticketTypeId)!,
+    quantity: i.quantity,
+    topupAmount: tts.find((t) => t.id === i.ticketTypeId)?.topupAmount,
+  })));
   const preTotal = Math.max(0, subtotal - discountAmount);
+  const feeBase = Math.max(0, preTotal - topupCharge);
   const settings = await getSiteSettings();
   const serviceFeePercent = Number(settings.serviceFeePercent ?? 0);
-  const serviceFee = serviceFeePercent > 0 ? Math.round(preTotal * serviceFeePercent / 100) : 0;
+  const serviceFee = serviceFeePercent > 0 ? Math.round(feeBase * serviceFeePercent / 100) : 0;
   const total = preTotal + serviceFee;
   const orderNumber = `MP-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`;
 
@@ -1624,21 +1636,25 @@ export async function getOrderTickets(orderId: number) {
  * - `decrementCustomerTotals`: customers.totalOrders/totalSpent son una
  *   proyección de upsertCustomerFromOrder, que solo corre para ventas web
  *   aprobadas.
- * - `playcoinsReversals`: un delta por reversar por cada fila del ledger
- *   ligada a esta orden (normalmente una sola, por la idempotencia de
- *   awardPlaycoins), con el signo invertido. */
+ * - `playcoinsReversals`/`prepaidReversals`: un delta por reversar por cada
+ *   fila del ledger correspondiente ligada a esta orden (normalmente una
+ *   sola, por la idempotencia de awardPlaycoins/creditPrepaid), con el signo
+ *   invertido. */
 export function computeOrderDeleteEffects(
   order: { paymentStatus: string; channel: string },
   ledgerEntries: { customerId: number; delta: number }[],
+  prepaidLedgerEntries: { customerId: number; delta: number }[] = [],
 ): {
   decrementSoldCount: boolean;
   decrementCustomerTotals: boolean;
   playcoinsReversals: { customerId: number; delta: number }[];
+  prepaidReversals: { customerId: number; delta: number }[];
 } {
   return {
     decrementSoldCount: order.paymentStatus === 'approved' || order.paymentStatus === 'refunded',
     decrementCustomerTotals: order.channel === 'web' && order.paymentStatus === 'approved',
     playcoinsReversals: ledgerEntries.filter((e) => e.delta !== 0).map((e) => ({ customerId: e.customerId, delta: -e.delta })),
+    prepaidReversals: prepaidLedgerEntries.filter((e) => e.delta !== 0).map((e) => ({ customerId: e.customerId, delta: -e.delta })),
   };
 }
 
@@ -1668,7 +1684,8 @@ export async function deleteOrderCascade(orderId: number) {
   if (!order) return { success: true };
 
   const ledgerEntries = await db.select().from(playcoinsLedger).where(eq(playcoinsLedger.orderId, orderId));
-  const effects = computeOrderDeleteEffects(order, ledgerEntries);
+  const prepaidEntries = await db.select().from(prepaidLedger).where(eq(prepaidLedger.orderId, orderId));
+  const effects = computeOrderDeleteEffects(order, ledgerEntries, prepaidEntries);
 
   if (effects.decrementSoldCount) {
     const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
@@ -1679,6 +1696,10 @@ export async function deleteOrderCascade(orderId: number) {
 
   for (const reversal of effects.playcoinsReversals) {
     await adjustPlaycoinsManually(reversal.customerId, reversal.delta, `Orden #${order.orderNumber} eliminada`);
+  }
+
+  for (const reversal of effects.prepaidReversals) {
+    await reversePrepaidForDeletedOrder(reversal.customerId, reversal.delta, order.id, order.orderNumber);
   }
 
   if (effects.decrementCustomerTotals) {
@@ -2609,7 +2630,12 @@ export async function getCajaSnapshot(eventId: number) {
   // excluido: es ocultar del todo, no lo mismo que agotado.
   const CATALOG_CATEGORIES = ['extra', 'consumo', 'locker', 'merch'];
   const catalog = allTicketTypes
-    .filter((t: any) => CATALOG_CATEGORIES.includes(t.category) && (t.status === 'active' || t.status === 'soldout'))
+    // Una "carga de saldo" (topupAmount) nunca se vende en /caja -- solo
+    // existe como extra del checkout web (misma razón que getCajaCatalog,
+    // server/db.ts ~línea 2693: acá no se acredita saldo ni se respeta su
+    // exclusión del recargo/Playcoins, así que venderla por acá sería cobrar
+    // plata que la tarjeta del cliente nunca ve).
+    .filter((t: any) => CATALOG_CATEGORIES.includes(t.category) && t.topupAmount == null && (t.status === 'active' || t.status === 'soldout'))
     .map((t: any) => ({
       id: t.id,
       name: t.name,
@@ -2672,7 +2698,16 @@ export async function getCajaSnapshot(eventId: number) {
 export async function getCajaCatalog(eventId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(ticketTypes).where(and(eq(ticketTypes.eventId, eventId), eq(ticketTypes.category, 'extra'), eq(ticketTypes.status, 'active')));
+  // Una "carga de saldo" (ticketTypes.topupAmount) NUNCA se vende en /caja --
+  // solo existe como extra del checkout web. Si apareciera acá, se cobraría
+  // como un producto cualquiera pero jamás acreditaría saldo (creditPrepaid
+  // solo corre en processApprovedOrder, el camino de compra web), y quedaría
+  // expuesta a un código de descuento sin acotar (ver eligibleTotal en
+  // server/caja/sale.ts) -- plata que entra sin que la tarjeta la refleje.
+  return db.select().from(ticketTypes).where(and(
+    eq(ticketTypes.eventId, eventId), eq(ticketTypes.category, 'extra'), eq(ticketTypes.status, 'active'),
+    isNull(ticketTypes.topupAmount),
+  ));
 }
 
 /** Personas de abonos de Misión 300 ya aprobados cuyo ticket todavía no
@@ -4386,12 +4421,262 @@ export async function redeemPlaycoinsAuthoritative(params: { email: string; requ
   return { ok: true, redeemed, balanceAfter };
 }
 
+// --- Saldo prepagado en PLATA (pedido explícito del usuario, etapa 2 de la
+// tarjeta de membresía): 1 CLP = 1 CLP, convive con Playcoins sin mezclarse.
+// Mismo espíritu que awardPlaycoins/redeemPlaycoinsAuthoritative, pero con
+// dos diferencias deliberadas porque acá es dinero real (ver el comentario
+// de `prepaidLedger` en drizzle/schema.ts): el gasto es un UPDATE condicional
+// atómico (nunca SELECT-y-después-UPDATE), y la idempotencia se apoya en los
+// índices únicos del ledger, no en un SELECT previo. ---
+
+const CARD_PIN_MAX_ATTEMPTS = 5;
+const CARD_PIN_LOCKOUT_MS = 15 * 60 * 1000;
+
+/** Acredita saldo prepagado -- crea el cliente si no existe, mismo patrón de
+ * buscar-o-crear que awardPlaycoins. A diferencia de esa función, el orden
+ * se invierte: INSERT al ledger primero, UPDATE del saldo cacheado después.
+ * Si el INSERT choca contra el índice único `prepaid_ledger_order_reason_unique`
+ * (mismo `orderId`+`reason`), se trata como "ya acreditado" y se corta sin
+ * tocar `customers` -- así un reintento del webhook de Mercado Pago nunca
+ * duplica el crédito, con la garantía puesta en el motor y no en un SELECT
+ * previo no atómico (mismo idioma que openShift, server/db.ts ~línea 3822). */
+export async function creditPrepaid(params: { email: string; amountClp: number; reason: 'topup_web'; orderId: number }) {
+  const db = await getDb();
+  if (!db) return;
+  const email = params.email.trim().toLowerCase();
+  if (!email || params.amountClp <= 0) return;
+
+  let [customer] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+  if (!customer) {
+    const [ins] = await db.insert(customers).values({ email, accessTypes: [], tags: [] });
+    const insertId = (ins as unknown as { insertId: number }).insertId;
+    [customer] = await db.select().from(customers).where(eq(customers.id, insertId)).limit(1);
+  }
+
+  const balanceAfter = customer.prepaidBalance + params.amountClp;
+  try {
+    await db.insert(prepaidLedger).values({
+      customerId: customer.id, delta: params.amountClp, reason: params.reason,
+      orderId: params.orderId, balanceAfter,
+    });
+  } catch (err: any) {
+    const isDuplicate = err?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(String(err?.message ?? ''));
+    if (!isDuplicate) throw err;
+    return; // esta orden ya se acreditó -- no volver a sumar.
+  }
+  await db.update(customers).set({ prepaidBalance: balanceAfter }).where(eq(customers.id, customer.id));
+}
+
+/** Gasto SERVER-AUTHORITATIVE del saldo: UPDATE condicional atómico
+ * (`WHERE prepaidBalance >= ?`), no SELECT-y-después-UPDATE -- el motor
+ * garantiza que dos terminales compitiendo por el mismo cliente nunca dejan
+ * el saldo en negativo. Es 100% del monto pedido o rechazo -- nunca un gasto
+ * parcial (a diferencia del canje de Playcoins, decisión explícita del
+ * dueño). Idempotente por `(opId, reason)`: si el mismo opId ya se aplicó,
+ * se detecta ANTES del UPDATE con un SELECT al ledger -- barato, y no es lo
+ * que garantiza "nunca negativo" (eso lo da el UPDATE condicional). */
+export async function spendPrepaidAuthoritative(params: {
+  customerId: number; amountClp: number; reason: 'spend_caja' | 'spend_puerta'; opId: string;
+}): Promise<{ ok: true; balanceAfter: number } | { ok: false; conflictNote: string }> {
+  const db = await getDb();
+  if (!db) return { ok: false, conflictNote: 'Base de datos no disponible' };
+  if (!Number.isFinite(params.amountClp) || params.amountClp <= 0) return { ok: false, conflictNote: 'Monto inválido' };
+
+  const [dup] = await db.select().from(prepaidLedger)
+    .where(and(eq(prepaidLedger.opId, params.opId), eq(prepaidLedger.reason, params.reason))).limit(1);
+  if (dup) return { ok: true, balanceAfter: dup.balanceAfter };
+
+  const [result] = await db.update(customers)
+    .set({ prepaidBalance: sql`prepaidBalance - ${params.amountClp}` })
+    .where(and(eq(customers.id, params.customerId), sql`prepaidBalance >= ${params.amountClp}`));
+  const affectedRows = (result as unknown as { affectedRows: number }).affectedRows;
+  if (affectedRows === 0) {
+    return { ok: false, conflictNote: 'Saldo insuficiente para cubrir el 100% de esta venta' };
+  }
+
+  const [customer] = await db.select({ prepaidBalance: customers.prepaidBalance }).from(customers).where(eq(customers.id, params.customerId)).limit(1);
+  const balanceAfter = customer!.prepaidBalance;
+  // orderId se deja NULL a propósito: la idempotencia de un gasto de
+  // terminal vive en (opId, reason), y una fila con (orderId, reason)
+  // NO-NULL a la vez chocaría con la otra restricción única de la tabla si
+  // alguna vez coincidieran valores -- las dos unicidades nunca deben
+  // convivir en la misma fila (ver comentario del schema).
+  await db.insert(prepaidLedger).values({
+    customerId: params.customerId, delta: -params.amountClp, reason: params.reason,
+    opId: params.opId, balanceAfter,
+  });
+  return { ok: true, balanceAfter };
+}
+
+/** Define o cambia el PIN de la tarjeta -- se llama justo después de que el
+ * Payment Brick confirma el pago de una carga de saldo (ver Checkout.tsx):
+ * pagar de verdad con Mercado Pago ES la prueba de identidad (decisión
+ * explícita del dueño), nunca antes. Resuelve el cliente por EMAIL, no por
+ * `orders.customerId` -- esa columna todavía no se puebla en ningún flujo de
+ * compra nuevo (solo tiene el backfill histórico de la migración). */
+export async function setCardPinAfterTopup(params: { orderNumber: string; pin: string; currentPin?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible');
+  if (!/^\d{4}$/.test(params.pin)) throw new Error('El PIN debe tener 4 dígitos');
+
+  const [order] = await db.select().from(orders).where(eq(orders.orderNumber, params.orderNumber)).limit(1);
+  if (!order) throw new Error('Orden no encontrada');
+  if (order.paymentStatus !== 'approved') throw new Error('Esta orden todavía no está aprobada');
+
+  const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+  const ttIds = items.map((i) => i.ticketTypeId);
+  const tts = ttIds.length ? await db.select().from(ticketTypes).where(inArray(ticketTypes.id, ttIds)) : [];
+  if (!tts.some((tt) => isTopupProduct(tt))) throw new Error('Esta orden no incluye una carga de saldo');
+
+  const email = order.buyerEmail.trim().toLowerCase();
+  const [customer] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+  if (!customer) throw new Error('No se encontró la tarjeta de este comprador');
+
+  if (customer.cardPinHash) {
+    if (!params.currentPin) throw new Error('Ingresa tu PIN actual para cambiarlo');
+    const rateLimitKey = `cardpin:${customer.id}`;
+    if (!(await checkIpRateLimit(rateLimitKey))) throw new Error('Demasiados intentos -- espera unos minutos');
+    if (!verifyPin(params.currentPin, customer.cardPinHash)) {
+      await recordIpAttempt(rateLimitKey, CARD_PIN_MAX_ATTEMPTS, CARD_PIN_LOCKOUT_MS);
+      throw new Error('PIN actual incorrecto');
+    }
+  }
+
+  await db.update(customers).set({ cardPinHash: hashPin(params.pin), cardPinSetAt: new Date() }).where(eq(customers.id, customer.id));
+  return { success: true } as const;
+}
+
+/** Verifica el PIN al gastar saldo en caja/puerta -- server-authoritative,
+ * nunca confía en un check hecho en la tablet. Reusa `rateLimits` (misma
+ * tabla del rate limit de operador), key `cardpin:<customerId>`, sin
+ * columnas ni tablas nuevas. */
+export async function verifyCardPin(params: { email: string; pin: string }): Promise<
+  { ok: true; customerId: number } | { ok: false; reason: string }
+> {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: 'Base de datos no disponible' };
+  const email = params.email.trim().toLowerCase();
+  const [customer] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+  if (!customer || !customer.cardPinHash) return { ok: false, reason: 'Esta tarjeta todavía no tiene PIN definido' };
+
+  const rateLimitKey = `cardpin:${customer.id}`;
+  if (!(await checkIpRateLimit(rateLimitKey))) return { ok: false, reason: 'Demasiados intentos -- espera unos minutos' };
+  if (!verifyPin(params.pin, customer.cardPinHash)) {
+    await recordIpAttempt(rateLimitKey, CARD_PIN_MAX_ATTEMPTS, CARD_PIN_LOCKOUT_MS);
+    return { ok: false, reason: 'PIN incorrecto' };
+  }
+  return { ok: true, customerId: customer.id };
+}
+
+/** Saldo prepagado por email -- espejo de getPlaycoinsBalance. Público, sin
+ * PIN: VER el saldo no lo exige, solo GASTARLO (decisión de la etapa 1). */
+export async function getPrepaidBalance(email: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const [customer] = await db.select().from(customers).where(eq(customers.email, email.trim().toLowerCase())).limit(1);
+  if (!customer) return null;
+  return { email: customer.email, prepaidBalance: customer.prepaidBalance };
+}
+
+/** Revierte una carga de saldo al anular la orden que la originó -- llamada
+ * desde deleteOrderCascade. A diferencia de adjustPlaycoinsManually, SÍ lleva
+ * `orderId`: `reason: 'refund'` usa la unicidad de (orderId, reason), así
+ * que anular la misma orden dos veces no duplica la devolución. Clampeado a
+ * `Math.max(0, ...)` -- mismo criterio que Playcoins: si ya se gastó parte
+ * de la carga antes de anular la orden, la reversión devuelve lo que quede,
+ * no más. */
+async function reversePrepaidForDeletedOrder(customerId: number, delta: number, orderId: number, orderNumber: string) {
+  const db = await getDb();
+  if (!db) return;
+  const [customer] = await db.select().from(customers).where(eq(customers.id, customerId)).limit(1);
+  if (!customer) return;
+  const balanceAfter = Math.max(0, customer.prepaidBalance + delta);
+  const appliedDelta = balanceAfter - customer.prepaidBalance;
+  if (appliedDelta === 0) return;
+  try {
+    await db.insert(prepaidLedger).values({
+      customerId, delta: appliedDelta, reason: 'refund',
+      orderId, balanceAfter, note: `Orden #${orderNumber} eliminada`,
+    });
+  } catch (err: any) {
+    const isDuplicate = err?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(String(err?.message ?? ''));
+    if (!isDuplicate) throw err;
+    return;
+  }
+  await db.update(customers).set({ prepaidBalance: balanceAfter }).where(eq(customers.id, customerId));
+}
+
 export async function getPlaycoinsBalance(email: string) {
   const db = await getDb();
   if (!db) return null;
   const [customer] = await db.select().from(customers).where(eq(customers.email, email.trim().toLowerCase())).limit(1);
   if (!customer) return null;
   return { email: customer.email, playcoins: customer.playcoins };
+}
+
+const PREPAID_REASON_LABEL: Record<string, string> = {
+  topup_web: 'Recarga de saldo',
+  spend_caja: 'Compra en caja',
+  spend_puerta: 'Estacionamiento en puerta',
+  refund: 'Devolución',
+  manual_adjust: 'Ajuste',
+};
+const PLAYCOINS_REASON_LABEL: Record<string, string> = {
+  earn_web: 'Ganados por tu compra',
+  earn_caja: 'Ganados en caja',
+  redeem_caja: 'Canje en caja',
+  manual_adjust: 'Ajuste',
+};
+
+/** Resumen de la tarjeta digital para la página pública /verificar/:ticketCode
+ * -- saldo prepagado + Playcoins + los últimos movimientos de ambos,
+ * mezclados y ordenados por fecha. El comprador se resuelve por
+ * `orders.buyerEmail` (mismo camino que getPrepaidBalance/getPlaycoinsBalance
+ * -- `orders.customerId` todavía no se puebla en compras nuevas, ver
+ * setCardPinAfterTopup). Si el ticket no tiene una orden/comprador con cuenta
+ * de cliente, no es un error: simplemente no hay tarjeta que mostrar todavía
+ * (ej. tickets de cortesía sin compra). Nunca devuelve `cardPinHash`. */
+export async function getWalletForTicket(ticketCode: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [ticket] = await db.select().from(tickets).where(eq(tickets.ticketCode, ticketCode)).limit(1);
+  if (!ticket) return null;
+  const [order] = await db.select().from(orders).where(eq(orders.id, ticket.orderId)).limit(1);
+  const email = order?.buyerEmail?.trim().toLowerCase();
+  if (!email) return null;
+
+  const [customer] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+  if (!customer) return null;
+
+  const [prepaidRows, playcoinsRows] = await Promise.all([
+    db.select().from(prepaidLedger).where(eq(prepaidLedger.customerId, customer.id)).orderBy(desc(prepaidLedger.createdAt)).limit(6),
+    db.select().from(playcoinsLedger).where(eq(playcoinsLedger.customerId, customer.id)).orderBy(desc(playcoinsLedger.createdAt)).limit(6),
+  ]);
+
+  const movements = [
+    ...prepaidRows.map((r) => ({
+      type: 'money' as const,
+      label: PREPAID_REASON_LABEL[r.reason] ?? r.reason,
+      delta: r.delta,
+      createdAt: r.createdAt,
+    })),
+    ...playcoinsRows.map((r) => ({
+      type: 'points' as const,
+      label: PLAYCOINS_REASON_LABEL[r.reason] ?? r.reason,
+      delta: r.delta,
+      createdAt: r.createdAt,
+    })),
+  ]
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .slice(0, 6);
+
+  return {
+    prepaidBalance: customer.prepaidBalance,
+    playcoins: customer.playcoins,
+    cardPinSet: !!customer.cardPinHash,
+    movements,
+  };
 }
 
 /** Ajuste manual desde /admin (migrar saldo de Shopify a mano, corregir). */
