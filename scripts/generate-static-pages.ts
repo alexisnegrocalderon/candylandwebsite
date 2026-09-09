@@ -144,6 +144,28 @@ function staticRoutes(): RouteMeta[] {
       }),
     },
     {
+      path: '/blog/tarjeta-playcard',
+      file: 'blog/tarjeta-playcard.html',
+      meta: withOg({
+        path: '/blog/tarjeta-playcard',
+        title: '¿Qué es la Tarjeta PlayCard? — Mansion Playroom',
+        description: 'Tu QR de acceso, saldo prepagado y Playcoins en un solo lugar. Cómo funciona la Tarjeta PlayCard de Mansion Playroom, paso a paso.',
+        jsonLd: [
+          articleSchema({
+            headline: '¿Qué es la Tarjeta PlayCard?',
+            description: 'Tu QR de acceso, saldo prepagado y Playcoins en un solo lugar -- cómo funciona la Tarjeta PlayCard.',
+            url: '/blog/tarjeta-playcard',
+            datePublished: '2026-09-09',
+          }),
+          breadcrumbSchema([
+            { name: 'Inicio', path: '/' },
+            { name: 'Blog', path: '/blog' },
+            { name: '¿Qué es la Tarjeta PlayCard?', path: '/blog/tarjeta-playcard' },
+          ]),
+        ],
+      }),
+    },
+    {
       path: '/politica-de-reembolso',
       file: 'politica-de-reembolso.html',
       meta: withOg({

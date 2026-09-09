@@ -22,7 +22,7 @@ export default function Blog() {
 
   return (
     <>
-      <div className="container max-w-4xl pt-24">
+      <div className="container max-w-4xl pt-24 space-y-4">
         <Link
           href="/blog/que-son-las-fiestas-liberales"
           className="glass-candy rounded-2xl p-6 flex items-center justify-between gap-4 interactive hover:border-primary/30 transition-colors block"
@@ -33,6 +33,19 @@ export default function Blog() {
             </span>
             <h2 className="font-heading font-bold text-xl md:text-2xl mb-1">¿Qué son las fiestas liberales?</h2>
             <p className="text-sm text-muted-foreground">Mitos, realidad y un quiz de 2 minutos para saber si es para ti.</p>
+          </div>
+          <ArrowRight className="w-5 h-5 text-primary shrink-0" />
+        </Link>
+        <Link
+          href="/blog/tarjeta-playcard"
+          className="glass-candy rounded-2xl p-6 flex items-center justify-between gap-4 interactive hover:border-primary/30 transition-colors block"
+        >
+          <div>
+            <span className="inline-block px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold uppercase tracking-wide mb-2">
+              💳 Novedad
+            </span>
+            <h2 className="font-heading font-bold text-xl md:text-2xl mb-1">La Tarjeta PlayCard</h2>
+            <p className="text-sm text-muted-foreground">Tu QR de acceso, saldo prepagado y Playcoins en un solo lugar.</p>
           </div>
           <ArrowRight className="w-5 h-5 text-primary shrink-0" />
         </Link>
