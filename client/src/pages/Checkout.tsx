@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion } from 'framer-motion';
 import { useRoute, useSearch, Link } from 'wouter';
-import { ArrowLeft, ArrowRight, Tag, Loader2, Check, ShieldCheck, Minus, Plus, MessageCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Tag, Loader2, Check, ShieldCheck, Minus, Plus, MessageCircle, Lock } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { PaymentBrick } from '@/components/PaymentBrick';
 import { Button } from '@/components/ui/button';
@@ -14,8 +14,59 @@ import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, whatsappComunidadLink, 
 import { isMissionActiveForEvent, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
 import { isValidRut, isValidChileanPhone, formatRutLive } from '@shared/rut';
 import { isTopupProduct } from '@shared/prepaid';
+import { playcoinsEarnedForPurchase } from '@shared/playcoins';
 import { useSeo } from '@/hooks/useSeo';
 import { getStoredUtmParams } from '@/lib/utm';
+import './Checkout.walletPreview.css';
+
+/** Mini vista previa de la Tarjeta Playroom, mostrada justo donde se pide el
+ * PIN -- para que quede claro que el PIN protege ESTA tarjeta (saldo +
+ * Playcoins + el QR de la entrada), no un trámite bancario suelto. El QR va
+ * bloqueado: el ticket recién se genera al confirmar el pago. */
+function WalletPreviewCard({ holderName, topupAmount, playcoinsEarned, eventName }: {
+  holderName: string;
+  topupAmount: number;
+  playcoinsEarned: number;
+  eventName: string;
+}) {
+  return (
+    <div className="wprev-scene">
+      <div className="wprev-brand-row">
+        <div className="wprev-wordmark">
+          <span className="wprev-badge"><img src="/candyland/logo-isotipo-transparent.png" alt="" /></span>
+          PLAYROOM
+        </div>
+        <span className="wprev-tier">Nueva</span>
+      </div>
+      <div className="wprev-mid">
+        <div className="wprev-lock">
+          <Lock />
+          <span>QR al pagar</span>
+        </div>
+        <div className="wprev-holder">
+          <p className="wprev-holder-label">Titular</p>
+          <p className="wprev-holder-name">{holderName || 'Tu nombre'}</p>
+          <div className="wprev-stat-row">
+            <div>
+              <p className="wprev-stat-label">Saldo</p>
+              <p className="wprev-stat-value is-money">{formatCLP(topupAmount)}</p>
+            </div>
+            {playcoinsEarned > 0 && (
+              <div>
+                <p className="wprev-stat-label">Playcoins</p>
+                <p className="wprev-stat-value is-points">+{playcoinsEarned}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="wprev-foot">
+        <span>Así se ve tu tarjeta</span>
+        {eventName && <span>{eventName}</span>}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Checkout conversacional: una sola pregunta por pantalla, estilo "asistente"
@@ -670,7 +721,14 @@ export default function Checkout() {
                 {extraTickets.map((t: any) => {
                   const q = dbExtraQty[t.id] || 0;
                   if (q <= 0) return null;
-                  return <div key={t.id} className="flex justify-between text-sm mb-2"><span className="text-muted-foreground">✓ {q}× {t.name}</span><span>+{formatCLP(q * Number(t.price))}</span></div>;
+                  return (
+                    <div key={t.id} className="mb-2">
+                      <div className="flex justify-between text-sm"><span className="text-muted-foreground">✓ {q}× {t.name}</span><span>+{formatCLP(q * Number(t.price))}</span></div>
+                      {isTopupProduct(t) && (
+                        <p className="text-xs text-muted-foreground/70 mt-0.5">Se guarda en tu Tarjeta Playroom para gastar en caja -- no es un producto que retiras.</p>
+                      )}
+                    </div>
+                  );
                 })}
               </>
             )}
@@ -684,6 +742,12 @@ export default function Checkout() {
           </div>
           {hasTopupInCart && (
             <div className="glass-candy rounded-2xl p-5 mb-5">
+              <WalletPreviewCard
+                holderName={watch('buyer__nombre') || ''}
+                topupAmount={topupCharge}
+                playcoinsEarned={playcoinsEarnedForPurchase(ordenPago.total - topupCharge)}
+                eventName={EVENTO.nombre}
+              />
               <p className="text-sm font-semibold mb-1">💳 Define el PIN de tu tarjeta</p>
               <p className="text-xs text-muted-foreground mb-4">
                 4 dígitos para poder gastar tu saldo en caja. Pagar de verdad acá es lo que confirma que eres tú -- después de esto, para cambiarlo vas a necesitar el PIN actual.
