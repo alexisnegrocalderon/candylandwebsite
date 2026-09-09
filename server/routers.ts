@@ -3010,6 +3010,15 @@ export const appRouter = router({
     }),
   }),
 
+  // Resumen de la tarjeta digital para /verificar/:ticketCode (saldo +
+  // Playcoins + movimientos recientes) -- público, mismo criterio que
+  // tickets.getByCode: el QR/link ya es la prueba de posesión de la entrada.
+  wallet: router({
+    getByTicketCode: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      return db.getWalletForTicket(input.ticketCode);
+    }),
+  }),
+
   // Enrolamiento de dispositivos desde /admin (pedido explícito del usuario).
   devices: router({
     listAll: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {

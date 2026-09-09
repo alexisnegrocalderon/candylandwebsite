@@ -4614,6 +4614,71 @@ export async function getPlaycoinsBalance(email: string) {
   return { email: customer.email, playcoins: customer.playcoins };
 }
 
+const PREPAID_REASON_LABEL: Record<string, string> = {
+  topup_web: 'Recarga de saldo',
+  spend_caja: 'Compra en caja',
+  spend_puerta: 'Estacionamiento en puerta',
+  refund: 'Devolución',
+  manual_adjust: 'Ajuste',
+};
+const PLAYCOINS_REASON_LABEL: Record<string, string> = {
+  earn_web: 'Ganados por tu compra',
+  earn_caja: 'Ganados en caja',
+  redeem_caja: 'Canje en caja',
+  manual_adjust: 'Ajuste',
+};
+
+/** Resumen de la tarjeta digital para la página pública /verificar/:ticketCode
+ * -- saldo prepagado + Playcoins + los últimos movimientos de ambos,
+ * mezclados y ordenados por fecha. El comprador se resuelve por
+ * `orders.buyerEmail` (mismo camino que getPrepaidBalance/getPlaycoinsBalance
+ * -- `orders.customerId` todavía no se puebla en compras nuevas, ver
+ * setCardPinAfterTopup). Si el ticket no tiene una orden/comprador con cuenta
+ * de cliente, no es un error: simplemente no hay tarjeta que mostrar todavía
+ * (ej. tickets de cortesía sin compra). Nunca devuelve `cardPinHash`. */
+export async function getWalletForTicket(ticketCode: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [ticket] = await db.select().from(tickets).where(eq(tickets.ticketCode, ticketCode)).limit(1);
+  if (!ticket) return null;
+  const [order] = await db.select().from(orders).where(eq(orders.id, ticket.orderId)).limit(1);
+  const email = order?.buyerEmail?.trim().toLowerCase();
+  if (!email) return null;
+
+  const [customer] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+  if (!customer) return null;
+
+  const [prepaidRows, playcoinsRows] = await Promise.all([
+    db.select().from(prepaidLedger).where(eq(prepaidLedger.customerId, customer.id)).orderBy(desc(prepaidLedger.createdAt)).limit(6),
+    db.select().from(playcoinsLedger).where(eq(playcoinsLedger.customerId, customer.id)).orderBy(desc(playcoinsLedger.createdAt)).limit(6),
+  ]);
+
+  const movements = [
+    ...prepaidRows.map((r) => ({
+      type: 'money' as const,
+      label: PREPAID_REASON_LABEL[r.reason] ?? r.reason,
+      delta: r.delta,
+      createdAt: r.createdAt,
+    })),
+    ...playcoinsRows.map((r) => ({
+      type: 'points' as const,
+      label: PLAYCOINS_REASON_LABEL[r.reason] ?? r.reason,
+      delta: r.delta,
+      createdAt: r.createdAt,
+    })),
+  ]
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .slice(0, 6);
+
+  return {
+    prepaidBalance: customer.prepaidBalance,
+    playcoins: customer.playcoins,
+    cardPinSet: !!customer.cardPinHash,
+    movements,
+  };
+}
+
 /** Ajuste manual desde /admin (migrar saldo de Shopify a mano, corregir). */
 export async function adjustPlaycoinsManually(customerId: number, delta: number, note: string) {
   const db = await getDb();
