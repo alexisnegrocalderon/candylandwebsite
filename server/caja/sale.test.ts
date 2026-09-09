@@ -155,6 +155,16 @@ describe("createCajaSale", () => {
     ).rejects.toThrow(/no encontrado/);
   });
 
+  it("rechaza vender una carga de saldo en caja, aunque llegue en el carrito (defensa en profundidad)", async () => {
+    const cargaSaldo = { id: 5, name: "Cargar $10.000", price: "10000", costPrice: null, category: "extra", topupAmount: 10000, totalStock: 999, soldCount: 0 };
+    const { db, calls } = makeFakeDb({ products: [cargaSaldo] });
+
+    await expect(
+      createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 5, quantity: 1 }] })
+    ).rejects.toThrow(/solo se compra desde el sitio web/);
+    expect(calls.order).toBeNull();
+  });
+
   it("aplica un código de descuento válido y suma usedCount una sola vez", async () => {
     validateDiscountCode.mockResolvedValueOnce({ valid: true, discount: { id: 5, discountType: "percentage", discountValue: "10" } });
     const { db, calls } = makeFakeDb({ products: [piscola] });

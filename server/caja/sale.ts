@@ -2,6 +2,7 @@ import { eq, sql, inArray, and } from "drizzle-orm";
 import { orders, orderItems, ticketTypes, discountCodes, lockerItems, kitchenTickets } from "../../drizzle/schema";
 import { applyOp } from "./ops";
 import { awardPlaycoins, redeemPlaycoinsAuthoritative, validateDiscountCode, verifyCardPin, spendPrepaidAuthoritative } from "../db";
+import { isTopupProduct } from "../../shared/prepaid";
 
 /** Venta presencial en caja (docs/ARQUITECTURA-CAJA.md §0.4, §3.1.5): se
  * cobra en el terminal externo (fuera del sistema) y acá solo se registra --
@@ -74,6 +75,12 @@ export async function createCajaSale(
   for (const item of params.items) {
     const tt = ttById.get(item.ticketTypeId);
     if (!tt) throw new Error(`Producto ${item.ticketTypeId} no encontrado`);
+    // Defensa en profundidad: getCajaCatalog/getCajaSnapshot ya excluyen las
+    // cargas de saldo del catálogo que ve la cajera, pero acá se revalida
+    // server-side por si el ticketTypeId llega de otra forma -- vender esto
+    // en caja cobraría plata sin acreditar ningún saldo (creditPrepaid solo
+    // corre en processApprovedOrder, el camino de compra web).
+    if (isTopupProduct(tt)) throw new Error(`"${tt.name}" es una carga de saldo -- solo se compra desde el sitio web, no en caja`);
     const available = tt.totalStock - tt.soldCount;
     if (item.quantity > available) {
       stockWarnings.push({ ticketTypeId: tt.id, name: tt.name, requested: item.quantity, available });

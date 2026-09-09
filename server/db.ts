@@ -2630,7 +2630,12 @@ export async function getCajaSnapshot(eventId: number) {
   // excluido: es ocultar del todo, no lo mismo que agotado.
   const CATALOG_CATEGORIES = ['extra', 'consumo', 'locker', 'merch'];
   const catalog = allTicketTypes
-    .filter((t: any) => CATALOG_CATEGORIES.includes(t.category) && (t.status === 'active' || t.status === 'soldout'))
+    // Una "carga de saldo" (topupAmount) nunca se vende en /caja -- solo
+    // existe como extra del checkout web (misma razón que getCajaCatalog,
+    // server/db.ts ~línea 2693: acá no se acredita saldo ni se respeta su
+    // exclusión del recargo/Playcoins, así que venderla por acá sería cobrar
+    // plata que la tarjeta del cliente nunca ve).
+    .filter((t: any) => CATALOG_CATEGORIES.includes(t.category) && t.topupAmount == null && (t.status === 'active' || t.status === 'soldout'))
     .map((t: any) => ({
       id: t.id,
       name: t.name,
@@ -2693,7 +2698,16 @@ export async function getCajaSnapshot(eventId: number) {
 export async function getCajaCatalog(eventId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(ticketTypes).where(and(eq(ticketTypes.eventId, eventId), eq(ticketTypes.category, 'extra'), eq(ticketTypes.status, 'active')));
+  // Una "carga de saldo" (ticketTypes.topupAmount) NUNCA se vende en /caja --
+  // solo existe como extra del checkout web. Si apareciera acá, se cobraría
+  // como un producto cualquiera pero jamás acreditaría saldo (creditPrepaid
+  // solo corre en processApprovedOrder, el camino de compra web), y quedaría
+  // expuesta a un código de descuento sin acotar (ver eligibleTotal en
+  // server/caja/sale.ts) -- plata que entra sin que la tarjeta la refleje.
+  return db.select().from(ticketTypes).where(and(
+    eq(ticketTypes.eventId, eventId), eq(ticketTypes.category, 'extra'), eq(ticketTypes.status, 'active'),
+    isNull(ticketTypes.topupAmount),
+  ));
 }
 
 /** Personas de abonos de Misión 300 ya aprobados cuyo ticket todavía no
