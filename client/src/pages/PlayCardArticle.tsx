@@ -25,7 +25,7 @@ const PASOS = [
   {
     icon: Wallet,
     titulo: 'Se activa con tu entrada',
-    texto: 'Cuando compras tu entrada, tu Tarjeta PlayCard queda lista. La primera vez que cargas saldo defines un PIN de 4 dígitos -- pagar de verdad con Mercado Pago es lo que confirma que eres tú.',
+    texto: 'Cuando compras tu entrada, tu Tarjeta PlayCard queda lista. La primera vez que cargas saldo defines un PIN de 4 dígitos -- pagar de verdad es lo que confirma que eres tú.',
   },
   {
     icon: Sparkles,

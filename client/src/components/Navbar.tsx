@@ -9,6 +9,7 @@ const navLinks = [
   { href: '/', label: 'Inicio' },
   { href: '/eventos', label: 'Eventos' },
   { href: '/entradas', label: 'Entradas' },
+  { href: '/blog/tarjeta-playcard', label: 'PlayCard' },
   { href: '/panoramas', label: 'Panoramas' },
   { href: '/playmatch', label: 'Playmatch' },
   { href: '/embajadores', label: 'Embajadores' },
