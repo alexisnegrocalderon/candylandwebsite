@@ -1,120 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRoute, Link } from 'wouter';
 import { motion } from 'framer-motion';
-import { CalendarPlus, MapPin, Calendar, ShieldCheck, TicketX, CheckCircle2, RefreshCw } from 'lucide-react';
+import { CalendarPlus, MapPin, Calendar, ShieldCheck, TicketX, CheckCircle2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { MARCA, formatCLP } from '@/config/candyland';
+import { MARCA } from '@/config/candyland';
 import { useSeo } from '@/hooks/useSeo';
 import { canEnterParty } from '@shared/party';
 import { rememberTicketCode } from '@/lib/lastTicketCode';
+import { WalletCard } from '@/components/wallet/WalletCard';
 import './Ticket.wallet.css';
-
-/** Máscara tipo tarjeta de crédito para el código completo: mantiene el
- * prefijo real (ej. "MP") y los últimos 4 caracteres, oculta el resto --
- * el código completo de verdad solo se ve en el reverso de la tarjeta. */
-function maskTicketCode(code: string): string {
-  const parts = code.split('-');
-  const prefix = parts[0] || code.slice(0, 2);
-  const tail = code.slice(-4).toUpperCase();
-  return `${prefix} •••• •••• ${tail}`;
-}
-
-type WalletMovement = { type: 'money' | 'points'; label: string; delta: number; createdAt: string | Date };
-
-/** La tarjeta digital en sí (frente + reverso, con flip) -- diseño aprobado
- * por el dueño (glassmorphism/liquid-glass real vía backdrop-filter,
- * borde holográfico, isotipo de la marca). Recibe datos ya resueltos del
- * ticket real y del saldo/Playcoins reales; nunca inventa nada. */
-function WalletCard({
-  eventTitle, eventDateShort, holderName, ticketCode, qrImageUrl,
-  prepaidBalance, playcoins, movements,
-}: {
-  eventTitle: string;
-  eventDateShort: string;
-  holderName: string;
-  ticketCode: string;
-  qrImageUrl: string | null;
-  prepaidBalance: number;
-  playcoins: number;
-  movements: WalletMovement[];
-}) {
-  const [flipped, setFlipped] = useState(false);
-
-  return (
-    <>
-      <div className={`wcard-scene ${flipped ? 'is-flipped' : ''}`} onClick={() => setFlipped((f) => !f)}>
-        <div className="wcard-flip">
-          <div className="wcard-face is-front">
-            <div className="wcard-brand-row">
-              <div className="wcard-wordmark">
-                <span className="wcard-badge"><img src="/candyland/logo-isotipo-transparent.png" alt="" /></span>
-                PLAYROOM
-              </div>
-              <span className="wcard-tier">Miembro</span>
-            </div>
-
-            <div className="wcard-mid">
-              <div className="wcard-qr">
-                {qrImageUrl && <img src={qrImageUrl} alt="Código QR de tu entrada" />}
-              </div>
-              <div className="wcard-holder">
-                <p className="wcard-holder-label">Titular</p>
-                <p className="wcard-holder-name">{holderName}</p>
-                <div className="wcard-stat-row">
-                  <div className="wcard-stat">
-                    <span className="wcard-stat-label">Saldo</span>
-                    <span className="wcard-stat-value is-money">{formatCLP(prepaidBalance)}</span>
-                  </div>
-                  <div className="wcard-stat">
-                    <span className="wcard-stat-label">Playcoins</span>
-                    <span className="wcard-stat-value is-points">{playcoins.toLocaleString('es-CL')}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="wcard-foot">
-              <span className="wcard-number">{maskTicketCode(ticketCode)}</span>
-              {eventTitle && <span className="wcard-event-tag">{eventTitle}{eventDateShort ? ` · ${eventDateShort}` : ''}</span>}
-            </div>
-          </div>
-
-          <div className="wcard-face is-back">
-            <div className="wcard-back-head">
-              <div className="wcard-wordmark" style={{ fontSize: 13 }}>
-                <span className="wcard-badge"><img src="/candyland/logo-isotipo-transparent.png" alt="" /></span>
-                PLAYROOM
-              </div>
-            </div>
-
-            <div className="wcard-barcode" />
-            <p className="wcard-number" style={{ textAlign: 'center', fontSize: 11 }}>{ticketCode}</p>
-
-            <div className="wcard-movs">
-              {movements.length === 0 && <p className="wcard-movs-empty">Todavía no hay movimientos en tu tarjeta</p>}
-              {movements.map((m, i) => {
-                const isMoney = m.type === 'money';
-                const sign = m.delta >= 0 ? '+' : '−';
-                const amountText = isMoney ? `${sign}${formatCLP(Math.abs(m.delta))}` : `${sign}${Math.abs(m.delta)}`;
-                return (
-                  <div className="wcard-mov" key={i}>
-                    <span><b>{m.label}</b></span>
-                    <span className={`wcard-amt ${isMoney ? (m.delta >= 0 ? 'is-pos' : 'is-neg') : 'is-points'}`}>{amountText}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <button type="button" className="wcard-flip-hint" onClick={() => setFlipped((f) => !f)}>
-        <RefreshCw className="w-3.5 h-3.5" />
-        {flipped ? 'Ver el frente' : 'Ver el reverso'}
-      </button>
-    </>
-  );
-}
 
 /** Página pública "Mi entrada" / tarjeta digital — a donde apunta el QR de
  * cada ticket (server/qr.ts). De solo lectura: muestra el QR, el saldo y

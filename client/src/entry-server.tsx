@@ -8,6 +8,7 @@ import About from '@/pages/About';
 import Panoramas from '@/pages/Panoramas';
 import Blog from '@/pages/Blog';
 import QueSonLasFiestasLiberales from '@/pages/QueSonLasFiestasLiberales';
+import PlayCardArticle from '@/pages/PlayCardArticle';
 import RefundPolicy from '@/pages/RefundPolicy';
 import PrivacyPolicy from '@/pages/PrivacyPolicy';
 
@@ -37,6 +38,7 @@ const PAGES: Record<string, React.ComponentType> = {
   '/panoramas/valparaiso': Panoramas,
   '/blog': Blog,
   '/blog/que-son-las-fiestas-liberales': QueSonLasFiestasLiberales,
+  '/blog/tarjeta-playcard': PlayCardArticle,
   '/blog/primera-vez-que-esperar': Blog,
   '/blog/dress-code-explicado': Blog,
   '/blog/que-llevar': Blog,
