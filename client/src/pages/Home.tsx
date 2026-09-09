@@ -574,7 +574,7 @@ function PlayCardBannerSection() {
   return (
     <section className="py-16 md:py-24 relative overflow-hidden">
       <div className="container max-w-5xl">
-        <div className="glass-candy rounded-[32px] p-6 md:p-12 grid md:grid-cols-2 gap-8 md:gap-10 items-center">
+        <div className="glass-candy rounded-[32px] p-4 sm:p-6 md:p-12 grid md:grid-cols-2 gap-6 md:gap-10 items-center">
           <div>
             <span className="inline-block px-3 py-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold uppercase tracking-wide mb-3">
               💳 Novedad
@@ -593,7 +593,7 @@ function PlayCardBannerSection() {
               Conocer la PlayCard <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
-          <div className="rounded-[28px] p-5 md:p-8" style={{
+          <div className="rounded-[28px] p-3 sm:p-5 md:p-8" style={{
             background: 'radial-gradient(120% 120% at 20% 0%, #241432, #0d0712 70%)',
           }}>
             <WalletCard

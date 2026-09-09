@@ -27,6 +27,13 @@ const WALLET_CARD_CSS = `
   margin: 0 auto;
   aspect-ratio: 1.586;
   perspective: 1600px;
+  /* El resto de la tarjeta usa unidades \`cqw\` (ancho del contenedor, no del
+   * viewport) para que el QR/paddings/tipografía se achiquen EN PROPORCIÓN
+   * cuando la tarjeta vive en un espacio angosto (ej. el banner de Inicio,
+   * más apretado que /verificar o el checkout) -- sin esto, elementos de
+   * tamaño fijo en px (el QR de 92px sobre todo) no caben en el alto que
+   * deja el aspect-ratio a un ancho chico, y todo queda superpuesto. */
+  container-type: inline-size;
 }
 .wcard-flip {
   position: relative;
@@ -48,7 +55,7 @@ const WALLET_CARD_CSS = `
   backface-visibility: hidden;
   overflow: hidden;
   display: grid;
-  padding: 20px 22px;
+  padding: clamp(12px, 5cqw, 20px) clamp(14px, 5.5cqw, 22px);
   color: var(--wcard-paper);
   background:
     radial-gradient(120% 140% at 100% 0%, rgba(140, 123, 255, 0.32), transparent 55%),
@@ -61,8 +68,8 @@ const WALLET_CARD_CSS = `
     0 30px 60px -20px rgba(10, 2, 12, 0.85),
     0 8px 24px -8px rgba(255, 63, 142, 0.25);
 }
-.wcard-face.is-back { transform: rotateY(180deg); grid-template-rows: auto auto auto 1fr auto; row-gap: 10px; padding: 20px 22px 18px; }
-.wcard-face.is-front { grid-template-rows: auto 1fr auto; row-gap: 14px; }
+.wcard-face.is-back { transform: rotateY(180deg); grid-template-rows: auto auto auto 1fr auto; row-gap: clamp(6px, 2.5cqw, 10px); padding: clamp(12px, 5cqw, 20px) clamp(14px, 5.5cqw, 22px) clamp(10px, 4.5cqw, 18px); }
+.wcard-face.is-front { grid-template-rows: auto 1fr auto; row-gap: clamp(8px, 3.5cqw, 14px); }
 
 .wcard-face::before {
   content: "";
@@ -96,16 +103,16 @@ const WALLET_CARD_CSS = `
 }
 
 .wcard-brand-row { display: flex; align-items: center; justify-content: space-between; z-index: 1; position: relative; }
-.wcard-wordmark { display: flex; align-items: center; gap: 9px; font-family: var(--font-heading, 'Syne', sans-serif); font-weight: 800; font-size: 15.5px; letter-spacing: 0.03em; }
-.wcard-badge { width: 30px; height: 30px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; background: rgba(251, 238, 224, 0.14); border: 1px solid rgba(251, 238, 224, 0.35); box-shadow: 0 3px 10px -2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06) inset; }
-.wcard-badge img { width: 20px; height: 20px; object-fit: contain; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4)); }
-.wcard-face.is-back .wcard-badge { width: 24px; height: 24px; }
-.wcard-face.is-back .wcard-badge img { width: 16px; height: 16px; }
+.wcard-wordmark { display: flex; align-items: center; gap: clamp(5px, 2.3cqw, 9px); font-family: var(--font-heading, 'Syne', sans-serif); font-weight: 800; font-size: clamp(11px, 4cqw, 15.5px); letter-spacing: 0.03em; }
+.wcard-badge { width: clamp(22px, 7.5cqw, 30px); height: clamp(22px, 7.5cqw, 30px); border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; background: rgba(251, 238, 224, 0.14); border: 1px solid rgba(251, 238, 224, 0.35); box-shadow: 0 3px 10px -2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06) inset; }
+.wcard-badge img { width: clamp(14px, 5cqw, 20px); height: clamp(14px, 5cqw, 20px); object-fit: contain; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4)); }
+.wcard-face.is-back .wcard-badge { width: clamp(18px, 6cqw, 24px); height: clamp(18px, 6cqw, 24px); }
+.wcard-face.is-back .wcard-badge img { width: clamp(12px, 4cqw, 16px); height: clamp(12px, 4cqw, 16px); }
 
-.wcard-tier { font-family: var(--wcard-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--wcard-ink); background: linear-gradient(100deg, var(--wcard-gold), #fbe3a8); padding: 4px 9px; border-radius: 999px; font-weight: 600; }
+.wcard-tier { font-family: var(--wcard-mono); font-size: clamp(7px, 2.6cqw, 10px); letter-spacing: 0.1em; text-transform: uppercase; color: var(--wcard-ink); background: linear-gradient(100deg, var(--wcard-gold), #fbe3a8); padding: clamp(2px, 1cqw, 4px) clamp(5px, 2.3cqw, 9px); border-radius: 999px; font-weight: 600; white-space: nowrap; }
 
-.wcard-mid { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 0; z-index: 1; position: relative; }
-.wcard-qr { background: var(--wcard-paper); padding: 7px; border-radius: 12px; width: 92px; height: 92px; flex: none; box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.6); }
+.wcard-mid { display: flex; align-items: center; justify-content: space-between; gap: clamp(8px, 4cqw, 16px); min-height: 0; z-index: 1; position: relative; }
+.wcard-qr { background: var(--wcard-paper); padding: clamp(4px, 1.8cqw, 7px); border-radius: 12px; width: clamp(52px, 24cqw, 92px); height: clamp(52px, 24cqw, 92px); flex: none; box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.6); }
 .wcard-qr img { width: 100%; height: 100%; display: block; border-radius: 6px; object-fit: contain; }
 .wcard-qr-fallback {
   width: 100%; height: 100%; border-radius: 6px;
@@ -116,32 +123,32 @@ const WALLET_CARD_CSS = `
 }
 
 .wcard-holder { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.wcard-holder-label { font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--wcard-muted-2); margin: 0 0 4px; }
-.wcard-holder-name { font-family: var(--font-heading, 'Syne', sans-serif); font-weight: 700; font-size: 17px; margin: 0 0 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wcard-holder-label { font-size: clamp(6.5px, 2.5cqw, 9.5px); letter-spacing: 0.14em; text-transform: uppercase; color: var(--wcard-muted-2); margin: 0 0 clamp(2px, 1cqw, 4px); }
+.wcard-holder-name { font-family: var(--font-heading, 'Syne', sans-serif); font-weight: 700; font-size: clamp(12px, 4.4cqw, 17px); margin: 0 0 clamp(6px, 3cqw, 12px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.wcard-stat-row { display: flex; gap: 14px; }
-.wcard-stat { display: flex; flex-direction: column; gap: 2px; }
-.wcard-stat-label { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--wcard-muted-2); }
-.wcard-stat-value { font-family: var(--wcard-mono); font-variant-numeric: tabular-nums; font-size: 14.5px; font-weight: 600; }
+.wcard-stat-row { display: flex; gap: clamp(6px, 3.6cqw, 14px); }
+.wcard-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wcard-stat-label { font-size: clamp(6.5px, 2.3cqw, 9px); letter-spacing: 0.1em; text-transform: uppercase; color: var(--wcard-muted-2); white-space: nowrap; }
+.wcard-stat-value { font-family: var(--wcard-mono); font-variant-numeric: tabular-nums; font-size: clamp(10px, 3.7cqw, 14.5px); font-weight: 600; white-space: nowrap; }
 .wcard-stat-value.is-money { color: var(--wcard-gold); }
 .wcard-stat-value.is-points { color: var(--wcard-violet); }
 
-.wcard-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 12px; border-top: 1px solid var(--wcard-line); z-index: 1; position: relative; }
-.wcard-number { font-family: var(--wcard-mono); font-size: 12px; letter-spacing: 0.06em; color: var(--wcard-muted); min-width: 0; flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wcard-event-tag { font-family: var(--wcard-mono); font-size: 10px; letter-spacing: 0.06em; background: rgba(255, 63, 142, 0.18); border: 1px solid rgba(255, 63, 142, 0.4); padding: 4px 8px; border-radius: 7px; white-space: nowrap; flex: none; }
+.wcard-foot { display: flex; align-items: center; justify-content: space-between; gap: clamp(6px, 2.5cqw, 10px); padding-top: clamp(7px, 3cqw, 12px); border-top: 1px solid var(--wcard-line); z-index: 1; position: relative; }
+.wcard-number { font-family: var(--wcard-mono); font-size: clamp(8.5px, 3cqw, 12px); letter-spacing: 0.06em; color: var(--wcard-muted); min-width: 0; flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wcard-event-tag { font-family: var(--wcard-mono); font-size: clamp(7px, 2.5cqw, 10px); letter-spacing: 0.06em; background: rgba(255, 63, 142, 0.18); border: 1px solid rgba(255, 63, 142, 0.4); padding: clamp(2px, 1cqw, 4px) clamp(5px, 2cqw, 8px); border-radius: 7px; white-space: nowrap; flex: none; }
 
-.wcard-back-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; z-index: 1; position: relative; }
-.wcard-back-head .wcard-number { flex: none; font-size: 11px; }
-.wcard-barcode { height: 34px; border-radius: 6px; background: repeating-linear-gradient(90deg, var(--wcard-paper) 0 2px, transparent 2px 4px, var(--wcard-paper) 4px 6px, transparent 6px 9px, var(--wcard-paper) 9px 10px, transparent 10px 13px); opacity: 0.92; z-index: 1; position: relative; }
+.wcard-back-head { display: flex; justify-content: space-between; align-items: center; gap: clamp(6px, 2.5cqw, 10px); z-index: 1; position: relative; }
+.wcard-back-head .wcard-number { flex: none; font-size: clamp(8px, 2.8cqw, 11px); }
+.wcard-barcode { height: clamp(20px, 8.5cqw, 34px); border-radius: 6px; background: repeating-linear-gradient(90deg, var(--wcard-paper) 0 2px, transparent 2px 4px, var(--wcard-paper) 4px 6px, transparent 6px 9px, var(--wcard-paper) 9px 10px, transparent 10px 13px); opacity: 0.92; z-index: 1; position: relative; }
 
-.wcard-movs { flex: 1; display: flex; flex-direction: column; gap: 6px; justify-content: center; z-index: 1; position: relative; }
-.wcard-mov { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; color: var(--wcard-muted); }
+.wcard-movs { flex: 1; display: flex; flex-direction: column; gap: clamp(3px, 1.5cqw, 6px); justify-content: center; z-index: 1; position: relative; min-height: 0; overflow: hidden; }
+.wcard-mov { display: flex; justify-content: space-between; gap: clamp(5px, 2.5cqw, 10px); font-size: clamp(8.5px, 2.9cqw, 11.5px); color: var(--wcard-muted); }
 .wcard-mov b { color: var(--wcard-paper); font-weight: 500; }
 .wcard-mov .wcard-amt { font-family: var(--wcard-mono); font-variant-numeric: tabular-nums; flex: none; }
 .wcard-mov .wcard-amt.is-neg { color: var(--wcard-magenta); }
 .wcard-mov .wcard-amt.is-pos { color: var(--wcard-gold); }
 .wcard-mov .wcard-amt.is-points { color: var(--wcard-violet); }
-.wcard-movs-empty { font-size: 11.5px; color: var(--wcard-muted-2); text-align: center; }
+.wcard-movs-empty { font-size: clamp(8.5px, 2.9cqw, 11.5px); color: var(--wcard-muted-2); text-align: center; }
 
 .wcard-flip-hint { font-family: var(--wcard-mono, ui-monospace, monospace); font-size: 11.5px; letter-spacing: 0.06em; color: var(--wcard-muted-2, #8a7495); display: flex; align-items: center; gap: 7px; background: rgba(36, 20, 50, 0.4); backdrop-filter: blur(10px) saturate(150%); -webkit-backdrop-filter: blur(10px) saturate(150%); border: 1px solid var(--wcard-line, rgba(251, 238, 224, 0.14)); padding: 8px 14px; border-radius: 999px; cursor: pointer; margin: 18px auto 0; color-scheme: dark; }
 .wcard-flip-hint:hover { border-color: rgba(240, 198, 116, 0.5); color: var(--wcard-gold, #f0c674); }
