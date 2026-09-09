@@ -686,7 +686,7 @@ export default function Checkout() {
             <div className="glass-candy rounded-2xl p-5 mb-5">
               <p className="text-sm font-semibold mb-1">💳 Define el PIN de tu tarjeta</p>
               <p className="text-xs text-muted-foreground mb-4">
-                4 dígitos para poder gastar tu saldo en caja o en la puerta. Pagar de verdad acá es lo que confirma que sos vos -- después de esto, para cambiarlo vas a necesitar el PIN actual.
+                4 dígitos para poder gastar tu saldo en caja. Pagar de verdad acá es lo que confirma que eres tú -- después de esto, para cambiarlo vas a necesitar el PIN actual.
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
