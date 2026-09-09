@@ -1,14 +1,20 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import { ops, orders, orderItems, ticketTypes, lockerItems, discountCodes, kitchenTickets } from "../../drizzle/schema";
 
-// `createCajaSale` toca Playcoins y descuentos vía ../db, que abre conexión
-// real. Acá solo se prueba la lógica de la venta (precio, stock,
-// idempotencia, descuento, guardarropía), así que se reemplazan por dobles.
+// `createCajaSale` toca Playcoins, saldo prepagado y descuentos vía ../db,
+// que abre conexión real. Acá solo se prueba la lógica de la venta (precio,
+// stock, idempotencia, descuento, guardarropía, pago con saldo), así que se
+// reemplazan por dobles.
 const validateDiscountCode = vi.fn(async (_code: string, _eventId: number) => ({ valid: false, message: "Código no encontrado" }));
+const redeemPlaycoinsAuthoritative = vi.fn(async () => ({ ok: true as const, redeemed: 0, balanceAfter: 0 }));
+const verifyCardPin = vi.fn(async (_p: { email: string; pin: string }) => ({ ok: true as const, customerId: 1 }));
+const spendPrepaidAuthoritative = vi.fn(async (_p: { customerId: number; amountClp: number; reason: string; opId: string }) => ({ ok: true as const, balanceAfter: 0 }));
 vi.mock("../db", () => ({
   awardPlaycoins: vi.fn(async () => {}),
-  redeemPlaycoinsAuthoritative: vi.fn(async () => ({ ok: true, redeemed: 0 })),
+  redeemPlaycoinsAuthoritative: (...args: any[]) => redeemPlaycoinsAuthoritative(...(args as [])),
   validateDiscountCode: (...args: [string, number]) => validateDiscountCode(...args),
+  verifyCardPin: (...args: [{ email: string; pin: string }]) => verifyCardPin(...args),
+  spendPrepaidAuthoritative: (...args: [{ customerId: number; amountClp: number; reason: string; opId: string }]) => spendPrepaidAuthoritative(...args),
 }));
 
 const { createCajaSale } = await import("./sale");
@@ -290,5 +296,97 @@ describe("createCajaSale", () => {
       createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 4, quantity: 1 }], kitchenTicketNumber: "1-003" })
     ).rejects.toThrow(/ya está en uso/);
     expect(calls.order).toBeNull();
+  });
+
+  describe("pago con saldo prepagado", () => {
+    // Los mocks de ../db acumulan llamadas entre tests (vitest no los limpia
+    // solo) -- varios de estos casos aseveran "no se llamó", así que hay que
+    // arrancar cada uno en limpio.
+    beforeEach(() => {
+      verifyCardPin.mockClear();
+      spendPrepaidAuthoritative.mockClear();
+      redeemPlaycoinsAuthoritative.mockClear();
+    });
+
+    it("cobra con saldo: verifica el PIN, descuenta el 100% y crea la orden con paymentMethod='saldo'", async () => {
+      verifyCardPin.mockResolvedValueOnce({ ok: true, customerId: 42 });
+      spendPrepaidAuthoritative.mockResolvedValueOnce({ ok: true, balanceAfter: 5000 });
+      const { db, calls } = makeFakeDb({ products: [piscola] });
+
+      const res = await createCajaSale(db, {
+        ...baseParams, paymentMethod: "saldo", buyerEmail: "cliente@test.cl", cardPin: "1234",
+        items: [{ ticketTypeId: 1, quantity: 1 }],
+      });
+
+      expect(res.result).toBe("applied");
+      expect(verifyCardPin).toHaveBeenCalledWith({ email: "cliente@test.cl", pin: "1234" });
+      expect(spendPrepaidAuthoritative).toHaveBeenCalledWith({
+        customerId: 42, amountClp: 5000, reason: "spend_caja", opId: baseParams.opId,
+      });
+      expect(calls.order).toMatchObject({ paymentMethod: "saldo", total: "5000" });
+    });
+
+    it("rechaza sin email o sin PIN, sin llegar a verificar nada ni crear la orden", async () => {
+      const { db, calls } = makeFakeDb({ products: [piscola] });
+
+      await expect(
+        createCajaSale(db, { ...baseParams, paymentMethod: "saldo", items: [{ ticketTypeId: 1, quantity: 1 }] })
+      ).rejects.toThrow(/email y el PIN/);
+      expect(verifyCardPin).not.toHaveBeenCalled();
+      expect(calls.order).toBeNull();
+    });
+
+    it("rechaza con PIN incorrecto, sin crear la orden", async () => {
+      verifyCardPin.mockResolvedValueOnce({ ok: false, reason: "PIN incorrecto" } as any);
+      const { db, calls } = makeFakeDb({ products: [piscola] });
+
+      await expect(
+        createCajaSale(db, { ...baseParams, paymentMethod: "saldo", buyerEmail: "cliente@test.cl", cardPin: "0000", items: [{ ticketTypeId: 1, quantity: 1 }] })
+      ).rejects.toThrow(/PIN incorrecto/);
+      expect(spendPrepaidAuthoritative).not.toHaveBeenCalled();
+      expect(calls.order).toBeNull();
+    });
+
+    it("rechaza con saldo insuficiente -- 100% o nada, nunca cobra parcial", async () => {
+      verifyCardPin.mockResolvedValueOnce({ ok: true, customerId: 42 });
+      spendPrepaidAuthoritative.mockResolvedValueOnce({ ok: false, conflictNote: "Saldo insuficiente para cubrir el 100% de esta venta" } as any);
+      const { db, calls } = makeFakeDb({ products: [piscola] });
+
+      await expect(
+        createCajaSale(db, { ...baseParams, paymentMethod: "saldo", buyerEmail: "cliente@test.cl", cardPin: "1234", items: [{ ticketTypeId: 1, quantity: 1 }] })
+      ).rejects.toThrow(/Saldo insuficiente/);
+      expect(calls.order).toBeNull();
+    });
+
+    it("pagando con saldo, no se intenta canjear Playcoins aunque se manden ambos", async () => {
+      verifyCardPin.mockResolvedValueOnce({ ok: true, customerId: 42 });
+      spendPrepaidAuthoritative.mockResolvedValueOnce({ ok: true, balanceAfter: 0 });
+      const { db } = makeFakeDb({ products: [piscola] });
+      redeemPlaycoinsAuthoritative.mockClear();
+
+      await createCajaSale(db, {
+        ...baseParams, paymentMethod: "saldo", buyerEmail: "cliente@test.cl", cardPin: "1234", redeemPlaycoins: 1000,
+        items: [{ ticketTypeId: 1, quantity: 1 }],
+      });
+
+      expect(redeemPlaycoinsAuthoritative).not.toHaveBeenCalled();
+    });
+
+    it("reenviar el mismo opId de una venta con saldo no vuelve a descontar (idempotencia de applyOp)", async () => {
+      const { db, calls } = makeFakeDb({
+        products: [piscola],
+        existingOp: { result: "applied", conflictNote: null },
+      });
+
+      const res = await createCajaSale(db, {
+        ...baseParams, paymentMethod: "saldo", buyerEmail: "cliente@test.cl", cardPin: "1234",
+        items: [{ ticketTypeId: 1, quantity: 1 }],
+      });
+
+      expect(res.result).toBe("applied");
+      expect(verifyCardPin).not.toHaveBeenCalled();
+      expect(spendPrepaidAuthoritative).not.toHaveBeenCalled();
+      expect(calls.order).toBeNull();
+    });
   });
 });

@@ -12,7 +12,7 @@ import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
 import { redeemDisplayCode } from "./caja/redeem";
 import { checkInTicket } from "./caja/checkin";
-import { sellParkingAtDoor } from "./caja/parkingPaid";
+import { sellParkingAtDoor, payParkingWithSaldo } from "./caja/parkingPaid";
 import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
@@ -777,6 +777,10 @@ export const appRouter = router({
       // Cupo compartido (stockPools) -- null/omitido = sigue usando su propio
       // totalStock, como hoy.
       stockPoolId: z.number().nullable().optional(),
+      // Carga de saldo prepagado (pedido explícito del dueño): con valor,
+      // este producto acredita saldo en vez de dar un derecho canjeable --
+      // ver el comentario de la columna en drizzle/schema.ts.
+      topupAmount: z.number().int().positive().optional(),
     })).mutation(async ({ input }) => {
       return db.createTicketType(input);
     }),
@@ -801,6 +805,7 @@ export const appRouter = router({
       groupName: z.string().max(50).optional(),
       toKitchen: z.number().min(0).max(1).optional(),
       stockPoolId: z.number().nullable().optional(),
+      topupAmount: z.number().int().positive().nullable().optional(),
     })).mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
       return db.updateTicketType(id, data, ctx.user.id);
@@ -1168,6 +1173,31 @@ export const appRouter = router({
         opId: input.opId,
         ticketCode: input.ticketCode,
         eventId: input.eventId,
+        operatorId: ctx.operator.operatorId,
+        clientAt: new Date(input.clientAt),
+      });
+    }),
+
+    // Cobro de estacionamiento con SALDO PREPAGADO (pedido explícito del
+    // dueño) -- procedure online DIRECTO, nunca dentro de `sync`: el saldo
+    // exige conexión siempre, a diferencia de efectivo/débito/crédito (que sí
+    // se pueden encolar offline, ver el discriminatedUnion de abajo).
+    payParkingWithSaldo: doorProcedure.input(z.object({
+      opId: z.string(),
+      eventId: z.number(),
+      ticketCode: z.string().min(1),
+      buyerEmail: z.string().email(),
+      cardPin: z.string().regex(/^\d{4}$/),
+      clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      return payParkingWithSaldo(rawDb, {
+        opId: input.opId,
+        eventId: input.eventId,
+        ticketCode: input.ticketCode,
+        buyerEmail: input.buyerEmail,
+        cardPin: input.cardPin,
         operatorId: ctx.operator.operatorId,
         clientAt: new Date(input.clientAt),
       });
@@ -2678,13 +2708,20 @@ export const appRouter = router({
         clientAt: new Date(input.clientAt),
       });
     }),
+    // 'saldo' (pedido explícito del dueño): cubre el 100% del total o se
+    // rechaza, nunca combinado con otro medio -- y SOLO se puede pagar
+    // llamando este procedure directo (nunca por caja.sync, que no lo
+    // acepta en su discriminatedUnion): el saldo exige conexión siempre, a
+    // diferencia de efectivo/débito/crédito/qr, que sí viajan por la cola
+    // offline. `cardPin` es requerido cuando paymentMethod==='saldo'.
     sale: operatorProcedure.input(z.object({
       opId: z.string(),
       eventId: z.number(),
       items: z.array(z.object({ ticketTypeId: z.number(), quantity: z.number().min(1) })).min(1),
-      paymentMethod: z.enum(['efectivo', 'debito', 'credito', 'qr']),
+      paymentMethod: z.enum(['efectivo', 'debito', 'credito', 'qr', 'saldo']),
       registerId: z.number().optional(),
       buyerEmail: z.string().email().optional(),
+      cardPin: z.string().regex(/^\d{4}$/).optional(),
       redeemPlaycoins: z.number().int().min(0).optional(),
       discountCode: z.string().optional(),
       lockerTag: z.string().max(16).optional(),
@@ -2693,6 +2730,9 @@ export const appRouter = router({
       customerName: z.string().max(60).optional(),
       clientAt: z.string(),
     })).mutation(async ({ input, ctx }) => {
+      if (input.paymentMethod === 'saldo' && (!input.buyerEmail || !input.cardPin)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Pagar con saldo necesita el email y el PIN de la tarjeta' });
+      }
       const rawDb = await db.getDb();
       if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
       try {
@@ -2704,6 +2744,7 @@ export const appRouter = router({
           items: input.items,
           paymentMethod: input.paymentMethod,
           buyerEmail: input.buyerEmail,
+          cardPin: input.cardPin,
           redeemPlaycoins: input.redeemPlaycoins,
           discountCode: input.discountCode,
           lockerTag: input.lockerTag,
@@ -2941,6 +2982,31 @@ export const appRouter = router({
   playcoins: router({
     getBalanceByEmail: publicProcedure.input(z.object({ email: z.string().email() })).query(async ({ input }) => {
       return db.getPlaycoinsBalance(input.email);
+    }),
+  }),
+
+  // Saldo prepagado en PLATA de la tarjeta de membresía (pedido explícito del
+  // dueño) -- distinto e independiente de Playcoins. VER el saldo es público
+  // (mismo criterio que playcoins.getBalanceByEmail); GASTARLO exige PIN, y
+  // eso vive en caja.sale/puerta.payParkingWithSaldo, no acá.
+  prepaid: router({
+    getBalanceByEmail: publicProcedure.input(z.object({ email: z.string().email() })).query(async ({ input }) => {
+      return db.getPrepaidBalance(input.email);
+    }),
+    // Define o cambia el PIN de la tarjeta. Público a propósito: la prueba de
+    // identidad es haber pagado de verdad una carga de saldo con Mercado
+    // Pago (verificado adentro por orderNumber+paymentStatus), no una
+    // sesión -- ver server/db.ts setCardPinAfterTopup.
+    setCardPinAfterTopup: publicProcedure.input(z.object({
+      orderNumber: z.string().min(1),
+      pin: z.string().regex(/^\d{4}$/, 'El PIN debe tener 4 dígitos'),
+      currentPin: z.string().regex(/^\d{4}$/).optional(),
+    })).mutation(async ({ input }) => {
+      try {
+        return await db.setCardPinAfterTopup(input);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo definir el PIN.' });
+      }
     }),
   }),
 

@@ -501,6 +501,10 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const snapshotQuery = trpc.caja.snapshot.useQuery({ eventId: remoteEvent?.id ?? 0 }, { enabled: !!remoteEvent, refetchInterval: 60_000 });
   const syncMutation = trpc.caja.sync.useMutation();
   const shiftClose = trpc.caja.shiftClose.useMutation();
+  // Pago con saldo prepagado (pedido explícito del dueño): a diferencia de
+  // todo lo demás en esta pantalla, NUNCA se encola offline -- exige
+  // conexión siempre, así que llama caja.sale directo en vez de enqueueOp.
+  const saleWithSaldoMutation = trpc.caja.sale.useMutation();
 
   const [localEvent, setLocalEvent] = useState<{ id: number; title: string; slug: string } | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -844,11 +848,27 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
             eventId={localEvent.id}
             registerId={registerId}
             catalogVersion={snapshotQuery.dataUpdatedAt}
-            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName) => {
-              await enqueueOp({
-                opId: newOpId(), type: 'sale', items, paymentMethod, buyerEmail, redeemPlaycoins,
-                discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, clientAt: (await correctedNow()).toISOString(),
-              });
+            isOnline={isOnline}
+            onSale={async (items, paymentMethod, buyerEmail, redeemPlaycoins, discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, cardPin) => {
+              const opId = newOpId();
+              const clientAt = (await correctedNow()).toISOString();
+              if (paymentMethod === 'saldo') {
+                // Saldo exige conexión siempre (decisión explícita del
+                // dueño): nunca se encola, se llama directo -- si falla
+                // (sin señal, PIN incorrecto, saldo insuficiente), el error
+                // se propaga tal cual a runConfirm/toast, sin quedar
+                // registrado en ningún lado (ni ops ni orders).
+                await saleWithSaldoMutation.mutateAsync({
+                  opId, eventId: localEvent.id, registerId: registerId ?? undefined,
+                  items, paymentMethod, buyerEmail, cardPin,
+                  discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, clientAt,
+                });
+              } else {
+                await enqueueOp({
+                  opId, type: 'sale', items, paymentMethod, buyerEmail, redeemPlaycoins,
+                  discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, clientAt,
+                });
+              }
               const confirms: typeof postSaleConfirms = [];
               if (kitchenTicketNumber) confirms.push({ kind: 'kitchen', number: kitchenTicketNumber, name: customerName || kitchenTicketNumber, offline: !isOnline });
               if (lockerTag) confirms.push({ kind: 'locker', number: lockerTag, name: lockerCustomerName || lockerTag, offline: !isOnline });
@@ -1080,7 +1100,7 @@ const PAYMENT_METHOD_META: Record<'efectivo' | 'debito' | 'credito' | 'qr', { la
   qr: { label: 'QR', badgeClass: 'bg-violet-500/15 text-violet-300' },
 };
 
-function NewSale({ eventId, registerId, catalogVersion, onSale }: {
+function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   eventId: number;
   registerId: number | null;
   // Cambia cada vez que llega un snapshot nuevo del servidor (60s) --
@@ -1089,9 +1109,13 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
   // turno). Sin esto, un producto marcado "agotado" desde /cocina no se
   // veía acá hasta un refresh manual del navegador.
   catalogVersion: number;
+  // Pago con saldo (pedido explícito del dueño): exige conexión siempre, así
+  // que ese botón se deshabilita sin señal -- el resto de los medios de pago
+  // no lo necesitan, se encolan igual offline.
+  isOnline: boolean;
   onSale: (
     items: { ticketTypeId: number; quantity: number }[],
-    paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr',
+    paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr' | 'saldo',
     buyerEmail?: string,
     redeemPlaycoins?: number,
     discountCode?: string,
@@ -1099,11 +1123,12 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
     lockerCustomerName?: string,
     kitchenTicketNumber?: string,
     customerName?: string,
+    cardPin?: string,
   ) => void | Promise<void>;
 }) {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
-  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito' | 'qr'>('debito');
+  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito' | 'qr' | 'saldo'>('debito');
   // Venta en curso: bloquea el botón de confirmar hasta que la venta quedó
   // encolada, para que un doble toque no registre la misma venta dos veces.
   const [confirming, setConfirming] = useState(false);
@@ -1172,6 +1197,8 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
   const [balance, setBalance] = useState<number | null>(null);
   const [checkingBalance, setCheckingBalance] = useState(false);
   const [redeemInput, setRedeemInput] = useState('');
+  // PIN de la tarjeta -- solo hace falta cuando paymentMethod === 'saldo'.
+  const [cardPin, setCardPin] = useState('');
   const [associatedName, setAssociatedName] = useState<string | null>(null);
   const [scanningCustomer, setScanningCustomer] = useState(false);
   // Buscador por nombre entre quienes YA ENTRARON a la fiesta -- para sumar
@@ -1303,6 +1330,11 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
     if (tooManyLockers) { toast.error('Cobra los abrigos de a uno para poder asignar un número a cada uno'); return; }
     if (needsLockerTag && !lockerCustomerName.trim()) { toast.error('Falta el nombre del cliente para guardarropía'); return; }
     if (hasKitchenItems && !customerName.trim()) { toast.error('Falta el nombre para cocina'); return; }
+    if (paymentMethod === 'saldo') {
+      if (!isOnline) { toast.error('Pagar con saldo necesita conexión'); return; }
+      if (!buyerEmail.trim()) { toast.error('Falta el email de la tarjeta'); return; }
+      if (!/^\d{4}$/.test(cardPin)) { toast.error('El PIN de la tarjeta tiene que tener 4 dígitos'); return; }
+    }
     if (paymentMethod === 'debito' || paymentMethod === 'credito') { setPaymentStep('card'); return; }
     if (paymentMethod === 'efectivo') { setCashGiven(''); setPaymentStep('cash'); return; }
     confirm();
@@ -1324,7 +1356,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
    * actualizó cuando corre el handler, así que la venta se guardaría con el
    * medio anterior -- justo el error que dejó la noche entera anotada como
    * débito. */
-  const confirmWith = async (method: 'efectivo' | 'debito' | 'credito' | 'qr') => {
+  const confirmWith = async (method: 'efectivo' | 'debito' | 'credito' | 'qr' | 'saldo') => {
     if (confirming) return;
     setConfirming(true);
     try {
@@ -1334,18 +1366,22 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
     }
   };
 
-  const runConfirm = async (method: 'efectivo' | 'debito' | 'credito' | 'qr' = paymentMethod) => {
+  const runConfirm = async (method: 'efectivo' | 'debito' | 'credito' | 'qr' | 'saldo' = paymentMethod) => {
     const cartItems = Object.entries(cart).filter(([, q]) => q > 0).map(([ticketTypeId, quantity]) => ({ ticketTypeId: Number(ticketTypeId), quantity }));
-    const redeemAmount = balance != null ? clampRedeemAmount(Number(redeemInput || 0), Math.min(balance, total)) : 0;
+    // Pagando con saldo no se combina con canje de Playcoins -- no se
+    // mezclan los dos saldos en una misma venta (decisión explícita del
+    // dueño).
+    const redeemAmount = method !== 'saldo' && balance != null ? clampRedeemAmount(Number(redeemInput || 0), Math.min(balance, total)) : 0;
     // El número de comanda/percha se genera ACÁ, en la tablet, antes de
     // encolar la venta -- así funciona sin señal (ver nextKitchenTicketNumber
     // / nextLockerTagNumber).
     const kitchenTicketNumber = hasKitchenItems ? await nextKitchenTicketNumber() : undefined;
     const lockerTag = needsLockerTag ? await nextLockerTagNumber() : undefined;
-    // `onSale` encola la venta en IndexedDB. Antes se llamaba sin `await` y
-    // el carrito se vaciaba igual: si el encolado fallaba, la venta
-    // desaparecía de la pantalla sin quedar registrada en ningún lado. Ahora
-    // el carrito solo se limpia cuando la venta quedó realmente encolada.
+    // `onSale` encola la venta en IndexedDB (o, si es saldo, llama al
+    // servidor directo -- ver CajaHome). Antes se llamaba sin `await` y el
+    // carrito se vaciaba igual: si fallaba, la venta desaparecía de la
+    // pantalla sin quedar registrada en ningún lado. Ahora el carrito solo
+    // se limpia cuando la venta quedó realmente registrada.
     try {
       await onSale(
         cartItems, method, buyerEmail.trim() || undefined, redeemAmount || undefined,
@@ -1354,6 +1390,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
         needsLockerTag ? lockerCustomerName.trim() : undefined,
         kitchenTicketNumber,
         hasKitchenItems ? customerName.trim() : undefined,
+        method === 'saldo' ? cardPin : undefined,
       );
     } catch (err: any) {
       toast.error(
@@ -1366,6 +1403,7 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
     setBuyerEmail('');
     setBalance(null);
     setRedeemInput('');
+    setCardPin('');
     setShowEmailStep(false);
     setAssociatedName(null);
     setCustomerSearch('');
@@ -1646,16 +1684,27 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
                     placeholder="email@cliente.cl"
                     className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
                   />
+                  {paymentMethod === 'saldo' && (
+                    <Input
+                      type="tel" inputMode="numeric" maxLength={4}
+                      value={cardPin}
+                      onChange={(e) => setCardPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                      placeholder="PIN de la tarjeta (4 dígitos)"
+                      className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40 tracking-[0.3em] text-center"
+                    />
+                  )}
                   <div className="flex items-center gap-3">
                     <Button size="sm" variant="outline" className="border-white/15 text-white" disabled={!buyerEmail.trim() || checkingBalance} onClick={checkBalance}>
                       {checkingBalance ? 'Consultando…' : 'Consultar saldo'}
                     </Button>
-                    <button
-                      onClick={() => { setShowEmailStep(false); setBuyerEmail(''); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
-                      className="text-xs text-white/40 underline"
-                    >
-                      Omitir
-                    </button>
+                    {paymentMethod !== 'saldo' && (
+                      <button
+                        onClick={() => { setShowEmailStep(false); setBuyerEmail(''); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
+                        className="text-xs text-white/40 underline"
+                      >
+                        Omitir
+                      </button>
+                    )}
                   </div>
                   {balance != null && (
                     canRedeem(balance) ? (
@@ -1676,18 +1725,23 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
               )}
             </div>
 
-            {/* Método de pago -- mismo lugar visual que las pestañas Delivery/Dine In/Takeaway de la referencia. */}
-            <div className="grid grid-cols-4 gap-2">
-              {(['efectivo', 'debito', 'credito', 'qr'] as const).map((m) => (
+            {/* Método de pago -- mismo lugar visual que las pestañas Delivery/Dine In/Takeaway de la referencia.
+                'saldo' (pedido explícito del dueño) exige conexión siempre -- deshabilitado sin señal. */}
+            <div className="grid grid-cols-5 gap-2">
+              {(['efectivo', 'debito', 'credito', 'qr', 'saldo'] as const).map((m) => (
                 <button
                   key={m}
-                  onClick={() => setPaymentMethod(m)}
-                  className={`h-11 rounded-xl text-xs font-semibold capitalize transition-colors ${paymentMethod === m ? 'bg-primary text-white' : 'bg-white/5 text-white/50'}`}
+                  disabled={m === 'saldo' && !isOnline}
+                  onClick={() => { setPaymentMethod(m); if (m === 'saldo') setShowEmailStep(true); }}
+                  className={`h-11 rounded-xl text-xs font-semibold capitalize transition-colors ${paymentMethod === m ? 'bg-primary text-white' : 'bg-white/5 text-white/50'} disabled:opacity-30`}
                 >
-                  {m === 'qr' ? '📲 QR' : m}
+                  {m === 'qr' ? '📲 QR' : m === 'saldo' ? '💳 Saldo' : m}
                 </button>
               ))}
             </div>
+            {paymentMethod === 'saldo' && !isOnline && (
+              <p className="text-xs text-amber-400 -mt-1">Sin conexión no se puede cobrar con saldo -- elige otro medio de pago.</p>
+            )}
 
             {/* Líneas del carrito -- el stepper +/- vive acá, ya no en la tarjeta del producto. */}
             <div className="space-y-1.5 flex-1 min-h-24 overflow-y-auto overscroll-contain">
@@ -1743,8 +1797,15 @@ function NewSale({ eventId, registerId, catalogVersion, onSale }: {
               <span>${total.toLocaleString('es-CL')}</span>
             </div>
 
-            <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={!hasItems || tooManyLockers} onClick={startCheckout}>
-              {paymentMethod === 'efectivo' ? 'Cobrar en efectivo' : paymentMethod === 'qr' ? 'Cobrado en terminal — Confirmar' : 'Cobrar con máquina'}
+            <Button
+              className="w-full h-12 bg-primary hover:bg-primary/90"
+              disabled={!hasItems || tooManyLockers || (paymentMethod === 'saldo' && !isOnline) || (confirming && paymentMethod === 'saldo')}
+              onClick={startCheckout}
+            >
+              {paymentMethod === 'efectivo' ? 'Cobrar en efectivo'
+                : paymentMethod === 'qr' ? 'Cobrado en terminal — Confirmar'
+                : paymentMethod === 'saldo' ? (confirming ? 'Cobrando…' : 'Cobrar con saldo')
+                : 'Cobrar con máquina'}
             </Button>
           </aside>
         </div>

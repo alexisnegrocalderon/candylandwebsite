@@ -1,7 +1,7 @@
 import { eq, sql, inArray, and } from "drizzle-orm";
 import { orders, orderItems, ticketTypes, discountCodes, lockerItems, kitchenTickets } from "../../drizzle/schema";
 import { applyOp } from "./ops";
-import { awardPlaycoins, redeemPlaycoinsAuthoritative, validateDiscountCode } from "../db";
+import { awardPlaycoins, redeemPlaycoinsAuthoritative, validateDiscountCode, verifyCardPin, spendPrepaidAuthoritative } from "../db";
 
 /** Venta presencial en caja (docs/ARQUITECTURA-CAJA.md §0.4, §3.1.5): se
  * cobra en el terminal externo (fuera del sistema) y acá solo se registra --
@@ -20,13 +20,20 @@ export async function createCajaSale(
     operatorId: number;
     registerId?: number | null;
     items: { ticketTypeId: number; quantity: number }[];
-    paymentMethod: "efectivo" | "debito" | "credito" | "qr";
+    // 'saldo' (pedido explícito del dueño): cubre el 100% del total o
+    // rechaza la venta ANTES de crearla -- nunca combinado con otro medio,
+    // nunca parcial. Requiere buyerEmail+cardPin. A diferencia de los demás
+    // medios, esta venta SOLO puede llegar acá por el procedure online
+    // directo `caja.sale` -- nunca por `caja.sync` (ver server/routers.ts).
+    paymentMethod: "efectivo" | "debito" | "credito" | "qr" | "saldo";
     clientAt: Date;
     // Playcoins (pedido explícito del usuario): captura opcional del email
     // del cliente para que la venta también gane puntos, y canje opcional de
     // puntos ya ganados como descuento del total.
     buyerEmail?: string;
     redeemPlaycoins?: number;
+    // PIN de la tarjeta -- requerido solo cuando paymentMethod === 'saldo'.
+    cardPin?: string;
     // Código de descuento aplicado al carrito -- se revalida server-side con
     // la misma función que usa el checkout web (nunca se confía en el monto
     // que calculó la tablet).
@@ -169,15 +176,31 @@ export async function createCajaSale(
         if (existing.length > 0) throw new Error(`La comanda ${ticketNumber} ya está en uso esta noche`);
       }
 
-      // Canje de Playcoins: SERVER-AUTHORITATIVE, dentro de este mismo
-      // mutate() -- se relee el saldo real en el instante en que esta
-      // operación finalmente se aplica (no cuando el cajero la encoló
-      // offline). Si falla (otro dispositivo canjeó primero), la venta
-      // igual se aplica a precio completo -- no se bloquea la entrega de
-      // productos en el evento por una carrera de saldo entre dispositivos.
+      // Pago con SALDO PREPAGADO (pedido explícito del dueño): a diferencia
+      // de todo lo demás en este módulo (stock, Playcoins), acá SÍ se
+      // rechaza -- 100% del total o nada, y la orden nunca llega a crearse
+      // si falla. Corre ANTES del canje de Playcoins porque son excluyentes:
+      // no se mezclan los dos saldos en una misma venta.
       let redeemedAmount = 0;
       let redeemConflictNote: string | undefined;
-      if (params.redeemPlaycoins && params.redeemPlaycoins > 0 && params.buyerEmail) {
+      if (params.paymentMethod === 'saldo') {
+        if (!params.buyerEmail || !params.cardPin) {
+          throw new Error('Pagar con saldo necesita el email y el PIN de la tarjeta');
+        }
+        const pinCheck = await verifyCardPin({ email: params.buyerEmail, pin: params.cardPin });
+        if (!pinCheck.ok) throw new Error(pinCheck.reason);
+        const spend = await spendPrepaidAuthoritative({
+          customerId: pinCheck.customerId, amountClp: totalAfterDiscount,
+          reason: 'spend_caja', opId: params.opId,
+        });
+        if (!spend.ok) throw new Error(spend.conflictNote);
+      } else if (params.redeemPlaycoins && params.redeemPlaycoins > 0 && params.buyerEmail) {
+        // Canje de Playcoins: SERVER-AUTHORITATIVE, dentro de este mismo
+        // mutate() -- se relee el saldo real en el instante en que esta
+        // operación finalmente se aplica (no cuando el cajero la encoló
+        // offline). Si falla (otro dispositivo canjeó primero), la venta
+        // igual se aplica a precio completo -- no se bloquea la entrega de
+        // productos en el evento por una carrera de saldo entre dispositivos.
         const redemption = await redeemPlaycoinsAuthoritative({
           email: params.buyerEmail,
           requestedAmount: Math.min(params.redeemPlaycoins, totalAfterDiscount),

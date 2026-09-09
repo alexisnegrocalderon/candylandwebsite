@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, whatsappComunidadLink, type Acceso, type CampoForm } from '@/config/candyland';
 import { isMissionActiveForEvent, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
 import { isValidRut, isValidChileanPhone, formatRutLive } from '@shared/rut';
+import { isTopupProduct } from '@shared/prepaid';
 import { useSeo } from '@/hooks/useSeo';
 import { getStoredUtmParams } from '@/lib/utm';
 
@@ -356,13 +357,27 @@ export default function Checkout() {
   // de nuevo el detalle (tipo de entrada, extras, descuento, total).
   const [showResumenFinal, setShowResumenFinal] = useState(false);
   const [resumenCountdown, setResumenCountdown] = useState(5);
+  // PIN de la tarjeta de membresía (pedido explícito del dueño): se define
+  // acá, al comprar una carga de saldo -- pagar de verdad con Mercado Pago
+  // ES la prueba de identidad, nunca antes. Solo se pide si el carrito tiene
+  // alguna línea "Cargar saldo" (ver hasTopupInCart más abajo).
+  const [cardPin, setCardPin] = useState('');
+  const [cardPinConfirm, setCardPinConfirm] = useState('');
+  const [cardPinError, setCardPinError] = useState('');
+  const setCardPinMutation = trpc.prepaid.setCardPinAfterTopup.useMutation();
+  // Se calcula acá (no más abajo, junto al resto de los totales) porque el
+  // auto-avance de la pantalla "Revisa tu compra" lo necesita: con una carga
+  // de saldo en el carrito, NO puede avanzar solo a los 5 segundos -- tiene
+  // que esperar a que la persona defina su PIN.
+  const topupCharge = extraTickets.reduce((s: number, t: any) => (isTopupProduct(t) ? s + (dbExtraQty[t.id] || 0) * Number(t.price) : s), 0);
+  const hasTopupInCart = useDbExtras && topupCharge > 0;
   useEffect(() => {
-    if (!showResumenFinal) return;
+    if (!showResumenFinal || hasTopupInCart) return;
     setResumenCountdown(5);
     const interval = window.setInterval(() => setResumenCountdown((c) => Math.max(0, c - 1)), 1000);
     const advance = window.setTimeout(() => setShowResumenFinal(false), 5000);
     return () => { window.clearInterval(interval); window.clearTimeout(advance); };
-  }, [showResumenFinal]);
+  }, [showResumenFinal, hasTopupInCart]);
 
   /* ── Pasos: una sola pregunta por pantalla ───────────────── */
   const camposAcceso = useMemo(() => {
@@ -453,8 +468,15 @@ export default function Checkout() {
       : Number(codeResult.discount.discountValue)
     : 0;
   const dbExtrasTotal = extraTickets.reduce((s: number, t: any) => s + (dbExtraQty[t.id] || 0) * Number(t.price), 0);
+  // Carga de saldo (ticketTypes.topupAmount, pedido explícito del dueño): NO
+  // paga el recargo por servicio -- el monto cargado entra completo. Mismo
+  // cálculo, mismo orden de operaciones, que server/db.ts createOrder: si
+  // los dos no quedan sincronizados, el total que se muestra acá no coincide
+  // con lo que cobra el servidor. `topupCharge`/`hasTopupInCart` se calculan
+  // más arriba, junto al efecto de auto-avance que los necesita.
   const preServiceFeeTotal = Math.max(0, subtotal - discountAmount) + (useDbExtras ? dbExtrasTotal : 0);
-  const serviceFee = serviceFeePercent > 0 ? Math.round(preServiceFeeTotal * serviceFeePercent / 100) : 0;
+  const feeBase = Math.max(0, preServiceFeeTotal - (useDbExtras ? topupCharge : 0));
+  const serviceFee = serviceFeePercent > 0 ? Math.round(feeBase * serviceFeePercent / 100) : 0;
   const total = preServiceFeeTotal + serviceFee;
 
   /** Un solo botón "Aplicar" para el único campo de código: el servidor
@@ -660,12 +682,47 @@ export default function Checkout() {
               <span className="text-gradient-candy">{formatCLP(ordenPago.total)}</span>
             </div>
           </div>
+          {hasTopupInCart && (
+            <div className="glass-candy rounded-2xl p-5 mb-5">
+              <p className="text-sm font-semibold mb-1">💳 Define el PIN de tu tarjeta</p>
+              <p className="text-xs text-muted-foreground mb-4">
+                4 dígitos para poder gastar tu saldo en caja o en la puerta. Pagar de verdad acá es lo que confirma que sos vos -- después de esto, para cambiarlo vas a necesitar el PIN actual.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="cardPin">PIN (4 dígitos)</Label>
+                  <Input
+                    id="cardPin" type="tel" inputMode="numeric" maxLength={4} autoComplete="off"
+                    value={cardPin}
+                    onChange={(e) => { setCardPin(e.target.value.replace(/\D/g, '').slice(0, 4)); setCardPinError(''); }}
+                    className="mt-1 tracking-[0.3em] text-center"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="cardPinConfirm">Confirma el PIN</Label>
+                  <Input
+                    id="cardPinConfirm" type="tel" inputMode="numeric" maxLength={4} autoComplete="off"
+                    value={cardPinConfirm}
+                    onChange={(e) => { setCardPinConfirm(e.target.value.replace(/\D/g, '').slice(0, 4)); setCardPinError(''); }}
+                    className="mt-1 tracking-[0.3em] text-center"
+                  />
+                </div>
+              </div>
+              {cardPinError && <p className="text-xs text-destructive mt-2">{cardPinError}</p>}
+            </div>
+          )}
           <button
             type="button"
-            onClick={() => setShowResumenFinal(false)}
+            onClick={() => {
+              if (hasTopupInCart) {
+                if (!/^\d{4}$/.test(cardPin)) { setCardPinError('El PIN tiene que tener 4 dígitos'); return; }
+                if (cardPin !== cardPinConfirm) { setCardPinError('Los dos PIN no coinciden'); return; }
+              }
+              setShowResumenFinal(false);
+            }}
             className="btn-jelly w-full h-13 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 interactive"
           >
-            Continuar a pago seguro {resumenCountdown > 0 && `(${resumenCountdown})`}
+            Continuar a pago seguro {!hasTopupInCart && resumenCountdown > 0 && `(${resumenCountdown})`}
           </button>
         </div>
       </div>
@@ -691,7 +748,22 @@ export default function Checkout() {
             <PaymentBrick
               orderNumber={ordenPago.orderNumber}
               amount={ordenPago.total}
-              onResult={(status) => setPagoResultado(status === 'in_process' ? 'pending' : status as any)}
+              onResult={(status) => {
+                setPagoResultado(status === 'in_process' ? 'pending' : status as any);
+                // El PIN se define justo acá, apenas se confirma el pago:
+                // pagar de verdad con Mercado Pago ES la prueba de identidad
+                // (decisión explícita del dueño). Fire-and-forget: la compra
+                // ya está aprobada, un fallo acá no puede revertir esa UX de
+                // éxito -- si el pago queda 'pending' en vez de 'approved'
+                // (raro con tarjeta), el PIN tecleado se pierde y se define
+                // después (límite conocido y aceptado de esta etapa).
+                if (status === 'approved' && hasTopupInCart && ordenPago) {
+                  setCardPinMutation.mutate(
+                    { orderNumber: ordenPago.orderNumber, pin: cardPin },
+                    { onError: (err) => console.error('No se pudo definir el PIN de la tarjeta:', err) },
+                  );
+                }
+              }}
               onError={setPagoErrorMsg}
             />
           )}
@@ -871,7 +943,12 @@ export default function Checkout() {
                     const set = (d: number) => setDbExtraQty((prev) => ({ ...prev, [t.id]: Math.max(0, Math.min(max, (prev[t.id] || 0) + d)) }));
                     return (
                       <div key={t.id} className="flex items-center justify-between glass-candy rounded-2xl p-4">
-                        <span className="text-sm font-semibold">{t.name} <span className="text-muted-foreground font-normal">· {formatCLP(Number(t.price))}</span></span>
+                        <span className="text-sm font-semibold">
+                          {t.name} <span className="text-muted-foreground font-normal">· {formatCLP(Number(t.price))}</span>
+                          {isTopupProduct(t) && Number(t.topupAmount) !== Number(t.price) && (
+                            <span className="text-green-400 font-normal"> · acredita {formatCLP(Number(t.topupAmount))}</span>
+                          )}
+                        </span>
                         <div className="flex items-center gap-4">
                           <button type="button" onClick={() => set(-1)} aria-label={`Quitar ${t.name}`} className="w-11 h-11 rounded-full border border-primary/40 flex items-center justify-center hover:bg-primary/10 interactive"><Minus className="w-4 h-4" /></button>
                           <span className="w-6 text-center font-bold text-lg tabular-nums">{q}</span>

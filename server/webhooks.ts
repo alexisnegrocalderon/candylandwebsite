@@ -1,12 +1,13 @@
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
-import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid, matchLeadForOrder, getSiteSettings } from './db';
+import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid, matchLeadForOrder, getSiteSettings, creditPrepaid } from './db';
 import { normalizeOrderEmailConfig } from '../shared/emailTemplateConfig';
 import { sendPushToAdmins } from './push';
 import { attributeAmbassadorSale } from './ambassadorProgram';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
-import { orders, orderItems, tickets, ticketTypes, events, referrals, users } from '../drizzle/schema';
+import { orders, orderItems, tickets, ticketTypes, events, referrals, users, customers } from '../drizzle/schema';
+import { isTopupProduct, topupCreditForLines, topupChargeForLines } from '../shared/prepaid';
 import { eq, and, sql, isNotNull, ne, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { generateTicketQR } from './qr';
@@ -428,6 +429,10 @@ async function processApprovedOrder(order: any) {
   // código/QR individual, solo faltaba mostrarlo (ver getOrderExtras en db.ts).
   for (const item of items) {
     const tt = ticketTypeById.get(item.ticketTypeId);
+    // Carga de saldo (ticketTypes.topupAmount): NO es un derecho canjeable,
+    // no genera ticket ni QR ni displayCode -- se acredita como saldo más
+    // abajo, después de upsertCustomerFromOrder.
+    if (tt && isTopupProduct(tt)) continue;
     // Solo los extras (piscolas, lockers, etc.) se canjean en caja -- los
     // accesos ya se validan con su QR, no necesitan un código legible aparte.
     const isRedeemable = tt?.category === 'extra';
@@ -481,9 +486,33 @@ async function processApprovedOrder(order: any) {
   // ("avísame antes de que suba el precio"), lo marca convertido -- nunca
   // lanza, no puede bloquear la confirmación de una compra real.
   await matchLeadForOrder(order);
+
+  // Saldo prepagado (pedido explícito del dueño, etapa 2 de la tarjeta de
+  // membresía): las líneas de "carga de saldo" se acreditan acá, DESPUÉS de
+  // upsertCustomerFromOrder -- mismo motivo que Playcoins, necesita que la
+  // fila de customers ya exista/esté al día.
+  const topupLines = items
+    .map((item: any) => ({ item, tt: ticketTypeById.get(item.ticketTypeId) }))
+    .filter((x): x is { item: any; tt: any } => !!x.tt && isTopupProduct(x.tt))
+    .map((x) => ({ topupAmount: x.tt.topupAmount as number, unitPrice: Number(x.item.unitPrice), quantity: x.item.quantity }));
+  const topupCredit = topupCreditForLines(topupLines);
+  if (topupCredit > 0) {
+    await creditPrepaid({ email: order.buyerEmail, amountClp: topupCredit, reason: 'topup_web', orderId: order.id });
+  }
+  // Enlace estable ticket→cliente: orders.customerId no se poblaba en ningún
+  // flujo de compra nuevo (solo tiene el backfill histórico de la migración
+  // de la etapa 1) -- se deja poblado acá, ahora que ya existe la fila de
+  // customers, de cara a futuro (tarjeta de membresía, reportes).
+  const [customerRow] = await db.select({ id: customers.id }).from(customers)
+    .where(eq(customers.email, order.buyerEmail.trim().toLowerCase())).limit(1);
+  if (customerRow) await db.update(orders).set({ customerId: customerRow.id }).where(eq(orders.id, order.id));
+
   // Playcoins (pedido explícito del usuario): 25 por cada $1.000 CLP
-  // gastados, misma regla para web y caja -- ver shared/playcoins.ts.
-  await awardPlaycoins({ email: order.buyerEmail, totalClp: Number(order.total), reason: 'earn_web', orderId: order.id });
+  // gastados, misma regla para web y caja -- ver shared/playcoins.ts. Se
+  // excluye el monto de carga de saldo -- si no, cargar saldo regalaría
+  // puntos y volvería a darlos al gastar ese mismo saldo.
+  const topupCharge = topupChargeForLines(topupLines);
+  await awardPlaycoins({ email: order.buyerEmail, totalClp: Number(order.total) - topupCharge, reason: 'earn_web', orderId: order.id });
 
   // Handle ambassador referral (con el código que el comprador ingresó al pagar, si corresponde).
   // Se usa referredByCode -- congelado desde createOrder -- en vez de

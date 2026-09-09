@@ -144,6 +144,9 @@ function Scanner({ operatorName }: { operatorName: string }) {
     { enabled: !!remoteEvent, refetchInterval: 60_000 },
   );
   const syncMutation = trpc.puerta.sync.useMutation();
+  // Pago con saldo (pedido explícito del dueño): nunca se encola offline --
+  // llama al servidor directo, igual que en /caja.
+  const payWithSaldoMutation = trpc.puerta.payParkingWithSaldo.useMutation();
 
   useEffect(() => { getLocalEvent().then((e) => e && setLocalEvent(e)); }, []);
   useEffect(() => {
@@ -242,8 +245,25 @@ function Scanner({ operatorName }: { operatorName: string }) {
   // No cierra la ficha (a diferencia de darAcceso): el anfitrión puede
   // seguir viendo los nombres/RUT mientras confirma con el auto, y recién
   // cierra con "Aprobar acceso" o "Volver a escanear".
-  const cobrarEstacionamiento = async (ticketCode: string, metodo: 'efectivo' | 'debito' | 'credito') => {
-    await enqueueOp({ opId: newOpId(), type: 'parking_paid', ticketCode, paymentMethod: metodo, clientAt: (await correctedNow()).toISOString() });
+  const cobrarEstacionamiento = async (
+    ticketCode: string,
+    metodo: 'efectivo' | 'debito' | 'credito' | 'saldo',
+    saldo?: { buyerEmail: string; cardPin: string },
+  ) => {
+    if (metodo === 'saldo') {
+      // Saldo exige conexión siempre (decisión explícita del dueño): nunca
+      // se encola, se llama directo -- si falla (PIN incorrecto, saldo
+      // insuficiente, sin señal), se propaga tal cual para que la pantalla
+      // lo muestre y el anfitrión pida otro medio de pago.
+      if (!localEvent) throw new Error('Sin evento cargado');
+      await payWithSaldoMutation.mutateAsync({
+        opId: newOpId(), eventId: localEvent.id, ticketCode,
+        buyerEmail: saldo!.buyerEmail, cardPin: saldo!.cardPin,
+        clientAt: (await correctedNow()).toISOString(),
+      });
+    } else {
+      await enqueueOp({ opId: newOpId(), type: 'parking_paid', ticketCode, paymentMethod: metodo, clientAt: (await correctedNow()).toISOString() });
+    }
     toast.success('Estacionamiento cobrado 🅿️');
     refreshPending();
     setFicha((prev) => (prev && prev.ticketCode === ticketCode)
@@ -297,9 +317,10 @@ function Scanner({ operatorName }: { operatorName: string }) {
       {ficha && (
         <FichaVerificacion
           ficha={ficha}
+          isOnline={isOnline}
           onAceptar={() => darAcceso(ficha.ticketCode)}
           onCerrar={cerrar}
-          onCobrarEstacionamiento={(metodo) => cobrarEstacionamiento(ficha.ticketCode, metodo)}
+          onCobrarEstacionamiento={(metodo, saldo) => cobrarEstacionamiento(ficha.ticketCode, metodo, saldo)}
         />
       )}
 
@@ -321,15 +342,35 @@ function Scanner({ operatorName }: { operatorName: string }) {
 
 /* --- Ficha de verificación ------------------------------------------------ */
 
-function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento }: {
+function FichaVerificacion({ ficha, isOnline, onAceptar, onCerrar, onCobrarEstacionamiento }: {
   ficha: Ficha;
+  isOnline: boolean;
   onAceptar: () => void;
   onCerrar: () => void;
-  onCobrarEstacionamiento: (metodo: 'efectivo' | 'debito' | 'credito') => void;
+  onCobrarEstacionamiento: (
+    metodo: 'efectivo' | 'debito' | 'credito' | 'saldo',
+    saldo?: { buyerEmail: string; cardPin: string },
+  ) => Promise<void>;
 }) {
   const personas = personasForTicket(ficha.groupSize, ficha.accesoSlug);
   const puedeEntrar = ficha.status === 'valid';
   const [cobrando, setCobrando] = useState(false);
+  // Pago con saldo: a diferencia de efectivo/débito/crédito (un solo toque),
+  // necesita el email + PIN de la tarjeta de quien paga en la puerta -- no
+  // necesariamente el comprador del ticket escaneado.
+  const [pagandoConSaldo, setPagandoConSaldo] = useState(false);
+  const [saldoEmail, setSaldoEmail] = useState('');
+  const [saldoPin, setSaldoPin] = useState('');
+
+  const cobrarConMetodo = async (metodo: 'efectivo' | 'debito' | 'credito' | 'saldo', saldo?: { buyerEmail: string; cardPin: string }) => {
+    setCobrando(true);
+    try {
+      await onCobrarEstacionamiento(metodo, saldo);
+    } catch (err: any) {
+      toast.error(err?.message ?? 'No se pudo cobrar el estacionamiento -- intenta de nuevo.', { duration: 8000 });
+      setCobrando(false);
+    }
+  };
 
   // El estacionamiento es lo primero que el anfitrión necesita saber para
   // decirle al auto dónde ir, así que va destacado y aparte del resto.
@@ -413,18 +454,57 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
                 <p className="text-xs uppercase tracking-widest text-white/55 mb-2 pr-9">¿Paga estacionamiento ahora?</p>
                 {cobrando ? (
                   <p className="text-sm text-white/50">Cobrando…</p>
+                ) : pagandoConSaldo ? (
+                  <div className="space-y-2">
+                    <input
+                      value={saldoEmail}
+                      onChange={(e) => setSaldoEmail(e.target.value)}
+                      placeholder="email@cliente.cl"
+                      className="w-full h-11 px-3 rounded-xl bg-white/[0.06] border border-white/15 text-white text-sm placeholder:text-white/25 focus:outline-none"
+                    />
+                    <input
+                      value={saldoPin}
+                      onChange={(e) => setSaldoPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                      inputMode="numeric"
+                      type="password"
+                      placeholder="PIN de la tarjeta (4 dígitos)"
+                      className="w-full h-11 px-3 rounded-xl bg-white/[0.06] border border-white/15 text-white text-sm text-center tracking-[0.3em] placeholder:text-white/25 placeholder:tracking-normal focus:outline-none"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        disabled={!saldoEmail.trim() || !/^\d{4}$/.test(saldoPin)}
+                        onClick={() => cobrarConMetodo('saldo', { buyerEmail: saldoEmail.trim(), cardPin: saldoPin })}
+                        className="glass-btn h-11 rounded-xl text-sm font-semibold text-white/95 disabled:opacity-35"
+                      >
+                        Cobrar con saldo
+                      </button>
+                      <button onClick={() => { setPagandoConSaldo(false); setSaldoEmail(''); setSaldoPin(''); }} className="glass-btn h-11 rounded-xl text-sm font-semibold text-white/70">
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
                 ) : (
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     {(['efectivo', 'debito', 'credito'] as const).map((metodo) => (
                       <button
                         key={metodo}
-                        onClick={() => { setCobrando(true); onCobrarEstacionamiento(metodo); }}
+                        onClick={() => cobrarConMetodo(metodo)}
                         className="glass-btn h-12 rounded-xl text-sm font-semibold capitalize text-white/95"
                       >
                         {metodo}
                       </button>
                     ))}
+                    <button
+                      disabled={!isOnline}
+                      onClick={() => setPagandoConSaldo(true)}
+                      className="glass-btn h-12 rounded-xl text-sm font-semibold text-white/95 disabled:opacity-35"
+                    >
+                      💳 Saldo
+                    </button>
                   </div>
+                )}
+                {pagandoConSaldo && !isOnline && (
+                  <p className="text-xs text-amber-300 mt-2">Sin conexión no se puede cobrar con saldo.</p>
                 )}
               </div>
             )}
