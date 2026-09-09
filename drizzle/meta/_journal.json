@@ -393,6 +393,13 @@
       "when": 1788877643622,
       "tag": "0055_gray_darkhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "5",
+      "when": 1788919381621,
+      "tag": "0056_yellow_hedge_knight",
+      "breakpoints": true
     }
   ]
 }

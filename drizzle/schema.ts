@@ -130,6 +130,20 @@ export const ticketTypes = mysqlTable("ticketTypes", {
   toKitchen: int("toKitchen").default(0).notNull(),
   internalCode: varchar("internalCode", { length: 10 }), // prefijo del código de canje, ej. 'PIS'
   barcode: varchar("barcode", { length: 64 }), // preparado para lector de código de barras futuro
+  // Monto en CLP que este producto acredita como saldo prepagado por unidad.
+  // NULL = producto normal. Con valor = es un producto de CARGA DE SALDO:
+  // aparece en el checkout como un extra más ("Cargar saldo $10.000") porque
+  // Checkout.tsx lista los `category='extra'`, pero se comporta distinto en
+  // cuatro puntos: (a) NO paga el recargo por servicio -- el monto cargado
+  // entra completo, decisión explícita del dueño; (b) no genera ticket ni QR
+  // ni displayCode (no es un derecho canjeable); (c) no otorga Playcoins --
+  // si no, cargar saldo regalaría puntos y volvería a darlos al gastarlo;
+  // (d) anular la orden tiene que devolver el saldo.
+  // Es columna real y no `metadata` justamente porque necesita validación
+  // fuerte: es plata (docs/ARQUITECTURA-CAJA.md §12). Y va aparte de `price`
+  // para poder hacer promos de bonificación (pagar $10.000 y acreditar
+  // $11.000) sin volver a tocar el schema.
+  topupAmount: int("topupAmount"),
   metadata: json("metadata"), // atributos extensibles sin migración (talla, duración, etc.)
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -257,9 +271,24 @@ export const orders = mysqlTable("orders", {
   channel: mysqlEnum("channel", ["web", "caja", "import"]).default("web").notNull(),
   operatorId: int("operatorId"), // quién registró la venta (solo canal caja)
   registerId: int("registerId"), // caja física donde se registró
+  // Identidad permanente del comprador (`customers.id`), resuelta por email en
+  // upsertCustomerFromOrder. Redundante con `buyerEmail` a propósito: el email
+  // es editable y sensible a mayúsculas, y la tarjeta de membresía necesita un
+  // enlace estable para leer saldo e historial sin rehacer el match por string
+  // en cada consulta. Nullable porque las órdenes con email placeholder
+  // (createInstantInvite, createStaffComp, ventas de caja sin email capturado)
+  // no tienen identidad real de cliente detrás.
+  customerId: int("customerId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => [
+  // La tabla no tenía ningún índice secundario pese a consultarse
+  // constantemente por estas tres columnas (snapshot de caja, reportes por
+  // evento, búsqueda de cliente, y ahora la tarjeta de membresía).
+  index("orders_event_idx").on(t.eventId),
+  index("orders_buyer_email_idx").on(t.buyerEmail),
+  index("orders_customer_idx").on(t.customerId),
+]);
 
 export type Order = typeof orders.$inferSelect;
 export type InsertOrder = typeof orders.$inferInsert;
@@ -304,7 +333,19 @@ export const tickets = mysqlTable("tickets", {
   // invitación especial instantánea del admin: un solo QR/ticket que
   // representa a varias personas, en vez de generar un ticket por persona.
   groupSize: int("groupSize"),
-});
+  // Un extra comprado en la web y no usado no se pierde al terminar la fiesta:
+  // queda pendiente y se puede canjear en un evento posterior que venda ese
+  // mismo producto. Guarda el evento en el que se compró originalmente, para
+  // poder mostrar "pendiente desde <fiesta>" en la tarjeta sin perder el dato
+  // cuando `eventId` pase a apuntar al evento donde se canjeó. Se setea al
+  // arrastrarlo, no al comprarlo. Es la misma excepción a "el código tiene que
+  // ser de este evento" que ya existe para partyGifts en server/caja/redeem.ts.
+  carriedFromEventId: int("carriedFromEventId"),
+}, (t) => [
+  // "Todo lo pendiente de este cliente" (la cara trasera de la tarjeta) se
+  // consulta por las órdenes del cliente filtrando status='valid'.
+  index("tickets_order_status_idx").on(t.orderId, t.status),
+]);
 
 export type Ticket = typeof tickets.$inferSelect;
 export type InsertTicket = typeof tickets.$inferInsert;
@@ -756,6 +797,21 @@ export const customers = mysqlTable("customers", {
   // `playcoinsLedger` para este cliente -- evita sumar todo el historial en
   // cada lectura de saldo.
   playcoins: int("playcoins").default(0).notNull(),
+  // Saldo prepagado en PLATA (1 CLP = 1 CLP), distinto e independiente de
+  // `playcoins`: esto es dinero que el cliente cargó, no puntos que ganó. Los
+  // dos conviven en la misma tarjeta sin mezclarse. Igual que `playcoins`, es
+  // una proyección cacheada de la suma de `prepaidLedger` para este cliente.
+  prepaidBalance: int("prepaidBalance").default(0).notNull(),
+  // PIN de 4 dígitos que el cliente define en su propia tarjeta para poder
+  // GASTAR el saldo. La tarjeta se VE con solo tener el ticketCode (token
+  // portador, igual que hoy), pero descontar plata exige además esto -- así una
+  // foto del QR ajeno no alcanza para gastarle el saldo a nadie. Formato
+  // "salt:hash" de server/caja/auth.ts hashPin() (scrypt); no bcrypt, que no
+  // está en las dependencias del proyecto. Los intentos fallidos NO llevan
+  // columnas propias acá: se cuentan en la tabla `rateLimits` con la clave
+  // `cardpin:<customerId>`.
+  cardPinHash: varchar("cardPinHash", { length: 255 }),
+  cardPinSetAt: timestamp("cardPinSetAt"),
   notes: text("notes"),
   firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
   lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
@@ -770,12 +826,16 @@ export type InsertCustomer = typeof customers.$inferInsert;
 // actualiza ni se borra una fila — las correcciones son operaciones nuevas.
 export const ops = mysqlTable("ops", {
   id: varchar("id", { length: 36 }).primaryKey(), // UUID generado en el cliente (idempotencia)
-  // Debe coincidir siempre con `OpType` en server/caja/ops.ts -- quedó
-  // desactualizado una vez (le faltaban 'checkin', 'locker_return' y
-  // 'kitchen_update', agregados al tipo de TS pero nunca migrados acá),
-  // lo que hacía fallar el INSERT para cualquier check-in en /puerta o
-  // Aprobar/Entregado en /cocina.
-  type: mysqlEnum("type", ["redeem", "checkin", "sale", "void_code", "note", "shift_open", "shift_close", "manual_adjust", "locker_return", "kitchen_update"]).notNull(),
+  // Debe coincidir siempre con `OpType` en server/caja/ops.ts -- se
+  // desincronizó DOS veces ya, y las dos con el mismo síntoma: un tipo nuevo
+  // agregado al tipo de TS pero nunca migrado acá, así que el INSERT de esa
+  // operación fallaba en producción sin que nada lo avisara antes.
+  //   1ª vez: faltaban 'checkin', 'locker_return' y 'kitchen_update' -- rompía
+  //           el check-in de /puerta y Aprobar/Entregado en /cocina.
+  //   2ª vez: faltaba 'parking_paid' -- rompía TODO cobro de estacionamiento en
+  //           la puerta (server/caja/parkingPaid.ts).
+  // Si agregas un valor a OpType, agrégalo acá EN EL MISMO commit.
+  type: mysqlEnum("type", ["redeem", "checkin", "sale", "void_code", "note", "shift_open", "shift_close", "manual_adjust", "locker_return", "kitchen_update", "parking_paid"]).notNull(),
   eventId: int("eventId").notNull(),
   operatorId: int("operatorId").notNull(),
   registerId: int("registerId"),
@@ -1000,10 +1060,69 @@ export const playcoinsLedger = mysqlTable("playcoinsLedger", {
   balanceAfter: int("balanceAfter").notNull(),
   note: text("note"), // motivo libre en ajustes manuales del admin
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, (t) => [
+  // La tabla no tenía ningún índice pese a que awardPlaycoins consulta por
+  // (opId, reason) y (orderId, reason) en cada compra, y deleteOrderCascade
+  // por orderId. Son índices, no restricciones únicas: acá la idempotencia
+  // sigue siendo el SELECT previo de awardPlaycoins (ver prepaidLedger, que
+  // por ser plata sí la apoya en el motor).
+  index("playcoins_ledger_customer_idx").on(t.customerId, t.createdAt),
+  index("playcoins_ledger_order_idx").on(t.orderId),
+  index("playcoins_ledger_op_idx").on(t.opId),
+]);
 
 export type PlaycoinsLedgerEntry = typeof playcoinsLedger.$inferSelect;
 export type InsertPlaycoinsLedgerEntry = typeof playcoinsLedger.$inferInsert;
+
+// Ledger append-only del SALDO PREPAGADO en plata, espejo de
+// `playcoinsLedger`: nunca se actualiza ni se borra una fila, toda carga/gasto/
+// devolución/ajuste es una fila nueva, y `customers.prepaidBalance` es la
+// proyección cacheada de la suma. La diferencia con Playcoins es que acá es
+// dinero real, y eso cambia dos cosas:
+//
+//  1. El descuento NO se hace leyendo el saldo y después restando (dos pasos, y
+//     este proyecto no usa transacciones en ningún lado -- ver el comentario en
+//     server/db.ts:429). Se hace con una sola sentencia condicional, que TiDB
+//     aplica atómicamente:
+//        UPDATE customers SET prepaidBalance = prepaidBalance - ?
+//        WHERE id = ? AND prepaidBalance >= ?
+//     Si affectedRows es 0, no había saldo y no se tocó nada. El saldo no puede
+//     quedar en negativo ni siquiera con dos terminales compitiendo.
+//  2. La idempotencia se apoya en restricciones únicas de verdad (abajo), no en
+//     un SELECT previo como hace awardPlaycoins.
+export const prepaidLedger = mysqlTable("prepaidLedger", {
+  id: int("id").autoincrement().primaryKey(),
+  customerId: int("customerId").notNull(),
+  delta: int("delta").notNull(), // + carga, - gasto/ajuste
+  reason: mysqlEnum("reason", [
+    "topup_web",     // compró el extra "Cargar saldo" en el checkout web
+    "spend_caja",    // pagó una venta presencial con saldo
+    "spend_puerta",  // pagó el estacionamiento en la puerta con saldo
+    "refund",        // devolución por una orden anulada
+    "manual_adjust", // corrección del admin (nunca lleva orderId, ver abajo)
+  ]).notNull(),
+  orderId: int("orderId"), // orden que originó el movimiento (si aplica)
+  opId: varchar("opId", { length: 36 }), // op de caja/puerta; null para web
+  balanceAfter: int("balanceAfter").notNull(),
+  note: text("note"), // motivo libre en ajustes manuales del admin
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  // En MySQL/TiDB varias filas con NULL no chocan entre sí en un índice único,
+  // así que estas dos restricciones solo aplican donde hay clave real: las
+  // cargas web (orderId, sin opId) y los gastos de terminal (opId, sin orderId).
+  // Reenviar la misma op encolada offline, o reprocesar el mismo webhook de
+  // Mercado Pago, choca contra el motor en vez de depender de un chequeo previo
+  // no atómico.
+  // Ojo al escribir `manual_adjust`: no debe llevar orderId (igual que
+  // adjustPlaycoinsManually, que tampoco lo setea), o dos correcciones sobre la
+  // misma orden chocarían contra prepaid_ledger_order_reason_unique.
+  uniqueIndex("prepaid_ledger_op_reason_unique").on(t.opId, t.reason),
+  uniqueIndex("prepaid_ledger_order_reason_unique").on(t.orderId, t.reason),
+  index("prepaid_ledger_customer_idx").on(t.customerId, t.createdAt),
+]);
+
+export type PrepaidLedgerEntry = typeof prepaidLedger.$inferSelect;
+export type InsertPrepaidLedgerEntry = typeof prepaidLedger.$inferInsert;
 
 // Cola de envío automática del mailing masivo (pedido explícito del usuario):
 // a diferencia del envío inmediato desde el navegador (que sigue igual, sin
