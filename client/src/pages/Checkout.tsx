@@ -295,7 +295,15 @@ export default function Checkout() {
     const order: string[] = [];
     const byLabel = new Map<string, any[]>();
     for (const t of prepagoTickets) {
-      const label = t.groupName || 'Extras';
+      // Respeta groupName si el admin ya lo cargó -- si no, se auto-clasifica
+      // con lo que YA existe en la ficha (nombre + stock), para que la
+      // categorización se vea desde el primer minuto sin depender de que
+      // alguien cargue un campo nuevo a mano en cada producto.
+      const label = t.groupName || (
+        /estacionamiento/i.test(t.name) ? 'Estacionamiento'
+        : t.totalStock <= 10 ? 'Exclusivos · solo preventa'
+        : 'Tragos de preventa'
+      );
       if (!byLabel.has(label)) { byLabel.set(label, []); order.push(label); }
       byLabel.get(label)!.push(t);
     }
