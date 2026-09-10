@@ -31,6 +31,7 @@ const PASOS = [
     icon: Sparkles,
     titulo: 'Guarda saldo y Playcoins',
     texto: 'Cargas saldo prepagado en plata (1 a 1, sin letra chica) cuando compras tu entrada o directamente en caja el día de la fiesta. Cada compra además te suma Playcoins, un sistema de puntos aparte que también vive en tu tarjeta.',
+    badge: '🎁 Carga $40.000 o más y te regalamos saldo extra',
   },
   {
     icon: ScanLine,
@@ -128,6 +129,18 @@ export default function PlayCardArticle() {
                   <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">Paso {i + 1}</p>
                   <p className="font-heading font-bold text-lg mb-2">{p.titulo}</p>
                   <p className="text-sm text-muted-foreground leading-relaxed">{p.texto}</p>
+                  {/* Bono por carga de saldo (Paso 2) -- mismo dorado que ya
+                      usa la tarjeta real (wcard-tier) para "esto es un
+                      beneficio de la PlayCard", para que se note sin
+                      necesitar más texto. */}
+                  {p.badge && (
+                    <span
+                      className="inline-flex items-center gap-1.5 mt-3 text-[11px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-full"
+                      style={{ background: 'linear-gradient(100deg, #f0c674, #fbe3a8)', color: '#0d0712' }}
+                    >
+                      {p.badge}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
