@@ -9,11 +9,6 @@
  * shared/mission300.ts.
  */
 
-/** IVA chileno. Los precios al público se manejan SIEMPRE con IVA incluido,
- * así que la tasa se usa para EXTRAER el impuesto de un monto bruto, no para
- * agregárselo. */
-export const IVA_RATE = 0.19;
-
 export type ExpenseScope = 'evento' | 'general';
 export type ExpenseCategory =
   | 'decoracion' | 'barra' | 'merch' | 'staff' | 'produccion' | 'arriendo'

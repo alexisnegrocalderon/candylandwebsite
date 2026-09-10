@@ -14,9 +14,6 @@ export function playcoinsEarnedForPurchase(totalClp: number): number {
   return Math.floor(totalClp / 1000) * PLAYCOINS_PER_1000_CLP;
 }
 
-export function playcoinsToClp(playcoins: number): number {
-  return playcoins * PLAYCOINS_TO_CLP;
-}
 
 export function canRedeem(balance: number): boolean {
   return balance >= PLAYCOINS_MIN_REDEEM_BALANCE;

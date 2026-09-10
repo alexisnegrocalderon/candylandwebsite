@@ -43,10 +43,6 @@ export const DEFAULT_ORDER_EMAIL_CONFIG: OrderEmailConfig = {
     'Ya eres parte de esta edición. Nosotros ponemos la música, el ambiente y la experiencia.<br/>Tú solo preocúpate de llegar con ganas de disfrutar.<br/><strong>Equipo Mansion Playroom</strong>',
 };
 
-export const DEFAULT_EMAIL_TEMPLATE_CONFIG: EmailTemplateConfig = {
-  orderEmail: DEFAULT_ORDER_EMAIL_CONFIG,
-};
-
 /** Completa con los valores por defecto cualquier campo faltante -- así una
  * config vieja/parcial guardada antes de agregar un nuevo campo no rompe el
  * envío (nunca queda una sección o texto en `undefined`). */
@@ -55,13 +51,6 @@ export function normalizeOrderEmailConfig(partial: Partial<OrderEmailConfig> | n
     sections: { ...DEFAULT_ORDER_EMAIL_CONFIG.sections, ...(partial?.sections ?? {}) },
     greetingText: partial?.greetingText || DEFAULT_ORDER_EMAIL_CONFIG.greetingText,
     farewellText: partial?.farewellText || DEFAULT_ORDER_EMAIL_CONFIG.farewellText,
-  };
-}
-
-export function normalizeEmailTemplateConfig(raw: unknown): EmailTemplateConfig {
-  const partial = (raw && typeof raw === 'object' ? raw : {}) as Partial<EmailTemplateConfig>;
-  return {
-    orderEmail: normalizeOrderEmailConfig(partial.orderEmail),
   };
 }
 

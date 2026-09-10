@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { startRegistration } from '@simplewebauthn/browser';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { NOT_ADMIN_ERR_MSG } from '@shared/const';
-import { canOpenAdmin, useIsDemo, useDemoProps, DEMO_TOOLTIP } from '@/lib/demoMode';
+import { canOpenAdmin, useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
 import { Switch } from '@/components/ui/switch';
 import { trpc } from '@/lib/trpc';

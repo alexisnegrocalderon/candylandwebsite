@@ -90,7 +90,6 @@ const PREGUNTAS: Pregunta[] = [
   },
 ];
 
-const PUNTAJE_MAX = PREGUNTAS.reduce((acc, p) => acc + Math.max(...p.opciones.map((o) => o.puntos)), 0);
 
 type Resultado = {
   titulo: string;

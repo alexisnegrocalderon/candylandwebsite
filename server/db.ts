@@ -701,16 +701,6 @@ export async function createDiscountCode(data: any) {
   return { success: true };
 }
 
-export async function updateDiscountCode(id: number, data: any) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const updateData: any = { ...data };
-  if (data.discountValue !== undefined) updateData.discountValue = String(data.discountValue);
-  if (data.validUntil) updateData.validUntil = new Date(data.validUntil);
-  await db.update(discountCodes).set(updateData).where(eq(discountCodes.id, id));
-  return { success: true };
-}
-
 export async function deleteDiscountCode(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1975,12 +1965,6 @@ export async function getReferralStats() {
   }).from(referrals).groupBy(referrals.ambassadorCode, referrals.ambassadorUserId);
 }
 
-export async function getUserReferrals(userId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(referrals).where(eq(referrals.ambassadorUserId, userId)).orderBy(desc(referrals.createdAt));
-}
-
 /** Ranking público para el Hall de la Fama -- a diferencia de getReferralStats
  * (admin, incluye montos $), esto solo expone lo necesario para una
  * competencia pública: código, primer nombre (nunca apellido) y cantidad de
@@ -2174,65 +2158,6 @@ export async function getCustomerForAttribution(buyerEmail: string): Promise<{ f
   const [row] = await db.select({ firstSeenAt: customers.firstSeenAt, totalOrders: customers.totalOrders })
     .from(customers).where(eq(customers.email, email)).limit(1);
   return row ?? null;
-}
-
-/** Registra la comisión de una venta con código de embajador exclusivo --
- * baseAmount/commissionPercent/commissionAmount quedan congelados al momento
- * de la venta (ver comentario del schema), así un cambio de % después no
- * reescribe comisiones ya generadas. */
-export async function recordAmbassadorCommission(params: { ambassadorId: number; orderId: number; eventId: number; baseAmount: number; commissionPercent: number }) {
-  const db = await getDb();
-  if (!db) return;
-  const commissionAmount = computeAmbassadorCommission(params.baseAmount, params.commissionPercent);
-  await db.insert(ambassadorCommissions).values({
-    ambassadorId: params.ambassadorId,
-    orderId: params.orderId,
-    eventId: params.eventId,
-    baseAmount: String(params.baseAmount),
-    commissionPercent: String(params.commissionPercent),
-    commissionAmount: String(commissionAmount),
-  });
-}
-
-/** Reporte para el tab "Embajadores VIP": ventas + comisión exacta de cada
- * embajador de ese evento, más el total del evento -- todo lo que pidió el
- * dueño para poder pagarle a cada uno. */
-export async function getAmbassadorCommissionReport(eventId: number) {
-  const db = await getDb();
-  if (!db) return { ambassadors: [], totalBase: 0, totalCommission: 0 };
-
-  const ambassadorRows = await db.select().from(exclusiveAmbassadors).where(eq(exclusiveAmbassadors.eventId, eventId)).orderBy(exclusiveAmbassadors.name);
-  const commissionRows = await db.select().from(ambassadorCommissions).where(eq(ambassadorCommissions.eventId, eventId));
-
-  const byAmbassador = new Map<number, { salesCount: number; totalBase: number; totalCommission: number }>();
-  for (const r of commissionRows) {
-    const entry = byAmbassador.get(r.ambassadorId) ?? { salesCount: 0, totalBase: 0, totalCommission: 0 };
-    entry.salesCount += 1;
-    entry.totalBase += Number(r.baseAmount);
-    entry.totalCommission += Number(r.commissionAmount);
-    byAmbassador.set(r.ambassadorId, entry);
-  }
-
-  const ambassadors = ambassadorRows.map((a: any) => {
-    const stats = byAmbassador.get(a.id) ?? { salesCount: 0, totalBase: 0, totalCommission: 0 };
-    return {
-      id: a.id,
-      name: a.name,
-      code: a.code,
-      commissionPercent: Number(a.commissionPercent),
-      contact: a.contact,
-      active: a.active,
-      salesCount: stats.salesCount,
-      totalBase: stats.totalBase,
-      totalCommission: stats.totalCommission,
-    };
-  });
-
-  return {
-    ambassadors,
-    totalBase: ambassadors.reduce((sum, a) => sum + a.totalBase, 0),
-    totalCommission: ambassadors.reduce((sum, a) => sum + a.totalCommission, 0),
-  };
 }
 
 // --- Módulo /caja: operadores (docs/ARQUITECTURA-CAJA.md §4.2, Fase 0) ---
@@ -2460,71 +2385,6 @@ export async function getEventHappeningToday(now: Date = new Date()) {
   return rows.find((r: any) => isEventToday(r.eventDate, now));
 }
 
-/** Búsqueda de la pantalla principal de caja: primero intenta match exacto
- * por código (QR de acceso o displayCode de un extra); si no hay, busca por
- * nombre/email/teléfono. Solo dentro del evento activo, solo órdenes aprobadas. */
-export async function searchCajaCustomers(eventId: number, query: string) {
-  const db = await getDb();
-  if (!db) return [];
-  const q = query.trim();
-  if (!q) return [];
-  const qUpper = q.toUpperCase();
-
-  const [byCode] = await db.select().from(tickets).where(and(eq(tickets.eventId, eventId), or(eq(tickets.ticketCode, qUpper), eq(tickets.displayCode, qUpper)))).limit(1);
-  let orderIds: number[];
-  if (byCode) {
-    orderIds = [byCode.orderId];
-  } else {
-    const pattern = `%${q}%`;
-    const rows = await db.select({ id: orders.id }).from(orders).where(and(
-      eq(orders.eventId, eventId),
-      eq(orders.paymentStatus, 'approved'),
-      or(like(orders.buyerName, pattern), like(orders.buyerEmail, pattern), like(orders.buyerPhone, pattern))
-    )).limit(20);
-    orderIds = rows.map((r: any) => r.id);
-  }
-  if (orderIds.length === 0) return [];
-
-  const rows = await db.select().from(orders).where(inArray(orders.id, orderIds));
-  return rows.map((o: any) => ({ orderId: o.id, orderNumber: o.orderNumber, buyerName: o.buyerName, buyerEmail: o.buyerEmail, buyerPhone: o.buyerPhone }));
-}
-
-/** Ficha del cliente (§10.2.3): accesos con su estado y extras con su código
- * de canje + estado, para una orden puntual. */
-export async function getCajaCustomerSheet(orderId: number) {
-  const db = await getDb();
-  if (!db) return null;
-
-  const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
-  if (!order) return null;
-
-  const orderTickets = await db.select().from(tickets).where(eq(tickets.orderId, orderId));
-  const ticketTypeIds = Array.from(new Set(orderTickets.map((t: any) => t.ticketTypeId)));
-  const tts = ticketTypeIds.length ? await db.select().from(ticketTypes).where(inArray(ticketTypes.id, ticketTypeIds)) : [];
-  const ttById = new Map<number, any>(tts.map((t: any) => [t.id, t]));
-
-  const access = orderTickets
-    .filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'acceso')
-    .map((t: any) => ({ ticketCode: t.ticketCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name }));
-
-  const extras = orderTickets
-    .filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'extra')
-    .map((t: any) => ({ displayCode: t.displayCode, status: t.status, typeName: ttById.get(t.ticketTypeId)?.name, usedAt: t.usedAt }));
-
-  return {
-    orderId: order.id,
-    orderNumber: order.orderNumber,
-    buyerName: order.buyerName,
-    buyerEmail: order.buyerEmail,
-    buyerPhone: order.buyerPhone,
-    paymentStatus: order.paymentStatus,
-    channel: order.channel,
-    createdAt: order.createdAt,
-    access,
-    extras,
-  };
-}
-
 /** Snapshot completo para el modo offline de /caja (§6.2): todo lo que la
  * tablet necesita para buscar/ver fichas/vender sin red, en una sola
  * descarga -- se guarda en IndexedDB (Dexie) del lado del cliente. */
@@ -2631,10 +2491,9 @@ export async function getCajaSnapshot(eventId: number) {
   const CATALOG_CATEGORIES = ['extra', 'consumo', 'locker', 'merch'];
   const catalog = allTicketTypes
     // Una "carga de saldo" (topupAmount) nunca se vende en /caja -- solo
-    // existe como extra del checkout web (misma razón que getCajaCatalog,
-    // server/db.ts ~línea 2693: acá no se acredita saldo ni se respeta su
-    // exclusión del recargo/Playcoins, así que venderla por acá sería cobrar
-    // plata que la tarjeta del cliente nunca ve).
+    // existe como extra del checkout web: acá no se acredita saldo ni se
+    // respeta su exclusión del recargo/Playcoins, así que venderla por acá
+    // sería cobrar plata que la tarjeta del cliente nunca ve.
     .filter((t: any) => CATALOG_CATEGORIES.includes(t.category) && t.topupAmount == null && (t.status === 'active' || t.status === 'soldout'))
     .map((t: any) => ({
       id: t.id,
@@ -2692,22 +2551,6 @@ export async function getCajaSnapshot(eventId: number) {
     staffComps,
     serverTime: new Date().toISOString(),
   };
-}
-
-/** Catálogo de "Nueva venta" (§10.2.4): solo extras activos del evento. */
-export async function getCajaCatalog(eventId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  // Una "carga de saldo" (ticketTypes.topupAmount) NUNCA se vende en /caja --
-  // solo existe como extra del checkout web. Si apareciera acá, se cobraría
-  // como un producto cualquiera pero jamás acreditaría saldo (creditPrepaid
-  // solo corre en processApprovedOrder, el camino de compra web), y quedaría
-  // expuesta a un código de descuento sin acotar (ver eligibleTotal en
-  // server/caja/sale.ts) -- plata que entra sin que la tarjeta la refleje.
-  return db.select().from(ticketTypes).where(and(
-    eq(ticketTypes.eventId, eventId), eq(ticketTypes.category, 'extra'), eq(ticketTypes.status, 'active'),
-    isNull(ticketTypes.topupAmount),
-  ));
 }
 
 /** Personas de abonos de Misión 300 ya aprobados cuyo ticket todavía no
@@ -3695,48 +3538,6 @@ export async function getParkingReport(eventId: number) {
   };
 }
 
-/** Resumen del mes: totales por categoría y por medio de pago, IVA acumulado,
- * y el balde `sinAsignar` con los gastos generales de meses que no tienen
- * ningún evento -- esa plata no puede desaparecer del reporte. */
-export async function getMonthlyExpenseSummary(monthKey: string) {
-  const db = await getDb();
-  if (!db) return null;
-
-  await materializeRecurringExpenses(monthKey);
-
-  const rows = await db.select().from(expenses).where(and(
-    eq(expenses.periodMonth, monthKey),
-    eq(expenses.recurrence, 'none'),
-  ));
-
-  const byCategory = new Map<string, number>();
-  const byPaymentMethod = new Map<string, number>();
-  let total = 0, ivaCreditoTotal = 0;
-  for (const r of rows as any[]) {
-    const amount = Number(r.amountTotal);
-    total += amount;
-    byCategory.set(r.category, (byCategory.get(r.category) ?? 0) + amount);
-    byPaymentMethod.set(r.paymentMethod, (byPaymentMethod.get(r.paymentMethod) ?? 0) + amount);
-    if (r.documentType === 'factura' && !r.ivaExempt) ivaCreditoTotal += Number(r.ivaAmount);
-  }
-
-  const monthHasEvents = (await db.select().from(events))
-    .some((e: any) => monthKeyFor(e.eventDate) === monthKey);
-  const sinAsignar = monthHasEvents ? 0 : (rows as any[])
-    .filter((r) => r.scope === 'general' && r.prorate === 1 && !r.excludeFromPnl)
-    .reduce((s, r) => s + Number(r.amountTotal), 0);
-
-  return {
-    monthKey,
-    total,
-    ivaCreditoTotal,
-    sinAsignar,
-    expenseCount: rows.length,
-    byCategory: Array.from(byCategory.entries()).map(([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount),
-    byPaymentMethod: Array.from(byPaymentMethod.entries()).map(([method, amount]) => ({ method, amount })).sort((a, b) => b.amount - a.amount),
-  };
-}
-
 /** Histograma de operaciones por hora del día (0-23), del ledger completo
  * del evento -- "horas punta" sale gratis de `ops`, sin tabla nueva. */
 export async function getPeakHours(eventId: number) {
@@ -4568,16 +4369,6 @@ export async function verifyCardPin(params: { email: string; pin: string }): Pro
   return { ok: true, customerId: customer.id };
 }
 
-/** Saldo prepagado por email -- espejo de getPlaycoinsBalance. Público, sin
- * PIN: VER el saldo no lo exige, solo GASTARLO (decisión de la etapa 1). */
-export async function getPrepaidBalance(email: string) {
-  const db = await getDb();
-  if (!db) return null;
-  const [customer] = await db.select().from(customers).where(eq(customers.email, email.trim().toLowerCase())).limit(1);
-  if (!customer) return null;
-  return { email: customer.email, prepaidBalance: customer.prepaidBalance };
-}
-
 /** Revierte una carga de saldo al anular la orden que la originó -- llamada
  * desde deleteOrderCascade. A diferencia de adjustPlaycoinsManually, SÍ lleva
  * `orderId`: `reason: 'refund'` usa la unicidad de (orderId, reason), así
@@ -4631,7 +4422,7 @@ const PLAYCOINS_REASON_LABEL: Record<string, string> = {
 /** Resumen de la tarjeta digital para la página pública /verificar/:ticketCode
  * -- saldo prepagado + Playcoins + los últimos movimientos de ambos,
  * mezclados y ordenados por fecha. El comprador se resuelve por
- * `orders.buyerEmail` (mismo camino que getPrepaidBalance/getPlaycoinsBalance
+ * `orders.buyerEmail` (mismo camino que getPlaycoinsBalance
  * -- `orders.customerId` todavía no se puebla en compras nuevas, ver
  * setCardPinAfterTopup). Si el ticket no tiene una orden/comprador con cuenta
  * de cliente, no es un error: simplemente no hay tarjeta que mostrar todavía
@@ -5062,12 +4853,6 @@ export async function removeCustomerTag(customerId: number, tag: string) {
   await db.update(customers).set({ tags: tags.filter((t) => t !== tag) }).where(eq(customers.id, customerId));
 }
 
-export async function updateCustomerNotes(customerId: number, notes: string) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(customers).set({ notes }).where(eq(customers.id, customerId));
-}
-
 /** Importación manual desde CSV (server/adminRoutes.ts): mismo criterio de
  * merge que upsertCustomerFromOrder -- por email, acumulando accessTypes/tags
  * en vez de sobreescribir, para no perder segmentación ya hecha a mano. */
@@ -5412,31 +5197,9 @@ export async function reportPartyProfile(profileId: number, targetProfileId: num
   await db.insert(partyReports).values({ eventId, reporterProfileId: profileId, reportedProfileId: targetProfileId, reason });
 }
 
-/** Denuncias sin resolver de un evento, para el equipo del local. */
-export async function listPartyReports(eventId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  const rows = await db.select({
-    id: partyReports.id,
-    reason: partyReports.reason,
-    createdAt: partyReports.createdAt,
-    resolvedAt: partyReports.resolvedAt,
-    reporterAlias: sql<string>`reporter.alias`,
-    reportedAlias: sql<string>`reported.alias`,
-    reportedZone: sql<string>`reported.zone`,
-  })
-    .from(partyReports)
-    .leftJoin(sql`${partyProfiles} as reporter`, sql`reporter.id = ${partyReports.reporterProfileId}`)
-    .leftJoin(sql`${partyProfiles} as reported`, sql`reported.id = ${partyReports.reportedProfileId}`)
-    .where(eq(partyReports.eventId, eventId))
-    .orderBy(desc(partyReports.createdAt));
-  return rows;
-}
-
 /** Denuncias de TODOS los eventos, para la sección "Denuncias" del admin.
- * Existía `listPartyReports` pero pide un eventId, y hasta ahora no había
- * ninguna pantalla donde el dueño pudiera ver los reportes: se guardaban en
- * la base y nadie los miraba. Las sin resolver van primero. */
+ * Hasta que existió esta pantalla, los reportes se guardaban en la base y
+ * nadie los miraba. Las sin resolver van primero. */
 export async function listAllPartyReports(limit = 200) {
   const db = await getDb();
   if (!db) return [];
@@ -5678,37 +5441,12 @@ export async function getPartyGiftByOrderId(orderId: number) {
   return gift ?? null;
 }
 
-/** Alias del destinatario de un regalo -- es el `holderName` del ticket. */
-export async function getPartyProfileById(profileId: number) {
-  const db = await getDb();
-  if (!db) return null;
-  const [p] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, profileId)).limit(1);
-  return p ?? null;
-}
-
 export async function markGiftPaid(giftId: number, ticketId: number, displayCode: string | null) {
   const db = await getDb();
   if (!db) return;
   await db.update(partyGifts)
     .set({ status: 'paid', ticketId, displayCode, paidAt: new Date() })
     .where(eq(partyGifts.id, giftId));
-}
-
-/** Marca el regalo como cobrado en la barra. Lo llama el canje de caja
- * cuando el ticket resulta ser un regalo. */
-export async function markGiftRedeemedByTicketId(ticketId: number) {
-  const db = await getDb();
-  if (!db) return;
-  await db.update(partyGifts).set({ status: 'redeemed', redeemedAt: new Date() }).where(eq(partyGifts.ticketId, ticketId));
-}
-
-/** ¿Este ticket es un regalo? Lo pregunta el canje de caja para saber si
- * puede aceptarlo aunque venga de un evento anterior. */
-export async function getPartyGiftByTicketId(ticketId: number) {
-  const db = await getDb();
-  if (!db) return null;
-  const [gift] = await db.select().from(partyGifts).where(eq(partyGifts.ticketId, ticketId)).limit(1);
-  return gift ?? null;
 }
 
 /** Mis regalos: los que recibí y los que mandé. */
@@ -5860,18 +5598,6 @@ export async function deletePartyPushSubscription(endpoint: string) {
   return { success: true };
 }
 
-export async function listPartyPushSubscriptionsByProfile(profileId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(partyPushSubscriptions).where(eq(partyPushSubscriptions.profileId, profileId));
-}
-
-export async function listPartyPushSubscriptionsByEvent(eventId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(partyPushSubscriptions).where(eq(partyPushSubscriptions.eventId, eventId));
-}
-
 // --- Segundo factor del panel de administración ---
 
 export async function getAdminTotp() {
@@ -5908,20 +5634,6 @@ export async function getOrCreateUnconfirmedAdminTotp(newSecret: string): Promis
 
   await db.insert(adminTotp).values({ secret: newSecret });
   return newSecret;
-}
-
-/** Descarta la configuración a medias y empieza de cero. Solo se llama
- * cuando el dueño lo pide explícitamente ("volver a escanear"). */
-export async function resetUnconfirmedAdminTotp(secret: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const existing = await getAdminTotp();
-  if (existing?.confirmedAt) return;
-  if (existing) {
-    await db.update(adminTotp).set({ secret, backupCodes: null, lastUsedStep: null }).where(eq(adminTotp.id, existing.id));
-    return;
-  }
-  await db.insert(adminTotp).values({ secret });
 }
 
 export async function confirmAdminTotp(id: number, hashedBackupCodes: string[], timeStep: number) {

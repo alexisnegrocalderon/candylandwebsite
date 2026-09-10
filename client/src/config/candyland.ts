@@ -239,7 +239,6 @@ export const EVENTO = {
   eventDate: new Date('2026-10-30T21:00:00-03:00'),
   fechaTexto: EVENT_BRAND.fechaTexto,
   horarioTexto: EVENT_BRAND.horarioTexto,
-  afterTexto: 'After hasta el amanecer',
   // Disfraz obligatorio como dato práctico del dress code, sin tematizar el
   // resto del sitio en Halloween (decisión del dueño: eso queda para la
   // landing especial de la campaña, no para el home).
@@ -298,9 +297,6 @@ export const CANDYLAND = {
     confirmadosFallback: 112,
     titulo: 'Misión 300',
     copy: 'Cada dulce representa una entrada confirmada.',
-    // EDITAR: cuando generes el loop ambiental en Higgsfield (corto, sin audio),
-    // ponlo en client/public/candyland/ y escribe aquí la ruta, ej: '/candyland/machine-loop.mp4'
-    videoLoop: '',
   },
 
   // ── Pistas / Line-up ───────────────────────────────────────
@@ -408,10 +404,6 @@ export function formatCLP(value: number): string {
   return value.toLocaleString('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 });
 }
 
-/** Link de WhatsApp con mensaje para validar el acceso Soltero. */
-export function whatsappSolteroLink(): string {
-  return whatsappComunidadLink('Soltero');
-}
 
 /** Link de WhatsApp genérico para conseguir el código de comunidad (Soltero, Dúo Dos Hombres, etc). */
 export function whatsappComunidadLink(contexto: string): string {

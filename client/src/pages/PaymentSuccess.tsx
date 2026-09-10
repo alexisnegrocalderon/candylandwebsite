@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Link } from 'wouter';
-import { CheckCircle, Ticket, Mail, Sparkles, AlertTriangle } from 'lucide-react';
+import { Ticket, Mail, Sparkles, AlertTriangle } from 'lucide-react';
 import { useSeo } from '@/hooks/useSeo';
 
 /* Bienvenida post-pago: el momento en que la persona queda oficialmente

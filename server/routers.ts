@@ -1591,9 +1591,6 @@ export const appRouter = router({
     }),
 
     // Para el equipo del local, durante la fiesta.
-    listReports: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
-      return db.listPartyReports(input.eventId);
-    }),
     listGifts: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.listPartyGiftsForEvent(input.eventId);
     }),
@@ -1626,19 +1623,6 @@ export const appRouter = router({
       validUntil: z.string().optional(),
     })).mutation(async ({ input }) => {
       return db.createDiscountCode(input);
-    }),
-    update: adminProcedure.input(z.object({
-      id: z.number(),
-      code: z.string().optional(),
-      description: z.string().optional(),
-      discountType: z.enum(['percentage', 'fixed']).optional(),
-      discountValue: z.number().optional(),
-      maxUses: z.number().optional(),
-      isActive: z.number().optional(),
-      validUntil: z.string().optional(),
-    })).mutation(async ({ input }) => {
-      const { id, ...data } = input;
-      return db.updateDiscountCode(id, data);
     }),
     delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const result = await db.deleteDiscountCode(input.id);
@@ -1992,9 +1976,6 @@ export const appRouter = router({
       await db.recordAdminAudit({ action: 'expenses.delete', targetType: 'expense', targetId: input.id, ip: clientIp(ctx) });
       return result;
     }),
-    monthSummary: adminReadProcedure.input(z.object({ monthKey: z.string() })).query(async ({ input }) => {
-      return db.getMonthlyExpenseSummary(input.monthKey);
-    }),
   }),
 
   // Lista de bloqueo de clientes (por RUT) -- solo admin, nunca expuesta al
@@ -2030,9 +2011,6 @@ export const appRouter = router({
   referrals: router({
     getStats: adminReadProcedure.query(async () => {
       return db.getReferralStats();
-    }),
-    getByUser: protectedProcedure.query(async ({ ctx }) => {
-      return db.getUserReferrals(ctx.user.id);
     }),
     // Público, sin login: el mismo código de embajador que llega por email
     // es lo que valida el acceso a las propias estadísticas.
@@ -2086,22 +2064,9 @@ export const appRouter = router({
     }),
     // Reporte histórico por evento (el del PR original). Se conserva porque
     // sigue siendo la forma de saber cuánto se pagó en una fiesta puntual.
-    getReport: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
-      return db.getAmbassadorCommissionReport(input.eventId);
-    }),
 
     // --- Programa VIP automatizado ---
 
-    /** Valida el código en el checkout. Público, igual que
-     * communityCodes.validate: hasta ahora el campo se mandaba sin verificar
-     * nada, así que un código mal tecleado se perdía en silencio. */
-    validate: publicProcedure.input(z.object({ code: z.string() })).mutation(async ({ input }) => {
-      const clean = input.code.trim().toUpperCase();
-      if (!clean) return { valid: false as const, message: 'Escribe un código' };
-      const ambassador = await db.getActiveExclusiveAmbassadorByCode(clean);
-      if (!ambassador) return { valid: false as const, message: 'No encontramos ese código' };
-      return { valid: true as const, name: ambassador.name, code: ambassador.code };
-    }),
 
     /** Panel público del embajador (/embajador/<CODIGO>). El código hace de
      * llave -- no hay login de embajadores, mismo criterio que /mis-referidos. */
@@ -2421,15 +2386,6 @@ export const appRouter = router({
       const real = await db.getEventById(ctx.device.eventId);
       if (real && isPartyWindowOpen(real)) return real;
       return db.getOrCreateCajaTestEvent();
-    }),
-    search: operatorProcedure.input(z.object({ eventId: z.number(), query: z.string() })).query(async ({ input }) => {
-      return db.searchCajaCustomers(input.eventId, input.query);
-    }),
-    customerSheet: operatorProcedure.input(z.object({ orderId: z.number() })).query(async ({ input }) => {
-      return db.getCajaCustomerSheet(input.orderId);
-    }),
-    catalog: operatorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
-      return db.getCajaCatalog(input.eventId);
     }),
     dashboard: operatorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getCajaDashboard(input.eventId);
@@ -2832,10 +2788,6 @@ export const appRouter = router({
       await db.removeCustomerTag(input.customerId, input.tag);
       return { success: true } as const;
     }),
-    updateNotes: adminProcedure.input(z.object({ customerId: z.number(), notes: z.string() })).mutation(async ({ input }) => {
-      await db.updateCustomerNotes(input.customerId, input.notes);
-      return { success: true } as const;
-    }),
     // Ajuste manual de Playcoins (pedido explícito del usuario) -- para
     // migrar saldos de Shopify a mano o corregir.
     adjustPlaycoins: adminProcedure.input(z.object({ customerId: z.number(), delta: z.number().int(), note: z.string().optional() })).mutation(async ({ input }) => {
@@ -2967,9 +2919,6 @@ export const appRouter = router({
   // dueño: el estacionamiento se paga como extra online o en la puerta con
   // efectivo/tarjeta, nunca con saldo.
   prepaid: router({
-    getBalanceByEmail: publicProcedure.input(z.object({ email: z.string().email() })).query(async ({ input }) => {
-      return db.getPrepaidBalance(input.email);
-    }),
     // Define o cambia el PIN de la tarjeta. Público a propósito: la prueba de
     // identidad es haber pagado de verdad una carga de saldo con Mercado
     // Pago (verificado adentro por orderNumber+paymentStatus), no una

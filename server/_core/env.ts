@@ -9,8 +9,7 @@ export const ENV = {
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   // Fallback gratuito de LLM para despliegues fuera de la plataforma Forge
   // (ver server/_core/llm.ts, resolveProvider) -- variable propia, nunca
-  // pisa BUILT_IN_FORGE_*, que siguen usando imageGeneration/voiceTranscription/
-  // map/dataApi/notification/heartbeat/storage.
+  // pisa BUILT_IN_FORGE_*, que siguen usando llm/notification.
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
   // Autentica al cron diario de mailing (server/cronRoutes.ts) -- Vercel
   // manda `Authorization: Bearer <CRON_SECRET>` automáticamente en cada

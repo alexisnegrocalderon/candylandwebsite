@@ -43,7 +43,7 @@ describe('CANDYLAND (objeto compuesto, compatibilidad)', () => {
     // runtime y no en el type-check (varios usos son dinámicos).
     for (const clave of [
       'slug', 'nombre', 'tagline', 'heroTitulo', 'eventDate', 'fechaTexto',
-      'horarioTexto', 'afterTexto', 'ciudad', 'lugar', 'valores', 'edadMinima',
+      'horarioTexto', 'ciudad', 'lugar', 'valores', 'edadMinima',
       'dressCode', 'mision', 'pistas', 'lineup', 'amenities', 'accesos',
       'faqs', 'redes',
     ]) {

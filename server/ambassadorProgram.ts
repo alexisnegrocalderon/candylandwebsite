@@ -555,13 +555,6 @@ export async function listReferredClients() {
 
 // --- Beneficios entregados ---
 
-/** Clave estable de un tramo de beneficios. Se marca el tramo completo ("le
- * entregué lo de 5 ventas"), no cada ítem por separado -- los ítems son texto
- * editable y cambiarlos no debería borrar el registro de lo ya entregado. */
-export function benefitKeyForTier(minSales: number): string {
-  return `tramo-${minSales}`;
-}
-
 export async function listBenefitDeliveries(monthKey: string) {
   const db = await getDb();
   if (!db) return [];

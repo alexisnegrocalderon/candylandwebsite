@@ -44,12 +44,6 @@ export function getIndexHtmlTemplate(): string {
   );
 }
 
-/** Solo para tests -- vitest importa este módulo en aislado, sin haber
- * corrido nunca `vite build` en ese proceso. */
-export function __resetIndexHtmlCacheForTests() {
-  cached = null;
-}
-
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")

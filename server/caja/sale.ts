@@ -75,7 +75,7 @@ export async function createCajaSale(
   for (const item of params.items) {
     const tt = ttById.get(item.ticketTypeId);
     if (!tt) throw new Error(`Producto ${item.ticketTypeId} no encontrado`);
-    // Defensa en profundidad: getCajaCatalog/getCajaSnapshot ya excluyen las
+    // Defensa en profundidad: getCajaSnapshot ya excluye las
     // cargas de saldo del catálogo que ve la cajera, pero acá se revalida
     // server-side por si el ticketTypeId llega de otra forma -- vender esto
     // en caja cobraría plata sin acreditar ningún saldo (creditPrepaid solo

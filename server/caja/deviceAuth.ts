@@ -30,10 +30,6 @@ export function hashDeviceToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
-export function verifyDeviceToken(token: string, hash: string): boolean {
-  return hashDeviceToken(token) === hash;
-}
-
 export type DeviceSessionPayload = { deviceId: number };
 
 function getSecret() {

@@ -9,10 +9,10 @@ import { Input } from '@/components/ui/input';
 import { QrScanner } from '@/components/QrScanner';
 import { parseTicketCodeFromQr } from '@shared/qr';
 import {
-  saveSnapshot, getLocalEvent, searchLocal, searchGiftsLocal, searchStaffCompsLocal, searchInsideAttendeesLocal, getLocalAttendee, getLocalCatalog,
+  saveSnapshot, getLocalEvent, searchLocal, searchStaffCompsLocal, searchInsideAttendeesLocal, getLocalAttendee, getLocalCatalog,
   enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, clearSyncedOps, correctedNow,
   nextKitchenTicketNumber, nextLockerTagNumber,
-  type CajaAttendee, type CajaCatalogItem, type CajaGift, type CajaStaffComp, type QueuedOp,
+  type CajaAttendee, type CajaCatalogItem, type CajaStaffComp, type QueuedOp,
 } from './db';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { formatChileDateTime } from '@shared/chileDate';
@@ -518,7 +518,6 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   const [query, setQuery] = useState('');
   const [manualCode, setManualCode] = useState('');
   const [results, setResults] = useState<CajaAttendee[]>([]);
-  const [giftResults, setGiftResults] = useState<CajaGift[]>([]);
   const [staffCompResults, setStaffCompResults] = useState<CajaStaffComp[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [sheetVersion, setSheetVersion] = useState(0); // fuerza refresco de la ficha tras un canje local
@@ -590,11 +589,8 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   // Búsqueda 100% local (funciona offline, <50ms).
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) { setResults([]); setGiftResults([]); setStaffCompResults([]); return; }
+    if (q.length < 2) { setResults([]); setStaffCompResults([]); return; }
     searchLocal(q).then(setResults);
-    // Los tragos invitados se buscan aparte: no pertenecen a una orden de
-    // esta noche (pueden venir de la fiesta anterior).
-    searchGiftsLocal(q).then((gs) => setGiftResults(gs.filter((g) => g.status !== 'used')));
     // Consumos gratis de staff: tampoco pertenecen a una orden con asistentes.
     searchStaffCompsLocal(q).then((cs) => setStaffCompResults(cs.filter((c) => c.status !== 'used')));
   }, [query, sheetVersion]);

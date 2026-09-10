@@ -200,6 +200,12 @@ export async function correctedNow(): Promise<Date> {
 
 /** Tragos invitados que la barra puede cobrar, por código o por el alias
  * de quien lo recibe -- que es lo que la persona dice al llegar. */
+/* REVISAR: hoy sin llamadas. Su único consumidor era un estado en
+ * pages/caja/index.tsx que se escribía y nunca se renderizaba, así que corría
+ * una lectura de IndexedDB por cada tecla del buscador para nada. Se conserva
+ * porque el canje de tragos invitados SÍ está vivo (ver `cajaDB.gifts` en
+ * redeemLocal) y la tabla indexa `toAlias` justamente para esta búsqueda: falta
+ * la UI, no la capacidad. Si se decide que no va, borrar esta función. */
 export async function searchGiftsLocal(query: string): Promise<CajaGift[]> {
   const q = query.trim();
   if (!q) return [];
