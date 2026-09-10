@@ -882,8 +882,13 @@ export default function Checkout() {
     );
   }
 
+  /* pb-40 fijo en todos los tamaños (antes se achicaba a md:pb-16): la barra
+   * de acciones de abajo es `fixed bottom-0` en cualquier ancho, así que el
+   * espacio reservado para que no la tape tiene que ser el mismo siempre --
+   * reducirlo en tablet/desktop dejaba contenido tapado detrás de la barra
+   * (reportado con el paso de extras, que es más alto que el resto). */
   return (
-    <div className="min-h-dvh pt-20 pb-40 md:pb-16 flex flex-col">
+    <div className="min-h-dvh pt-20 pb-40 flex flex-col">
       <div className="container max-w-lg flex-1">
         {/* Encabezado + progreso */}
         <div className="flex items-center justify-between mb-2 pt-4">
@@ -1055,7 +1060,13 @@ export default function Checkout() {
                       <div className="space-y-4">
                         {prepagoGroups.map((group) => (
                           <div key={group.label}>
-                            <p className="text-[11px] font-bold uppercase tracking-wide text-primary mb-1.5">{group.label}</p>
+                            {/* Rótulo de categoría solo si de verdad hay más de un grupo
+                                (el admin cargó groupName por producto) -- con todo cayendo
+                                al mismo grupo de respaldo ("Extras"), mostrar ese único
+                                rótulo es ruido, no información. */}
+                            {prepagoGroups.length > 1 && (
+                              <p className="text-[11px] font-bold uppercase tracking-wide text-primary mb-1.5">{group.label}</p>
+                            )}
                             <div className="glass-candy rounded-2xl overflow-hidden divide-y divide-border/40">
                               {group.items.map((t: any) => {
                                 const q = dbExtraQty[t.id] || 0;
@@ -1069,10 +1080,10 @@ export default function Checkout() {
                                     <span className="text-base w-5 text-center shrink-0" aria-hidden>{t.emoji || '🎫'}</span>
                                     <div className="flex-1 min-w-0">
                                       <p className="text-sm font-semibold leading-tight">{t.name}</p>
-                                      {/* Aviso de escasez solo para tandas chicas de verdad (ej. una
-                                          mesa VIP de 6 cupos) -- con stock enorme (ej. estacionamiento)
-                                          nunca aporta nada y solo generaría ruido. */}
-                                      {t.totalStock <= 20 && (
+                                      {/* Aviso de escasez SOLO para cupos de verdad limitados (ej. una
+                                          mesa VIP de 6) -- pedido explícito del dueño: nada de
+                                          tragos, aunque su stock configurado también sea chico. */}
+                                      {t.totalStock <= 10 && (
                                         <p className="text-[10.5px] font-semibold text-amber-600 mt-0.5">Quedan {Math.max(0, remaining)} cupos</p>
                                       )}
                                     </div>
