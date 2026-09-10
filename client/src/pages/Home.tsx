@@ -334,12 +334,18 @@ function Hero() {
   // Si el video no arranca a reproducirse después de unos segundos (conexión
   // mala, o Safari que se quedó pegado tratando de decodificarlo), se deja
   // de esperar y se muestra fijo el poster -- así nunca queda una pantalla
-  // pegada esperando algo que puede no llegar a cargar nunca.
+  // pegada esperando algo que puede no llegar a cargar nunca. 9s (antes 4s,
+  // reportado por el dueño con el video quedándose pegado en el poster en
+  // una conexión real más lenta que la ideal): con preload="metadata" el
+  // navegador recién empieza a bajar el cuerpo del video al querer
+  // reproducirlo, así que 4s no alcanzaban a tiempo en conexiones móviles
+  // normales -- un video que hubiera arrancado igual un segundo después
+  // quedaba descartado para siempre, sin reintento, en esa visita.
   const [videoTimedOut, setVideoTimedOut] = useState(false);
   const [videoPlaying, setVideoPlaying] = useState(false);
   useEffect(() => {
     if (videoPlaying) return;
-    const timer = setTimeout(() => setVideoTimedOut(true), 4000);
+    const timer = setTimeout(() => setVideoTimedOut(true), 9000);
     return () => clearTimeout(timer);
   }, [videoPlaying]);
 
