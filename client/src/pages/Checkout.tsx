@@ -271,6 +271,44 @@ export default function Checkout() {
   const accesoTickets = useMemo(() => liveTickets.filter((t: any) => t.category !== 'extra'), [liveTickets]);
   const extraTickets = useMemo(() => liveTickets.filter((t: any) => t.category === 'extra'), [liveTickets]);
   const useDbExtras = !useConfig && extraTickets.length > 0;
+  // Dentro de "extra" hay dos mecánicas bien distintas (ver isTopupProduct en
+  // shared/prepaid.ts): un prepago da un DERECHO CANJEABLE (estacionamiento,
+  // un trago -- se paga acá, en caja solo se retira, sin volver a cobrar) vs
+  // una carga de saldo que sí mete plata gastable en la Tarjeta Playroom. Se
+  // muestran en dos bloques con lenguaje visual distinto para que no se
+  // confundan (pedido explícito del dueño).
+  const prepagoTickets = useMemo(() => extraTickets.filter((t: any) => !isTopupProduct(t)), [extraTickets]);
+  // Ordenados por precio: son "montos" de un mismo gesto ("cargar saldo"),
+  // no productos distintos -- se muestran como un único selector de monto en
+  // vez de una fila por cada ficha de la Carta.
+  const topupTiers = useMemo(
+    () => [...extraTickets]
+      .filter((t: any) => isTopupProduct(t) && t.totalStock - (t.soldCount ?? 0) > 0)
+      .sort((a: any, b: any) => Number(a.price) - Number(b.price)),
+    [extraTickets],
+  );
+  // Agrupa el prepago por `groupName` (mismo campo ya usado en /caja para
+  // pestañas de categoría, con "Extras" de respaldo para lo que no tenga
+  // grupo asignado) -- así un evento nuevo sin grupos cargados sigue
+  // mostrando todo, solo que en un único bloque sin subtítulos.
+  const prepagoGroups = useMemo(() => {
+    const order: string[] = [];
+    const byLabel = new Map<string, any[]>();
+    for (const t of prepagoTickets) {
+      // Respeta groupName si el admin ya lo cargó -- si no, se auto-clasifica
+      // con lo que YA existe en la ficha (nombre + stock), para que la
+      // categorización se vea desde el primer minuto sin depender de que
+      // alguien cargue un campo nuevo a mano en cada producto.
+      const label = t.groupName || (
+        /estacionamiento/i.test(t.name) ? 'Estacionamiento'
+        : t.totalStock <= 10 ? 'Exclusivos · solo preventa'
+        : 'Tragos de preventa'
+      );
+      if (!byLabel.has(label)) { byLabel.set(label, []); order.push(label); }
+      byLabel.get(label)!.push(t);
+    }
+    return order.map((label) => ({ label, items: byLabel.get(label)! }));
+  }, [prepagoTickets]);
 
   const validateCode = trpc.orders.validateCode.useMutation();
   const validateCommunityCode = trpc.communityCodes.validate.useMutation();
@@ -383,6 +421,19 @@ export default function Checkout() {
 
   /* ── Extras / códigos ────────────────────────────────────── */
   const [dbExtraQty, setDbExtraQty] = useState<Record<number, number>>({});
+  // Selector de monto de la carga de saldo: las 5 fichas de la Carta son
+  // "montos" de un mismo gesto, no productos que se puedan combinar -- acá
+  // se fuerza que a lo más UNA tenga cantidad > 0 a la vez (index -1 = nada
+  // seleccionado, empieza así a propósito: es 100% opcional).
+  const selectedTopupIndex = topupTiers.findIndex((t: any) => (dbExtraQty[t.id] || 0) > 0);
+  const setTopupTierIndex = (idx: number) => {
+    setDbExtraQty((prev) => {
+      const next = { ...prev };
+      for (const t of topupTiers) next[t.id] = 0;
+      if (idx >= 0 && idx < topupTiers.length) next[topupTiers[idx].id] = 1;
+      return next;
+    });
+  };
   // Un solo campo para código de descuento o de embajador -- la persona no
   // sabe (ni le importa) cuál de los dos tiene; el servidor decide
   // (`orders.validateCode`) y acá solo se guarda el resultado ya tipado.
@@ -839,8 +890,13 @@ export default function Checkout() {
     );
   }
 
+  /* pb-40 fijo en todos los tamaños (antes se achicaba a md:pb-16): la barra
+   * de acciones de abajo es `fixed bottom-0` en cualquier ancho, así que el
+   * espacio reservado para que no la tape tiene que ser el mismo siempre --
+   * reducirlo en tablet/desktop dejaba contenido tapado detrás de la barra
+   * (reportado con el paso de extras, que es más alto que el resto). */
   return (
-    <div className="min-h-dvh pt-20 pb-40 md:pb-16 flex flex-col">
+    <div className="min-h-dvh pt-20 pb-40 flex flex-col">
       <div className="container max-w-lg flex-1">
         {/* Encabezado + progreso */}
         <div className="flex items-center justify-between mb-2 pt-4">
@@ -998,29 +1054,119 @@ export default function Checkout() {
                 </div>
               )}
 
-              {/* Paso: extras reales del evento (category="extra" en el admin) */}
+              {/* Paso: extras reales del evento (category="extra" en el admin).
+                  Dos bloques con lenguaje visual distinto a propósito -- ver
+                  el comentario de prepagoTickets/topupTiers más arriba. */}
               {pasoActual.id === 'extras-db' && (
-                <div className="space-y-3">
-                  {extraTickets.map((t: any) => {
-                    const q = dbExtraQty[t.id] || 0;
-                    const max = Math.min(t.maxPerOrder ?? 10, t.totalStock - (t.soldCount ?? 0));
-                    const set = (d: number) => setDbExtraQty((prev) => ({ ...prev, [t.id]: Math.max(0, Math.min(max, (prev[t.id] || 0) + d)) }));
-                    return (
-                      <div key={t.id} className="flex items-center justify-between glass-candy rounded-2xl p-4">
-                        <span className="text-sm font-semibold">
-                          {t.name} <span className="text-muted-foreground font-normal">· {formatCLP(Number(t.price))}</span>
-                          {isTopupProduct(t) && Number(t.topupAmount) !== Number(t.price) && (
-                            <span className="text-green-400 font-normal"> · acredita {formatCLP(Number(t.topupAmount))}</span>
-                          )}
-                        </span>
-                        <div className="flex items-center gap-4">
-                          <button type="button" onClick={() => set(-1)} aria-label={`Quitar ${t.name}`} className="w-11 h-11 rounded-full border border-primary/40 flex items-center justify-center hover:bg-primary/10 interactive"><Minus className="w-4 h-4" /></button>
-                          <span className="w-6 text-center font-bold text-lg tabular-nums">{q}</span>
-                          <button type="button" onClick={() => set(1)} aria-label={`Agregar ${t.name}`} className="w-11 h-11 rounded-full bg-primary text-primary-foreground flex items-center justify-center hover:scale-105 transition-transform interactive"><Plus className="w-4 h-4" /></button>
-                        </div>
+                <div className="space-y-6">
+                  {prepagoGroups.length > 0 && (
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wide bg-muted text-foreground px-2 py-0.5 rounded-full inline-block mb-1.5">🎟️ Prepago para la fiesta</span>
+                      <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
+                        Los compras ahora más barato que en la puerta -- quedan en tu Tarjeta Playroom y tu código QR, en caja solo los retiras sin pagar de nuevo.
+                      </p>
+                      <div className="space-y-4">
+                        {prepagoGroups.map((group) => (
+                          <div key={group.label}>
+                            {/* Rótulo de categoría solo si de verdad hay más de un grupo
+                                (el admin cargó groupName por producto) -- con todo cayendo
+                                al mismo grupo de respaldo ("Extras"), mostrar ese único
+                                rótulo es ruido, no información. */}
+                            {prepagoGroups.length > 1 && (
+                              <p className="text-[11px] font-bold uppercase tracking-wide text-primary mb-1.5">{group.label}</p>
+                            )}
+                            <div className="glass-candy rounded-2xl overflow-hidden divide-y divide-border/40">
+                              {group.items.map((t: any) => {
+                                const q = dbExtraQty[t.id] || 0;
+                                const remaining = t.totalStock - (t.soldCount ?? 0);
+                                const max = Math.min(t.maxPerOrder ?? 10, remaining);
+                                const set = (d: number) => setDbExtraQty((prev) => ({ ...prev, [t.id]: Math.max(0, Math.min(max, (prev[t.id] || 0) + d)) }));
+                                const hasDiscount = t.originalPrice && Number(t.originalPrice) > Number(t.price);
+                                const savePct = hasDiscount ? Math.round((1 - Number(t.price) / Number(t.originalPrice)) * 100) : 0;
+                                return (
+                                  <div key={t.id} className={`flex items-center gap-2.5 px-3.5 py-2.5 ${q > 0 ? 'bg-primary/5' : ''}`}>
+                                    <span className="text-base w-5 text-center shrink-0" aria-hidden>{t.emoji || '🎫'}</span>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-sm font-semibold leading-tight">{t.name}</p>
+                                      {/* Aviso de escasez SOLO para cupos de verdad limitados (ej. una
+                                          mesa VIP de 6) -- pedido explícito del dueño: nada de
+                                          tragos, aunque su stock configurado también sea chico. */}
+                                      {t.totalStock <= 10 && (
+                                        <p className="text-[10.5px] font-semibold text-amber-600 mt-0.5">Quedan {Math.max(0, remaining)} cupos</p>
+                                      )}
+                                    </div>
+                                    <div className="flex items-baseline gap-1.5 shrink-0">
+                                      <span className="text-[13px] font-bold tabular-nums">{formatCLP(Number(t.price))}</span>
+                                      {hasDiscount && (
+                                        <>
+                                          <span className="text-[11px] text-muted-foreground line-through tabular-nums">{formatCLP(Number(t.originalPrice))}</span>
+                                          <span className="text-[10px] font-bold text-green-600 bg-green-500/10 px-1.5 py-0.5 rounded-full whitespace-nowrap">AHORRAS {savePct}%</span>
+                                        </>
+                                      )}
+                                    </div>
+                                    {q > 0 ? (
+                                      <div className="flex items-center gap-2 shrink-0 ml-1">
+                                        <button type="button" onClick={() => set(-1)} aria-label={`Quitar ${t.name}`} className="w-7 h-7 rounded-full border border-border flex items-center justify-center interactive"><Minus className="w-3.5 h-3.5" /></button>
+                                        <span className="w-4 text-center font-bold text-sm tabular-nums">{q}</span>
+                                        <button type="button" onClick={() => set(1)} disabled={q >= max} aria-label={`Agregar ${t.name}`} className="w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center interactive disabled:opacity-40"><Plus className="w-3.5 h-3.5" /></button>
+                                      </div>
+                                    ) : (
+                                      <button type="button" onClick={() => set(1)} disabled={max <= 0} aria-label={`Agregar ${t.name}`} className="w-7 h-7 rounded-full border border-primary text-primary flex items-center justify-center interactive shrink-0 ml-1 disabled:opacity-30"><Plus className="w-3.5 h-3.5" /></button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    );
-                  })}
+                    </div>
+                  )}
+
+                  {topupTiers.length > 0 && (
+                    <div className="xtra-topup-section">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-white px-2 py-0.5 rounded-full inline-block" style={{ background: 'linear-gradient(100deg, #ff3f8e, #8c7bff)' }}>💳 Carga saldo en tu Tarjeta Playroom</span>
+                      <p className="xtra-topup-intro">Esto sí es plata de verdad en tu tarjeta -- con eso compras lo que quieras en caja, al precio de fiesta.</p>
+                      <div className="xtra-topup-row">
+                        <div className="main">
+                          <div className="icon" aria-hidden>💳</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="name">Carga de saldo</p>
+                            <p className="sub">
+                              {selectedTopupIndex < 0 ? 'Opcional -- tú eliges cuánto' : `Vas a pagar ${formatCLP(Number(topupTiers[selectedTopupIndex].price))}`}
+                            </p>
+                          </div>
+                          {selectedTopupIndex < 0 ? (
+                            <button type="button" onClick={() => setTopupTierIndex(0)} aria-label="Elegir monto a cargar" className="xtra-topup-add">+</button>
+                          ) : (
+                            <div className="xtra-topup-stepper">
+                              <button type="button" onClick={() => setTopupTierIndex(selectedTopupIndex - 1)} aria-label="Bajar monto">−</button>
+                              <span className="amount tabular-nums">{formatCLP(Number(topupTiers[selectedTopupIndex].price))}</span>
+                              <button type="button" onClick={() => setTopupTierIndex(selectedTopupIndex + 1)} disabled={selectedTopupIndex >= topupTiers.length - 1} className="plus" aria-label="Subir monto">+</button>
+                            </div>
+                          )}
+                        </div>
+                        {selectedTopupIndex >= 0 && (() => {
+                          const tier = topupTiers[selectedTopupIndex];
+                          const credit = Number(tier.topupAmount ?? tier.price);
+                          const bonus = credit - Number(tier.price);
+                          return (
+                            <div className="xtra-credit-line">
+                              <span className="chip" aria-hidden>{bonus > 0 ? '🎁' : '💳'}</span>
+                              {bonus > 0
+                                ? `Te quedan ${formatCLP(credit)} en tu tarjeta -- ${formatCLP(bonus)} de regalo`
+                                : `Carga ${formatCLP(credit)} a tu tarjeta`}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                      {selectedTopupIndex < 0 && (
+                        <p className="xtra-topup-hint">
+                          Toca "+" para elegir cuánto cargar, de {formatCLP(Number(topupTiers[0].price))} a {formatCLP(Number(topupTiers[topupTiers.length - 1].price))}.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

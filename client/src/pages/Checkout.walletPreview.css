@@ -82,3 +82,37 @@
 .wprev-stat-value.is-points { color: #8c7bff; }
 
 .wprev-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid rgba(251, 238, 224, 0.14); font-size: 10px; color: #b79fc0; z-index: 1; }
+
+/* Bloque "carga de saldo" del paso de extras (Checkout.tsx, paso
+ * "extras-db") -- mismo lenguaje oscuro/dorado que la tarjeta real, para que
+ * se note al toque que ESTO (a diferencia de un prepago normal) mete plata
+ * gastable en la Tarjeta Playroom. No es la tarjeta en sí (sin flip, sin
+ * QR) -- vive dentro de un paso de formulario. Prefijo `xtra-topup-`
+ * propio, solo lo importa Checkout.tsx. */
+.xtra-topup-section {
+  border-radius: 22px;
+  padding: 16px;
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(140, 123, 255, 0.32), transparent 55%),
+    radial-gradient(110% 130% at 0% 100%, rgba(255, 63, 142, 0.28), transparent 55%),
+    linear-gradient(155deg, #241432, #0d0712 78%);
+  box-shadow: 0 18px 40px -18px rgba(120, 20, 90, 0.35);
+}
+.xtra-topup-intro { font-size: 12.5px; color: rgba(251, 238, 224, 0.55); margin: 6px 0 14px; line-height: 1.45; }
+.xtra-topup-hint { font-size: 11.5px; color: rgba(251, 238, 224, 0.45); margin: 10px 0 0; line-height: 1.45; }
+
+.xtra-topup-row { background: rgba(251, 238, 224, 0.07); border: 1px solid rgba(251, 238, 224, 0.16); border-radius: 16px; padding: 12px 14px; }
+.xtra-topup-row .main { display: flex; align-items: center; gap: 12px; }
+.xtra-topup-row .icon { width: 40px; height: 40px; border-radius: 12px; background: rgba(251, 238, 224, 0.12); display: flex; align-items: center; justify-content: center; font-size: 18px; flex: none; }
+.xtra-topup-row .name { color: #fbeee0; font-size: 14px; font-weight: 700; margin: 0; }
+.xtra-topup-row .sub { color: rgba(251, 238, 224, 0.55); font-size: 12.5px; margin: 1px 0 0; }
+
+.xtra-topup-add { width: 34px; height: 34px; border-radius: 999px; border: 1.5px solid rgba(251, 238, 224, 0.3); background: transparent; color: #fbeee0; font-size: 18px; flex: none; }
+.xtra-topup-stepper { display: flex; align-items: center; gap: 10px; flex: none; }
+.xtra-topup-stepper button { width: 32px; height: 32px; border-radius: 999px; border: 1.5px solid rgba(251, 238, 224, 0.3); background: transparent; color: #fbeee0; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+.xtra-topup-stepper button.plus { background: linear-gradient(100deg, #ff3f8e, #8c7bff); border: none; }
+.xtra-topup-stepper button:disabled { opacity: 0.35; }
+.xtra-topup-stepper .amount { min-width: 64px; text-align: center; font-weight: 800; font-size: 13px; color: #fbeee0; font-family: ui-monospace, 'SF Mono', Consolas, monospace; }
+
+.xtra-credit-line { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(251, 238, 224, 0.16); font-size: 12px; font-weight: 700; color: #f0c674; }
+.xtra-credit-line .chip { width: 18px; height: 18px; border-radius: 50%; background: rgba(251, 238, 224, 0.14); display: flex; align-items: center; justify-content: center; font-size: 10px; flex: none; }
