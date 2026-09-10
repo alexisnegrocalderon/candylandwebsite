@@ -38,3 +38,19 @@ export function scrollToId(id: string) {
     window.scrollTo({ top: y, behavior: 'smooth' });
   }
 }
+
+/** Vuelve al tope de la página, sin animación -- pensado para llamarse al
+ * cambiar de ruta (wouter no resetea el scroll solo, a diferencia de una
+ * navegación de página completa). Reportado con el link "Conocer la
+ * PlayCard" del banner de Inicio: al hacer click estando scrolleado más
+ * abajo, la página nueva abría a mitad de camino en vez de arriba. En
+ * desktop hay que resetear Lenis explícitamente (mantiene su propio
+ * offset virtual, `window.scrollTo` solo no alcanza -- Lenis lo pisa de
+ * vuelta al siguiente frame); en móvil (sin Lenis) el nativo basta. */
+export function resetScrollPosition() {
+  if (lenisInstance) {
+    lenisInstance.scrollTo(0, { immediate: true });
+  } else {
+    window.scrollTo(0, 0);
+  }
+}

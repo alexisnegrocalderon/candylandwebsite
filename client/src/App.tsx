@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Navbar from "./components/Navbar";
-import { isFinePointer } from "./lib/smoothScroll";
+import { isFinePointer, resetScrollPosition } from "./lib/smoothScroll";
 
 // Lazy load pages -- Home incluida: antes se importaba eager y arrastraba
 // las 7 secciones + trpc/react-query al chunk de entrada, que quedaba tan
@@ -63,6 +63,13 @@ function PageLoader() {
 
 function Router() {
   const [location] = useLocation();
+  // wouter no resetea el scroll al navegar (a diferencia de una carga de
+  // página completa) -- sin esto, un link tocado a mitad de scroll de la
+  // página anterior abre la nueva página también a mitad de camino. Ver
+  // resetScrollPosition en lib/smoothScroll.ts para el porqué de Lenis.
+  useEffect(() => {
+    resetScrollPosition();
+  }, [location]);
   return (
     <Suspense fallback={<PageLoader />}>
       {/* Transición de entrada al cambiar de ruta: fade+rise corto. Antes esto
