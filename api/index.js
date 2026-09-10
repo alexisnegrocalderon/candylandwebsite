@@ -14195,14 +14195,32 @@ var appRouter = router({
     // identidad es haber pagado de verdad una carga de saldo con Mercado
     // Pago (verificado adentro por orderNumber+paymentStatus), no una
     // sesión -- ver server/db.ts setCardPinAfterTopup.
+    //
+    // Límite por IP acá, ADEMÁS del límite por cliente que ya tiene
+    // setCardPinAfterTopup para cuando se CAMBIA un PIN existente (clave
+    // `cardpin:<customerId>`, ver server/db.ts): ese límite no protegía para
+    // nada la primera vez que se define el PIN (cardPinHash todavía null),
+    // que es la rama que este endpoint toma la mayoría de las veces -- ahí
+    // la única prueba de identidad es acertar un orderNumber aprobado con
+    // una carga de saldo, y antes se podía probar sin ningún freno. Mismo
+    // mecanismo y misma clave (`checkIpRateLimit`/`recordIpFailedAttempt`,
+    // 15 intentos / 15 min) que ya usa el login por PIN de operador acá
+    // arriba (verifyOperatorPinOrThrow) -- nada nuevo que mantener. Un
+    // comprador legítimo llama esto una sola vez, apenas se aprueba su pago
+    // (ver Checkout.tsx), así que nunca lo nota.
     setCardPinAfterTopup: publicProcedure.input(z6.object({
       orderNumber: z6.string().min(1),
       pin: z6.string().regex(/^\d{4}$/, "El PIN debe tener 4 d\xEDgitos"),
       currentPin: z6.string().regex(/^\d{4}$/).optional()
-    })).mutation(async ({ input }) => {
+    })).mutation(async ({ input, ctx }) => {
+      const ipKey = `cardpin-set:${clientIp(ctx)}`;
+      if (!await checkIpRateLimit(ipKey)) {
+        throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: "Demasiados intentos -- espera unos minutos." });
+      }
       try {
         return await setCardPinAfterTopup(input);
       } catch (err) {
+        await recordIpFailedAttempt(ipKey);
         throw new TRPCError3({ code: "BAD_REQUEST", message: err instanceof Error ? err.message : "No se pudo definir el PIN." });
       }
     })
