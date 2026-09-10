@@ -103,13 +103,14 @@ const WALLET_CARD_CSS = `
 }
 
 .wcard-brand-row { display: flex; align-items: center; justify-content: space-between; z-index: 1; position: relative; }
-.wcard-wordmark { display: flex; align-items: center; gap: clamp(5px, 2.3cqw, 9px); font-family: var(--font-heading, 'Syne', sans-serif); font-weight: 800; font-size: clamp(11px, 4cqw, 15.5px); letter-spacing: 0.03em; }
+.wcard-wordmark { display: flex; align-items: center; gap: clamp(5px, 2.3cqw, 9px); font-family: var(--font-heading, 'Syne', sans-serif); font-weight: 800; font-size: clamp(11px, 4cqw, 15.5px); letter-spacing: 0.03em; min-width: 0; flex: 1 1 auto; overflow: hidden; }
+.wcard-wordmark-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .wcard-badge { width: clamp(22px, 7.5cqw, 30px); height: clamp(22px, 7.5cqw, 30px); border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; background: rgba(251, 238, 224, 0.14); border: 1px solid rgba(251, 238, 224, 0.35); box-shadow: 0 3px 10px -2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06) inset; }
 .wcard-badge img { width: clamp(14px, 5cqw, 20px); height: clamp(14px, 5cqw, 20px); object-fit: contain; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4)); }
 .wcard-face.is-back .wcard-badge { width: clamp(18px, 6cqw, 24px); height: clamp(18px, 6cqw, 24px); }
 .wcard-face.is-back .wcard-badge img { width: clamp(12px, 4cqw, 16px); height: clamp(12px, 4cqw, 16px); }
 
-.wcard-tier { font-family: var(--wcard-mono); font-size: clamp(7px, 2.6cqw, 10px); letter-spacing: 0.1em; text-transform: uppercase; color: var(--wcard-ink); background: linear-gradient(100deg, var(--wcard-gold), #fbe3a8); padding: clamp(2px, 1cqw, 4px) clamp(5px, 2.3cqw, 9px); border-radius: 999px; font-weight: 600; white-space: nowrap; }
+.wcard-tier { font-family: var(--wcard-mono); font-size: clamp(7px, 2.6cqw, 10px); letter-spacing: 0.1em; text-transform: uppercase; color: var(--wcard-ink); background: linear-gradient(100deg, var(--wcard-gold), #fbe3a8); padding: clamp(2px, 1cqw, 4px) clamp(5px, 2.3cqw, 9px); border-radius: 999px; font-weight: 600; white-space: nowrap; flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 
 .wcard-mid { display: flex; align-items: center; justify-content: space-between; gap: clamp(8px, 4cqw, 16px); min-height: 0; z-index: 1; position: relative; }
 .wcard-qr { background: var(--wcard-paper); padding: clamp(4px, 1.8cqw, 7px); border-radius: 12px; width: clamp(52px, 24cqw, 92px); height: clamp(52px, 24cqw, 92px); flex: none; box-shadow: 0 6px 18px -6px rgba(0, 0, 0, 0.6); }
@@ -135,7 +136,7 @@ const WALLET_CARD_CSS = `
 
 .wcard-foot { display: flex; align-items: center; justify-content: space-between; gap: clamp(6px, 2.5cqw, 10px); padding-top: clamp(7px, 3cqw, 12px); border-top: 1px solid var(--wcard-line); z-index: 1; position: relative; }
 .wcard-number { font-family: var(--wcard-mono); font-size: clamp(8.5px, 3cqw, 12px); letter-spacing: 0.06em; color: var(--wcard-muted); min-width: 0; flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wcard-event-tag { font-family: var(--wcard-mono); font-size: clamp(7px, 2.5cqw, 10px); letter-spacing: 0.06em; background: rgba(255, 63, 142, 0.18); border: 1px solid rgba(255, 63, 142, 0.4); padding: clamp(2px, 1cqw, 4px) clamp(5px, 2cqw, 8px); border-radius: 7px; white-space: nowrap; flex: none; }
+.wcard-event-tag { font-family: var(--wcard-mono); font-size: clamp(7px, 2.5cqw, 10px); letter-spacing: 0.06em; background: rgba(255, 63, 142, 0.18); border: 1px solid rgba(255, 63, 142, 0.4); padding: clamp(2px, 1cqw, 4px) clamp(5px, 2cqw, 8px); border-radius: 7px; white-space: nowrap; flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis; }
 
 .wcard-back-head { display: flex; justify-content: space-between; align-items: center; gap: clamp(6px, 2.5cqw, 10px); z-index: 1; position: relative; }
 .wcard-back-head .wcard-number { flex: none; font-size: clamp(8px, 2.8cqw, 11px); }
@@ -196,7 +197,7 @@ export function WalletCard({
             <div className="wcard-brand-row">
               <div className="wcard-wordmark">
                 <span className="wcard-badge"><img src="/candyland/logo-isotipo-transparent.png" alt="" /></span>
-                PLAYROOM
+                <span className="wcard-wordmark-text">PLAYROOM</span>
               </div>
               <span className="wcard-tier">Miembro</span>
             </div>
@@ -231,7 +232,7 @@ export function WalletCard({
             <div className="wcard-back-head">
               <div className="wcard-wordmark" style={{ fontSize: 13 }}>
                 <span className="wcard-badge"><img src="/candyland/logo-isotipo-transparent.png" alt="" /></span>
-                PLAYROOM
+                <span className="wcard-wordmark-text">PLAYROOM</span>
               </div>
             </div>
 
