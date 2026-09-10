@@ -331,6 +331,25 @@ function Hero() {
   // una sola vez al montar, no hace falta que reaccione a un resize.
   const [isMobile] = useState(() => isMobileViewport());
 
+  // El <video> no se monta hasta que la carga inicial de la página termina
+  // (evento `load`) -- reportado por el dueño: recién cargada la página el
+  // video se queda pegado en el poster sin arrancar, pero si navega a otra
+  // ruta y vuelve a Inicio (con la carga inicial ya terminada hace rato)
+  // arranca perfecto. Confirma que el problema es competencia de recursos
+  // en la carga de página nueva (fuentes, JS, imágenes, el propio video
+  // todos a la vez), no el archivo en sí -- así que se difiere el intento
+  // del video hasta que esa carga inicial ya liberó ancho de banda/CPU. Si
+  // al montar la página YA está cargada (ej. volviendo de otra ruta dentro
+  // de la SPA), arranca al toque, sin esperar nada.
+  const [videoReady, setVideoReady] = useState(() => typeof document !== 'undefined' && document.readyState === 'complete');
+  useEffect(() => {
+    if (videoReady) return;
+    if (document.readyState === 'complete') { setVideoReady(true); return; }
+    const onLoad = () => setVideoReady(true);
+    window.addEventListener('load', onLoad);
+    return () => window.removeEventListener('load', onLoad);
+  }, [videoReady]);
+
   // Si el video no arranca a reproducirse después de unos segundos (conexión
   // mala, o Safari que se quedó pegado tratando de decodificarlo), se deja
   // de esperar y se muestra fijo el poster -- así nunca queda una pantalla
@@ -340,14 +359,17 @@ function Hero() {
   // navegador recién empieza a bajar el cuerpo del video al querer
   // reproducirlo, así que 4s no alcanzaban a tiempo en conexiones móviles
   // normales -- un video que hubiera arrancado igual un segundo después
-  // quedaba descartado para siempre, sin reintento, en esa visita.
+  // quedaba descartado para siempre, sin reintento, en esa visita. El
+  // conteo arranca recién cuando videoReady es true -- si no, una carga
+  // inicial lenta le comía margen al video antes de que este intentara
+  // siquiera empezar.
   const [videoTimedOut, setVideoTimedOut] = useState(false);
   const [videoPlaying, setVideoPlaying] = useState(false);
   useEffect(() => {
-    if (videoPlaying) return;
+    if (!videoReady || videoPlaying) return;
     const timer = setTimeout(() => setVideoTimedOut(true), 9000);
     return () => clearTimeout(timer);
-  }, [videoPlaying]);
+  }, [videoReady, videoPlaying]);
 
   return (
     <section ref={sectionRef} className="relative min-h-[100svh] flex items-center justify-center overflow-hidden">
@@ -368,7 +390,7 @@ function Hero() {
          * resto de la carga inicial de la página — con "metadata" el navegador
          * solo trae lo justo para arrancar y el poster de arriba cubre el
          * salto mientras el video termina de bajar. */}
-        {!videoTimedOut && (
+        {videoReady && !videoTimedOut && (
           <video
             className="absolute inset-0 w-full h-full object-cover opacity-90 saturate-[1.15] motion-reduce:hidden"
             src={isMobile ? '/candyland/hero-video-mobile.mp4' : '/candyland/hero-video.mp4'}
