@@ -1697,7 +1697,24 @@ function InstagramBar() {
   );
 }
 
+/** Carga el script de "Fuentes preferidas" de Google Search Central bajo
+ * demanda (solo mientras el footer de Inicio está montado) en vez de en
+ * client/index.html -- evita sumar un script de terceros a TODAS las
+ * páginas del sitio cuando el botón solo vive acá. Idempotente: si otra
+ * instancia del footer ya lo insertó, no lo duplica. */
+function usePreferredSourceScript() {
+  useEffect(() => {
+    const SRC = 'https://news.google.com/swg/js/v1/publisher.js';
+    if (document.querySelector(`script[src="${SRC}"]`)) return;
+    const script = document.createElement('script');
+    script.src = SRC;
+    script.async = true;
+    document.head.appendChild(script);
+  }, []);
+}
+
 function Footer() {
+  usePreferredSourceScript();
   return (
     <footer className="border-t border-primary/15 py-14">
       <div className="container">
@@ -1705,6 +1722,9 @@ function Footer() {
           <img src="/candyland/logo-wordmark.webp" alt="Mansion Playroom" width={300} height={300} loading="lazy" className="h-12 w-auto" />
 
           <div className="flex items-center gap-5">
+            {/* Botón "Agregar como fuente preferida" de Google -- lo hidrata
+                solo el script cargado arriba. */}
+            <div google-add-preferred-source-btn="" data-theme="dark" data-lang="es" />
             <InstagramBar />
             <a
               href={CANDYLAND.redes.tiktok}
