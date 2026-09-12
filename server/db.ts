@@ -1591,7 +1591,10 @@ export async function getAllOrders(page: number = 1, limit: number = 50, status?
     }
   }
 
-  const ordersWithExtras = allOrders.map((o) => ({ ...o, extras: extrasByOrderId.get(o.id) ?? [] }));
+  // Titular + acompañantes (nombre y RUT de cada uno) de accesos grupales --
+  // ya vive en attendeeData desde el checkout, acá solo se parsea para que
+  // Ventas Web pueda mostrarlos sin que el dueño tenga que abrir el ticket.
+  const ordersWithExtras = allOrders.map((o) => ({ ...o, extras: extrasByOrderId.get(o.id) ?? [], attendees: parseAttendees(o.attendeeData) }));
   return { orders: ordersWithExtras, total: ordersWithExtras.length };
 }
 
