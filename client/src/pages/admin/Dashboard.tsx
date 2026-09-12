@@ -2622,6 +2622,20 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                       <p className="text-sm text-[var(--admin-muted)]">Sin tickets generados.</p>
                     )
                   )}
+                  {/* Mismo criterio que la tabla de escritorio: solo si hay
+                      más de 1 -- con 1 es nada más el titular. */}
+                  {expandedOrderId === order.id && order.attendees && order.attendees.length > 1 && (
+                    <div className="pt-2">
+                      <p className="text-xs font-medium text-[var(--admin-muted)] mb-1">Acompañantes</p>
+                      <div className="flex flex-wrap gap-2">
+                        {order.attendees.map((a: { name: string; rut: string | null }, i: number) => (
+                          <span key={i} className="px-2 py-1 rounded-lg bg-white border border-[var(--admin-glass-border)] text-xs">
+                            {a.name}{a.rut && <span className="text-[var(--admin-muted)]"> · {a.rut}</span>}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </SwipeToDeleteCard>
             ))}
