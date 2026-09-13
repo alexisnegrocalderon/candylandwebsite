@@ -492,6 +492,11 @@ export const siteSettings = mysqlTable("siteSettings", {
   // la fiesta -- forma en shared/flashPromoPresets.ts. null = ninguna
   // guardada todavía.
   flashPromoPresets: json("flashPromoPresets"),
+  // Config del agente de IA que contesta el Instagram -- forma en
+  // shared/instagramAgentConfig.ts. null = agente APAGADO y con los textos
+  // por defecto: desplegar este código no debe empezar a contestarle a
+  // nadie solo (mismo criterio que foundersPromoEnabled y adminAlertsConfig).
+  instagramAgentConfig: json("instagramAgentConfig"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -1547,3 +1552,74 @@ export const partyPushSubscriptions = mysqlTable("partyPushSubscriptions", {
 
 export type PartyPushSubscriptionRow = typeof partyPushSubscriptions.$inferSelect;
 export type InsertPartyPushSubscription = typeof partyPushSubscriptions.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Agente de IA del Instagram de la productora (server/instagram.ts).
+// ---------------------------------------------------------------------------
+
+// Un hilo por persona que escribe al DM de @mansionplayroom. La identidad es
+// el IGSID (Instagram-Scoped ID): un id opaco que Meta genera POR APP, así
+// que no sirve para identificar a la persona fuera de acá ni se puede cruzar
+// con `customers` -- de ahí que este hilo viva en su propia tabla y no
+// cuelgue de un cliente. `username` viaja solo como ayuda visual del admin:
+// Meta lo entrega en el perfil del remitente y puede cambiar o venir vacío.
+export const igThreads = mysqlTable("igThreads", {
+  id: int("id").autoincrement().primaryKey(),
+  igUserId: varchar("igUserId", { length: 64 }).notNull().unique(),
+  username: varchar("username", { length: 120 }),
+  name: varchar("name", { length: 255 }),
+  // Interruptor POR CONVERSACIÓN: cuando está en 1 el bot deja de contestar
+  // este hilo y las respuestas las escribe una persona desde el admin. Lo
+  // prende el propio agente cuando detecta que no puede resolver (ver
+  // `handoff` en server/instagramAgent.ts) y también el admin a mano. Es lo
+  // que evita el peor escenario de estos bots: seguir respondiendo encima de
+  // una conversación que ya tomó un humano.
+  botPaused: int("botPaused").default(0).notNull(),
+  handoffReason: varchar("handoffReason", { length: 500 }),
+  // Último mensaje ENTRANTE: con esto se calcula la ventana de 24 horas de
+  // Meta, fuera de la cual la API rechaza cualquier envío que no lleve una
+  // etiqueta especial (ver canReplyWithinWindow en server/instagramSend.ts).
+  lastInboundAt: timestamp("lastInboundAt"),
+  lastMessageAt: timestamp("lastMessageAt"),
+  // Vista previa del último mensaje, para listar la bandeja sin traerse los
+  // mensajes de todos los hilos.
+  lastMessagePreview: varchar("lastMessagePreview", { length: 300 }),
+  // Mensajes entrantes que el admin todavía no abrió en la bandeja. No
+  // depende de quién respondió: un hilo contestado por el bot igual queda
+  // marcado para que el dueño pueda revisar qué se dijo en su nombre.
+  unreadCount: int("unreadCount").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  lastMessageIdx: index("ig_threads_last_message_idx").on(table.lastMessageAt),
+}));
+
+export type IgThread = typeof igThreads.$inferSelect;
+export type InsertIgThread = typeof igThreads.$inferInsert;
+
+export const igMessages = mysqlTable("igMessages", {
+  id: int("id").autoincrement().primaryKey(),
+  threadId: int("threadId").notNull(),
+  // `mid` de Meta. UNIQUE porque el webhook REINTENTA cualquier entrega que
+  // no haya respondido 200 a tiempo: sin esta restricción, un reintento
+  // guardaría el mensaje dos veces y el agente contestaría dos veces lo
+  // mismo. Nullable porque los mensajes que escribimos nosotros se insertan
+  // antes de tener el mid que devuelve la API de envío.
+  mid: varchar("mid", { length: 191 }).unique(),
+  direction: mysqlEnum("direction", ["in", "out"]).notNull(),
+  // Quién lo escribió: la persona, el agente, o el admin desde la bandeja.
+  // Sirve para auditar (¿esto lo dijo la IA o lo dije yo?) y para armar el
+  // historial que se le pasa al modelo con los roles correctos.
+  source: mysqlEnum("source", ["user", "bot", "admin"]).notNull(),
+  text: text("text"),
+  // Adjuntos tal cual los manda Meta (fotos, audios, stickers, respuestas a
+  // historias). Se guardan crudos porque el agente hoy solo contesta texto:
+  // tener el JSON permite mostrarlos en el admin sin otra migración.
+  attachments: json("attachments"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  threadIdx: index("ig_messages_thread_idx").on(table.threadId, table.createdAt),
+}));
+
+export type IgMessage = typeof igMessages.$inferSelect;
+export type InsertIgMessage = typeof igMessages.$inferInsert;

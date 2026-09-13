@@ -7,6 +7,7 @@ import { registerTicketAssetRoutes } from "../calendar";
 import { registerBlobUploadRoutes } from "../blobUpload";
 import { appRouter } from "../routers";
 import { webhooksRouter } from "../webhooks";
+import { instagramRouter } from "../instagram";
 import { createContext } from "./context";
 import { resetDb } from "../db";
 
@@ -39,6 +40,11 @@ function looksLikeDbConnectionError(error: unknown): boolean {
  */
 export function createApp(): Express {
   const app = express();
+  /* ANTES del express.json() global: el webhook de Instagram necesita los
+   * bytes crudos del body para poder validar la firma `X-Hub-Signature-256`
+   * de Meta (ver server/instagram.ts). Una vez que express.json() consumió
+   * el stream, esos bytes ya no se pueden recuperar. */
+  app.use(instagramRouter);
   app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ limit: "10mb", extended: true }));
   registerOAuthRoutes(app);

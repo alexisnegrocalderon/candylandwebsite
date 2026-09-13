@@ -11,6 +11,10 @@ export interface AdminAlertsConfig {
   pushAmbassadorApplication: boolean;
   /** Push inmediato: denuncia nueva desde Playmatch. */
   pushPartyReport: boolean;
+  /** Push inmediato: un mensaje del Instagram quedó esperando a una persona
+   * (el agente derivó, se cayó la IA, o el hilo está en manos del admin). No
+   * avisa de cada DM: solo de los que el bot NO resolvió. */
+  pushInstagramHandoff: boolean;
   /** Correo diario a ADMIN_NOTIFICATION_EMAIL con el resumen de novedades. */
   dailyDigestEmail: boolean;
 }
@@ -19,6 +23,7 @@ export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
   pushNewOrder: false,
   pushAmbassadorApplication: false,
   pushPartyReport: false,
+  pushInstagramHandoff: false,
   dailyDigestEmail: false,
 };
 
@@ -31,6 +36,7 @@ export function normalizeAdminAlertsConfig(raw: unknown): AdminAlertsConfig {
     pushNewOrder: partial.pushNewOrder ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushNewOrder,
     pushAmbassadorApplication: partial.pushAmbassadorApplication ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushAmbassadorApplication,
     pushPartyReport: partial.pushPartyReport ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushPartyReport,
+    pushInstagramHandoff: partial.pushInstagramHandoff ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushInstagramHandoff,
     dailyDigestEmail: partial.dailyDigestEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.dailyDigestEmail,
   };
 }

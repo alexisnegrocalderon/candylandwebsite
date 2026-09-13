@@ -55,6 +55,10 @@ import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVe
 import { formatChileDate, formatChileTime } from "../shared/chileDate";
 import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emailTemplateConfig";
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
+import { normalizeInstagramAgentConfig, DEFAULT_INSTAGRAM_AGENT_CONFIG, IG_MAX_REPLY_CHARS } from "../shared/instagramAgentConfig";
+import { sendManualInstagramReply } from "./instagram";
+import { canReplyWithinWindow } from "./instagramSend";
+import { runInstagramAgent, buildInstagramContext } from "./instagramAgent";
 import { normalizeFlashPromoPresets } from "../shared/flashPromoPresets";
 import { sendTestPushToAllAdmins, sendPushToAdmins, sendPushToProfile, sendPushToEventGuests } from "./push";
 import { runAdminDigest } from "./adminDigest";
@@ -1763,6 +1767,7 @@ export const appRouter = router({
       pushNewOrder: z.boolean(),
       pushAmbassadorApplication: z.boolean(),
       pushPartyReport: z.boolean(),
+      pushInstagramHandoff: z.boolean(),
       dailyDigestEmail: z.boolean(),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings({ adminAlertsConfig: input });
@@ -1803,6 +1808,107 @@ export const appRouter = router({
     sendDigestNow: adminProcedure.mutation(async () => {
       return runAdminDigest();
     }),
+  }),
+
+  /* Bandeja del agente de IA que contesta el Instagram (server/instagram.ts).
+   *
+   * Todo detrás de `adminProcedure` y no de `adminReadProcedure`, incluidas
+   * las lecturas: acá viajan conversaciones privadas de personas que le
+   * escribieron a la cuenta, y el invitado de demostración del panel no
+   * tiene por qué leerlas ni siquiera enmascaradas. */
+  instagram: router({
+    getConfig: adminProcedure.query(async () => {
+      const settings = await db.getSiteSettings();
+      return normalizeInstagramAgentConfig((settings as any).instagramAgentConfig);
+    }),
+    saveConfig: adminProcedure.input(z.object({
+      enabled: z.boolean(),
+      brandNotes: z.string().max(4000),
+      handoffMessage: z.string().min(1).max(IG_MAX_REPLY_CHARS),
+      historyLimit: z.number().int().min(2).max(40),
+      dailyReplyLimitPerThread: z.number().int().min(1).max(200),
+    })).mutation(async ({ input }) => {
+      return db.updateSiteSettings({ instagramAgentConfig: input });
+    }),
+    /* Estado de la conexión con Meta, para que el panel pueda decir QUÉ
+     * falta en vez de mostrar una bandeja vacía sin explicación. Solo
+     * informa si cada variable está puesta -- nunca devuelve su valor. */
+    connectionStatus: adminProcedure.query(async () => ({
+      hasAppSecret: Boolean(process.env.IG_APP_SECRET),
+      hasVerifyToken: Boolean(process.env.IG_VERIFY_TOKEN),
+      hasAccessToken: Boolean(process.env.IG_ACCESS_TOKEN),
+      hasUserId: Boolean(process.env.IG_USER_ID),
+      webhookUrl: `${process.env.APP_URL || 'https://mansionplayroom.cl'}/api/webhooks/instagram`,
+    })),
+    listThreads: adminProcedure.query(async () => {
+      const threads = await db.listIgThreads(100);
+      return threads.map((t) => ({
+        ...t,
+        // La ventana de 24 horas de Meta se calcula acá y no en el cliente
+        // para que el botón de responder no dependa del reloj del navegador.
+        canReply: canReplyWithinWindow(t.lastInboundAt),
+      }));
+    }),
+    getThread: adminProcedure.input(z.object({ threadId: z.number() })).query(async ({ input }) => {
+      const thread = await db.getIgThreadById(input.threadId);
+      if (!thread) throw new TRPCError({ code: 'NOT_FOUND', message: 'Conversación no encontrada' });
+      const messages = await db.getIgMessages(input.threadId, 100);
+      return { thread: { ...thread, canReply: canReplyWithinWindow(thread.lastInboundAt) }, messages };
+    }),
+    markRead: adminProcedure.input(z.object({ threadId: z.number() })).mutation(async ({ input }) => {
+      await db.markIgThreadRead(input.threadId);
+      return { success: true };
+    }),
+    setBotPaused: adminProcedure.input(z.object({
+      threadId: z.number(),
+      paused: z.boolean(),
+    })).mutation(async ({ input }) => {
+      await db.setIgThreadBotPaused(input.threadId, input.paused, input.paused ? 'Lo tomó el equipo desde el panel' : null);
+      return { success: true };
+    }),
+    reply: adminProcedure.input(z.object({
+      threadId: z.number(),
+      text: z.string().min(1).max(IG_MAX_REPLY_CHARS),
+    })).mutation(async ({ input }) => {
+      const thread = await db.getIgThreadById(input.threadId);
+      if (!thread) throw new TRPCError({ code: 'NOT_FOUND', message: 'Conversación no encontrada' });
+      try {
+        await sendManualInstagramReply({
+          threadId: thread.id,
+          igUserId: thread.igUserId,
+          lastInboundAt: thread.lastInboundAt,
+          text: input.text,
+        });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo enviar el mensaje' });
+      }
+      return { success: true };
+    }),
+    /* Prueba en seco: corre el agente con los datos reales de hoy y devuelve
+     * lo que CONTESTARÍA, sin mandarle nada a nadie. Es lo que permite
+     * afinar el tono y las notas de marca antes de prender el interruptor
+     * sobre una cuenta pública. */
+    preview: adminProcedure.input(z.object({
+      message: z.string().min(1).max(1000),
+    })).mutation(async ({ input }) => {
+      const settings = await db.getSiteSettings();
+      const config = normalizeInstagramAgentConfig((settings as any).instagramAgentConfig);
+      const result = await runInstagramAgent({
+        incomingText: input.message,
+        history: [],
+        // La prueba ignora el interruptor maestro a propósito: sirve
+        // justamente para decidir si prenderlo.
+        config: { ...config, enabled: true },
+      });
+      return result;
+    }),
+    /* El bloque de datos tal cual lo ve la IA. Sin esto, cuando el agente
+     * contesta algo raro no hay forma de saber si el problema es el prompt o
+     * un evento mal cargado. */
+    previewContext: adminProcedure.query(async () => ({
+      context: await buildInstagramContext(),
+      defaults: DEFAULT_INSTAGRAM_AGENT_CONFIG,
+    })),
   }),
 
   // Editor de textos + interruptores por sección del correo de compra, y
