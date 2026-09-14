@@ -4958,8 +4958,9 @@ function ProgramConfigTab() {
             </Select>
           </div>
           <p className="text-xs text-muted-foreground">
-            El envío sale con la corrida diaria del sistema, cerca de las 9 de la mañana en Chile. La hora exacta no se
-            puede mover desde acá (la fija el plan de Vercel); este día es el que decide si ese envío se hace o no.
+            El envío sale a las 9:00 de la mañana en Chile (ajustado solo al horario de verano/invierno), el día que
+            elijas acá. Para mandarlo ya mismo sin esperar a esa hora -- por ejemplo, para probarlo o para reenviarlo
+            si algo falló -- usa "Enviar el correo ahora" en la pestaña Material.
           </p>
           <WriteButton
             onClick={() => update.mutate({ weeklyEmailEnabled: weeklyEnabled, weeklyEmailWeekday: Number(weekday) })}

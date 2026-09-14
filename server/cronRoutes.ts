@@ -9,7 +9,7 @@ import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { runFoundersPromoDaily } from "./foundersPromo";
 import { runAdminDigest } from "./adminDigest";
 import { refreshInstagramToken } from "./instagramSend";
-import { isWeeklyEmailDay } from "../shared/ambassadorProgram";
+import { shouldSendWeeklyAmbassadorEmailNow } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 
 const CHECKIN_SUMMARY_EMAIL = ADMIN_NOTIFICATION_EMAIL;
@@ -103,12 +103,11 @@ export function registerCronRoutes(app: Express) {
   });
 
   /* Mantenimiento diario: purgas con plazo prometido en la política de
-   * privacidad, invitaciones a tragos vencidas y el correo semanal de
-   * embajadores. Nada de esto necesita frecuencia alta -- son tareas de
-   * calendario, no de reacción -- pero sí merecen no estar mezcladas con el
-   * mailing: cuando compartían corrida, un fallo de una podía tapar a la
-   * otra en los logs. Cada bloque va en su propio try para que una falla no
-   * cancele el resto. */
+   * privacidad e invitaciones a tragos vencidas. El correo semanal de
+   * embajadores vive aparte (ver /api/cron/ambassador-weekly más abajo):
+   * necesita salir a una hora puntual (9am Chile), y esta corrida no lo es
+   * -- está pensada para tareas de limpieza de madrugada. Cada bloque va en
+   * su propio try para que una falla no cancele el resto. */
   app.get("/api/cron/maintenance", async (req: Request, res: Response) => {
     if (!requireCronSecret(req, res)) return;
 
@@ -124,17 +123,33 @@ export function registerCronRoutes(app: Express) {
       console.error('[Cron] Error limpiando datos de fiestas terminadas:', err);
     }
 
+    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired });
+  });
+
+  /* Correo semanal de embajadores (docs: pestaña "Material" en /admin →
+   * Embajadores). Vivía enganchado a la corrida de /api/cron/maintenance de
+   * arriba (~3:30am Chile) sin ningún chequeo de hora -- se mandaba a la
+   * hora de la limpieza nocturna, nunca a las 9am que dice el panel.
+   *
+   * Corre cada hora y se autolimita a la hora 9 EN CHILE (`chileHourOf`, que
+   * resuelve el horario de verano solo, ver shared/chileDate.ts) -- así no
+   * hace falta pisar el cron dos veces al año cuando Chile cambia de UTC-3 a
+   * UTC-4 y viceversa, algo que un horario fijo en UTC (lo único que acepta
+   * Vercel) no puede hacer solo. */
+  app.get("/api/cron/ambassador-weekly", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+
     let ambassadorWeekly: { sent: number; skipped: number; failed: number } | null = null;
     try {
       const config = await getProgramConfig();
-      if (config.weeklyEmailEnabled && isWeeklyEmailDay(new Date(), config.weeklyEmailWeekday)) {
+      if (config.weeklyEmailEnabled && shouldSendWeeklyAmbassadorEmailNow(new Date(), config.weeklyEmailWeekday)) {
         ambassadorWeekly = await sendWeeklyAmbassadorEmails();
       }
+      res.json({ success: true, ambassadorWeekly });
     } catch (err) {
       console.error('[Cron] Error mandando el correo semanal de embajadores:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
-
-    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, ambassadorWeekly });
   });
 
   // Correo de las 3am con el total de gente que entró (pedido explícito del
