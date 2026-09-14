@@ -3,12 +3,29 @@
  * datos -- mismo espíritu que shared/expenses.ts, para poder testear sin
  * levantar el servidor. */
 
-/** Nombre de producto que cuenta como "Estacionamiento" -- excluye
- * variantes VIP, que son un producto aparte con su propio precio/beneficio
- * y no entran en el conteo/cobro de la puerta (mismo criterio que ya usa
- * Puerta.tsx para destacar el bloque de estacionamiento). */
+/** Nombre de producto que cuenta como "Estacionamiento" EXCLUYENDO la
+ * variante VIP -- se usa donde hace falta un único producto sin ambigüedad
+ * para saber qué precio cobrar (server/caja/parkingPaid.ts, y Puerta.tsx
+ * para destacar el bloque de estacionamiento). Para la CONTABILIDAD, donde
+ * el VIP también cuenta como un auto, usar `isAnyParkingTicketType`. */
 export function isParkingTicketType(name: string): boolean {
   return /estacionamiento|parking/i.test(name) && !/vip/i.test(name);
+}
+
+/** Como `isParkingTicketType`, pero SIN excluir la variante VIP -- pedido
+ * explícito del dueño (14/09): para la CONTABILIDAD (cuántos autos entraron,
+ * cuánto se le paga al establecimiento) un auto es un auto sin importar el
+ * valor que pagó, así que "Estacionamiento VIP" tiene que sumar igual que
+ * "Estacionamiento" en el reporte (getParkingReport).
+ *
+ * A propósito NO se usa acá donde `isParkingTicketType` exige que exista un
+ * único producto sin ambigüedad para poder cobrar en la puerta
+ * (server/caja/parkingPaid.ts resolveParkingCharge) -- ahí SÍ importa la
+ * distinción, porque hay que saber CUÁL precio cobrarle a quien llega sin
+ * estacionamiento pagado. Dos usos, dos preguntas distintas: "¿es un auto?"
+ * (acá) vs. "¿cuál le cobro ahora?" (isParkingTicketType). */
+export function isAnyParkingTicketType(name: string): boolean {
+  return /estacionamiento|parking/i.test(name);
 }
 
 // Emails placeholder que usan las invitaciones/ventas anónimas
