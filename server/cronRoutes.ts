@@ -142,7 +142,7 @@ export function registerCronRoutes(app: Express) {
     let ambassadorWeekly: { sent: number; skipped: number; failed: number } | null = null;
     try {
       const config = await getProgramConfig();
-      if (config.weeklyEmailEnabled && shouldSendWeeklyAmbassadorEmailNow(new Date(), config.weeklyEmailWeekday)) {
+      if (config.weeklyEmailEnabled && shouldSendWeeklyAmbassadorEmailNow(new Date(), config.weeklyEmailWeekday, config.weeklyEmailHourChile)) {
         ambassadorWeekly = await sendWeeklyAmbassadorEmails();
       }
       res.json({ success: true, ambassadorWeekly });

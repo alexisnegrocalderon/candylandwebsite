@@ -1,0 +1,1 @@
+ALTER TABLE `ambassadorWeeklyMaterial` ADD `links` json;

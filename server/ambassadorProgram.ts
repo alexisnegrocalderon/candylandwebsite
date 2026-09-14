@@ -436,6 +436,7 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
     overridePercent,
     avgSalePrice,
     eventStats,
+    referralUrl: buildAmbassadorReferralUrl(featuredEvent, ambassador.code),
   };
 }
 
@@ -602,9 +603,12 @@ export async function getWeeklyMaterial() {
   return row ?? null;
 }
 
+export type WeeklyMaterialLink = { label: string; url: string };
+
 export async function saveWeeklyMaterial(data: {
   title?: string; storiesText?: string; reelText?: string;
-  postText?: string; countdownText?: string; linkUrl?: string;
+  postText?: string; countdownText?: string;
+  links?: WeeklyMaterialLink[];
 }) {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
@@ -617,7 +621,7 @@ export async function saveWeeklyMaterial(data: {
     reelText: data.reelText,
     postText: data.postText,
     countdownText: data.countdownText,
-    linkUrl: data.linkUrl,
+    links: (data.links ?? []).filter((l) => l.url.trim()),
     active: 1,
   });
   return { success: true };
@@ -634,6 +638,27 @@ export const PANEL_BASE_URL = process.env.APP_URL && process.env.APP_URL !== 'ht
  * Lo llama el cron diario (server/cronRoutes.ts), que ya decidió que hoy es el
  * día configurado. Devuelve el conteo para que el cron lo reporte. Un fallo de
  * envío a una persona no corta el resto: se registra y se sigue. */
+/** El link personal de venta de un embajador: apunta directo al evento
+ * destacado con su código en la URL. Al abrirlo, `captureAmbassadorRef`
+ * (client/src/lib/ambassadorRef.ts) lo guarda para aplicarlo solo cuando esa
+ * persona compre, aunque sea más tarde -- pensado para el swipe-up de una
+ * historia, donde nadie transcribe un código a mano. `null` si no hay evento
+ * destacado: no hay a qué apuntar todavía. */
+export function buildAmbassadorReferralUrl(featured: { slug: string } | null | undefined, code: string): string | null {
+  if (!featured?.slug) return null;
+  return `${PANEL_BASE_URL}/eventos/${featured.slug}?embajador=${encodeURIComponent(code)}`;
+}
+
+/** Los links del material de la semana, listos para el correo -- prioriza
+ * `links` (el campo nuevo); si una fila vieja solo trae el `linkUrl` legacy,
+ * lo envuelve como un único link con una etiqueta genérica. */
+function resolveMaterialLinks(material: { links?: unknown; linkUrl?: string | null } | null): WeeklyMaterialLink[] {
+  if (!material) return [];
+  if (Array.isArray(material.links) && material.links.length > 0) return material.links as WeeklyMaterialLink[];
+  if (material.linkUrl) return [{ label: 'Material', url: material.linkUrl }];
+  return [];
+}
+
 export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
   const db = await getDb();
   if (!db) return { sent: 0, skipped: 0, failed: 0 };
@@ -641,6 +666,7 @@ export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
   const monthKey = monthKeyFor(now);
   const material = await getWeeklyMaterial();
   const featured = await getFeaturedEvent();
+  const materialLinks = resolveMaterialLinks(material);
 
   // Si el material no trae cuenta regresiva escrita a mano, se arma con los
   // días que faltan para el próximo evento destacado.
@@ -672,7 +698,10 @@ export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
         benefitBonusClp: stats.benefits.bonusClp,
         exclusiveClientsCount: stats.exclusiveClientsCount,
         panelUrl: `${PANEL_BASE_URL}/embajador/${a.code}`,
-        material: material ? { ...material, countdownText } : (countdownText ? { countdownText } : null),
+        referralUrl: buildAmbassadorReferralUrl(featured, a.code),
+        material: (material || countdownText || materialLinks.length > 0)
+          ? { ...material, countdownText, links: materialLinks }
+          : null,
       });
 
       const res = await sendEmail({

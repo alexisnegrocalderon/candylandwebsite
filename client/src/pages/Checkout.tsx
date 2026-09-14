@@ -17,6 +17,7 @@ import { isTopupProduct } from '@shared/prepaid';
 import { playcoinsEarnedForPurchase } from '@shared/playcoins';
 import { useSeo } from '@/hooks/useSeo';
 import { getStoredUtmParams } from '@/lib/utm';
+import { getStoredAmbassadorRef } from '@/lib/ambassadorRef';
 import './Checkout.walletPreview.css';
 
 /** Mini vista previa de la Tarjeta Playroom, mostrada justo donde se pide el
@@ -604,6 +605,28 @@ export default function Checkout() {
       setCodeError('No pudimos validar el código');
     }
   };
+
+  // Link personal de embajador (ver client/src/lib/ambassadorRef.ts): si la
+  // persona llegó por ese link, el código queda guardado desde antes de
+  // aterrizar acá -- se precarga y se aplica SOLO, sin que tenga que escribir
+  // ni tocar nada. Nunca pisa un código que la persona ya haya escrito a
+  // mano (`code` vacío es la condición), y corre una sola vez por carga de
+  // Checkout (una vez aplicado, tocar "Aplicar" de nuevo no vuelve a
+  // dispararse por el guard de `codeResult` en el botón).
+  useEffect(() => {
+    if (!event?.id || code.trim()) return;
+    const stored = getStoredAmbassadorRef();
+    if (!stored) return;
+    setCode(stored);
+    validateCode.mutateAsync({ code: stored, eventId: event.id }).then((result) => {
+      if (result.type === 'discount') setCodeResult({ type: 'discount', discount: result.discount });
+      else if (result.type === 'ambassador') setCodeResult({ type: 'ambassador', name: result.name, code: result.code });
+      // Si el código guardado ya no es válido (embajador dado de baja, etc.)
+      // se deja el campo precargado en silencio -- no tiene sentido mostrar
+      // un error por algo que la persona no escribió ella misma.
+    }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [event?.id]);
 
   const handleValidateCommunityCode = async () => {
     if (!communityCodeInput.trim()) return;

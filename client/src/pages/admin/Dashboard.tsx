@@ -4730,7 +4730,8 @@ function WeeklyMaterialTab() {
     onError: onMutationError,
   });
 
-  const [form, setForm] = useState({ title: '', storiesText: '', reelText: '', postText: '', countdownText: '', linkUrl: '' });
+  const [form, setForm] = useState({ title: '', storiesText: '', reelText: '', postText: '', countdownText: '' });
+  const [links, setLinks] = useState<{ label: string; url: string }[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -4741,13 +4742,24 @@ function WeeklyMaterialTab() {
       reelText: data.reelText ?? '',
       postText: data.postText ?? '',
       countdownText: data.countdownText ?? '',
-      linkUrl: data.linkUrl ?? '',
     });
+    // Compatibilidad con filas guardadas antes de que existiera `links`: si
+    // no hay ninguno pero sí quedó el `linkUrl` de antes, arranca con ese
+    // como primera fila en vez de vacío.
+    const existingLinks = Array.isArray((data as any).links) ? (data as any).links : [];
+    setLinks(existingLinks.length > 0
+      ? existingLinks
+      : (data.linkUrl ? [{ label: 'Material', url: data.linkUrl }] : []));
     setLoaded(true);
   }, [data, loaded]);
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm({ ...form, [k]: e.target.value });
+
+  const updateLink = (i: number, field: 'label' | 'url', value: string) =>
+    setLinks(links.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)));
+  const addLink = () => setLinks([...links, { label: '', url: '' }]);
+  const removeLink = (i: number) => setLinks(links.filter((_, idx) => idx !== i));
 
   // Generación con IA: rellena los campos pero NO guarda -- el dueño revisa y
   // edita antes de apretar "Guardar", igual que en el compositor de mailing.
@@ -4807,9 +4819,40 @@ function WeeklyMaterialTab() {
           <div><Label>Reel</Label><Textarea value={form.reelText} onChange={set('reelText')} className="mt-1" rows={2} placeholder="Idea del reel" /></div>
           <div><Label>Publicación</Label><Textarea value={form.postText} onChange={set('postText')} className="mt-1" rows={2} placeholder="Texto sugerido para el post" /></div>
           <div><Label>Cuenta regresiva</Label><Input value={form.countdownText} onChange={set('countdownText')} className="mt-1" placeholder="Se arma sola si lo dejas vacío" /></div>
-          <div><Label>Link del material (opcional)</Label><Input value={form.linkUrl} onChange={set('linkUrl')} className="mt-1" placeholder="Carpeta de Drive con las fotos y videos" /></div>
+          <div className="space-y-2">
+            <Label>Links (opcional)</Label>
+            <p className="text-xs text-muted-foreground">
+              Cuantos necesites -- ej. la carpeta de Drive con las fotos/videos, un doc de instrucciones, lo que sea.
+            </p>
+            {links.map((l, i) => (
+              <div key={i} className="flex gap-2 items-start">
+                <Input
+                  value={l.label}
+                  onChange={(e) => updateLink(i, 'label', e.target.value)}
+                  placeholder="Texto (ej. 📂 Carpeta de Drive)"
+                  className="w-48 shrink-0"
+                />
+                <Input
+                  value={l.url}
+                  onChange={(e) => updateLink(i, 'url', e.target.value)}
+                  placeholder="https://..."
+                  className="flex-1"
+                />
+                <Button type="button" variant="ghost" size="icon" onClick={() => removeLink(i)} className="shrink-0">
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={addLink} className="interactive">
+              <Plus className="w-3.5 h-3.5 mr-1" /> Agregar link
+            </Button>
+          </div>
           <div className="flex flex-wrap gap-2">
-            <WriteButton onClick={() => save.mutate(form)} disabled={save.isPending} className="interactive">
+            <WriteButton
+              onClick={() => save.mutate({ ...form, links: links.filter((l) => l.url.trim()) })}
+              disabled={save.isPending}
+              className="interactive"
+            >
               {save.isPending ? 'Guardando…' : 'Guardar material'}
             </WriteButton>
             <WriteButton variant="outline" onClick={() => sendNow.mutate()} disabled={sendNow.isPending}>
@@ -4841,6 +4884,7 @@ function ProgramConfigTab() {
   const [launchDate, setLaunchDate] = useState('');
   const [weeklyEnabled, setWeeklyEnabled] = useState(true);
   const [weekday, setWeekday] = useState('1');
+  const [hour, setHour] = useState('9');
 
   useEffect(() => {
     if (!data) return;
@@ -4850,6 +4894,7 @@ function ProgramConfigTab() {
     setLaunchDate(new Date(data.launchDate).toISOString().slice(0, 10));
     setWeeklyEnabled(data.weeklyEmailEnabled);
     setWeekday(String(data.weeklyEmailWeekday));
+    setHour(String(data.weeklyEmailHourChile));
   }, [data]);
 
   const DIAS = [
@@ -4857,6 +4902,7 @@ function ProgramConfigTab() {
     { value: '4', label: 'Jueves' }, { value: '5', label: 'Viernes' }, { value: '6', label: 'Sábado' },
     { value: '0', label: 'Domingo' },
   ];
+  const HORAS = Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${String(h).padStart(2, '0')}:00` }));
 
   return (
     <div className="space-y-6">
@@ -4950,20 +4996,30 @@ function ProgramConfigTab() {
             <Checkbox id="weekly" checked={weeklyEnabled} onCheckedChange={(v) => setWeeklyEnabled(!!v)} />
             <Label htmlFor="weekly">Mandar el resumen semanal a los embajadores</Label>
           </div>
-          <div className="max-w-xs">
-            <Label>Día de la semana</Label>
-            <Select value={weekday} onValueChange={setWeekday}>
-              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-              <SelectContent>{DIAS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
-            </Select>
+          <div className="flex flex-wrap gap-4">
+            <div className="max-w-xs">
+              <Label>Día de la semana</Label>
+              <Select value={weekday} onValueChange={setWeekday}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>{DIAS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="max-w-xs">
+              <Label>Hora (Chile)</Label>
+              <Select value={hour} onValueChange={setHour}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>{HORAS.map((h) => <SelectItem key={h.value} value={h.value}>{h.label}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            El envío sale a las 9:00 de la mañana en Chile (ajustado solo al horario de verano/invierno), el día que
-            elijas acá. Para mandarlo ya mismo sin esperar a esa hora -- por ejemplo, para probarlo o para reenviarlo
-            si algo falló -- usa "Enviar el correo ahora" en la pestaña Material.
+            El envío sale a esta hora en punto, en hora de Chile de verdad (ajustada sola al horario de
+            verano/invierno) -- el cron chequea cada hora, así que puede demorar hasta unos minutos después de la
+            hora exacta en dispararse. Para mandarlo ya mismo sin esperar -- por ejemplo, para probarlo o para
+            reenviarlo si algo falló -- usa "Enviar el correo ahora" en la pestaña Material.
           </p>
           <WriteButton
-            onClick={() => update.mutate({ weeklyEmailEnabled: weeklyEnabled, weeklyEmailWeekday: Number(weekday) })}
+            onClick={() => update.mutate({ weeklyEmailEnabled: weeklyEnabled, weeklyEmailWeekday: Number(weekday), weeklyEmailHourChile: Number(hour) })}
             disabled={update.isPending}
             className="interactive"
           >

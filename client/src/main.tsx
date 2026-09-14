@@ -7,6 +7,7 @@ import superjson from "superjson";
 import App from "./App";
 import { startLogin } from "./const";
 import { captureUtmParams } from "@/lib/utm";
+import { captureAmbassadorRef } from "@/lib/ambassadorRef";
 import "./index.css";
 
 // Atribución UTM (ver client/src/lib/utm.ts): tiene que correr apenas carga
@@ -14,6 +15,9 @@ import "./index.css";
 // ejecuta con la carga completa de página, que es justo el aterrizaje real
 // que interesa capturar (una navegación interna nunca trae utm_* en la URL).
 captureUtmParams();
+// Link personal de embajador (ver client/src/lib/ambassadorRef.ts) -- mismo
+// criterio y mismo momento que la captura UTM de arriba.
+captureAmbassadorRef();
 
 // Analítica (Umami) opcional: se inyecta solo si el deploy tiene las env vars
 // configuradas. Antes era un <script src="%VITE_ANALYTICS_ENDPOINT%/umami">

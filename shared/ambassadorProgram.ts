@@ -270,6 +270,7 @@ export const WEEKLY_EMAIL_HOUR_CHILE = 9;
 export function shouldSendWeeklyAmbassadorEmailNow(
   now: Date,
   weekday: number = DEFAULT_WEEKLY_EMAIL_WEEKDAY,
+  hour: number = WEEKLY_EMAIL_HOUR_CHILE,
 ): boolean {
-  return chileHourOf(now) === WEEKLY_EMAIL_HOUR_CHILE && isWeeklyEmailDay(now, weekday);
+  return chileHourOf(now) === hour && isWeeklyEmailDay(now, weekday);
 }
