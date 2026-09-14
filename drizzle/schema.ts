@@ -492,6 +492,11 @@ export const siteSettings = mysqlTable("siteSettings", {
   // la fiesta -- forma en shared/flashPromoPresets.ts. null = ninguna
   // guardada todavía.
   flashPromoPresets: json("flashPromoPresets"),
+  // Config del agente de IA que contesta el Instagram -- forma en
+  // shared/instagramAgentConfig.ts. null = agente APAGADO y con los textos
+  // por defecto: desplegar este código no debe empezar a contestarle a
+  // nadie solo (mismo criterio que foundersPromoEnabled y adminAlertsConfig).
+  instagramAgentConfig: json("instagramAgentConfig"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -1152,9 +1157,21 @@ export const mailingCampaigns = mysqlTable("mailingCampaigns", {
   // `mailingRecipients` quedan huérfanas sin más acción (el cron ya
   // filtra por `status = 'sending'`, ver getPendingMailingRecipients).
   status: mysqlEnum("status", ["sending", "done", "cancelled"]).default("sending").notNull(),
+  // Evento al que se refiere esta campaña (pedido explícito del dueño,
+  // 14/09): nullable porque no toda campaña habla de un evento puntual (ej.
+  // un newsletter general) -- cuando SÍ está seteado, el cron lo usa para
+  // saltarse a quien compró ese evento MIENTRAS estaba pendiente en la cola
+  // (ver getPendingMailingRecipients / processMailingCronBatch). Se completa
+  // solo con el evento que estaba elegido en el filtro de audiencia al armar
+  // la campaña -- no es un campo nuevo que el admin tenga que llenar aparte.
+  eventId: int("eventId"),
   totalRecipients: int("totalRecipients").notNull(),
   sentCount: int("sentCount").default(0).notNull(),
   failedCount: int("failedCount").default(0).notNull(),
+  // Pendientes que NUNCA se llegaron a mandar porque, cuando les tocó el
+  // turno en la cola, ya habían comprado la entrada de `eventId` -- no
+  // cuentan como enviado ni como fallado, son un tercer resultado.
+  skippedCount: int("skippedCount").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -1166,7 +1183,11 @@ export const mailingRecipients = mysqlTable("mailingRecipients", {
   id: int("id").autoincrement().primaryKey(),
   campaignId: int("campaignId").notNull(),
   customerId: int("customerId").notNull(),
-  status: mysqlEnum("status", ["pending", "sent", "failed"]).default("pending").notNull(),
+  // 'skipped' = seguía pendiente cuando le tocó el turno, pero para
+  // entonces ya había comprado la entrada del evento de la campaña (ver
+  // `eventId` en mailingCampaigns) -- no se le manda un correo ofreciéndole
+  // algo que ya tiene.
+  status: mysqlEnum("status", ["pending", "sent", "failed", "skipped"]).default("pending").notNull(),
   reason: varchar("reason", { length: 500 }),
   sentAt: timestamp("sentAt"),
 }, (table) => ({
@@ -1547,3 +1568,100 @@ export const partyPushSubscriptions = mysqlTable("partyPushSubscriptions", {
 
 export type PartyPushSubscriptionRow = typeof partyPushSubscriptions.$inferSelect;
 export type InsertPartyPushSubscription = typeof partyPushSubscriptions.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Agente de IA del Instagram de la productora (server/instagram.ts).
+// ---------------------------------------------------------------------------
+
+// Un hilo por persona que escribe al DM de @mansionplayroom. La identidad es
+// el IGSID (Instagram-Scoped ID): un id opaco que Meta genera POR APP, así
+// que no sirve para identificar a la persona fuera de acá ni se puede cruzar
+// con `customers` -- de ahí que este hilo viva en su propia tabla y no
+// cuelgue de un cliente. `username` viaja solo como ayuda visual del admin:
+// Meta lo entrega en el perfil del remitente y puede cambiar o venir vacío.
+export const igThreads = mysqlTable("igThreads", {
+  id: int("id").autoincrement().primaryKey(),
+  igUserId: varchar("igUserId", { length: 64 }).notNull().unique(),
+  username: varchar("username", { length: 120 }),
+  name: varchar("name", { length: 255 }),
+  // Interruptor POR CONVERSACIÓN: cuando está en 1 el bot deja de contestar
+  // este hilo y las respuestas las escribe una persona desde el admin. Lo
+  // prende el propio agente cuando detecta que no puede resolver (ver
+  // `handoff` en server/instagramAgent.ts) y también el admin a mano. Es lo
+  // que evita el peor escenario de estos bots: seguir respondiendo encima de
+  // una conversación que ya tomó un humano.
+  botPaused: int("botPaused").default(0).notNull(),
+  handoffReason: varchar("handoffReason", { length: 500 }),
+  // Último mensaje ENTRANTE: con esto se calcula la ventana de 24 horas de
+  // Meta, fuera de la cual la API rechaza cualquier envío que no lleve una
+  // etiqueta especial (ver canReplyWithinWindow en server/instagramSend.ts).
+  lastInboundAt: timestamp("lastInboundAt"),
+  lastMessageAt: timestamp("lastMessageAt"),
+  // Vista previa del último mensaje, para listar la bandeja sin traerse los
+  // mensajes de todos los hilos.
+  lastMessagePreview: varchar("lastMessagePreview", { length: 300 }),
+  // Mensajes entrantes que el admin todavía no abrió en la bandeja. No
+  // depende de quién respondió: un hilo contestado por el bot igual queda
+  // marcado para que el dueño pueda revisar qué se dijo en su nombre.
+  unreadCount: int("unreadCount").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  lastMessageIdx: index("ig_threads_last_message_idx").on(table.lastMessageAt),
+}));
+
+export type IgThread = typeof igThreads.$inferSelect;
+export type InsertIgThread = typeof igThreads.$inferInsert;
+
+export const igMessages = mysqlTable("igMessages", {
+  id: int("id").autoincrement().primaryKey(),
+  threadId: int("threadId").notNull(),
+  // `mid` de Meta. UNIQUE porque el webhook REINTENTA cualquier entrega que
+  // no haya respondido 200 a tiempo: sin esta restricción, un reintento
+  // guardaría el mensaje dos veces y el agente contestaría dos veces lo
+  // mismo. Nullable porque los mensajes que escribimos nosotros se insertan
+  // antes de tener el mid que devuelve la API de envío.
+  mid: varchar("mid", { length: 191 }).unique(),
+  direction: mysqlEnum("direction", ["in", "out"]).notNull(),
+  // Quién lo escribió: la persona, el agente, o el admin desde la bandeja.
+  // Sirve para auditar (¿esto lo dijo la IA o lo dije yo?) y para armar el
+  // historial que se le pasa al modelo con los roles correctos.
+  source: mysqlEnum("source", ["user", "bot", "admin"]).notNull(),
+  text: text("text"),
+  // Adjuntos tal cual los manda Meta (fotos, audios, stickers, respuestas a
+  // historias). Se guardan crudos porque el agente hoy solo contesta texto:
+  // tener el JSON permite mostrarlos en el admin sin otra migración.
+  attachments: json("attachments"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  threadIdx: index("ig_messages_thread_idx").on(table.threadId, table.createdAt),
+}));
+
+export type IgMessage = typeof igMessages.$inferSelect;
+export type InsertIgMessage = typeof igMessages.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Contador diario de TODOS los correos enviados (server/email.ts sendEmail).
+// ---------------------------------------------------------------------------
+
+/** Una fila por cada llamada a `sendEmail()`, sin importar el motivo --
+ * confirmación de compra, ticket, recordatorio, mailing masivo, resumen del
+ * admin, lo que sea. Es la ÚNICA fuente de verdad del contador diario que
+ * cuida el cupo real del plan de Resend (~100/día): las tablas existentes
+ * (`mailingRecipients`, `mailingSendLog`) solo cubren el mailing masivo, y
+ * el cupo de Resend se gasta con CUALQUIER correo, no solo esos.
+ *
+ * Se inserta desde el único cuello de botella por el que pasa todo envío
+ * (`sendEmail` en server/email.ts) -- así ningún llamador nuevo puede
+ * olvidarse de loguear: basta con que use `sendEmail`, que ya usan todos. */
+export const emailLog = mysqlTable("emailLog", {
+  id: int("id").autoincrement().primaryKey(),
+  to: varchar("to", { length: 320 }).notNull(),
+  subject: varchar("subject", { length: 255 }),
+  success: int("success").notNull(),
+  sentAt: timestamp("sentAt").defaultNow().notNull(),
+}, (table) => ({
+  sentAtIdx: index("email_log_sent_at_idx").on(table.sentAt),
+}));
+
+export type EmailLogRow = typeof emailLog.$inferSelect;

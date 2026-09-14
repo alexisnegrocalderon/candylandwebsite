@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gt, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, emailLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -841,7 +841,7 @@ export async function deleteBlockedCustomer(id: number) {
 
 // Site settings (fila única — Instagram followers/posts para el footer, y el
 // recargo por servicio (%) que se suma a toda venta nueva)
-const SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0, emailTemplateConfig: null };
+const SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0, emailTemplateConfig: null, instagramAgentConfig: null };
 
 export async function getSiteSettings() {
   const db = await getDb();
@@ -856,6 +856,7 @@ export async function updateSiteSettings(data: {
   kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null; foundersPromoEnabled?: boolean;
   emailTemplateConfig?: EmailTemplateConfig;
   adminAlertsConfig?: AdminAlertsConfig;
+  instagramAgentConfig?: import('../shared/instagramAgentConfig').InstagramAgentConfig;
   flashPromoPresets?: import('../shared/flashPromoPresets').FlashPromoPreset[];
 }) {
   const db = await getDb();
@@ -4596,6 +4597,10 @@ export async function createMailingCampaign(input: {
   ctaUrl: string;
   eventSections: unknown;
   customerIds: number[];
+  // Evento al que se refiere la campaña -- ver el comentario de
+  // `mailingCampaigns.eventId` en drizzle/schema.ts. `undefined`/`null` =
+  // campaña sin evento puntual, el cron nunca salta a nadie por esta vía.
+  eventId?: number | null;
 }): Promise<{ campaignId: number }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -4607,6 +4612,7 @@ export async function createMailingCampaign(input: {
     content: input.content,
     ctaUrl: input.ctaUrl,
     eventSections: input.eventSections,
+    eventId: input.eventId ?? null,
     totalRecipients: input.customerIds.length,
   });
   const campaignId = result.insertId;
@@ -4767,6 +4773,9 @@ export async function getPendingMailingRecipients(limit: number) {
     content: mailingCampaigns.content,
     ctaUrl: mailingCampaigns.ctaUrl,
     eventSections: mailingCampaigns.eventSections,
+    // Para el chequeo de "¿ya compró mientras esperaba en la cola?" (ver
+    // hasApprovedOrderForEvent / markMailingRecipientSkipped más abajo).
+    campaignEventId: mailingCampaigns.eventId,
   }).from(mailingRecipients)
     .innerJoin(mailingCampaigns, eq(mailingCampaigns.id, mailingRecipients.campaignId))
     .innerJoin(customers, eq(customers.id, mailingRecipients.customerId))
@@ -5715,4 +5724,239 @@ export async function resetIpRateLimit(key: string) {
   const db = await getDb();
   if (!db) return;
   await db.delete(rateLimits).where(eq(rateLimits.key, key));
+}
+
+// ---------------------------------------------------------------------------
+// Instagram: hilos y mensajes del agente (server/instagram.ts).
+// ---------------------------------------------------------------------------
+
+/** Busca el hilo de este IGSID o lo crea. El `username`/`name` se refrescan
+ * en cada mensaje porque la persona puede cambiar su @ en Instagram y la
+ * bandeja tiene que mostrar el actual, no el de la primera vez. */
+export async function getOrCreateIgThread(input: {
+  igUserId: string;
+  username?: string | null;
+  name?: string | null;
+}): Promise<IgThread | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [existing] = await db.select().from(igThreads).where(eq(igThreads.igUserId, input.igUserId)).limit(1);
+  if (existing) {
+    const patch: Partial<IgThread> = {};
+    if (input.username && input.username !== existing.username) patch.username = input.username;
+    if (input.name && input.name !== existing.name) patch.name = input.name;
+    if (Object.keys(patch).length > 0) {
+      await db.update(igThreads).set(patch).where(eq(igThreads.id, existing.id));
+      return { ...existing, ...patch };
+    }
+    return existing;
+  }
+
+  await db.insert(igThreads).values({
+    igUserId: input.igUserId,
+    username: input.username ?? null,
+    name: input.name ?? null,
+  });
+  const [created] = await db.select().from(igThreads).where(eq(igThreads.igUserId, input.igUserId)).limit(1);
+  return created ?? null;
+}
+
+/** Guarda un mensaje del hilo y deja el resumen del hilo al día.
+ *
+ * Devuelve `null` cuando el `mid` ya estaba guardado: eso es un REINTENTO del
+ * webhook de Meta, no un mensaje nuevo, y el que llama tiene que cortar ahí
+ * en vez de volver a contestar. Se apoya en el UNIQUE de la columna y no en
+ * un SELECT previo a propósito -- dos entregas del mismo mensaje pueden
+ * llegar en paralelo a dos instancias serverless distintas, y ahí un
+ * "consultar y después insertar" deja pasar las dos. */
+export async function appendIgMessage(input: {
+  threadId: number;
+  mid?: string | null;
+  direction: 'in' | 'out';
+  source: 'user' | 'bot' | 'admin';
+  text?: string | null;
+  attachments?: unknown;
+}): Promise<IgMessage | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  try {
+    await db.insert(igMessages).values({
+      threadId: input.threadId,
+      mid: input.mid ?? null,
+      direction: input.direction,
+      source: input.source,
+      text: input.text ?? null,
+      attachments: (input.attachments ?? null) as any,
+    });
+  } catch (err) {
+    const message = String((err as { message?: unknown })?.message ?? '');
+    if (/duplicate entry/i.test(message)) return null;
+    throw err;
+  }
+
+  const now = new Date();
+  const preview = (input.text ?? '[adjunto]').slice(0, 300);
+  await db.update(igThreads).set({
+    lastMessageAt: now,
+    lastMessagePreview: preview,
+    ...(input.direction === 'in'
+      ? { lastInboundAt: now, unreadCount: sql`unreadCount + 1` as any }
+      : {}),
+  }).where(eq(igThreads.id, input.threadId));
+
+  const [saved] = await db.select().from(igMessages)
+    .where(eq(igMessages.threadId, input.threadId))
+    .orderBy(desc(igMessages.id))
+    .limit(1);
+  return saved ?? null;
+}
+
+/** Últimos mensajes del hilo, del más viejo al más nuevo (que es el orden en
+ * el que los espera tanto el modelo como la bandeja). */
+export async function getIgMessages(threadId: number, limit = 50): Promise<IgMessage[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(igMessages)
+    .where(eq(igMessages.threadId, threadId))
+    .orderBy(desc(igMessages.id))
+    .limit(limit);
+  return rows.reverse();
+}
+
+export async function listIgThreads(limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(igThreads)
+    .orderBy(desc(igThreads.lastMessageAt))
+    .limit(limit);
+}
+
+export async function getIgThreadById(id: number): Promise<IgThread | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(igThreads).where(eq(igThreads.id, id)).limit(1);
+  return row ?? null;
+}
+
+/** Pausa o reanuda el bot en un hilo. `reason` queda guardado para que en la
+ * bandeja se vea POR QUÉ dejó de contestar (lo derivó la IA, lo tomó una
+ * persona, se pasó del tope diario). */
+export async function setIgThreadBotPaused(id: number, paused: boolean, reason?: string | null) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(igThreads).set({
+    botPaused: paused ? 1 : 0,
+    handoffReason: paused ? (reason ?? null) : null,
+  }).where(eq(igThreads.id, id));
+}
+
+export async function markIgThreadRead(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(igThreads).set({ unreadCount: 0 }).where(eq(igThreads.id, id));
+}
+
+/** Cuántas respuestas automáticas lleva el hilo en las últimas 24 horas --
+ * con esto se corta el bucle si algo se descontrola (ver
+ * `dailyReplyLimitPerThread` en shared/instagramAgentConfig.ts). */
+export async function countIgBotRepliesSince(threadId: number, since: Date): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [row] = await db.select({ count: sql<number>`count(*)` }).from(igMessages)
+    .where(and(
+      eq(igMessages.threadId, threadId),
+      eq(igMessages.source, 'bot'),
+      gte(igMessages.createdAt, since),
+    ));
+  return Number(row?.count ?? 0);
+}
+
+/** Hilos con mensajes sin leer -- lo usa la burbuja del menú del admin. */
+export async function countIgUnreadThreads(): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [row] = await db.select({ count: sql<number>`count(*)` }).from(igThreads)
+    .where(gt(igThreads.unreadCount, 0));
+  return Number(row?.count ?? 0);
+}
+
+// ---------------------------------------------------------------------------
+// Contador diario de TODOS los correos (server/email.ts sendEmail).
+// ---------------------------------------------------------------------------
+
+/** Registra un intento de envío -- ver el comentario de `emailLog` en
+ * drizzle/schema.ts para el porqué de esta tabla aparte. Llamada desde el
+ * único cuello de botella (`sendEmail`), nunca a mano. */
+export async function logEmailSent(input: { to: string; subject?: string; success: boolean }) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(emailLog).values({
+    to: input.to,
+    subject: input.subject ? input.subject.slice(0, 255) : null,
+    success: input.success ? 1 : 0,
+  });
+}
+
+/** Cuántos correos salieron HOY (hora de Chile), de cualquier tipo --
+ * confirmaciones de compra, tickets, recordatorios, mailing, lo que sea. Es
+ * el número real contra el que hay que cuidar el cupo diario del plan de
+ * Resend (server/routers.ts mailing.getDailyEmailUsage). Cuenta todo intento
+ * (éxito y fallo): un correo rechazado por Resend igual gastó un intento
+ * contra la cuota del minuto/día en su lado. */
+export async function countEmailsSentToday(now: Date = new Date()): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const dayStart = startOfChileDay(now);
+  const [row] = await db.select({ count: sql<number>`count(*)` }).from(emailLog)
+    .where(gte(emailLog.sentAt, dayStart));
+  return Number(row?.count ?? 0);
+}
+
+// ---------------------------------------------------------------------------
+// Mailing: saltar pendientes que ya compraron mientras esperaban en la cola.
+// ---------------------------------------------------------------------------
+
+/** ¿Este email ya tiene una orden APROBADA para este evento? Mismo criterio
+ * (buyerEmail normalizado, paymentStatus='approved') que el filtro
+ * `eventId`/`notPurchasedEventId` de `listCustomers` de arriba -- la fuente
+ * de verdad de "quién compró" es siempre `orders`, nunca una copia. */
+export async function hasApprovedOrderForEvent(email: string, eventId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const normalized = email.trim().toLowerCase();
+  const [row] = await db.select({ id: orders.id }).from(orders).where(and(
+    eq(orders.eventId, eventId),
+    eq(orders.paymentStatus, 'approved'),
+    sql`LOWER(${orders.buyerEmail}) = ${normalized}`,
+  )).limit(1);
+  return !!row;
+}
+
+/** Marca un pendiente como 'skipped' -- le tocaba el turno pero ya había
+ * comprado la entrada del evento de la campaña, así que no se le manda un
+ * correo ofreciéndole algo que ya tiene. Mismo patrón en dos pasos que
+ * `markMailingRecipientResult` (ver el comentario ahí sobre por qué no es
+ * una transacción): actualiza la fila, suma el contador de la campaña, y si
+ * ya no queda ningún pendiente, cierra la campaña como 'done'. */
+export async function markMailingRecipientSkipped(recipientId: number, campaignId: number) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(mailingRecipients).set({
+    status: 'skipped',
+    reason: 'Ya había comprado esta entrada',
+  }).where(eq(mailingRecipients.id, recipientId));
+
+  await db.update(mailingCampaigns).set({
+    skippedCount: sql`skippedCount + 1`,
+  }).where(eq(mailingCampaigns.id, campaignId));
+
+  const [remaining] = await db.select({ count: sql<number>`COUNT(*)` })
+    .from(mailingRecipients)
+    .where(and(eq(mailingRecipients.campaignId, campaignId), eq(mailingRecipients.status, 'pending')));
+  if (Number(remaining.count) === 0) {
+    await db.update(mailingCampaigns).set({ status: 'done' }).where(eq(mailingCampaigns.id, campaignId));
+  }
 }

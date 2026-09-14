@@ -8,6 +8,7 @@ import {
   card, sectionTitle, grid, costumeBadge, anniversaryBand, emailShell, emailHero,
   pastelButton, glassButton,
 } from './emailLayout';
+import { logEmailSent } from './db';
 
 interface SendEmailInput {
   to: string;
@@ -72,13 +73,30 @@ export async function sendEmail(input: SendEmailInput) {
 
     if (!response.ok) {
       console.error('[Email] Resend error:', await response.text());
+      await logSendAttempt(input, false);
       return { success: false, reason: 'API error' };
     }
 
+    await logSendAttempt(input, true);
     return { success: true };
   } catch (error) {
     console.error('[Email] Error:', error);
+    await logSendAttempt(input, false);
     return { success: false, reason: 'Network error' };
+  }
+}
+
+/** Registra el intento en `emailLog` para el contador diario del admin (ver
+ * el comentario de la tabla en drizzle/schema.ts). Puramente informativo:
+ * nunca lanza ni retrasa la respuesta al llamador más de lo necesario -- si
+ * falla el log, el correo ya se mandó (o ya falló) igual. No se llama cuando
+ * falta RESEND_API_KEY: ahí no hubo ningún intento real contra Resend, y
+ * contarlo infería un cupo gastado que nunca se gastó. */
+async function logSendAttempt(input: SendEmailInput, success: boolean): Promise<void> {
+  try {
+    await logEmailSent({ to: input.to, subject: input.subject, success });
+  } catch (err) {
+    console.error('[Email] No se pudo registrar el envío en el contador diario:', err);
   }
 }
 

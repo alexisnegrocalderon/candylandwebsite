@@ -8,6 +8,7 @@ import { runAbandonedCartCron } from "./orderReminders";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { runFoundersPromoDaily } from "./foundersPromo";
 import { runAdminDigest } from "./adminDigest";
+import { refreshInstagramToken } from "./instagramSend";
 import { isWeeklyEmailDay } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 
@@ -199,6 +200,33 @@ export function registerCronRoutes(app: Express) {
       res.json(result);
     } catch (err) {
       console.error('[Cron] Error en el resumen diario del admin:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  /* Token de Instagram: dura 60 días y se renueva llamando a Meta. El token
+   * NUEVO no se puede guardar solo -- en Vercel las variables de entorno son
+   * de solo lectura desde la función -- así que este cron hace dos cosas:
+   * (a) mantiene vivo el token actual (cada llamada exitosa reinicia los 60
+   * días del token que ya está en uso), y (b) avisa por correo cuando
+   * empieza a quedar corto, que es la única señal de que hay que pegar el
+   * reemplazo a mano en Vercel. Sin esto, un día cualquiera el agente deja
+   * de contestar y nadie se entera hasta que un cliente reclama. */
+  app.get("/api/cron/instagram-token", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const { expiresInDays } = await refreshInstagramToken();
+      if (expiresInDays <= 10) {
+        await sendEmail({
+          to: ADMIN_NOTIFICATION_EMAIL,
+          subject: '[Candyland] El token de Instagram está por vencer',
+          html: `<p>Al token de Instagram le quedan <strong>${expiresInDays} días</strong>.</p>
+                 <p>Hay que generar uno nuevo en el panel de Meta y pegarlo en la variable <code>IG_ACCESS_TOKEN</code> de Vercel. Mientras tanto el agente sigue contestando, pero cuando venza deja de hacerlo.</p>`,
+        });
+      }
+      res.json({ success: true, expiresInDays });
+    } catch (err) {
+      console.error('[Cron] Error renovando el token de Instagram:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
   });
