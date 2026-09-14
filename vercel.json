@@ -155,6 +155,10 @@
     {
       "path": "/api/cron/instagram-token",
       "schedule": "0 5 * * 1"
+    },
+    {
+      "path": "/api/cron/ambassador-weekly",
+      "schedule": "0 * * * *"
     }
   ]
 }

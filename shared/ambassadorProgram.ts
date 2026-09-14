@@ -1,4 +1,5 @@
 import { CHILE_OFFSET_HOURS } from './eventDay';
+import { chileHourOf } from './chileDate';
 
 /* Programa de Embajadores VIP: toda la lógica que decide plata, nivel y
  * beneficios, sin tocar la base de datos.
@@ -249,4 +250,26 @@ export function isWeeklyEmailDay(
 ): boolean {
   const shifted = new Date(now.getTime() + offsetHours * 60 * 60 * 1000);
   return shifted.getUTCDay() === weekday;
+}
+
+/** Hora a la que se manda el correo semanal, en punto y en hora de Chile --
+ * pensado para que llegue a la bandeja de entrada a una hora en que alguien
+ * lo va a leer, no de madrugada junto a las tareas de limpieza del sistema. */
+export const WEEKLY_EMAIL_HOUR_CHILE = 9;
+
+/** ¿Corresponde mandar el correo semanal AHORA?
+ *
+ * Junta las dos condiciones (día configurado + hora exacta) en una sola
+ * función pura y testeable -- el cron (server/cronRoutes.ts) corre cada
+ * hora y llama a esto para decidir si le toca a esta corrida o no, en vez
+ * de mandarlo a la hora fija en UTC que le tocara a `isWeeklyEmailDay` sola
+ * (que se movería 1h cada vez que Chile cambia de horario de verano a
+ * invierno). Usa `chileHourOf`, que resuelve el horario real vía la zona
+ * horaria IANA -- no un offset fijo -- así nunca hay que tocar esto a mano
+ * en el cambio de hora. */
+export function shouldSendWeeklyAmbassadorEmailNow(
+  now: Date,
+  weekday: number = DEFAULT_WEEKLY_EMAIL_WEEKDAY,
+): boolean {
+  return chileHourOf(now) === WEEKLY_EMAIL_HOUR_CHILE && isWeeklyEmailDay(now, weekday);
 }

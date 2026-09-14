@@ -5,6 +5,7 @@ import {
   commissionPercentForSale,
   estimateAdditionalCommission,
   isWeeklyEmailDay,
+  shouldSendWeeklyAmbassadorEmailNow,
   monthKeyFor,
   nextBenefit,
   nextTierTarget,
@@ -286,6 +287,37 @@ describe("isWeeklyEmailDay", () => {
   it("permite configurar otro día de la semana", () => {
     // Viernes = 5.
     expect(isWeeklyEmailDay(new Date("2026-08-07T15:00:00Z"), 5)).toBe(true);
+  });
+});
+
+/* Bug real reportado por el dueño (14/09): el correo se mandaba a las ~3:30
+ * de la mañana en Chile en vez de a las 9, porque vivía enganchado a otro
+ * cron sin ningún chequeo de hora. Estas pruebas cubren las dos mitades del
+ * año (Chile cambia de UTC-4 a UTC-3 y viceversa) con lunes reales. */
+describe("shouldSendWeeklyAmbassadorEmailNow", () => {
+  it("en invierno (UTC-4): 09:00 Chile es 13:00 UTC", () => {
+    // Lunes 3 de agosto de 2026, invierno en Chile.
+    expect(shouldSendWeeklyAmbassadorEmailNow(new Date("2026-08-03T13:00:00Z"))).toBe(true);
+    expect(shouldSendWeeklyAmbassadorEmailNow(new Date("2026-08-03T12:00:00Z"))).toBe(false); // 08:00
+    expect(shouldSendWeeklyAmbassadorEmailNow(new Date("2026-08-03T14:00:00Z"))).toBe(false); // 10:00
+  });
+
+  it("en verano (UTC-3, horario de verano ya activo): 09:00 Chile es 12:00 UTC", () => {
+    // Lunes 14 de septiembre de 2026, horario de verano ya activo en Chile.
+    expect(shouldSendWeeklyAmbassadorEmailNow(new Date("2026-09-14T12:00:00Z"))).toBe(true);
+    expect(shouldSendWeeklyAmbassadorEmailNow(new Date("2026-09-14T11:00:00Z"))).toBe(false); // 08:00
+    expect(shouldSendWeeklyAmbassadorEmailNow(new Date("2026-09-14T13:00:00Z"))).toBe(false); // 10:00
+  });
+
+  it("a las 9 en punto pero en el día equivocado, no manda", () => {
+    // Martes 4 de agosto de 2026 a las 09:00 Chile.
+    expect(shouldSendWeeklyAmbassadorEmailNow(new Date("2026-08-04T13:00:00Z"))).toBe(false);
+  });
+
+  it("respeta el día de la semana configurado, no solo la hora", () => {
+    // Viernes 7 de agosto de 2026 a las 09:00 Chile, con weekday=5 (viernes).
+    expect(shouldSendWeeklyAmbassadorEmailNow(new Date("2026-08-07T13:00:00Z"), 5)).toBe(true);
+    expect(shouldSendWeeklyAmbassadorEmailNow(new Date("2026-08-07T13:00:00Z"))).toBe(false); // default lunes
   });
 });
 
