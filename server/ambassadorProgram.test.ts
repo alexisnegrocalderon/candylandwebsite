@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildAmbassadorReferralUrl } from "./ambassadorProgram";
 import {
   DEFAULT_BENEFITS,
   DEFAULT_COMMISSION_SCALE,
@@ -318,6 +319,24 @@ describe("shouldSendWeeklyAmbassadorEmailNow", () => {
     // Viernes 7 de agosto de 2026 a las 09:00 Chile, con weekday=5 (viernes).
     expect(shouldSendWeeklyAmbassadorEmailNow(new Date("2026-08-07T13:00:00Z"), 5)).toBe(true);
     expect(shouldSendWeeklyAmbassadorEmailNow(new Date("2026-08-07T13:00:00Z"))).toBe(false); // default lunes
+  });
+});
+
+describe("buildAmbassadorReferralUrl", () => {
+  it("arma el link al evento destacado con el código del embajador", () => {
+    const url = buildAmbassadorReferralUrl({ slug: "2do-aniversario" }, "CAMI2026");
+    expect(url).toContain("/eventos/2do-aniversario");
+    expect(url).toContain("embajador=CAMI2026");
+  });
+
+  it("sin evento destacado no hay a qué apuntar", () => {
+    expect(buildAmbassadorReferralUrl(null, "CAMI2026")).toBeNull();
+    expect(buildAmbassadorReferralUrl(undefined, "CAMI2026")).toBeNull();
+  });
+
+  it("escapa el código en la URL", () => {
+    const url = buildAmbassadorReferralUrl({ slug: "fiesta" }, "CÓDIGO RARO");
+    expect(url).not.toContain(" ");
   });
 });
 

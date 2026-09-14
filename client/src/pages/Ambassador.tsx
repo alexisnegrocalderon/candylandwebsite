@@ -33,6 +33,7 @@ export default function Ambassador() {
 
   const [codeInput, setCodeInput] = useState('');
   const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const { data, isLoading, isFetched } = trpc.ambassadors.getPanelByCode.useQuery(
     { code: codeFromUrl },
@@ -108,6 +109,13 @@ export default function Ambassador() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCopyLink = () => {
+    if (!data.referralUrl) return;
+    navigator.clipboard.writeText(data.referralUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
   return (
     <div className="min-h-screen pt-28 pb-16">
       <div className="container max-w-3xl">
@@ -130,6 +138,26 @@ export default function Ambassador() {
             <p className="text-xs text-muted-foreground mt-2">
               {copied ? '¡Copiado!' : 'Toca para copiar y compartir tu código'}
             </p>
+
+            {/* Link personal (ver client/src/lib/ambassadorRef.ts): a
+                diferencia del código, esto atribuye la venta solo con abrir
+                el link -- mejor para el swipe-up de una historia, donde
+                nadie transcribe un código a mano. Solo aparece si hay un
+                evento destacado al que apuntar. */}
+            {data.referralUrl && (
+              <div className="mt-4 max-w-md mx-auto">
+                <button
+                  onClick={handleCopyLink}
+                  className="w-full inline-flex items-center justify-between gap-2 px-4 h-11 rounded-full bg-secondary/10 border border-secondary/30 font-mono text-xs text-foreground interactive"
+                >
+                  <span className="truncate">{data.referralUrl}</span>
+                  {copiedLink ? <Check className="w-4 h-4 shrink-0" /> : <Copy className="w-4 h-4 shrink-0" />}
+                </button>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {copiedLink ? '¡Copiado!' : 'Tu link para poner en el swipe-up de historias -- las ventas quedan atribuidas solas'}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Comisión exacta de este evento -- plata ya generada, no una

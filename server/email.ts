@@ -686,18 +686,22 @@ export function buildAmbassadorWeeklyEmail(data: {
   benefitBonusClp: number;
   exclusiveClientsCount: number;
   panelUrl: string;
+  // Link personal de venta (server/ambassadorProgram.ts
+  // buildAmbassadorReferralUrl) -- null si no hay evento destacado.
+  referralUrl?: string | null;
   material?: {
     title?: string | null;
     storiesText?: string | null;
     reelText?: string | null;
     postText?: string | null;
     countdownText?: string | null;
-    linkUrl?: string | null;
+    links?: { label: string; url: string }[] | null;
   } | null;
 }) {
   const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
   const m = data.material;
-  const tieneMaterial = !!m && !!(m.storiesText || m.reelText || m.postText || m.countdownText || m.linkUrl);
+  const links = (m?.links ?? []).filter((l) => l.url);
+  const tieneMaterial = !!m && !!(m.storiesText || m.reelText || m.postText || m.countdownText || links.length > 0);
 
   const progreso = data.nextTarget
     ? Math.min(100, Math.round((data.monthlySales / data.nextTarget.target) * 100))
@@ -797,8 +801,24 @@ export function buildAmbassadorWeeklyEmail(data: {
         ${materialRow('Reel', m?.reelText)}
         ${materialRow('Publicación', m?.postText)}
         ${materialRow('Cuenta regresiva', m?.countdownText)}
-        ${m?.linkUrl ? `<p style="margin:12px 0 0;"><a href="${m.linkUrl}" style="color:${ACCENT.pink.text};font-size:13px;font-weight:700;">Descargar el material →</a></p>` : ''}
+        ${links.length > 0 ? `
+        <div style="padding:8px 0 0;">
+          ${links.map((l) => `<p style="margin:6px 0;"><a href="${l.url}" style="color:${ACCENT.pink.text};font-size:13px;font-weight:700;">${l.label} →</a></p>`).join('')}
+        </div>` : ''}
       `)}
+      ` : ''}
+
+      ${data.referralUrl ? `
+      ${sectionTitle('🔗', 'Tu link para compartir')}
+      ${card(`
+        <p style="color:${MUTED};font-size:13px;margin:0 0 10px;line-height:1.5;">
+          Pon este link en el swipe-up de tus historias: cuando alguien lo abre y compra, la venta queda atribuida a
+          vos automáticamente -- aunque compre más tarde, no tiene que ser en el momento.
+        </p>
+        <p style="background:${ACCENT.lilac.bg};border-radius:12px;padding:12px 14px;word-break:break-all;color:${INK};font-size:13px;font-family:monospace;margin:0;">
+          ${data.referralUrl}
+        </p>
+      `, { bg: ACCENT.pink.bg, border: false })}
       ` : ''}
 
       <div style="text-align:center;margin-top:28px;">

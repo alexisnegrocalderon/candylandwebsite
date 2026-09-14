@@ -2255,7 +2255,7 @@ export const appRouter = router({
       reelText: z.string().optional(),
       postText: z.string().optional(),
       countdownText: z.string().optional(),
-      linkUrl: z.string().optional(),
+      links: z.array(z.object({ label: z.string(), url: z.string() })).optional(),
     })).mutation(async ({ input }) => {
       return ambassadorProgram.saveWeeklyMaterial(input);
     }),

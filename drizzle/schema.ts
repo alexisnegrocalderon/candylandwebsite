@@ -627,8 +627,9 @@ export const ambassadorProgramConfig = mysqlTable("ambassadorProgramConfig", {
   weeklyEmailEnabled: int("weeklyEmailEnabled").default(1).notNull(),
   // 0=domingo .. 1=lunes, igual que Date.getUTCDay().
   weeklyEmailWeekday: int("weeklyEmailWeekday").default(1).notNull(),
-  // Solo informativo: Vercel Hobby dispara el cron una vez al día a la hora
-  // fija de vercel.json, así que esto no puede mover el disparo real.
+  // Hora del día (0-23) en que sale el correo semanal, en hora de Chile --
+  // el cron corre cada hora y se autolimita a esta (server/cronRoutes.ts
+  // /api/cron/ambassador-weekly, vía shouldSendWeeklyAmbassadorEmailNow).
   weeklyEmailHourChile: int("weeklyEmailHourChile").default(9).notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -667,7 +668,15 @@ export const ambassadorWeeklyMaterial = mysqlTable("ambassadorWeeklyMaterial", {
   reelText: text("reelText"),
   postText: text("postText"),
   countdownText: text("countdownText"),
+  // Legacy: un único link ("Descargar el material"), reemplazado por
+  // `links` de abajo (pedido explícito del dueño, 14/09: puede necesitar
+  // más de uno -- carpeta de Drive, un doc de instrucciones, etc). Se deja
+  // la columna sin borrar para no perder el valor de filas ya guardadas
+  // antes de este cambio; el correo ya no la usa si `links` trae algo.
   linkUrl: varchar("linkUrl", { length: 500 }),
+  // { label: string; url: string }[] -- cuantos links haga falta cada
+  // semana, cada uno con su propio texto (ej. "📂 Carpeta de Drive").
+  links: json("links"),
   active: int("active").default(1).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
