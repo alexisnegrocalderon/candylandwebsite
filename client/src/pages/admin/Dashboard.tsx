@@ -8204,7 +8204,10 @@ function ParkingReportView() {
   const [selected, setSelected] = useState<number | null>(null);
   const eventId = selected ?? defaultEvent?.id ?? events?.[0]?.id ?? null;
 
-  const { data } = trpc.cajaReports.parkingReport.useQuery({ eventId: eventId! }, { enabled: !!eventId });
+  const { data, isError, error, isLoading, refetch } = trpc.cajaReports.parkingReport.useQuery(
+    { eventId: eventId! },
+    { enabled: !!eventId },
+  );
 
   if (!eventId) {
     return <p className="text-sm text-muted-foreground">Todavía no hay eventos cargados.</p>;
@@ -8221,6 +8224,26 @@ function ParkingReportView() {
           </SelectContent>
         </Select>
       </div>
+
+      {/* Antes, cualquier falla del servidor se tragaba en silencio y esta
+       * pantalla mostraba "0 autos / $0 a pagar" -- indistinguible de que
+       * de verdad no hubiera ventas. Con plata real de por medio (a pagar al
+       * establecimiento), un error tiene que VERSE, no disfrazarse de cero. */}
+      {isError && (
+        <Card className="rounded-2xl border-0 shadow-md shadow-black/5 border-l-4 border-l-destructive">
+          <CardContent className="pt-6 space-y-2">
+            <p className="font-medium text-destructive">No se pudo cargar el reporte de Estacionamiento.</p>
+            <p className="text-sm text-muted-foreground">{error?.message || 'Error desconocido.'}</p>
+            <Button variant="outline" size="sm" onClick={() => refetch()} className="interactive">Reintentar</Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
+
+      {!isLoading && !isError && data === null && (
+        <p className="text-sm text-muted-foreground">Base de datos no disponible -- no se pudo calcular el reporte.</p>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard icon={Ticket} colorClass="bg-violet-electric" value={data?.online ?? 0} label="Pagado online" />

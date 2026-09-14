@@ -15,7 +15,7 @@ import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, type PnlExpense } from '../shared/expenses';
 import type { EmailTemplateConfig } from '../shared/emailTemplateConfig';
 import type { AdminAlertsConfig } from '../shared/adminAlertsConfig';
-import { isParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
+import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { normalizeRut } from '../shared/rut';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
@@ -3502,7 +3502,7 @@ export async function getParkingReport(eventId: number) {
 
   const allTicketTypes = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
   const parkingTypeIds = new Set(
-    (allTicketTypes as any[]).filter((tt) => tt.category === 'extra' && isParkingTicketType(tt.name)).map((tt) => tt.id),
+    (allTicketTypes as any[]).filter((tt) => tt.category === 'extra' && isAnyParkingTicketType(tt.name)).map((tt) => tt.id),
   );
   if (parkingTypeIds.size === 0) {
     return { online: 0, puerta: 0, staff: 0, totalPaid: 0, totalCars: 0, venueFeePerCarClp: 0, amountOwedToVenueClp: 0, puertaByMethod: { efectivo: 0, debito: 0, credito: 0 } };

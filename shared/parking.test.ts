@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isParkingTicketType, classifyParkingOrigin, summarizeParkingCounts } from "./parking";
+import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts } from "./parking";
 
 describe("isParkingTicketType", () => {
   it("reconoce Estacionamiento y Parking, ignorando mayúsculas", () => {
@@ -15,6 +15,25 @@ describe("isParkingTicketType", () => {
   it("no matchea productos que no son estacionamiento", () => {
     expect(isParkingTicketType("Trago")).toBe(false);
     expect(isParkingTicketType("Cover")).toBe(false);
+  });
+});
+
+describe("isAnyParkingTicketType", () => {
+  // Pedido explícito del dueño (14/09): para la contabilidad, el VIP
+  // también cuenta como un auto -- solo isParkingTicketType (usado para
+  // cobrar en la puerta) lo excluye.
+  it("incluye la variante VIP, a diferencia de isParkingTicketType", () => {
+    expect(isAnyParkingTicketType("Estacionamiento VIP")).toBe(true);
+    expect(isParkingTicketType("Estacionamiento VIP")).toBe(false);
+  });
+
+  it("reconoce Estacionamiento y Parking sin importar mayúsculas", () => {
+    expect(isAnyParkingTicketType("ESTACIONAMIENTO")).toBe(true);
+    expect(isAnyParkingTicketType("parking")).toBe(true);
+  });
+
+  it("no matchea productos que no son estacionamiento", () => {
+    expect(isAnyParkingTicketType("Trago")).toBe(false);
   });
 });
 
