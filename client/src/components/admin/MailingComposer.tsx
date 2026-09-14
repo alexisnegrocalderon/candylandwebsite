@@ -51,11 +51,16 @@ export function MailingComposer({
   audience,
   ctaUrl,
   campaignTag,
+  eventId,
   onDone,
 }: {
   audience: { ids: number[]; count: number; description: string };
   ctaUrl: string;
   campaignTag: string;
+  // Evento del filtro de audiencia, si se usó uno -- viaja tal cual a
+  // mailingCampaigns.eventId para que el cron pueda saltar a quien compre
+  // mientras espera en la cola (ver server/mailing.ts processMailingCronBatch).
+  eventId?: number | null;
   onDone: () => void;
 }) {
   const [step, setStep] = useState<Step>('objective');
@@ -159,6 +164,7 @@ export function MailingComposer({
         content,
         ctaUrl,
         eventSections,
+        eventId: eventId ?? undefined,
       });
       toast.success(`Campaña "${campaignTag}" guardada -- el cron diario la va a ir mandando. Sigue el progreso en Historial.`);
       resetComposer();

@@ -2948,6 +2948,7 @@ export const appRouter = router({
       content: MailingContentSchema,
       ctaUrl: z.string(),
       eventSections: mailingEventSectionsSchema,
+      eventId: z.number().optional(),
     })).mutation(async ({ input }) => {
       try {
         return await createAutoMailingCampaign(input);
@@ -2957,6 +2958,15 @@ export const appRouter = router({
     }),
     listCampaigns: adminReadProcedure.query(async () => {
       return db.listMailingCampaigns();
+    }),
+    // Contador diario de TODOS los correos (server/db.ts countEmailsSentToday)
+    // -- pedido explícito del dueño para cuidar el cupo de ~100/día de
+    // Resend. `dailyCap` es informativo (RESEND_DAILY_EMAIL_CAP, default
+    // 100): no bloquea nada, no hay forma de leer la cuota real de Resend.
+    getDailyEmailUsage: adminReadProcedure.query(async () => {
+      const sentToday = await db.countEmailsSentToday();
+      const dailyCap = Number(process.env.RESEND_DAILY_EMAIL_CAP) || 100;
+      return { sentToday, dailyCap, remaining: Math.max(0, dailyCap - sentToday) };
     }),
     getCampaignRecipients: adminReadProcedure.input(z.object({ campaignId: z.number() })).query(async ({ input }) => {
       return db.getMailingCampaignRecipients(input.campaignId);

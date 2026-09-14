@@ -210,6 +210,9 @@ export async function createAutoMailingCampaign(input: {
   content: MailingContent;
   ctaUrl: string;
   eventSections?: MailingEventSections;
+  // Evento al que se refiere la campaña, si el admin armó la audiencia con
+  // el filtro de evento en Mailing -- ver mailingCampaigns.eventId.
+  eventId?: number | null;
 }): Promise<{ campaignId: number }> {
   const name = input.name.trim();
   if (!name) throw new Error("Falta el nombre de la campaña.");
@@ -220,6 +223,7 @@ export async function createAutoMailingCampaign(input: {
     ctaUrl: input.ctaUrl,
     eventSections: input.eventSections ?? null,
     customerIds: input.customerIds,
+    eventId: input.eventId ?? null,
   });
 }
 
@@ -253,6 +257,10 @@ export type MailingCronResult = {
   processed: number;
   sent: number;
   failed: number;
+  // Pendientes que se saltaron porque, cuando les tocó el turno, ya habían
+  // comprado la entrada del evento de la campaña (ver
+  // markMailingRecipientSkipped) -- no gastan cupo diario, no son un envío.
+  skipped: number;
   campaignsTouched: number;
 };
 
@@ -274,7 +282,7 @@ export async function processMailingCronBatch(): Promise<MailingCronResult> {
   const sentToday = await db.countAutomatedEmailsSentToday();
   const dailyRemaining = AUTOMATED_EMAIL_DAILY_CAP - sentToday;
   if (dailyRemaining <= 0) {
-    return { processed: 0, sent: 0, failed: 0, campaignsTouched: 0 };
+    return { processed: 0, sent: 0, failed: 0, skipped: 0, campaignsTouched: 0 };
   }
 
   const pending = await db.getPendingMailingRecipients(Math.min(CRON_MAX_PER_RUN, dailyRemaining));
@@ -284,8 +292,22 @@ export async function processMailingCronBatch(): Promise<MailingCronResult> {
   const campaignsTouched = new Set<number>();
   let eventInfo: MailingEventInfo | null | undefined;
 
+  let skipped = 0;
+
   for (const recipient of pending) {
     if (Date.now() - start > CRON_TIME_BUDGET_MS) break;
+
+    // Pedido explícito del dueño (14/09): si mientras esperaba en la cola
+    // ya compró la entrada del evento de esta campaña, no tiene sentido
+    // seguir ofreciéndosela -- se saltea sin gastar cupo diario ni contar
+    // como enviado/fallado. Campañas sin `campaignEventId` (no hablan de un
+    // evento puntual) nunca entran acá.
+    if (recipient.campaignEventId && await db.hasApprovedOrderForEvent(recipient.email, recipient.campaignEventId)) {
+      await db.markMailingRecipientSkipped(recipient.id, recipient.campaignId);
+      campaignsTouched.add(recipient.campaignId);
+      skipped++;
+      continue;
+    }
 
     const content = recipient.content as MailingContent;
     const eventSections = (recipient.eventSections ?? undefined) as MailingEventSections | undefined;
@@ -323,5 +345,5 @@ export async function processMailingCronBatch(): Promise<MailingCronResult> {
     await sleep(THROTTLE_MS);
   }
 
-  return { processed: sent + failed, sent, failed, campaignsTouched: campaignsTouched.size };
+  return { processed: sent + failed, sent, failed, skipped, campaignsTouched: campaignsTouched.size };
 }

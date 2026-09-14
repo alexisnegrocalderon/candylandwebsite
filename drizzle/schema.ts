@@ -1157,9 +1157,21 @@ export const mailingCampaigns = mysqlTable("mailingCampaigns", {
   // `mailingRecipients` quedan huérfanas sin más acción (el cron ya
   // filtra por `status = 'sending'`, ver getPendingMailingRecipients).
   status: mysqlEnum("status", ["sending", "done", "cancelled"]).default("sending").notNull(),
+  // Evento al que se refiere esta campaña (pedido explícito del dueño,
+  // 14/09): nullable porque no toda campaña habla de un evento puntual (ej.
+  // un newsletter general) -- cuando SÍ está seteado, el cron lo usa para
+  // saltarse a quien compró ese evento MIENTRAS estaba pendiente en la cola
+  // (ver getPendingMailingRecipients / processMailingCronBatch). Se completa
+  // solo con el evento que estaba elegido en el filtro de audiencia al armar
+  // la campaña -- no es un campo nuevo que el admin tenga que llenar aparte.
+  eventId: int("eventId"),
   totalRecipients: int("totalRecipients").notNull(),
   sentCount: int("sentCount").default(0).notNull(),
   failedCount: int("failedCount").default(0).notNull(),
+  // Pendientes que NUNCA se llegaron a mandar porque, cuando les tocó el
+  // turno en la cola, ya habían comprado la entrada de `eventId` -- no
+  // cuentan como enviado ni como fallado, son un tercer resultado.
+  skippedCount: int("skippedCount").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -1171,7 +1183,11 @@ export const mailingRecipients = mysqlTable("mailingRecipients", {
   id: int("id").autoincrement().primaryKey(),
   campaignId: int("campaignId").notNull(),
   customerId: int("customerId").notNull(),
-  status: mysqlEnum("status", ["pending", "sent", "failed"]).default("pending").notNull(),
+  // 'skipped' = seguía pendiente cuando le tocó el turno, pero para
+  // entonces ya había comprado la entrada del evento de la campaña (ver
+  // `eventId` en mailingCampaigns) -- no se le manda un correo ofreciéndole
+  // algo que ya tiene.
+  status: mysqlEnum("status", ["pending", "sent", "failed", "skipped"]).default("pending").notNull(),
   reason: varchar("reason", { length: 500 }),
   sentAt: timestamp("sentAt"),
 }, (table) => ({
@@ -1623,3 +1639,29 @@ export const igMessages = mysqlTable("igMessages", {
 
 export type IgMessage = typeof igMessages.$inferSelect;
 export type InsertIgMessage = typeof igMessages.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Contador diario de TODOS los correos enviados (server/email.ts sendEmail).
+// ---------------------------------------------------------------------------
+
+/** Una fila por cada llamada a `sendEmail()`, sin importar el motivo --
+ * confirmación de compra, ticket, recordatorio, mailing masivo, resumen del
+ * admin, lo que sea. Es la ÚNICA fuente de verdad del contador diario que
+ * cuida el cupo real del plan de Resend (~100/día): las tablas existentes
+ * (`mailingRecipients`, `mailingSendLog`) solo cubren el mailing masivo, y
+ * el cupo de Resend se gasta con CUALQUIER correo, no solo esos.
+ *
+ * Se inserta desde el único cuello de botella por el que pasa todo envío
+ * (`sendEmail` en server/email.ts) -- así ningún llamador nuevo puede
+ * olvidarse de loguear: basta con que use `sendEmail`, que ya usan todos. */
+export const emailLog = mysqlTable("emailLog", {
+  id: int("id").autoincrement().primaryKey(),
+  to: varchar("to", { length: 320 }).notNull(),
+  subject: varchar("subject", { length: 255 }),
+  success: int("success").notNull(),
+  sentAt: timestamp("sentAt").defaultNow().notNull(),
+}, (table) => ({
+  sentAtIdx: index("email_log_sent_at_idx").on(table.sentAt),
+}));
+
+export type EmailLogRow = typeof emailLog.$inferSelect;

@@ -3354,6 +3354,43 @@ function FoundersPromoCard() {
   );
 }
 
+/** Contador diario de TODOS los correos que salen del sistema (server/db.ts
+ * countEmailsSentToday) -- pedido explícito del dueño para cuidar el cupo de
+ * ~100/día del plan de Resend. Cuenta confirmaciones de compra, tickets,
+ * recordatorios, mailing, resumen del admin: cualquier cosa que pase por
+ * `sendEmail`, no solo lo que se manda desde esta pantalla. */
+function DailyEmailUsageCard() {
+  const { data } = trpc.mailing.getDailyEmailUsage.useQuery(undefined, { refetchInterval: 30_000 });
+  if (!data) return null;
+
+  const pct = Math.min(100, Math.round((data.sentToday / data.dailyCap) * 100));
+  // Amarillo pasados los 2/3 del cupo, rojo pasado el 90% -- para que el
+  // dueño vea venir el límite antes de que un correo empiece a rebotar.
+  const tone = pct >= 90 ? 'bg-destructive' : pct >= 66 ? 'bg-amber-500' : 'bg-primary';
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardContent className="pt-6 space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium">Correos enviados hoy</p>
+          <p className="text-sm">
+            <span className="font-semibold">{data.sentToday}</span>
+            <span className="text-muted-foreground"> / {data.dailyCap}</span>
+          </p>
+        </div>
+        <div className="w-full h-2 bg-secondary/20 rounded-full overflow-hidden">
+          <div className={`h-full transition-all ${tone}`} style={{ width: `${pct}%` }} />
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Cuenta cualquier correo del sistema (compras, tickets, recordatorios, mailing) -- es el número real contra el
+          cupo diario del plan de Resend.
+          {pct >= 90 && ' Queda muy poco cupo: los envíos de marketing de hoy se pueden empezar a rechazar.'}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 function MailingSection() {
   const [search, setSearch] = useState('');
   const [accessType, setAccessType] = useState<string>('all');
@@ -3481,6 +3518,7 @@ function MailingSection() {
         <p className="text-sm text-muted-foreground">Arma una audiencia, genera el mail con IA, y mándalo -- cada envío exitoso queda etiquetado con el nombre de campaña para no repetir destinatarios.</p>
       </div>
 
+      <DailyEmailUsageCard />
       <FoundersPromoCard />
 
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
@@ -3665,6 +3703,7 @@ function MailingSection() {
             audience={{ ids: Array.from(selectedIds), count: selectedIds.size, description: audienceDescription }}
             ctaUrl={mailingCtaUrl}
             campaignTag={campaignTag}
+            eventId={eventFilter === 'all' ? null : Number(eventFilter)}
             onDone={() => setSelectedIds(new Set())}
           />
         </CardContent>
@@ -3800,7 +3839,7 @@ function MailingHistoryView() {
 
       <div className="space-y-3">
         {campaigns.map((c: any) => {
-          const progress = c.totalRecipients > 0 ? Math.round(((c.sentCount + c.failedCount) / c.totalRecipients) * 100) : 0;
+          const progress = c.totalRecipients > 0 ? Math.round(((c.sentCount + c.failedCount + c.skippedCount) / c.totalRecipients) * 100) : 0;
           const isExpanded = expandedId === c.id;
           return (
             <Card key={c.id} className="rounded-2xl border-0 shadow-md shadow-black/5">
@@ -3823,6 +3862,7 @@ function MailingHistoryView() {
                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
                   <span className="text-primary font-medium">{c.sentCount} enviados</span>
                   {c.failedCount > 0 && <span className="text-destructive font-medium">{c.failedCount} fallidos</span>}
+                  {c.skippedCount > 0 && <span className="text-muted-foreground">{c.skippedCount} ya habían comprado</span>}
                   <span>{c.totalRecipients} en total</span>
                   {c.status === 'sending' && <span>· sigue mañana con lo que falte</span>}
                 </div>

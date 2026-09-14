@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gt, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, emailLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -4597,6 +4597,10 @@ export async function createMailingCampaign(input: {
   ctaUrl: string;
   eventSections: unknown;
   customerIds: number[];
+  // Evento al que se refiere la campaña -- ver el comentario de
+  // `mailingCampaigns.eventId` en drizzle/schema.ts. `undefined`/`null` =
+  // campaña sin evento puntual, el cron nunca salta a nadie por esta vía.
+  eventId?: number | null;
 }): Promise<{ campaignId: number }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -4608,6 +4612,7 @@ export async function createMailingCampaign(input: {
     content: input.content,
     ctaUrl: input.ctaUrl,
     eventSections: input.eventSections,
+    eventId: input.eventId ?? null,
     totalRecipients: input.customerIds.length,
   });
   const campaignId = result.insertId;
@@ -4768,6 +4773,9 @@ export async function getPendingMailingRecipients(limit: number) {
     content: mailingCampaigns.content,
     ctaUrl: mailingCampaigns.ctaUrl,
     eventSections: mailingCampaigns.eventSections,
+    // Para el chequeo de "¿ya compró mientras esperaba en la cola?" (ver
+    // hasApprovedOrderForEvent / markMailingRecipientSkipped más abajo).
+    campaignEventId: mailingCampaigns.eventId,
   }).from(mailingRecipients)
     .innerJoin(mailingCampaigns, eq(mailingCampaigns.id, mailingRecipients.campaignId))
     .innerJoin(customers, eq(customers.id, mailingRecipients.customerId))
@@ -5872,4 +5880,83 @@ export async function countIgUnreadThreads(): Promise<number> {
   const [row] = await db.select({ count: sql<number>`count(*)` }).from(igThreads)
     .where(gt(igThreads.unreadCount, 0));
   return Number(row?.count ?? 0);
+}
+
+// ---------------------------------------------------------------------------
+// Contador diario de TODOS los correos (server/email.ts sendEmail).
+// ---------------------------------------------------------------------------
+
+/** Registra un intento de envío -- ver el comentario de `emailLog` en
+ * drizzle/schema.ts para el porqué de esta tabla aparte. Llamada desde el
+ * único cuello de botella (`sendEmail`), nunca a mano. */
+export async function logEmailSent(input: { to: string; subject?: string; success: boolean }) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(emailLog).values({
+    to: input.to,
+    subject: input.subject ? input.subject.slice(0, 255) : null,
+    success: input.success ? 1 : 0,
+  });
+}
+
+/** Cuántos correos salieron HOY (hora de Chile), de cualquier tipo --
+ * confirmaciones de compra, tickets, recordatorios, mailing, lo que sea. Es
+ * el número real contra el que hay que cuidar el cupo diario del plan de
+ * Resend (server/routers.ts mailing.getDailyEmailUsage). Cuenta todo intento
+ * (éxito y fallo): un correo rechazado por Resend igual gastó un intento
+ * contra la cuota del minuto/día en su lado. */
+export async function countEmailsSentToday(now: Date = new Date()): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const dayStart = startOfChileDay(now);
+  const [row] = await db.select({ count: sql<number>`count(*)` }).from(emailLog)
+    .where(gte(emailLog.sentAt, dayStart));
+  return Number(row?.count ?? 0);
+}
+
+// ---------------------------------------------------------------------------
+// Mailing: saltar pendientes que ya compraron mientras esperaban en la cola.
+// ---------------------------------------------------------------------------
+
+/** ¿Este email ya tiene una orden APROBADA para este evento? Mismo criterio
+ * (buyerEmail normalizado, paymentStatus='approved') que el filtro
+ * `eventId`/`notPurchasedEventId` de `listCustomers` de arriba -- la fuente
+ * de verdad de "quién compró" es siempre `orders`, nunca una copia. */
+export async function hasApprovedOrderForEvent(email: string, eventId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const normalized = email.trim().toLowerCase();
+  const [row] = await db.select({ id: orders.id }).from(orders).where(and(
+    eq(orders.eventId, eventId),
+    eq(orders.paymentStatus, 'approved'),
+    sql`LOWER(${orders.buyerEmail}) = ${normalized}`,
+  )).limit(1);
+  return !!row;
+}
+
+/** Marca un pendiente como 'skipped' -- le tocaba el turno pero ya había
+ * comprado la entrada del evento de la campaña, así que no se le manda un
+ * correo ofreciéndole algo que ya tiene. Mismo patrón en dos pasos que
+ * `markMailingRecipientResult` (ver el comentario ahí sobre por qué no es
+ * una transacción): actualiza la fila, suma el contador de la campaña, y si
+ * ya no queda ningún pendiente, cierra la campaña como 'done'. */
+export async function markMailingRecipientSkipped(recipientId: number, campaignId: number) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.update(mailingRecipients).set({
+    status: 'skipped',
+    reason: 'Ya había comprado esta entrada',
+  }).where(eq(mailingRecipients.id, recipientId));
+
+  await db.update(mailingCampaigns).set({
+    skippedCount: sql`skippedCount + 1`,
+  }).where(eq(mailingCampaigns.id, campaignId));
+
+  const [remaining] = await db.select({ count: sql<number>`COUNT(*)` })
+    .from(mailingRecipients)
+    .where(and(eq(mailingRecipients.campaignId, campaignId), eq(mailingRecipients.status, 'pending')));
+  if (Number(remaining.count) === 0) {
+    await db.update(mailingCampaigns).set({ status: 'done' }).where(eq(mailingCampaigns.id, campaignId));
+  }
 }
