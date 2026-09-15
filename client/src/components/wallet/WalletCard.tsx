@@ -181,7 +181,11 @@ export function WalletCard({
   eventTitle: string;
   eventDateShort: string;
   holderName: string;
-  ticketCode: string;
+  // `null` = consulta de saldo por email en /mis-puntos, sin una entrada
+  // puntual detrás -- no hay código que enmascarar ni reverso con
+  // código de barras/movimientos que mostrar, así que esas partes se
+  // esconden solas (ver abajo) en vez de mostrar algo vacío/falso.
+  ticketCode: string | null;
   qrImageUrl: string | null;
   prepaidBalance: number;
   playcoins: number;
@@ -192,7 +196,7 @@ export function WalletCard({
   return (
     <>
       <style>{WALLET_CARD_CSS}</style>
-      <div className={`wcard-scene ${flipped ? 'is-flipped' : ''}`} onClick={() => setFlipped((f) => !f)}>
+      <div className={`wcard-scene ${flipped ? 'is-flipped' : ''}`} onClick={() => { if (ticketCode) setFlipped((f) => !f); }}>
         <div className="wcard-flip">
           <div className="wcard-face is-front">
             <div className="wcard-brand-row">
@@ -223,45 +227,53 @@ export function WalletCard({
               </div>
             </div>
 
-            <div className="wcard-foot">
-              <span className="wcard-number">{maskTicketCode(ticketCode)}</span>
-              {eventTitle && <span className="wcard-event-tag">{eventTitle}{eventDateShort ? ` · ${eventDateShort}` : ''}</span>}
-            </div>
+            {(ticketCode || eventTitle) && (
+              <div className="wcard-foot">
+                {ticketCode && <span className="wcard-number">{maskTicketCode(ticketCode)}</span>}
+                {eventTitle && <span className="wcard-event-tag">{eventTitle}{eventDateShort ? ` · ${eventDateShort}` : ''}</span>}
+              </div>
+            )}
           </div>
 
-          <div className="wcard-face is-back">
-            <div className="wcard-back-head">
-              <div className="wcard-wordmark" style={{ fontSize: 13 }}>
-                <span className="wcard-badge"><img src="/candyland/logo-isotipo-transparent.png" alt="" /></span>
-                <span className="wcard-wordmark-text">PLAYROOM</span>
+          {ticketCode && (
+            <div className="wcard-face is-back">
+              <div className="wcard-back-head">
+                <div className="wcard-wordmark" style={{ fontSize: 13 }}>
+                  <span className="wcard-badge"><img src="/candyland/logo-isotipo-transparent.png" alt="" /></span>
+                  <span className="wcard-wordmark-text">PLAYROOM</span>
+                </div>
+              </div>
+
+              <div className="wcard-barcode" />
+              <p className="wcard-number" style={{ textAlign: 'center', fontSize: 11 }}>{ticketCode}</p>
+
+              <div className="wcard-movs">
+                {movements.length === 0 && <p className="wcard-movs-empty">Todavía no hay movimientos en tu tarjeta</p>}
+                {movements.map((m, i) => {
+                  const isMoney = m.type === 'money';
+                  const sign = m.delta >= 0 ? '+' : '−';
+                  const amountText = isMoney ? `${sign}${formatCLP(Math.abs(m.delta))}` : `${sign}${Math.abs(m.delta)}`;
+                  return (
+                    <div className="wcard-mov" key={i}>
+                      <span><b>{m.label}</b></span>
+                      <span className={`wcard-amt ${isMoney ? (m.delta >= 0 ? 'is-pos' : 'is-neg') : 'is-points'}`}>{amountText}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-
-            <div className="wcard-barcode" />
-            <p className="wcard-number" style={{ textAlign: 'center', fontSize: 11 }}>{ticketCode}</p>
-
-            <div className="wcard-movs">
-              {movements.length === 0 && <p className="wcard-movs-empty">Todavía no hay movimientos en tu tarjeta</p>}
-              {movements.map((m, i) => {
-                const isMoney = m.type === 'money';
-                const sign = m.delta >= 0 ? '+' : '−';
-                const amountText = isMoney ? `${sign}${formatCLP(Math.abs(m.delta))}` : `${sign}${Math.abs(m.delta)}`;
-                return (
-                  <div className="wcard-mov" key={i}>
-                    <span><b>{m.label}</b></span>
-                    <span className={`wcard-amt ${isMoney ? (m.delta >= 0 ? 'is-pos' : 'is-neg') : 'is-points'}`}>{amountText}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
-      <button type="button" className="wcard-flip-hint" onClick={() => setFlipped((f) => !f)}>
-        <RefreshCw className="w-3.5 h-3.5" />
-        {flipped ? 'Ver el frente' : 'Ver el reverso'}
-      </button>
+      {/* Sin ticketCode (consulta por email en /mis-puntos) no hay reverso
+          que mostrar -- el frente ya trae todo lo que hay (saldo + Playcoins). */}
+      {ticketCode && (
+        <button type="button" className="wcard-flip-hint" onClick={() => setFlipped((f) => !f)}>
+          <RefreshCw className="w-3.5 h-3.5" />
+          {flipped ? 'Ver el frente' : 'Ver el reverso'}
+        </button>
+      )}
     </>
   );
 }

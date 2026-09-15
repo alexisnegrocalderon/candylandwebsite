@@ -3,10 +3,11 @@ import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Coins, Mail, Wallet } from 'lucide-react';
+import { Mail, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { canRedeem, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { useSeo } from '@/hooks/useSeo';
+import { WalletCard } from '@/components/wallet/WalletCard';
 
 /** Consulta pública de saldo prepagado + Playcoins (pedido explícito del
  * dueño) -- sin login (el sitio no tiene cuentas de comprador), mismo patrón
@@ -73,7 +74,7 @@ export default function MisPuntos() {
     );
   }
 
-  const { playcoins, prepaidBalance } = data;
+  const { playcoins, prepaidBalance, fullName, email } = data;
   const eligible = canRedeem(playcoins);
   const missing = Math.max(0, PLAYCOINS_MIN_REDEEM_BALANCE - playcoins);
 
@@ -83,24 +84,25 @@ export default function MisPuntos() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="text-center">
           <h1 className="font-heading text-3xl md:text-4xl mb-6">Tu <span className="text-gradient">Saldo y Playcoins</span></h1>
 
-          {/* Saldo prepagado (plata real, 1 a 1) -- distinto de los
-              Playcoins de abajo (puntos). Mismo dato que ya se ve en
-              /verificar/:ticketCode, acá alcanza con el email. */}
-          <Card className="mb-4 border-primary/30 bg-gradient-to-br from-primary/10 via-card to-secondary/10">
-            <CardContent className="pt-8 pb-8">
-              <Wallet className="w-10 h-10 text-primary mx-auto mb-3" />
-              <p className="font-heading text-5xl">${prepaidBalance.toLocaleString('es-CL')}</p>
-              <p className="text-muted-foreground text-sm mt-1">Saldo prepagado en tu Tarjeta PlayCard</p>
-            </CardContent>
-          </Card>
-
-          <Card className="mb-6 border-border/50">
-            <CardContent className="pt-8 pb-8">
-              <Coins className="w-10 h-10 text-primary mx-auto mb-3" />
-              <p className="font-heading text-5xl">{playcoins.toLocaleString('es-CL')}</p>
-              <p className="text-muted-foreground text-sm mt-1">Playcoins = ${playcoins.toLocaleString('es-CL')} CLP</p>
-            </CardContent>
-          </Card>
+          {/* La tarjeta real (mismo componente que /verificar y la página de
+              PlayCard), sin QR/reverso -- acá no hay una entrada puntual
+              detrás, solo el email. Panel oscuro propio (mismo criterio que
+              PlayCardArticle.tsx) para que el vidrio/holograma se lea igual
+              de bien que en el resto del sitio, sin oscurecer toda la página. */}
+          <div className="rounded-[28px] p-6 md:p-10 mb-6" style={{
+            background: 'radial-gradient(120% 120% at 20% 0%, #241432, #0d0712 70%)',
+          }}>
+            <WalletCard
+              eventTitle=""
+              eventDateShort=""
+              holderName={fullName || email}
+              ticketCode={null}
+              qrImageUrl={null}
+              prepaidBalance={prepaidBalance}
+              playcoins={playcoins}
+              movements={[]}
+            />
+          </div>
 
           {eligible ? (
             <Card className="border-border/50">

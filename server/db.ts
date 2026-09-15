@@ -4406,13 +4406,13 @@ export async function getPlaycoinsBalance(email: string) {
   if (!db) return null;
   const [customer] = await db.select().from(customers).where(eq(customers.email, email.trim().toLowerCase())).limit(1);
   if (!customer) return null;
-  // `prepaidBalance` viaja acá también -- pedido explícito del dueño: /mis-puntos
-  // era la única consulta pública por email, pero solo mostraba Playcoins. El
-  // saldo prepagado (plata real) recién se podía ver con el link de
-  // /verificar/:ticketCode del correo de confirmación -- si alguien lo perdía,
-  // no tenía cómo consultarlo. Mismo criterio de "ver es público, gastar pide
-  // PIN" que ya rige wallet.getByTicketCode.
-  return { email: customer.email, playcoins: customer.playcoins, prepaidBalance: customer.prepaidBalance };
+  // `prepaidBalance`/`fullName` viajan acá también -- pedido explícito del
+  // dueño: /mis-puntos era la única consulta pública por email, pero solo
+  // mostraba Playcoins. El saldo prepagado (plata real) recién se podía ver
+  // con el link de /verificar/:ticketCode del correo de confirmación -- si
+  // alguien lo perdía, no tenía cómo consultarlo. Mismo criterio de "ver es
+  // público, gastar pide PIN" que ya rige wallet.getByTicketCode.
+  return { email: customer.email, fullName: customer.fullName, playcoins: customer.playcoins, prepaidBalance: customer.prepaidBalance };
 }
 
 const PREPAID_REASON_LABEL: Record<string, string> = {
