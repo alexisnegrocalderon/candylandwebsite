@@ -691,13 +691,22 @@ export async function getAllDiscountCodes() {
 export async function createDiscountCode(data: any) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.insert(discountCodes).values({
-    ...data,
-    discountValue: String(data.discountValue),
-    minPurchase: data.minPurchase ? String(data.minPurchase) : undefined,
-    validFrom: data.validFrom ? new Date(data.validFrom) : undefined,
-    validUntil: data.validUntil ? new Date(data.validUntil) : undefined,
-  });
+  try {
+    await db.insert(discountCodes).values({
+      ...data,
+      discountValue: String(data.discountValue),
+      minPurchase: data.minPurchase ? String(data.minPurchase) : undefined,
+      validFrom: data.validFrom ? new Date(data.validFrom) : undefined,
+      validUntil: data.validUntil ? new Date(data.validUntil) : undefined,
+    });
+  } catch (err: any) {
+    // `discountCodes.code` es único -- sin esto, reusar un código ya
+    // existente (ej. reintentar crearlo con el mismo nombre) tiraba el
+    // error crudo de MySQL en vez de un mensaje entendible.
+    const isDuplicate = err?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(String(err?.message ?? ''));
+    if (isDuplicate) throw new Error(`Ya existe un código de descuento llamado "${data.code}" -- usa otro nombre.`);
+    throw err;
+  }
   return { success: true };
 }
 
