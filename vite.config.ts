@@ -5,24 +5,6 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig(() => {
-  // Skew Protection (recién activada en Vercel): Vite no es un framework
-  // "soportado" de forma automática (a diferencia de Next.js/Nuxt/Astro),
-  // así que hay que engancharlo a mano -- ver
-  // https://vercel.com/docs/skew-protection#supported-frameworks. Si está
-  // prendida, cada archivo del build (JS/CSS/imágenes) sale con
-  // `?dpl=<deploymentId>`: así un chunk pedido en vivo (ej. al navegar a
-  // una página con lazy-loading, `App.tsx`) sigue viniendo de la MISMA
-  // versión que ya tenía el navegador en vez de "la última en
-  // producción", evitando el 404 clásico de "el archivo viejo ya no
-  // existe" cuando alguien tiene el sitio abierto durante un deploy.
-  // `VERCEL_SKEW_PROTECTION_ENABLED`/`VERCEL_DEPLOYMENT_ID` son variables
-  // de sistema de Vercel -- solo llegan acá si el proyecto tiene prendido
-  // "Enable access to System Environment Variables" (Settings →
-  // Environment Variables); si no están, esto simplemente no hace nada
-  // (no rompe el build local ni el de un fork sin esa config).
-  const skewProtectionEnabled = process.env.VERCEL_SKEW_PROTECTION_ENABLED === '1';
-  const deploymentId = process.env.VERCEL_DEPLOYMENT_ID;
-
   const plugins = [
     react(),
     tailwindcss(),
@@ -129,11 +111,6 @@ export default defineConfig(() => {
         },
       },
     },
-    experimental: skewProtectionEnabled && deploymentId ? {
-      renderBuiltUrl(filename: string) {
-        return `/${filename}?dpl=${deploymentId}`;
-      },
-    } : undefined,
     server: {
       host: true,
       allowedHosts: ["localhost", "127.0.0.1"],
