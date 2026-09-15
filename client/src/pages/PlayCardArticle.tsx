@@ -113,7 +113,19 @@ export default function PlayCardArticle() {
               ]}
             />
           </div>
-          <p className="text-center text-xs text-muted-foreground mb-14">Ejemplo ilustrativo -- toca la tarjeta para ver el reverso.</p>
+          <p className="text-center text-xs text-muted-foreground mb-4">Ejemplo ilustrativo -- toca la tarjeta para ver el reverso.</p>
+          {/* Acceso directo pedido por el dueño: alguien leyendo esta página
+              ya tiene entrada propia y quiere ver SU saldo real, no el de
+              ejemplo de arriba -- lleva a /mis-puntos (búsqueda por email,
+              sin login, mismo criterio que el resto del sitio). */}
+          <div className="text-center mb-14">
+            <Link
+              href="/mis-puntos"
+              className="btn-jelly inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full border border-primary/40 font-semibold interactive"
+            >
+              <Wallet className="w-4 h-4" /> Revisar mi saldo real
+            </Link>
+          </div>
 
           <section {...reveal} className="mb-14">
             <p className="text-sm uppercase tracking-[0.3em] text-primary mb-3 text-center">Paso a paso</p>
