@@ -436,20 +436,23 @@ function Hero() {
           {CANDYLAND.valores.join(' · ')}
         </motion.p>
 
+        {/* El video de fondo ya trae "MANSION PLAYROOM" + el letrero de neón
+         * "2º Aniversario" quemados en la imagen -- este H1 antes repetía
+         * "ANIVERSARIO" encima con el tratamiento `.candy-letter` genérico de
+         * la marca (gradiente + contorno), que no tenía nada que ver con el
+         * estilo del letrero ya integrado en el video y se leía como una
+         * etiqueta pegada encima. Ahora es texto legible normal (mismo
+         * tratamiento que el <p> de apoyo de abajo), sin competir con el
+         * video. CANDYLAND.nombre ("ANIVERSARIO") sigue vivo para el
+         * JSON-LD/sold-out -- ver candyland.ts -- solo dejó de ser esto. */}
         <motion.h1
           initial={{ opacity: 0, y: 50, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 1, delay: 0.35, ease: [0.23, 1, 0.32, 1] }}
           style={pointerFine ? { y: titleY } : undefined}
-          className="font-heading font-extrabold text-[clamp(1.75rem,7vw,5.5rem)] leading-[0.95] tracking-[0.01em] drop-shadow-[0_6px_40px_oklch(0.76_0.13_35_/_0.35)] whitespace-normal sm:whitespace-nowrap break-words"
-          aria-label={CANDYLAND.nombre}
+          className="font-heading font-extrabold text-[clamp(1.75rem,6vw,4.25rem)] leading-[1.05] tracking-[0.01em] text-white/95 drop-shadow-[0_2px_14px_rgba(0,0,0,0.6)]"
         >
-          {/* Letras interactivas: hover material candy en desktop, shimmer automático en móvil */}
-          {CANDYLAND.nombre.split('').map((ch, i) => (
-            <span key={i} aria-hidden className="candy-letter" style={{ animationDelay: `${i * 0.22}s` }}>
-              {ch}
-            </span>
-          ))}
+          {CANDYLAND.heroGancho}
         </motion.h1>
 
         <motion.p
@@ -458,7 +461,7 @@ function Hero() {
           transition={{ duration: 0.9, delay: 0.55 }}
           className="mt-6 text-xl md:text-2xl text-white/95 font-medium drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)]"
         >
-          {CANDYLAND.heroTitulo}
+          {CANDYLAND.heroSub}
         </motion.p>
 
         <motion.div
@@ -483,6 +486,11 @@ function Hero() {
           )}
           <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-candy">
             <MapPin className="w-4 h-4 text-primary" /> {CANDYLAND.ciudad}
+          </span>
+          {/* "Disfraz obligatorio" sale de la oración corrida de arriba y
+           * vive acá como dato práctico más, junto a fecha/hora/lugar. */}
+          <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full glass-candy">
+            <VenetianMask className="w-4 h-4 text-primary" /> Disfraz obligatorio
           </span>
         </motion.div>
 

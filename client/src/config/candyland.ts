@@ -219,15 +219,24 @@ export const EVENTO = {
   // del sitio apuntan a un evento que no existe y el checkout cae en modo
   // demo silenciosamente, fallando recién al intentar pagar.
   slug: '2do-aniversario-playroom',
-  // Nombre corto que se usa en el título grande del Hero. La marca completa
-  // ("Mansion Playroom") vive en MARCA.nombre y se usa en el logo del Hero y
-  // en el splash del Intro -- el título grande no la repite. Sin temática
-  // Halloween acá a propósito (decisión del dueño): el foco es el
+  // Nombre corto del evento -- ya NO es el título grande del Hero (el video
+  // de fondo trae "MANSION PLAYROOM" + el letrero de neón "2º Aniversario"
+  // quemados en la imagen; repetirlo arriba con el gradiente `.candy-letter`
+  // genérico de la marca chocaba de estilo con eso). Sigue usado para el
+  // JSON-LD del evento, el mensaje de sold-out y los asuntos de correo. Sin
+  // temática Halloween acá a propósito (decisión del dueño): el foco es el
   // aniversario, no Halloween -- el disfraz obligatorio va solo en el dress
   // code, como dato práctico, no como estética del sitio.
   nombre: EVENT_BRAND.nombre,
   tagline: 'Dos años de la fiesta liberal más grande de la V Región',
+  // Sentencia completa -- sigue viva tal cual para SEO (meta description /
+  // JSON-LD, `eventSchema` más abajo en Home.tsx). El Hero visual ya NO la
+  // muestra entera: usa heroGancho/heroSub (mismo texto partido en dos,
+  // más "disfraz obligatorio" movido a una pastilla aparte) para no competir
+  // con el resto de capas de texto sobre el video.
   heroTitulo: 'Dos años de mansión. Una noche para celebrarlo -- con disfraz obligatorio.',
+  heroGancho: 'Dos años de mansión.',
+  heroSub: 'Una noche para celebrarlo.',
 
   // Fecha confirmada: viernes 30 de octubre de 2026. La hora de puertas
   // todavía no está definida -- `eventDate` usa 21:00 (mismo horario que
