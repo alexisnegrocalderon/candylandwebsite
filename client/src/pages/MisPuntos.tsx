@@ -3,18 +3,21 @@ import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Coins, Mail } from 'lucide-react';
+import { Coins, Mail, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { canRedeem, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { useSeo } from '@/hooks/useSeo';
 
-/** Consulta pública de saldo de Playcoins (pedido explícito del usuario) --
- * sin login (el sitio no tiene cuentas de comprador), mismo patrón de
- * MyReferrals.tsx: búsqueda solo al enviar el formulario, no en cada tecla. */
+/** Consulta pública de saldo prepagado + Playcoins (pedido explícito del
+ * dueño) -- sin login (el sitio no tiene cuentas de comprador), mismo patrón
+ * de MyReferrals.tsx: búsqueda solo al enviar el formulario, no en cada
+ * tecla. La forma más completa de ver la tarjeta (con QR y movimientos) sigue
+ * siendo /verificar/:ticketCode del correo de confirmación -- esta página
+ * cubre el caso de alguien que perdió ese correo y solo tiene su email. */
 export default function MisPuntos() {
   useSeo({
-    title: 'Mis Playcoins — Mansion Playroom',
-    description: 'Consulta tu saldo de Playcoins en Mansion Playroom.',
+    title: 'Mi Saldo y Playcoins — Mansion Playroom',
+    description: 'Consulta tu saldo prepagado y tus Playcoins en Mansion Playroom.',
     path: '/mis-puntos',
     noindex: true,
   });
@@ -40,11 +43,11 @@ export default function MisPuntos() {
         <div className="container max-w-lg">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="text-center">
             <div className="w-16 h-16 mx-auto mb-5 border border-primary/30 rounded-2xl flex items-center justify-center bg-primary/5">
-              <Coins className="w-8 h-8 text-primary" />
+              <Wallet className="w-8 h-8 text-primary" />
             </div>
-            <h1 className="font-heading text-3xl md:text-4xl mb-3">Tus <span className="text-gradient">Playcoins</span></h1>
+            <h1 className="font-heading text-3xl md:text-4xl mb-3">Tu <span className="text-gradient">Saldo y Playcoins</span></h1>
             <p className="text-muted-foreground mb-6">
-              Ingresa el email con el que compraste para ver tu saldo. Ganas {PLAYCOINS_MIN_REDEEM_BALANCE > 0 ? '' : ''}25 Playcoins por cada $1.000 gastados, y puedes canjearlos en caja el día del evento una vez que juntes {PLAYCOINS_MIN_REDEEM_BALANCE.toLocaleString('es-CL')}.
+              Ingresa el email con el que compraste para ver tu saldo prepagado y tus Playcoins. Ganas 25 Playcoins por cada $1.000 gastados, y puedes canjearlos en caja el día del evento una vez que juntes {PLAYCOINS_MIN_REDEEM_BALANCE.toLocaleString('es-CL')}.
             </p>
             <form onSubmit={handleSubmit} className="flex gap-2 max-w-sm mx-auto">
               <Input
@@ -62,7 +65,7 @@ export default function MisPuntos() {
               <div className="w-6 h-6 mx-auto mt-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             )}
             {isFetched && !data && (
-              <p className="text-destructive text-sm mt-4">No encontramos Playcoins asociados a ese email todavía.</p>
+              <p className="text-destructive text-sm mt-4">No encontramos saldo ni Playcoins asociados a ese email todavía.</p>
             )}
           </motion.div>
         </div>
@@ -70,7 +73,7 @@ export default function MisPuntos() {
     );
   }
 
-  const { playcoins } = data;
+  const { playcoins, prepaidBalance } = data;
   const eligible = canRedeem(playcoins);
   const missing = Math.max(0, PLAYCOINS_MIN_REDEEM_BALANCE - playcoins);
 
@@ -78,9 +81,20 @@ export default function MisPuntos() {
     <div className="min-h-screen pt-28 pb-16">
       <div className="container max-w-lg">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="text-center">
-          <h1 className="font-heading text-3xl md:text-4xl mb-6">Tus <span className="text-gradient">Playcoins</span></h1>
+          <h1 className="font-heading text-3xl md:text-4xl mb-6">Tu <span className="text-gradient">Saldo y Playcoins</span></h1>
 
-          <Card className="mb-6 border-primary/30 bg-gradient-to-br from-primary/10 via-card to-secondary/10">
+          {/* Saldo prepagado (plata real, 1 a 1) -- distinto de los
+              Playcoins de abajo (puntos). Mismo dato que ya se ve en
+              /verificar/:ticketCode, acá alcanza con el email. */}
+          <Card className="mb-4 border-primary/30 bg-gradient-to-br from-primary/10 via-card to-secondary/10">
+            <CardContent className="pt-8 pb-8">
+              <Wallet className="w-10 h-10 text-primary mx-auto mb-3" />
+              <p className="font-heading text-5xl">${prepaidBalance.toLocaleString('es-CL')}</p>
+              <p className="text-muted-foreground text-sm mt-1">Saldo prepagado en tu Tarjeta PlayCard</p>
+            </CardContent>
+          </Card>
+
+          <Card className="mb-6 border-border/50">
             <CardContent className="pt-8 pb-8">
               <Coins className="w-10 h-10 text-primary mx-auto mb-3" />
               <p className="font-heading text-5xl">{playcoins.toLocaleString('es-CL')}</p>
