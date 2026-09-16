@@ -401,6 +401,16 @@ export const CANDYLAND = {
       q: '¿Se puede comprar la entrada en la puerta?',
       a: 'Te recomendamos comprar con anticipación por la web: los cupos son limitados y los eventos suelen agotarse antes de la fecha. Además, la dirección exacta del recinto llega junto con tu entrada por correo.',
     },
+    // Pensada para AEO y para SEO clásico: alguien que busca "fiesta
+    // swinger" no necesariamente conoce el término "fiesta liberal". La
+    // palabra va en la RESPUESTA (visible solo al abrir la pregunta), no en
+    // el título (que se ve siempre, incluso con el acordeón cerrado) -- así
+    // queda indexable y no como lo primero que lee alguien que abre el FAQ
+    // sin buscar eso.
+    {
+      q: '¿Reciben parejas que buscan intercambiar experiencias con otras?',
+      a: 'Sí. Una fiesta liberal como la nuestra recibe distintas formas de no monogamia, incluida la comunidad swinger -- es parte de la diversidad relacional que acogemos. No es exactamente lo mismo que una fiesta swinger tradicional (acá también hay gente soltera y sin ninguna experiencia previa), pero si buscas ese tipo de ambiente, este espacio también es para ti.',
+    },
   ],
 
   // ── Redes ──────────────────────────────────────────────────
