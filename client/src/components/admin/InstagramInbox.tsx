@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { formatChileDateTime } from '@shared/chileDate';
@@ -157,6 +158,47 @@ function AgentConfigCard() {
               onChange={(e) => setDraft({ ...draft, dailyReplyLimitPerThread: Number(e.target.value) })}
             />
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Tono de urgencia (cuando el precio sube de tanda)</Label>
+          <Select
+            value={draft.urgencyTone}
+            onValueChange={(v) => setDraft({ ...draft, urgencyTone: v as 'sutil' | 'directo' })}
+          >
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="sutil">Sutil -- un dato al pasar, tono de aviso</SelectItem>
+              <SelectItem value="directo">Directo -- tipo oferta, "quedan pocos cupos a este precio"</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="font-medium">Preguntar tipo de acceso antes del precio</p>
+            <p className="text-sm text-muted-foreground">
+              Prendido: si preguntan el precio sin decir para cuántas personas, pregunta primero (sol@/pareja/grupo).
+              Apagado: menciona 1-2 accesos directo, sin preguntar.
+            </p>
+          </div>
+          <Switch
+            checked={draft.askAccessTypeBeforePrice}
+            onCheckedChange={(v) => setDraft({ ...draft, askAccessTypeBeforePrice: v })}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Ejemplos de tono (opcional)</Label>
+          <Textarea
+            rows={4}
+            placeholder='Ej: "hola! sisi tenemos entradas para el finde, ¿vienes solo o en pareja?"'
+            value={draft.styleExamples}
+            onChange={(e) => setDraft({ ...draft, styleExamples: e.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">
+            2-3 frases sueltas que muestren cómo te gustaría que sonara el agente, además del tono ya descrito arriba.
+          </p>
         </div>
 
         <WriteButton onClick={() => save.mutate(draft)} disabled={save.isPending}>

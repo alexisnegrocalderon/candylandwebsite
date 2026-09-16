@@ -36,6 +36,20 @@ export interface InstagramAgentConfig {
    * ante un bucle o alguien jugando con el bot: pasado el tope, el hilo
    * queda para una persona. */
   dailyReplyLimitPerThread: number;
+  /** Qué tan directo suena al mencionar que el precio sube en la próxima
+   * tanda. 'sutil' = un dato al pasar, tono de alguien avisando. 'directo'
+   * = más parecido a una oferta/campaña ("quedan pocos cupos a este
+   * precio"). No cambia ningún dato -- sigue sin decir nunca el remanente
+   * exacto, eso es regla dura y no depende de este campo. */
+  urgencyTone: 'sutil' | 'directo';
+  /** true (default): si preguntan el precio sin decir para cuántas personas,
+   * el agente pregunta primero el tipo de acceso antes de contestar.
+   * false: vuelve a mencionar 1-2 accesos directo, sin preguntar. */
+  askAccessTypeBeforePrice: boolean;
+  /** Ejemplos de frases sueltas, en texto libre, que se le pasan al modelo
+   * como guía de estilo además de `brandNotes` -- para calibrar el tono con
+   * ejemplos concretos en vez de solo reglas. Vacío por defecto. */
+  styleExamples: string;
 }
 
 export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
@@ -50,6 +64,9 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   handoffMessage: 'Te respondo esto con más calma en un rato, que lo vea alguien del equipo 💜',
   historyLimit: 12,
   dailyReplyLimitPerThread: 30,
+  urgencyTone: 'sutil',
+  askAccessTypeBeforePrice: true,
+  styleExamples: '',
 };
 
 /** Completa con los valores por defecto cualquier campo faltante -- una
@@ -73,6 +90,9 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
     dailyReplyLimitPerThread: Number.isFinite(dailyLimit) && dailyLimit > 0
       ? Math.min(Math.floor(dailyLimit), 200)
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.dailyReplyLimitPerThread,
+    urgencyTone: partial.urgencyTone === 'directo' ? 'directo' : 'sutil',
+    askAccessTypeBeforePrice: partial.askAccessTypeBeforePrice !== false,
+    styleExamples: typeof partial.styleExamples === 'string' ? partial.styleExamples : '',
   };
 }
 
