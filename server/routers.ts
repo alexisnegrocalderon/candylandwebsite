@@ -1867,6 +1867,13 @@ export const appRouter = router({
       await db.setIgThreadBotPaused(input.threadId, input.paused, input.paused ? 'Lo tomó el equipo desde el panel' : null);
       return { success: true };
     }),
+    // Irreversible (borra el hilo y todos sus mensajes) -- por eso pide la
+    // clave de admin, a diferencia del resto de este router.
+    deleteThread: adminPasswordProcedure.input(z.object({ threadId: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteIgThread(input.threadId);
+      await db.recordAdminAudit({ action: 'instagram.deleteThread', targetType: 'igThread', targetId: input.threadId, ip: clientIp(ctx) });
+      return result;
+    }),
     reply: adminProcedure.input(z.object({
       threadId: z.number(),
       text: z.string().min(1).max(IG_MAX_REPLY_CHARS),

@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/admin/EmptyState';
+import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { formatChileDateTime } from '@shared/chileDate';
 import { IG_MAX_REPLY_CHARS, type InstagramAgentConfig } from '@shared/instagramAgentConfig';
 
@@ -33,6 +34,9 @@ export function InstagramInbox() {
         <h2 className="font-heading text-2xl flex items-center gap-2"><Instagram className="w-6 h-6" /> Instagram</h2>
         <p className="text-sm text-muted-foreground mt-1">
           Mensajes directos de @mansionplayroom y el agente de IA que los contesta.
+        </p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Las conversaciones sin actividad por más de 30 días se borran solas. Puedes borrar una antes con el ícono de tacho al abrirla.
         </p>
       </div>
 
@@ -279,6 +283,10 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
     },
     onError,
   });
+  const deleteThread = trpc.instagram.deleteThread.useMutation({
+    onSuccess: () => { utils.instagram.listThreads.invalidate(); onBack(); },
+    onError,
+  });
 
   // Abrir la conversación ya cuenta como haberla visto.
   useEffect(() => { markRead.mutate({ threadId }); }, [threadId]);
@@ -296,7 +304,13 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
             <p className="text-xs text-amber-600 mt-1">Bot pausado: {thread.handoffReason}</p>
           )}
         </div>
-        <Button variant="ghost" size="sm" onClick={onBack}>Volver</Button>
+        <div className="flex items-center gap-2">
+          <ConfirmDeleteButton
+            description={`Vas a eliminar toda la conversación con ${thread.username ? `@${thread.username}` : thread.name ?? thread.igUserId}.`}
+            onConfirm={(adminPassword) => deleteThread.mutateAsync({ threadId, adminPassword })}
+          />
+          <Button variant="ghost" size="sm" onClick={onBack}>Volver</Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between gap-4 rounded-2xl border p-3">
