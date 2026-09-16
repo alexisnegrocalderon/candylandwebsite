@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { ENV } from "./env";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
@@ -245,8 +246,8 @@ export const resolveProvider = (): Provider => {
 };
 
 const assertApiKey = () => {
-  if (!resolveProvider().apiKey) {
-    throw new Error("No hay ninguna API key de IA configurada (GEMINI_API_KEY o BUILT_IN_FORGE_API_KEY)");
+  if (!ENV.anthropicApiKey && !resolveProvider().apiKey) {
+    throw new Error("No hay ninguna API key de IA configurada (ANTHROPIC_API_KEY, GEMINI_API_KEY o BUILT_IN_FORGE_API_KEY)");
   }
 };
 
@@ -366,8 +367,107 @@ const fetchWithBackoff = async (
     : new Error("LLM request failed after exhausting retries");
 };
 
+const ANTHROPIC_DEFAULT_MODEL = "claude-haiku-4-5";
+// Claude exige max_tokens siempre, a diferencia de Gemini/Forge -- casi
+// ningún llamador de invokeLLM lo pasa hoy (solo instagramAgent.ts), así que
+// hace falta un default razonable para el resto (Q&A, mailing, descripciones
+// de evento, recordatorios: todo texto corto).
+const ANTHROPIC_DEFAULT_MAX_TOKENS = 4096;
+
+let anthropicClient: Anthropic | null = null;
+const getAnthropicClient = (): Anthropic => {
+  if (!anthropicClient) {
+    anthropicClient = new Anthropic({ apiKey: ENV.anthropicApiKey });
+  }
+  return anthropicClient;
+};
+
+// Saca el texto plano de un Message de este módulo (string u array de
+// partes) -- ninguno de los llamadores de invokeLLM manda imágenes/archivos
+// hoy, así que alcanza con concatenar las partes de texto.
+const getMessageText = (message: Message): string =>
+  ensureArray(message.content)
+    .map(part => (typeof part === "string" ? part : part.type === "text" ? part.text : ""))
+    .join("\n");
+
+// Traduce una llamada de este módulo (forma OpenAI-shaped) a una llamada real
+// del SDK de Anthropic, y la respuesta de vuelta a InvokeResult -- así los 6
+// llamadores de invokeLLM (instagramAgent, adminQa, mailing, etc.) no
+// necesitan saber qué proveedor está activo.
+async function invokeAnthropic(params: InvokeParams): Promise<InvokeResult> {
+  const { messages, model, maxTokens, max_tokens, responseFormat, response_format, outputSchema, output_schema } = params;
+
+  const systemParts: string[] = [];
+  const anthropicMessages: Anthropic.MessageParam[] = [];
+  for (const message of messages) {
+    if (message.role === "system") {
+      systemParts.push(getMessageText(message));
+      continue;
+    }
+    const role = message.role === "assistant" ? "assistant" : "user";
+    if (message.role !== "user" && message.role !== "assistant") {
+      console.warn(`invokeAnthropic: rol "${message.role}" no soportado, tratado como "user"`);
+    }
+    anthropicMessages.push({ role, content: getMessageText(message) });
+  }
+
+  const normalizedFormat = normalizeResponseFormat({
+    responseFormat,
+    response_format,
+    outputSchema,
+    output_schema,
+  });
+
+  const outputConfig =
+    normalizedFormat?.type === "json_schema"
+      ? { format: { type: "json_schema" as const, schema: normalizedFormat.json_schema.schema } }
+      : undefined;
+
+  let response: Anthropic.Message;
+  try {
+    response = await getAnthropicClient().messages.create({
+      model: model ?? ANTHROPIC_DEFAULT_MODEL,
+      max_tokens: max_tokens ?? maxTokens ?? ANTHROPIC_DEFAULT_MAX_TOKENS,
+      ...(systemParts.length > 0 ? { system: systemParts.join("\n\n") } : {}),
+      messages: anthropicMessages,
+      ...(outputConfig ? { output_config: outputConfig } : {}),
+    });
+  } catch (err) {
+    if (err instanceof Anthropic.APIError) {
+      throw new Error(`LLM invoke failed: ${err.status} ${err.name} – ${err.message}`);
+    }
+    throw err;
+  }
+
+  const text = response.content
+    .map(block => (block.type === "text" ? block.text : ""))
+    .join("");
+
+  return {
+    id: response.id,
+    created: Math.floor(Date.now() / 1000),
+    model: response.model,
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content: text },
+        finish_reason: response.stop_reason,
+      },
+    ],
+    usage: {
+      prompt_tokens: response.usage.input_tokens,
+      completion_tokens: response.usage.output_tokens,
+      total_tokens: response.usage.input_tokens + response.usage.output_tokens,
+    },
+  };
+}
+
 export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   assertApiKey();
+
+  if (ENV.anthropicApiKey) {
+    return invokeAnthropic(params);
+  }
 
   const {
     messages,
