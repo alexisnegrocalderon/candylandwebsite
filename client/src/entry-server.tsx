@@ -9,6 +9,7 @@ import Panoramas from '@/pages/Panoramas';
 import Blog from '@/pages/Blog';
 import QueSonLasFiestasLiberales from '@/pages/QueSonLasFiestasLiberales';
 import PlayCardArticle from '@/pages/PlayCardArticle';
+import DressCodeArticle from '@/pages/DressCodeArticle';
 import RefundPolicy from '@/pages/RefundPolicy';
 import PrivacyPolicy from '@/pages/PrivacyPolicy';
 
@@ -40,7 +41,7 @@ const PAGES: Record<string, React.ComponentType> = {
   '/blog/que-son-las-fiestas-liberales': QueSonLasFiestasLiberales,
   '/blog/tarjeta-playcard': PlayCardArticle,
   '/blog/primera-vez-que-esperar': Blog,
-  '/blog/dress-code-explicado': Blog,
+  '/blog/dress-code-explicado': DressCodeArticle,
   '/blog/que-llevar': Blog,
   '/blog/como-llegar-y-estacionar': Blog,
   '/politica-de-reembolso': RefundPolicy,

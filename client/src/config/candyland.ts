@@ -223,10 +223,12 @@ export const EVENTO = {
   // de fondo trae "MANSION PLAYROOM" + el letrero de neón "2º Aniversario"
   // quemados en la imagen; repetirlo arriba con el gradiente `.candy-letter`
   // genérico de la marca chocaba de estilo con eso). Sigue usado para el
-  // JSON-LD del evento, el mensaje de sold-out y los asuntos de correo. Sin
-  // temática Halloween acá a propósito (decisión del dueño): el foco es el
-  // aniversario, no Halloween -- el disfraz obligatorio va solo en el dress
-  // code, como dato práctico, no como estética del sitio.
+  // JSON-LD del evento, el mensaje de sold-out y los asuntos de correo. El
+  // Home en general sigue sin temática Halloween (decisión del dueño): el
+  // foco es el aniversario. La única excepción, a pedido explícito
+  // posterior, es la sección dedicada después de "Próximos Eventos"
+  // (`HalloweenTeaserSection` en Home.tsx) -- el resto de la página
+  // (Hero, FAQ, etc.) se queda sin tematizar.
   nombre: EVENT_BRAND.nombre,
   tagline: 'Dos años de la fiesta liberal más grande de la V Región',
   // Sentencia completa -- sigue viva tal cual para SEO (meta description /
@@ -248,9 +250,10 @@ export const EVENTO = {
   eventDate: new Date('2026-10-30T21:00:00-03:00'),
   fechaTexto: EVENT_BRAND.fechaTexto,
   horarioTexto: EVENT_BRAND.horarioTexto,
-  // Disfraz obligatorio como dato práctico del dress code, sin tematizar el
-  // resto del sitio en Halloween (decisión del dueño: eso queda para la
-  // landing especial de la campaña, no para el home).
+  // Disfraz obligatorio como dato práctico del dress code. El resto del
+  // Home sigue sin tematizar en Halloween, salvo `HalloweenTeaserSection`
+  // (ver comentario arriba, en `nombre`) -- esa sección puntual sí adelanta
+  // el tema a propósito, como preview de la campaña.
   dressCode: EVENT_BRAND.dressCode,
 } as const;
 

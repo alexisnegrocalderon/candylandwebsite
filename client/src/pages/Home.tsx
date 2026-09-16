@@ -662,15 +662,20 @@ function PlayCardBannerSection() {
  * de Blog.tsx: unas pocas bien elegidas, no un catálogo completo acá. Se
  * arma con `getArticle`/`STANDALONE_PAGES` (mismo `content/` que ya usan
  * Navbar, Blog y Panoramas) para que el título/resumen nunca se desalinee
- * del artículo real. */
+ * del artículo real.
+ *
+ * "Dress code explicado" NO va acá a propósito: ya tiene su propia sección
+ * grande y llamativa (`HalloweenTeaserSection`, justo después de "Próximos
+ * Eventos") -- repetirlo acá sería el mismo link dos veces en la misma
+ * página. */
 function useBlogHighlights(): { title: string; description: string; emoji: string; href: string }[] {
   const fiestasLiberales = STANDALONE_PAGES.find((p) => p.path === '/blog/que-son-las-fiestas-liberales');
-  const dressCode = getArticle('blog', 'dress-code-explicado');
+  const comoLlegar = getArticle('blog', 'como-llegar-y-estacionar');
   const vinaDelMar = getArticle('guia', 'vina-del-mar');
 
   return [
     fiestasLiberales && { title: fiestasLiberales.title, description: fiestasLiberales.description, emoji: fiestasLiberales.emoji, href: fiestasLiberales.path },
-    dressCode && { title: dressCode.heading, description: dressCode.description, emoji: dressCode.emoji, href: articlePath(dressCode) },
+    comoLlegar && { title: comoLlegar.heading, description: comoLlegar.description, emoji: comoLlegar.emoji, href: articlePath(comoLlegar) },
     vinaDelMar && { title: vinaDelMar.heading, description: vinaDelMar.description, emoji: vinaDelMar.emoji, href: articlePath(vinaDelMar) },
   ].filter((x): x is { title: string; description: string; emoji: string; href: string } => !!x);
 }
@@ -1475,6 +1480,106 @@ function ExperienceSection() {
   );
 }
 
+/* ─── Preview de Halloween ──────────────────────────────────── */
+
+const HALLOWEEN_EMOJI = [
+  { emoji: '🦇', left: '6%', top: '18%', size: 'text-4xl md:text-6xl', dur: 4.5 },
+  { emoji: '🎃', left: '88%', top: '15%', size: 'text-5xl md:text-7xl', dur: 5.2 },
+  { emoji: '👻', left: '12%', top: '72%', size: 'text-4xl md:text-6xl', dur: 4 },
+  { emoji: '🕸️', left: '84%', top: '70%', size: 'text-4xl md:text-6xl', dur: 6 },
+  { emoji: '🌙', left: '48%', top: '10%', size: 'text-3xl md:text-5xl', dur: 5.6 },
+] as const;
+
+function HalloweenCountdownUnit({ value, label }: { value: number; label: string }) {
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <div
+        className="relative w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 rounded-2xl flex items-center justify-center overflow-hidden ring-2 ring-white/10"
+        style={{ background: 'linear-gradient(135deg, #D4A537, #7A3FA0)' }}
+      >
+        <span className="font-heading font-black text-2xl sm:text-3xl md:text-4xl tabular-nums text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)]">
+          {String(value).padStart(2, '0')}
+        </span>
+      </div>
+      <span className="text-[10px] md:text-xs uppercase tracking-[0.2em] text-white/60 font-bold">{label}</span>
+    </div>
+  );
+}
+
+/** Preview llamativo del Disfraz Obligatorio del 2º aniversario, pedido
+ * explícito del dueño para que se note como sección aparte del resto del
+ * Home. Fondo oscuro (mismo gradiente radial que ya usa
+ * `PlayCardBannerSection` más abajo -- un morado casi negro que de hecho ya
+ * calza con la paleta Halloween, sin inventar tokens nuevos) en vez del
+ * resto del sitio, claro/pastel -- es la ÚNICA excepción a la decisión de
+ * no tematizar el Home en Halloween (ver comentario en `candyland.ts`): el
+ * resto de la página sigue enfocada en el aniversario, sin Halloween.
+ * El dorado (`#D4A537`/`#E0BE6B`/`#332A14`) es el mismo hex que ya usa
+ * `costumeBadge()` en `server/emailLayout.ts` para el 2º aniversario -- no
+ * hay token compartido cliente/correo para colores, así que se trae el
+ * valor literal acá, acotado a esta sección. */
+function HalloweenTeaserSection() {
+  const { dias, horas, minutos, segundos } = useCountdown(CANDYLAND.eventDate);
+  if (!EVENTO.fechaConfirmada) return null;
+
+  return (
+    // `z-10` para quedar por encima de `ScrollCandies` (capa `fixed z-[5]`
+    // de caramelos que flota sobre TODA la página) -- sin esto, un caramelo
+    // rosado podía superponerse sobre el título en pleno fondo oscuro.
+    <section
+      className="py-16 md:py-24 relative z-10 overflow-hidden"
+      style={{ background: 'radial-gradient(120% 120% at 20% 0%, #241432, #0d0712 70%)' }}
+    >
+      {!prefersReducedMotion() && (
+        <div aria-hidden className="absolute inset-0 pointer-events-none overflow-hidden">
+          {HALLOWEEN_EMOJI.map((h) => (
+            <motion.span
+              key={h.emoji}
+              className={`absolute ${h.size} opacity-30 select-none`}
+              style={{ left: h.left, top: h.top }}
+              animate={{ y: [0, -14, 0], rotate: [0, 6, -6, 0] }}
+              transition={{ duration: h.dur, repeat: Infinity, ease: 'easeInOut' }}
+            >
+              {h.emoji}
+            </motion.span>
+          ))}
+        </div>
+      )}
+
+      <div className="container max-w-3xl relative text-center">
+        <span
+          className="inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide mb-4"
+          style={{ background: '#332A14', color: '#E0BE6B' }}
+        >
+          🎃 Preview
+        </span>
+        <h2 className="font-heading font-extrabold text-3xl md:text-5xl tracking-tight mb-4 leading-[1.1] text-white">
+          Se viene el <span style={{ color: '#D4A537' }}>Disfraz Obligatorio</span>
+        </h2>
+        <p className="text-white/70 text-lg leading-relaxed mb-8 max-w-xl mx-auto">
+          Nuestro 2º aniversario lo celebramos disfrazados -- no tiene que ser profesional, pero sí es obligatorio.
+          Descubre tu nivel de disfraz antes de que se acabe el tiempo.
+        </p>
+
+        <div className="flex items-center justify-center gap-3 md:gap-5 mb-10">
+          <HalloweenCountdownUnit value={dias} label="Días" />
+          <HalloweenCountdownUnit value={horas} label="Hrs" />
+          <HalloweenCountdownUnit value={minutos} label="Min" />
+          <HalloweenCountdownUnit value={segundos} label="Seg" />
+        </div>
+
+        <Link
+          href="/blog/dress-code-explicado"
+          className="btn-jelly inline-flex items-center gap-2 px-7 py-3.5 rounded-full font-bold interactive"
+          style={{ background: '#D4A537', color: '#241432' }}
+        >
+          Descubre tu nivel de disfraz <ArrowRight className="w-4 h-4" />
+        </Link>
+      </div>
+    </section>
+  );
+}
+
 /* ─── Line-up ──────────────────────────────────────────────── */
 
 /* Identidad visual por pista (EDITABLE) */
@@ -2035,6 +2140,7 @@ export default function Home() {
       <UrgencySection vendidos={vendidos} missionPricing={missionPricing} missionActive={missionActive} tanda={tanda} ticketsLoading={liveTicketsLoading} eventId={event?.id} />
       <PlayCardBannerSection />
       <UpcomingEventsSection />
+      <HalloweenTeaserSection />
       <LineupSection />
       <ExperienceSection />
       <InfoSection />

@@ -2,7 +2,6 @@ import type { Article } from './types';
 import { guiaVinaDelMar } from './guias/vina-del-mar';
 import { guiaValparaiso } from './guias/valparaiso';
 import { queLlevar } from './blog/que-llevar';
-import { dressCodeExplicado } from './blog/dress-code-explicado';
 import { primeraVezQueEsperar } from './blog/primera-vez-que-esperar';
 import { comoLlegarYEstacionar } from './blog/como-llegar-y-estacionar';
 
@@ -14,7 +13,6 @@ export const ALL_ARTICLES: Article[] = [
   guiaVinaDelMar,
   guiaValparaiso,
   primeraVezQueEsperar,
-  dressCodeExplicado,
   queLlevar,
   comoLlegarYEstacionar,
 ];
