@@ -113,8 +113,13 @@ const RESPONSE_SCHEMA = {
         type: 'string',
         description: 'Por qué hay que derivar, en pocas palabras. Vacío si handoff es false.',
       },
+      isPersonal: {
+        type: 'boolean',
+        description:
+          'true si este mensaje es de un conocido personal del dueño y no tiene nada que ver con la productora (chat de amigos, un meme o un reel reenviado, planes personales, saludos). Con isPersonal=true no se manda ningún mensaje automático, así que reply puede quedar vacío.',
+      },
     },
-    required: ['reply', 'handoff', 'handoffReason'],
+    required: ['reply', 'handoff', 'handoffReason', 'isPersonal'],
     additionalProperties: false,
   },
 } as const;
@@ -132,6 +137,7 @@ function buildSystemPrompt(config: InstagramAgentConfig): string {
     config.brandNotes,
     '',
     'REGLAS QUE NO SE NEGOCIAN:',
+    '0. Este Instagram lo usa el dueño también para cosas personales: amigos que le escriben, le mandan memes o reels, hacen planes, saludan. Eso NO es una consulta de cliente. Señales de que un mensaje es personal: te habla como si te conociera (tono familiar, sobrenombres, chilenismos entre amigos), no pregunta nada sobre la fiesta/entradas/lugar/fecha, comparte contenido (reel, meme, foto) sin pedir información del evento, o hace referencia a algo que no tiene que ver con la productora. Si el mensaje es personal, marca isPersonal=true y deja reply vacío -- no se le manda nada automático, lo ve el dueño y contesta él. Ante la duda entre "cliente" y "personal", si hay CUALQUIER pregunta sobre la fiesta (fecha, precio, entradas, lugar, cómo llegar) trátalo como cliente, no como personal.',
     '1. Fechas, horarios, precios, lugar y disponibilidad: SOLO los que aparecen en el bloque de datos del mensaje. Si te preguntan algo que no está ahí, dilo y deriva. Jamás estimes ni recuerdes un precio.',
     '2. Nunca digas cuántas entradas quedan. Como mucho "quedan pocas" o "está agotada", nunca un número.',
     '3. Nunca hables de otras personas: si van, quiénes son, cuántas parejas hay, ni nada de ningún cliente. Si preguntan quién va, deriva.',
@@ -147,7 +153,7 @@ function buildSystemPrompt(config: InstagramAgentConfig): string {
     '- Como mucho un emoji, y solo si calza.',
     '- Cuando la pregunta es por comprar, manda el link del evento tal cual está en los datos.',
     '',
-    'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo) y `handoffReason` (por qué, en pocas palabras). Cuando derives, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta.',
+    'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras) e `isPersonal` (ver regla 0). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. La única excepción es isPersonal=true: ahí no se manda nada, así que `reply` puede quedar vacío.',
   ].join('\n');
 }
 
@@ -168,6 +174,7 @@ export type InstagramAgentResult = {
   reply: string;
   handoff: boolean;
   handoffReason: string;
+  isPersonal: boolean;
 };
 
 /** Decide qué responderle a un mensaje de Instagram.
@@ -188,6 +195,7 @@ export async function runInstagramAgent(input: {
     reply: config.handoffMessage,
     handoff: true,
     handoffReason: 'La IA no pudo responder',
+    isPersonal: false,
   };
 
   try {
@@ -209,13 +217,15 @@ export async function runInstagramAgent(input: {
 
     const raw = extractContent(result.choices[0]?.message ?? { content: '' });
     const parsed = JSON.parse(raw) as Partial<InstagramAgentResult>;
+    const isPersonal = parsed.isPersonal === true;
     const reply = typeof parsed.reply === 'string' ? parsed.reply.trim() : '';
-    if (reply.length === 0) return fallback;
+    if (reply.length === 0 && !isPersonal) return fallback;
 
     return {
       reply: reply.slice(0, IG_MAX_REPLY_CHARS),
       handoff: parsed.handoff === true,
       handoffReason: typeof parsed.handoffReason === 'string' ? parsed.handoffReason.slice(0, 500) : '',
+      isPersonal,
     };
   } catch (err) {
     console.error('[Instagram] El agente no pudo responder:', err);

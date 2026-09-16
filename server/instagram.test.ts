@@ -189,6 +189,17 @@ describe('runInstagramAgent', () => {
     expect(result.handoff).toBe(true);
   });
 
+  // Un amigo compartiendo un meme o hablando de algo personal no es una
+  // consulta de cliente: no debe mandarse ningún mensaje automático, así que
+  // una respuesta vacía con isPersonal=true no cae en el fallback de derivar
+  // con el mensaje de "lo ve el equipo".
+  it('marca isPersonal y no cae al fallback cuando la respuesta viene vacía a propósito', async () => {
+    mockLlmJson({ reply: '', handoff: true, handoffReason: 'Es un mensaje personal', isPersonal: true });
+    const result = await runInstagramAgent({ incomingText: 'jajaja mira este reel', history: [], config });
+    expect(result.isPersonal).toBe(true);
+    expect(result.reply).toBe('');
+  });
+
   it('respeta el tope de historial configurado y manda los mensajes como turnos', async () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     const history = Array.from({ length: 20 }, (_, i) => ({
