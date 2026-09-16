@@ -49,7 +49,7 @@ export const queLlevar: Article = {
       ],
     },
   ],
-  relatedSlugs: ['dress-code-explicado', 'como-llegar-y-estacionar'],
+  relatedSlugs: ['como-llegar-y-estacionar'],
   cta: {
     text: 'Revisa el dress code y los detalles de la próxima fecha antes de comprar.',
     label: 'Ver próximos eventos',

@@ -63,7 +63,7 @@ export const guiaValparaiso: Article = {
       ],
     },
   ],
-  relatedSlugs: ['vina-del-mar', 'primera-vez-que-esperar', 'dress-code-explicado'],
+  relatedSlugs: ['vina-del-mar', 'primera-vez-que-esperar'],
   cta: {
     text: 'Si buscas una noche con propuesta propia, mira las próximas fechas.',
     label: 'Ver próximos eventos',
