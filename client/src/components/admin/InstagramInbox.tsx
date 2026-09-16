@@ -173,9 +173,17 @@ function AgentConfigCard() {
           </div>
           {preview.data && (
             <div className="rounded-2xl border p-4 space-y-2 text-sm">
-              <p className="whitespace-pre-wrap">{preview.data.reply}</p>
-              {preview.data.handoff && (
-                <p className="text-amber-600 text-xs">Derivaría a una persona: {preview.data.handoffReason}</p>
+              {preview.data.isPersonal ? (
+                <p className="text-muted-foreground">
+                  🤫 Esto lo marcó como mensaje personal (no de cliente): no se mandaría ninguna respuesta automática, quedaría en la bandeja para que lo veas y contestes vos.
+                </p>
+              ) : (
+                <>
+                  <p className="whitespace-pre-wrap">{preview.data.reply}</p>
+                  {preview.data.handoff && (
+                    <p className="text-amber-600 text-xs">Derivaría a una persona: {preview.data.handoffReason}</p>
+                  )}
+                </>
               )}
             </div>
           )}

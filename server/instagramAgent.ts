@@ -6,6 +6,7 @@ import {
   normalizeInstagramAgentConfig,
   type InstagramAgentConfig,
 } from '../shared/instagramAgentConfig';
+import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/tandaSchedule';
 import type { IgMessage } from '../drizzle/schema';
 
 /* El cerebro del agente que contesta los mensajes directos del Instagram.
@@ -74,12 +75,33 @@ export async function buildInstagramContext(now: Date = new Date()): Promise<str
     // público; los 'hidden' están ocultos por decisión del admin.
     const accesos = tickets.filter((t) => t.category === 'acceso' && t.status !== 'hidden');
     if (accesos.length > 0) {
+      // Misma escala que ya usa el admin para precargar el precio de la
+      // siguiente tanda (ver AdvanceTandaDialog en Dashboard.tsx): así la IA
+      // puede explicar la urgencia real (sube de precio) sin inventar nada y
+      // sin tocar el remanente exacto del cupo, que sigue prohibido.
+      const schedule = normalizeTandaSchedule((event as any).tandaDiscountSchedule);
+      const phaseIndex = (event as any).tandaPhaseIndex ?? 0;
+      const upcomingPhase = nextPhase(phaseIndex, schedule);
+      const currentUntil = schedule[phaseIndex]?.untilDate;
+
       lines.push('- Entradas:');
       for (const t of accesos) {
         const remaining = t.poolRemaining ?? (t.totalStock - t.soldCount);
         const label = availabilityLabel(remaining, t.status === 'soldout');
         const precio = `$${Number(t.price).toLocaleString('es-CL')}`;
-        lines.push(`  · ${t.name}: ${precio} CLP — ${label}${t.description ? ` (${t.description})` : ''}`);
+        let linea = `  · ${t.name}: ${precio} CLP — ${label}${t.description ? ` (${t.description})` : ''}`;
+
+        if (label !== 'AGOTADA' && upcomingPhase && t.originalPrice) {
+          const proximoPrecio = computePhasePrice(Number(t.originalPrice), upcomingPhase.phase.percent);
+          if (proximoPrecio > Number(t.price)) {
+            const proximo = `$${proximoPrecio.toLocaleString('es-CL')}`;
+            linea += ` -- este precio es de esta tanda: sube a ${proximo} en la próxima tanda, ni bien se acabe el cupo de esta tanda`;
+            linea += currentUntil
+              ? ` o llegue el ${formatChileDate(new Date(currentUntil), { withYear: true })} (lo que pase primero).`
+              : '.';
+          }
+        }
+        lines.push(linea);
       }
     }
 
@@ -113,8 +135,13 @@ const RESPONSE_SCHEMA = {
         type: 'string',
         description: 'Por qué hay que derivar, en pocas palabras. Vacío si handoff es false.',
       },
+      isPersonal: {
+        type: 'boolean',
+        description:
+          'true si este mensaje es de un conocido personal del dueño y no tiene nada que ver con la productora (chat de amigos, un meme o un reel reenviado, planes personales, saludos). Con isPersonal=true no se manda ningún mensaje automático, así que reply puede quedar vacío.',
+      },
     },
-    required: ['reply', 'handoff', 'handoffReason'],
+    required: ['reply', 'handoff', 'handoffReason', 'isPersonal'],
     additionalProperties: false,
   },
 } as const;
@@ -132,8 +159,9 @@ function buildSystemPrompt(config: InstagramAgentConfig): string {
     config.brandNotes,
     '',
     'REGLAS QUE NO SE NEGOCIAN:',
+    '0. Este Instagram lo usa el dueño también para cosas personales: amigos que le escriben, le mandan memes o reels, hacen planes, saludan. Eso NO es una consulta de cliente. Señales de que un mensaje es personal: te habla como si te conociera (tono familiar, sobrenombres, chilenismos entre amigos), no pregunta nada sobre la fiesta/entradas/lugar/fecha, comparte contenido (reel, meme, foto) sin pedir información del evento, o hace referencia a algo que no tiene que ver con la productora. Si el mensaje es personal, marca isPersonal=true y deja reply vacío -- no se le manda nada automático, lo ve el dueño y contesta él. Ante la duda entre "cliente" y "personal", si hay CUALQUIER pregunta sobre la fiesta (fecha, precio, entradas, lugar, cómo llegar) trátalo como cliente, no como personal.',
     '1. Fechas, horarios, precios, lugar y disponibilidad: SOLO los que aparecen en el bloque de datos del mensaje. Si te preguntan algo que no está ahí, dilo y deriva. Jamás estimes ni recuerdes un precio.',
-    '2. Nunca digas cuántas entradas quedan. Como mucho "quedan pocas" o "está agotada", nunca un número.',
+    '2. Nunca digas cuántas entradas quedan. Como mucho "quedan pocas" o "está agotada", nunca un número. Si el bloque de datos trae que el precio sube en la próxima tanda, sí puedes mencionar esa urgencia real (a cuánto sube y cuándo/por qué cambia) -- eso no es el remanente del cupo, es información pública de precio.',
     '3. Nunca hables de otras personas: si van, quiénes son, cuántas parejas hay, ni nada de ningún cliente. Si preguntan quién va, deriva.',
     '4. No reserves, no apartes, no ofrezcas pagar por transferencia ni por Instagram. Todo se compra en el link del evento.',
     '5. No des la dirección exacta del local: se manda por correo con la entrada. Sí puedes decir la ciudad/sector si está en los datos.',
@@ -146,8 +174,10 @@ function buildSystemPrompt(config: InstagramAgentConfig): string {
     '- Sin markdown, sin listas con viñetas, sin negritas. Texto plano tal cual se lee en Instagram.',
     '- Como mucho un emoji, y solo si calza.',
     '- Cuando la pregunta es por comprar, manda el link del evento tal cual está en los datos.',
+    '- Cuando preguntan el precio en general ("cuánto vale", "precio", "valores"): NO listes todos los tipos de entrada como un catálogo. Menciona 1 o 2 (los primeros que aparecen en los datos) con su precio, y cierra invitando a ver el resto en el link. Si preguntan explícitamente por TODOS los tipos o precios, ahí sí puedes nombrar más de 2.',
+    '- Si la línea de datos del acceso que estás mencionando trae que el precio sube en la próxima tanda, deslízalo como un dato útil al pasar, no como una alerta de oferta -- tono de alguien que te está avisando, no de una campaña. Por ejemplo (no lo copies literal, es solo el tono): "la Soltera está en $10.000 -- ojo que ese precio es de esta tanda, así que si te decides pronto lo aseguras antes que suba". Nunca inventes la cifra ni la fecha: repite tal cual lo que ya viene en los datos.',
     '',
-    'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo) y `handoffReason` (por qué, en pocas palabras). Cuando derives, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta.',
+    'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras) e `isPersonal` (ver regla 0). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. La única excepción es isPersonal=true: ahí no se manda nada, así que `reply` puede quedar vacío.',
   ].join('\n');
 }
 
@@ -168,6 +198,7 @@ export type InstagramAgentResult = {
   reply: string;
   handoff: boolean;
   handoffReason: string;
+  isPersonal: boolean;
 };
 
 /** Decide qué responderle a un mensaje de Instagram.
@@ -188,6 +219,7 @@ export async function runInstagramAgent(input: {
     reply: config.handoffMessage,
     handoff: true,
     handoffReason: 'La IA no pudo responder',
+    isPersonal: false,
   };
 
   try {
@@ -209,13 +241,15 @@ export async function runInstagramAgent(input: {
 
     const raw = extractContent(result.choices[0]?.message ?? { content: '' });
     const parsed = JSON.parse(raw) as Partial<InstagramAgentResult>;
+    const isPersonal = parsed.isPersonal === true;
     const reply = typeof parsed.reply === 'string' ? parsed.reply.trim() : '';
-    if (reply.length === 0) return fallback;
+    if (reply.length === 0 && !isPersonal) return fallback;
 
     return {
       reply: reply.slice(0, IG_MAX_REPLY_CHARS),
       handoff: parsed.handoff === true,
       handoffReason: typeof parsed.handoffReason === 'string' ? parsed.handoffReason.slice(0, 500) : '',
+      isPersonal,
     };
   } catch (err) {
     console.error('[Instagram] El agente no pudo responder:', err);

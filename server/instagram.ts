@@ -182,10 +182,13 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     await notifyHandoff(thread.username ?? senderId, text, 'El hilo está en manos del equipo');
     return;
   }
-  // Solo texto: una foto o un audio suelto va derecho a una persona en vez
-  // de recibir una respuesta genérica que no viene al caso.
+  // Solo texto: un adjunto suelto (reel, meme, foto, audio) no se puede leer
+  // para saber si es una consulta de cliente o un amigo compartiendo algo --
+  // se deja en silencio para que lo vea una persona, sin mandar ningún
+  // mensaje automático (mandar el aviso de derivación acá sería contestarle
+  // como negocio a lo que puede ser, y de hecho suele ser, un chat personal).
   if (text.length === 0) {
-    await handoff(thread.id, thread.username ?? senderId, text, 'Llegó un adjunto sin texto', config.handoffMessage, senderId);
+    await silentHandoff(thread.id, 'Llegó un adjunto sin texto (reel, foto, audio)');
     return;
   }
 
@@ -206,6 +209,14 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     history: previous,
     config,
   });
+
+  // Mensaje personal (amigo, meme, plan, saludo -- nada que ver con la
+  // productora): no se manda nada automático, queda en la bandeja para que
+  // el dueño lo vea y conteste él como cualquier DM normal.
+  if (result.isPersonal) {
+    await silentHandoff(thread.id, 'La IA lo marcó como mensaje personal, no de cliente');
+    return;
+  }
 
   await deliver(thread.id, senderId, result.reply, 'bot');
 
@@ -239,6 +250,16 @@ async function handoff(
   await deliver(threadId, recipientId, handoffMessage, 'bot');
   await setIgThreadBotPaused(threadId, true, reason);
   await notifyHandoff(who, incoming, reason);
+}
+
+/** Deriva sin mandar ningún mensaje automático ni avisar por push -- para lo
+ * que probablemente ni siquiera es una consulta de cliente (un adjunto suelto
+ * o un mensaje que la IA marcó como personal). El mensaje queda guardado en
+ * la bandeja del admin, tal cual llegó, esperando que el dueño lo vea y
+ * conteste él mismo como cualquier DM normal. Sin push a propósito: no es
+ * una alerta de negocio, es un chat personal que no necesita interrumpir. */
+async function silentHandoff(threadId: number, reason: string): Promise<void> {
+  await setIgThreadBotPaused(threadId, true, reason);
 }
 
 /** Push al celular del admin. Solo en las derivaciones, no en cada DM: un
