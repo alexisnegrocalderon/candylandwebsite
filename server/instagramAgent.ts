@@ -6,6 +6,7 @@ import {
   normalizeInstagramAgentConfig,
   type InstagramAgentConfig,
 } from '../shared/instagramAgentConfig';
+import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/tandaSchedule';
 import type { IgMessage } from '../drizzle/schema';
 
 /* El cerebro del agente que contesta los mensajes directos del Instagram.
@@ -74,12 +75,33 @@ export async function buildInstagramContext(now: Date = new Date()): Promise<str
     // público; los 'hidden' están ocultos por decisión del admin.
     const accesos = tickets.filter((t) => t.category === 'acceso' && t.status !== 'hidden');
     if (accesos.length > 0) {
+      // Misma escala que ya usa el admin para precargar el precio de la
+      // siguiente tanda (ver AdvanceTandaDialog en Dashboard.tsx): así la IA
+      // puede explicar la urgencia real (sube de precio) sin inventar nada y
+      // sin tocar el remanente exacto del cupo, que sigue prohibido.
+      const schedule = normalizeTandaSchedule((event as any).tandaDiscountSchedule);
+      const phaseIndex = (event as any).tandaPhaseIndex ?? 0;
+      const upcomingPhase = nextPhase(phaseIndex, schedule);
+      const currentUntil = schedule[phaseIndex]?.untilDate;
+
       lines.push('- Entradas:');
       for (const t of accesos) {
         const remaining = t.poolRemaining ?? (t.totalStock - t.soldCount);
         const label = availabilityLabel(remaining, t.status === 'soldout');
         const precio = `$${Number(t.price).toLocaleString('es-CL')}`;
-        lines.push(`  · ${t.name}: ${precio} CLP — ${label}${t.description ? ` (${t.description})` : ''}`);
+        let linea = `  · ${t.name}: ${precio} CLP — ${label}${t.description ? ` (${t.description})` : ''}`;
+
+        if (label !== 'AGOTADA' && upcomingPhase && t.originalPrice) {
+          const proximoPrecio = computePhasePrice(Number(t.originalPrice), upcomingPhase.phase.percent);
+          if (proximoPrecio > Number(t.price)) {
+            const proximo = `$${proximoPrecio.toLocaleString('es-CL')}`;
+            linea += ` -- este precio es de esta tanda: sube a ${proximo} en la próxima tanda, ni bien se acabe el cupo de esta tanda`;
+            linea += currentUntil
+              ? ` o llegue el ${formatChileDate(new Date(currentUntil), { withYear: true })} (lo que pase primero).`
+              : '.';
+          }
+        }
+        lines.push(linea);
       }
     }
 
@@ -139,7 +161,7 @@ function buildSystemPrompt(config: InstagramAgentConfig): string {
     'REGLAS QUE NO SE NEGOCIAN:',
     '0. Este Instagram lo usa el dueño también para cosas personales: amigos que le escriben, le mandan memes o reels, hacen planes, saludan. Eso NO es una consulta de cliente. Señales de que un mensaje es personal: te habla como si te conociera (tono familiar, sobrenombres, chilenismos entre amigos), no pregunta nada sobre la fiesta/entradas/lugar/fecha, comparte contenido (reel, meme, foto) sin pedir información del evento, o hace referencia a algo que no tiene que ver con la productora. Si el mensaje es personal, marca isPersonal=true y deja reply vacío -- no se le manda nada automático, lo ve el dueño y contesta él. Ante la duda entre "cliente" y "personal", si hay CUALQUIER pregunta sobre la fiesta (fecha, precio, entradas, lugar, cómo llegar) trátalo como cliente, no como personal.',
     '1. Fechas, horarios, precios, lugar y disponibilidad: SOLO los que aparecen en el bloque de datos del mensaje. Si te preguntan algo que no está ahí, dilo y deriva. Jamás estimes ni recuerdes un precio.',
-    '2. Nunca digas cuántas entradas quedan. Como mucho "quedan pocas" o "está agotada", nunca un número.',
+    '2. Nunca digas cuántas entradas quedan. Como mucho "quedan pocas" o "está agotada", nunca un número. Si el bloque de datos trae que el precio sube en la próxima tanda, sí puedes mencionar esa urgencia real (a cuánto sube y cuándo/por qué cambia) -- eso no es el remanente del cupo, es información pública de precio.',
     '3. Nunca hables de otras personas: si van, quiénes son, cuántas parejas hay, ni nada de ningún cliente. Si preguntan quién va, deriva.',
     '4. No reserves, no apartes, no ofrezcas pagar por transferencia ni por Instagram. Todo se compra en el link del evento.',
     '5. No des la dirección exacta del local: se manda por correo con la entrada. Sí puedes decir la ciudad/sector si está en los datos.',

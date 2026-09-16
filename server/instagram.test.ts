@@ -135,6 +135,44 @@ describe('buildInstagramContext', () => {
     expect(context).not.toContain('Acceso secreto');
   });
 
+  // Lo que pidió el dueño: que la IA pueda explicar que el precio sube en la
+  // próxima tanda y cuándo, sin decir nunca el remanente exacto del cupo.
+  it('avisa el precio de la próxima tanda y su fecha tope sin decir el remanente', async () => {
+    getHomeEventsMock.mockResolvedValueOnce([
+      {
+        id: 1, title: 'Aniversario', slug: 'aniversario', status: 'published',
+        eventDate: new Date('2026-10-10T23:00:00Z'),
+        tandaDiscountSchedule: [{ percent: 60, untilDate: '2026-09-30T23:59:00Z' }, { percent: 50 }],
+        tandaPhaseIndex: 0,
+      },
+    ] as any);
+    getTicketTypesMock.mockResolvedValueOnce([
+      { name: 'Soltera', category: 'acceso', status: 'active', price: '10000', originalPrice: '25000', totalStock: 50, soldCount: 5, poolRemaining: null },
+    ] as any);
+
+    const context = await buildInstagramContext(new Date('2026-09-13T12:00:00Z'));
+    expect(context).toContain('sube a $13.000 en la próxima tanda');
+    expect(context).toContain('30 de septiembre');
+    expect(context).not.toMatch(/quedan\s+\d/);
+  });
+
+  it('no menciona la próxima tanda si ya está en la última fase de la escala', async () => {
+    getHomeEventsMock.mockResolvedValueOnce([
+      {
+        id: 1, title: 'Aniversario', slug: 'aniversario', status: 'published',
+        eventDate: new Date('2026-10-10T23:00:00Z'),
+        tandaDiscountSchedule: [{ percent: 0 }],
+        tandaPhaseIndex: 0,
+      },
+    ] as any);
+    getTicketTypesMock.mockResolvedValueOnce([
+      { name: 'General', category: 'acceso', status: 'active', price: '25000', originalPrice: '25000', totalStock: 50, soldCount: 5, poolRemaining: null },
+    ] as any);
+
+    const context = await buildInstagramContext(new Date('2026-09-13T12:00:00Z'));
+    expect(context).not.toContain('próxima tanda');
+  });
+
   it('avisa que no hay fecha anunciada cuando no hay eventos futuros', async () => {
     getHomeEventsMock.mockResolvedValueOnce([
       { id: 1, title: 'Vieja', slug: 'vieja', status: 'past', eventDate: new Date('2025-01-01T00:00:00Z') },
