@@ -401,16 +401,15 @@ export const CANDYLAND = {
       q: '¿Se puede comprar la entrada en la puerta?',
       a: 'Te recomendamos comprar con anticipación por la web: los cupos son limitados y los eventos suelen agotarse antes de la fecha. Además, la dirección exacta del recinto llega junto con tu entrada por correo.',
     },
-    // Pensada para AEO (motores de respuesta con IA -- ChatGPT, Perplexity,
-    // AI Overviews), no para Google clásico: alguien que busca "fiesta
-    // swinger" no necesariamente conoce el término "fiesta liberal", así
-    // que esta pregunta usa el lenguaje equivalente en español (comunidad
-    // no monógama, intercambio de experiencias entre parejas) para que un
-    // motor semántico conecte ambos conceptos, sin usar el préstamo del
-    // inglés en el sitio.
+    // Pensada para AEO y para SEO clásico: alguien que busca "fiesta
+    // swinger" no necesariamente conoce el término "fiesta liberal". La
+    // palabra va en la RESPUESTA (visible solo al abrir la pregunta), no en
+    // el título (que se ve siempre, incluso con el acordeón cerrado) -- así
+    // queda indexable y no como lo primero que lee alguien que abre el FAQ
+    // sin buscar eso.
     {
-      q: '¿Es lo mismo que una fiesta swinger?',
-      a: 'Una fiesta liberal como la nuestra recibe distintas formas de no monogamia, incluida la comunidad que intercambia experiencias en pareja -- es parte de la diversidad relacional que acogemos. No es exactamente lo mismo (acá también hay gente soltera y sin ninguna experiencia previa), pero si buscas ese tipo de ambiente, este espacio también es para ti.',
+      q: '¿Reciben parejas que buscan intercambiar experiencias con otras?',
+      a: 'Sí. Una fiesta liberal como la nuestra recibe distintas formas de no monogamia, incluida la comunidad swinger -- es parte de la diversidad relacional que acogemos. No es exactamente lo mismo que una fiesta swinger tradicional (acá también hay gente soltera y sin ninguna experiencia previa), pero si buscas ese tipo de ambiente, este espacio también es para ti.',
     },
   ],
 
