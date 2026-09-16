@@ -60,6 +60,7 @@ export default function Blog() {
         breadcrumbLabel="Blog"
         articles={getPosts()}
         emptyText="Todavía no hay artículos publicados."
+        tabs="blog"
       />
     </>
   );

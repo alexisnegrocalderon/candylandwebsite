@@ -3,27 +3,38 @@ import { Link, useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Menu, X, Instagram, ChevronDown } from 'lucide-react';
 import { CANDYLAND, EVENTO } from '@/config/candyland';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { getGuides, getPosts, articlePath, STANDALONE_PAGES } from '@/content';
 
 const navLinks = [
   { href: '/', label: 'Inicio' },
   { href: '/eventos', label: 'Eventos' },
   { href: '/entradas', label: 'Entradas' },
   { href: '/blog/tarjeta-playcard', label: 'PlayCard' },
-  { href: '/panoramas', label: 'Panoramas' },
   { href: '/playmatch', label: 'Playmatch' },
   { href: '/embajadores', label: 'Embajadores' },
+];
+
+// Antes acá había un link plano a "Panoramas" -- se reemplaza por el
+// dropdown "Blog y Guías" de abajo, que muestra el título real de cada
+// artículo (guías + posts + las 2 páginas standalone, PlayCard incluida)
+// en vez de un link genérico al índice. Así la gente ve de qué se trata
+// antes de entrar, que es justo lo que pidió el dueño para que los
+// artículos se encuentren más fácil. PlayCard se queda ADEMÁS como link
+// propio arriba (pedido explícito del dueño, ver PlayCardBannerSection en
+// Home.tsx) -- aparecer también en el dropdown no le resta nada.
+const blogMenuGuias = getGuides().map((a) => ({ label: a.title, href: articlePath(a) }));
+const blogMenuPosts = [
+  ...getPosts().map((a) => ({ label: a.title, href: articlePath(a) })),
+  ...STANDALONE_PAGES.map((p) => ({ label: p.title, href: p.path })),
 ];
 
 // `/mis-referidos` NO va acá: es `noindex` (muestra datos personales del
 // embajador), así que enlazarla desde todas las páginas solo gastaba fuerza
 // de enlazado interno en una página que Google no puede posicionar. Se sigue
 // llegando por el link de los correos y por URL directa.
-// "Nosotros" baja acá para hacerle lugar a "Panoramas" en el menú principal:
-// con 7 ítems el navbar de escritorio se aprieta, y la guía de panoramas capta
-// mucha más búsqueda que la página institucional.
 const secondaryNavLinks = [
-  { href: '/blog', label: 'Blog' },
   { href: '/nosotros', label: 'Nosotros' },
   { href: '/politica-de-reembolso', label: 'Política de reembolso' },
   { href: '/politica-de-privacidad', label: 'Política de privacidad' },
@@ -83,6 +94,33 @@ export default function Navbar() {
                 {link.label}
               </Link>
             ))}
+
+            <DropdownMenu>
+              <DropdownMenuTrigger className={`flex items-center gap-1 text-sm font-medium tracking-wide uppercase transition-colors duration-300 interactive outline-none ${
+                scrolled ? 'text-muted-foreground hover:text-foreground' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
+              }`}>
+                Blog y Guías <ChevronDown size={14} strokeWidth={2} />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-72 max-h-[70vh] overflow-y-auto">
+                <DropdownMenuLabel>Guías</DropdownMenuLabel>
+                {blogMenuGuias.map((link) => (
+                  <DropdownMenuItem key={link.href} asChild>
+                    <Link href={link.href}>{link.label}</Link>
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Blog</DropdownMenuLabel>
+                {blogMenuPosts.map((link) => (
+                  <DropdownMenuItem key={link.href} asChild>
+                    <Link href={link.href}>{link.label}</Link>
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/blog" className="font-semibold text-primary">Ver todo →</Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <DropdownMenu>
               <DropdownMenuTrigger className={`flex items-center gap-1 text-sm font-medium tracking-wide uppercase transition-colors duration-300 interactive outline-none ${
@@ -150,7 +188,7 @@ export default function Navbar() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-            className="fixed inset-0 z-40 bg-background/95 backdrop-blur-xl pt-24 px-6 md:hidden"
+            className="fixed inset-0 z-40 bg-background/95 backdrop-blur-xl pt-24 px-6 pb-8 overflow-y-auto md:hidden"
           >
             <div className="flex flex-col gap-6">
               {navLinks.map((link) => (
@@ -173,6 +211,35 @@ export default function Navbar() {
                   Comprar Entradas
                 </Link>
               )}
+
+              <Accordion type="single" collapsible className="mt-4 pt-4 border-t border-border/40">
+                <AccordionItem value="blog-y-guias" className="border-b-0">
+                  <AccordionTrigger className="text-sm text-muted-foreground py-0 hover:no-underline">
+                    Blog y Guías
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="flex flex-col gap-3 pt-3">
+                      {[...blogMenuGuias, ...blogMenuPosts].map((link) => (
+                        <Link
+                          key={link.href}
+                          href={link.href}
+                          onClick={() => setMobileOpen(false)}
+                          className="text-sm text-foreground/90"
+                        >
+                          {link.label}
+                        </Link>
+                      ))}
+                      <Link
+                        href="/blog"
+                        onClick={() => setMobileOpen(false)}
+                        className="text-sm font-semibold text-primary"
+                      >
+                        Ver todo →
+                      </Link>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
 
               <div className="mt-4 pt-4 border-t border-border/40 flex flex-col gap-3">
                 {secondaryNavLinks.map((link) => (

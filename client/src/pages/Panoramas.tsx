@@ -29,6 +29,7 @@ export default function Panoramas() {
       breadcrumbLabel="Panoramas"
       articles={getGuides()}
       emptyText="Todavía no hay guías publicadas."
+      tabs="guias"
     />
   );
 }

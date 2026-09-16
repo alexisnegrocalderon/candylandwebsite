@@ -1,0 +1,28 @@
+/** Páginas de contenido que viven FUERA de `ALL_ARTICLES` (son componentes
+ * standalone con su propia ruta a mano en `App.tsx`, no artículos del
+ * registro de `content/index.ts`): la Tarjeta PlayCard y "Qué son las
+ * fiestas liberales". Se listan acá, con el mismo shape visual mínimo que
+ * usa un `Article` (título, resumen, emoji, ruta), para que Navbar, Home y
+ * Footer puedan mezclarlas con `ALL_ARTICLES` en una sola lista sin
+ * duplicar esta info en cada archivo. */
+export type StandalonePage = {
+  title: string;
+  description: string;
+  emoji: string;
+  path: string;
+};
+
+export const STANDALONE_PAGES: StandalonePage[] = [
+  {
+    title: '¿Qué son las fiestas liberales?',
+    description: 'Mitos, realidad y un quiz de 2 minutos para saber si es para ti.',
+    emoji: '✨',
+    path: '/blog/que-son-las-fiestas-liberales',
+  },
+  {
+    title: 'La Tarjeta PlayCard',
+    description: 'Tu QR de acceso, saldo prepagado y Playcoins en un solo lugar.',
+    emoji: '💳',
+    path: '/blog/tarjeta-playcard',
+  },
+];
