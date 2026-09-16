@@ -223,7 +223,7 @@ const RESPONSE_SCHEMA = {
  * cupo que no existe o hable de otra persona. Poder apagarlas desde un panel
  * sería poder apagar justamente lo que hace seguro dejar esto contestando
  * solo en una cuenta pública. */
-function buildSystemPrompt(config: InstagramAgentConfig): string {
+function buildSystemPrompt(config: InstagramAgentConfig, opts: { isFinalReplyOfDay?: boolean } = {}): string {
   return [
     'Eres quien contesta los mensajes directos del Instagram de Mansion Playroom. Le escribes a personas de afuera, en público: cada respuesta tuya se lee como si la hubiera escrito la productora.',
     '',
@@ -260,6 +260,12 @@ function buildSystemPrompt(config: InstagramAgentConfig): string {
           '',
           'EJEMPLOS DE CÓMO ESCRIBE EL DUEÑO (imita este tono y esta forma de hablar -- no copies el contenido literal si no calza con la pregunta real):',
           config.styleExamples,
+        ]
+      : []),
+    ...(opts.isFinalReplyOfDay
+      ? [
+          '',
+          'ÚLTIMA RESPUESTA DEL DÍA PARA ESTA PERSONA: este es el último mensaje automático que le vas a poder mandar hoy a este hilo (se llegó al tope diario de respuestas). No la dejes esperando ni la conversación cortada a medias: cierra este mensaje dándole lo que le falta para decidir -- si la conversación iba de interés en el evento, incluye el link real de compra tal cual está en los datos AUNQUE normalmente hubieras preguntado antes (esta regla pisa, solo por esta vez, la de "curiosidad vs. intención real" y la de "preguntar antes del link de contenido" de más arriba, justamente porque después de este mensaje el bot no vuelve a contestar hoy). Si ya le diste todo lo que pidió y no queda nada pendiente, despídete cálido nomás. Mantén el mismo tono cercano de siempre, no le digas que "se acabaron tus respuestas" ni nada que suene a límite técnico.',
         ]
       : []),
     '',
@@ -299,6 +305,10 @@ export async function runInstagramAgent(input: {
   history: IgMessage[];
   config: unknown;
   now?: Date;
+  /** true cuando esta va a ser la última respuesta automática del día para
+   * este hilo (se llegó al tope diario) -- le pide al modelo que cierre la
+   * conversación en vez de dejarla a medias hasta mañana. Ver instagram.ts. */
+  isFinalReplyOfDay?: boolean;
 }): Promise<InstagramAgentResult> {
   const config = normalizeInstagramAgentConfig(input.config);
   const fallback: InstagramAgentResult = {
@@ -314,7 +324,7 @@ export async function runInstagramAgent(input: {
 
     const result = await invokeLLM({
       messages: [
-        { role: 'system', content: buildSystemPrompt(config) },
+        { role: 'system', content: buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay }) },
         ...history,
         {
           role: 'user',

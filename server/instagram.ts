@@ -212,9 +212,18 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const repliesToday = await countIgBotRepliesSince(thread.id, since);
   if (repliesToday >= config.dailyReplyLimitPerThread) {
+    // Red de seguridad: en el día a día esto no debería pasar, porque la
+    // respuesta anterior (repliesToday === límite - 1) ya cerró la
+    // conversación como isFinalReplyOfDay. Cubre el caso borde de que el
+    // dueño haya bajado el tope a mitad del día.
     await handoff(thread.id, thread.username ?? senderId, text, 'Se pasó del tope diario de respuestas automáticas', config.handoffMessage, senderId);
     return;
   }
+  // Pedido del dueño: si esta respuesta va a ser la última del día para este
+  // hilo, que no quede la conversación a medias hasta mañana -- se le pide
+  // al modelo que cierre (con el link si corresponde) en vez de mandar acá
+  // un mensaje genérico de "dame un minuto".
+  const isFinalReplyOfDay = repliesToday === config.dailyReplyLimitPerThread - 1;
 
   const history = await getIgMessages(thread.id, config.historyLimit + 1);
   // El mensaje que acaba de llegar viaja aparte en el prompt, no como parte
@@ -225,6 +234,7 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     incomingText: text,
     history: previous,
     config,
+    isFinalReplyOfDay,
   });
 
   // Mensaje personal (amigo, meme, plan, saludo -- nada que ver con la
@@ -245,7 +255,11 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
 
   await deliver(thread.id, senderId, result.reply, 'bot');
 
-  if (result.handoff) {
+  if (isFinalReplyOfDay) {
+    const reason = 'Llegó al tope diario de respuestas automáticas -- se cerró la conversación con un mensaje final';
+    await setIgThreadBotPaused(thread.id, true, reason);
+    await notifyHandoff(thread.username ?? senderId, text, reason);
+  } else if (result.handoff) {
     await setIgThreadBotPaused(thread.id, true, result.handoffReason || 'La IA derivó la conversación');
     await notifyHandoff(thread.username ?? senderId, text, result.handoffReason);
   }
