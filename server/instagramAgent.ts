@@ -8,6 +8,7 @@ import {
 } from '../shared/instagramAgentConfig';
 import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/tandaSchedule';
 import type { IgMessage } from '../drizzle/schema';
+import { ALL_ARTICLES, articlePath } from '../client/src/content';
 
 /* El cerebro del agente que contesta los mensajes directos del Instagram.
  *
@@ -120,6 +121,58 @@ export async function buildInstagramContext(now: Date = new Date()): Promise<str
   return blocks.join('\n');
 }
 
+/** Páginas informativas del sitio que no viven en `content/index.ts` (son
+ * rutas standalone, ver client/src/App.tsx) -- cambian poco, así que se
+ * mantienen a mano acá. Los artículos de blog/panoramas SÍ se toman de
+ * `ALL_ARTICLES` más abajo, para que uno nuevo aparezca solo sin tocar este
+ * archivo de nuevo. */
+const STANDALONE_SITE_PAGES: { topic: string; path: string; summary: string }[] = [
+  {
+    topic: 'Tarjeta PlayCard (QR, saldo, Playcoins)',
+    path: '/blog/tarjeta-playcard',
+    summary: 'Tu QR de acceso, saldo prepagado y Playcoins en un solo lugar, paso a paso.',
+  },
+  {
+    topic: 'Qué son las fiestas liberales',
+    path: '/blog/que-son-las-fiestas-liberales',
+    summary: 'Mitos y realidades de las fiestas liberales.',
+  },
+  {
+    topic: 'Quiénes somos',
+    path: '/nosotros',
+    summary: 'Quiénes son y la historia de Mansion Playroom.',
+  },
+  {
+    topic: 'Reembolso o transferencia de una entrada',
+    path: '/politica-de-reembolso',
+    summary: 'Reglas de reembolso y transferencia de entradas.',
+  },
+  {
+    topic: 'Privacidad de los datos',
+    path: '/politica-de-privacidad',
+    summary: 'Cómo se usan los datos personales.',
+  },
+  {
+    topic: 'Programa de embajadores',
+    path: '/embajadores',
+    summary: 'Cómo funciona el programa de embajadores/referidos.',
+  },
+];
+
+/** Lista de temas con página propia en el sitio, para que el agente conteste
+ * breve y mande a leer el resto ahí en vez de explicarlo todo en el DM (así
+ * se evita una conversación larga por cada tema que ya está resuelto en la
+ * web). Es contenido estático (no depende de `now` ni de la base), así que
+ * se arma una sola vez por llamada dentro del propio system prompt. */
+function buildSiteLinksBlock(): string {
+  const lines = [
+    'PÁGINAS DEL SITIO CON MÁS INFORMACIÓN (para responder breve y mandar a leer el resto ahí, en vez de explicarlo todo tú):',
+    ...ALL_ARTICLES.map((a) => `- ${a.title}: ${a.description} — ${APP_URL}${articlePath(a)}`),
+    ...STANDALONE_SITE_PAGES.map((p) => `- ${p.topic}: ${p.summary} — ${APP_URL}${p.path}`),
+  ];
+  return lines.join('\n');
+}
+
 const RESPONSE_SCHEMA = {
   name: 'respuesta_instagram',
   strict: true,
@@ -161,6 +214,8 @@ function buildSystemPrompt(config: InstagramAgentConfig): string {
     'CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):',
     config.brandNotes,
     '',
+    buildSiteLinksBlock(),
+    '',
     'REGLAS QUE NO SE NEGOCIAN:',
     '0. Este Instagram lo usa el dueño también para cosas personales: amigos que le escriben, le mandan memes o reels, hacen planes, saludan. Eso NO es una consulta de cliente. Señales de que un mensaje es personal: te habla como si te conociera (tono familiar, sobrenombres, chilenismos entre amigos), no pregunta nada sobre la fiesta/entradas/lugar/fecha, comparte contenido (reel, meme, foto) sin pedir información del evento, o hace referencia a algo que no tiene que ver con la productora. Si el mensaje es personal, marca isPersonal=true y deja reply vacío -- no se le manda nada automático, lo ve el dueño y contesta él. Ante la duda entre "cliente" y "personal", si hay CUALQUIER pregunta sobre la fiesta (fecha, precio, entradas, lugar, cómo llegar) trátalo como cliente, no como personal.',
     '1. Fechas, horarios, precios, lugar y disponibilidad: SOLO los que aparecen en el bloque de datos del mensaje. Si te preguntan algo que no está ahí, dilo y deriva. Jamás estimes ni recuerdes un precio.',
@@ -179,6 +234,7 @@ function buildSystemPrompt(config: InstagramAgentConfig): string {
     '- Cuando la pregunta es por comprar, manda el link del evento tal cual está en los datos.',
     '- Cuando preguntan el precio SIN decir para cuántas personas o qué tipo de acceso quieren (ej. "cuánto vale la entrada", "qué precio tiene"): no listes todos los tipos ni asumas uno -- pregúntales primero, corto y natural, algo como "¿vienes solo/a, en pareja o en grupo?" o "¿qué tipo de acceso te tinca?", así les das el precio exacto que les sirve en vez de tirarles una lista. Cuando SÍ especifican (mencionan "sola", "dúo", "en pareja", "grupo de x", o nombran un tipo de acceso que está en los datos, o ya respondieron tu pregunta anterior en el historial), ahí contesta directo con el precio de ESE acceso, sin listar los demás -- eso es "personalizado": una respuesta para lo que esa persona realmente preguntó, no un catálogo. Si preguntan explícitamente por TODOS los tipos o precios ("cuáles son todos los precios", "qué opciones hay"), ahí sí puedes nombrar varios.',
     '- Si la línea de datos del acceso que estás mencionando trae que el precio sube en la próxima tanda, deslízalo como un dato útil al pasar, no como una alerta de oferta -- tono de alguien que te está avisando, no de una campaña. Por ejemplo (no lo copies literal, es solo el tono): "la Soltera está en $10.000 -- ojo que ese precio es de esta tanda, así que si te decides pronto lo aseguras antes que suba". Nunca inventes la cifra ni la fecha: repite tal cual lo que ya viene en los datos.',
+    '- Si la pregunta calza con alguno de los temas de "PÁGINAS DEL SITIO CON MÁS INFORMACIÓN", no te quedes explicando todo el tema en el DM: contesta en una frase breve y cierra siempre con el link exacto de esa página tal cual aparece en la lista (nunca inventes una URL), con un tono tipo "toda la info la encuentras acá: <link>". Esto es para no alargar la conversación -- no reemplaza ninguna de las reglas de arriba (sigue sin inventar precios/fechas, sigue preguntando el tipo de acceso antes de dar un precio, etc.).',
     '',
     'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras) e `isPersonal` (ver regla 0). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. La única excepción es isPersonal=true: ahí no se manda nada, así que `reply` puede quedar vacío.',
   ].join('\n');

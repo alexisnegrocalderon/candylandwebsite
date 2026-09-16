@@ -238,6 +238,18 @@ describe('runInstagramAgent', () => {
     expect(result.reply).toBe('');
   });
 
+  // Lo que pidió el dueño: para temas que ya tienen página propia en el
+  // sitio, el agente debe poder linkear a la info completa en vez de
+  // explicarlo todo en el DM -- el system prompt tiene que traer esos links
+  // reales, no inventados.
+  it('el system prompt trae los links reales de las páginas del sitio', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: 'qué es la tarjeta playcard?', history: [], config });
+    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    expect(systemPrompt).toContain('https://mansionplayroom.cl/blog/tarjeta-playcard');
+    expect(systemPrompt).toContain('https://mansionplayroom.cl/blog/dress-code-explicado');
+  });
+
   it('respeta el tope de historial configurado y manda los mensajes como turnos', async () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     const history = Array.from({ length: 20 }, (_, i) => ({
