@@ -11,6 +11,10 @@ export const ENV = {
   // (ver server/_core/llm.ts, resolveProvider) -- variable propia, nunca
   // pisa BUILT_IN_FORGE_*, que siguen usando llm/notification.
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+  // Proveedor de IA principal cuando está configurada (ver
+  // server/_core/llm.ts, resolveProvider) -- tiene prioridad sobre
+  // geminiApiKey/forgeApiKey. Créditos propios del dueño en Claude Console.
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
   // Autentica al cron diario de mailing (server/cronRoutes.ts) -- Vercel
   // manda `Authorization: Bearer <CRON_SECRET>` automáticamente en cada
   // invocación cuando esta variable está seteada en el proyecto. Sin ella
