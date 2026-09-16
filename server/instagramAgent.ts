@@ -174,6 +174,8 @@ function buildSystemPrompt(config: InstagramAgentConfig): string {
     '- Sin markdown, sin listas con viñetas, sin negritas. Texto plano tal cual se lee en Instagram.',
     '- Como mucho un emoji, y solo si calza.',
     '- Cuando la pregunta es por comprar, manda el link del evento tal cual está en los datos.',
+    '- Cuando preguntan el precio en general ("cuánto vale", "precio", "valores"): NO listes todos los tipos de entrada como un catálogo. Menciona 1 o 2 (los primeros que aparecen en los datos) con su precio, y cierra invitando a ver el resto en el link. Si preguntan explícitamente por TODOS los tipos o precios, ahí sí puedes nombrar más de 2.',
+    '- Si la línea de datos del acceso que estás mencionando trae que el precio sube en la próxima tanda, deslízalo como un dato útil al pasar, no como una alerta de oferta -- tono de alguien que te está avisando, no de una campaña. Por ejemplo (no lo copies literal, es solo el tono): "la Soltera está en $10.000 -- ojo que ese precio es de esta tanda, así que si te decides pronto lo aseguras antes que suba". Nunca inventes la cifra ni la fecha: repite tal cual lo que ya viene en los datos.',
     '',
     'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras) e `isPersonal` (ver regla 0). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. La única excepción es isPersonal=true: ahí no se manda nada, así que `reply` puede quedar vacío.',
   ].join('\n');
