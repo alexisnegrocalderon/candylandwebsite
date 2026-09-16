@@ -69,7 +69,7 @@ export const primeraVezQueEsperar: Article = {
       ],
     },
   ],
-  relatedSlugs: ['dress-code-explicado', 'que-llevar', 'como-llegar-y-estacionar'],
+  relatedSlugs: ['que-llevar', 'como-llegar-y-estacionar'],
   cta: {
     text: '¿Te dieron ganas de conocerlo? Mira la próxima fecha.',
     label: 'Ver próximos eventos',

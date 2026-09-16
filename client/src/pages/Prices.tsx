@@ -144,7 +144,7 @@ export default function Prices() {
                   Qué esperar en tu primera vez →
                 </Link>
                 <Link href="/blog/dress-code-explicado" className="text-primary text-sm font-semibold hover:underline">
-                  Dress code explicado →
+                  Disfraz obligatorio: ¿qué me pongo? →
                 </Link>
                 <Link href="/blog/como-llegar-y-estacionar" className="text-primary text-sm font-semibold hover:underline">
                   Cómo llegar y dónde estacionar →

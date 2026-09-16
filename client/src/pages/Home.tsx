@@ -665,12 +665,12 @@ function PlayCardBannerSection() {
  * del artículo real. */
 function useBlogHighlights(): { title: string; description: string; emoji: string; href: string }[] {
   const fiestasLiberales = STANDALONE_PAGES.find((p) => p.path === '/blog/que-son-las-fiestas-liberales');
-  const dressCode = getArticle('blog', 'dress-code-explicado');
+  const dressCode = STANDALONE_PAGES.find((p) => p.path === '/blog/dress-code-explicado');
   const vinaDelMar = getArticle('guia', 'vina-del-mar');
 
   return [
     fiestasLiberales && { title: fiestasLiberales.title, description: fiestasLiberales.description, emoji: fiestasLiberales.emoji, href: fiestasLiberales.path },
-    dressCode && { title: dressCode.heading, description: dressCode.description, emoji: dressCode.emoji, href: articlePath(dressCode) },
+    dressCode && { title: dressCode.title, description: dressCode.description, emoji: dressCode.emoji, href: dressCode.path },
     vinaDelMar && { title: vinaDelMar.heading, description: vinaDelMar.description, emoji: vinaDelMar.emoji, href: articlePath(vinaDelMar) },
   ].filter((x): x is { title: string; description: string; emoji: string; href: string } => !!x);
 }

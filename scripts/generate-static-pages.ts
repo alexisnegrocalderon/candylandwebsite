@@ -166,6 +166,28 @@ function staticRoutes(): RouteMeta[] {
       }),
     },
     {
+      path: '/blog/dress-code-explicado',
+      file: 'blog/dress-code-explicado.html',
+      meta: withOg({
+        path: '/blog/dress-code-explicado',
+        title: 'Disfraz Obligatorio — 2º Aniversario Mansion Playroom',
+        description: 'No tiene que ser profesional, pero sí es obligatorio. Tips reales para resolverlo sin gastar y un quiz de 2 minutos: descubre tu nivel de disfraz.',
+        jsonLd: [
+          articleSchema({
+            headline: 'Disfraz Obligatorio',
+            description: 'No tiene que ser profesional, pero sí es obligatorio -- tips reales y un quiz para saber tu nivel de disfraz.',
+            url: '/blog/dress-code-explicado',
+            datePublished: '2026-09-16',
+          }),
+          breadcrumbSchema([
+            { name: 'Inicio', path: '/' },
+            { name: 'Blog', path: '/blog' },
+            { name: 'Disfraz Obligatorio', path: '/blog/dress-code-explicado' },
+          ]),
+        ],
+      }),
+    },
+    {
       path: '/politica-de-reembolso',
       file: 'politica-de-reembolso.html',
       meta: withOg({
