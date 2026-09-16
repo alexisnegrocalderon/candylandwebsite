@@ -290,6 +290,25 @@ describe('runInstagramAgent', () => {
     expect(systemPrompt).toContain('NO incluyas el link en esa primera respuesta');
   });
 
+  // Pedido del dueño: si esta va a ser la última respuesta automática del
+  // día para el hilo (tope diario), el agente tiene que cerrar la
+  // conversación en ese mismo mensaje -- mandando el link aunque normalmente
+  // hubiera preguntado antes -- en vez de dejarla picada hasta mañana.
+  it('el system prompt pide cerrar la conversación cuando es la última respuesta del día', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: 'cuéntame del próximo evento', history: [], config, isFinalReplyOfDay: true });
+    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    expect(systemPrompt).toContain('ÚLTIMA RESPUESTA DEL DÍA');
+    expect(systemPrompt).toContain('tope diario');
+  });
+
+  it('el system prompt NO trae la instrucción de cierre en una respuesta normal', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: 'hola', history: [], config });
+    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    expect(systemPrompt).not.toContain('ÚLTIMA RESPUESTA DEL DÍA');
+  });
+
   // Lo que reportó el dueño con una captura real: ante una pregunta de puro
   // interés/curiosidad (no una intención real de comprar), el agente no debe
   // mandar el link de compra de una -- tiene que preguntar primero, mismo
