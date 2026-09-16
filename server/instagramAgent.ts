@@ -138,6 +138,11 @@ const STANDALONE_SITE_PAGES: { topic: string; path: string; summary: string }[] 
     summary: 'Mitos y realidades de las fiestas liberales.',
   },
   {
+    topic: 'Disfraz obligatorio (quiz de nivel de disfraz)',
+    path: '/blog/dress-code-explicado',
+    summary: 'No tiene que ser profesional, pero sí es obligatorio -- tips y un quiz de 1 minuto.',
+  },
+  {
     topic: 'Quiénes somos',
     path: '/nosotros',
     summary: 'Quiénes son y la historia de Mansion Playroom.',
@@ -234,7 +239,7 @@ function buildSystemPrompt(config: InstagramAgentConfig): string {
     '- Cuando la pregunta es por comprar, manda el link del evento tal cual está en los datos.',
     '- Cuando preguntan el precio SIN decir para cuántas personas o qué tipo de acceso quieren (ej. "cuánto vale la entrada", "qué precio tiene"): no listes todos los tipos ni asumas uno -- pregúntales primero, corto y natural, algo como "¿vienes solo/a, en pareja o en grupo?" o "¿qué tipo de acceso te tinca?", así les das el precio exacto que les sirve en vez de tirarles una lista. Cuando SÍ especifican (mencionan "sola", "dúo", "en pareja", "grupo de x", o nombran un tipo de acceso que está en los datos, o ya respondieron tu pregunta anterior en el historial), ahí contesta directo con el precio de ESE acceso, sin listar los demás -- eso es "personalizado": una respuesta para lo que esa persona realmente preguntó, no un catálogo. Si preguntan explícitamente por TODOS los tipos o precios ("cuáles son todos los precios", "qué opciones hay"), ahí sí puedes nombrar varios.',
     '- Si la línea de datos del acceso que estás mencionando trae que el precio sube en la próxima tanda, deslízalo como un dato útil al pasar, no como una alerta de oferta -- tono de alguien que te está avisando, no de una campaña. Por ejemplo (no lo copies literal, es solo el tono): "la Soltera está en $10.000 -- ojo que ese precio es de esta tanda, así que si te decides pronto lo aseguras antes que suba". Nunca inventes la cifra ni la fecha: repite tal cual lo que ya viene en los datos.',
-    '- Si la pregunta calza con alguno de los temas de "PÁGINAS DEL SITIO CON MÁS INFORMACIÓN", no te quedes explicando todo el tema en el DM: contesta en una frase breve y cierra siempre con el link exacto de esa página tal cual aparece en la lista (nunca inventes una URL), con un tono tipo "toda la info la encuentras acá: <link>". Esto es para no alargar la conversación -- no reemplaza ninguna de las reglas de arriba (sigue sin inventar precios/fechas, sigue preguntando el tipo de acceso antes de dar un precio, etc.).',
+    '- Si la pregunta calza con alguno de los temas de "PÁGINAS DEL SITIO CON MÁS INFORMACIÓN", no te quedes explicando todo el tema en el DM: contesta en 1-2 frases breves con la info real (nunca inventada) y pregúntale si quiere que le mandes el link con el detalle completo, algo como "¿te paso el link con todo el detalle?". NO incluyas el link en esa primera respuesta. Solo escribe el link exacto de esa página tal cual aparece en la lista (nunca inventes una URL) cuando la persona ya haya pedido el link/más información -- revisa el historial: si en un mensaje anterior tuyo ya preguntaste y ahora te dice que sí (o de entrada te pide el link/artículo/más info sobre ese tema), ahí sí lo mandas. Esto es solo para los links de contenido/blog -- NUNCA se aplica al link de compra del evento (regla de arriba y la de precios): ese siempre se manda de inmediato cuando corresponde, sin preguntar nada.',
     '',
     'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras) e `isPersonal` (ver regla 0). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. La única excepción es isPersonal=true: ahí no se manda nada, así que `reply` puede quedar vacío.',
   ].join('\n');

@@ -132,6 +132,23 @@ instagramRouter.post(
   },
 );
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Retraso corto antes de contestar, para que no se sienta instantáneo/
+ * robótico -- pedido explícito del dueño. Acotado a pocos segundos (no los
+ * 20-30s que hubiera sido lo ideal de verdad) porque el webhook procesa
+ * TODO antes de responderle 200 a Meta (ver el comentario grande más abajo,
+ * dentro del handler del POST): unos segundos los tolera bien, medio minuto
+ * ya arriesga que Meta piense que la entrega se perdió y reintente.
+ * Aleatorio dentro del rango para que tampoco se sienta como un timer fijo. */
+export function humanReplyDelayMs(): number {
+  const MIN_MS = 3000;
+  const MAX_MS = 8000;
+  return MIN_MS + Math.floor(Math.random() * (MAX_MS - MIN_MS));
+}
+
 async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   const senderId = event.sender?.id;
   const message = event.message;
@@ -217,6 +234,14 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     await silentHandoff(thread.id, 'La IA lo marcó como mensaje personal, no de cliente');
     return;
   }
+
+  // Pedido del dueño: que no se sienta instantáneo/robótico. Un retraso
+  // corto (no los 20-30s que hubiera sido lo ideal) porque Meta espera la
+  // confirmación del webhook pronto -- ver el comentario grande más abajo
+  // en el handler del POST, que explica por qué se procesa TODO antes de
+  // responder 200. Unos segundos los tolera bien; medio minuto ya arriesga
+  // que Meta reintente la entrega pensando que se perdió.
+  await sleep(humanReplyDelayMs());
 
   await deliver(thread.id, senderId, result.reply, 'bot');
 

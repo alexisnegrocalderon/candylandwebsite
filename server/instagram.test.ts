@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invokeLLM } from './_core/llm';
 import * as db from './db';
-import { verifyMetaSignature } from './instagram';
+import { verifyMetaSignature, humanReplyDelayMs } from './instagram';
 import { canReplyWithinWindow } from './instagramSend';
 import { buildInstagramContext, runInstagramAgent } from './instagramAgent';
 import { normalizeInstagramAgentConfig, IG_MAX_REPLY_CHARS } from '../shared/instagramAgentConfig';
@@ -70,6 +70,20 @@ describe('canReplyWithinWindow', () => {
 
   it('no permite responder a un hilo sin mensajes entrantes', () => {
     expect(canReplyWithinWindow(null, now)).toBe(false);
+  });
+});
+
+describe('humanReplyDelayMs', () => {
+  // Rango acotado a propósito (ver comentario en instagram.ts): unos
+  // segundos, no los 20-30s que hubiera sido lo ideal, porque el webhook
+  // tiene que confirmarle a Meta antes de que se arriesgue a reintentar la
+  // entrega.
+  it('devuelve un valor entre 3 y 8 segundos', () => {
+    for (let i = 0; i < 50; i++) {
+      const ms = humanReplyDelayMs();
+      expect(ms).toBeGreaterThanOrEqual(3000);
+      expect(ms).toBeLessThan(8000);
+    }
   });
 });
 
@@ -248,6 +262,19 @@ describe('runInstagramAgent', () => {
     const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
     expect(systemPrompt).toContain('https://mansionplayroom.cl/blog/tarjeta-playcard');
     expect(systemPrompt).toContain('https://mansionplayroom.cl/blog/dress-code-explicado');
+  });
+
+  // Lo que pidió el dueño: no mandar el link de contenido/blog de entrada --
+  // primero dar la info real y preguntar si quiere el link, para que se
+  // sienta más conversación que "aquí está, chao". El link de compra del
+  // evento (otra regla, ya probada arriba) no se toca.
+  it('el system prompt pide preguntar antes de mandar un link de contenido', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: 'qué es la tarjeta playcard?', history: [], config });
+    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    expect(systemPrompt).toContain('¿te paso el link con todo el detalle?');
+    expect(systemPrompt).toContain('NO incluyas el link en esa primera respuesta');
+    expect(systemPrompt).toContain('NUNCA se aplica al link de compra del evento');
   });
 
   it('respeta el tope de historial configurado y manda los mensajes como turnos', async () => {
