@@ -5897,6 +5897,38 @@ export async function countIgUnreadThreads(): Promise<number> {
   return Number(row?.count ?? 0);
 }
 
+/** Borra un hilo entero y sus mensajes. Lo usa el botón manual "Eliminar
+ * conversación" del admin -- irreversible, por eso el router lo cuelga de
+ * `adminPasswordProcedure` en vez de `adminProcedure`. */
+export async function deleteIgThread(id: number): Promise<{ deleted: boolean }> {
+  const db = await getDb();
+  if (!db) return { deleted: false };
+  await db.delete(igMessages).where(eq(igMessages.threadId, id));
+  await db.delete(igThreads).where(eq(igThreads.id, id));
+  return { deleted: true };
+}
+
+/** Plazo de conservación de las conversaciones de Instagram -- pasado este
+ * tiempo sin actividad, el hilo se borra entero (mensajes y todo) para que
+ * la bandeja no se llene. Lo corre el cron diario de mantención. */
+export const IG_THREAD_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Borra los hilos (y sus mensajes) sin actividad hace más de
+ * `IG_THREAD_RETENTION_MS`. Mismo patrón que `purgeOldPartyMessages`. */
+export async function purgeOldIgThreads(now: Date = new Date()): Promise<{ threadsDeleted: number }> {
+  const db = await getDb();
+  if (!db) return { threadsDeleted: 0 };
+
+  const cutoff = new Date(now.getTime() - IG_THREAD_RETENTION_MS);
+  const old = await db.select({ id: igThreads.id }).from(igThreads).where(lte(igThreads.lastMessageAt, cutoff));
+  if (old.length === 0) return { threadsDeleted: 0 };
+
+  const ids = old.map((t: any) => t.id);
+  await db.delete(igMessages).where(inArray(igMessages.threadId, ids));
+  await db.delete(igThreads).where(inArray(igThreads.id, ids));
+  return { threadsDeleted: ids.length };
+}
+
 // ---------------------------------------------------------------------------
 // Contador diario de TODOS los correos (server/email.ts sendEmail).
 // ---------------------------------------------------------------------------

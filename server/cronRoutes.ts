@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { ENV } from "./_core/env";
 import { processMailingCronBatch } from "./mailing";
-import { purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, getEventHappeningToday, getCajaDashboard, getHomeEvents } from "./db";
+import { purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, purgeOldIgThreads, getEventHappeningToday, getCajaDashboard, getHomeEvents } from "./db";
 import { sendEmail, buildCheckinSummaryEmail } from "./email";
 import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
 import { runAbandonedCartCron } from "./orderReminders";
@@ -123,7 +123,15 @@ export function registerCronRoutes(app: Express) {
       console.error('[Cron] Error limpiando datos de fiestas terminadas:', err);
     }
 
-    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired });
+    // Aparte: si esto falla, que no tumbe las purgas de arriba (ni al revés).
+    let igThreadsPurged = 0;
+    try {
+      igThreadsPurged = (await purgeOldIgThreads()).threadsDeleted;
+    } catch (err) {
+      console.error('[Cron] Error limpiando conversaciones viejas de Instagram:', err);
+    }
+
+    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, igThreadsPurged });
   });
 
   /* Correo semanal de embajadores (docs: pestaña "Material" en /admin →
