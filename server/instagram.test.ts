@@ -238,6 +238,21 @@ describe('runInstagramAgent', () => {
     expect(result.reply).toBe('');
   });
 
+  it('el tono de urgencia y la pregunta de tipo de acceso son configurables desde el system prompt', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '', isPersonal: false });
+    await runInstagramAgent({
+      incomingText: 'hola',
+      history: [],
+      config: { ...config, urgencyTone: 'directo', askAccessTypeBeforePrice: false, styleExamples: 'sisi tenemos cupo!' },
+    });
+
+    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content as string;
+    expect(systemPrompt).toContain('tipo aviso de oferta');
+    expect(systemPrompt).toContain('no listes todos los tipos como un catálogo');
+    expect(systemPrompt).toContain('EJEMPLOS DE TONO');
+    expect(systemPrompt).toContain('sisi tenemos cupo!');
+  });
+
   it('respeta el tope de historial configurado y manda los mensajes como turnos', async () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     const history = Array.from({ length: 20 }, (_, i) => ({
@@ -276,5 +291,21 @@ describe('normalizeInstagramAgentConfig', () => {
     expect(normalizeInstagramAgentConfig({ historyLimit: 500 }).historyLimit).toBe(40);
     expect(normalizeInstagramAgentConfig({ historyLimit: 0 }).historyLimit).toBeGreaterThan(0);
     expect(normalizeInstagramAgentConfig({ dailyReplyLimitPerThread: 9999 }).dailyReplyLimitPerThread).toBe(200);
+  });
+
+  it('arranca con tono sutil, preguntando el tipo de acceso, y sin ejemplos de estilo', () => {
+    const config = normalizeInstagramAgentConfig({});
+    expect(config.urgencyTone).toBe('sutil');
+    expect(config.askAccessTypeBeforePrice).toBe(true);
+    expect(config.styleExamples).toBe('');
+  });
+
+  it('respeta un tono directo guardado, pero cualquier otro valor cae a sutil', () => {
+    expect(normalizeInstagramAgentConfig({ urgencyTone: 'directo' }).urgencyTone).toBe('directo');
+    expect(normalizeInstagramAgentConfig({ urgencyTone: 'lo que sea' }).urgencyTone).toBe('sutil');
+  });
+
+  it('permite apagar la pregunta de tipo de acceso explícitamente', () => {
+    expect(normalizeInstagramAgentConfig({ askAccessTypeBeforePrice: false }).askAccessTypeBeforePrice).toBe(false);
   });
 });
