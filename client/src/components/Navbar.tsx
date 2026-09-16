@@ -228,23 +228,18 @@ export default function Navbar() {
                 </Link>
               ))}
 
-              {EVENTO.fechaConfirmada && (
-                <Link
-                  href={`/checkout/${CANDYLAND.slug}`}
-                  onClick={() => setMobileOpen(false)}
-                  className="mt-2 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center"
-                >
-                  Comprar Entradas
-                </Link>
-              )}
-
-              <Accordion type="single" collapsible className="mt-4 pt-4 border-t border-border/40">
+              {/* Mismo tamaño/peso que el resto de los títulos de arriba --
+               * pedido explícito del dueño, para que no se lea como un link
+               * secundario menor sino como una sección más del menú
+               * principal. Se queda como acordeón (toca para desplegar los
+               * chips de artículos) en vez de link directo. */}
+              <Accordion type="single" collapsible>
                 <AccordionItem value="blog-y-guias" className="border-b-0">
-                  <AccordionTrigger className="text-sm text-muted-foreground py-0 hover:no-underline">
+                  <AccordionTrigger className="text-3xl font-heading font-bold tracking-tight py-0 hover:no-underline">
                     Blog y Guías
                   </AccordionTrigger>
                   <AccordionContent>
-                    <div className="grid grid-cols-2 gap-2 pt-3">
+                    <div className="grid grid-cols-2 gap-2 pt-4">
                       {[...blogMenuGuias, ...blogMenuPosts].map((link) => (
                         <Link
                           key={link.href}
@@ -266,6 +261,16 @@ export default function Navbar() {
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
+
+              {EVENTO.fechaConfirmada && (
+                <Link
+                  href={`/checkout/${CANDYLAND.slug}`}
+                  onClick={() => setMobileOpen(false)}
+                  className="mt-2 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center"
+                >
+                  Comprar Entradas
+                </Link>
+              )}
 
               <div className="mt-4 pt-4 border-t border-border/40 flex flex-col gap-3">
                 {secondaryNavLinks.map((link) => (
