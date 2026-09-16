@@ -5806,8 +5806,14 @@ export async function appendIgMessage(input: {
       attachments: (input.attachments ?? null) as any,
     });
   } catch (err) {
-    const message = String((err as { message?: unknown })?.message ?? '');
-    if (/duplicate entry/i.test(message)) return null;
+    // drizzle-orm envuelve el error real del driver en `.cause` (DrizzleQueryError) --
+    // mirar solo `err.message` nunca matchea, porque ese mensaje es genérico
+    // ("Failed query: insert into..."), no el texto real de MySQL.
+    const cause = (err as { cause?: unknown })?.cause;
+    const code = (err as { code?: unknown })?.code ?? (cause as { code?: unknown })?.code;
+    const message = String((err as { message?: unknown })?.message ?? '') + ' ' + String((cause as { message?: unknown })?.message ?? '');
+    const isDuplicate = code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(message);
+    if (isDuplicate) return null;
     throw err;
   }
 
