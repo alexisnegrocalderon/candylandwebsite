@@ -24,11 +24,29 @@ const navLinks = [
 // artículos se encuentren más fácil. PlayCard se queda ADEMÁS como link
 // propio arriba (pedido explícito del dueño, ver PlayCardBannerSection en
 // Home.tsx) -- aparecer también en el dropdown no le resta nada.
-const blogMenuGuias = getGuides().map((a) => ({ label: a.title, href: articlePath(a) }));
+const blogMenuGuias = getGuides().map((a) => ({ label: a.title, href: articlePath(a), emoji: a.emoji }));
 const blogMenuPosts = [
-  ...getPosts().map((a) => ({ label: a.title, href: articlePath(a) })),
-  ...STANDALONE_PAGES.map((p) => ({ label: p.title, href: p.path })),
+  ...getPosts().map((a) => ({ label: a.title, href: articlePath(a), emoji: a.emoji })),
+  ...STANDALONE_PAGES.map((p) => ({ label: p.title, href: p.path, emoji: p.emoji })),
 ];
+
+/** Chip con emoji, mismo lenguaje visual "candy" del resto del sitio (fondo
+ * pastel rosado, esquinas redondas) en vez de una fila de texto plano -- lo
+ * que pidió el dueño para que el dropdown se vea "más Playroom". Las clases
+ * de layout (flex-col, padding, radio, fondo) van pensadas para pasar por
+ * `cn()`/`twMerge` (ver DropdownMenuItem en ui/dropdown-menu.tsx), así se
+ * resuelven bien contra las clases por defecto del item en vez de competir
+ * con ellas en el DOM. */
+const CHIP_CLASSES = 'flex-col items-start gap-1 rounded-xl bg-primary/8 hover:bg-primary/15 border border-primary/10 px-3 py-2.5 h-full cursor-pointer';
+
+function ChipContent({ emoji, label }: { emoji: string; label: string }) {
+  return (
+    <>
+      <span className="text-xl leading-none" aria-hidden>{emoji}</span>
+      <span className="text-xs font-semibold leading-snug line-clamp-2">{label}</span>
+    </>
+  );
+}
 
 // `/mis-referidos` NO va acá: es `noindex` (muestra datos personales del
 // embajador), así que enlazarla desde todas las páginas solo gastaba fuerza
@@ -101,23 +119,31 @@ export default function Navbar() {
               }`}>
                 Blog y Guías <ChevronDown size={14} strokeWidth={2} />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-72 max-h-[70vh] overflow-y-auto">
+              <DropdownMenuContent align="start" className="w-[26rem] max-h-[75vh] overflow-y-auto p-3">
                 <DropdownMenuLabel>Guías</DropdownMenuLabel>
-                {blogMenuGuias.map((link) => (
-                  <DropdownMenuItem key={link.href} asChild>
-                    <Link href={link.href}>{link.label}</Link>
-                  </DropdownMenuItem>
-                ))}
+                <div className="grid grid-cols-2 gap-2 mb-1">
+                  {blogMenuGuias.map((link) => (
+                    <DropdownMenuItem key={link.href} asChild className={CHIP_CLASSES}>
+                      <Link href={link.href}>
+                        <ChipContent emoji={link.emoji} label={link.label} />
+                      </Link>
+                    </DropdownMenuItem>
+                  ))}
+                </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel>Blog</DropdownMenuLabel>
-                {blogMenuPosts.map((link) => (
-                  <DropdownMenuItem key={link.href} asChild>
-                    <Link href={link.href}>{link.label}</Link>
-                  </DropdownMenuItem>
-                ))}
+                <div className="grid grid-cols-2 gap-2 mb-1">
+                  {blogMenuPosts.map((link) => (
+                    <DropdownMenuItem key={link.href} asChild className={CHIP_CLASSES}>
+                      <Link href={link.href}>
+                        <ChipContent emoji={link.emoji} label={link.label} />
+                      </Link>
+                    </DropdownMenuItem>
+                  ))}
+                </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link href="/blog" className="font-semibold text-primary">Ver todo →</Link>
+                  <Link href="/blog" className="font-semibold text-primary justify-center">Ver todo →</Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -218,25 +244,25 @@ export default function Navbar() {
                     Blog y Guías
                   </AccordionTrigger>
                   <AccordionContent>
-                    <div className="flex flex-col gap-3 pt-3">
+                    <div className="grid grid-cols-2 gap-2 pt-3">
                       {[...blogMenuGuias, ...blogMenuPosts].map((link) => (
                         <Link
                           key={link.href}
                           href={link.href}
                           onClick={() => setMobileOpen(false)}
-                          className="text-sm text-foreground/90"
+                          className={`flex ${CHIP_CLASSES}`}
                         >
-                          {link.label}
+                          <ChipContent emoji={link.emoji} label={link.label} />
                         </Link>
                       ))}
-                      <Link
-                        href="/blog"
-                        onClick={() => setMobileOpen(false)}
-                        className="text-sm font-semibold text-primary"
-                      >
-                        Ver todo →
-                      </Link>
                     </div>
+                    <Link
+                      href="/blog"
+                      onClick={() => setMobileOpen(false)}
+                      className="block mt-2 text-sm font-semibold text-primary text-center"
+                    >
+                      Ver todo →
+                    </Link>
                   </AccordionContent>
                 </AccordionItem>
               </Accordion>
