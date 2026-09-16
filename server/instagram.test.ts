@@ -238,6 +238,30 @@ describe('runInstagramAgent', () => {
     expect(result.reply).toBe('');
   });
 
+  // Regla 9: cuando un hombre dice que ya vino antes y pide el acceso
+  // Soltero, la IA deriva con una razón clara -- reusa el mismo mecanismo de
+  // handoff ya probado arriba, no hay lógica nueva de código que testear.
+  it('deriva con la razón del código de comunidad cuando la IA decide pedir un minuto', async () => {
+    mockLlmJson({
+      reply: 'Dale, dame un minuto y te paso tu código 💜',
+      handoff: true,
+      handoffReason: 'Pide código de comunidad del acceso Soltero, dice que ya vino antes -- confirmar y mandarlo a mano',
+    });
+    const result = await runInstagramAgent({ incomingText: 'sí ya he ido antes, voy solo', history: [], config });
+    expect(result.handoff).toBe(true);
+    expect(result.handoffReason).toContain('código de comunidad');
+    expect(result.reply.length).toBeGreaterThan(0);
+  });
+
+  it('el system prompt le explica al modelo la regla de primera vez para hombres solos', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: 'voy solo', history: [], config });
+    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    expect(systemPrompt).toContain('ya has venido antes');
+    expect(systemPrompt).toContain('acceso Dúo');
+    expect(systemPrompt).toContain('nunca aplica a "sola"');
+  });
+
   it('respeta el tope de historial configurado y manda los mensajes como turnos', async () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     const history = Array.from({ length: 20 }, (_, i) => ({
