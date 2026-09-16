@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle } from 'lucide-react';
+import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
@@ -144,18 +144,10 @@ function AgentConfigCard() {
           />
         </div>
 
-        <div className="space-y-2">
-          <Label>Ejemplos de tu forma de escribir (opcional)</Label>
-          <Textarea
-            rows={5}
-            value={draft.styleExamples}
-            onChange={(e) => setDraft({ ...draft, styleExamples: e.target.value })}
-            placeholder={'Pega acá 2-3 mensajes reales que tú mandarías, así el agente imita tu tono. Ej.:\n"hola! sí, disfraz es obligatorio, pero no tiene que ser producido, algo simple ya cuenta jaja"'}
-          />
-          <p className="text-xs text-muted-foreground">
-            El agente los usa como muestra de tono a imitar, no como texto fijo para copiar.
-          </p>
-        </div>
+        <StyleExamplesField
+          value={draft.styleExamples}
+          onChange={(styleExamples) => setDraft({ ...draft, styleExamples })}
+        />
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
@@ -215,6 +207,63 @@ function AgentConfigCard() {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** Ejemplos de tono del dueño, guardados uno por uno con Enter en vez de un
+ * solo bloque de texto libre -- más fácil de armar y de revisar de un
+ * vistazo que un párrafo largo. Por dentro sigue siendo un solo string
+ * (`InstagramAgentConfig.styleExamples`, una frase por línea): no hace
+ * falta ningún cambio de esquema, esto es puramente presentación. */
+function StyleExamplesField({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [draftPhrase, setDraftPhrase] = useState('');
+  const phrases = value.split('\n').map((p) => p.trim()).filter(Boolean);
+
+  const addPhrase = () => {
+    const trimmed = draftPhrase.trim();
+    if (!trimmed) return;
+    onChange([...phrases, trimmed].join('\n'));
+    setDraftPhrase('');
+  };
+
+  const removePhrase = (index: number) => {
+    onChange(phrases.filter((_, i) => i !== index).join('\n'));
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label>Ejemplos de tu forma de escribir (opcional)</Label>
+      <div className="flex gap-2">
+        <Input
+          value={draftPhrase}
+          onChange={(e) => setDraftPhrase(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addPhrase(); } }}
+          placeholder='Escribe una frase como tú la mandarías y presiona Enter. Ej.: "hola! sí, disfraz es obligatorio, pero no tiene que ser producido, algo simple ya cuenta jaja"'
+        />
+        <Button type="button" variant="outline" onClick={addPhrase} disabled={!draftPhrase.trim()}>Agregar</Button>
+      </div>
+      {phrases.length > 0 && (
+        <ul className="space-y-1.5">
+          {phrases.map((phrase, i) => (
+            <li key={i} className="flex items-start justify-between gap-2 rounded-xl border bg-muted/40 px-3 py-2 text-sm">
+              <span className="whitespace-pre-wrap break-words">{phrase}</span>
+              <button
+                type="button"
+                onClick={() => removePhrase(i)}
+                className="text-muted-foreground hover:text-destructive shrink-0"
+                aria-label="Eliminar esta frase"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-xs text-muted-foreground">
+        El agente las usa como muestra de tono a imitar, no como texto fijo para copiar. Igual que el resto de esta
+        tarjeta, quedan guardadas recién al tocar "Guardar" más abajo.
+      </p>
+    </div>
   );
 }
 
