@@ -22,7 +22,10 @@ import type { IgMessage } from '../drizzle/schema';
  * todo el contexto ya resuelto desde la base alcanza para la pregunta real
  * que llega por DM ("¿cuánto vale?", "¿queda cupo?", "¿dónde es?"). */
 
-const APP_URL = process.env.APP_URL || 'https://mansionplayroom.cl';
+// Sin el replace, un APP_URL guardado con "/" al final en Vercel deja los
+// links armados acá con doble slash ("mansionplayroom.cl//eventos/...") --
+// visto en producción en la prueba del agente de Instagram.
+const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
 
 /** Regla de la casa (ver el comentario de `attachStockPoolInfo` en
  * server/db.ts y TandaUrgencyCard): el remanente exacto de un cupo NUNCA se
