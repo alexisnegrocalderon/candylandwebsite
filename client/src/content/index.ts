@@ -47,3 +47,4 @@ export function getRelated(article: Article): Article[] {
 
 export type { Article, ArticleSection, ArticleCategory } from './types';
 export { articlePath } from './types';
+export { STANDALONE_PAGES, type StandalonePage } from './standalonePages';

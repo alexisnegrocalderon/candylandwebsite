@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ALL_ARTICLES, getGuides, getPosts, getRelated, articlePath } from '../client/src/content';
+import { ALL_ARTICLES, getGuides, getPosts, getRelated, articlePath, STANDALONE_PAGES } from '../client/src/content';
 import { articleSchema } from '../shared/structuredData';
 
 /* El contenido son datos, así que se puede verificar en CI. Estos tests
@@ -75,6 +75,24 @@ describe('registro de contenido', () => {
       const related = getRelated(article);
       expect(related.length).toBeLessThanOrEqual((article.relatedSlugs ?? []).length);
       expect(related.every((r) => ALL_ARTICLES.includes(r))).toBe(true);
+    }
+  });
+});
+
+describe('STANDALONE_PAGES', () => {
+  // Navbar, Home y Footer mezclan esta lista con ALL_ARTICLES para armar los
+  // links de "Blog y guías" -- una ruta duplicada rompería en silencio el
+  // enlazado (dos tarjetas apuntando al mismo lugar, o un slug colisionando
+  // con un artículo real).
+  it('tiene rutas únicas', () => {
+    const paths = STANDALONE_PAGES.map((p) => p.path);
+    expect(new Set(paths).size).toBe(paths.length);
+  });
+
+  it('ninguna ruta coincide con un artículo ya registrado en ALL_ARTICLES', () => {
+    const articlePaths = new Set(ALL_ARTICLES.map((a) => articlePath(a)));
+    for (const page of STANDALONE_PAGES) {
+      expect(articlePaths.has(page.path)).toBe(false);
     }
   });
 });
