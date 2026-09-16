@@ -1827,6 +1827,7 @@ export const appRouter = router({
       handoffMessage: z.string().min(1).max(IG_MAX_REPLY_CHARS),
       historyLimit: z.number().int().min(2).max(40),
       dailyReplyLimitPerThread: z.number().int().min(1).max(200),
+      styleExamples: z.string().max(4000),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings({ instagramAgentConfig: input });
     }),

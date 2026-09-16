@@ -140,6 +140,19 @@ function AgentConfigCard() {
           />
         </div>
 
+        <div className="space-y-2">
+          <Label>Ejemplos de tu forma de escribir (opcional)</Label>
+          <Textarea
+            rows={5}
+            value={draft.styleExamples}
+            onChange={(e) => setDraft({ ...draft, styleExamples: e.target.value })}
+            placeholder={'Pega acá 2-3 mensajes reales que tú mandarías, así el agente imita tu tono. Ej.:\n"hola! sí, disfraz es obligatorio, pero no tiene que ser producido, algo simple ya cuenta jaja"'}
+          />
+          <p className="text-xs text-muted-foreground">
+            El agente los usa como muestra de tono a imitar, no como texto fijo para copiar.
+          </p>
+        </div>
+
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Mensajes de historial</Label>
