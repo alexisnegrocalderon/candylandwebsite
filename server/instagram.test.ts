@@ -304,6 +304,18 @@ describe('runInstagramAgent', () => {
     expect(systemPrompt).toContain('¿te tinca venir?');
   });
 
+  // Bug real reportado por el dueño: un "hola" solo no recibía respuesta,
+  // porque el prompt lo trataba como personal de entrada (nada de pregunta
+  // de fiesta = señal de personal). Ahora un saludo ambiguo tiene que
+  // contestarse siempre con un saludo + pregunta abierta, nunca en silencio.
+  it('el system prompt trae la excepción de saludo ambiguo (no marcarlo personal de entrada)', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: 'hola', history: [], config });
+    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    expect(systemPrompt).toContain('EXCEPCIÓN importante');
+    expect(systemPrompt).toContain('NO marques isPersonal=true de entrada');
+  });
+
   // Bug real reportado por el dueño: el agente contestó que el disfraz era
   // opcional cuando es obligatorio -- porque el dato nunca llegaba al
   // contexto. Tiene que estar siempre disponible, haya o no evento anunciado.
