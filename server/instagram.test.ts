@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invokeLLM } from './_core/llm';
 import * as db from './db';
-import { verifyMetaSignature } from './instagram';
+import { verifyMetaSignature, humanReplyDelayMs } from './instagram';
 import { canReplyWithinWindow } from './instagramSend';
 import { buildInstagramContext, runInstagramAgent } from './instagramAgent';
 import { normalizeInstagramAgentConfig, IG_MAX_REPLY_CHARS } from '../shared/instagramAgentConfig';
@@ -70,6 +70,20 @@ describe('canReplyWithinWindow', () => {
 
   it('no permite responder a un hilo sin mensajes entrantes', () => {
     expect(canReplyWithinWindow(null, now)).toBe(false);
+  });
+});
+
+describe('humanReplyDelayMs', () => {
+  // Rango acotado a propósito (ver comentario en instagram.ts): unos
+  // segundos, no los 20-30s que hubiera sido lo ideal, porque el webhook
+  // tiene que confirmarle a Meta antes de que se arriesgue a reintentar la
+  // entrega.
+  it('devuelve un valor entre 3 y 8 segundos', () => {
+    for (let i = 0; i < 50; i++) {
+      const ms = humanReplyDelayMs();
+      expect(ms).toBeGreaterThanOrEqual(3000);
+      expect(ms).toBeLessThan(8000);
+    }
   });
 });
 
@@ -173,6 +187,20 @@ describe('buildInstagramContext', () => {
     expect(context).not.toContain('próxima tanda');
   });
 
+  // Bug real: el agente le dijo a alguien que el disfraz era opcional. La
+  // única fuente válida de este dato es EVENT_BRAND.dressCode (shared/
+  // eventBrand.ts) -- misma que ya usan el FAQ del sitio y los correos.
+  it('incluye el dress code real de la marca en el bloque de datos', async () => {
+    getHomeEventsMock.mockResolvedValueOnce([
+      { id: 1, title: 'Aniversario', slug: 'aniversario', status: 'published', eventDate: new Date('2026-10-10T23:00:00Z') },
+    ] as any);
+    getTicketTypesMock.mockResolvedValueOnce([] as any);
+
+    const context = await buildInstagramContext(new Date('2026-09-13T12:00:00Z'));
+    expect(context).toContain('DRESS CODE');
+    expect(context).toContain('Disfraz obligatorio');
+  });
+
   it('avisa que no hay fecha anunciada cuando no hay eventos futuros', async () => {
     getHomeEventsMock.mockResolvedValueOnce([
       { id: 1, title: 'Vieja', slug: 'vieja', status: 'past', eventDate: new Date('2025-01-01T00:00:00Z') },
@@ -238,6 +266,76 @@ describe('runInstagramAgent', () => {
     expect(result.reply).toBe('');
   });
 
+  // Lo que pidió el dueño: para temas que ya tienen página propia en el
+  // sitio, el agente debe poder linkear a la info completa en vez de
+  // explicarlo todo en el DM -- el system prompt tiene que traer esos links
+  // reales, no inventados.
+  it('el system prompt trae los links reales de las páginas del sitio', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: 'qué es la tarjeta playcard?', history: [], config });
+    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    expect(systemPrompt).toContain('https://mansionplayroom.cl/blog/tarjeta-playcard');
+    expect(systemPrompt).toContain('https://mansionplayroom.cl/blog/dress-code-explicado');
+  });
+
+  // Lo que pidió el dueño: no mandar el link de contenido/blog de entrada --
+  // primero dar la info real y preguntar si quiere el link, para que se
+  // sienta más conversación que "aquí está, chao". El link de compra del
+  // evento (otra regla, ya probada arriba) no se toca.
+  it('el system prompt pide preguntar antes de mandar un link de contenido', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: 'qué es la tarjeta playcard?', history: [], config });
+    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    expect(systemPrompt).toContain('¿te paso el link con todo el detalle?');
+    expect(systemPrompt).toContain('NO incluyas el link en esa primera respuesta');
+  });
+
+  // Lo que reportó el dueño con una captura real: ante una pregunta de puro
+  // interés/curiosidad (no una intención real de comprar), el agente no debe
+  // mandar el link de compra de una -- tiene que preguntar primero, mismo
+  // criterio ya usado para los links de blog. La intención real sigue
+  // mandando el link altiro, sin preguntar.
+  it('el system prompt distingue curiosidad general de intención real de compra', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: 'cuéntame del próximo evento', history: [], config });
+    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    expect(systemPrompt).toContain('CURIOSIDAD o interés general');
+    expect(systemPrompt).toContain('intención REAL de ir o comprar');
+    expect(systemPrompt).toContain('¿te tinca venir?');
+  });
+
+  // Bug real reportado por el dueño: el agente contestó que el disfraz era
+  // opcional cuando es obligatorio -- porque el dato nunca llegaba al
+  // contexto. Tiene que estar siempre disponible, haya o no evento anunciado.
+  it('el bloque de datos incluye el dress code real de la marca aunque no haya evento anunciado', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: '¿el disfraz es obligatorio?', history: [], config });
+    const userMessage = invokeLLMMock.mock.calls[0][0].messages.at(-1).content;
+    expect(userMessage).toContain('DRESS CODE');
+    expect(userMessage).toContain('Disfraz obligatorio');
+  });
+
+  // Campo nuevo editable desde el admin -- si el dueño no pegó ejemplos, el
+  // bloque ni aparece (no hay que inventarle ejemplos de tono a nadie).
+  it('agrega los ejemplos de tono del dueño al prompt solo cuando los cargó', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({
+      incomingText: 'hola',
+      history: [],
+      config: { ...config, styleExamples: 'hola! sí, el disfraz es obligatorio pero no tiene que ser producido jaja' },
+    });
+    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    expect(systemPrompt).toContain('EJEMPLOS DE CÓMO ESCRIBE EL DUEÑO');
+    expect(systemPrompt).toContain('no tiene que ser producido jaja');
+
+    vi.clearAllMocks();
+    getHomeEventsMock.mockResolvedValue([] as any);
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: 'hola', history: [], config });
+    const systemPromptSinEjemplos = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    expect(systemPromptSinEjemplos).not.toContain('EJEMPLOS DE CÓMO ESCRIBE EL DUEÑO');
+  });
+
   it('respeta el tope de historial configurado y manda los mensajes como turnos', async () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     const history = Array.from({ length: 20 }, (_, i) => ({
@@ -276,5 +374,10 @@ describe('normalizeInstagramAgentConfig', () => {
     expect(normalizeInstagramAgentConfig({ historyLimit: 500 }).historyLimit).toBe(40);
     expect(normalizeInstagramAgentConfig({ historyLimit: 0 }).historyLimit).toBeGreaterThan(0);
     expect(normalizeInstagramAgentConfig({ dailyReplyLimitPerThread: 9999 }).dailyReplyLimitPerThread).toBe(200);
+  });
+
+  it('arranca sin ejemplos de tono, y respeta los que sí se guardaron', () => {
+    expect(normalizeInstagramAgentConfig({}).styleExamples).toBe('');
+    expect(normalizeInstagramAgentConfig({ styleExamples: 'hola así hablo yo' }).styleExamples).toBe('hola así hablo yo');
   });
 });

@@ -36,6 +36,11 @@ export interface InstagramAgentConfig {
    * ante un bucle o alguien jugando con el bot: pasado el tope, el hilo
    * queda para una persona. */
   dailyReplyLimitPerThread: number;
+  /** Ejemplos reales de cómo escribe el dueño (texto libre, opcional), para
+   * que el modelo imite ESE tono en vez de uno genérico. Vacío por defecto:
+   * sin ejemplos, el agente sigue solo las reglas de "CÓMO ESCRIBIR" ya
+   * hardcodeadas en server/instagramAgent.ts. */
+  styleExamples: string;
 }
 
 export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
@@ -50,6 +55,7 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   handoffMessage: 'Te respondo esto con más calma en un rato, que lo vea alguien del equipo 💜',
   historyLimit: 12,
   dailyReplyLimitPerThread: 30,
+  styleExamples: '',
 };
 
 /** Completa con los valores por defecto cualquier campo faltante -- una
@@ -73,6 +79,7 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
     dailyReplyLimitPerThread: Number.isFinite(dailyLimit) && dailyLimit > 0
       ? Math.min(Math.floor(dailyLimit), 200)
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.dailyReplyLimitPerThread,
+    styleExamples: typeof partial.styleExamples === 'string' ? partial.styleExamples : DEFAULT_INSTAGRAM_AGENT_CONFIG.styleExamples,
   };
 }
 

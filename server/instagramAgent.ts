@@ -8,6 +8,8 @@ import {
 } from '../shared/instagramAgentConfig';
 import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/tandaSchedule';
 import type { IgMessage } from '../drizzle/schema';
+import { ALL_ARTICLES, articlePath } from '../client/src/content';
+import { EVENT_BRAND } from '../shared/eventBrand';
 
 /* El cerebro del agente que contesta los mensajes directos del Instagram.
  *
@@ -48,11 +50,19 @@ export async function buildInstagramContext(now: Date = new Date()): Promise<str
     .filter((e) => e.status !== 'past' && new Date(e.eventDate).getTime() >= now.getTime() - 12 * 60 * 60 * 1000)
     .slice(0, 3);
 
+  // Dato de marca, no por evento -- mismo texto que ya usan el FAQ del sitio
+  // y los correos de compra (fuente única, shared/eventBrand.ts), para que
+  // el agente nunca tenga que adivinar ni inventar el dress code. Se agrega
+  // siempre, tanto si hay evento anunciado como si no.
+  const dressCodeBlock = `DRESS CODE: ${EVENT_BRAND.dressCode}`;
+
   if (upcoming.length === 0) {
     return [
       'FECHAS Y ENTRADAS (datos reales del sitio):',
       'No hay ninguna fiesta publicada con fecha futura en este momento.',
       `Si preguntan por la próxima fecha, decir que todavía no está anunciada y que la van a ver primero en el Instagram y en ${APP_URL}.`,
+      '',
+      dressCodeBlock,
     ].join('\n');
   }
 
@@ -117,7 +127,66 @@ export async function buildInstagramContext(now: Date = new Date()): Promise<str
     blocks.push(lines.join('\n'));
   }
 
+  blocks.push(`\n${dressCodeBlock}`);
+
   return blocks.join('\n');
+}
+
+/** Páginas informativas del sitio que no viven en `content/index.ts` (son
+ * rutas standalone, ver client/src/App.tsx) -- cambian poco, así que se
+ * mantienen a mano acá. Los artículos de blog/panoramas SÍ se toman de
+ * `ALL_ARTICLES` más abajo, para que uno nuevo aparezca solo sin tocar este
+ * archivo de nuevo. */
+const STANDALONE_SITE_PAGES: { topic: string; path: string; summary: string }[] = [
+  {
+    topic: 'Tarjeta PlayCard (QR, saldo, Playcoins)',
+    path: '/blog/tarjeta-playcard',
+    summary: 'Tu QR de acceso, saldo prepagado y Playcoins en un solo lugar, paso a paso.',
+  },
+  {
+    topic: 'Qué son las fiestas liberales',
+    path: '/blog/que-son-las-fiestas-liberales',
+    summary: 'Mitos y realidades de las fiestas liberales.',
+  },
+  {
+    topic: 'Disfraz obligatorio (quiz de nivel de disfraz)',
+    path: '/blog/dress-code-explicado',
+    summary: 'No tiene que ser profesional, pero sí es obligatorio -- tips y un quiz de 1 minuto.',
+  },
+  {
+    topic: 'Quiénes somos',
+    path: '/nosotros',
+    summary: 'Quiénes son y la historia de Mansion Playroom.',
+  },
+  {
+    topic: 'Reembolso o transferencia de una entrada',
+    path: '/politica-de-reembolso',
+    summary: 'Reglas de reembolso y transferencia de entradas.',
+  },
+  {
+    topic: 'Privacidad de los datos',
+    path: '/politica-de-privacidad',
+    summary: 'Cómo se usan los datos personales.',
+  },
+  {
+    topic: 'Programa de embajadores',
+    path: '/embajadores',
+    summary: 'Cómo funciona el programa de embajadores/referidos.',
+  },
+];
+
+/** Lista de temas con página propia en el sitio, para que el agente conteste
+ * breve y mande a leer el resto ahí en vez de explicarlo todo en el DM (así
+ * se evita una conversación larga por cada tema que ya está resuelto en la
+ * web). Es contenido estático (no depende de `now` ni de la base), así que
+ * se arma una sola vez por llamada dentro del propio system prompt. */
+function buildSiteLinksBlock(): string {
+  const lines = [
+    'PÁGINAS DEL SITIO CON MÁS INFORMACIÓN (para responder breve y mandar a leer el resto ahí, en vez de explicarlo todo tú):',
+    ...ALL_ARTICLES.map((a) => `- ${a.title}: ${a.description} — ${APP_URL}${articlePath(a)}`),
+    ...STANDALONE_SITE_PAGES.map((p) => `- ${p.topic}: ${p.summary} — ${APP_URL}${p.path}`),
+  ];
+  return lines.join('\n');
 }
 
 const RESPONSE_SCHEMA = {
@@ -161,6 +230,8 @@ function buildSystemPrompt(config: InstagramAgentConfig): string {
     'CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):',
     config.brandNotes,
     '',
+    buildSiteLinksBlock(),
+    '',
     'REGLAS QUE NO SE NEGOCIAN:',
     '0. Este Instagram lo usa el dueño también para cosas personales: amigos que le escriben, le mandan memes o reels, hacen planes, saludan. Eso NO es una consulta de cliente. Señales de que un mensaje es personal: te habla como si te conociera (tono familiar, sobrenombres, chilenismos entre amigos), no pregunta nada sobre la fiesta/entradas/lugar/fecha, comparte contenido (reel, meme, foto) sin pedir información del evento, o hace referencia a algo que no tiene que ver con la productora. Si el mensaje es personal, marca isPersonal=true y deja reply vacío -- no se le manda nada automático, lo ve el dueño y contesta él. Ante la duda entre "cliente" y "personal", si hay CUALQUIER pregunta sobre la fiesta (fecha, precio, entradas, lugar, cómo llegar) trátalo como cliente, no como personal.',
     '1. Fechas, horarios, precios, lugar y disponibilidad: SOLO los que aparecen en el bloque de datos del mensaje. Si te preguntan algo que no está ahí, dilo y deriva. Jamás estimes ni recuerdes un precio.',
@@ -176,9 +247,21 @@ function buildSystemPrompt(config: InstagramAgentConfig): string {
     `- Español chileno, cercano y breve: 1 a 3 frases, máximo ${IG_MAX_REPLY_CHARS} caracteres. Es un DM, no un correo.`,
     '- Sin markdown, sin listas con viñetas, sin negritas. Texto plano tal cual se lee en Instagram.',
     '- Como mucho un emoji, y solo si calza.',
-    '- Cuando la pregunta es por comprar, manda el link del evento tal cual está en los datos.',
+    '- Saluda de forma natural solo la primera vez que le escribes a alguien en el hilo -- no repitas un saludo tipo "¡Hola! 💜" en cada respuesta del mismo hilo, ya se conocen.',
+    '- Muestra entusiasmo genuino cuando corresponda, sin sobreactuar (el límite de un emoji sigue aplicando). Si la persona ya te contó algo de ella (su nombre, que va con amigas, que es su primera vez), úsalo para que se sienta una conversación real -- nunca le repitas una pregunta que ya te respondió.',
+    '- Evita sonar a folleto o catálogo: si tienes 3 o más datos para dar, no los metas todos en una sola frase -- da lo esencial y cierra con una pregunta, en vez de listar todo de un tirón.',
+    '- Cuando alguien muestra una intención REAL de ir o comprar (dice "quiero ir", "cómo compro", "sí me interesa", te pide el link directamente, o responde que sí a una pregunta tuya anterior sobre si quiere el link/info), manda el link del evento tal cual está en los datos, de inmediato y sin preguntar nada más -- acá la prioridad es no hacerla esperar.',
+    '- Cuando la pregunta es de CURIOSIDAD o interés general sobre el evento (ej. "cuéntame del próximo evento", "cuándo es la próxima fiesta", "qué onda con Mansion Playroom"), sin que hayan dicho que quieren ir o comprar: contesta en 1-2 frases breves con la info real (fecha, de qué se trata) y cierra con una pregunta abierta y cálida, tipo "¿te tinca venir?" o "¿quieres que te cuente cómo son los accesos?" -- NO incluyas el link de compra en esa primera respuesta. Recién cuando la persona confirme interés en el siguiente mensaje (dice que sí, pregunta por precio/accesos, pide el link), trátalo como intención real y mándalo.',
     '- Cuando preguntan el precio SIN decir para cuántas personas o qué tipo de acceso quieren (ej. "cuánto vale la entrada", "qué precio tiene"): no listes todos los tipos ni asumas uno -- pregúntales primero, corto y natural, algo como "¿vienes solo/a, en pareja o en grupo?" o "¿qué tipo de acceso te tinca?", así les das el precio exacto que les sirve en vez de tirarles una lista. Cuando SÍ especifican (mencionan "sola", "dúo", "en pareja", "grupo de x", o nombran un tipo de acceso que está en los datos, o ya respondieron tu pregunta anterior en el historial), ahí contesta directo con el precio de ESE acceso, sin listar los demás -- eso es "personalizado": una respuesta para lo que esa persona realmente preguntó, no un catálogo. Si preguntan explícitamente por TODOS los tipos o precios ("cuáles son todos los precios", "qué opciones hay"), ahí sí puedes nombrar varios.',
     '- Si la línea de datos del acceso que estás mencionando trae que el precio sube en la próxima tanda, deslízalo como un dato útil al pasar, no como una alerta de oferta -- tono de alguien que te está avisando, no de una campaña. Por ejemplo (no lo copies literal, es solo el tono): "la Soltera está en $10.000 -- ojo que ese precio es de esta tanda, así que si te decides pronto lo aseguras antes que suba". Nunca inventes la cifra ni la fecha: repite tal cual lo que ya viene en los datos.',
+    '- Si la pregunta calza con alguno de los temas de "PÁGINAS DEL SITIO CON MÁS INFORMACIÓN", no te quedes explicando todo el tema en el DM: contesta en 1-2 frases breves con la info real (nunca inventada) y pregúntale si quiere que le mandes el link con el detalle completo, algo como "¿te paso el link con todo el detalle?". NO incluyas el link en esa primera respuesta. Solo escribe el link exacto de esa página tal cual aparece en la lista (nunca inventes una URL) cuando la persona ya haya pedido el link/más información -- revisa el historial: si en un mensaje anterior tuyo ya preguntaste y ahora te dice que sí (o de entrada te pide el link/artículo/más info sobre ese tema), ahí sí lo mandas. Esto es solo para los links de contenido/blog -- el link de compra del evento se rige por su propia regla de arriba (intención real vs. curiosidad), no por esta.',
+    ...(config.styleExamples.trim().length > 0
+      ? [
+          '',
+          'EJEMPLOS DE CÓMO ESCRIBE EL DUEÑO (imita este tono y esta forma de hablar -- no copies el contenido literal si no calza con la pregunta real):',
+          config.styleExamples,
+        ]
+      : []),
     '',
     'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras) e `isPersonal` (ver regla 0). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. La única excepción es isPersonal=true: ahí no se manda nada, así que `reply` puede quedar vacío.',
   ].join('\n');
