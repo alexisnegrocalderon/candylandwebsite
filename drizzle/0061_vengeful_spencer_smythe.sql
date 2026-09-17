@@ -1,0 +1,1 @@
+ALTER TABLE `discountCodes` ADD `giftTicketTypeId` int;

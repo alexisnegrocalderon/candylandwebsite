@@ -11,6 +11,9 @@ import {
   findMatchingIgKeywordAutomation,
   hasRedeemedIgKeywordAutomation,
   recordIgKeywordRedemption,
+  getDiscountCodeByCode,
+  getTicketTypeById,
+  getFeaturedEvent,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
 import { sendInstagramMessage, sendPrivateReply, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
@@ -30,6 +33,11 @@ import { buildAutomationReplyText } from './instagramAutomations';
 export const instagramRouter = Router();
 
 const WEBHOOK_PATH = '/api/webhooks/instagram';
+
+// Sin el replace, un APP_URL guardado con "/" al final en Vercel deja los
+// links armados acá con doble slash -- mismo criterio ya usado en
+// server/instagramAgent.ts.
+const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
 
 /** Alta y reactivación del webhook: Meta pega un GET con el token que uno
  * configuró y espera de vuelta el `hub.challenge` tal cual, en texto plano. */
@@ -330,10 +338,32 @@ async function matchKeywordTrigger(
   return automation;
 }
 
+/** Resuelve los placeholders `{{producto}}`/`{{link}}` del mensaje de una
+ * automatización: el nombre del producto que regala (si es de "producto de
+ * regalo", `discountCodes.giftTicketTypeId`) y el link de compra del evento
+ * destacado, con el código pegado como `?code=` cuando la automatización
+ * tiene uno -- así se aplica solo al entrar a comprar (ver el `useEffect`
+ * nuevo en `client/src/pages/Checkout.tsx`, mismo patrón que ya usa el link
+ * de embajador). Nunca lanza: si algo no se puede resolver (evento sin
+ * publicar, producto borrado), el mensaje se manda igual sin ese dato. */
+async function resolveAutomationExtras(automation: { discountCode: string | null }): Promise<{ productName?: string; link?: string }> {
+  const event = await getFeaturedEvent();
+  if (!automation.discountCode) {
+    return event ? { link: `${APP_URL}/eventos/${event.slug}` } : {};
+  }
+
+  const link = event ? `${APP_URL}/eventos/${event.slug}?code=${automation.discountCode}` : undefined;
+  const discount = await getDiscountCodeByCode(automation.discountCode);
+  if (!discount?.giftTicketTypeId) return { link };
+
+  const product = await getTicketTypeById(discount.giftTicketTypeId);
+  return { link, productName: product?.name };
+}
+
 /** Respuesta a una historia con la palabra clave correcta: manda el regalo
- * configurado (link, mensaje, o código de descuento) por DM normal y lo
- * registra en el hilo como cualquier mensaje saliente. Devuelve `true`
- * cuando manejó el mensaje (para que `handleMessagingEvent` no corra
+ * configurado (link, mensaje, producto, o código de descuento) por DM
+ * normal y lo registra en el hilo como cualquier mensaje saliente. Devuelve
+ * `true` cuando manejó el mensaje (para que `handleMessagingEvent` no corra
  * además el agente conversacional encima del mismo mensaje). */
 export async function tryHandleKeywordTrigger(input: {
   threadId: number;
@@ -344,7 +374,8 @@ export async function tryHandleKeywordTrigger(input: {
   const automation = await matchKeywordTrigger(input.text, input.igUserId, input.source);
   if (!automation) return false;
 
-  const replyText = buildAutomationReplyText(automation);
+  const extras = await resolveAutomationExtras(automation);
+  const replyText = buildAutomationReplyText(automation, extras);
   const { mid } = await sendInstagramMessage({ recipientId: input.igUserId, text: replyText });
   await appendIgMessage({ threadId: input.threadId, mid, direction: 'out', source: 'bot', text: replyText });
   await recordIgKeywordRedemption({ automationId: automation.id, igUserId: input.igUserId, source: input.source });
@@ -367,7 +398,8 @@ export async function handleCommentChange(value: { id?: string; text?: string; f
   const automation = await matchKeywordTrigger(text, igUserId, 'comment');
   if (!automation) return;
 
-  const replyText = buildAutomationReplyText(automation);
+  const extras = await resolveAutomationExtras(automation);
+  const replyText = buildAutomationReplyText(automation, extras);
   await sendPrivateReply(commentId, replyText);
   await recordIgKeywordRedemption({ automationId: automation.id, igUserId, source: 'comment' });
 }

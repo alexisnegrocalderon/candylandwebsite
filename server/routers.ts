@@ -1933,12 +1933,24 @@ export const appRouter = router({
       keyword: z.string().min(1).max(120),
       triggerSource: z.enum(['comment', 'story_reply', 'both']),
       replyMessage: z.string().min(1).max(1000),
-      discount: z.object({
-        discountType: z.enum(['percentage', 'fixed']),
-        discountValue: z.number().positive(),
-        maxUses: z.number().int().positive().optional(),
-        validUntil: z.string().optional(),
-      }).optional(),
+      // Una automatización regala UNA cosa a la vez -- descuento en dinero
+      // O un producto de la Carta, nunca los dos juntos (si más adelante
+      // hace falta combinarlos, es una vuelta aparte).
+      reward: z.discriminatedUnion('kind', [
+        z.object({
+          kind: z.literal('discount'),
+          discountType: z.enum(['percentage', 'fixed']),
+          discountValue: z.number().positive(),
+          maxUses: z.number().int().positive().optional(),
+          validUntil: z.string().optional(),
+        }),
+        z.object({
+          kind: z.literal('gift'),
+          giftTicketTypeId: z.number(),
+          maxUses: z.number().int().positive().optional(),
+          validUntil: z.string().optional(),
+        }),
+      ]).optional(),
     })).mutation(async ({ input }) => {
       if (input.id) {
         await db.updateIgKeywordAutomation(input.id, {
@@ -1950,18 +1962,22 @@ export const appRouter = router({
       }
 
       // Solo se genera un código de descuento si esta campaña de verdad
-      // regala uno -- una automatización que solo manda un link o un
+      // regala algo -- una automatización que solo manda un link o un
       // mensaje nunca toca `discountCodes`.
       let discountCode: string | null = null;
-      if (input.discount) {
+      if (input.reward) {
         discountCode = `AUTO${nanoid(4).toUpperCase()}`;
         await db.createDiscountCode({
           code: discountCode,
           description: `Automatización de Instagram: "${input.keyword}"`,
-          discountType: input.discount.discountType,
-          discountValue: input.discount.discountValue,
-          maxUses: input.discount.maxUses,
-          validUntil: input.discount.validUntil ? new Date(input.discount.validUntil) : undefined,
+          // Un código de "producto de regalo" no descuenta plata -- lo que
+          // regala es el producto (giftTicketTypeId), generado como
+          // orderItem de $0 al aprobarse la orden (server/webhooks.ts).
+          discountType: input.reward.kind === 'gift' ? 'fixed' : input.reward.discountType,
+          discountValue: input.reward.kind === 'gift' ? 0 : input.reward.discountValue,
+          giftTicketTypeId: input.reward.kind === 'gift' ? input.reward.giftTicketTypeId : undefined,
+          maxUses: input.reward.maxUses,
+          validUntil: input.reward.validUntil ? new Date(input.reward.validUntil) : undefined,
           isActive: 1,
         });
       }
