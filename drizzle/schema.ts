@@ -1650,6 +1650,53 @@ export type IgMessage = typeof igMessages.$inferSelect;
 export type InsertIgMessage = typeof igMessages.$inferInsert;
 
 // ---------------------------------------------------------------------------
+// Automatizaciones de Instagram por palabra clave (server/instagramAutomations.ts):
+// alguien comenta o responde a una historia con la palabra justa y le llega
+// un DM automático -- link, código de descuento, o lo que el dueño configure.
+// ---------------------------------------------------------------------------
+
+export const igKeywordAutomations = mysqlTable("igKeywordAutomations", {
+  id: int("id").autoincrement().primaryKey(),
+  keyword: varchar("keyword", { length: 120 }).notNull(),
+  // Dónde puede dispararla: comentario en post/reel, respuesta a historia, o
+  // ambas. "comment" no hace nada todavía -- Meta exige un permiso aparte
+  // (instagram_business_manage_comments, Advanced Access) que hoy no está
+  // aprobado; ver docs/INSTAGRAM-AGENT.md.
+  triggerSource: mysqlEnum("triggerSource", ["comment", "story_reply", "both"]).notNull().default("both"),
+  // Texto libre que se le manda por DM -- puede ser un link, un artículo, un
+  // mensaje de puro texto, o incluir el placeholder {{codigo}} si además
+  // regala un código de descuento (discountCode, abajo).
+  replyMessage: text("replyMessage").notNull(),
+  // Opcional a propósito: no toda automatización regala plata, algunas solo
+  // mandan un link o un mensaje. Cuando existe, ya viaja creado en
+  // discountCodes (mismo mecanismo que Promo Flash) -- este campo es solo la
+  // referencia para poder armar el mensaje y mostrarlo en el panel.
+  discountCode: varchar("discountCode", { length: 40 }),
+  active: int("active").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  keywordIdx: index("ig_keyword_automations_keyword_idx").on(table.keyword),
+}));
+
+export type IgKeywordAutomation = typeof igKeywordAutomations.$inferSelect;
+export type InsertIgKeywordAutomation = typeof igKeywordAutomations.$inferInsert;
+
+export const igKeywordRedemptions = mysqlTable("igKeywordRedemptions", {
+  id: int("id").autoincrement().primaryKey(),
+  automationId: int("automationId").notNull(),
+  igUserId: varchar("igUserId", { length: 64 }).notNull(),
+  source: mysqlEnum("source", ["comment", "story_reply"]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  // Una persona no recibe el regalo dos veces por la misma automatización,
+  // ni aunque comente/responda la palabra varias veces.
+  uniquePerPerson: uniqueIndex("ig_keyword_redemptions_unique_idx").on(table.automationId, table.igUserId),
+}));
+
+export type IgKeywordRedemption = typeof igKeywordRedemptions.$inferSelect;
+export type InsertIgKeywordRedemption = typeof igKeywordRedemptions.$inferInsert;
+
+// ---------------------------------------------------------------------------
 // Contador diario de TODOS los correos enviados (server/email.ts sendEmail).
 // ---------------------------------------------------------------------------
 

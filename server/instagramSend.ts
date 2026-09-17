@@ -29,13 +29,11 @@ export function canReplyWithinWindow(lastInboundAt: Date | null | undefined, now
   return now.getTime() - new Date(lastInboundAt).getTime() < IG_MESSAGING_WINDOW_MS;
 }
 
-/** Manda un mensaje de texto por DM. Devuelve el `mid` que asigna Meta, para
- * poder guardarlo y reconocer después el eco de nuestro propio mensaje que
- * vuelve por el webhook. */
-export async function sendInstagramMessage(input: {
-  recipientId: string;
-  text: string;
-}): Promise<{ mid: string | null }> {
+/** POST compartido al endpoint `/messages` -- lo único que cambia entre un
+ * DM normal y una "Private Reply" a un comentario es la forma del
+ * `recipient` (`{ id }` vs `{ comment_id }`), todo lo demás (auth, manejo
+ * de errores) es idéntico. */
+async function postToMessagesEndpoint(recipient: Record<string, string>, text: string): Promise<{ mid: string | null }> {
   if (!ENV.igAccessToken || !ENV.igUserId) {
     throw new InstagramApiError('Faltan IG_ACCESS_TOKEN o IG_USER_ID en el servidor.');
   }
@@ -46,10 +44,7 @@ export async function sendInstagramMessage(input: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${ENV.igAccessToken}`,
     },
-    body: JSON.stringify({
-      recipient: { id: input.recipientId },
-      message: { text: input.text },
-    }),
+    body: JSON.stringify({ recipient, message: { text } }),
   });
 
   const body = await response.json().catch(() => ({}));
@@ -63,6 +58,28 @@ export async function sendInstagramMessage(input: {
   }
 
   return { mid: (body as { message_id?: string }).message_id ?? null };
+}
+
+/** Manda un mensaje de texto por DM. Devuelve el `mid` que asigna Meta, para
+ * poder guardarlo y reconocer después el eco de nuestro propio mensaje que
+ * vuelve por el webhook. */
+export async function sendInstagramMessage(input: {
+  recipientId: string;
+  text: string;
+}): Promise<{ mid: string | null }> {
+  return postToMessagesEndpoint({ id: input.recipientId }, input.text);
+}
+
+/** "Private Reply": manda un DM disparado por un comentario en un post/reel,
+ * dirigido a quien comentó -- sin necesidad de que haya una conversación
+ * abierta ni de respetar la ventana de 24 horas normal de mensajería (Meta
+ * da 7 días desde el comentario para este tipo de respuesta). Usada por las
+ * automatizaciones de palabra clave en comentarios (server/instagram.ts,
+ * `handleCommentChange`) -- hoy no se ejecuta en producción porque el
+ * permiso `instagram_business_manage_comments` todavía no está aprobado
+ * para esta app, ver docs/INSTAGRAM-AGENT.md. */
+export async function sendPrivateReply(commentId: string, text: string): Promise<{ mid: string | null }> {
+  return postToMessagesEndpoint({ comment_id: commentId }, text);
 }
 
 /** Perfil público de quien escribe (arroba y nombre), solo para que la

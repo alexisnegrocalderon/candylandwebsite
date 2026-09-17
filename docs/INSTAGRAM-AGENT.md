@@ -135,6 +135,37 @@ cuenta empiece a contestarle a nadie.
 | `server/instagram.ts` | Webhook: firma, ecos, idempotencia, derivación |
 | `server/instagramAgent.ts` | Contexto real + prompt + llamada a la IA |
 | `server/instagramSend.ts` | Graph API: enviar, perfil, refrescar token |
+| `server/instagramAutomations.ts` | Armado del mensaje de una automatización por palabra clave |
 | `shared/instagramAgentConfig.ts` | Config editable desde el admin |
 | `client/src/components/admin/InstagramInbox.tsx` | Bandeja del panel |
+| `client/src/components/admin/InstagramAutomations.tsx` | Panel de automatizaciones por palabra clave |
 | `server/instagram.test.ts` | Tests de firma, contexto y caídas de la IA |
+
+## 9. Automatizaciones por palabra clave (comentarios / respuestas a historia)
+
+Además del agente conversacional, **/admin → Marketing → Instagram** tiene
+una tarjeta para armar campañas puntuales: alguien comenta o responde a una
+historia con la palabra que definas y le llega automático un DM -- un link,
+un mensaje de puro texto, o un código de descuento (compartido para todos
+los que cumplan la palabra, con tope de usos y vencimiento configurables).
+
+Hay dos mecanismos de Meta detrás, con requisitos muy distintos:
+
+- **Respuestas a historias**: llegan por el mismo webhook `messages` que ya
+  está dado de alta (sección 2 de arriba, campo `reply_to.story` del
+  mensaje). **No hace falta pedirle nada nuevo a Meta** -- funciona apenas
+  se despliega el código.
+- **Comentarios en posts/reels**: usan "Private Replies" de Meta y
+  necesitan un permiso APARTE con Advanced Access,
+  `instagram_business_manage_comments`, más suscribirse al campo de webhook
+  `comments` (mismo lugar del panel de Meta donde ya está suscrito
+  `messages`, sección 2 arriba). Sin ese permiso aprobado, Meta simplemente
+  nunca manda ningún `change` de tipo `comments` -- el código ya está listo
+  (`handleCommentChange` en `server/instagram.ts`) pero queda dormido hasta
+  entonces. La revisión de Meta para este permiso puede demorar semanas y
+  pedir un video mostrando el uso real -- es un trámite del dueño en su
+  panel de developers.facebook.com, no algo que el código pueda apurar.
+
+Migración nueva: `igKeywordAutomations` (la campaña: palabra, dónde aplica,
+mensaje, código de descuento opcional) e `igKeywordRedemptions` (quién ya
+recibió el regalo de cada campaña, para no mandarlo dos veces).

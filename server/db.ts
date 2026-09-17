@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gt, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, emailLog } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, emailLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -13,6 +13,7 @@ import { monthKeyFor } from '../shared/ambassadorProgram';
 import { normalizeTandaSchedule, nextPhase } from '../shared/tandaSchedule';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, type PnlExpense } from '../shared/expenses';
+import { matchesKeyword } from './instagramAutomations';
 import type { EmailTemplateConfig } from '../shared/emailTemplateConfig';
 import type { AdminAlertsConfig } from '../shared/adminAlertsConfig';
 import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
@@ -5927,6 +5928,124 @@ export async function purgeOldIgThreads(now: Date = new Date()): Promise<{ threa
   await db.delete(igMessages).where(inArray(igMessages.threadId, ids));
   await db.delete(igThreads).where(inArray(igThreads.id, ids));
   return { threadsDeleted: ids.length };
+}
+
+// ---------------------------------------------------------------------------
+// Automatizaciones de Instagram por palabra clave (server/instagramAutomations.ts).
+// ---------------------------------------------------------------------------
+
+/** Automatizaciones activas, para que el webhook busque un calce en cada
+ * comentario/respuesta a historia sin traerse las inactivas de arriba. */
+export async function listActiveIgKeywordAutomations(): Promise<IgKeywordAutomation[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(igKeywordAutomations).where(eq(igKeywordAutomations.active, 1));
+}
+
+/** Todas (activas e inactivas), con cuántas personas ya recibieron el
+ * regalo de cada una -- lo que pinta el panel admin. */
+export async function listIgKeywordAutomationsWithStats() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(igKeywordAutomations).orderBy(desc(igKeywordAutomations.createdAt));
+  const counts = await db.select({
+    automationId: igKeywordRedemptions.automationId,
+    count: sql<number>`count(*)`,
+  }).from(igKeywordRedemptions).groupBy(igKeywordRedemptions.automationId);
+  const countByAutomation = new Map(counts.map((c: any) => [c.automationId, Number(c.count)]));
+  return rows.map((r) => ({ ...r, redemptions: countByAutomation.get(r.id) ?? 0 }));
+}
+
+export async function createIgKeywordAutomation(input: {
+  keyword: string;
+  triggerSource: 'comment' | 'story_reply' | 'both';
+  replyMessage: string;
+  discountCode?: string | null;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  await db.insert(igKeywordAutomations).values({
+    keyword: input.keyword,
+    triggerSource: input.triggerSource,
+    replyMessage: input.replyMessage,
+    discountCode: input.discountCode ?? null,
+  });
+}
+
+export async function updateIgKeywordAutomation(id: number, input: {
+  keyword: string;
+  triggerSource: 'comment' | 'story_reply' | 'both';
+  replyMessage: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  await db.update(igKeywordAutomations).set({
+    keyword: input.keyword,
+    triggerSource: input.triggerSource,
+    replyMessage: input.replyMessage,
+  }).where(eq(igKeywordAutomations.id, id));
+}
+
+export async function setIgKeywordAutomationActive(id: number, active: boolean): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(igKeywordAutomations).set({ active: active ? 1 : 0 }).where(eq(igKeywordAutomations.id, id));
+}
+
+/** No borra en cascada: los `discountCodes`/`igKeywordRedemptions` que ya
+ * se generaron quedan como registro histórico. */
+export async function deleteIgKeywordAutomation(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(igKeywordAutomations).where(eq(igKeywordAutomations.id, id));
+}
+
+/** Primera automatización activa (de la fuente que corresponda) cuyo texto
+ * calza con el mensaje entrante. Ver `matchesKeyword` en
+ * `instagramAutomations.ts` (normaliza mayúsculas/tildes, `includes()` sin
+ * exigir palabra exacta). */
+export async function findMatchingIgKeywordAutomation(
+  text: string,
+  source: 'comment' | 'story_reply',
+): Promise<IgKeywordAutomation | null> {
+  const automations = await listActiveIgKeywordAutomations();
+  const match = automations.find((a) =>
+    (a.triggerSource === source || a.triggerSource === 'both') &&
+    matchesKeyword(text, a.keyword),
+  );
+  return match ?? null;
+}
+
+/** true si esta persona ya recibió el regalo de esta automatización antes
+ * -- para no mandarlo dos veces aunque comente/responda la palabra de nuevo. */
+export async function hasRedeemedIgKeywordAutomation(automationId: number, igUserId: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const [row] = await db.select({ id: igKeywordRedemptions.id }).from(igKeywordRedemptions)
+    .where(and(eq(igKeywordRedemptions.automationId, automationId), eq(igKeywordRedemptions.igUserId, igUserId)))
+    .limit(1);
+  return Boolean(row);
+}
+
+/** Registra que esta persona ya recibió el regalo. El índice único
+ * (automationId, igUserId) es la protección real contra una carrera de dos
+ * entregas del mismo webhook llegando casi juntas -- acá solo se traduce el
+ * error de duplicado a `false` en vez de tirarlo crudo. */
+export async function recordIgKeywordRedemption(input: {
+  automationId: number;
+  igUserId: string;
+  source: 'comment' | 'story_reply';
+}): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  try {
+    await db.insert(igKeywordRedemptions).values(input);
+    return true;
+  } catch (err: any) {
+    const isDuplicate = err?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(String(err?.message ?? ''));
+    if (isDuplicate) return false;
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
