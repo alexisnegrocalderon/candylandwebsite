@@ -153,13 +153,25 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   const senderId = event.sender?.id;
   const message = event.message;
   if (!senderId || !message) return;
-
-  // El eco de nuestros propios mensajes vuelve por el mismo webhook. Sin
-  // este corte el agente se leería a sí mismo y se respondería solo: el
-  // bucle infinito clásico de estos bots. Doble guarda: la bandera
-  // `is_echo` de Meta y el id de nuestra propia cuenta.
-  if (message.is_echo || senderId === ENV.igUserId) return;
   if (message.is_deleted) return;
+
+  // El eco de nuestros propios mensajes salientes vuelve por el mismo
+  // webhook -- tanto los que ya mandamos nosotros (el agente, o una
+  // respuesta manual desde el panel) como los que el dueño escribe directo
+  // en SU PROPIA app de Instagram, sin pasar por el panel para nada (así es
+  // como de verdad habla con los clientes, según él mismo). Ambos casos
+  // comparten la bandera `is_echo` de Meta -- se procesan aparte para
+  // distinguirlos (ver `handleOwnerEcho`), en vez de ignorarlos todos como
+  // antes (eso dejaba al bot sin enterarse de que el dueño ya contestó a
+  // mano desde su teléfono, y seguía respondiendo solo encima).
+  if (message.is_echo) {
+    await handleOwnerEcho(event, message);
+    return;
+  }
+  // El id de nuestra propia cuenta apareciendo como remitente SIN el flag de
+  // eco no debería pasar nunca -- guarda extra por si acaso, para no leernos
+  // a nosotros mismos como si fuera un cliente.
+  if (senderId === ENV.igUserId) return;
 
   const text = (message.text ?? '').trim();
   const attachments = message.attachments ?? null;
@@ -263,6 +275,46 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     await setIgThreadBotPaused(thread.id, true, result.handoffReason || 'La IA derivó la conversación');
     await notifyHandoff(thread.username ?? senderId, text, result.handoffReason);
   }
+}
+
+/** Eco de un mensaje SALIENTE de la cuenta de la productora. En un eco,
+ * `sender` es la cuenta propia y `recipient` es la persona del otro lado --
+ * al revés que en un mensaje entrante, por eso el hilo se resuelve por
+ * `recipient.id`, no por `sender.id`.
+ *
+ * Dos orígenes posibles, indistinguibles salvo por el `mid`:
+ * 1. Un mensaje que YA mandamos nosotros (el agente vía `deliver()`, o una
+ *    respuesta manual vía `sendManualInstagramReply`) -- ambos guardan el
+ *    mensaje con su `mid` real ANTES de que llegue este eco, así que
+ *    `appendIgMessage` lo descarta solo por el `mid` duplicado (mismo
+ *    mecanismo que ya evita procesar dos veces un reintento de Meta). No
+ *    hay nada más que hacer acá.
+ * 2. Un mensaje que el dueño escribió directo en SU PROPIA app de Instagram,
+ *    sin pasar por el panel -- genuinamente nuevo para nosotros. Se guarda
+ *    recién acá y se pausa el bot, para que no le conteste encima al mismo
+ *    cliente con el que el dueño ya está hablando a mano. */
+export async function handleOwnerEcho(event: MetaMessaging, message: NonNullable<MetaMessaging['message']>): Promise<void> {
+  const recipientId = event.recipient?.id;
+  if (!recipientId) return;
+  const text = (message.text ?? '').trim();
+  // Un adjunto suelto del dueño (foto, sticker) sin texto no se guarda --
+  // el mismo criterio que ya usa el lado entrante, no hay nada que mostrar
+  // en el historial del agente igual, y no vale la pena pausar por eso.
+  if (text.length === 0) return;
+
+  const thread = await getOrCreateIgThread({ igUserId: recipientId });
+  if (!thread) return;
+
+  const saved = await appendIgMessage({
+    threadId: thread.id,
+    mid: message.mid,
+    direction: 'out',
+    source: 'admin',
+    text,
+  });
+  if (!saved) return; // Ya lo teníamos guardado -- lo mandamos nosotros mismos por la API.
+
+  await setIgThreadBotPaused(thread.id, true, 'El dueño contestó directo desde Instagram');
 }
 
 /** Manda la respuesta y la guarda en el hilo. Si Meta la rechaza (token

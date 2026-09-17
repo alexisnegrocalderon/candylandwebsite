@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invokeLLM } from './_core/llm';
 import * as db from './db';
 import * as instagramSend from './instagramSend';
-import { verifyMetaSignature, humanReplyDelayMs, sendManualInstagramReply } from './instagram';
+import { verifyMetaSignature, humanReplyDelayMs, sendManualInstagramReply, handleOwnerEcho } from './instagram';
 import { canReplyWithinWindow } from './instagramSend';
 import { buildInstagramContext, runInstagramAgent } from './instagramAgent';
 import { normalizeInstagramAgentConfig, IG_MAX_REPLY_CHARS } from '../shared/instagramAgentConfig';
@@ -22,12 +22,14 @@ vi.mock('./db', async (importOriginal) => {
     getTicketTypesByEventId: vi.fn(),
     appendIgMessage: vi.fn(),
     setIgThreadBotPaused: vi.fn(),
+    getOrCreateIgThread: vi.fn(),
   };
 });
 const getHomeEventsMock = vi.mocked(db.getHomeEvents);
 const getTicketTypesMock = vi.mocked(db.getTicketTypesByEventId);
 const appendIgMessageMock = vi.mocked(db.appendIgMessage);
 const setIgThreadBotPausedMock = vi.mocked(db.setIgThreadBotPaused);
+const getOrCreateIgThreadMock = vi.mocked(db.getOrCreateIgThread);
 
 vi.mock('./instagramSend', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./instagramSend')>();
@@ -131,6 +133,69 @@ describe('sendManualInstagramReply', () => {
 
     expect(sendInstagramMessageMock).not.toHaveBeenCalled();
     expect(setIgThreadBotPausedMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleOwnerEcho', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  // Lo importante que pidió el dueño: él habla con los clientes directo
+  // desde SU app de Instagram (no desde el panel). Ese mensaje le llega al
+  // webhook como "eco" -- antes se ignoraba entero; ahora tiene que
+  // guardarse y pausar el bot para que no le conteste encima.
+  it('guarda el mensaje y pausa el bot cuando el dueño escribe directo desde Instagram', async () => {
+    getOrCreateIgThreadMock.mockResolvedValueOnce({ id: 7 } as any);
+    appendIgMessageMock.mockResolvedValueOnce({ id: 99 } as any);
+
+    await handleOwnerEcho(
+      { sender: { id: 'ig-cuenta-productora' }, recipient: { id: 'ig-user-cliente' } } as any,
+      { mid: 'mid-nuevo', text: 'hola! sí, disfraz es obligatorio' } as any,
+    );
+
+    expect(getOrCreateIgThreadMock).toHaveBeenCalledWith({ igUserId: 'ig-user-cliente' });
+    expect(appendIgMessageMock).toHaveBeenCalledWith({
+      threadId: 7,
+      mid: 'mid-nuevo',
+      direction: 'out',
+      source: 'admin',
+      text: 'hola! sí, disfraz es obligatorio',
+    });
+    expect(setIgThreadBotPausedMock).toHaveBeenCalledWith(7, true, 'El dueño contestó directo desde Instagram');
+  });
+
+  // El eco de un mensaje que YA mandamos nosotros (el agente, o una
+  // respuesta manual del panel) también llega por acá -- appendIgMessage ya
+  // lo descarta por el mid duplicado (mismo mecanismo que evita procesar dos
+  // veces un reintento de Meta), así que no hay que pausar de nuevo por eso.
+  it('no hace nada si el eco es de un mensaje que ya habíamos guardado nosotros', async () => {
+    getOrCreateIgThreadMock.mockResolvedValueOnce({ id: 7 } as any);
+    appendIgMessageMock.mockResolvedValueOnce(null); // mid duplicado
+
+    await handleOwnerEcho(
+      { sender: { id: 'ig-cuenta-productora' }, recipient: { id: 'ig-user-cliente' } } as any,
+      { mid: 'mid-ya-guardado', text: 'la Soltera está en $10.000' } as any,
+    );
+
+    expect(setIgThreadBotPausedMock).not.toHaveBeenCalled();
+  });
+
+  it('no hace nada con un adjunto suelto sin texto', async () => {
+    await handleOwnerEcho(
+      { sender: { id: 'ig-cuenta-productora' }, recipient: { id: 'ig-user-cliente' } } as any,
+      { mid: 'mid-1', text: '' } as any,
+    );
+
+    expect(getOrCreateIgThreadMock).not.toHaveBeenCalled();
+    expect(setIgThreadBotPausedMock).not.toHaveBeenCalled();
+  });
+
+  it('no hace nada si no viene el recipient (dato raro de Meta)', async () => {
+    await handleOwnerEcho(
+      { sender: { id: 'ig-cuenta-productora' } } as any,
+      { mid: 'mid-1', text: 'hola' } as any,
+    );
+
+    expect(getOrCreateIgThreadMock).not.toHaveBeenCalled();
   });
 });
 
