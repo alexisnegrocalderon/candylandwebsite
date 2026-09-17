@@ -8,11 +8,15 @@ import {
   setIgThreadBotPaused,
   countIgBotRepliesSince,
   getSiteSettings,
+  findMatchingIgKeywordAutomation,
+  hasRedeemedIgKeywordAutomation,
+  recordIgKeywordRedemption,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
-import { sendInstagramMessage, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
+import { sendInstagramMessage, sendPrivateReply, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
 import { sendPushToAdmins } from './push';
 import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
+import { buildAutomationReplyText } from './instagramAutomations';
 
 /* Entrada de los mensajes directos de Instagram (Messenger Platform, campo
  * `messages`). Ver docs/INSTAGRAM-AGENT.md para el alta en el panel de Meta.
@@ -70,12 +74,27 @@ type MetaMessaging = {
     is_echo?: boolean;
     is_deleted?: boolean;
     attachments?: unknown[];
+    // Presente cuando el mensaje es una respuesta a una historia -- mismo
+    // webhook `messaging` de siempre, sin permiso nuevo que pedirle a Meta.
+    reply_to?: { story?: { id?: string; url?: string } };
+  };
+};
+
+// Forma real que manda Meta para un comentario nuevo en un post/reel (campo
+// de webhook "comments", ver docs/INSTAGRAM-AGENT.md) -- hoy no llega nada
+// acá porque el permiso todavía no está aprobado, ver handleCommentChange.
+type MetaCommentChange = {
+  field?: string;
+  value?: {
+    id?: string;
+    text?: string;
+    from?: { id?: string; username?: string };
   };
 };
 
 type MetaWebhookBody = {
   object?: string;
-  entry?: Array<{ id?: string; messaging?: MetaMessaging[] }>;
+  entry?: Array<{ id?: string; messaging?: MetaMessaging[]; changes?: MetaCommentChange[] }>;
 };
 
 instagramRouter.post(
@@ -122,6 +141,9 @@ instagramRouter.post(
       for (const entry of body.entry ?? []) {
         for (const messaging of entry.messaging ?? []) {
           await handleMessagingEvent(messaging);
+        }
+        for (const change of entry.changes ?? []) {
+          if (change.field === 'comments') await handleCommentChange(change.value);
         }
       }
     } catch (err) {
@@ -201,6 +223,21 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   // veces lo mismo.
   if (!saved) return;
 
+  // Automatización por palabra clave (respuesta a historia): independiente
+  // del agente conversacional de IA -- funciona aunque el agente esté
+  // apagado o el hilo pausado, porque es una promesa puntual de una
+  // historia, no una conversación de venta. Si calza, se contesta acá y no
+  // se corre el agente para este mensaje.
+  if (message.reply_to?.story && text.length > 0) {
+    const handled = await tryHandleKeywordTrigger({
+      threadId: thread.id,
+      igUserId: senderId,
+      text,
+      source: 'story_reply',
+    });
+    if (handled) return;
+  }
+
   const settings = await getSiteSettings();
   const config = normalizeInstagramAgentConfig((settings as any)?.instagramAgentConfig);
 
@@ -275,6 +312,64 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     await setIgThreadBotPaused(thread.id, true, result.handoffReason || 'La IA derivó la conversación');
     await notifyHandoff(thread.username ?? senderId, text, result.handoffReason);
   }
+}
+
+/** Busca una automatización de palabra clave que calce con el texto, para
+ * la fuente que corresponda (comentario o respuesta a historia). Si la
+ * persona ya la recibió antes, no cuenta como calce -- el llamador sigue
+ * su flujo normal (para una respuesta a historia, eso es dejar que
+ * conteste el agente conversacional de siempre). */
+async function matchKeywordTrigger(
+  text: string,
+  igUserId: string,
+  source: 'comment' | 'story_reply',
+) {
+  const automation = await findMatchingIgKeywordAutomation(text, source);
+  if (!automation) return null;
+  if (await hasRedeemedIgKeywordAutomation(automation.id, igUserId)) return null;
+  return automation;
+}
+
+/** Respuesta a una historia con la palabra clave correcta: manda el regalo
+ * configurado (link, mensaje, o código de descuento) por DM normal y lo
+ * registra en el hilo como cualquier mensaje saliente. Devuelve `true`
+ * cuando manejó el mensaje (para que `handleMessagingEvent` no corra
+ * además el agente conversacional encima del mismo mensaje). */
+export async function tryHandleKeywordTrigger(input: {
+  threadId: number;
+  igUserId: string;
+  text: string;
+  source: 'story_reply';
+}): Promise<boolean> {
+  const automation = await matchKeywordTrigger(input.text, input.igUserId, input.source);
+  if (!automation) return false;
+
+  const replyText = buildAutomationReplyText(automation);
+  const { mid } = await sendInstagramMessage({ recipientId: input.igUserId, text: replyText });
+  await appendIgMessage({ threadId: input.threadId, mid, direction: 'out', source: 'bot', text: replyText });
+  await recordIgKeywordRedemption({ automationId: automation.id, igUserId: input.igUserId, source: input.source });
+  return true;
+}
+
+/** Comentario nuevo en un post/reel, con la forma que manda el campo de
+ * webhook "comments". Hoy Meta nunca manda uno de estos -- el permiso
+ * `instagram_business_manage_comments` (Advanced Access) todavía no está
+ * aprobado para esta app, ver docs/INSTAGRAM-AGENT.md -- pero apenas se
+ * suscriba ese campo del webhook, esto queda funcionando sin tocar nada
+ * más. Usa "Private Replies" de Meta (`sendPrivateReply`): un DM fuera de
+ * cualquier hilo/ventana de 24h, dirigido al comentario, no a la persona. */
+export async function handleCommentChange(value: { id?: string; text?: string; from?: { id?: string; username?: string } } | undefined): Promise<void> {
+  const commentId = value?.id;
+  const igUserId = value?.from?.id;
+  const text = (value?.text ?? '').trim();
+  if (!commentId || !igUserId || text.length === 0) return;
+
+  const automation = await matchKeywordTrigger(text, igUserId, 'comment');
+  if (!automation) return;
+
+  const replyText = buildAutomationReplyText(automation);
+  await sendPrivateReply(commentId, replyText);
+  await recordIgKeywordRedemption({ automationId: automation.id, igUserId, source: 'comment' });
 }
 
 /** Eco de un mensaje SALIENTE de la cuenta de la productora. En un eco,

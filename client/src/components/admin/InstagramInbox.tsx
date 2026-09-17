@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
+import { InstagramAutomations } from '@/components/admin/InstagramAutomations';
 import { formatChileDateTime } from '@shared/chileDate';
 import { IG_MAX_REPLY_CHARS, type InstagramAgentConfig } from '@shared/instagramAgentConfig';
 
@@ -42,6 +43,7 @@ export function InstagramInbox() {
 
       <ConnectionCard />
       <AgentConfigCard />
+      <InstagramAutomations />
 
       {selectedId === null
         ? <ThreadList onOpen={setSelectedId} />

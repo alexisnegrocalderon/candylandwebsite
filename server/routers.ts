@@ -1919,6 +1919,74 @@ export const appRouter = router({
     })),
   }),
 
+  // Automatizaciones por palabra clave: comentar o responder a una historia
+  // con la palabra justa dispara un DM (link, mensaje, o código de
+  // descuento). El código de descuento es opcional -- mismo `discountCodes`
+  // de siempre, generado con el mismo patrón que ya usa Promo Flash. Las de
+  // `triggerSource: 'comment'`/`'both'` no hacen nada todavía en
+  // producción: Meta exige un permiso aparte (`instagram_business_manage_comments`,
+  // Advanced Access) que hoy no está aprobado -- ver docs/INSTAGRAM-AGENT.md.
+  instagramAutomations: router({
+    list: adminProcedure.query(() => db.listIgKeywordAutomationsWithStats()),
+    save: adminProcedure.input(z.object({
+      id: z.number().optional(),
+      keyword: z.string().min(1).max(120),
+      triggerSource: z.enum(['comment', 'story_reply', 'both']),
+      replyMessage: z.string().min(1).max(1000),
+      discount: z.object({
+        discountType: z.enum(['percentage', 'fixed']),
+        discountValue: z.number().positive(),
+        maxUses: z.number().int().positive().optional(),
+        validUntil: z.string().optional(),
+      }).optional(),
+    })).mutation(async ({ input }) => {
+      if (input.id) {
+        await db.updateIgKeywordAutomation(input.id, {
+          keyword: input.keyword,
+          triggerSource: input.triggerSource,
+          replyMessage: input.replyMessage,
+        });
+        return { success: true };
+      }
+
+      // Solo se genera un código de descuento si esta campaña de verdad
+      // regala uno -- una automatización que solo manda un link o un
+      // mensaje nunca toca `discountCodes`.
+      let discountCode: string | null = null;
+      if (input.discount) {
+        discountCode = `AUTO${nanoid(4).toUpperCase()}`;
+        await db.createDiscountCode({
+          code: discountCode,
+          description: `Automatización de Instagram: "${input.keyword}"`,
+          discountType: input.discount.discountType,
+          discountValue: input.discount.discountValue,
+          maxUses: input.discount.maxUses,
+          validUntil: input.discount.validUntil ? new Date(input.discount.validUntil) : undefined,
+          isActive: 1,
+        });
+      }
+
+      await db.createIgKeywordAutomation({
+        keyword: input.keyword,
+        triggerSource: input.triggerSource,
+        replyMessage: input.replyMessage,
+        discountCode,
+      });
+      return { success: true };
+    }),
+    setActive: adminProcedure.input(z.object({
+      id: z.number(),
+      active: z.boolean(),
+    })).mutation(async ({ input }) => {
+      await db.setIgKeywordAutomationActive(input.id, input.active);
+      return { success: true };
+    }),
+    delete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await db.deleteIgKeywordAutomation(input.id);
+      return { success: true };
+    }),
+  }),
+
   // Editor de textos + interruptores por sección del correo de compra, y
   // botón de "mandar prueba" a una casilla cualquiera con cualquiera de los
   // 4 correos de cara al cliente -- ver shared/emailTemplateConfig.ts para

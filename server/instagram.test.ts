@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invokeLLM } from './_core/llm';
 import * as db from './db';
 import * as instagramSend from './instagramSend';
-import { verifyMetaSignature, humanReplyDelayMs, sendManualInstagramReply, handleOwnerEcho } from './instagram';
+import { verifyMetaSignature, humanReplyDelayMs, sendManualInstagramReply, handleOwnerEcho, tryHandleKeywordTrigger, handleCommentChange } from './instagram';
 import { canReplyWithinWindow } from './instagramSend';
 import { buildInstagramContext, runInstagramAgent } from './instagramAgent';
 import { normalizeInstagramAgentConfig, IG_MAX_REPLY_CHARS } from '../shared/instagramAgentConfig';
@@ -23,6 +23,9 @@ vi.mock('./db', async (importOriginal) => {
     appendIgMessage: vi.fn(),
     setIgThreadBotPaused: vi.fn(),
     getOrCreateIgThread: vi.fn(),
+    findMatchingIgKeywordAutomation: vi.fn(),
+    hasRedeemedIgKeywordAutomation: vi.fn(),
+    recordIgKeywordRedemption: vi.fn(),
   };
 });
 const getHomeEventsMock = vi.mocked(db.getHomeEvents);
@@ -30,12 +33,16 @@ const getTicketTypesMock = vi.mocked(db.getTicketTypesByEventId);
 const appendIgMessageMock = vi.mocked(db.appendIgMessage);
 const setIgThreadBotPausedMock = vi.mocked(db.setIgThreadBotPaused);
 const getOrCreateIgThreadMock = vi.mocked(db.getOrCreateIgThread);
+const findMatchingIgKeywordAutomationMock = vi.mocked(db.findMatchingIgKeywordAutomation);
+const hasRedeemedIgKeywordAutomationMock = vi.mocked(db.hasRedeemedIgKeywordAutomation);
+const recordIgKeywordRedemptionMock = vi.mocked(db.recordIgKeywordRedemption);
 
 vi.mock('./instagramSend', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./instagramSend')>();
-  return { ...actual, sendInstagramMessage: vi.fn() };
+  return { ...actual, sendInstagramMessage: vi.fn(), sendPrivateReply: vi.fn() };
 });
 const sendInstagramMessageMock = vi.mocked(instagramSend.sendInstagramMessage);
+const sendPrivateReplyMock = vi.mocked(instagramSend.sendPrivateReply);
 
 function mockLlmJson(payload: unknown) {
   invokeLLMMock.mockResolvedValueOnce({
@@ -196,6 +203,78 @@ describe('handleOwnerEcho', () => {
     );
 
     expect(getOrCreateIgThreadMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('tryHandleKeywordTrigger', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  // Caso principal que pidió el dueño: responder a una historia con la
+  // palabra clave manda el regalo configurado (acá, con código) y avisa que
+  // ya se manejó, para que no corra además el agente conversacional.
+  it('manda el regalo, lo guarda en el hilo y registra la redención', async () => {
+    findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({
+      id: 5, keyword: 'disfraz', triggerSource: 'story_reply', replyMessage: 'Tu código es {{codigo}} 💜', discountCode: 'AUTOAB12', active: 1, createdAt: new Date(),
+    } as any);
+    hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
+    sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'mid-out-1' } as any);
+
+    const handled = await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'ig-user-1', text: 'vengo con disfraz!', source: 'story_reply' });
+
+    expect(handled).toBe(true);
+    expect(sendInstagramMessageMock).toHaveBeenCalledWith({ recipientId: 'ig-user-1', text: 'Tu código es AUTOAB12 💜' });
+    expect(appendIgMessageMock).toHaveBeenCalledWith({ threadId: 7, mid: 'mid-out-1', direction: 'out', source: 'bot', text: 'Tu código es AUTOAB12 💜' });
+    expect(recordIgKeywordRedemptionMock).toHaveBeenCalledWith({ automationId: 5, igUserId: 'ig-user-1', source: 'story_reply' });
+  });
+
+  it('no hace nada si el texto no calza con ninguna automatización activa', async () => {
+    findMatchingIgKeywordAutomationMock.mockResolvedValueOnce(null);
+
+    const handled = await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'ig-user-1', text: 'hola, cuánto vale?', source: 'story_reply' });
+
+    expect(handled).toBe(false);
+    expect(sendInstagramMessageMock).not.toHaveBeenCalled();
+  });
+
+  // La misma persona no puede cobrar el regalo dos veces respondiendo la
+  // palabra de nuevo -- en ese caso se deja que siga el flujo normal (el
+  // agente conversacional de siempre).
+  it('no reenvía el regalo si la persona ya lo recibió antes', async () => {
+    findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({
+      id: 5, keyword: 'disfraz', triggerSource: 'story_reply', replyMessage: 'hola', discountCode: null, active: 1, createdAt: new Date(),
+    } as any);
+    hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(true);
+
+    const handled = await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'ig-user-1', text: 'disfraz de nuevo', source: 'story_reply' });
+
+    expect(handled).toBe(false);
+    expect(sendInstagramMessageMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleCommentChange', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  // El caso "dormido" hasta que Meta apruebe el permiso -- pero el código ya
+  // tiene que funcionar de punta a punta cuando llegue un comentario real.
+  it('manda una respuesta privada al comentario y registra la redención', async () => {
+    findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({
+      id: 9, keyword: 'link', triggerSource: 'comment', replyMessage: 'Acá tienes: mansionplayroom.cl/blog', discountCode: null, active: 1, createdAt: new Date(),
+    } as any);
+    hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
+
+    await handleCommentChange({ id: 'comment-123', text: 'quiero el link porfa', from: { id: 'ig-user-2', username: 'alguien' } });
+
+    expect(sendPrivateReplyMock).toHaveBeenCalledWith('comment-123', 'Acá tienes: mansionplayroom.cl/blog');
+    expect(recordIgKeywordRedemptionMock).toHaveBeenCalledWith({ automationId: 9, igUserId: 'ig-user-2', source: 'comment' });
+  });
+
+  it('no hace nada con un comentario sin texto, sin id, o sin autor', async () => {
+    await handleCommentChange({ id: 'comment-1', text: '', from: { id: 'ig-user-2' } });
+    await handleCommentChange({ id: undefined, text: 'hola', from: { id: 'ig-user-2' } });
+    await handleCommentChange({ id: 'comment-1', text: 'hola', from: undefined });
+
+    expect(sendPrivateReplyMock).not.toHaveBeenCalled();
   });
 });
 
