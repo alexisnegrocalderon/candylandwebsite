@@ -366,6 +366,14 @@ export const discountCodes = mysqlTable("discountCodes", {
   // Ajustes → Descuentos) = comportamiento de siempre, sobre el carrito
   // completo -- no rompe nada existente.
   applicableTicketTypeIds: json("applicableTicketTypeIds").$type<number[]>(),
+  // Cuando está seteado, este código además REGALA una unidad de este
+  // producto (cualquier categoría de la Carta -- no solo 'extra') al
+  // comprar una entrada con él -- ver server/webhooks.ts, donde se genera
+  // el orderItem sintético de precio $0 que hace que el regalo aparezca
+  // junto al QR/PlayCard del comprador, listo para canjear en caja igual
+  // que cualquier extra. `null` = comportamiento de siempre (solo
+  // descuento en dinero, si lo tiene).
+  giftTicketTypeId: int("giftTicketTypeId"),
   validFrom: timestamp("validFrom"),
   validUntil: timestamp("validUntil"),
   isActive: int("isActive").default(1).notNull(),

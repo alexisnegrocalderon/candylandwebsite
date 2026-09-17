@@ -283,6 +283,13 @@ export async function getTicketTypesByEventId(eventId: number) {
   return attachStockPoolInfo(rows);
 }
 
+export async function getTicketTypeById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, id)).limit(1);
+  return row ?? null;
+}
+
 /** Le suma a cada fila con `stockPoolId` el remanente REAL del pool
  * compartido (`poolRemaining`) y su cap (`poolTotalCap`) -- así el
  * frontend (público o admin) no tiene que hacer una consulta aparte por
@@ -651,6 +658,17 @@ export async function validateDiscountCode(code: string, eventId: number) {
   if (discount.eventId && discount.eventId !== eventId) return { valid: false, message: 'Código no válido para este evento' };
 
   return { valid: true, discount };
+}
+
+/** Busca un código de descuento por su texto, sin ninguna validación de
+ * vigencia/evento -- para uso interno (ej. armar el mensaje de una
+ * automatización de Instagram con el nombre del producto que regala), no
+ * para el checkout, que sigue usando `validateDiscountCode`. */
+export async function getDiscountCodeByCode(code: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(discountCodes).where(eq(discountCodes.code, code.trim().toUpperCase())).limit(1);
+  return row ?? null;
 }
 
 /** La promo relámpago activa ahora mismo para este evento (si hay alguna) --

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { toast } from 'sonner';
 import { Zap } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
@@ -13,8 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 /* Automatizaciones de Instagram por palabra clave: comentar (post/reel) o
  * responder a una historia con la palabra justa dispara un DM automático --
- * un link, un mensaje de puro texto, o un código de descuento, según lo que
- * el dueño configure para esa campaña puntual.
+ * un link, un mensaje de puro texto, un código de descuento, o un producto
+ * de la Carta de la Fiesta regalado y ya listo para canjear en caja, según
+ * lo que el dueño configure para esa campaña puntual.
  *
  * "comentario" no hace nada todavía en producción: Meta exige un permiso
  * aparte (instagram_business_manage_comments, Advanced Access) que hoy no
@@ -32,6 +33,8 @@ const TRIGGER_LABEL: Record<string, string> = {
   both: 'Comentario + respuesta a historia',
 };
 
+type RewardMode = 'none' | 'discount' | 'gift';
+
 export function InstagramAutomations() {
   const utils = trpc.useUtils();
   const { data: automations } = trpc.instagramAutomations.list.useQuery();
@@ -40,19 +43,35 @@ export function InstagramAutomations() {
   const [keyword, setKeyword] = useState('');
   const [triggerSource, setTriggerSource] = useState<'comment' | 'story_reply' | 'both'>('story_reply');
   const [replyMessage, setReplyMessage] = useState('');
-  const [withDiscount, setWithDiscount] = useState(false);
+  const [rewardMode, setRewardMode] = useState<RewardMode>('none');
   const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('percentage');
   const [discountValue, setDiscountValue] = useState(10);
+  const [giftTicketTypeId, setGiftTicketTypeId] = useState<string>('');
   const [maxUses, setMaxUses] = useState('');
   const [validUntil, setValidUntil] = useState('');
+
+  // Productos del evento activo, para elegir cuál regalar -- mismo par de
+  // queries que ya usa FlashPromoCard, sin filtrar por categoría acá: a
+  // diferencia de Promo Flash (solo Carta vendible en caja), acá se puede
+  // regalar cualquier producto activo, incluidos accesos/extras.
+  const { data: activeEvent } = trpc.events.getActiveForCaja.useQuery();
+  const { data: ticketTypes } = trpc.events.listTicketTypes.useQuery(
+    { eventId: activeEvent?.id! },
+    { enabled: !!activeEvent?.id },
+  );
+  const giftableProducts = useMemo(
+    () => (ticketTypes ?? []).filter((t: any) => t.status === 'active'),
+    [ticketTypes],
+  );
 
   const resetForm = () => {
     setKeyword('');
     setTriggerSource('story_reply');
     setReplyMessage('');
-    setWithDiscount(false);
+    setRewardMode('none');
     setDiscountType('percentage');
     setDiscountValue(10);
+    setGiftTicketTypeId('');
     setMaxUses('');
     setValidUntil('');
     setShowForm(false);
@@ -73,13 +92,21 @@ export function InstagramAutomations() {
 
   const handleSave = () => {
     if (!keyword.trim() || !replyMessage.trim()) return;
+    if (rewardMode === 'gift' && !giftTicketTypeId) return;
+
     save.mutate({
       keyword: keyword.trim(),
       triggerSource,
       replyMessage: replyMessage.trim(),
-      discount: withDiscount ? {
+      reward: rewardMode === 'discount' ? {
+        kind: 'discount',
         discountType,
         discountValue,
+        maxUses: maxUses ? Number(maxUses) : undefined,
+        validUntil: validUntil || undefined,
+      } : rewardMode === 'gift' ? {
+        kind: 'gift',
+        giftTicketTypeId: Number(giftTicketTypeId),
         maxUses: maxUses ? Number(maxUses) : undefined,
         validUntil: validUntil || undefined,
       } : undefined,
@@ -92,8 +119,10 @@ export function InstagramAutomations() {
       <CardContent className="space-y-4">
         <p className="text-muted-foreground text-sm">
           Cuando alguien comenta o responde a una historia con la palabra que definas acá, le llega automático el DM que
-          configures -- un link, un mensaje, o un código de descuento. Las de "comentario" están listas en el código pero
-          no van a hacer nada hasta que Meta apruebe un permiso nuevo que el dueño tiene que pedir en su panel.
+          configures -- un link, un mensaje, un código de descuento, o un producto de la Carta regalado (ya listo para
+          canjear en caja con su tarjeta, cuenta como vendido igual que cualquier venta). Las de "comentario" están
+          listas en el código pero no van a hacer nada hasta que Meta apruebe un permiso nuevo que el dueño tiene que
+          pedir en su panel.
         </p>
 
         {(automations ?? []).map((a) => (
@@ -145,20 +174,24 @@ export function InstagramAutomations() {
                 rows={4}
                 value={replyMessage}
                 onChange={(e) => setReplyMessage(e.target.value)}
-                placeholder='Escribe lo que le quieres mandar: puede ser un link a un artículo, el texto de un premio, o cualquier mensaje. Si además le agregas un código de descuento abajo, usa {{codigo}} donde quieras que aparezca.'
+                placeholder='Escribe lo que le quieres mandar. Placeholders disponibles: {{codigo}} (el código), {{producto}} (si regalas un producto) y {{link}} (el link de compra -- si hay código, ya lo lleva pegado para que se aplique solo).'
                 className="mt-1"
               />
             </div>
 
-            <div className="flex items-center justify-between gap-4 rounded-2xl border p-3">
-              <div className="text-sm">
-                <p className="font-medium">¿Esta automatización también regala un código de descuento?</p>
-                <p className="text-muted-foreground text-xs">Apagado por defecto -- muchas automatizaciones solo mandan un link o un mensaje.</p>
-              </div>
-              <Switch checked={withDiscount} onCheckedChange={setWithDiscount} />
+            <div>
+              <Label>¿Qué le regala esta automatización?</Label>
+              <Select value={rewardMode} onValueChange={(v) => setRewardMode(v as RewardMode)}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Nada -- solo el mensaje (link, artículo, texto)</SelectItem>
+                  <SelectItem value="discount">Código de descuento en dinero</SelectItem>
+                  <SelectItem value="gift">Un producto de la Carta, gratis</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            {withDiscount && (
+            {rewardMode === 'discount' && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Tipo</Label>
@@ -185,8 +218,48 @@ export function InstagramAutomations() {
               </div>
             )}
 
+            {rewardMode === 'gift' && (
+              <div className="space-y-3">
+                <div>
+                  <Label>Producto a regalar</Label>
+                  {!activeEvent && <p className="text-xs text-muted-foreground mt-1">No hay una fiesta activa ahora mismo.</p>}
+                  {activeEvent && giftableProducts.length === 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">La Carta de la Fiesta de este evento no tiene productos activos.</p>
+                  )}
+                  {giftableProducts.length > 0 && (
+                    <Select value={giftTicketTypeId} onValueChange={setGiftTicketTypeId}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Elige un producto" /></SelectTrigger>
+                      <SelectContent>
+                        {giftableProducts.map((t: any) => (
+                          <SelectItem key={t.id} value={String(t.id)}>{t.emoji ? `${t.emoji} ` : ''}{t.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Cupos (opcional)</Label>
+                    <Input type="number" min={1} value={maxUses} onChange={(e) => setMaxUses(e.target.value)} placeholder="Ej: 5" className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Vence el (opcional)</Label>
+                    <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="mt-1" />
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  El regalo se activa al comprar una entrada con el código: aparece de entrada junto al QR/PlayCard de la
+                  persona, listo para canjear en caja como cualquier extra. Cuenta como vendido para el inventario real,
+                  aunque no genere ingreso -- pon un tope de cupos acorde al stock que tienes.
+                </p>
+              </div>
+            )}
+
             <div className="flex gap-2">
-              <WriteButton onClick={handleSave} disabled={save.isPending || !keyword.trim() || !replyMessage.trim()}>
+              <WriteButton
+                onClick={handleSave}
+                disabled={save.isPending || !keyword.trim() || !replyMessage.trim() || (rewardMode === 'gift' && !giftTicketTypeId)}
+              >
                 {save.isPending ? 'Guardando...' : 'Guardar'}
               </WriteButton>
               <Button variant="ghost" onClick={resetForm}>Cancelar</Button>

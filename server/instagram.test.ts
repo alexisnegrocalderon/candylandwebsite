@@ -26,6 +26,9 @@ vi.mock('./db', async (importOriginal) => {
     findMatchingIgKeywordAutomation: vi.fn(),
     hasRedeemedIgKeywordAutomation: vi.fn(),
     recordIgKeywordRedemption: vi.fn(),
+    getDiscountCodeByCode: vi.fn(),
+    getTicketTypeById: vi.fn(),
+    getFeaturedEvent: vi.fn(),
   };
 });
 const getHomeEventsMock = vi.mocked(db.getHomeEvents);
@@ -36,6 +39,9 @@ const getOrCreateIgThreadMock = vi.mocked(db.getOrCreateIgThread);
 const findMatchingIgKeywordAutomationMock = vi.mocked(db.findMatchingIgKeywordAutomation);
 const hasRedeemedIgKeywordAutomationMock = vi.mocked(db.hasRedeemedIgKeywordAutomation);
 const recordIgKeywordRedemptionMock = vi.mocked(db.recordIgKeywordRedemption);
+const getDiscountCodeByCodeMock = vi.mocked(db.getDiscountCodeByCode);
+const getTicketTypeByIdMock = vi.mocked(db.getTicketTypeById);
+const getFeaturedEventMock = vi.mocked(db.getFeaturedEvent);
 
 vi.mock('./instagramSend', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./instagramSend')>();
@@ -249,6 +255,26 @@ describe('tryHandleKeywordTrigger', () => {
 
     expect(handled).toBe(false);
     expect(sendInstagramMessageMock).not.toHaveBeenCalled();
+  });
+
+  // Caso "producto de regalo" (pedido del dueño: 1 piscola de regalo): el
+  // mensaje reemplaza {{producto}} con el nombre real del producto y
+  // {{link}} con el link de compra CON el código pegado, para que se
+  // aplique solo al entrar al checkout.
+  it('resuelve {{producto}} y {{link}} cuando la automatización regala un producto', async () => {
+    findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({
+      id: 6, keyword: 'piscola', triggerSource: 'story_reply', replyMessage: 'Tu código {{codigo}} te regala {{producto}} 🍹 Cómpralo acá: {{link}}', discountCode: 'AUTOXY99', active: 1, createdAt: new Date(),
+    } as any);
+    hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
+    getFeaturedEventMock.mockResolvedValueOnce({ slug: 'aniversario' } as any);
+    getDiscountCodeByCodeMock.mockResolvedValueOnce({ giftTicketTypeId: 42 } as any);
+    getTicketTypeByIdMock.mockResolvedValueOnce({ id: 42, name: '1 Piscola' } as any);
+    sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'mid-out-2' } as any);
+
+    await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'ig-user-1', text: 'quiero mi piscola', source: 'story_reply' });
+
+    const expectedText = 'Tu código AUTOXY99 te regala 1 Piscola 🍹 Cómpralo acá: https://mansionplayroom.cl/eventos/aniversario?code=AUTOXY99';
+    expect(sendInstagramMessageMock).toHaveBeenCalledWith({ recipientId: 'ig-user-1', text: expectedText });
   });
 });
 

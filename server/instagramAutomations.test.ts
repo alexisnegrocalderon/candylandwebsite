@@ -33,4 +33,25 @@ describe('buildAutomationReplyText', () => {
     const text = buildAutomationReplyText({ replyMessage: '{{codigo}} - repite: {{codigo}}', discountCode: 'X1' });
     expect(text).toBe('X1 - repite: X1');
   });
+
+  it('reemplaza {{producto}} cuando la automatización regala un producto', () => {
+    const text = buildAutomationReplyText(
+      { replyMessage: 'Tu código {{codigo}} te regala {{producto}} 🍹', discountCode: 'AUTOAB12' },
+      { productName: '1 Piscola' },
+    );
+    expect(text).toBe('Tu código AUTOAB12 te regala 1 Piscola 🍹');
+  });
+
+  it('reemplaza {{link}} con el link ya resuelto', () => {
+    const text = buildAutomationReplyText(
+      { replyMessage: 'Cómpralo acá: {{link}}', discountCode: null },
+      { link: 'https://mansionplayroom.cl/eventos/aniversario' },
+    );
+    expect(text).toBe('Cómpralo acá: https://mansionplayroom.cl/eventos/aniversario');
+  });
+
+  it('ignora los placeholders que no vienen resueltos', () => {
+    const text = buildAutomationReplyText({ replyMessage: 'Hola {{producto}} {{link}}', discountCode: null });
+    expect(text).toBe('Hola {{producto}} {{link}}');
+  });
 });

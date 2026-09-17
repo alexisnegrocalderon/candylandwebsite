@@ -606,24 +606,31 @@ export default function Checkout() {
     }
   };
 
-  // Link personal de embajador (ver client/src/lib/ambassadorRef.ts): si la
-  // persona llegó por ese link, el código queda guardado desde antes de
-  // aterrizar acá -- se precarga y se aplica SOLO, sin que tenga que escribir
-  // ni tocar nada. Nunca pisa un código que la persona ya haya escrito a
-  // mano (`code` vacío es la condición), y corre una sola vez por carga de
-  // Checkout (una vez aplicado, tocar "Aplicar" de nuevo no vuelve a
-  // dispararse por el guard de `codeResult` en el botón).
+  // Precarga y aplica un código SOLO, sin que la persona tenga que escribir
+  // ni tocar nada -- dos fuentes posibles, se usa la primera que haya (el
+  // link de embajador manda si hay las dos, por ser la que ya vivía acá):
+  // 1. Link personal de embajador (client/src/lib/ambassadorRef.ts): el
+  //    código queda guardado desde antes de aterrizar acá.
+  // 2. `?code=` en la URL: lo arma la automatización de Instagram por
+  //    palabra clave (server/instagramAutomations.ts, placeholder
+  //    {{link}}) para que el código que ya le llegó por DM se aplique
+  //    solo apenas entra a comprar.
+  // Nunca pisa un código que la persona ya haya escrito a mano (`code`
+  // vacío es la condición), y corre una sola vez por carga de Checkout (una
+  // vez aplicado, tocar "Aplicar" de nuevo no vuelve a dispararse por el
+  // guard de `codeResult` en el botón).
   useEffect(() => {
     if (!event?.id || code.trim()) return;
-    const stored = getStoredAmbassadorRef();
+    const stored = getStoredAmbassadorRef() || new URLSearchParams(search).get('code') || '';
     if (!stored) return;
     setCode(stored);
     validateCode.mutateAsync({ code: stored, eventId: event.id }).then((result) => {
       if (result.type === 'discount') setCodeResult({ type: 'discount', discount: result.discount });
       else if (result.type === 'ambassador') setCodeResult({ type: 'ambassador', name: result.name, code: result.code });
-      // Si el código guardado ya no es válido (embajador dado de baja, etc.)
-      // se deja el campo precargado en silencio -- no tiene sentido mostrar
-      // un error por algo que la persona no escribió ella misma.
+      // Si el código precargado ya no es válido (embajador dado de baja,
+      // promo vencida, etc.) se deja el campo cargado en silencio -- no
+      // tiene sentido mostrar un error por algo que la persona no escribió
+      // ella misma.
     }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event?.id]);

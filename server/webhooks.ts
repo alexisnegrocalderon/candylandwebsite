@@ -6,7 +6,7 @@ import { normalizeOrderEmailConfig } from '../shared/emailTemplateConfig';
 import { sendPushToAdmins } from './push';
 import { attributeAmbassadorSale } from './ambassadorProgram';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
-import { orders, orderItems, tickets, ticketTypes, events, referrals, users, customers } from '../drizzle/schema';
+import { orders, orderItems, tickets, ticketTypes, events, referrals, users, customers, discountCodes } from '../drizzle/schema';
 import { isTopupProduct, topupCreditForLines, topupChargeForLines } from '../shared/prepaid';
 import { eq, and, sql, isNotNull, ne, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
@@ -399,6 +399,40 @@ async function processApprovedOrder(order: any) {
   const db = await getDb();
   if (!db) return;
 
+  // Si el código de descuento usado en esta orden regala un producto (ver
+  // discountCodes.giftTicketTypeId -- automatizaciones de Instagram, ej. "1
+  // piscola de regalo"), se inserta ACÁ un orderItem sintético de precio $0
+  // ANTES de armar los tickets de abajo -- así el regalo fluye por el mismo
+  // mecanismo que cualquier extra comprado (ticket + displayCode propio),
+  // sin duplicar código. Nunca aborta la aprobación de la orden si el
+  // producto ya no existe: la compra sigue igual, solo sin el regalo.
+  let giftTicketTypeId: number | null = null;
+  if (order.discountCodeId) {
+    try {
+      const [discount] = await db.select().from(discountCodes).where(eq(discountCodes.id, order.discountCodeId)).limit(1);
+      if (discount?.giftTicketTypeId) {
+        const [giftProduct] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, discount.giftTicketTypeId)).limit(1);
+        if (giftProduct) {
+          giftTicketTypeId = giftProduct.id;
+          await db.insert(orderItems).values({
+            orderId: order.id,
+            ticketTypeId: giftProduct.id,
+            quantity: 1,
+            unitPrice: '0',
+            totalPrice: '0',
+            unitCost: giftProduct.costPrice ?? undefined,
+          });
+          // Aunque sea gratis, cuenta como vendido para el inventario real
+          // (pedido explícito del dueño) -- mismo contador que incrementa
+          // cualquier venta normal.
+          await db.update(ticketTypes).set({ soldCount: sql`soldCount + 1` }).where(eq(ticketTypes.id, giftProduct.id));
+        }
+      }
+    } catch (err) {
+      console.error('[Webhooks] No se pudo generar el regalo del código de descuento:', err);
+    }
+  }
+
   // Get order items
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
 
@@ -435,7 +469,11 @@ async function processApprovedOrder(order: any) {
     if (tt && isTopupProduct(tt)) continue;
     // Solo los extras (piscolas, lockers, etc.) se canjean en caja -- los
     // accesos ya se validan con su QR, no necesitan un código legible aparte.
-    const isRedeemable = tt?.category === 'extra';
+    // El producto regalado por un código de Instagram también es canjeable
+    // aunque su categoría real sea 'consumo' (Carta de la Fiesta, que de
+    // otro modo nunca genera un vale online) -- es el mismo ítem que se
+    // acaba de insertar arriba.
+    const isRedeemable = tt?.category === 'extra' || item.ticketTypeId === giftTicketTypeId;
     const prefix = tt ? (tt.internalCode || fallbackInternalCode(tt.name)) : 'EXT';
 
     for (let i = 0; i < item.quantity; i++) {
