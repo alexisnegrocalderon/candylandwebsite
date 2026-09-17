@@ -366,7 +366,8 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
           <div className="text-sm">
             <p className="font-medium">Respuesta automática en esta conversación</p>
             <p className="text-muted-foreground text-xs">
-              Apágala cuando la quieras seguir tú: el agente no vuelve a meterse hasta que la prendas de nuevo.
+              Se pausa sola apenas mandas un mensaje a mano. Usa este switch para pausarla antes de contestar, o para
+              que el agente vuelva a responder este hilo.
             </p>
           </div>
           <Switch

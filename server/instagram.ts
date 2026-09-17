@@ -313,7 +313,12 @@ async function notifyHandoff(who: string, incoming: string, reason: string): Pro
 
 /** Respuesta escrita a mano desde la bandeja del admin. Vive acá y no en
  * routers.ts para que la validación de la ventana de 24 horas y el guardado
- * en el hilo sean los mismos que usa el agente. */
+ * en el hilo sean los mismos que usa el agente.
+ *
+ * Pedido del dueño: si él toma el control y contesta a mano, el bot no debe
+ * volver a meterse en ese hilo solo -- se pausa automáticamente, mismo
+ * mecanismo que ya usa una derivación de la IA (`setIgThreadBotPaused`), sin
+ * que tenga que acordarse de apagar el switch aparte. */
 export async function sendManualInstagramReply(input: {
   threadId: number;
   igUserId: string;
@@ -325,4 +330,5 @@ export async function sendManualInstagramReply(input: {
   }
   const { mid } = await sendInstagramMessage({ recipientId: input.igUserId, text: input.text });
   await appendIgMessage({ threadId: input.threadId, mid, direction: 'out', source: 'admin', text: input.text });
+  await setIgThreadBotPaused(input.threadId, true, 'El dueño tomó la conversación a mano');
 }

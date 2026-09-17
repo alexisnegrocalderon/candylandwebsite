@@ -2,7 +2,8 @@ import crypto from 'crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invokeLLM } from './_core/llm';
 import * as db from './db';
-import { verifyMetaSignature, humanReplyDelayMs } from './instagram';
+import * as instagramSend from './instagramSend';
+import { verifyMetaSignature, humanReplyDelayMs, sendManualInstagramReply } from './instagram';
 import { canReplyWithinWindow } from './instagramSend';
 import { buildInstagramContext, runInstagramAgent } from './instagramAgent';
 import { normalizeInstagramAgentConfig, IG_MAX_REPLY_CHARS } from '../shared/instagramAgentConfig';
@@ -15,10 +16,24 @@ const invokeLLMMock = vi.mocked(invokeLLM);
 
 vi.mock('./db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./db')>();
-  return { ...actual, getHomeEvents: vi.fn(), getTicketTypesByEventId: vi.fn() };
+  return {
+    ...actual,
+    getHomeEvents: vi.fn(),
+    getTicketTypesByEventId: vi.fn(),
+    appendIgMessage: vi.fn(),
+    setIgThreadBotPaused: vi.fn(),
+  };
 });
 const getHomeEventsMock = vi.mocked(db.getHomeEvents);
 const getTicketTypesMock = vi.mocked(db.getTicketTypesByEventId);
+const appendIgMessageMock = vi.mocked(db.appendIgMessage);
+const setIgThreadBotPausedMock = vi.mocked(db.setIgThreadBotPaused);
+
+vi.mock('./instagramSend', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./instagramSend')>();
+  return { ...actual, sendInstagramMessage: vi.fn() };
+});
+const sendInstagramMessageMock = vi.mocked(instagramSend.sendInstagramMessage);
 
 function mockLlmJson(payload: unknown) {
   invokeLLMMock.mockResolvedValueOnce({
@@ -84,6 +99,38 @@ describe('humanReplyDelayMs', () => {
       expect(ms).toBeGreaterThanOrEqual(3000);
       expect(ms).toBeLessThan(8000);
     }
+  });
+});
+
+describe('sendManualInstagramReply', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  // Pedido del dueño: si él toma el control y contesta a mano desde la
+  // bandeja, el bot no debe seguir contestando solo en ese hilo.
+  it('pausa el bot automáticamente después de mandar una respuesta a mano', async () => {
+    sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'mid-123' } as any);
+    appendIgMessageMock.mockResolvedValueOnce({ id: 1 } as any);
+
+    await sendManualInstagramReply({
+      threadId: 42,
+      igUserId: 'ig-user-1',
+      lastInboundAt: new Date(),
+      text: 'lo veo yo, dame un segundo',
+    });
+
+    expect(setIgThreadBotPausedMock).toHaveBeenCalledWith(42, true, 'El dueño tomó la conversación a mano');
+  });
+
+  it('no manda ni pausa nada si ya pasaron las 24 horas de la ventana', async () => {
+    await expect(sendManualInstagramReply({
+      threadId: 42,
+      igUserId: 'ig-user-1',
+      lastInboundAt: new Date('2020-01-01T00:00:00Z'),
+      text: 'hola',
+    })).rejects.toThrow();
+
+    expect(sendInstagramMessageMock).not.toHaveBeenCalled();
+    expect(setIgThreadBotPausedMock).not.toHaveBeenCalled();
   });
 });
 
