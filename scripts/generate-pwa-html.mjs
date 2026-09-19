@@ -28,7 +28,9 @@ const SCREENS = [
   { file: 'admin.html', manifest: '/admin.webmanifest', title: 'Admin' },
   { file: 'caja.html', manifest: '/caja.webmanifest', title: 'Caja' },
   { file: 'puerta.html', manifest: '/puerta.webmanifest', title: 'Puerta' },
-  { file: 'gastos.html', manifest: '/gastos.webmanifest', title: 'Gastos' },
+  // Ícono propio: con las cuatro apps instaladas en la misma pantalla de
+  // inicio, el isotipo genérico las hacía indistinguibles a simple vista.
+  { file: 'gastos.html', manifest: '/gastos.webmanifest', title: 'Gastos', appleTouchIcon: '/gastos/icon-180.png' },
   { file: 'fiesta.html', manifest: '/fiesta.webmanifest', title: 'Playmatch' },
 ];
 
@@ -37,12 +39,19 @@ for (const screen of SCREENS) {
     `<link rel="manifest" href="${screen.manifest}" />`,
     `<meta name="apple-mobile-web-app-capable" content="yes" />`,
     `<meta name="apple-mobile-web-app-title" content="${screen.title}" />`,
+    ...(screen.appleTouchIcon ? [`<link rel="apple-touch-icon" sizes="180x180" href="${screen.appleTouchIcon}" />`] : []),
   ].join('\n    ');
 
   if (!baseHtml.includes('</head>')) {
     throw new Error(`dist/public/index.html no tiene </head> -- no se puede generar ${screen.file}`);
   }
-  const html = baseHtml.replace('</head>', `    ${tags}\n  </head>`);
+  // Si la pantalla trae su propio apple-touch-icon, saca el genérico del
+  // <head> base: dos <link rel="apple-touch-icon"> del mismo tamaño es
+  // ambiguo entre navegadores, así que no alcanza con agregar el nuevo.
+  const headHtml = screen.appleTouchIcon
+    ? baseHtml.replace(/\s*<link rel="apple-touch-icon"[^>]*\/>/, '')
+    : baseHtml;
+  const html = headHtml.replace('</head>', `    ${tags}\n  </head>`);
   writeFileSync(join(outDir, screen.file), html);
   console.log(`[generate-pwa-html] ${screen.file} <- manifest=${screen.manifest}`);
 }
