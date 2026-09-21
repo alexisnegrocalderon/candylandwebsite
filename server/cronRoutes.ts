@@ -9,6 +9,7 @@ import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { runFoundersPromoDaily } from "./foundersPromo";
 import { runAdminDigest } from "./adminDigest";
 import { refreshInstagramToken } from "./instagramSend";
+import { runInstagramFollowUps } from "./instagramFollowUp";
 import { shouldSendWeeklyAmbassadorEmailNow } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 
@@ -250,6 +251,20 @@ export function registerCronRoutes(app: Express) {
       res.json({ success: true, expiresInDays });
     } catch (err) {
       console.error('[Cron] Error renovando el token de Instagram:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  /* Recordatorio de cierre por silencio en el Instagram (docs: server/
+   * instagramFollowUp.ts). Cada 15 minutos -- suficiente precisión para una
+   * ventana pensada en horas (default 120 min) sin sobre-consultar. */
+  app.get("/api/cron/instagram-followup", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const result = await runInstagramFollowUps();
+      res.json({ success: true, ...result });
+    } catch (err) {
+      console.error('[Cron] Error mandando los recordatorios de cierre de Instagram:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
   });

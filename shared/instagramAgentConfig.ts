@@ -41,6 +41,21 @@ export interface InstagramAgentConfig {
    * sin ejemplos, el agente sigue solo las reglas de "CÓMO ESCRIBIR" ya
    * hardcodeadas en server/instagramAgent.ts. */
   styleExamples: string;
+  /** Interruptor del recordatorio de cierre por silencio (pedido explícito
+   * del dueño, 17/09): si la persona no vuelve a escribir pasados
+   * `followUpMinutes` desde la última respuesta del bot, se le manda UN
+   * único mensaje de cierre con el link del sitio -- ver
+   * server/instagramFollowUp.ts. Solo tiene efecto si `enabled` también
+   * está prendido. */
+  followUpEnabled: boolean;
+  /** Minutos de silencio antes de mandar el recordatorio de cierre. */
+  followUpMinutes: number;
+  /** El recordatorio en sí -- fijo, no lo genera la IA (a diferencia del
+   * cierre de "última respuesta del tope diario" en
+   * server/instagramAgent.ts, este no depende de ninguna conversación en
+   * curso: lo dispara un cron sin ningún mensaje nuevo que darle de contexto
+   * al modelo). */
+  followUpMessage: string;
 }
 
 export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
@@ -56,6 +71,9 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   historyLimit: 12,
   dailyReplyLimitPerThread: 30,
   styleExamples: '',
+  followUpEnabled: true,
+  followUpMinutes: 120,
+  followUpMessage: 'Cuando quieras retomamos 💜 mientras tanto puedes ver fechas y entradas directo en mansionplayroom.cl/entradas',
 };
 
 /** Completa con los valores por defecto cualquier campo faltante -- una
@@ -65,6 +83,7 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
   const partial = (raw && typeof raw === 'object' ? raw : {}) as Partial<InstagramAgentConfig>;
   const historyLimit = Number(partial.historyLimit);
   const dailyLimit = Number(partial.dailyReplyLimitPerThread);
+  const followUpMinutes = Number(partial.followUpMinutes);
   return {
     enabled: partial.enabled === true,
     brandNotes: typeof partial.brandNotes === 'string' && partial.brandNotes.trim().length > 0
@@ -80,6 +99,13 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
       ? Math.min(Math.floor(dailyLimit), 200)
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.dailyReplyLimitPerThread,
     styleExamples: typeof partial.styleExamples === 'string' ? partial.styleExamples : DEFAULT_INSTAGRAM_AGENT_CONFIG.styleExamples,
+    followUpEnabled: partial.followUpEnabled !== false,
+    followUpMinutes: Number.isFinite(followUpMinutes) && followUpMinutes > 0
+      ? Math.min(Math.floor(followUpMinutes), 1440)
+      : DEFAULT_INSTAGRAM_AGENT_CONFIG.followUpMinutes,
+    followUpMessage: typeof partial.followUpMessage === 'string' && partial.followUpMessage.trim().length > 0
+      ? partial.followUpMessage
+      : DEFAULT_INSTAGRAM_AGENT_CONFIG.followUpMessage,
   };
 }
 

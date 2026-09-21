@@ -151,6 +151,38 @@ function AgentConfigCard() {
           onChange={(styleExamples) => setDraft({ ...draft, styleExamples })}
         />
 
+        <div className="space-y-3 rounded-2xl border p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="font-medium">Recordatorio si no contesta</p>
+              <p className="text-sm text-muted-foreground">
+                Si la persona no vuelve a escribir pasado este tiempo desde la última respuesta del bot, se le manda
+                un único mensaje de cierre con el link del sitio.
+              </p>
+            </div>
+            <Switch
+              checked={draft.followUpEnabled}
+              onCheckedChange={(followUpEnabled) => setDraft({ ...draft, followUpEnabled })}
+            />
+          </div>
+          <div className="max-w-[180px] space-y-2">
+            <Label>Minutos de silencio</Label>
+            <Input
+              type="number" min={1} max={1440}
+              value={draft.followUpMinutes}
+              onChange={(e) => setDraft({ ...draft, followUpMinutes: Number(e.target.value) })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Mensaje de cierre</Label>
+            <Input
+              value={draft.followUpMessage}
+              maxLength={IG_MAX_REPLY_CHARS}
+              onChange={(e) => setDraft({ ...draft, followUpMessage: e.target.value })}
+            />
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Mensajes de historial</Label>

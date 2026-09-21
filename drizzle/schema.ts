@@ -1621,6 +1621,16 @@ export const igThreads = mysqlTable("igThreads", {
   // depende de quién respondió: un hilo contestado por el bot igual queda
   // marcado para que el dueño pueda revisar qué se dijo en su nombre.
   unreadCount: int("unreadCount").default(0).notNull(),
+  // Cuándo se mandó el mensaje de cierre por silencio (pedido explícito del
+  // dueño, 17/09): si la persona no vuelve a escribir pasados los minutos
+  // configurados (instagramAgentConfig.followUpMinutes) después de la
+  // última respuesta del bot, se le manda un único recordatorio con el link
+  // del sitio -- ver runInstagramFollowUps en server/instagramFollowUp.ts.
+  // `null` = todavía no se mandó ninguno para la ronda de silencio actual.
+  // Vuelve a quedar habilitado solo cuando `lastMessageAt` avanza más allá
+  // de este valor (la persona escribió de nuevo y el bot le contestó otra
+  // vez) -- no hace falta limpiarlo a mano en ningún lado.
+  closingMessageSentAt: timestamp("closingMessageSentAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({

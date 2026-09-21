@@ -1,4 +1,4 @@
-import { eq, desc, and, sql, or, gt, gte, lte, like, inArray, isNull, ne } from "drizzle-orm";
+import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, isNull, isNotNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, emailLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -5905,6 +5905,52 @@ export async function countIgBotRepliesSince(threadId: number, since: Date): Pro
       gte(igMessages.createdAt, since),
     ));
   return Number(row?.count ?? 0);
+}
+
+/** Hilos candidatos al recordatorio de cierre por silencio (server/
+ * instagramFollowUp.ts): el bot contestó último, nadie respondió después, y
+ * no se le mandó ya el cierre para esta ronda de silencio.
+ *
+ * El filtro de "el último mensaje del hilo es del bot" se hace en dos pasos
+ * a propósito en vez de un JOIN/subquery: primero se acota por `igThreads`
+ * (paused, `lastMessageAt`, `closingMessageSentAt` -- todos indexados o de
+ * tabla chica), y recién sobre esos pocos candidatos se pregunta por su
+ * último `igMessages` uno por uno. Con el volumen real de esta bandeja
+ * (decenas de hilos activos, no miles) es más simple de leer que una
+ * subquery correlacionada y rinde exactamente igual. */
+export async function getIgThreadsAwaitingFollowUp(cutoff: Date, limit = 25): Promise<IgThread[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const candidates = await db.select().from(igThreads).where(and(
+    eq(igThreads.botPaused, 0),
+    isNotNull(igThreads.lastMessageAt),
+    lte(igThreads.lastMessageAt, cutoff),
+    or(
+      isNull(igThreads.closingMessageSentAt),
+      lt(igThreads.closingMessageSentAt, igThreads.lastMessageAt),
+    ),
+  )).orderBy(igThreads.lastMessageAt).limit(limit);
+  if (candidates.length === 0) return [];
+
+  const eligible: IgThread[] = [];
+  for (const thread of candidates) {
+    const [lastMessage] = await db.select({ direction: igMessages.direction, source: igMessages.source })
+      .from(igMessages)
+      .where(eq(igMessages.threadId, thread.id))
+      .orderBy(desc(igMessages.id))
+      .limit(1);
+    if (lastMessage?.direction === 'out' && lastMessage.source === 'bot') eligible.push(thread);
+  }
+  return eligible;
+}
+
+/** Marca que ya se mandó el recordatorio de cierre para esta ronda de
+ * silencio -- ver `getIgThreadsAwaitingFollowUp`. */
+export async function markIgThreadFollowUpSent(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(igThreads).set({ closingMessageSentAt: new Date() }).where(eq(igThreads.id, id));
 }
 
 /** Hilos con mensajes sin leer -- lo usa la burbuja del menú del admin. */
