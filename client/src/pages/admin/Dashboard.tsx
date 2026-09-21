@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -4611,6 +4611,298 @@ function AmbassadorApplicationsTab() {
   );
 }
 
+/* ─── Programa Cumpleañeros ─────────────────────────────────── */
+
+const BIRTHDAY_TABS = [
+  { id: 'postulaciones', label: 'Postulaciones' },
+  { id: 'activos', label: 'Activos' },
+] as const;
+
+function BirthdaysView() {
+  const [tab, setTab] = useState<typeof BIRTHDAY_TABS[number]['id']>('postulaciones');
+  const { data: eventsData } = trpc.events.listAll.useQuery();
+  const events = eventsData ?? [];
+  const { data: activeCajaEvent } = trpc.events.getActiveForCaja.useQuery();
+  const [eventId, setEventId] = useState<number | null>(null);
+  const activeEventId = eventId ?? activeCajaEvent?.id ?? events[0]?.id ?? null;
+  const { data: pendingApplications } = trpc.birthdayApplications.countPending.useQuery(undefined, { refetchInterval: 60_000 });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-heading text-2xl">Cumpleañeros</h2>
+          <p className="text-muted-foreground text-sm mt-1 max-w-3xl">
+            Postulan si su cumpleaños cae dentro de ±5 días del evento. Al aprobarlos se les genera un código de
+            descuento propio -- según cuántas entradas se vendan con ese código para su evento, se les desbloquea (y
+            reemplaza) el premio del tramo alcanzado, automáticamente, canjeable en caja.
+          </p>
+        </div>
+        {events.length > 0 && (
+          <Select value={String(activeEventId)} onValueChange={(v) => setEventId(Number(v))}>
+            <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2 border-b border-border pb-3">
+        {BIRTHDAY_TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors interactive flex items-center gap-2 ${
+              tab === t.id ? 'bg-primary text-primary-foreground' : 'bg-muted/40 text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t.label}
+            {t.id === 'postulaciones' && !!pendingApplications && (
+              <span className={`px-1.5 py-0.5 rounded-full text-xs font-bold ${tab === t.id ? 'bg-primary-foreground/20' : 'bg-primary/15 text-primary'}`}>
+                {pendingApplications}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'postulaciones' && <BirthdayApplicationsTab eventId={activeEventId} />}
+      {tab === 'activos' && activeEventId && <BirthdayActiveTab eventId={activeEventId} events={events} />}
+    </div>
+  );
+}
+
+/** Postulaciones públicas de /beneficios-cumpleaneros -- mismo esqueleto que
+ * AmbassadorApplicationsTab arriba. Aprobar pide el código Y el % de
+ * descuento para los invitados (a diferencia de embajadores, acá el código
+ * SÍ es un discountCodes normal -- ver server/birthdayApplications.ts). */
+function BirthdayApplicationsTab({ eventId }: { eventId: number | null }) {
+  const { data, refetch } = trpc.birthdayApplications.listAll.useQuery(eventId ? { eventId } : undefined);
+  const applications = data ?? [];
+  const [estado, setEstado] = useState<'pendiente' | 'aprobada' | 'rechazada' | 'all'>('pendiente');
+  const [approvingId, setApprovingId] = useState<number | null>(null);
+  const [code, setCode] = useState('');
+  const [discountPercent, setDiscountPercent] = useState('10');
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
+  const [rejectNote, setRejectNote] = useState('');
+
+  const review = trpc.birthdayApplications.review.useMutation({
+    onSuccess: () => { refetch(); toast.success('Postulación rechazada'); setRejectingId(null); setRejectNote(''); },
+    onError: onMutationError,
+  });
+  const approve = trpc.birthdayApplications.approve.useMutation({
+    onSuccess: () => { refetch(); toast.success('Cumpleañero aprobado y correo enviado'); setApprovingId(null); setCode(''); setDiscountPercent('10'); },
+    onError: onMutationError,
+  });
+
+  const visibles = applications.filter((a: any) => estado === 'all' || a.status === estado);
+
+  return (
+    <div className="space-y-4">
+      <Select value={estado} onValueChange={(v) => setEstado(v as typeof estado)}>
+        <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="pendiente">Pendientes</SelectItem>
+          <SelectItem value="aprobada">Aprobadas</SelectItem>
+          <SelectItem value="rechazada">Rechazadas</SelectItem>
+          <SelectItem value="all">Todas</SelectItem>
+        </SelectContent>
+      </Select>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 px-3">Nombre</th>
+                  <th className="text-left py-2 px-3">Contacto</th>
+                  <th className="text-left py-2 px-3">Cumpleaños</th>
+                  <th className="text-left py-2 px-3">Mensaje</th>
+                  <th className="text-left py-2 px-3">Postulada</th>
+                  <th className="text-left py-2 px-3">Estado</th>
+                  <th className="text-left py-2 px-3">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibles.map((a: any) => (
+                  <tr key={a.id} className="border-b border-border/50 align-top">
+                    <td className="py-2 px-3">
+                      <p className="font-medium">{a.name}</p>
+                      <p className="text-xs text-muted-foreground">{a.email}</p>
+                    </td>
+                    <td className="py-2 px-3">
+                      <a href={whatsappLinkFor(a.whatsapp)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-primary hover:underline">
+                        <MessageCircle className="w-3.5 h-3.5" /> {a.whatsapp}
+                      </a>
+                      {a.instagram && (
+                        <a href={instagramLinkFor(a.instagram)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-primary hover:underline mt-1">
+                          <Instagram className="w-3.5 h-3.5" /> @{a.instagram}
+                        </a>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 whitespace-nowrap">{a.birthDate}</td>
+                    <td className="py-2 px-3 max-w-xs text-muted-foreground">{a.message || '—'}</td>
+                    <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{formatChileShortDate(a.createdAt)}</td>
+                    <td className="py-2 px-3">
+                      <span className={`px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${
+                        a.status === 'pendiente' ? 'bg-amber-500/15 text-amber-600' :
+                        a.status === 'aprobada' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'
+                      }`}>
+                        {APPLICATION_STATUS_LABEL[a.status]}
+                      </span>
+                      {a.reviewNote && <p className="text-xs text-muted-foreground mt-1 max-w-[10rem]">{a.reviewNote}</p>}
+                    </td>
+                    <td className="py-2 px-3">
+                      {a.status === 'pendiente' && (
+                        approvingId === a.id ? (
+                          <div className="flex items-center gap-1">
+                            <Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="CODIGO" className="h-8 w-28 font-mono" />
+                            <Input type="number" value={discountPercent} onChange={(e) => setDiscountPercent(e.target.value)} placeholder="%" className="h-8 w-16" />
+                            <WriteButton
+                              size="sm" className="h-8"
+                              disabled={!code.trim() || !discountPercent.trim() || approve.isPending}
+                              onClick={() => approve.mutate({ id: a.id, code: code.trim(), discountPercent: Number(discountPercent) })}
+                            >
+                              {approve.isPending ? '...' : 'OK'}
+                            </WriteButton>
+                            <Button size="sm" variant="outline" className="h-8" onClick={() => { setApprovingId(null); setCode(''); }}><X className="w-3 h-3" /></Button>
+                          </div>
+                        ) : rejectingId === a.id ? (
+                          <div className="flex items-center gap-1">
+                            <Input value={rejectNote} onChange={(e) => setRejectNote(e.target.value)} placeholder="Nota (opcional)" className="h-8 w-36" />
+                            <WriteButton size="sm" variant="destructive" className="h-8" disabled={review.isPending} onClick={() => review.mutate({ id: a.id, status: 'rechazada', note: rejectNote.trim() || undefined })}>
+                              {review.isPending ? '...' : 'OK'}
+                            </WriteButton>
+                            <Button size="sm" variant="outline" className="h-8" onClick={() => { setRejectingId(null); setRejectNote(''); }}><X className="w-3 h-3" /></Button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <Button size="sm" className="h-8" onClick={() => setApprovingId(a.id)}><UserPlus className="w-3.5 h-3.5 mr-1" /> Aprobar</Button>
+                            <Button size="sm" variant="outline" className="h-8 text-destructive" onClick={() => setRejectingId(a.id)}>Rechazar</Button>
+                          </div>
+                        )
+                      )}
+                      {a.status === 'aprobada' && a.createdBirthdayPersonId && (
+                        <span className="text-xs text-muted-foreground font-mono">Ya es cumpleañero</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {visibles.length === 0 && (
+                  <tr><td colSpan={7} className="py-8 text-center text-muted-foreground">
+                    {estado === 'all' ? 'Sin postulaciones todavía.' : `Sin postulaciones en estado "${APPLICATION_STATUS_LABEL[estado] ?? estado}".`}
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/** Cumpleañeros ya aprobados del evento elegido: código, % de descuento,
+ * entradas vendidas con su código y el tramo vigente -- más la asignación
+ * manual del crédito de "próxima entrada" cuando ya se publicó el siguiente
+ * evento (ver server/birthdayProgram.ts assignNextEventCredit). */
+function BirthdayActiveTab({ eventId, events }: { eventId: number; events: any[] }) {
+  const { data, refetch } = trpc.birthdayProgram.listActiveForEvent.useQuery({ eventId });
+  const people = data ?? [];
+  const [assigningId, setAssigningId] = useState<number | null>(null);
+  const [targetEventId, setTargetEventId] = useState<string>('');
+  const [ticketTypeId, setTicketTypeId] = useState<string>('');
+  const { data: targetTicketTypes } = trpc.events.listTicketTypes.useQuery(
+    { eventId: Number(targetEventId) },
+    { enabled: !!targetEventId },
+  );
+
+  const assign = trpc.birthdayProgram.assignNextEventCredit.useMutation({
+    onSuccess: () => { refetch(); toast.success('Entrada asignada'); setAssigningId(null); setTargetEventId(''); setTicketTypeId(''); },
+    onError: onMutationError,
+  });
+
+  const otherEvents = events.filter((e: any) => e.id !== eventId);
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardContent className="pt-6">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left py-2 px-3">Cumpleañero</th>
+                <th className="text-left py-2 px-3">Código</th>
+                <th className="text-left py-2 px-3">% Descuento</th>
+                <th className="text-left py-2 px-3">Entradas vendidas</th>
+                <th className="text-left py-2 px-3">Tramo vigente</th>
+                <th className="text-left py-2 px-3">Crédito próximo evento</th>
+              </tr>
+            </thead>
+            <tbody>
+              {people.map((p: any) => (
+                <tr key={p.id} className="border-b border-border/50 align-top">
+                  <td className="py-2 px-3">
+                    <p className="font-medium">{p.name}</p>
+                    <p className="text-xs text-muted-foreground">{p.email}</p>
+                  </td>
+                  <td className="py-2 px-3 font-mono">{p.code ?? '—'}</td>
+                  <td className="py-2 px-3">{p.discountPercent ? `${p.discountPercent}%` : '—'}</td>
+                  <td className="py-2 px-3">{p.ticketsSold}</td>
+                  <td className="py-2 px-3">
+                    {p.currentTier > 0 ? (
+                      <span className="px-2 py-0.5 rounded-full text-xs bg-primary/15 text-primary whitespace-nowrap">Tramo {p.currentTier}</span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Sin tramo todavía</span>
+                    )}
+                  </td>
+                  <td className="py-2 px-3">
+                    {!p.pendingNextEventCredit ? (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    ) : assigningId === p.id ? (
+                      <div className="flex flex-col gap-1.5">
+                        <Select value={targetEventId} onValueChange={(v) => { setTargetEventId(v); setTicketTypeId(''); }}>
+                          <SelectTrigger className="h-8 w-48"><SelectValue placeholder="Evento destino" /></SelectTrigger>
+                          <SelectContent>
+                            {otherEvents.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <Select value={ticketTypeId} onValueChange={setTicketTypeId} disabled={!targetEventId}>
+                          <SelectTrigger className="h-8 w-48"><SelectValue placeholder="Producto a regalar" /></SelectTrigger>
+                          <SelectContent>
+                            {(targetTicketTypes ?? []).map((tt: any) => <SelectItem key={tt.id} value={String(tt.id)}>{tt.name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                        <div className="flex gap-1.5">
+                          <WriteButton
+                            size="sm" className="h-8"
+                            disabled={!targetEventId || !ticketTypeId || assign.isPending}
+                            onClick={() => assign.mutate({ birthdayPersonId: p.id, targetEventId: Number(targetEventId), ticketTypeId: Number(ticketTypeId) })}
+                          >
+                            {assign.isPending ? '...' : 'Asignar'}
+                          </WriteButton>
+                          <Button size="sm" variant="outline" className="h-8" onClick={() => setAssigningId(null)}><X className="w-3 h-3" /></Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <Button size="sm" variant="outline" className="h-8" onClick={() => setAssigningId(p.id)}>Asignar a evento</Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {people.length === 0 && (
+                <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">Sin cumpleañeros aprobados para este evento todavía.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function AmbassadorRankingTab({ monthKey }: { monthKey: string }) {
   const { data } = trpc.ambassadors.getRanking.useQuery({ monthKey });
   const ranking = (data ?? []).filter((r: any) => r.exclusiveSales > 0 || r.existingSales > 0);
@@ -8385,6 +8677,7 @@ const ADMIN_SECTIONS = [
   { id: 'email-templates', label: 'Plantillas de correo', group: 'Marketing', icon: Send, render: () => <EmailTemplatesManager /> },
   { id: 'referrals', label: 'Referidos', group: 'Marketing', icon: Trophy, render: () => <ReferralsView /> },
   { id: 'ambassadors', label: 'Embajadores VIP', group: 'Marketing', icon: Crown, render: () => <AmbassadorsView /> },
+  { id: 'birthdays', label: 'Cumpleañeros', group: 'Marketing', icon: Cake, render: () => <BirthdaysView /> },
 
   { id: 'gastos', label: 'Gastos y P&L', group: 'Negocio', icon: Receipt, render: () => <GastosView /> },
   { id: 'settings', label: 'Ajustes', group: 'Negocio', icon: SettingsIcon, render: () => <SettingsManager /> },

@@ -18,11 +18,23 @@ import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import * as applications from "./ambassadorApplications";
+import * as birthdayApplications from "./birthdayApplications";
+import * as birthdayProgram from "./birthdayProgram";
 import {
   AMBASSADOR_REQUIREMENTS, AMBASSADOR_TASKS, instagramLinkFor, sanitizeApplicantName,
   sanitizeApplicationMessage, sanitizeFollowers, sanitizeInstagram, sanitizeWhatsapp, whatsappLinkFor,
 } from "../shared/ambassadorApplication";
 import { buildAmbassadorApplicationEmail, buildAmbassadorWelcomeEmail, buildApplicationReceivedEmail } from "./email";
+import {
+  BIRTHDAY_REQUIREMENTS, BIRTHDAY_WINDOW_DAYS, isBirthdayEligible,
+  sanitizeApplicantName as sanitizeBirthdayName, sanitizeApplicationMessage as sanitizeBirthdayMessage,
+  sanitizeBirthDate, sanitizeInstagram as sanitizeBirthdayInstagram, sanitizeWhatsapp as sanitizeBirthdayWhatsapp,
+} from "../shared/birthdayApplication";
+import { BIRTHDAY_TIERS } from "../shared/birthdayTiers";
+import {
+  buildBirthdayApplicationEmail, buildBirthdayApplicationReceivedEmail,
+  buildBirthdayApprovedEmail, buildBirthdayTierUnlockedEmail,
+} from "./email";
 
 /** Puerta de entrada a "Caramelo": resuelve al que llama por su ticketCode
  * y revalida, en cada llamada, que entró de verdad por la puerta y que la
@@ -2515,6 +2527,185 @@ export const appRouter = router({
       }
 
       return result;
+    }),
+  }),
+
+  // Postulaciones públicas al programa Cumpleañeros (página
+  // /beneficios-cumpleaneros) — mismo esqueleto que ambassadorApplications
+  // arriba (rate limit por IP + validación pura del lado servidor).
+  birthdayApplications: router({
+    /** Datos del evento vigente para pintar la ventana de fechas válidas en
+     * el formulario, sin que el cliente tenga que adivinar el eventId. */
+    eligibility: publicProcedure.query(async () => {
+      const event = await db.getFeaturedEvent();
+      if (!event) return null;
+      return {
+        eventId: event.id,
+        eventTitle: event.title,
+        eventDate: event.eventDate,
+        windowDays: BIRTHDAY_WINDOW_DAYS,
+        requirements: [...BIRTHDAY_REQUIREMENTS],
+        tiers: BIRTHDAY_TIERS,
+      };
+    }),
+
+    submit: publicProcedure.input(z.object({
+      name: z.string(),
+      email: z.string().email('Revisa tu correo'),
+      whatsapp: z.string(),
+      instagram: z.string().optional(),
+      birthDate: z.string(),
+      message: z.string().optional(),
+      acceptedTerms: z.boolean(),
+    })).mutation(async ({ input, ctx }) => {
+      const ipKey = `postulacion-cumple:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Ya mandaste varias postulaciones. Espera un rato antes de intentar de nuevo.' });
+      }
+      await db.recordIpAttempt(ipKey, APPLICATION_MAX_PER_HOUR, 60 * 60 * 1000);
+
+      if (!input.acceptedTerms) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Tienes que confirmar que aceptas los requisitos' });
+      }
+
+      const event = await db.getFeaturedEvent();
+      if (!event) throw new TRPCError({ code: 'BAD_REQUEST', message: 'No hay un evento activo para postular ahora mismo' });
+
+      const nombre = sanitizeBirthdayName(input.name);
+      if (!nombre.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: nombre.reason });
+      const wsp = sanitizeBirthdayWhatsapp(input.whatsapp);
+      if (!wsp.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: wsp.reason });
+      const ig = sanitizeBirthdayInstagram(input.instagram ?? '');
+      if (!ig.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: ig.reason });
+      const fecha = sanitizeBirthDate(input.birthDate);
+      if (!fecha.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: fecha.reason });
+      const mensaje = sanitizeBirthdayMessage(input.message ?? '');
+      if (!mensaje.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: mensaje.reason });
+
+      if (!isBirthdayEligible(event.eventDate, fecha.value)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: `Tu cumpleaños tiene que caer dentro de ${BIRTHDAY_WINDOW_DAYS} días antes o después del evento (${event.title})`,
+        });
+      }
+
+      const created = await birthdayApplications.createApplication({
+        eventId: event.id,
+        name: nombre.value,
+        email: input.email,
+        whatsapp: wsp.value,
+        instagram: ig.value,
+        birthDate: fecha.value,
+        message: mensaje.value,
+        acceptedTerms: true,
+      });
+
+      if (!created.ok) {
+        if (created.reason === 'ya_pendiente') {
+          return { ok: true as const, alreadyPending: true as const };
+        }
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'No pudimos guardar tu postulación. Intenta de nuevo.' });
+      }
+
+      try {
+        await sendEmail({
+          to: APPLICATIONS_EMAIL,
+          subject: `[Cumpleañeros] ${nombre.value} — ${event.title}`,
+          html: buildBirthdayApplicationEmail({
+            name: nombre.value,
+            email: input.email.trim().toLowerCase(),
+            whatsapp: wsp.value,
+            instagram: ig.value,
+            birthDate: fecha.value,
+            message: mensaje.value,
+            eventTitle: event.title,
+            whatsappLink: whatsappLinkFor(wsp.value),
+          }),
+        });
+        await sendEmail({
+          to: input.email.trim().toLowerCase(),
+          subject: '🎂 Recibimos tu postulación — Mansion Playroom',
+          html: buildBirthdayApplicationReceivedEmail({
+            name: nombre.value,
+            eventTitle: event.title,
+            requirements: [...BIRTHDAY_REQUIREMENTS],
+          }),
+        });
+      } catch (err) {
+        console.error('[Cumpleañeros] Falló el envío de correos:', err);
+      }
+
+      await sendPushToAdmins('pushAmbassadorApplication', {
+        title: '🎂 Nueva postulación a cumpleañero',
+        body: `${nombre.value} — ${event.title}`,
+        url: '/admin',
+      });
+
+      return { ok: true as const, alreadyPending: false as const };
+    }),
+
+    listAll: adminReadProcedure.input(z.object({
+      status: z.enum(['pendiente', 'aprobada', 'rechazada']).optional(),
+      eventId: z.number().optional(),
+    }).optional()).query(async ({ input }) => {
+      return birthdayApplications.listApplications(input?.status, input?.eventId);
+    }),
+
+    countPending: adminReadProcedure.query(async () => {
+      return birthdayApplications.countPendingApplications();
+    }),
+
+    review: adminProcedure.input(z.object({
+      id: z.number(),
+      status: z.enum(['pendiente', 'aprobada', 'rechazada']),
+      note: z.string().optional(),
+    })).mutation(async ({ input }) => {
+      return birthdayApplications.reviewApplication(input);
+    }),
+
+    /** Aprueba, crea el código de descuento y liga al cumpleañero en un
+     * solo paso, con el % que define el admin. */
+    approve: adminProcedure.input(z.object({
+      id: z.number(),
+      code: z.string().min(1),
+      discountPercent: z.number().min(0).max(100),
+    })).mutation(async ({ input }) => {
+      const result = await birthdayApplications.approveApplication(input);
+
+      try {
+        await sendEmail({
+          to: result.email,
+          subject: `🎉 ¡Listo! Tu código de cumpleañero es ${result.code}`,
+          html: buildBirthdayApprovedEmail({
+            name: result.name,
+            code: result.code,
+            discountPercent: input.discountPercent,
+            tiers: BIRTHDAY_TIERS,
+          }),
+        });
+      } catch (err) {
+        console.error('[Cumpleañeros] Falló el correo de bienvenida:', err);
+      }
+
+      return result;
+    }),
+  }),
+
+  // Panel admin del programa Cumpleañeros: activos por evento, conteo de
+  // ventas por código y asignación del crédito de "próximo evento".
+  birthdayProgram: router({
+    listActiveForEvent: adminReadProcedure.input(z.object({
+      eventId: z.number(),
+    })).query(async ({ input }) => {
+      return birthdayProgram.getBirthdayPeopleForEvent(input.eventId);
+    }),
+
+    assignNextEventCredit: adminProcedure.input(z.object({
+      birthdayPersonId: z.number(),
+      targetEventId: z.number(),
+      ticketTypeId: z.number(),
+    })).mutation(async ({ input }) => {
+      return birthdayProgram.assignNextEventCredit(input);
     }),
   }),
 

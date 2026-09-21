@@ -673,6 +673,182 @@ export function buildAmbassadorWelcomeEmail(data: {
   });
 }
 
+/** Interno (el dueño se lo manda a sí mismo) -- mismo criterio que
+ * buildAmbassadorApplicationEmail, para el programa Cumpleañeros. */
+export function buildBirthdayApplicationEmail(data: {
+  name: string;
+  email: string;
+  whatsapp: string;
+  instagram: string;
+  birthDate: string;
+  message: string;
+  eventTitle: string;
+  whatsappLink: string;
+}) {
+  return emailShell({
+    footer: false,
+    rawBody: true,
+    body: `
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+    <h1 style="color:${REPORT_INK};font-size:20px;font-weight:800;margin:0 0 4px;">🎂 Nueva postulación a cumpleañero</h1>
+    <p style="color:${REPORT_MUTED};font-size:13px;margin:0 0 20px;">${data.name} — ${data.eventTitle}</p>
+
+    ${card(`
+      <div style="padding:6px 0;border-bottom:1px solid ${REPORT_BORDER};">
+        <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Fecha de nacimiento</p>
+        <p style="color:${REPORT_INK};font-size:15px;font-weight:700;margin:0;">${data.birthDate}</p>
+      </div>
+      <div style="padding:6px 0;border-bottom:1px solid ${REPORT_BORDER};">
+        <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">WhatsApp</p>
+        <p style="margin:0;"><a href="${data.whatsappLink}" style="color:${ACCENT.blue.solid};font-size:15px;font-weight:700;text-decoration:none;">${data.whatsapp}</a></p>
+      </div>
+      ${data.instagram ? `
+      <div style="padding:6px 0;border-bottom:1px solid ${REPORT_BORDER};">
+        <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Instagram</p>
+        <p style="color:${REPORT_INK};font-size:14px;margin:0;">@${data.instagram}</p>
+      </div>` : ''}
+      <div style="padding:6px 0;">
+        <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Correo</p>
+        <p style="color:${REPORT_INK};font-size:14px;margin:0;">${data.email}</p>
+      </div>
+    `, { bg: '#F9FAFB', borderColor: REPORT_BORDER })}
+
+    ${data.message ? card(`
+      <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Lo que escribió</p>
+      <p style="color:${REPORT_INK};font-size:14px;margin:0;line-height:1.6;">${data.message}</p>
+    `, { bg: '#F9FAFB', borderColor: REPORT_BORDER }) : ''}
+
+    <p style="color:${REPORT_MUTED};font-size:13px;margin:0;">
+      Revísala en el panel: Cumpleañeros → Postulaciones. Desde ahí la apruebas, defines el % de descuento y se genera su código.
+    </p>
+  </div>
+    `,
+  });
+}
+
+/** Confirmación al postulante -- repite los requisitos a propósito, mismo
+ * motivo que buildApplicationReceivedEmail. */
+export function buildBirthdayApplicationReceivedEmail(data: {
+  name: string;
+  eventTitle: string;
+  requirements: string[];
+}) {
+  const lista = (items: string[]) => items
+    .map((t) => `<p style="color:${INK};font-size:14px;margin:0 0 6px;">• ${t}</p>`)
+    .join('');
+
+  return emailShell({
+    preheader: `Recibimos tu postulación a cumpleañero para ${data.eventTitle}.`,
+    footer: false,
+    hero: emailHero({
+      accent: 'lilac',
+      emoji: '🎂',
+      title: `Recibimos tu postulación, ${data.name}`,
+      subtitle: `Para ${data.eventTitle} -- te vamos a escribir por WhatsApp para contarte cómo sigue.`,
+    }),
+    body: `
+      ${sectionTitle('✅', 'Lo que pedimos')}
+      ${card(lista(data.requirements))}
+
+      ${card(`
+        <p style="color:${INK};font-size:14px;margin:0;line-height:1.6;">
+          Si quedas aprobado te llega tu <strong>código personal</strong> para compartir con tus invitados.
+          Desde que se venda la primera entrada con tu código, tus premios se activan solos.
+        </p>
+      `)}
+
+      <p style="color:${FAINT};font-size:12px;text-align:center;margin:24px 0 0;">
+        Si no postulaste tú, ignora este correo y no pasa nada.
+      </p>
+    `,
+  });
+}
+
+/** Bienvenida al aprobar: código, % de descuento para sus invitados, y la
+ * tabla completa de tramos (repite shared/birthdayTiers.ts para que el
+ * correo nunca diga algo distinto de lo que hay en el panel/la web). */
+export function buildBirthdayApprovedEmail(data: {
+  name: string;
+  code: string;
+  discountPercent: number;
+  tiers: { minTickets: number; items: { label: string }[] }[];
+}) {
+  const tramos = data.tiers.map((t) => `
+    <div style="padding:10px 0;border-bottom:1px solid ${REPORT_BORDER};">
+      <p style="color:${ACCENT.pink.solid};font-size:13px;font-weight:800;margin:0 0 4px;">Con ${t.minTickets} ${t.minTickets === 1 ? 'entrada vendida' : 'entradas vendidas'}</p>
+      ${t.items.map((i) => `<p style="color:${INK};font-size:14px;margin:0;">• ${i.label}</p>`).join('')}
+    </div>
+  `).join('');
+
+  return emailShell({
+    preheader: `Ya eres cumpleañero de Mansion Playroom, ${data.name}.`,
+    footer: false,
+    hero: emailHero({
+      accent: 'yellow',
+      emoji: '🎉',
+      title: `¡Listo, ${data.name}!`,
+      subtitle: 'Ya eres cumpleañero de Mansion Playroom.',
+    }),
+    body: `
+      ${sectionTitle('🎟', 'Tu código')}
+      ${card(`
+        <p style="color:${INK};font-size:32px;font-weight:800;font-family:monospace;margin:0 0 8px;text-align:center;">${data.code}</p>
+        <p style="color:${MUTED};font-size:13px;margin:0;text-align:center;">
+          Compártelo con tus invitados: al comprar su entrada con este código obtienen ${data.discountPercent}% de descuento,
+          y cada entrada vendida suma para tus premios.
+        </p>
+      `, { bg: ACCENT.pink.bg, border: false })}
+
+      ${sectionTitle('🎁', 'Tus premios')}
+      ${card(tramos)}
+
+      ${card(`
+        <p style="color:${INK};font-size:14px;margin:0;line-height:1.6;">
+          Ojo: cada tramo <strong>reemplaza</strong> al anterior, no se suman. Apenas se venda una entrada con tu código
+          te avisamos por correo qué premio desbloqueaste.
+        </p>
+      `)}
+    `,
+  });
+}
+
+/** Se manda cada vez que el cumpleañero cruza a un tramo nuevo (ver
+ * server/webhooks.ts -> checkAndApplyBirthdayTier). */
+export function buildBirthdayTierUnlockedEmail(data: {
+  name: string;
+  ticketsSold: number;
+  tierLabel: string;
+  items: { label: string }[];
+  includesNextEventCredit: boolean;
+}) {
+  return emailShell({
+    preheader: `¡Desbloqueaste un premio nuevo, ${data.name}!`,
+    footer: false,
+    hero: emailHero({
+      accent: 'yellow',
+      emoji: '🥳',
+      title: `¡Nuevo premio desbloqueado, ${data.name}!`,
+      subtitle: `Ya llevas ${data.ticketsSold} ${data.ticketsSold === 1 ? 'entrada vendida' : 'entradas vendidas'} con tu código.`,
+    }),
+    body: `
+      ${sectionTitle('🎁', data.tierLabel)}
+      ${card(data.items.map((i) => `<p style="color:${INK};font-size:14px;margin:0 0 6px;">• ${i.label}</p>`).join(''))}
+
+      ${data.includesNextEventCredit ? card(`
+        <p style="color:${INK};font-size:14px;margin:0;line-height:1.6;">
+          Tu entrada gratis para el próximo evento queda guardada -- te la asignamos apenas anunciemos la próxima fecha.
+        </p>
+      `, { bg: ACCENT.yellow.bg, border: false }) : ''}
+
+      ${card(`
+        <p style="color:${INK};font-size:14px;margin:0;line-height:1.6;">
+          Tus premios ya están listos para retirar en caja el día del evento, con tu QR de siempre.
+        </p>
+      `)}
+    `,
+  });
+}
+
 export function buildAmbassadorWeeklyEmail(data: {
   name: string;
   code: string;
