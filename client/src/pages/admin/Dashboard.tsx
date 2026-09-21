@@ -7964,6 +7964,12 @@ const emptyProduct = (category: CartaCategory) => ({
   // el formulario de Eventos → "+ Entrada"): con un valor acá, este producto
   // acredita saldo prepagado en vez de venderse como un derecho canjeable.
   topupAmount: 0,
+  // Opcional -- normalmente se genera solo a partir del nombre
+  // (fallbackInternalCode en server/caja/displayCode.ts). Solo hace falta
+  // escribirlo a mano cuando otro sistema necesita reconocer este producto
+  // por un código fijo en vez de por su nombre (ej. los premios del programa
+  // Cumpleañeros, ver shared/birthdayTiers.ts).
+  internalCode: '',
 });
 
 /** Arma el form-state de edición de un producto a partir de la fila del
@@ -7982,6 +7988,7 @@ function productFormFromP(p: any) {
     toKitchen: Number(p.toKitchen ?? 0),
     description: (p.description ?? '') as string,
     topupAmount: p.topupAmount ? Number(p.topupAmount) : 0,
+    internalCode: (p.internalCode ?? '') as string,
   };
 }
 
@@ -8024,6 +8031,7 @@ function CartaProductCard({ p, meta, onToggleSoldOut, toggling, onDelete }: {
       toKitchen: form.toKitchen,
       description: form.description.trim() || undefined,
       topupAmount: form.category === 'extra' ? (form.topupAmount || null) : null,
+      internalCode: form.internalCode.trim() ? form.internalCode.trim().toUpperCase() : undefined,
     });
   };
 
@@ -8047,6 +8055,15 @@ function CartaProductCard({ p, meta, onToggleSoldOut, toggling, onDelete }: {
             <Label>Ingredientes / sabores especiales</Label>
             <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1" placeholder="Ej: Pisco, jugo de maracuyá natural, un toque de menta" rows={2} />
             <p className="text-muted-foreground text-xs mt-1">Opcional. Aparece en /caja al mantener presionada la tarjeta del producto, para que la cajera pueda responder preguntas del cliente.</p>
+          </div>
+
+          <div>
+            <Label>Código interno (opcional)</Label>
+            <Input value={form.internalCode} onChange={(e) => setForm({ ...form, internalCode: e.target.value.toUpperCase() })} className="mt-1 font-mono" placeholder="Ej: BDESP" maxLength={10} />
+            <p className="text-muted-foreground text-xs mt-1">
+              Déjalo vacío salvo que otro sistema necesite reconocer este producto por un código fijo (ej. los
+              premios del programa Cumpleañeros: BDESP, BDBOT, BDCOV, BDBEB).
+            </p>
           </div>
 
           <div>
@@ -8231,6 +8248,7 @@ function CartaManager() {
       toKitchen: form.toKitchen,
       description: form.description.trim() || undefined,
       topupAmount: form.category === 'extra' ? (form.topupAmount || undefined) : undefined,
+      internalCode: form.internalCode.trim() ? form.internalCode.trim().toUpperCase() : undefined,
     };
     try {
       await createType.mutateAsync({ eventId: activeId, ...payload });
@@ -8313,6 +8331,15 @@ function CartaManager() {
               <Label>Ingredientes / sabores especiales</Label>
               <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1" placeholder="Ej: Pisco, jugo de maracuyá natural, un toque de menta" rows={2} />
               <p className="text-muted-foreground text-xs mt-1">Opcional. Aparece en /caja al mantener presionada la tarjeta del producto, para que la cajera pueda responder preguntas del cliente.</p>
+            </div>
+
+            <div>
+              <Label>Código interno (opcional)</Label>
+              <Input value={form.internalCode} onChange={(e) => setForm({ ...form, internalCode: e.target.value.toUpperCase() })} className="mt-1 font-mono" placeholder="Ej: BDESP" maxLength={10} />
+              <p className="text-muted-foreground text-xs mt-1">
+                Déjalo vacío salvo que otro sistema necesite reconocer este producto por un código fijo (ej. los
+                premios del programa Cumpleañeros: BDESP, BDBOT, BDCOV, BDBEB).
+              </p>
             </div>
 
             <div>
