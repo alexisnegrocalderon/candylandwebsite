@@ -11,10 +11,11 @@ import { isTopupProduct, topupCreditForLines, topupChargeForLines } from '../sha
 import { eq, and, sql, isNotNull, ne, inArray } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { generateTicketQR } from './qr';
-import { sendEmail, buildOrderEmail, buildMissionTopupEmail, buildTierUpEmail, buildAlmostTierEmail, buildGiftEmail } from './email';
+import { sendEmail, buildOrderEmail, buildMissionTopupEmail, buildTierUpEmail, buildAlmostTierEmail, buildGiftEmail, buildBirthdayTierUnlockedEmail } from './email';
 import { missionCutoff, missionCapPrice, personasForAccesoSlug, MISSION_300_GOAL } from '../shared/mission300';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
+import { checkAndApplyBirthdayTier } from './birthdayProgram';
 
 export const webhooksRouter = Router();
 
@@ -612,6 +613,30 @@ async function processApprovedOrder(order: any) {
           }
         }
       }
+  }
+
+  // Programa Cumpleañeros: si esta orden pagó con el código de descuento de
+  // un cumpleañero, se recalcula cuántas entradas lleva vendidas para SU
+  // evento y, si eso cruza a un tramo mayor, se materializa el premio nuevo
+  // (ítems $0 canjeables en caja) y se avisa por correo. Sistema aparte del
+  // programa de embajadores/referidos de arriba -- un código nunca es de
+  // los dos tipos a la vez, así que no hay conflicto de atribución.
+  if (order.discountCodeId) {
+    try {
+      const unlocked = await checkAndApplyBirthdayTier(order.discountCodeId);
+      if (unlocked) {
+        const html = buildBirthdayTierUnlockedEmail({
+          name: unlocked.person.name,
+          ticketsSold: unlocked.tier.minTickets,
+          tierLabel: unlocked.tier.label,
+          items: unlocked.tier.items,
+          includesNextEventCredit: unlocked.tier.includesNextEventCredit,
+        });
+        await sendEmail({ to: unlocked.person.email, subject: `🥳 ¡Nuevo premio desbloqueado! — ${unlocked.tier.label}`, html });
+      }
+    } catch (err) {
+      console.error('[Cumpleañeros] No se pudo procesar el tramo de premios:', err);
+    }
   }
 
   await ensureOwnAmbassadorCode(db, order);

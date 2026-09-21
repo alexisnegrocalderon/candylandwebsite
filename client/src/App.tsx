@@ -42,6 +42,7 @@ const Party = lazy(() => import("./pages/Party"));
 const Playmatch = lazy(() => import("./pages/Playmatch"));
 const Ambassador = lazy(() => import("./pages/Ambassador"));
 const Embajadores = lazy(() => import("./pages/Embajadores"));
+const BeneficiosCumpleaneros = lazy(() => import("./pages/BeneficiosCumpleaneros"));
 const Panoramas = lazy(() => import("./pages/Panoramas"));
 const Blog = lazy(() => import("./pages/Blog"));
 const QueSonLasFiestasLiberales = lazy(() => import("./pages/QueSonLasFiestasLiberales"));
@@ -114,6 +115,7 @@ function Router() {
           <Route path="/blog/dress-code-explicado" component={DressCodeArticle} />
           <Route path="/blog/:slug" component={Blog} />
           <Route path="/embajadores" component={Embajadores} />
+          <Route path="/beneficios-cumpleaneros" component={BeneficiosCumpleaneros} />
           <Route path="/embajador" component={Ambassador} />
           <Route path="/embajador/:code" component={Ambassador} />
           <Route path="/puerta" component={Puerta} />

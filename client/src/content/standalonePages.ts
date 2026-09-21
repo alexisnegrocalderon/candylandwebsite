@@ -33,4 +33,10 @@ export const STANDALONE_PAGES: StandalonePage[] = [
     emoji: '🎭',
     path: '/blog/dress-code-explicado',
   },
+  {
+    title: 'Beneficios Cumpleañeros',
+    description: 'Postula si tu cumpleaños cae cerca de la fiesta y desbloquea entrada gratis, espumante y más.',
+    emoji: '🎂',
+    path: '/beneficios-cumpleaneros',
+  },
 ];

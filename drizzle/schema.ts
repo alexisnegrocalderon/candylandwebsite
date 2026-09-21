@@ -729,6 +729,77 @@ export const ambassadorApplications = mysqlTable("ambassadorApplications", {
 
 export type AmbassadorApplication = typeof ambassadorApplications.$inferSelect;
 
+// --- Programa Cumpleañeros ---
+//
+// Postulación para ser reconocido como cumpleañero de UN evento puntual (su
+// cumpleaños debe caer dentro de ±5 días de esa fecha -- ver
+// shared/birthdayApplication.ts isBirthdayEligible). Igual que
+// ambassadorApplications, sin único en email: deben poder repostular en
+// otro evento futuro.
+export const birthdayApplications = mysqlTable("birthdayApplications", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  whatsapp: varchar("whatsapp", { length: 20 }).notNull(),
+  instagram: varchar("instagram", { length: 100 }),
+  // Fecha de nacimiento declarada -- solo se usa el día/mes para calcular la
+  // ventana ±5 días respecto a events.eventDate, no se pide ni valida el año.
+  birthDate: varchar("birthDate", { length: 10 }).notNull(),
+  message: text("message"),
+  acceptedTerms: int("acceptedTerms").default(0).notNull(),
+  status: mysqlEnum("status", ["pendiente", "aprobada", "rechazada"]).default("pendiente").notNull(),
+  reviewNote: text("reviewNote"),
+  reviewedAt: timestamp("reviewedAt"),
+  createdBirthdayPersonId: int("createdBirthdayPersonId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [
+  index("birthdayApplications_email_idx").on(t.email),
+  index("birthdayApplications_event_idx").on(t.eventId),
+  index("birthdayApplications_status_idx").on(t.status),
+]);
+
+export type BirthdayApplication = typeof birthdayApplications.$inferSelect;
+
+// Cumpleañero ya aprobado para un evento puntual. `discountCodeId` apunta a
+// una fila normal de discountCodes (percentage, eventId fijado a este
+// evento) -- el checkout no necesita saber que existe este programa, valida
+// el código igual que cualquier otro. `currentTier`/`rewardOrderId` llevan
+// el estado de qué tramo de premios tiene activo hoy (ver
+// shared/birthdayTiers.ts) -- los tramos NO se acumulan, cada uno
+// reemplaza al anterior dentro de la misma orden $0.
+export const birthdayPeople = mysqlTable("birthdayPeople", {
+  id: int("id").autoincrement().primaryKey(),
+  applicationId: int("applicationId").notNull(),
+  eventId: int("eventId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  email: varchar("email", { length: 320 }).notNull(),
+  whatsapp: varchar("whatsapp", { length: 20 }).notNull(),
+  birthDate: varchar("birthDate", { length: 10 }).notNull(),
+  discountCodeId: int("discountCodeId").notNull(),
+  // Último tramo alcanzado (0 = ninguno todavía), ver BIRTHDAY_TIERS.
+  currentTier: int("currentTier").default(0).notNull(),
+  // true cuando el tramo alcanzado incluye "entrada gratis para el próximo
+  // evento" y todavía no se le asignó un evento destino.
+  pendingNextEventCredit: int("pendingNextEventCredit").default(0).notNull(),
+  pendingCreditRedeemedEventId: int("pendingCreditRedeemedEventId"),
+  // Orden $0 (paymentStatus='approved') donde viven los orderItems/tickets
+  // sintéticos de su premio vigente -- se crea la primera vez que alcanza
+  // el tramo 1, y se reutiliza (reemplazando ítems) en tramos siguientes.
+  rewardOrderId: int("rewardOrderId"),
+  active: int("active").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [
+  uniqueIndex("birthdayPeople_application_idx").on(t.applicationId),
+  uniqueIndex("birthdayPeople_discountCode_idx").on(t.discountCodeId),
+  index("birthdayPeople_event_idx").on(t.eventId),
+]);
+
+export type BirthdayPerson = typeof birthdayPeople.$inferSelect;
+export type InsertBirthdayPerson = typeof birthdayPeople.$inferInsert;
+
 // --- Módulo /caja (docs/ARQUITECTURA-CAJA.md §4.2) ---
 
 // Operadores de caja: cajera, supervisor, admin (más barra/acceso a futuro).
