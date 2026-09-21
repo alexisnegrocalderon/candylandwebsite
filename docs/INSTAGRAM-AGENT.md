@@ -117,6 +117,12 @@ cuenta empiece a contestarle a nadie.
   y manda un correo cuando quedan 10 días o menos. Ahí hay que generar uno
   nuevo en Meta y pegarlo en `IG_ACCESS_TOKEN` (no se puede guardar solo: en
   Vercel las variables son de solo lectura desde la función).
+- **Recordatorio de cierre por silencio**: si alguien deja de contestar
+  después de que el bot ya le respondió, el cron `/api/cron/instagram-followup`
+  (cada 15 minutos) le manda un único mensaje de cierre pasados los minutos
+  configurados (Ajustes del agente → "Recordatorio si no contesta", 120 min
+  por defecto). No es un cierre generado por IA -- es el texto fijo que se
+  edita ahí mismo.
 
 ## 7. Qué hacer si...
 
@@ -136,6 +142,7 @@ cuenta empiece a contestarle a nadie.
 | `server/instagramAgent.ts` | Contexto real + prompt + llamada a la IA |
 | `server/instagramSend.ts` | Graph API: enviar, perfil, refrescar token |
 | `server/instagramAutomations.ts` | Armado del mensaje de una automatización por palabra clave |
+| `server/instagramFollowUp.ts` | Recordatorio de cierre por silencio (cron cada 15 min) |
 | `shared/instagramAgentConfig.ts` | Config editable desde el admin |
 | `client/src/components/admin/InstagramInbox.tsx` | Bandeja del panel |
 | `client/src/components/admin/InstagramAutomations.tsx` | Panel de automatizaciones por palabra clave |

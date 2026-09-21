@@ -628,4 +628,29 @@ describe('normalizeInstagramAgentConfig', () => {
     expect(normalizeInstagramAgentConfig({}).styleExamples).toBe('');
     expect(normalizeInstagramAgentConfig({ styleExamples: 'hola así hablo yo' }).styleExamples).toBe('hola así hablo yo');
   });
+
+  // El recordatorio de cierre arranca PRENDIDO por defecto (a diferencia de
+  // `enabled`, que arranca apagado) -- solo tiene efecto cuando `enabled`
+  // también está prendido, así que no hay riesgo de que se active solo.
+  it('el recordatorio de cierre arranca prendido, con 120 minutos y un mensaje por defecto', () => {
+    const config = normalizeInstagramAgentConfig({});
+    expect(config.followUpEnabled).toBe(true);
+    expect(config.followUpMinutes).toBe(120);
+    expect(config.followUpMessage.length).toBeGreaterThan(0);
+  });
+
+  it('solo se apaga con un false explícito', () => {
+    expect(normalizeInstagramAgentConfig({ followUpEnabled: false }).followUpEnabled).toBe(false);
+    expect(normalizeInstagramAgentConfig({ followUpEnabled: 'no' }).followUpEnabled).toBe(true);
+  });
+
+  it('acota los minutos de silencio a un rango razonable', () => {
+    expect(normalizeInstagramAgentConfig({ followUpMinutes: 99999 }).followUpMinutes).toBe(1440);
+    expect(normalizeInstagramAgentConfig({ followUpMinutes: 0 }).followUpMinutes).toBeGreaterThan(0);
+    expect(normalizeInstagramAgentConfig({ followUpMinutes: 30 }).followUpMinutes).toBe(30);
+  });
+
+  it('respeta un mensaje de cierre propio', () => {
+    expect(normalizeInstagramAgentConfig({ followUpMessage: 'nos vemos!' }).followUpMessage).toBe('nos vemos!');
+  });
 });

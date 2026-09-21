@@ -159,6 +159,10 @@
     {
       "path": "/api/cron/ambassador-weekly",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/instagram-followup",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

@@ -1,0 +1,1 @@
+ALTER TABLE `igThreads` ADD `closingMessageSentAt` timestamp;

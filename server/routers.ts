@@ -1828,6 +1828,9 @@ export const appRouter = router({
       historyLimit: z.number().int().min(2).max(40),
       dailyReplyLimitPerThread: z.number().int().min(1).max(200),
       styleExamples: z.string().max(4000),
+      followUpEnabled: z.boolean(),
+      followUpMinutes: z.number().int().min(1).max(1440),
+      followUpMessage: z.string().min(1).max(IG_MAX_REPLY_CHARS),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings({ instagramAgentConfig: input });
     }),
