@@ -146,6 +146,19 @@ function AgentConfigCard() {
           />
         </div>
 
+        <div className="space-y-2">
+          <Label>Mensaje cuando solo agradecen</Label>
+          <Input
+            value={draft.thanksMessage}
+            maxLength={IG_MAX_REPLY_CHARS}
+            onChange={(e) => setDraft({ ...draft, thanksMessage: e.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">
+            Si el mensaje es solo un "muchas gracias" sin ninguna pregunta nueva, se contesta con este texto fijo y no
+            se deriva a una persona.
+          </p>
+        </div>
+
         <StyleExamplesField
           value={draft.styleExamples}
           onChange={(styleExamples) => setDraft({ ...draft, styleExamples })}

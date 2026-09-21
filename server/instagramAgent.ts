@@ -212,8 +212,13 @@ const RESPONSE_SCHEMA = {
         description:
           'true si este mensaje es de un conocido personal del dueño y no tiene nada que ver con la productora (chat de amigos, un meme o un reel reenviado, planes personales, saludos). Con isPersonal=true no se manda ningún mensaje automático, así que reply puede quedar vacío.',
       },
+      isThanks: {
+        type: 'boolean',
+        description:
+          'true si el mensaje es SOLO un agradecimiento o cierre por lo ya conversado ("muchas gracias", "gracias!", "ok gracias", "genial gracias 🙏") sin ninguna pregunta ni pedido nuevo. Con isThanks=true no se deriva ni se usa el reply generado: se manda un mensaje fijo configurado aparte. Si además de agradecer pregunta o pide algo nuevo, isThanks=false.',
+      },
     },
-    required: ['reply', 'handoff', 'handoffReason', 'isPersonal'],
+    required: ['reply', 'handoff', 'handoffReason', 'isPersonal', 'isThanks'],
     additionalProperties: false,
   },
 } as const;
@@ -242,6 +247,7 @@ function buildSystemPrompt(config: InstagramAgentConfig, opts: { isFinalReplyOfD
     '6. Mantén siempre un tono respetuoso. Si el mensaje es sexual, agresivo, o busca algo que no sea información de la fiesta, no le sigas la conversación: responde breve y amable, y deriva.',
     '7. Si te piden hablar con una persona, reclaman por una compra, un cobro, un reembolso, una entrada que no llegó, o cualquier problema con plata: deriva SIEMPRE, sin intentar resolverlo tú.',
     '8. Si no estás seguro de algo, deriva. Es mucho mejor derivar de más que contestar mal en el Instagram público.',
+    '9. Si el mensaje es SOLO un agradecimiento por lo ya conversado ("muchas gracias", "gracias!", "buenísimo gracias", "ok muchas gracias 🙏") y no trae ninguna pregunta ni pedido nuevo, marca isThanks=true y handoff=false -- eso NO se deriva, es puro cierre educado. Si el mensaje agradece PERO además pregunta o pide algo nuevo, isThanks=false y sigue las reglas normales.',
     '',
     'CÓMO ESCRIBIR:',
     `- Español chileno, cercano y breve: 1 a 3 frases, máximo ${IG_MAX_REPLY_CHARS} caracteres. Es un DM, no un correo.`,
@@ -269,7 +275,7 @@ function buildSystemPrompt(config: InstagramAgentConfig, opts: { isFinalReplyOfD
         ]
       : []),
     '',
-    'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras) e `isPersonal` (ver regla 0). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. La única excepción es isPersonal=true: ahí no se manda nada, así que `reply` puede quedar vacío.',
+    'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras), `isPersonal` (ver regla 0) e `isThanks` (ver regla 9). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. Las excepciones son isPersonal=true (no se manda nada) e isThanks=true (se manda un mensaje fijo aparte, no el reply que generes) -- en esos dos casos `reply` puede quedar vacío.',
   ].join('\n');
 }
 
@@ -291,6 +297,7 @@ export type InstagramAgentResult = {
   handoff: boolean;
   handoffReason: string;
   isPersonal: boolean;
+  isThanks: boolean;
 };
 
 /** Decide qué responderle a un mensaje de Instagram.
@@ -316,6 +323,7 @@ export async function runInstagramAgent(input: {
     handoff: true,
     handoffReason: 'La IA no pudo responder',
     isPersonal: false,
+    isThanks: false,
   };
 
   try {
@@ -338,6 +346,21 @@ export async function runInstagramAgent(input: {
     const raw = extractContent(result.choices[0]?.message ?? { content: '' });
     const parsed = JSON.parse(raw) as Partial<InstagramAgentResult>;
     const isPersonal = parsed.isPersonal === true;
+    const isThanks = parsed.isThanks === true && !isPersonal;
+
+    // El texto de un "gracias" es siempre el fijo configurado, nunca lo que
+    // haya generado el modelo -- es justo el pedido del dueño: palabras
+    // exactas, sin derivar ni pausar el bot.
+    if (isThanks) {
+      return {
+        reply: config.thanksMessage,
+        handoff: false,
+        handoffReason: '',
+        isPersonal: false,
+        isThanks: true,
+      };
+    }
+
     const reply = typeof parsed.reply === 'string' ? parsed.reply.trim() : '';
     if (reply.length === 0 && !isPersonal) return fallback;
 
@@ -346,6 +369,7 @@ export async function runInstagramAgent(input: {
       handoff: parsed.handoff === true,
       handoffReason: typeof parsed.handoffReason === 'string' ? parsed.handoffReason.slice(0, 500) : '',
       isPersonal,
+      isThanks: false,
     };
   } catch (err) {
     console.error('[Instagram] El agente no pudo responder:', err);

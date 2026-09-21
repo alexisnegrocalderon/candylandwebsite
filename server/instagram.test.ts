@@ -483,6 +483,29 @@ describe('runInstagramAgent', () => {
     expect(result.reply).toBe('');
   });
 
+  // Pedido explícito del dueño: un "muchas gracias" puro no se deriva ni se
+  // le manda al equipo -- se contesta con el texto fijo configurado, no con
+  // lo que haya generado la IA en `reply`.
+  it('cuando es solo un agradecimiento, manda el mensaje fijo y no deriva', async () => {
+    mockLlmJson({ reply: 'de nada!', handoff: true, handoffReason: '', isThanks: true });
+    const result = await runInstagramAgent({
+      incomingText: 'muchas gracias!',
+      history: [],
+      config: { ...config, thanksMessage: 'Un gusto, cualquier cosa avísanos' },
+    });
+    expect(result.isThanks).toBe(true);
+    expect(result.handoff).toBe(false);
+    expect(result.reply).toBe('Un gusto, cualquier cosa avísanos');
+  });
+
+  it('isThanks no pisa a isPersonal si la IA marca ambos', async () => {
+    mockLlmJson({ reply: '', handoff: true, handoffReason: '', isPersonal: true, isThanks: true });
+    const result = await runInstagramAgent({ incomingText: 'jaja gracias crack', history: [], config });
+    expect(result.isPersonal).toBe(true);
+    expect(result.isThanks).toBe(false);
+    expect(result.reply).toBe('');
+  });
+
   // Lo que pidió el dueño: para temas que ya tienen página propia en el
   // sitio, el agente debe poder linkear a la info completa en vez de
   // explicarlo todo en el DM -- el system prompt tiene que traer esos links
@@ -652,5 +675,10 @@ describe('normalizeInstagramAgentConfig', () => {
 
   it('respeta un mensaje de cierre propio', () => {
     expect(normalizeInstagramAgentConfig({ followUpMessage: 'nos vemos!' }).followUpMessage).toBe('nos vemos!');
+  });
+
+  it('trae un mensaje de agradecimiento por defecto y respeta uno propio', () => {
+    expect(normalizeInstagramAgentConfig({}).thanksMessage.length).toBeGreaterThan(0);
+    expect(normalizeInstagramAgentConfig({ thanksMessage: 'gracias a ti!' }).thanksMessage).toBe('gracias a ti!');
   });
 });
