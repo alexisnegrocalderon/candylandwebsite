@@ -1,7 +1,7 @@
 import '@/admin.css';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Check, ChevronDown, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Repeat, Trash2 } from 'lucide-react';
 import { canOpenAdmin } from '@/lib/demoMode';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
@@ -97,9 +97,16 @@ function ExpenseCapture() {
   }, []);
 
   const todayKey = new Date().toISOString().slice(0, 10);
-  const { data: todayExpenses, refetch } = trpc.expenses.listAll.useQuery({});
-  const today = (todayExpenses ?? []).filter((e: any) => String(e.expenseDate).slice(0, 10) === todayKey);
+  const monthKey = todayKey.slice(0, 7);
+  // Viene ordenada por fecha descendente (server/db.ts): el primer elemento
+  // es siempre el último gasto cargado, sin importar el día.
+  const { data: allExpenses, refetch } = trpc.expenses.listAll.useQuery({});
+  const today = (allExpenses ?? []).filter((e: any) => String(e.expenseDate).slice(0, 10) === todayKey);
   const todayTotal = today.reduce((s: number, e: any) => s + e.amountTotal, 0);
+  const monthTotal = (allExpenses ?? [])
+    .filter((e: any) => String(e.expenseDate).slice(0, 7) === monthKey)
+    .reduce((s: number, e: any) => s + e.amountTotal, 0);
+  const lastExpense = allExpenses?.[0];
 
   const create = trpc.expenses.create.useMutation({
     onSuccess: () => {
@@ -131,6 +138,23 @@ function ExpenseCapture() {
   const preview = deriveAmounts({ amountTotal: amount, documentType });
   const canSave = amount > 0 && !!target;
 
+  // Atajo para compras que se repiten (el mismo proveedor, el mismo monto):
+  // llena el formulario con la última carga y deja el monto a un toque de
+  // "Guardar". No lo guarda solo: el monto puede haber cambiado.
+  const amountInputRef = useRef<HTMLInputElement>(null);
+  const repeatLast = () => {
+    if (!lastExpense) return;
+    setAmount(lastExpense.amountTotal);
+    setCategory(lastExpense.category);
+    setDocumentType(lastExpense.documentType);
+    setPaymentMethod(lastExpense.paymentMethod);
+    setDescription(lastExpense.description ?? '');
+    setSupplier(lastExpense.supplier ?? '');
+    if (lastExpense.description || lastExpense.supplier) setShowOptional(true);
+    amountInputRef.current?.focus();
+    amountInputRef.current?.select();
+  };
+
   const handleSave = () => {
     const isGeneral = target === 'general';
     create.mutate({
@@ -153,15 +177,25 @@ function ExpenseCapture() {
   return (
     <div className="min-h-dvh bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white pb-32">
       <div className="max-w-lg mx-auto px-4 pt-6 space-y-5">
-        <h1 className="font-heading text-xl text-center opacity-90">Nuevo gasto</h1>
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="font-heading text-xl opacity-90">Nuevo gasto</h1>
+          {(todayTotal > 0 || monthTotal > 0) && (
+            <p className="text-xs text-white/50 text-right leading-tight">
+              Hoy ${todayTotal.toLocaleString('es-CL')}
+              <br />Mes ${monthTotal.toLocaleString('es-CL')}
+            </p>
+          )}
+        </div>
 
         {/* 1. Monto -- lo primero porque es lo único que siempre cambia. */}
         <div className="text-center">
           <Input
+            ref={amountInputRef}
             value={formatAmount(amount)}
             onChange={(e) => setAmount(Number(e.target.value.replace(/\D/g, '')) || 0)}
             inputMode="numeric"
             placeholder="0"
+            autoFocus
             aria-label="Monto total pagado"
             className="h-20 text-center text-4xl font-heading font-black bg-white/5 border-white/15 rounded-2xl"
           />
@@ -169,6 +203,16 @@ function ExpenseCapture() {
             <p className="text-xs text-white/60 mt-2">
               Neto ${preview.netAmount.toLocaleString('es-CL')} · IVA ${preview.ivaAmount.toLocaleString('es-CL')} (crédito fiscal)
             </p>
+          )}
+          {lastExpense && (
+            <button
+              type="button"
+              onClick={repeatLast}
+              className="mt-3 inline-flex items-center gap-1.5 text-xs text-white/50 hover:text-white/80"
+            >
+              <Repeat className="w-3.5 h-3.5" />
+              Repetir "{lastExpense.description}" (${lastExpense.amountTotal.toLocaleString('es-CL')})
+            </button>
           )}
         </div>
 

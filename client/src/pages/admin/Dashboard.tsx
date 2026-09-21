@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -6292,14 +6292,24 @@ function GastosView() {
           <h2 className="font-heading text-2xl">Gastos y P&amp;L</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Cuánto entró, cuánto salió y cuánto quedó en cada fiesta.</p>
         </div>
-        {events.length > 0 && (
-          <Select value={String(activeEventId)} onValueChange={(v) => setEventId(Number(v))}>
-            <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Atajo a la pantalla de carga rápida (/gastos): misma sesión de
+             admin, pensada para cargar una compra desde el celular en vez de
+             analizar números acá. */}
+          <a href="/gastos" target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" size="sm" className="interactive">
+              <Smartphone className="w-4 h-4 mr-2" /> Cargar gasto (celular)
+            </Button>
+          </a>
+          {events.length > 0 && (
+            <Select value={String(activeEventId)} onValueChange={(v) => setEventId(Number(v))}>
+              <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       </div>
 
       <AdminAiQaPanel eventId={activeEventId} />
