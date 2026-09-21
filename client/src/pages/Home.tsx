@@ -844,10 +844,10 @@ function UpcomingEventsSection() {
 function CountdownUnit({ value, label }: { value: number; label: string }) {
   return (
     <div className="flex flex-col items-center gap-1">
-      <div className="relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 lg:w-32 lg:h-32 rounded-2xl md:rounded-3xl bg-gradient-to-br from-cherry via-primary to-violet-electric shadow-[0_6px_22px_oklch(0.70_0.19_340_/_0.4),0_0_28px_oklch(0.70_0.19_340_/_0.55)] flex items-center justify-center overflow-hidden ring-2 ring-white/30">
-        <div aria-hidden className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/25 to-transparent" />
-        <div aria-hidden className="absolute inset-0 bg-white/10 mix-blend-overlay" />
-        <span className="font-heading font-black text-4xl sm:text-5xl md:text-6xl lg:text-7xl tabular-nums text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)]">
+      <div className="relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 lg:w-32 lg:h-32 rounded-2xl md:rounded-3xl bg-white/25 backdrop-blur-xl border border-white/60 shadow-[0_8px_28px_oklch(0.70_0.19_340_/_0.28),inset_0_1px_0_oklch(1_0_0_/_0.6),inset_0_-2px_6px_oklch(0.70_0.19_340_/_0.1)] flex items-center justify-center overflow-hidden">
+        <div aria-hidden className="absolute -inset-6 rounded-full bg-gradient-to-br from-cherry/40 via-primary/25 to-transparent blur-2xl" />
+        <div aria-hidden className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/50 to-transparent" />
+        <span className="relative font-heading font-black text-4xl sm:text-5xl md:text-6xl lg:text-7xl tabular-nums bg-gradient-to-br from-cherry to-primary bg-clip-text text-transparent drop-shadow-[0_1px_1px_oklch(1_0_0_/_0.4)]">
           {String(value).padStart(2, '0')}
         </span>
       </div>
