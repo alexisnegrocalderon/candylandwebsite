@@ -56,6 +56,12 @@ export interface InstagramAgentConfig {
    * curso: lo dispara un cron sin ningún mensaje nuevo que darle de contexto
    * al modelo). */
   followUpMessage: string;
+  /** Lo que se manda cuando el mensaje que llega es SOLO un agradecimiento
+   * por lo ya conversado ("muchas gracias", sin ninguna pregunta nueva) --
+   * pedido explícito del dueño: eso no se deriva ni pausa el bot, se contesta
+   * con este texto fijo (igual que handoffMessage, la IA solo detecta el
+   * caso, nunca genera las palabras). */
+  thanksMessage: string;
 }
 
 export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
@@ -74,6 +80,7 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   followUpEnabled: true,
   followUpMinutes: 120,
   followUpMessage: 'Cuando quieras retomamos 💜 mientras tanto puedes ver fechas y entradas directo en mansionplayroom.cl/entradas',
+  thanksMessage: 'Un gusto y cualquier otra cosa que necesites estamos aquí para poder ayudar',
 };
 
 /** Completa con los valores por defecto cualquier campo faltante -- una
@@ -106,6 +113,9 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
     followUpMessage: typeof partial.followUpMessage === 'string' && partial.followUpMessage.trim().length > 0
       ? partial.followUpMessage
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.followUpMessage,
+    thanksMessage: typeof partial.thanksMessage === 'string' && partial.thanksMessage.trim().length > 0
+      ? partial.thanksMessage
+      : DEFAULT_INSTAGRAM_AGENT_CONFIG.thanksMessage,
   };
 }
 

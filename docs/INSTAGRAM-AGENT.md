@@ -123,6 +123,11 @@ cuenta empiece a contestarle a nadie.
   configurados (Ajustes del agente → "Recordatorio si no contesta", 120 min
   por defecto). No es un cierre generado por IA -- es el texto fijo que se
   edita ahí mismo.
+- **"Muchas gracias"**: si el mensaje que llega es solo un agradecimiento por
+  lo ya conversado (sin ninguna pregunta ni pedido nuevo), el agente NO
+  deriva a una persona -- contesta con el texto fijo de "Mensaje cuando solo
+  agradecen" (Ajustes del agente) y el hilo sigue como si nada, listo para
+  la próxima pregunta real.
 
 ## 7. Qué hacer si...
 

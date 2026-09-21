@@ -1831,6 +1831,7 @@ export const appRouter = router({
       followUpEnabled: z.boolean(),
       followUpMinutes: z.number().int().min(1).max(1440),
       followUpMessage: z.string().min(1).max(IG_MAX_REPLY_CHARS),
+      thanksMessage: z.string().min(1).max(IG_MAX_REPLY_CHARS),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings({ instagramAgentConfig: input });
     }),
