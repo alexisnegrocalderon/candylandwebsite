@@ -843,10 +843,11 @@ function UpcomingEventsSection() {
 
 function CountdownUnit({ value, label }: { value: number; label: string }) {
   return (
-    <div className="flex flex-col items-center gap-1.5">
-      <div className="relative w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 rounded-2xl md:rounded-3xl bg-gradient-to-br from-cherry via-primary to-violet-electric shadow-[0_6px_22px_oklch(0.70_0.19_340_/_0.4)] flex items-center justify-center overflow-hidden ring-2 ring-white/30">
+    <div className="flex flex-col items-center gap-1">
+      <div className="relative w-20 h-20 sm:w-24 sm:h-24 md:w-28 md:h-28 lg:w-32 lg:h-32 rounded-2xl md:rounded-3xl bg-gradient-to-br from-cherry via-primary to-violet-electric shadow-[0_6px_22px_oklch(0.70_0.19_340_/_0.4),0_0_28px_oklch(0.70_0.19_340_/_0.55)] flex items-center justify-center overflow-hidden ring-2 ring-white/30">
+        <div aria-hidden className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/25 to-transparent" />
         <div aria-hidden className="absolute inset-0 bg-white/10 mix-blend-overlay" />
-        <span className="font-heading font-black text-3xl sm:text-4xl md:text-5xl tabular-nums text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)]">
+        <span className="font-heading font-black text-4xl sm:text-5xl md:text-6xl lg:text-7xl tabular-nums text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)]">
           {String(value).padStart(2, '0')}
         </span>
       </div>
@@ -971,7 +972,7 @@ function UrgencySection({
          * abajo, que es donde se lee y no cuesta nada. */}
         <motion.div
           {...reveal}
-          className="relative glass-candy rounded-3xl px-5 py-6 md:px-10 md:py-8 flex flex-col items-center gap-4 md:gap-5 overflow-hidden border-2 border-cherry/50"
+          className="relative glass-candy rounded-3xl px-5 py-4 md:px-10 md:py-5 flex flex-col items-center gap-2.5 md:gap-3 overflow-hidden border-2 border-cherry/50"
         >
           <div aria-hidden className="absolute -top-16 left-1/4 w-64 h-64 rounded-full bg-cherry/25 blur-[90px]" />
           <div aria-hidden className="absolute -bottom-16 right-1/4 w-64 h-64 rounded-full bg-primary/20 blur-[90px]" />
@@ -981,14 +982,14 @@ function UrgencySection({
           </p>
           <div className="relative flex items-center gap-2 sm:gap-3 md:gap-4">
             <CountdownUnit value={dias} label="Días" />
-            <span className="text-2xl md:text-4xl font-heading font-black text-cherry/50 -mt-4 md:-mt-6">:</span>
+            <span className="text-3xl md:text-5xl lg:text-6xl font-heading font-black text-cherry/50 -mt-4 md:-mt-6">:</span>
             <CountdownUnit value={horas} label="Hrs" />
-            <span className="text-2xl md:text-4xl font-heading font-black text-cherry/50 -mt-4 md:-mt-6">:</span>
+            <span className="text-3xl md:text-5xl lg:text-6xl font-heading font-black text-cherry/50 -mt-4 md:-mt-6">:</span>
             <CountdownUnit value={minutos} label="Min" />
-            <span className="text-2xl md:text-4xl font-heading font-black text-cherry/50 -mt-4 md:-mt-6">:</span>
+            <span className="text-3xl md:text-5xl lg:text-6xl font-heading font-black text-cherry/50 -mt-4 md:-mt-6">:</span>
             <CountdownUnit value={segundos} label="Seg" />
           </div>
-          <p className="relative text-muted-foreground text-xs md:text-base font-medium">
+          <p className="relative text-muted-foreground text-xs md:text-sm font-medium">
             {CANDYLAND.fechaTexto} · {CANDYLAND.horarioTexto}
           </p>
         </motion.div>
