@@ -4627,6 +4627,14 @@ function BirthdaysView() {
   const activeEventId = eventId ?? activeCajaEvent?.id ?? events[0]?.id ?? null;
   const { data: pendingApplications } = trpc.birthdayApplications.countPending.useQuery(undefined, { refetchInterval: 60_000 });
 
+  const createRewardProducts = trpc.birthdayProgram.createRewardProducts.useMutation({
+    onSuccess: (r) => {
+      if (r.created.length === 0) toast.success('Ya estaban creados los 4 productos de premio para este evento');
+      else toast.success(`Creados: ${r.created.join(', ')}${r.skipped.length ? ` -- ya existían: ${r.skipped.join(', ')}` : ''}`);
+    },
+    onError: onMutationError,
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -4638,15 +4646,30 @@ function BirthdaysView() {
             reemplaza) el premio del tramo alcanzado, automáticamente, canjeable en caja.
           </p>
         </div>
-        {events.length > 0 && (
-          <Select value={String(activeEventId)} onValueChange={(v) => setEventId(Number(v))}>
-            <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {events.length > 0 && (
+            <Select value={String(activeEventId)} onValueChange={(v) => setEventId(Number(v))}>
+              <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
+          <WriteButton
+            variant="outline"
+            disabled={!activeEventId || createRewardProducts.isPending}
+            onClick={() => activeEventId && createRewardProducts.mutate({ eventId: activeEventId })}
+          >
+            <Gift className="w-4 h-4 mr-2" />
+            {createRewardProducts.isPending ? 'Creando…' : 'Crear productos de premio'}
+          </WriteButton>
+        </div>
       </div>
+      <p className="text-muted-foreground text-xs -mt-3">
+        Crea los 4 productos de regalo (espumante, botella, cover, bebidas) para el evento elegido arriba -- internos,
+        no aparecen en el checkout web ni en la grilla de venta de caja, solo se usan para materializar los premios.
+        Si ya existen, no los duplica.
+      </p>
 
       <div className="flex flex-wrap gap-2 border-b border-border pb-3">
         {BIRTHDAY_TABS.map((t) => (

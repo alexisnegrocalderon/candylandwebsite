@@ -618,8 +618,14 @@ export async function getTicketByCode(ticketCode: string) {
   };
 }
 
-/** Extras (category="extra") de una orden, agrupados por tipo con su cantidad
- * y los códigos de ticket individuales generados para cada unidad. */
+/** Extras redimibles de una orden, agrupados por tipo con su cantidad y los
+ * códigos de ticket individuales generados para cada unidad. El criterio es
+ * "tiene displayCode" (código de canje generado) y NO "category='extra'":
+ * un regalo de discountCodes.giftTicketTypeId o del programa Cumpleañeros
+ * puede ser categoría 'consumo' (no aparece en el checkout web) y aun así
+ * necesita mostrarse acá para que el titular lo vea en su ticket/correo y
+ * la cajera lo pueda canjear -- antes quedaban invisibles para el
+ * comprador aunque ya tuvieran su código generado. */
 export async function getOrderExtras(orderId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -628,8 +634,9 @@ export async function getOrderExtras(orderId: number) {
   const grouped = new Map<number, { name: string; quantity: number; codes: string[] }>();
 
   for (const t of orderTickets) {
+    if (!t.displayCode || t.status === 'cancelled') continue;
     const [tt] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, t.ticketTypeId)).limit(1);
-    if (tt?.category !== 'extra') continue;
+    if (!tt) continue;
     const entry = grouped.get(t.ticketTypeId) ?? { name: tt.name, quantity: 0, codes: [] };
     entry.quantity += 1;
     // displayCode legible (PIS-XXXX-XXXX) es lo que se presenta en caja para

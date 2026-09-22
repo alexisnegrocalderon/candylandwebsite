@@ -1,12 +1,61 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
-import { getDb } from './db';
+import { getDb, createTicketType } from './db';
 import {
   birthdayPeople, discountCodes, events, orderItems, orders, ticketTypes, tickets,
 } from '../drizzle/schema';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 import { BIRTHDAY_TIERS, tierForCount, type BirthdayTier } from '../shared/birthdayTiers';
+
+/** Los 4 productos de regalo que materializan los tramos -- ver
+ * BIRTHDAY_TIERS. Siempre `category: 'consumo'` (nunca aparecen en el paso
+ * de extras del checkout web, que solo lista category='extra') y siempre
+ * `status: 'hidden'` (getCajaSnapshot excluye los 'hidden' de la grilla de
+ * venta de /caja): son un premio interno, no un producto que se pueda
+ * comprar ni que la cajera venda por accidente. Igual quedan 100%
+ * redimibles -- redeemDisplayCode busca el ticket ya generado por su código,
+ * sin pasar por ninguna de esas dos listas. */
+const BIRTHDAY_REWARD_PRODUCTS = [
+  { internalCode: 'BDESP', name: 'Espumante Cumpleañero', price: 8000 },
+  { internalCode: 'BDBOT', name: 'Botella Cumpleañero (Pisco o Ron)', price: 18000 },
+  { internalCode: 'BDCOV', name: 'Cover Cumpleañero', price: 3000 },
+  { internalCode: 'BDBEB', name: 'Bebidas Cumpleañero', price: 5000 },
+] as const;
+
+/** Crea los 4 productos de premio para un evento si todavía no existen (los
+ * busca por internalCode, no duplica si ya están cargados) -- botón "Crear
+ * productos de premio" del admin (Cumpleañeros). Los precios son solo de
+ * referencia/margen: el premio siempre se otorga a $0, nunca se cobran. */
+export async function createBirthdayRewardProducts(eventId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+
+  const existing = await db.select({ internalCode: ticketTypes.internalCode })
+    .from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
+  const existingCodes = new Set(existing.map((t) => t.internalCode));
+
+  const created: string[] = [];
+  const skipped: string[] = [];
+  for (const product of BIRTHDAY_REWARD_PRODUCTS) {
+    if (existingCodes.has(product.internalCode)) { skipped.push(product.internalCode); continue; }
+    await createTicketType({
+      eventId,
+      name: product.name,
+      category: 'consumo',
+      status: 'hidden',
+      groupName: 'Premios Cumpleañeros',
+      emoji: '🎂',
+      price: product.price,
+      totalStock: 9999,
+      internalCode: product.internalCode,
+      toKitchen: 0,
+    });
+    created.push(product.internalCode);
+  }
+
+  return { created, skipped };
+}
 
 /* Motor del programa Cumpleañeros: cuenta cuántas entradas se vendieron con
  * el código de cada cumpleañero (para SU evento) y materializa el premio del
@@ -47,11 +96,30 @@ async function findTierTicketType(eventId: number, matchBy: 'accesoSlug' | 'inte
 /** Anula (sin borrar) los tickets $0 todavía sin canjear de la orden-premio
  * del cumpleañero -- así el tramo anterior deja de ser válido en caja sin
  * tocar lo que la persona ya retiró. */
+/** Anula solo los ítems "extra"/"consumo" (espumante, botella, covers,
+ * bebidas) -- NUNCA los de categoría 'acceso' (el Acceso Dúo del tramo 1).
+ * Vender más entradas jamás le quita al cumpleañero la entrada a SU fiesta:
+ * "reemplazar en vez de acumular" aplica a los regalos, no al acceso ya
+ * otorgado. */
 async function cancelUnredeemedRewardTickets(rewardOrderId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(tickets).set({ status: 'cancelled' })
+  const rewardTickets = await db.select({ id: tickets.id, ticketTypeId: tickets.ticketTypeId })
+    .from(tickets)
     .where(and(eq(tickets.orderId, rewardOrderId), eq(tickets.status, 'valid')));
+  if (!rewardTickets.length) return;
+
+  const ticketTypeIds = Array.from(new Set(rewardTickets.map((t) => t.ticketTypeId)));
+  const types = await db.select({ id: ticketTypes.id, category: ticketTypes.category })
+    .from(ticketTypes).where(inArray(ticketTypes.id, ticketTypeIds));
+  const categoryById = new Map(types.map((t) => [t.id, t.category]));
+
+  const idsToCancel = rewardTickets
+    .filter((t) => categoryById.get(t.ticketTypeId) !== 'acceso')
+    .map((t) => t.id);
+  if (!idsToCancel.length) return;
+
+  await db.update(tickets).set({ status: 'cancelled' }).where(inArray(tickets.id, idsToCancel));
 }
 
 /** Crea (si no existe) la orden $0 donde viven los premios vigentes del

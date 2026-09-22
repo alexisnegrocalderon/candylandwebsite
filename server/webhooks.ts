@@ -633,6 +633,18 @@ async function processApprovedOrder(order: any) {
           includesNextEventCredit: unlocked.tier.includesNextEventCredit,
         });
         await sendEmail({ to: unlocked.person.email, subject: `🥳 ¡Nuevo premio desbloqueado! — ${unlocked.tier.label}`, html });
+
+        // El aviso de arriba es solo la buena noticia -- ACÁ va el correo con
+        // el QR de verdad (mismo que recibe cualquier comprador), para que el
+        // cumpleañero pueda entrar a la fiesta y mostrar sus regalos en caja.
+        // Se reenvía completo en cada tramo nuevo porque getOrderExtras lee
+        // el estado ACTUAL de la orden-premio -- el QR de acceso es siempre
+        // el mismo (nunca se cancela, ver cancelUnredeemedRewardTickets),
+        // pero la lista de extras sí refleja el tramo vigente.
+        if (unlocked.person.rewardOrderId) {
+          const [rewardOrder] = await db.select().from(orders).where(eq(orders.id, unlocked.person.rewardOrderId)).limit(1);
+          if (rewardOrder) await sendConfirmationEmailForOrder(rewardOrder);
+        }
       }
     } catch (err) {
       console.error('[Cumpleañeros] No se pudo procesar el tramo de premios:', err);
