@@ -127,6 +127,10 @@ export async function approveApplication(params: { id: number; code: string; dis
     discountValue: String(params.discountPercent),
     eventId: application.eventId,
     isActive: 1,
+    // El % siempre es sobre el precio general (originalPrice), no sobre el
+    // precio vigente de la tanda -- así no cambia según qué tan avanzada
+    // esté la venta cuando el invitado compre. Ver drizzle/schema.ts.
+    basedOnOriginalPrice: 1,
   });
   const [discountRow] = await db.select({ id: discountCodes.id }).from(discountCodes)
     .where(eq(discountCodes.code, code)).limit(1);

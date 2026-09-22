@@ -1094,11 +1094,21 @@ export async function createOrder(input: {
       const disc = validation.discount;
       discountCodeId = disc.id;
       const scopeIds = disc.applicableTicketTypeIds as number[] | null;
-      const eligibleSubtotal = scopeIds && scopeIds.length > 0
-        ? input.items
-          .filter((item) => tts.find((t) => t.id === item.ticketTypeId)?.category === 'acceso' && scopeIds.includes(item.ticketTypeId))
-          .reduce((sum, item) => sum + (unitPrices.get(item.ticketTypeId) ?? 0) * item.quantity, 0)
-        : accesoSubtotal;
+      // basedOnOriginalPrice (hoy solo códigos del programa Cumpleañeros):
+      // el % se calcula sobre el precio general (originalPrice), no sobre el
+      // precio vigente de la tanda -- ver el comentario de esa columna en
+      // drizzle/schema.ts. `preTotal` más abajo igual se clampa a 0, así que
+      // un % generoso sobre un originalPrice alto nunca deja el total
+      // negativo aunque supere el subtotal real de la tanda vigente.
+      const priceForDiscount = (ticketTypeId: number): number => {
+        if (!disc.basedOnOriginalPrice) return unitPrices.get(ticketTypeId) ?? 0;
+        const tt = tts.find((t) => t.id === ticketTypeId);
+        return tt ? Number(tt.originalPrice ?? tt.price) : 0;
+      };
+      const eligibleSubtotal = (scopeIds && scopeIds.length > 0
+        ? input.items.filter((item) => tts.find((t) => t.id === item.ticketTypeId)?.category === 'acceso' && scopeIds.includes(item.ticketTypeId))
+        : input.items.filter((item) => tts.find((t) => t.id === item.ticketTypeId)?.category === 'acceso')
+      ).reduce((sum, item) => sum + priceForDiscount(item.ticketTypeId) * item.quantity, 0);
       if (disc.discountType === 'percentage') {
         discountAmount = Math.round(eligibleSubtotal * Number(disc.discountValue) / 100);
       } else {

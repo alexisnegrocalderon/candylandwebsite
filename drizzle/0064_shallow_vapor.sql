@@ -1,0 +1,1 @@
+ALTER TABLE `discountCodes` ADD `basedOnOriginalPrice` int DEFAULT 0 NOT NULL;
