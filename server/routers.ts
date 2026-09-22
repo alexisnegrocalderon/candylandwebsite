@@ -2707,6 +2707,15 @@ export const appRouter = router({
     })).mutation(async ({ input }) => {
       return birthdayProgram.assignNextEventCredit(input);
     }),
+
+    // Crea (si faltan) los 4 productos de premio del evento elegido --
+    // botón "Crear productos de premio" en el admin. Idempotente: no
+    // duplica los que ya existan por internalCode.
+    createRewardProducts: adminProcedure.input(z.object({
+      eventId: z.number(),
+    })).mutation(async ({ input }) => {
+      return birthdayProgram.createBirthdayRewardProducts(input.eventId);
+    }),
   }),
 
   // Módulo /caja — login por PIN de operadores (docs/ARQUITECTURA-CAJA.md

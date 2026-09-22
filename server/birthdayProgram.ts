@@ -1,12 +1,61 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
-import { getDb } from './db';
+import { getDb, createTicketType } from './db';
 import {
   birthdayPeople, discountCodes, events, orderItems, orders, ticketTypes, tickets,
 } from '../drizzle/schema';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 import { BIRTHDAY_TIERS, tierForCount, type BirthdayTier } from '../shared/birthdayTiers';
+
+/** Los 4 productos de regalo que materializan los tramos -- ver
+ * BIRTHDAY_TIERS. Siempre `category: 'consumo'` (nunca aparecen en el paso
+ * de extras del checkout web, que solo lista category='extra') y siempre
+ * `status: 'hidden'` (getCajaSnapshot excluye los 'hidden' de la grilla de
+ * venta de /caja): son un premio interno, no un producto que se pueda
+ * comprar ni que la cajera venda por accidente. Igual quedan 100%
+ * redimibles -- redeemDisplayCode busca el ticket ya generado por su código,
+ * sin pasar por ninguna de esas dos listas. */
+const BIRTHDAY_REWARD_PRODUCTS = [
+  { internalCode: 'BDESP', name: 'Espumante Cumpleañero', price: 8000 },
+  { internalCode: 'BDBOT', name: 'Botella Cumpleañero (Pisco o Ron)', price: 18000 },
+  { internalCode: 'BDCOV', name: 'Cover Cumpleañero', price: 3000 },
+  { internalCode: 'BDBEB', name: 'Bebidas Cumpleañero', price: 5000 },
+] as const;
+
+/** Crea los 4 productos de premio para un evento si todavía no existen (los
+ * busca por internalCode, no duplica si ya están cargados) -- botón "Crear
+ * productos de premio" del admin (Cumpleañeros). Los precios son solo de
+ * referencia/margen: el premio siempre se otorga a $0, nunca se cobran. */
+export async function createBirthdayRewardProducts(eventId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+
+  const existing = await db.select({ internalCode: ticketTypes.internalCode })
+    .from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
+  const existingCodes = new Set(existing.map((t) => t.internalCode));
+
+  const created: string[] = [];
+  const skipped: string[] = [];
+  for (const product of BIRTHDAY_REWARD_PRODUCTS) {
+    if (existingCodes.has(product.internalCode)) { skipped.push(product.internalCode); continue; }
+    await createTicketType({
+      eventId,
+      name: product.name,
+      category: 'consumo',
+      status: 'hidden',
+      groupName: 'Premios Cumpleañeros',
+      emoji: '🎂',
+      price: product.price,
+      totalStock: 9999,
+      internalCode: product.internalCode,
+      toKitchen: 0,
+    });
+    created.push(product.internalCode);
+  }
+
+  return { created, skipped };
+}
 
 /* Motor del programa Cumpleañeros: cuenta cuántas entradas se vendieron con
  * el código de cada cumpleañero (para SU evento) y materializa el premio del
