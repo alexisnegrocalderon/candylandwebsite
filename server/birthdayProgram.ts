@@ -47,11 +47,30 @@ async function findTierTicketType(eventId: number, matchBy: 'accesoSlug' | 'inte
 /** Anula (sin borrar) los tickets $0 todavía sin canjear de la orden-premio
  * del cumpleañero -- así el tramo anterior deja de ser válido en caja sin
  * tocar lo que la persona ya retiró. */
+/** Anula solo los ítems "extra"/"consumo" (espumante, botella, covers,
+ * bebidas) -- NUNCA los de categoría 'acceso' (el Acceso Dúo del tramo 1).
+ * Vender más entradas jamás le quita al cumpleañero la entrada a SU fiesta:
+ * "reemplazar en vez de acumular" aplica a los regalos, no al acceso ya
+ * otorgado. */
 async function cancelUnredeemedRewardTickets(rewardOrderId: number) {
   const db = await getDb();
   if (!db) return;
-  await db.update(tickets).set({ status: 'cancelled' })
+  const rewardTickets = await db.select({ id: tickets.id, ticketTypeId: tickets.ticketTypeId })
+    .from(tickets)
     .where(and(eq(tickets.orderId, rewardOrderId), eq(tickets.status, 'valid')));
+  if (!rewardTickets.length) return;
+
+  const ticketTypeIds = Array.from(new Set(rewardTickets.map((t) => t.ticketTypeId)));
+  const types = await db.select({ id: ticketTypes.id, category: ticketTypes.category })
+    .from(ticketTypes).where(inArray(ticketTypes.id, ticketTypeIds));
+  const categoryById = new Map(types.map((t) => [t.id, t.category]));
+
+  const idsToCancel = rewardTickets
+    .filter((t) => categoryById.get(t.ticketTypeId) !== 'acceso')
+    .map((t) => t.id);
+  if (!idsToCancel.length) return;
+
+  await db.update(tickets).set({ status: 'cancelled' }).where(inArray(tickets.id, idsToCancel));
 }
 
 /** Crea (si no existe) la orden $0 donde viven los premios vigentes del
