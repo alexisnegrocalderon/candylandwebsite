@@ -374,6 +374,14 @@ export const discountCodes = mysqlTable("discountCodes", {
   // que cualquier extra. `null` = comportamiento de siempre (solo
   // descuento en dinero, si lo tiene).
   giftTicketTypeId: int("giftTicketTypeId"),
+  // `1` = el % de descuento se calcula sobre ticketTypes.originalPrice (el
+  // precio general tachado), no sobre el precio vigente de la tanda actual
+  // -- así el % no cambia según qué tan avanzada esté la venta. Hoy solo lo
+  // usa el programa Cumpleañeros (ver server/birthdayApplications.ts
+  // approveApplication); `0`/default = comportamiento de siempre (% sobre
+  // el precio vigente), para no romper ningún código manual ni de
+  // embajadores/promos ya existente.
+  basedOnOriginalPrice: int("basedOnOriginalPrice").default(0).notNull(),
   validFrom: timestamp("validFrom"),
   validUntil: timestamp("validUntil"),
   isActive: int("isActive").default(1).notNull(),
