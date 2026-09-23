@@ -49,6 +49,9 @@ import {
   categoryLabel, documentTypeLabel, paymentMethodLabel, deriveAmounts,
   type ExpenseCategory, type ExpenseDocumentType, type ExpensePaymentMethod,
 } from '@shared/expenses';
+import {
+  computeBudgetResult, type BudgetSimulationInput, type RevenueTier, type BudgetExpenseLine, type BudgetResult,
+} from '@shared/eventBudget';
 import { monthKeyFor } from '@shared/ambassadorProgram';
 import { formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
 import {
@@ -6406,15 +6409,35 @@ function PnlRow({ label, amount, negative, hint, strong }: { label: string; amou
 
 function EventPnlReport({ eventId, refreshKey }: { eventId: number; refreshKey: number }) {
   const { data, refetch } = trpc.cajaReports.eventPnl.useQuery({ eventId });
+  // Simulación de presupuesto vinculada a este evento (si el admin la ligó
+  // desde la pestaña "Presupuesto") -- comparación liviana, no toca la
+  // lógica del P&L real de acá abajo.
+  const { data: linkedSims } = trpc.budgetSimulations.listAll.useQuery({ eventId });
   useEffect(() => { refetch(); }, [refreshKey, refetch]);
 
   if (!data) return null;
   const positive = data.netProfit >= 0;
+  const budgetedSim = linkedSims?.[0];
+  const budgetedResult = budgetedSim ? computeBudgetResult(simFormFromRow(budgetedSim)) : null;
 
   return (
     <Card className="admin-clay border-0">
       <CardHeader><CardTitle>Resultado real de {data.title}</CardTitle></CardHeader>
       <CardContent className="space-y-4">
+        {budgetedResult && (
+          <div className="admin-clay-sm p-4 space-y-2">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">
+              Presupuestado ("{budgetedSim!.name}") → Real
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+              <div><p className="text-muted-foreground text-xs">Ingreso</p><p className="tabular-nums">${budgetedResult.grossIncome.toLocaleString('es-CL')} → ${data.grossIncome.toLocaleString('es-CL')}</p></div>
+              <div><p className="text-muted-foreground text-xs">Gastos fijos</p><p className="tabular-nums">${budgetedResult.pnl.directExpensesTotal.toLocaleString('es-CL')} → ${data.directExpensesTotal.toLocaleString('es-CL')}</p></div>
+              <div><p className="text-muted-foreground text-xs">Margen</p><p className="tabular-nums">{budgetedResult.pnl.marginPercent ?? '—'}% → {data.marginPercent ?? '—'}%</p></div>
+              <div><p className="text-muted-foreground text-xs">Utilidad</p><p className="tabular-nums">${budgetedResult.pnl.netProfit.toLocaleString('es-CL')} → ${data.netProfit.toLocaleString('es-CL')}</p></div>
+            </div>
+          </div>
+        )}
+
         {data.warnings.length > 0 && (
           <div className="admin-clay-sm bg-[var(--admin-warning-bg)] px-4 py-3 space-y-1.5">
             {data.warnings.map((w: string, i: number) => (
@@ -6637,6 +6660,7 @@ function GastosView() {
         <TabsList>
           <TabsTrigger value="ventas">Ventas</TabsTrigger>
           <TabsTrigger value="gastos">Gastos</TabsTrigger>
+          <TabsTrigger value="presupuesto">Presupuesto</TabsTrigger>
         </TabsList>
         <TabsContent value="ventas" className="space-y-6 mt-4">
           {activeEventId && <ReportToolbar eventId={activeEventId} kind="ventas" />}
@@ -6651,8 +6675,376 @@ function GastosView() {
           <ExpenseForm events={events} onSaved={refresh} />
           <ExpensesList events={events} refreshKey={refreshKey} onChanged={refresh} />
         </TabsContent>
+        <TabsContent value="presupuesto" className="space-y-6 mt-4">
+          <BudgetSimulatorTab events={events} />
+        </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+/* ─── Simulador de presupuesto pre-evento ──────────────────── */
+
+const emptyRevenueTier = (): RevenueTier => ({ label: '', price: 0, expectedQty: 0, personasPorEntrada: 1 });
+const emptyExpenseLine = (): BudgetExpenseLine => ({ category: 'produccion', label: '', amount: 0 });
+
+type SimForm = BudgetSimulationInput & { name: string };
+
+function emptySimForm(cardFeeDefault: number): SimForm {
+  return {
+    name: '',
+    ivaApplies: false,
+    marginTargetPercent: 30,
+    cardFeePercent: cardFeeDefault,
+    commissionPercent: 0,
+    variableCostPerPerson: 0,
+    otherRevenuePerPerson: 0,
+    revenueTiers: [emptyRevenueTier()],
+    expenseLines: [emptyExpenseLine()],
+  };
+}
+
+function simFormFromRow(row: any): SimForm {
+  return {
+    name: row.name,
+    ivaApplies: !!row.ivaApplies,
+    marginTargetPercent: Number(row.marginTargetPercent),
+    cardFeePercent: Number(row.cardFeePercent),
+    commissionPercent: Number(row.commissionPercent),
+    variableCostPerPerson: Number(row.variableCostPerPerson),
+    otherRevenuePerPerson: Number(row.otherRevenuePerPerson),
+    revenueTiers: Array.isArray(row.revenueTiers) ? row.revenueTiers : [],
+    expenseLines: Array.isArray(row.expenseLines) ? row.expenseLines : [],
+  };
+}
+
+function BudgetStatusBadge({ status }: { status: BudgetResult['status'] }) {
+  const map = {
+    ok: { label: 'Dentro del margen', className: 'bg-emerald-500/15 text-emerald-600' },
+    warning: { label: 'Al límite', className: 'bg-amber-500/15 text-amber-600' },
+    danger: { label: 'Fuera del margen', className: 'bg-destructive/15 text-destructive' },
+  } as const;
+  const s = map[status];
+  return <span className={`px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${s.className}`}>{s.label}</span>;
+}
+
+function BudgetSimulatorTab({ events }: { events: any[] }) {
+  const { data: simsData, refetch } = trpc.budgetSimulations.listAll.useQuery();
+  const sims = simsData ?? [];
+  const { data: settings } = trpc.settings.get.useQuery();
+  const cardFeeDefault = Number(settings?.cardFeePercent ?? 0);
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [compareIds, setCompareIds] = useState<number[]>([]);
+
+  const deleteSim = trpc.budgetSimulations.delete.useMutation({
+    onSuccess: () => { refetch(); toast.success('Simulación eliminada'); setCompareIds((ids) => ids.filter((id) => id !== editingId)); },
+    onError: onMutationError,
+  });
+
+  const editingRow = editingId ? sims.find((s: any) => s.id === editingId) : null;
+
+  const toggleCompare = (id: number) => {
+    setCompareIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="font-heading text-xl">Simulador de presupuesto</h3>
+          <p className="text-sm text-muted-foreground mt-0.5 max-w-2xl">
+            Calcula ANTES de crear el evento cuánto puedes gastar sin perder tu margen mínimo, y cuántas entradas
+            necesitas vender para no perder plata. No toca ningún gasto ni venta real.
+          </p>
+        </div>
+        {!creating && !editingId && (
+          <Button onClick={() => setCreating(true)} className="interactive"><Plus className="w-4 h-4 mr-2" /> Nueva simulación</Button>
+        )}
+      </div>
+
+      {(creating || editingRow) && (
+        <BudgetSimulatorForm
+          key={editingId ?? 'new'}
+          initial={editingRow ? simFormFromRow(editingRow) : emptySimForm(cardFeeDefault)}
+          simId={editingId}
+          events={events}
+          linkedEventId={editingRow?.eventId ?? null}
+          onSaved={() => { refetch(); setCreating(false); setEditingId(null); }}
+          onCancel={() => { setCreating(false); setEditingId(null); }}
+        />
+      )}
+
+      {compareIds.length >= 2 && (
+        <BudgetCompareTable sims={sims.filter((s: any) => compareIds.includes(s.id))} />
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {sims.map((s: any) => {
+          const result = computeBudgetResult(simFormFromRow(s));
+          const eventTitle = events.find((e: any) => e.id === s.eventId)?.title;
+          return (
+            <Card key={s.id} className="admin-clay border-0">
+              <CardContent className="pt-5 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold truncate">{s.name}</p>
+                    {eventTitle ? (
+                      <p className="text-xs text-primary mt-0.5 truncate">Vinculada a {eventTitle}</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground mt-0.5">Sin vincular</p>
+                    )}
+                  </div>
+                  <BudgetStatusBadge status={result.status} />
+                </div>
+                <div className="text-sm space-y-1">
+                  <p>Ingreso proyectado: <span className="font-semibold tabular-nums">${result.grossIncome.toLocaleString('es-CL')}</span></p>
+                  <p>Margen resultante: <span className="font-semibold tabular-nums">{result.pnl.marginPercent != null ? `${result.pnl.marginPercent}%` : '—'}</span></p>
+                  <p>Techo de gasto: <span className="font-semibold tabular-nums">${result.maxDirectExpenses.toLocaleString('es-CL')}</span></p>
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                    <Checkbox checked={compareIds.includes(s.id)} onCheckedChange={() => toggleCompare(s.id)} /> Comparar
+                  </label>
+                  <div className="ml-auto flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => { setCreating(false); setEditingId(s.id); }}>Editar</Button>
+                    <ConfirmDeleteButton description={`Vas a eliminar la simulación "${s.name}".`} onConfirm={(adminPassword) => deleteSim.mutateAsync({ id: s.id, adminPassword })} />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+        {sims.length === 0 && !creating && (
+          <p className="text-sm text-muted-foreground md:col-span-2 py-8 text-center">
+            Todavía no hay simulaciones. Crea la primera con el botón de arriba.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BudgetCompareTable({ sims }: { sims: any[] }) {
+  const rows = sims.map((s: any) => ({ ...s, result: computeBudgetResult(simFormFromRow(s)) }));
+  return (
+    <Card className="admin-clay border-0">
+      <CardHeader><CardTitle>Comparar simulaciones</CardTitle></CardHeader>
+      <CardContent className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border">
+              <th className="text-left py-2 px-3">—</th>
+              {rows.map((r) => <th key={r.id} className="text-left py-2 px-3">{r.name}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-b border-border/50">
+              <td className="py-2 px-3 text-muted-foreground">Aforo estimado</td>
+              {rows.map((r) => <td key={r.id} className="py-2 px-3 tabular-nums">{r.result.attendance}</td>)}
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 px-3 text-muted-foreground">Ingreso proyectado</td>
+              {rows.map((r) => <td key={r.id} className="py-2 px-3 tabular-nums">${r.result.grossIncome.toLocaleString('es-CL')}</td>)}
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 px-3 text-muted-foreground">Gastos fijos</td>
+              {rows.map((r) => <td key={r.id} className="py-2 px-3 tabular-nums">${r.result.pnl.directExpensesTotal.toLocaleString('es-CL')}</td>)}
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 px-3 text-muted-foreground">Techo de gasto</td>
+              {rows.map((r) => <td key={r.id} className="py-2 px-3 tabular-nums">${r.result.maxDirectExpenses.toLocaleString('es-CL')}</td>)}
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 px-3 text-muted-foreground">Margen resultante</td>
+              {rows.map((r) => <td key={r.id} className="py-2 px-3 tabular-nums">{r.result.pnl.marginPercent != null ? `${r.result.pnl.marginPercent}%` : '—'}</td>)}
+            </tr>
+            <tr>
+              <td className="py-2 px-3 text-muted-foreground">Punto de equilibrio</td>
+              {rows.map((r) => <td key={r.id} className="py-2 px-3 tabular-nums">{r.result.breakevenTickets != null ? `${r.result.breakevenTickets} entradas` : '—'}</td>)}
+            </tr>
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, onCancel }: {
+  initial: SimForm;
+  simId: number | null;
+  events: any[];
+  linkedEventId: number | null;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const [form, setForm] = useState<SimForm>(initial);
+  const [eventToLink, setEventToLink] = useState<string>(linkedEventId ? String(linkedEventId) : '');
+
+  const result = computeBudgetResult(form);
+
+  const linkToEvent = trpc.budgetSimulations.linkToEvent.useMutation({ onError: onMutationError });
+
+  const create = trpc.budgetSimulations.create.useMutation({
+    onSuccess: (res) => {
+      if (eventToLink) linkToEvent.mutate({ id: res.id, eventId: Number(eventToLink) });
+      toast.success('Simulación guardada');
+      onSaved();
+    },
+    onError: onMutationError,
+  });
+  const update = trpc.budgetSimulations.update.useMutation({
+    onSuccess: () => { toast.success('Simulación actualizada'); onSaved(); },
+    onError: onMutationError,
+  });
+
+  const handleSave = () => {
+    if (!form.name.trim()) { toast.error('Ponle un nombre a la simulación'); return; }
+    if (simId) update.mutate({ id: simId, ...form });
+    else create.mutate(form);
+  };
+
+  const handleLinkNow = () => {
+    if (!simId || !eventToLink) return;
+    linkToEvent.mutate({ id: simId, eventId: Number(eventToLink) }, {
+      onSuccess: () => { toast.success('Vinculada al evento'); onSaved(); },
+    });
+  };
+
+  const updateTier = (i: number, patch: Partial<RevenueTier>) => {
+    setForm((f) => ({ ...f, revenueTiers: f.revenueTiers.map((t, idx) => (idx === i ? { ...t, ...patch } : t)) }));
+  };
+  const addTier = () => setForm((f) => ({ ...f, revenueTiers: [...f.revenueTiers, emptyRevenueTier()] }));
+  const removeTier = (i: number) => setForm((f) => ({ ...f, revenueTiers: f.revenueTiers.filter((_, idx) => idx !== i) }));
+
+  const updateLine = (i: number, patch: Partial<BudgetExpenseLine>) => {
+    setForm((f) => ({ ...f, expenseLines: f.expenseLines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)) }));
+  };
+  const addLine = () => setForm((f) => ({ ...f, expenseLines: [...f.expenseLines, emptyExpenseLine()] }));
+  const removeLine = (i: number) => setForm((f) => ({ ...f, expenseLines: f.expenseLines.filter((_, idx) => idx !== i) }));
+
+  const statusBarColor = result.status === 'ok' ? 'bg-emerald-500' : result.status === 'warning' ? 'bg-amber-500' : 'bg-destructive';
+  const fillPct = result.maxDirectExpenses > 0
+    ? Math.min(100, (result.pnl.directExpensesTotal / result.maxDirectExpenses) * 100)
+    : (result.pnl.directExpensesTotal > 0 ? 100 : 0);
+
+  return (
+    <Card className="admin-clay border-0">
+      <CardContent className="pt-6 space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="md:col-span-2">
+            <Label>Nombre de la simulación</Label>
+            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder='Ej: "Opción A: entrada barata"' />
+          </div>
+          <div className="flex items-end gap-2 pb-2">
+            <Checkbox id="sim-iva" checked={form.ivaApplies} onCheckedChange={(v) => setForm({ ...form, ivaApplies: v === true })} />
+            <label htmlFor="sim-iva" className="text-sm cursor-pointer">Este evento aplica IVA</label>
+          </div>
+        </div>
+
+        <div>
+          <Label>Ingresos esperados, por tanda</Label>
+          <div className="space-y-2 mt-2">
+            {form.revenueTiers.map((t, i) => (
+              <div key={i} className="grid grid-cols-2 sm:grid-cols-[1fr_110px_110px_130px_36px] gap-2 items-center">
+                <Input value={t.label} onChange={(e) => updateTier(i, { label: e.target.value })} placeholder="Ej: Founders" />
+                <Input type="number" value={t.price} onChange={(e) => updateTier(i, { price: Number(e.target.value) })} placeholder="Precio" />
+                <Input type="number" value={t.expectedQty} onChange={(e) => updateTier(i, { expectedQty: Number(e.target.value) })} placeholder="Entradas" />
+                <Input type="number" value={t.personasPorEntrada} onChange={(e) => updateTier(i, { personasPorEntrada: Number(e.target.value) || 1 })} placeholder="Personas/entrada" />
+                <Button variant="outline" size="sm" onClick={() => removeTier(i)}><X className="w-3.5 h-3.5" /></Button>
+              </div>
+            ))}
+          </div>
+          <Button variant="outline" size="sm" className="mt-2" onClick={addTier}><Plus className="w-3.5 h-3.5 mr-1" /> Agregar tanda</Button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Label>Meta de margen neto mínimo (%)</Label>
+            <Input type="number" value={form.marginTargetPercent} onChange={(e) => setForm({ ...form, marginTargetPercent: Number(e.target.value) })} className="mt-1" />
+          </div>
+          <div>
+            <Label>Costo variable por persona ($)</Label>
+            <Input type="number" value={form.variableCostPerPerson} onChange={(e) => setForm({ ...form, variableCostPerPerson: Number(e.target.value) })} className="mt-1" />
+            <p className="text-xs text-muted-foreground mt-1">Bebida de bienvenida, pulsera, seguridad escalada, etc. -- se multiplica por el aforo estimado.</p>
+          </div>
+          <div>
+            <Label>% comisión de embajadores (estimado)</Label>
+            <Input type="number" value={form.commissionPercent} onChange={(e) => setForm({ ...form, commissionPercent: Number(e.target.value) })} className="mt-1" />
+          </div>
+          <div>
+            <Label>% comisión de tarjeta</Label>
+            <Input type="number" value={form.cardFeePercent} onChange={(e) => setForm({ ...form, cardFeePercent: Number(e.target.value) })} className="mt-1" />
+          </div>
+          <div>
+            <Label>Venta de barra estimada por persona (opcional, $)</Label>
+            <Input type="number" value={form.otherRevenuePerPerson} onChange={(e) => setForm({ ...form, otherRevenuePerPerson: Number(e.target.value) })} className="mt-1" />
+          </div>
+        </div>
+
+        <div>
+          <Label>Gastos fijos estimados</Label>
+          <div className="space-y-2 mt-2">
+            {form.expenseLines.map((l, i) => (
+              <div key={i} className="grid grid-cols-1 sm:grid-cols-[160px_1fr_130px_36px] gap-2 items-center">
+                <Select value={l.category} onValueChange={(v) => updateLine(i, { category: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {EXPENSE_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <Input value={l.label} onChange={(e) => updateLine(i, { label: e.target.value })} placeholder="Ej: Arriendo del local" />
+                <Input type="number" value={l.amount} onChange={(e) => updateLine(i, { amount: Number(e.target.value) })} placeholder="Monto" />
+                <Button variant="outline" size="sm" onClick={() => removeLine(i)}><X className="w-3.5 h-3.5" /></Button>
+              </div>
+            ))}
+          </div>
+          <Button variant="outline" size="sm" className="mt-2" onClick={addLine}><Plus className="w-3.5 h-3.5 mr-1" /> Agregar gasto</Button>
+        </div>
+
+        <div className="admin-clay-sm p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-sm font-semibold">Techo de gasto: ${result.maxDirectExpenses.toLocaleString('es-CL')}</p>
+            <BudgetStatusBadge status={result.status} />
+          </div>
+          <div className="h-2.5 bg-muted rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all ${statusBarColor}`} style={{ width: `${fillPct}%` }} />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Gastos fijos cargados: ${result.pnl.directExpensesTotal.toLocaleString('es-CL')} de ${result.maxDirectExpenses.toLocaleString('es-CL')} disponibles para cumplir la meta de margen.
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm pt-1">
+            <div><p className="text-muted-foreground text-xs">Aforo estimado</p><p className="font-semibold tabular-nums">{result.attendance}</p></div>
+            <div><p className="text-muted-foreground text-xs">Ingreso proyectado</p><p className="font-semibold tabular-nums">${result.grossIncome.toLocaleString('es-CL')}</p></div>
+            <div><p className="text-muted-foreground text-xs">Margen resultante</p><p className="font-semibold tabular-nums">{result.pnl.marginPercent != null ? `${result.pnl.marginPercent}%` : '—'}</p></div>
+            <div><p className="text-muted-foreground text-xs">Punto de equilibrio</p><p className="font-semibold tabular-nums">{result.breakevenTickets != null ? `${result.breakevenTickets} entradas` : '—'}</p></div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <Select value={eventToLink} onValueChange={setEventToLink}>
+            <SelectTrigger className="w-64"><SelectValue placeholder="Vincular a un evento (opcional)" /></SelectTrigger>
+            <SelectContent>
+              {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {simId && (
+            <Button
+              variant="outline" size="sm"
+              disabled={!eventToLink || Number(eventToLink) === linkedEventId || linkToEvent.isPending}
+              onClick={handleLinkNow}
+            >
+              Vincular a este evento
+            </Button>
+          )}
+          <div className="ml-auto flex gap-2">
+            <Button variant="outline" onClick={onCancel}>Cancelar</Button>
+            <WriteButton onClick={handleSave} disabled={create.isPending || update.isPending}>Guardar simulación</WriteButton>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
