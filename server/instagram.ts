@@ -270,7 +270,7 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   // mensaje automático (mandar el aviso de derivación acá sería contestarle
   // como negocio a lo que puede ser, y de hecho suele ser, un chat personal).
   if (text.length === 0) {
-    await silentHandoff(thread.id, 'Llegó un adjunto sin texto (reel, foto, audio)');
+    await silentHandoff(thread.id, thread.username ?? senderId, text, 'Llegó un adjunto sin texto (reel, foto, audio)');
     return;
   }
 
@@ -306,7 +306,7 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   // productora): no se manda nada automático, queda en la bandeja para que
   // el dueño lo vea y conteste él como cualquier DM normal.
   if (result.isPersonal) {
-    await silentHandoff(thread.id, 'La IA lo marcó como mensaje personal, no de cliente');
+    await silentHandoff(thread.id, thread.username ?? senderId, text, 'La IA lo marcó como mensaje personal, no de cliente');
     return;
   }
 
@@ -560,14 +560,21 @@ async function handoff(
   await notifyHandoff(who, incoming, reason);
 }
 
-/** Deriva sin mandar ningún mensaje automático ni avisar por push -- para lo
- * que probablemente ni siquiera es una consulta de cliente (un adjunto suelto
- * o un mensaje que la IA marcó como personal). El mensaje queda guardado en
- * la bandeja del admin, tal cual llegó, esperando que el dueño lo vea y
- * conteste él mismo como cualquier DM normal. Sin push a propósito: no es
- * una alerta de negocio, es un chat personal que no necesita interrumpir. */
-async function silentHandoff(threadId: number, reason: string): Promise<void> {
+/** Deriva sin mandar ningún mensaje automático a la persona -- para lo que
+ * probablemente ni siquiera es una consulta de cliente (un adjunto suelto o
+ * un mensaje que la IA marcó como personal). El mensaje queda guardado en la
+ * bandeja del admin, tal cual llegó, esperando que el dueño lo vea y conteste
+ * él mismo como cualquier DM normal.
+ *
+ * SIEMPRE avisa por push (pedido explícito del dueño, 23/09): la clasificación
+ * de "personal" la hace la IA y puede fallar -- si se equivoca con una
+ * pregunta real de cliente (como pasó con un "quiero saber de qué se trata"
+ * mal marcado), la conversación no puede quedar en silencio total sin que
+ * nadie se entere. El costo de un push de más en un chat de amigo es mínimo
+ * comparado con perder una consulta real sin que el dueño lo sepa. */
+async function silentHandoff(threadId: number, who: string, incoming: string, reason: string): Promise<void> {
   await setIgThreadBotPaused(threadId, true, reason);
+  await notifyHandoff(who, incoming, reason);
 }
 
 /** Push al celular del admin. Solo en las derivaciones, no en cada DM: un

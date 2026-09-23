@@ -297,8 +297,13 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
     channel: 'whatsapp',
   });
 
+  // Igual que en Instagram (pedido del dueño, 23/09): la clasificación de
+  // "personal" la hace la IA y puede fallar con una pregunta real de
+  // cliente -- así que, a diferencia de los demás casos de esta rama, acá
+  // no se manda respuesta automática pero SIEMPRE se avisa por push.
   if (result.isPersonal) {
     await setWaThreadBotPaused(thread.id, true, 'La IA lo marcó como mensaje personal, no de cliente');
+    await notifyHandoff(who, text, 'La IA lo marcó como mensaje personal, no de cliente');
     return;
   }
 

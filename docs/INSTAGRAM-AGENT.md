@@ -45,6 +45,12 @@ Decisiones que vale la pena conocer antes de tocar el código:
 - **Un error nunca deja a alguien sin respuesta**: cualquier falla (IA caída,
   JSON inválido, token vencido) termina en la frase de derivación y en un
   push al admin.
+- **Ni siquiera un "mensaje personal" mal clasificado queda en silencio
+  total.** Cuando la IA marca un mensaje como personal (o llega un adjunto
+  sin texto) no se manda respuesta automática -- pero SIEMPRE se avisa por
+  push al admin (pedido explícito del dueño, 23/09, tras un caso real donde
+  una pregunta de cliente se clasificó mal como personal y nadie se enteró).
+  La clasificación de la IA puede fallar; que nadie se entere, no.
 
 ## 2. Alta en Meta (es lo que más demora, no el código)
 
