@@ -20,7 +20,7 @@ import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, sendImageMes
 import { resolveInstagramBuyLink, resolveEventCardImage } from './instagramInteractive';
 import { sendPushToAdmins } from './push';
 import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
-import { buildAutomationReplyText, splitAutomationLink } from './instagramAutomations';
+import { splitAutomationLink } from './instagramAutomations';
 
 /* Entrada de los mensajes directos de Instagram (Messenger Platform, campo
  * `messages`). Ver docs/INSTAGRAM-AGENT.md para el alta en el panel de Meta.
@@ -39,6 +39,13 @@ const WEBHOOK_PATH = '/api/webhooks/instagram';
 // links armados acá con doble slash -- mismo criterio ya usado en
 // server/instagramAgent.ts.
 const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
+
+// El texto real (saludo/oferta/cierre) se manda como su propio mensaje de
+// texto normal -- se ve como una burbuja de chat cualquiera, no como una
+// tarjeta. El botón va aparte, en su propia tarjeta chica: Meta exige texto
+// no vacío arriba de un botón (no puede ir el botón solo), así que lleva
+// esta frase fija y corta en vez de repetir el mensaje real.
+const BUTTON_CARD_CAPTION = 'Toca para continuar 👇';
 
 /** Alta y reactivación del webhook: Meta pega un GET con el token que uno
  * configuró y espera de vuelta el `hub.challenge` tal cual, en texto plano. */
@@ -390,56 +397,67 @@ export async function tryHandleKeywordTrigger(input: {
   if (!automation) return false;
 
   const extras = await resolveAutomationExtras(automation);
-  const { text: replyText, mid, imageMid } = await sendAutomationReply(
+  const { text: replyText, mid, imageMid, buttonMid, buttonTitle } = await sendAutomationReply(
     automation,
     extras,
-    (text, button) => (button
-      ? sendButtonMessage({ id: input.igUserId }, text, button)
-      : sendInstagramMessage({ recipientId: input.igUserId, text })),
+    (text) => sendInstagramMessage({ recipientId: input.igUserId, text }),
+    (caption, button) => sendButtonMessage({ id: input.igUserId }, caption, button),
     (imageUrl) => sendImageMessage({ id: input.igUserId }, imageUrl),
   );
   if (imageMid !== undefined) {
     await appendIgMessage({ threadId: input.threadId, mid: imageMid, direction: 'out', source: 'bot', text: '[imagen]' });
   }
-  await appendIgMessage({ threadId: input.threadId, mid, direction: 'out', source: 'bot', text: replyText });
+  if (mid !== undefined) {
+    await appendIgMessage({ threadId: input.threadId, mid, direction: 'out', source: 'bot', text: replyText });
+  }
+  if (buttonMid !== undefined) {
+    await appendIgMessage({ threadId: input.threadId, mid: buttonMid, direction: 'out', source: 'bot', text: `[botón] ${buttonTitle}` });
+  }
   await recordIgKeywordRedemption({ automationId: automation.id, igUserId: input.igUserId, source: input.source });
   return true;
 }
 
-/** Arma y manda el mensaje de una automatización, con botón "Comprar" real
- * cuando el mensaje trae `{{link}}` y el texto sin el link entra en el tope
- * del Button Template de Meta (640 caracteres) -- si no entra (mensaje
- * largo escrito a mano), cae a texto plano con el link pegado, para no
- * perder el mensaje por un límite de formato. `send` abstrae el destino
- * real (DM normal vs. Private Reply de comentario), que ya difiere entre
- * `tryHandleKeywordTrigger` y `handleCommentChange`.
- *
- * Cuando hay botón, manda antes la imagen de marca (flyer del evento o el
- * logo genérico, `extras.imageUrl`) como su propio mensaje -- "best
- * effort": si falla, no bloquea el mensaje real (solo se pierde la
- * imagen, no el regalo/link que la persona sí está esperando). */
+/** Arma y manda el mensaje de una automatización. Sin `{{link}}`, es un
+ * mensaje de texto normal, como siempre. Con `{{link}}` resuelto, se manda
+ * en hasta tres mensajes separados -- imagen de marca (best effort, no
+ * bloquea el resto si falla), el texto real como mensaje normal (burbuja
+ * de chat, no una tarjeta), y el botón "Comprar" aparte en su propia
+ * tarjeta chica (`BUTTON_CARD_CAPTION`, ver más arriba) -- así el texto se
+ * ve como si lo hubiera escrito una persona, no encerrado en el recuadro
+ * del Button Template. `sendText`/`sendButton` abstraen el destino real
+ * (DM normal vs. Private Reply de comentario), que ya difiere entre
+ * `tryHandleKeywordTrigger` y `handleCommentChange`. */
 async function sendAutomationReply(
   automation: { replyMessage: string; discountCode: string | null },
   extras: { productName?: string; link?: string; imageUrl?: string },
-  send: (text: string, button?: { title: string; url: string }) => Promise<{ mid: string | null }>,
+  sendText: (text: string) => Promise<{ mid: string | null }>,
+  sendButton: (caption: string, button: { title: string; url: string }) => Promise<{ mid: string | null }>,
   sendImage: (imageUrl: string) => Promise<{ mid: string | null }>,
-): Promise<{ text: string; mid: string | null; imageMid?: string | null }> {
+): Promise<{ text: string; mid?: string | null; imageMid?: string | null; buttonMid?: string | null; buttonTitle?: string }> {
   const { text, buttonUrl } = splitAutomationLink(automation, extras);
-  if (buttonUrl && text.length <= 640) {
-    let imageMid: string | null | undefined;
-    if (extras.imageUrl) {
-      try {
-        imageMid = (await sendImage(extras.imageUrl)).mid;
-      } catch (err) {
-        console.error('[Instagram] No se pudo mandar la imagen de la tarjeta:', err);
-      }
-    }
-    const { mid } = await send(text, { title: automation.discountCode ? 'Comprar con código' : 'Ver más', url: buttonUrl });
-    return { text, mid, imageMid };
+  if (!buttonUrl) {
+    const { mid } = await sendText(text);
+    return { text, mid };
   }
-  const fallbackText = buildAutomationReplyText(automation, extras);
-  const { mid } = await send(fallbackText);
-  return { text: fallbackText, mid };
+
+  let imageMid: string | null | undefined;
+  if (extras.imageUrl) {
+    try {
+      imageMid = (await sendImage(extras.imageUrl)).mid;
+    } catch (err) {
+      console.error('[Instagram] No se pudo mandar la imagen de la tarjeta:', err);
+    }
+  }
+
+  // Puede quedar vacío si el mensaje era SOLO "{{link}}" -- en ese caso no
+  // manda una burbuja de texto vacía, va directo a la tarjeta del botón
+  // (mid queda `undefined`, distinto de un `null` real que Meta pudiera
+  // devolver si sí mandó el texto).
+  const mid = text.trim().length > 0 ? (await sendText(text)).mid : undefined;
+
+  const buttonTitle = automation.discountCode ? 'Comprar con código' : 'Ver más';
+  const { mid: buttonMid } = await sendButton(BUTTON_CARD_CAPTION, { title: buttonTitle, url: buttonUrl });
+  return { text, mid, imageMid, buttonMid, buttonTitle };
 }
 
 /** Comentario nuevo en un post/reel, con la forma que manda el campo de
@@ -462,9 +480,8 @@ export async function handleCommentChange(value: { id?: string; text?: string; f
   await sendAutomationReply(
     automation,
     extras,
-    (replyText, button) => (button
-      ? sendButtonMessage({ comment_id: commentId }, replyText, button)
-      : sendPrivateReply(commentId, replyText)),
+    (replyText) => sendPrivateReply(commentId, replyText),
+    (caption, button) => sendButtonMessage({ comment_id: commentId }, caption, button),
     (imageUrl) => sendImageMessage({ comment_id: commentId }, imageUrl),
   );
   await recordIgKeywordRedemption({ automationId: automation.id, igUserId, source: 'comment' });
@@ -515,10 +532,15 @@ export async function handleOwnerEcho(event: MetaMessaging, message: NonNullable
  * bandeja tiene que mostrar lo que realmente le llegó a la persona. */
 async function deliver(threadId: number, recipientId: string, text: string, source: 'bot' | 'admin', button?: { title: string; url: string }): Promise<void> {
   try {
-    const { mid } = button
-      ? await sendButtonMessage({ id: recipientId }, text, button)
-      : await sendInstagramMessage({ recipientId, text });
+    const { mid } = await sendInstagramMessage({ recipientId, text });
     await appendIgMessage({ threadId, mid, direction: 'out', source, text });
+    // El botón va aparte, en su propia tarjeta chica -- así el texto de
+    // arriba se ve como una burbuja normal, no encerrado en el recuadro
+    // del Button Template junto al botón.
+    if (button) {
+      const { mid: buttonMid } = await sendButtonMessage({ id: recipientId }, BUTTON_CARD_CAPTION, button);
+      await appendIgMessage({ threadId, mid: buttonMid, direction: 'out', source, text: `[botón] ${button.title}` });
+    }
   } catch (err) {
     console.error('[Instagram] No se pudo enviar la respuesta:', err);
     await setIgThreadBotPaused(threadId, true, 'Falló el envío a Instagram, revisar el token');
