@@ -6951,14 +6951,27 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
 
         <div>
           <Label>Ingresos esperados, por tanda</Label>
-          <div className="space-y-2 mt-2">
+          <p className="text-xs text-muted-foreground mt-1">
+            Una fila por cada tramo de precio que va a tener la venta (ej. Founders, General, Última tanda).
+          </p>
+          <div className="hidden sm:grid sm:grid-cols-[1fr_110px_110px_130px_36px] gap-2 mt-3 mb-1 px-0.5">
+            <span className="text-xs font-semibold text-muted-foreground">Nombre de la tanda</span>
+            <span className="text-xs font-semibold text-muted-foreground">Precio ($)</span>
+            <span className="text-xs font-semibold text-muted-foreground">Entradas esperadas</span>
+            <span className="text-xs font-semibold text-muted-foreground">Personas/entrada</span>
+            <span />
+          </div>
+          <div className="space-y-2">
             {form.revenueTiers.map((t, i) => (
               <div key={i} className="grid grid-cols-2 sm:grid-cols-[1fr_110px_110px_130px_36px] gap-2 items-center">
-                <Input value={t.label} onChange={(e) => updateTier(i, { label: e.target.value })} placeholder="Ej: Founders" />
+                <Input value={t.label} onChange={(e) => updateTier(i, { label: e.target.value })} placeholder="Ej: Founders" className="col-span-2 sm:col-span-1" />
+                <div className="sm:hidden text-xs text-muted-foreground -mb-1">Precio ($)</div>
                 <Input type="number" value={t.price} onChange={(e) => updateTier(i, { price: Number(e.target.value) })} placeholder="Precio" />
+                <div className="sm:hidden text-xs text-muted-foreground -mb-1">Entradas esperadas</div>
                 <Input type="number" value={t.expectedQty} onChange={(e) => updateTier(i, { expectedQty: Number(e.target.value) })} placeholder="Entradas" />
+                <div className="sm:hidden text-xs text-muted-foreground -mb-1">Personas por entrada (1 = individual, 2 = Dúo...)</div>
                 <Input type="number" value={t.personasPorEntrada} onChange={(e) => updateTier(i, { personasPorEntrada: Number(e.target.value) || 1 })} placeholder="Personas/entrada" />
-                <Button variant="outline" size="sm" onClick={() => removeTier(i)}><X className="w-3.5 h-3.5" /></Button>
+                <Button variant="outline" size="sm" onClick={() => removeTier(i)} className="justify-self-start sm:justify-self-auto"><X className="w-3.5 h-3.5" /></Button>
               </div>
             ))}
           </div>
@@ -6991,7 +7004,16 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
 
         <div>
           <Label>Gastos fijos estimados</Label>
-          <div className="space-y-2 mt-2">
+          <p className="text-xs text-muted-foreground mt-1">
+            Todo lo que vas a pagar sí o sí para hacer la fiesta (arriendo, DJ, seguridad, sonido, staff, etc.).
+          </p>
+          <div className="hidden sm:grid sm:grid-cols-[160px_1fr_130px_36px] gap-2 mt-3 mb-1 px-0.5">
+            <span className="text-xs font-semibold text-muted-foreground">Categoría</span>
+            <span className="text-xs font-semibold text-muted-foreground">Descripción</span>
+            <span className="text-xs font-semibold text-muted-foreground">Monto ($)</span>
+            <span />
+          </div>
+          <div className="space-y-2">
             {form.expenseLines.map((l, i) => (
               <div key={i} className="grid grid-cols-1 sm:grid-cols-[160px_1fr_130px_36px] gap-2 items-center">
                 <Select value={l.category} onValueChange={(v) => updateLine(i, { category: v })}>
