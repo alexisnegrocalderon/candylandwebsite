@@ -51,6 +51,12 @@ Decisiones que vale la pena conocer antes de tocar el código:
   push al admin (pedido explícito del dueño, 23/09, tras un caso real donde
   una pregunta de cliente se clasificó mal como personal y nadie se enteró).
   La clasificación de la IA puede fallar; que nadie se entere, no.
+- **El push avisa una sola vez por derivación, no en cada mensaje nuevo**
+  (pedido del dueño, 23/09): mientras un hilo sigue pausado -- porque el
+  dueño está ahí respondiendo a mano -- los mensajes que la persona siga
+  mandando NO generan otro push. Igual quedan guardados y suben el contador
+  de no leídos de la bandeja; solo se evita interrumpir con una notificación
+  por cada mensaje de una conversación que ya se está atendiendo.
 
 ## 2. Alta en Meta (es lo que más demora, no el código)
 

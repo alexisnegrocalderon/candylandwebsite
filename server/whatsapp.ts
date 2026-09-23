@@ -236,9 +236,10 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
 
   if (!waConfig.enabled) return;
   if (thread.botPaused === 1) {
-    // No es una derivación nueva, solo el aviso repetido de un hilo que ya
-    // estaba derivado -- no se loguea (ver notifyHandoff más abajo).
-    await notifyHandoff(thread.id, who, text || '[adjunto]', 'El hilo está en manos del equipo', { log: false });
+    // No manda push de nuevo (pedido del dueño, 23/09, mismo criterio que
+    // Instagram): ya avisó una vez cuando se derivó, y mientras esté
+    // respondiendo a mano en ese hilo no tiene sentido interrumpir con un
+    // push por cada mensaje nuevo. El mensaje igual queda guardado arriba.
     return;
   }
   // Audio, foto o sticker sin texto: no se puede saber qué pide. Queda para

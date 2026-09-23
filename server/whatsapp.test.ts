@@ -241,12 +241,15 @@ describe('handleInboundMessage', () => {
 
   // No es una derivación nueva -- solo el aviso repetido de un hilo que ya
   // estaba derivado. No debe duplicar la fila en el registro de
-  // entrenamiento cada vez que la persona escribe mientras espera.
-  it('un hilo pausado no recibe respuesta automática ni duplica el registro', async () => {
+  // entrenamiento, NI mandar push de nuevo (pedido del dueño, 23/09): ya
+  // avisó una vez cuando se derivó, y si está respondiendo a mano en ese
+  // hilo un push por cada mensaje nuevo del cliente es puro ruido.
+  it('un hilo pausado no recibe respuesta automática, ni duplica el registro, ni manda push de nuevo', async () => {
     getOrCreateWaThreadMock.mockResolvedValue(thread({ botPaused: 1 }));
     await handleInboundMessage(textMessage('hola?'));
     expect(sendPayloadMock).not.toHaveBeenCalled();
     expect(logAgentHandoffMock).not.toHaveBeenCalled();
+    expect(sendPushToAdminsMock).not.toHaveBeenCalled();
   });
 
   it('un audio sin texto queda para una persona sin mandar nada', async () => {
