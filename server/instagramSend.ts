@@ -71,6 +71,16 @@ export async function sendInstagramMessage(input: {
   return postToMessagesEndpoint({ id: input.recipientId }, { text: input.text });
 }
 
+/** Manda una imagen como su propio mensaje (adjunto simple, no un Generic
+ * Template) -- se usa para mandar el flyer del evento o el logo de marca
+ * ANTES del mensaje con el botón "Comprar", ya que el Button Template no
+ * acepta imagen y el Generic Template la reemplazaría por una tarjeta con
+ * un tope de 80 caracteres de título (perdería el texto ya armado). Mismo
+ * `recipient` genérico que `sendButtonMessage`. */
+export async function sendImageMessage(recipient: Record<string, string>, imageUrl: string): Promise<{ mid: string | null }> {
+  return postToMessagesEndpoint(recipient, { attachment: { type: 'image', payload: { url: imageUrl } } });
+}
+
 /** Manda un mensaje con un botón real (Button Template de Meta) en vez de
  * texto plano -- el botón `web_url` abre el link tal cual, sin disparar
  * ningún webhook nuevo ni pedir un permiso extra (a diferencia de un botón

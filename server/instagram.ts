@@ -16,8 +16,8 @@ import {
   getFeaturedEvent,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
-import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
-import { resolveInstagramBuyLink } from './instagramInteractive';
+import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, sendImageMessage, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
+import { resolveInstagramBuyLink, resolveEventCardImage } from './instagramInteractive';
 import { sendPushToAdmins } from './push';
 import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
 import { buildAutomationReplyText, splitAutomationLink } from './instagramAutomations';
@@ -314,7 +314,15 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   let buyButton: { title: string; url: string } | undefined;
   if (result.action === 'buy_link' && !result.handoff) {
     const resolved = await resolveInstagramBuyLink();
-    if (resolved) buyButton = { title: 'Comprar entrada', url: resolved.url };
+    if (resolved) {
+      buyButton = { title: 'Comprar entrada', url: resolved.url };
+      try {
+        const { mid: imageMid } = await sendImageMessage({ id: senderId }, resolved.imageUrl);
+        await appendIgMessage({ threadId: thread.id, mid: imageMid, direction: 'out', source: 'bot', text: '[imagen]' });
+      } catch (err) {
+        console.error('[Instagram] No se pudo mandar la imagen de la tarjeta:', err);
+      }
+    }
   }
   await deliver(thread.id, senderId, result.reply, 'bot', buyButton);
 
@@ -352,18 +360,19 @@ async function matchKeywordTrigger(
  * nuevo en `client/src/pages/Checkout.tsx`, mismo patrón que ya usa el link
  * de embajador). Nunca lanza: si algo no se puede resolver (evento sin
  * publicar, producto borrado), el mensaje se manda igual sin ese dato. */
-async function resolveAutomationExtras(automation: { discountCode: string | null }): Promise<{ productName?: string; link?: string }> {
+async function resolveAutomationExtras(automation: { discountCode: string | null }): Promise<{ productName?: string; link?: string; imageUrl?: string }> {
   const event = await getFeaturedEvent();
+  const imageUrl = event ? resolveEventCardImage(event) : undefined;
   if (!automation.discountCode) {
-    return event ? { link: `${APP_URL}/eventos/${event.slug}` } : {};
+    return event ? { link: `${APP_URL}/eventos/${event.slug}`, imageUrl } : {};
   }
 
   const link = event ? `${APP_URL}/eventos/${event.slug}?code=${automation.discountCode}` : undefined;
   const discount = await getDiscountCodeByCode(automation.discountCode);
-  if (!discount?.giftTicketTypeId) return { link };
+  if (!discount?.giftTicketTypeId) return { link, imageUrl };
 
   const product = await getTicketTypeById(discount.giftTicketTypeId);
-  return { link, productName: product?.name };
+  return { link, imageUrl, productName: product?.name };
 }
 
 /** Respuesta a una historia con la palabra clave correcta: manda el regalo
@@ -381,13 +390,17 @@ export async function tryHandleKeywordTrigger(input: {
   if (!automation) return false;
 
   const extras = await resolveAutomationExtras(automation);
-  const { text: replyText, mid } = await sendAutomationReply(
+  const { text: replyText, mid, imageMid } = await sendAutomationReply(
     automation,
     extras,
     (text, button) => (button
       ? sendButtonMessage({ id: input.igUserId }, text, button)
       : sendInstagramMessage({ recipientId: input.igUserId, text })),
+    (imageUrl) => sendImageMessage({ id: input.igUserId }, imageUrl),
   );
+  if (imageMid !== undefined) {
+    await appendIgMessage({ threadId: input.threadId, mid: imageMid, direction: 'out', source: 'bot', text: '[imagen]' });
+  }
   await appendIgMessage({ threadId: input.threadId, mid, direction: 'out', source: 'bot', text: replyText });
   await recordIgKeywordRedemption({ automationId: automation.id, igUserId: input.igUserId, source: input.source });
   return true;
@@ -399,16 +412,30 @@ export async function tryHandleKeywordTrigger(input: {
  * largo escrito a mano), cae a texto plano con el link pegado, para no
  * perder el mensaje por un límite de formato. `send` abstrae el destino
  * real (DM normal vs. Private Reply de comentario), que ya difiere entre
- * `tryHandleKeywordTrigger` y `handleCommentChange`. */
+ * `tryHandleKeywordTrigger` y `handleCommentChange`.
+ *
+ * Cuando hay botón, manda antes la imagen de marca (flyer del evento o el
+ * logo genérico, `extras.imageUrl`) como su propio mensaje -- "best
+ * effort": si falla, no bloquea el mensaje real (solo se pierde la
+ * imagen, no el regalo/link que la persona sí está esperando). */
 async function sendAutomationReply(
   automation: { replyMessage: string; discountCode: string | null },
-  extras: { productName?: string; link?: string },
+  extras: { productName?: string; link?: string; imageUrl?: string },
   send: (text: string, button?: { title: string; url: string }) => Promise<{ mid: string | null }>,
-): Promise<{ text: string; mid: string | null }> {
+  sendImage: (imageUrl: string) => Promise<{ mid: string | null }>,
+): Promise<{ text: string; mid: string | null; imageMid?: string | null }> {
   const { text, buttonUrl } = splitAutomationLink(automation, extras);
   if (buttonUrl && text.length <= 640) {
+    let imageMid: string | null | undefined;
+    if (extras.imageUrl) {
+      try {
+        imageMid = (await sendImage(extras.imageUrl)).mid;
+      } catch (err) {
+        console.error('[Instagram] No se pudo mandar la imagen de la tarjeta:', err);
+      }
+    }
     const { mid } = await send(text, { title: automation.discountCode ? 'Comprar con código' : 'Ver más', url: buttonUrl });
-    return { text, mid };
+    return { text, mid, imageMid };
   }
   const fallbackText = buildAutomationReplyText(automation, extras);
   const { mid } = await send(fallbackText);
@@ -438,6 +465,7 @@ export async function handleCommentChange(value: { id?: string; text?: string; f
     (replyText, button) => (button
       ? sendButtonMessage({ comment_id: commentId }, replyText, button)
       : sendPrivateReply(commentId, replyText)),
+    (imageUrl) => sendImageMessage({ comment_id: commentId }, imageUrl),
   );
   await recordIgKeywordRedemption({ automationId: automation.id, igUserId, source: 'comment' });
 }
