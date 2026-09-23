@@ -470,6 +470,13 @@
       "when": 1790140043344,
       "tag": "0066_aberrant_miss_america",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "5",
+      "when": 1790191276488,
+      "tag": "0067_right_celestials",
+      "breakpoints": true
     }
   ]
 }

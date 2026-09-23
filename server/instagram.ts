@@ -14,6 +14,7 @@ import {
   getDiscountCodeByCode,
   getTicketTypeById,
   getFeaturedEvent,
+  logAgentHandoff,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
 import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, sendImageMessage, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
@@ -261,7 +262,11 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   // El hilo ya está en manos de una persona (lo derivó el agente antes, o lo
   // tomó el admin desde la bandeja): el bot no vuelve a meterse.
   if (thread.botPaused === 1) {
-    await notifyHandoff(thread.username ?? senderId, text, 'El hilo está en manos del equipo');
+    // No es una derivación nueva, solo el aviso repetido de un hilo que ya
+    // estaba derivado -- no se loguea en el registro de entrenamiento (ver
+    // notifyHandoff más abajo), o quedaría un duplicado por cada mensaje que
+    // la persona mande mientras espera.
+    await notifyHandoff(thread.id, thread.username ?? senderId, text, 'El hilo está en manos del equipo', { log: false });
     return;
   }
   // Solo texto: un adjunto suelto (reel, meme, foto, audio) no se puede leer
@@ -336,10 +341,10 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   if (isFinalReplyOfDay) {
     const reason = 'Llegó al tope diario de respuestas automáticas -- se cerró la conversación con un mensaje final';
     await setIgThreadBotPaused(thread.id, true, reason);
-    await notifyHandoff(thread.username ?? senderId, text, reason);
+    await notifyHandoff(thread.id, thread.username ?? senderId, text, reason);
   } else if (result.handoff) {
     await setIgThreadBotPaused(thread.id, true, result.handoffReason || 'La IA derivó la conversación');
-    await notifyHandoff(thread.username ?? senderId, text, result.handoffReason);
+    await notifyHandoff(thread.id, thread.username ?? senderId, text, result.handoffReason);
   }
 }
 
@@ -557,7 +562,7 @@ async function handoff(
 ): Promise<void> {
   await deliver(threadId, recipientId, handoffMessage, 'bot');
   await setIgThreadBotPaused(threadId, true, reason);
-  await notifyHandoff(who, incoming, reason);
+  await notifyHandoff(threadId, who, incoming, reason);
 }
 
 /** Deriva sin mandar ningún mensaje automático a la persona -- para lo que
@@ -574,12 +579,22 @@ async function handoff(
  * comparado con perder una consulta real sin que el dueño lo sepa. */
 async function silentHandoff(threadId: number, who: string, incoming: string, reason: string): Promise<void> {
   await setIgThreadBotPaused(threadId, true, reason);
-  await notifyHandoff(who, incoming, reason);
+  await notifyHandoff(threadId, who, incoming, reason);
 }
 
 /** Push al celular del admin. Solo en las derivaciones, no en cada DM: un
- * agente que avisa de todo termina silenciado, y entonces no avisa de nada. */
-async function notifyHandoff(who: string, incoming: string, reason: string): Promise<void> {
+ * agente que avisa de todo termina silenciado, y entonces no avisa de nada.
+ *
+ * También deja una fila permanente en el registro de entrenamiento (pedido
+ * del dueño, 23/09) -- a diferencia de `igThreads.handoffReason`, que se
+ * borra apenas se reactiva el hilo, esta queda como historial de "esto
+ * preguntaron y no lo supo resolver solo" para revisar después en el admin.
+ * `log: false` es para el único caso que NO es una derivación nueva: el
+ * aviso repetido de un hilo que ya estaba pausado. */
+async function notifyHandoff(threadId: number, who: string, incoming: string, reason: string, opts: { log?: boolean } = {}): Promise<void> {
+  if (opts.log !== false) {
+    await logAgentHandoff({ channel: 'instagram', threadId, who, incomingText: incoming, reason: reason || 'Necesita respuesta de una persona' });
+  }
   await sendPushToAdmins('pushInstagramHandoff', {
     title: `📩 Instagram: ${who}`,
     body: `${reason || 'Necesita respuesta de una persona'} — "${incoming.slice(0, 80)}"`,

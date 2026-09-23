@@ -112,7 +112,30 @@ En **/admin → Marketing → Instagram**:
 Prenderlo es siempre una decisión manual: desplegar el código no hace que la
 cuenta empiece a contestarle a nadie.
 
-## 6. Operación diaria
+## 6. Seguir entrenando al agente
+
+"Qué tiene que saber el agente" (`brandNotes`) NO es para poner todo. Las
+fechas, precios y disponibilidad de cada fiesta salen solos de los eventos
+cargados en el panel -- repetirlos ahí es redundante y, peor, se puede
+desactualizar y contradecir a la base real. Ahí va lo que la base NO sabe:
+políticas (edad, reembolsos, privacidad), aclaraciones de tono, y respuestas
+a preguntas frecuentes que no están resueltas en ningún link del sitio. Es el
+mismo campo para Instagram y WhatsApp -- ambos comparten un solo cerebro, así
+que entrenarlo acá entrena los dos canales a la vez.
+
+Para enterarse de lo que la gente pregunta y el agente no supo resolver solo,
+la tarjeta **"Preguntas que el agente no supo resolver"** (arriba de
+Automatizaciones, en el mismo panel) lista cada derivación real -- la
+pregunta tal cual llegó, el motivo, quién y cuándo -- y queda ahí aunque
+después se reactive la conversación desde la bandeja (a diferencia del motivo
+que se ve al abrir un hilo, que se borra al reactivarlo). El flujo:
+
+1. Revisarla de vez en cuando.
+2. Decidir si la respuesta vale la pena agregarla a "Qué tiene que saber el
+   agente" (curada, no copiada tal cual -- son las conclusiones, no el log).
+3. Tocar **"Ya lo agregué"** para sacarla de pendientes.
+
+## 7. Operación diaria
 
 - **Tomar una conversación**: abrir el hilo y apagar *"Respuesta automática en
   esta conversación"*. El agente no vuelve a meterse hasta que se prenda.
@@ -135,7 +158,7 @@ cuenta empiece a contestarle a nadie.
   agradecen" (Ajustes del agente) y el hilo sigue como si nada, listo para
   la próxima pregunta real.
 
-## 7. Qué hacer si...
+## 8. Qué hacer si...
 
 | Síntoma | Causa habitual |
 |---|---|
@@ -145,7 +168,7 @@ cuenta empiece a contestarle a nadie.
 | Responde una vez y después deja de responder ese hilo | Es lo esperado tras una derivación: la conversación quedó para una persona. |
 | Deja de responder de golpe en todos lados | Token vencido (`IG_ACCESS_TOKEN`). |
 
-## 8. Archivos
+## 9. Archivos
 
 | Archivo | Qué hace |
 |---|---|
@@ -154,12 +177,13 @@ cuenta empiece a contestarle a nadie.
 | `server/instagramSend.ts` | Graph API: enviar, perfil, refrescar token |
 | `server/instagramAutomations.ts` | Armado del mensaje de una automatización por palabra clave |
 | `server/instagramFollowUp.ts` | Recordatorio de cierre por silencio (cron cada 15 min) |
-| `shared/instagramAgentConfig.ts` | Config editable desde el admin |
+| `shared/instagramAgentConfig.ts` | Config editable desde el admin (compartida con WhatsApp) |
+| `drizzle/schema.ts` (`agentHandoffLog`) | Registro permanente de derivaciones, para "seguir entrenando" (sección 6) |
 | `client/src/components/admin/InstagramInbox.tsx` | Bandeja del panel |
 | `client/src/components/admin/InstagramAutomations.tsx` | Panel de automatizaciones por palabra clave |
 | `server/instagram.test.ts` | Tests de firma, contexto y caídas de la IA |
 
-## 9. Automatizaciones por palabra clave (comentarios / respuestas a historia)
+## 10. Automatizaciones por palabra clave (comentarios / respuestas a historia)
 
 Además del agente conversacional, **/admin → Marketing → Instagram** tiene
 una tarjeta para armar campañas puntuales: alguien comenta o responde a una

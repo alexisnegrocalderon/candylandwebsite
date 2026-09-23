@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, isNull, isNotNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, emailLog } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -6128,6 +6128,59 @@ export async function recordIgKeywordRedemption(input: {
     if (isDuplicate) return false;
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Registro permanente de derivaciones del agente (ver el comentario grande
+// de `agentHandoffLog` en drizzle/schema.ts). Es el cerebro compartido de
+// Instagram y WhatsApp, así que vive junto a las demás funciones de canal
+// pero no es de un canal en particular.
+// ---------------------------------------------------------------------------
+
+/** Registra una derivación NUEVA del agente (no supo, se confundió, llegó al
+ * tope diario). Se llama desde `notifyHandoff` en server/instagram.ts y
+ * server/whatsapp.ts, nunca a mano -- y solo en transiciones reales a
+ * pausado, no en cada aviso repetido de un hilo que ya estaba derivado. */
+export async function logAgentHandoff(input: {
+  channel: 'instagram' | 'whatsapp';
+  threadId: number;
+  who: string;
+  incomingText: string;
+  reason: string;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(agentHandoffLog).values({
+    channel: input.channel,
+    threadId: input.threadId,
+    who: input.who.slice(0, 255),
+    incomingText: input.incomingText.slice(0, 2000),
+    reason: input.reason.slice(0, 500),
+  });
+}
+
+/** Lista de derivaciones para la tarjeta "Preguntas que el agente no supo
+ * resolver" del admin. Por defecto solo las pendientes (sin revisar
+ * todavía), más recientes primero. */
+export async function listAgentHandoffLog(opts: { onlyPending?: boolean; limit?: number } = {}): Promise<AgentHandoffLog[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const onlyPending = opts.onlyPending !== false;
+  const limit = opts.limit ?? 50;
+  const query = db.select().from(agentHandoffLog);
+  const rows = onlyPending
+    ? await query.where(isNull(agentHandoffLog.resolvedAt)).orderBy(desc(agentHandoffLog.createdAt)).limit(limit)
+    : await query.orderBy(desc(agentHandoffLog.createdAt)).limit(limit);
+  return rows;
+}
+
+/** El dueño ya revisó esta derivación (agregó la respuesta a brandNotes, o
+ * decidió que no hacía falta) -- la saca de la lista de pendientes sin
+ * borrar la fila. */
+export async function resolveAgentHandoffLog(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(agentHandoffLog).set({ resolvedAt: new Date() }).where(eq(agentHandoffLog.id, id));
 }
 
 // ---------------------------------------------------------------------------

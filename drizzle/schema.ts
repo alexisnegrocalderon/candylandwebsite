@@ -1860,6 +1860,40 @@ export type WaMessage = typeof waMessages.$inferSelect;
 export type InsertWaMessage = typeof waMessages.$inferInsert;
 
 // ---------------------------------------------------------------------------
+// Registro permanente de derivaciones del agente (pedido del dueño, 23/09):
+// a diferencia de igThreads.handoffReason / waThreads.handoffReason -- que se
+// borran apenas se reactiva el hilo -- esta tabla queda como historial fijo
+// de "esto preguntaron y el agente no lo supo resolver solo", para que el
+// dueño la revise de vez en cuando en el admin y decida qué agregar a
+// instagramAgentConfig.brandNotes (el cerebro compartido de Instagram y
+// WhatsApp). Ver server/instagramFollowUp.ts para el criterio de qué SÍ
+// cuenta como una derivación nueva (no cada aviso repetido de un hilo que ya
+// estaba pausado, ni una falla de envío que no tiene que ver con lo que sabe
+// el agente).
+// ---------------------------------------------------------------------------
+
+export const agentHandoffLog = mysqlTable("agentHandoffLog", {
+  id: int("id").autoincrement().primaryKey(),
+  channel: mysqlEnum("channel", ["instagram", "whatsapp"]).notNull(),
+  // Apunta a igThreads.id o waThreads.id según `channel` -- dos tablas
+  // distintas, así que no lleva FK cruzada (mismo criterio ya usado en el
+  // resto de este schema para este tipo de referencia).
+  threadId: int("threadId").notNull(),
+  who: varchar("who", { length: 255 }).notNull(),
+  incomingText: varchar("incomingText", { length: 2000 }).notNull(),
+  reason: varchar("reason", { length: 500 }).notNull(),
+  // `null` = todavía pendiente de revisar. Se setea cuando el dueño toca "Ya
+  // lo agregué" en el admin -- no borra la fila, solo la saca de la lista.
+  resolvedAt: timestamp("resolvedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  pendingIdx: index("agent_handoff_log_pending_idx").on(table.resolvedAt, table.createdAt),
+}));
+
+export type AgentHandoffLog = typeof agentHandoffLog.$inferSelect;
+export type InsertAgentHandoffLog = typeof agentHandoffLog.$inferInsert;
+
+// ---------------------------------------------------------------------------
 // Automatizaciones de Instagram por palabra clave (server/instagramAutomations.ts):
 // alguien comenta o responde a una historia con la palabra justa y le llega
 // un DM automático -- link, código de descuento, o lo que el dueño configure.

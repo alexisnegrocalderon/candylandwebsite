@@ -7,6 +7,7 @@ import {
   setWaThreadBotPaused,
   countWaBotRepliesSince,
   getSiteSettings,
+  logAgentHandoff,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
 import { verifyMetaSignature } from './instagram';
@@ -235,14 +236,16 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
 
   if (!waConfig.enabled) return;
   if (thread.botPaused === 1) {
-    await notifyHandoff(who, text || '[adjunto]', 'El hilo está en manos del equipo');
+    // No es una derivación nueva, solo el aviso repetido de un hilo que ya
+    // estaba derivado -- no se loguea (ver notifyHandoff más abajo).
+    await notifyHandoff(thread.id, who, text || '[adjunto]', 'El hilo está en manos del equipo', { log: false });
     return;
   }
   // Audio, foto o sticker sin texto: no se puede saber qué pide. Queda para
   // una persona, sin mandar nada automático (mismo criterio que Instagram).
   if (text.length === 0) {
     await setWaThreadBotPaused(thread.id, true, 'Llegó un adjunto sin texto (audio, foto, sticker)');
-    await notifyHandoff(who, '[adjunto]', 'Mandó un audio o archivo sin texto');
+    await notifyHandoff(thread.id, who, '[adjunto]', 'Mandó un audio o archivo sin texto');
     return;
   }
 
@@ -251,7 +254,7 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
   if (repliesToday >= waConfig.dailyReplyLimitPerThread) {
     await deliver(thread.id, waId, textOnly(waId, agentConfig.handoffMessage));
     await setWaThreadBotPaused(thread.id, true, 'Se pasó del tope diario de respuestas automáticas');
-    await notifyHandoff(who, text, 'Se pasó del tope diario de respuestas automáticas');
+    await notifyHandoff(thread.id, who, text, 'Se pasó del tope diario de respuestas automáticas');
     return;
   }
 
@@ -269,7 +272,7 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
   if (replyId === WA_IDS.human) {
     await deliver(thread.id, waId, textOnly(waId, agentConfig.handoffMessage));
     await setWaThreadBotPaused(thread.id, true, 'Pidió hablar con una persona (botón del menú)');
-    await notifyHandoff(who, text, 'Pidió hablar con una persona');
+    await notifyHandoff(thread.id, who, text, 'Pidió hablar con una persona');
     return;
   }
   if (replyId?.startsWith(WA_IDS.eventPrefix)) {
@@ -303,7 +306,7 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
   // no se manda respuesta automática pero SIEMPRE se avisa por push.
   if (result.isPersonal) {
     await setWaThreadBotPaused(thread.id, true, 'La IA lo marcó como mensaje personal, no de cliente');
-    await notifyHandoff(who, text, 'La IA lo marcó como mensaje personal, no de cliente');
+    await notifyHandoff(thread.id, who, text, 'La IA lo marcó como mensaje personal, no de cliente');
     return;
   }
 
@@ -325,10 +328,10 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
   if (isFinalReplyOfDay) {
     const reason = 'Llegó al tope diario de respuestas automáticas -- se cerró la conversación con un mensaje final';
     await setWaThreadBotPaused(thread.id, true, reason);
-    await notifyHandoff(who, text, reason);
+    await notifyHandoff(thread.id, who, text, reason);
   } else if (result.handoff) {
     await setWaThreadBotPaused(thread.id, true, result.handoffReason || 'La IA derivó la conversación');
-    await notifyHandoff(who, text, result.handoffReason);
+    await notifyHandoff(thread.id, who, text, result.handoffReason);
   }
 }
 
@@ -380,12 +383,21 @@ async function deliver(threadId: number, waId: string, out: WaOutgoing): Promise
   } catch (err) {
     console.error('[WhatsApp] No se pudo enviar la respuesta:', err);
     await setWaThreadBotPaused(threadId, true, 'Falló el envío a WhatsApp, revisar el token');
-    await notifyHandoff(`+${waId}`, out.text, 'Falló el envío a WhatsApp');
+    // Falla de infraestructura (token vencido), no un hueco de conocimiento
+    // del agente -- no aporta al registro de entrenamiento.
+    await notifyHandoff(threadId, `+${waId}`, out.text, 'Falló el envío a WhatsApp', { log: false });
     return false;
   }
 }
 
-async function notifyHandoff(who: string, incoming: string, reason: string): Promise<void> {
+/** También deja una fila permanente en el registro de entrenamiento (mismo
+ * criterio que server/instagram.ts) -- `log: false` para lo que no es una
+ * derivación nueva (hilo ya pausado) o no tiene que ver con lo que sabe el
+ * agente (falla de envío). */
+async function notifyHandoff(threadId: number, who: string, incoming: string, reason: string, opts: { log?: boolean } = {}): Promise<void> {
+  if (opts.log !== false) {
+    await logAgentHandoff({ channel: 'whatsapp', threadId, who, incomingText: incoming, reason: reason || 'Necesita respuesta de una persona' });
+  }
   await sendPushToAdmins('pushWhatsAppHandoff', {
     title: `💬 WhatsApp: ${who}`,
     body: `${reason || 'Necesita respuesta de una persona'} — "${incoming.slice(0, 80)}"`,

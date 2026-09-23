@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X } from 'lucide-react';
+import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
@@ -43,6 +43,7 @@ export function InstagramInbox() {
 
       <ConnectionCard />
       <AgentConfigCard />
+      <HandoffLogCard />
       <InstagramAutomations />
 
       {selectedId === null
@@ -252,6 +253,56 @@ function AgentConfigCard() {
             </pre>
           )}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** El loop real de "seguir entrenando al agente" (pedido del dueño, 23/09):
+ * cada vez que el agente deriva una conversación (en Instagram O WhatsApp,
+ * comparten el mismo cerebro) queda acá, aunque después el hilo se
+ * reactive desde la bandeja y el `handoffReason` del hilo se borre. Sin
+ * esto, la única forma de enterarse de qué no supo responder el agente era
+ * abrir hilo por hilo antes de que se reactivara -- fácil de perderse justo
+ * la pregunta real de un cliente. */
+function HandoffLogCard() {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.instagram.listHandoffLog.useQuery();
+  const resolve = trpc.instagram.resolveHandoffLog.useMutation({
+    onSuccess: () => { utils.instagram.listHandoffLog.invalidate(); },
+    onError,
+  });
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><GraduationCap className="w-5 h-5" /> Preguntas que el agente no supo resolver</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Cada derivación del agente (Instagram o WhatsApp) queda acá, aunque después reactives la conversación. Revísalo
+          de vez en cuando y decide qué agregar a "Qué tiene que saber el agente" más arriba.
+        </p>
+        {isLoading ? null : !data || data.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nada pendiente por ahora -- buena señal.</p>
+        ) : (
+          <ul className="space-y-3">
+            {data.map((row) => (
+              <li key={row.id} className="rounded-2xl border p-3 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {row.channel === 'instagram' ? 'Instagram' : 'WhatsApp'} · {row.who} · {formatChileDateTime(row.createdAt)}
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={() => resolve.mutate({ id: row.id })} disabled={resolve.isPending}>
+                    Ya lo agregué
+                  </Button>
+                </div>
+                <p className="text-sm">"{row.incomingText}"</p>
+                <p className="text-xs text-amber-600">{row.reason}</p>
+              </li>
+            ))}
+          </ul>
+        )}
       </CardContent>
     </Card>
   );
