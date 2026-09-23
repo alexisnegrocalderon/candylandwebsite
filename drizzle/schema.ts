@@ -1617,6 +1617,56 @@ export const expenses = mysqlTable("expenses", {
 export type Expense = typeof expenses.$inferSelect;
 export type InsertExpense = typeof expenses.$inferInsert;
 
+// Simulaciones de presupuesto pre-evento ("¿conviene hacer esta fiesta?"):
+// se cargan a mano ANTES de que el evento exista en el sistema, para
+// calcular cuánto se puede gastar sin perder el margen mínimo y cuántas
+// entradas hay que vender para llegar a punto de equilibrio -- ver
+// shared/eventBudget.ts (computeBudgetResult, que reusa shared/expenses.ts
+// computePnl para la cascada real). Nunca se cruza con `expenses`: son
+// números hipotéticos, no gastos reales. `revenueTiers`/`expenseLines` van
+// como JSON porque son listas cortas que siempre se editan juntas, nunca se
+// consultan sueltas -- no ameritan una tabla hija.
+export const budgetSimulations = mysqlTable("budgetSimulations", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  // Se setea con "Vincular a este evento" una vez que el evento ya existe de
+  // verdad -- desde ahí el admin puede comparar presupuestado vs. real en
+  // Gastos y P&L. Nace siempre NULL (la simulación corre antes de crear el
+  // evento).
+  eventId: int("eventId"),
+  ivaApplies: int("ivaApplies").default(0).notNull(),
+  // % de margen neto mínimo que el dueño quiere cuidar -- de acá sale el
+  // techo de gasto (maxDirectExpenses) que pinta la barra verde/amarilla/roja.
+  marginTargetPercent: decimal("marginTargetPercent", { precision: 5, scale: 2 }).notNull(),
+  // Default siteSettings.cardFeePercent, editable por simulación.
+  cardFeePercent: decimal("cardFeePercent", { precision: 5, scale: 2 }).default("0").notNull(),
+  // % simple de comisión de embajadores sobre el ingreso -- estimación, no
+  // replica la escala real por tramos de ventas del mes.
+  commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }).default("0").notNull(),
+  // $/persona: bebida de bienvenida, pulsera, seguridad que escala con el
+  // aforo -- se multiplica por el aforo estimado (suma de las filas de
+  // revenueTiers), no es un monto fijo.
+  variableCostPerPerson: decimal("variableCostPerPerson", { precision: 10, scale: 0 }).default("0").notNull(),
+  // Opcional: venta de barra/consumo estimada por persona, para no dejar
+  // afuera ese ingreso si el dueño quiere incluirlo en la proyección.
+  otherRevenuePerPerson: decimal("otherRevenuePerPerson", { precision: 10, scale: 0 }).default("0").notNull(),
+  // [{ label, price, expectedQty, personasPorEntrada }] -- una fila por tanda
+  // (Founders/General/etc), igual que se arman los precios reales en Eventos.
+  revenueTiers: json("revenueTiers").notNull(),
+  // [{ category, label, amount }] -- category es un ExpenseCategory de
+  // shared/expenses.ts, mismo catálogo que ya usa el gasto real.
+  expenseLines: json("expenseLines").notNull(),
+  notes: text("notes"),
+  createdByUserId: int("createdByUserId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  eventIdx: index("budgetSimulations_event_idx").on(table.eventId),
+}));
+
+export type BudgetSimulation = typeof budgetSimulations.$inferSelect;
+export type InsertBudgetSimulation = typeof budgetSimulations.$inferInsert;
+
 // Suscripciones a notificaciones push del admin (Web Push estándar, sin
 // terceros) -- una fila por dispositivo/navegador que activó "Notificarme"
 // en Ajustes. `endpoint` identifica al dispositivo ante el navegador que lo

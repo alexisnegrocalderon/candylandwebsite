@@ -20,6 +20,7 @@ import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import * as applications from "./ambassadorApplications";
 import * as birthdayApplications from "./birthdayApplications";
 import * as birthdayProgram from "./birthdayProgram";
+import * as eventBudget from "./eventBudget";
 import {
   AMBASSADOR_REQUIREMENTS, AMBASSADOR_TASKS, instagramLinkFor, sanitizeApplicantName,
   sanitizeApplicationMessage, sanitizeFollowers, sanitizeInstagram, sanitizeWhatsapp, whatsappLinkFor,
@@ -274,6 +275,29 @@ const expenseInputSchema = z.object({
 }).refine((v) => v.recurrence !== 'por_evento' || !v.eventId, {
   message: 'Un costo fijo de cada fiesta no se carga a una fiesta puntual: se copia a todas automáticamente.',
   path: ['eventId'],
+});
+
+const budgetSimulationInputSchema = z.object({
+  name: z.string().min(1).max(255),
+  eventId: z.number().nullable().optional(),
+  ivaApplies: z.boolean(),
+  marginTargetPercent: z.number(),
+  cardFeePercent: z.number().min(0).max(100),
+  commissionPercent: z.number().min(0).max(100),
+  variableCostPerPerson: z.number().nonnegative(),
+  otherRevenuePerPerson: z.number().nonnegative(),
+  revenueTiers: z.array(z.object({
+    label: z.string().min(1),
+    price: z.number().nonnegative(),
+    expectedQty: z.number().int().nonnegative(),
+    personasPorEntrada: z.number().int().positive(),
+  })),
+  expenseLines: z.array(z.object({
+    category: z.string(),
+    label: z.string().min(1),
+    amount: z.number().nonnegative(),
+  })),
+  notes: z.string().optional(),
 });
 
 
@@ -2189,6 +2213,47 @@ export const appRouter = router({
       const result = await db.deleteExpense(input.id);
       await db.recordAdminAudit({ action: 'expenses.delete', targetType: 'expense', targetId: input.id, ip: clientIp(ctx) });
       return result;
+    }),
+  }),
+
+  // Simulaciones de presupuesto pre-evento ("¿conviene hacer esta fiesta?")
+  // -- pestaña "Presupuesto" dentro de Gastos y P&L. La matemática vive en
+  // shared/eventBudget.ts (computeBudgetResult), corrida 100% del lado
+  // cliente para que la barra de estado sea instantánea; estos endpoints
+  // solo guardan/leen lo que el admin cargó.
+  budgetSimulations: router({
+    listAll: adminReadProcedure.input(z.object({
+      eventId: z.number().optional(),
+    }).optional()).query(async ({ input }) => {
+      return eventBudget.listSimulations(input?.eventId);
+    }),
+
+    get: adminReadProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+      return eventBudget.getSimulation(input.id);
+    }),
+
+    create: adminProcedure.input(budgetSimulationInputSchema).mutation(async ({ input, ctx }) => {
+      return eventBudget.createSimulation(input, ctx.user.id);
+    }),
+
+    update: adminProcedure.input(budgetSimulationInputSchema.extend({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        return eventBudget.updateSimulation(id, data);
+      }),
+
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await eventBudget.deleteSimulation(input.id);
+      await db.recordAdminAudit({ action: 'budgetSimulations.delete', targetType: 'budgetSimulation', targetId: input.id, ip: clientIp(ctx) });
+      return result;
+    }),
+
+    /** "Vincular a este evento" -- eventId: null para desvincular. */
+    linkToEvent: adminProcedure.input(z.object({
+      id: z.number(),
+      eventId: z.number().nullable(),
+    })).mutation(async ({ input }) => {
+      return eventBudget.linkSimulationToEvent(input.id, input.eventId);
     }),
   }),
 
