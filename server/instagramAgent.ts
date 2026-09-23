@@ -29,11 +29,29 @@ import { EVENT_BRAND } from '../shared/eventBrand';
 // visto en producción en la prueba del agente de Instagram.
 const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
 
+/** Por dónde llegó el mensaje. El cerebro es uno solo (mismas reglas, mismos
+ * datos reales, mismas notas de marca editadas en el admin) y lo usan tanto
+ * el Instagram (server/instagram.ts) como el WhatsApp (server/whatsapp.ts):
+ * lo único que cambia por canal es cómo se nombra el lugar donde se está
+ * hablando y, en WhatsApp, los botones y listas que se pueden ofrecer. */
+export type AgentChannel = 'instagram' | 'whatsapp';
+
+const CHANNEL_NAME: Record<AgentChannel, string> = {
+  instagram: 'Instagram',
+  whatsapp: 'WhatsApp',
+};
+
+/** Qué puede pedir el agente además del texto, en WhatsApp. El contenido de
+ * la lista o del botón de compra lo arma SIEMPRE el servidor desde la base
+ * (server/whatsappInteractive.ts): el modelo solo decide cuándo mostrarlo,
+ * nunca escribe una fecha ni un link dentro de un botón. */
+export type AgentAction = 'none' | 'event_list' | 'buy_link';
+
 /** Regla de la casa (ver el comentario de `attachStockPoolInfo` en
  * server/db.ts y TandaUrgencyCard): el remanente exacto de un cupo NUNCA se
  * imprime de cara al público. El agente recibe un semáforo, no el número --
  * así ni siquiera puede filtrarlo por accidente. */
-function availabilityLabel(remaining: number | null, soldOut: boolean): string {
+export function availabilityLabel(remaining: number | null, soldOut: boolean): string {
   if (soldOut) return 'AGOTADA';
   if (remaining == null) return 'disponible';
   if (remaining <= 0) return 'AGOTADA';
@@ -41,14 +59,21 @@ function availabilityLabel(remaining: number | null, soldOut: boolean): string {
   return 'disponible';
 }
 
+/** Próximas fechas publicadas (hasta 3), las mismas que ve el agente. Las
+ * usan también los botones y listas de WhatsApp (server/whatsappInteractive.ts)
+ * para que lo que se toca y lo que se lee salgan de la misma fuente. */
+export async function getUpcomingPublicEvents(now: Date = new Date()) {
+  const events = await db.getHomeEvents();
+  return events
+    .filter((e) => e.status !== 'past' && new Date(e.eventDate).getTime() >= now.getTime() - 12 * 60 * 60 * 1000)
+    .slice(0, 3);
+}
+
 /** Arma el bloque de datos reales que viaja en el mensaje del usuario. Es lo
  * único que el modelo puede citar como cierto: todo lo demás (precios de
  * memoria, fechas inventadas) queda prohibido por el system prompt. */
 export async function buildInstagramContext(now: Date = new Date()): Promise<string> {
-  const events = await db.getHomeEvents();
-  const upcoming = events
-    .filter((e) => e.status !== 'past' && new Date(e.eventDate).getTime() >= now.getTime() - 12 * 60 * 60 * 1000)
-    .slice(0, 3);
+  const upcoming = await getUpcomingPublicEvents(now);
 
   // Dato de marca, no por evento -- mismo texto que ya usan el FAQ del sitio
   // y los correos de compra (fuente única, shared/eventBrand.ts), para que
@@ -223,14 +248,65 @@ const RESPONSE_SCHEMA = {
   },
 } as const;
 
+/* WhatsApp permite botones de respuesta rápida y listas, Instagram (tal como
+ * está conectado hoy) no -- por eso el esquema de WhatsApp suma dos campos en
+ * vez de agregarlos al de Instagram, donde el modelo los rellenaría para
+ * nada. Sin `maxItems`/`maxLength`: la salida estructurada de Claude no los
+ * soporta, así que los topes de Meta (3 botones, 20 caracteres) se aplican
+ * del lado del servidor al armar el mensaje. */
+const WHATSAPP_RESPONSE_SCHEMA = {
+  name: 'respuesta_whatsapp',
+  strict: true,
+  schema: {
+    type: 'object',
+    properties: {
+      ...RESPONSE_SCHEMA.schema.properties,
+      reply: {
+        type: 'string',
+        description: 'El mensaje que se le manda a la persona por WhatsApp. Español chileno, breve.',
+      },
+      buttons: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Hasta 3 respuestas rápidas que la persona puede tocar en vez de escribir (máximo 20 caracteres cada una), ej. ["Solo/a", "En pareja", "En grupo"]. Vacío si no hace falta.',
+      },
+      action: {
+        type: 'string',
+        enum: ['none', 'event_list', 'buy_link'],
+        description:
+          '"event_list" muestra la lista de próximas fechas para elegir, "buy_link" agrega el botón de compra del próximo evento. "none" si no corresponde.',
+      },
+    },
+    required: [...RESPONSE_SCHEMA.schema.required, 'buttons', 'action'],
+    additionalProperties: false,
+  },
+} as const;
+
+/** Botones y listas de WhatsApp. El modelo solo PIDE mostrarlos: los textos
+ * de las fechas, los precios y los links los arma el servidor desde la base,
+ * con la misma regla de siempre (nada inventado). */
+const WHATSAPP_INTERACTIVE_RULES = [
+  'BOTONES Y LISTAS (solo en WhatsApp):',
+  '- `buttons`: cuando le haces una pregunta con pocas respuestas posibles, ofrécelas como botones para que la persona toque en vez de escribir (máximo 3, máximo 20 caracteres cada uno, sin emojis). Ej.: si preguntas si viene sola, en pareja o en grupo -> ["Solo/a", "En pareja", "En grupo"]. Si la pregunta es abierta o no preguntas nada, deja `buttons` vacío. Nunca pongas un link, un precio ni una fecha dentro de un botón.',
+  '- `action: "event_list"`: cuando preguntan por las fechas o por "la próxima fiesta" y hay más de una fecha en los datos, para que elija tocando. Tu `reply` igual tiene que tener sentido solo (ej. "¡Estas son las próximas fechas! Toca la que te tinca 💜").',
+  '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón "Comprar entrada" con el link real debajo de tu mensaje, así que no hace falta que pegues el link en el texto.',
+  '- En cualquier otro caso, `action: "none"`.',
+];
+
 /* Las reglas duras viven acá y NO en la config editable del admin, a
  * propósito: son las que impiden que el agente invente un precio, prometa un
  * cupo que no existe o hable de otra persona. Poder apagarlas desde un panel
  * sería poder apagar justamente lo que hace seguro dejar esto contestando
  * solo en una cuenta pública. */
-function buildSystemPrompt(config: InstagramAgentConfig, opts: { isFinalReplyOfDay?: boolean } = {}): string {
+function buildSystemPrompt(
+  config: InstagramAgentConfig,
+  opts: { isFinalReplyOfDay?: boolean; channel?: AgentChannel } = {},
+): string {
+  const channel = opts.channel ?? 'instagram';
+  const name = CHANNEL_NAME[channel];
   return [
-    'Eres quien contesta los mensajes directos del Instagram de Mansion Playroom. Le escribes a personas de afuera, en público: cada respuesta tuya se lee como si la hubiera escrito la productora.',
+    `Eres quien contesta los mensajes ${channel === 'instagram' ? 'directos del Instagram' : 'del WhatsApp'} de Mansion Playroom. Le escribes a personas de afuera, en público: cada respuesta tuya se lee como si la hubiera escrito la productora.`,
     '',
     'CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):',
     config.brandNotes,
@@ -238,20 +314,20 @@ function buildSystemPrompt(config: InstagramAgentConfig, opts: { isFinalReplyOfD
     buildSiteLinksBlock(),
     '',
     'REGLAS QUE NO SE NEGOCIAN:',
-    '0. Este Instagram lo usa el dueño también para cosas personales: amigos que le escriben, le mandan memes o reels, hacen planes, saludan. Eso NO es una consulta de cliente. Señales de que un mensaje es personal: te habla como si te conociera (tono familiar, sobrenombres, chilenismos entre amigos), comparte contenido (reel, meme, foto) sin pedir información del evento, o hace referencia a algo que no tiene que ver con la productora. Si el mensaje es personal, marca isPersonal=true y deja reply vacío -- no se le manda nada automático, lo ve el dueño y contesta él. Ante la duda entre "cliente" y "personal", si hay CUALQUIER pregunta sobre la fiesta (fecha, precio, entradas, lugar, cómo llegar) trátalo como cliente, no como personal. EXCEPCIÓN importante: un saludo simple y ambiguo como "hola", "holaa", "hey" -- sin nada más, sin decir de qué se conocen ni preguntar nada de la fiesta -- todavía NO tiene ninguna señal real de ser personal ni de ser cliente. En ese caso NO marques isPersonal=true de entrada (no se puede saber todavía): responde con un saludo cálido y una pregunta corta y abierta para descubrir qué necesita, tipo "¡Hola! 💜 ¿en qué te puedo ayudar? ¿quieres saber de nuestras fiestas?" -- isPersonal=false, handoff=false. Recién si la respuesta siguiente confirma que es personal (tono de conocido, no pregunta nada de la fiesta) trátalo como personal desde ese mensaje.',
+    `0. Este ${name} lo usa el dueño también para cosas personales: amigos que le escriben, le mandan memes o reels, hacen planes, saludan. Eso NO es una consulta de cliente. Señales de que un mensaje es personal: te habla como si te conociera (tono familiar, sobrenombres, chilenismos entre amigos), comparte contenido (reel, meme, foto) sin pedir información del evento, o hace referencia a algo que no tiene que ver con la productora. Si el mensaje es personal, marca isPersonal=true y deja reply vacío -- no se le manda nada automático, lo ve el dueño y contesta él. Ante la duda entre "cliente" y "personal", si hay CUALQUIER pregunta sobre la fiesta (fecha, precio, entradas, lugar, cómo llegar) trátalo como cliente, no como personal. EXCEPCIÓN importante: un saludo simple y ambiguo como "hola", "holaa", "hey" -- sin nada más, sin decir de qué se conocen ni preguntar nada de la fiesta -- todavía NO tiene ninguna señal real de ser personal ni de ser cliente. En ese caso NO marques isPersonal=true de entrada (no se puede saber todavía): responde con un saludo cálido y una pregunta corta y abierta para descubrir qué necesita, tipo "¡Hola! 💜 ¿en qué te puedo ayudar? ¿quieres saber de nuestras fiestas?" -- isPersonal=false, handoff=false. Recién si la respuesta siguiente confirma que es personal (tono de conocido, no pregunta nada de la fiesta) trátalo como personal desde ese mensaje.`,
     '1. Fechas, horarios, precios, lugar y disponibilidad: SOLO los que aparecen en el bloque de datos del mensaje. Si te preguntan algo que no está ahí, dilo y deriva. Jamás estimes ni recuerdes un precio.',
     '2. Nunca digas cuántas entradas quedan. Como mucho "quedan pocas" o "está agotada", nunca un número. Si el bloque de datos trae que el precio sube en la próxima tanda, sí puedes mencionar esa urgencia real (a cuánto sube y cuándo/por qué cambia) -- eso no es el remanente del cupo, es información pública de precio.',
     '3. Nunca hables de otras personas: si van, quiénes son, cuántas parejas hay, ni nada de ningún cliente. Si preguntan quién va, deriva.',
-    '4. No reserves, no apartes, no ofrezcas pagar por transferencia ni por Instagram. Todo se compra en el link del evento.',
+    `4. No reserves, no apartes, no ofrezcas pagar por transferencia ni por ${name}. Todo se compra en el link del evento.`,
     '5. No des la dirección exacta del local: se manda por correo con la entrada. Sí puedes decir la ciudad/sector si está en los datos.',
     '6. Mantén siempre un tono respetuoso. Si el mensaje es sexual, agresivo, o busca algo que no sea información de la fiesta, no le sigas la conversación: responde breve y amable, y deriva.',
     '7. Si te piden hablar con una persona, reclaman por una compra, un cobro, un reembolso, una entrada que no llegó, o cualquier problema con plata: deriva SIEMPRE, sin intentar resolverlo tú.',
-    '8. Si no estás seguro de algo, deriva. Es mucho mejor derivar de más que contestar mal en el Instagram público.',
+    `8. Si no estás seguro de algo, deriva. Es mucho mejor derivar de más que contestar mal en nombre de la productora.`,
     '9. Si el mensaje es SOLO un agradecimiento por lo ya conversado ("muchas gracias", "gracias!", "buenísimo gracias", "ok muchas gracias 🙏") y no trae ninguna pregunta ni pedido nuevo, marca isThanks=true y handoff=false -- eso NO se deriva, es puro cierre educado. Si el mensaje agradece PERO además pregunta o pide algo nuevo, isThanks=false y sigue las reglas normales.',
     '',
     'CÓMO ESCRIBIR:',
-    `- Español chileno, cercano y breve: 1 a 3 frases, máximo ${IG_MAX_REPLY_CHARS} caracteres. Es un DM, no un correo.`,
-    '- Sin markdown, sin listas con viñetas, sin negritas. Texto plano tal cual se lee en Instagram.',
+    `- Español chileno, cercano y breve: 1 a 3 frases, máximo ${IG_MAX_REPLY_CHARS} caracteres. Es un chat, no un correo.`,
+    `- Sin markdown, sin listas con viñetas, sin negritas. Texto plano tal cual se lee en ${name}.`,
     '- Como mucho un emoji, y solo si calza.',
     '- Saluda de forma natural solo la primera vez que le escribes a alguien en el hilo -- no repitas un saludo tipo "¡Hola! 💜" en cada respuesta del mismo hilo, ya se conocen.',
     '- Muestra entusiasmo genuino cuando corresponda, sin sobreactuar (el límite de un emoji sigue aplicando). Si la persona ya te contó algo de ella (su nombre, que va con amigas, que es su primera vez), úsalo para que se sienta una conversación real -- nunca le repitas una pregunta que ya te respondió.',
@@ -274,6 +350,7 @@ function buildSystemPrompt(config: InstagramAgentConfig, opts: { isFinalReplyOfD
           'ÚLTIMA RESPUESTA DEL DÍA PARA ESTA PERSONA: este es el último mensaje automático que le vas a poder mandar hoy a este hilo (se llegó al tope diario de respuestas). No la dejes esperando ni la conversación cortada a medias: cierra este mensaje dándole lo que le falta para decidir -- si la conversación iba de interés en el evento, incluye el link real de compra tal cual está en los datos AUNQUE normalmente hubieras preguntado antes (esta regla pisa, solo por esta vez, la de "curiosidad vs. intención real" y la de "preguntar antes del link de contenido" de más arriba, justamente porque después de este mensaje el bot no vuelve a contestar hoy). Si ya le diste todo lo que pidió y no queda nada pendiente, despídete cálido nomás. Mantén el mismo tono cercano de siempre, no le digas que "se acabaron tus respuestas" ni nada que suene a límite técnico.',
         ]
       : []),
+    ...(channel === 'whatsapp' ? ['', ...WHATSAPP_INTERACTIVE_RULES] : []),
     '',
     'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras), `isPersonal` (ver regla 0) e `isThanks` (ver regla 9). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. Las excepciones son isPersonal=true (no se manda nada) e isThanks=true (se manda un mensaje fijo aparte, no el reply que generes) -- en esos dos casos `reply` puede quedar vacío.',
   ].join('\n');
@@ -283,7 +360,7 @@ function buildSystemPrompt(config: InstagramAgentConfig, opts: { isFinalReplyOfD
  * del admin viajan como `assistant` igual que los del bot: para la persona
  * del otro lado fue la misma cuenta la que le habló, y el modelo tiene que
  * leer esa conversación como una sola. */
-function toLlmMessages(history: IgMessage[]): Message[] {
+function toLlmMessages(history: AgentHistoryMessage[]): Message[] {
   return history
     .filter((m) => (m.text ?? '').trim().length > 0)
     .map((m) => ({
@@ -292,13 +369,40 @@ function toLlmMessages(history: IgMessage[]): Message[] {
     }));
 }
 
+/** Lo único que el agente necesita de cada mensaje del historial -- así
+ * sirven tanto los de igMessages como los de waMessages. */
+export type AgentHistoryMessage = Pick<IgMessage, 'text' | 'direction'>;
+
 export type InstagramAgentResult = {
   reply: string;
   handoff: boolean;
   handoffReason: string;
   isPersonal: boolean;
   isThanks: boolean;
+  /** Solo WhatsApp: respuestas rápidas sugeridas, ya recortadas a los topes
+   * de Meta (ver `sanitizeButtons`). Siempre vacío en Instagram. */
+  buttons: string[];
+  /** Solo WhatsApp: qué agregar debajo del texto. Siempre 'none' en Instagram. */
+  action: AgentAction;
 };
+
+/** Topes de Meta para los botones de respuesta rápida: 3 botones de hasta
+ * 20 caracteres, sin repetidos (Meta rechaza el mensaje entero si dos
+ * botones tienen el mismo título). */
+export function sanitizeButtons(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const title = item.trim().slice(0, 20).trim();
+    if (!title || seen.has(title.toLowerCase())) continue;
+    seen.add(title.toLowerCase());
+    out.push(title);
+    if (out.length === 3) break;
+  }
+  return out;
+}
 
 /** Decide qué responderle a un mensaje de Instagram.
  *
@@ -309,21 +413,27 @@ export type InstagramAgentResult = {
  * Meta reintenta y la persona termina recibiendo lo mismo dos veces. */
 export async function runInstagramAgent(input: {
   incomingText: string;
-  history: IgMessage[];
+  history: AgentHistoryMessage[];
   config: unknown;
   now?: Date;
   /** true cuando esta va a ser la última respuesta automática del día para
    * este hilo (se llegó al tope diario) -- le pide al modelo que cierre la
    * conversación en vez de dejarla a medias hasta mañana. Ver instagram.ts. */
   isFinalReplyOfDay?: boolean;
+  /** Canal por el que llegó el mensaje. Por defecto Instagram, que es el
+   * llamador histórico. */
+  channel?: AgentChannel;
 }): Promise<InstagramAgentResult> {
   const config = normalizeInstagramAgentConfig(input.config);
+  const channel = input.channel ?? 'instagram';
   const fallback: InstagramAgentResult = {
     reply: config.handoffMessage,
     handoff: true,
     handoffReason: 'La IA no pudo responder',
     isPersonal: false,
     isThanks: false,
+    buttons: [],
+    action: 'none',
   };
 
   try {
@@ -332,19 +442,22 @@ export async function runInstagramAgent(input: {
 
     const result = await invokeLLM({
       messages: [
-        { role: 'system', content: buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay }) },
+        { role: 'system', content: buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay, channel }) },
         ...history,
         {
           role: 'user',
-          content: `${context}\n\n---\nMensaje que acaba de llegar por Instagram:\n"""${input.incomingText}"""`,
+          content: `${context}\n\n---\nMensaje que acaba de llegar por ${CHANNEL_NAME[channel]}:\n"""${input.incomingText}"""`,
         },
       ],
-      responseFormat: { type: 'json_schema', json_schema: RESPONSE_SCHEMA as any },
+      responseFormat: {
+        type: 'json_schema',
+        json_schema: (channel === 'whatsapp' ? WHATSAPP_RESPONSE_SCHEMA : RESPONSE_SCHEMA) as any,
+      },
       maxTokens: 600,
     });
 
     const raw = extractContent(result.choices[0]?.message ?? { content: '' });
-    const parsed = JSON.parse(raw) as Partial<InstagramAgentResult>;
+    const parsed = JSON.parse(raw) as Partial<InstagramAgentResult> & { buttons?: unknown; action?: unknown };
     const isPersonal = parsed.isPersonal === true;
     const isThanks = parsed.isThanks === true && !isPersonal;
 
@@ -358,6 +471,8 @@ export async function runInstagramAgent(input: {
         handoffReason: '',
         isPersonal: false,
         isThanks: true,
+        buttons: [],
+        action: 'none',
       };
     }
 
@@ -370,9 +485,14 @@ export async function runInstagramAgent(input: {
       handoffReason: typeof parsed.handoffReason === 'string' ? parsed.handoffReason.slice(0, 500) : '',
       isPersonal,
       isThanks: false,
+      buttons: channel === 'whatsapp' && !isPersonal ? sanitizeButtons(parsed.buttons) : [],
+      action:
+        channel === 'whatsapp' && !isPersonal && (parsed.action === 'event_list' || parsed.action === 'buy_link')
+          ? parsed.action
+          : 'none',
     };
   } catch (err) {
-    console.error('[Instagram] El agente no pudo responder:', err);
+    console.error(`[${CHANNEL_NAME[channel]}] El agente no pudo responder:`, err);
     return fallback;
   }
 }

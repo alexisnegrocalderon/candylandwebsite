@@ -72,6 +72,8 @@ import { normalizeInstagramAgentConfig, DEFAULT_INSTAGRAM_AGENT_CONFIG, IG_MAX_R
 import { sendManualInstagramReply } from "./instagram";
 import { canReplyWithinWindow } from "./instagramSend";
 import { runInstagramAgent, buildInstagramContext } from "./instagramAgent";
+import { normalizeWhatsAppAgentConfig, DEFAULT_WHATSAPP_AGENT_CONFIG, WA_MAX_REPLY_CHARS } from "../shared/whatsappAgentConfig";
+import { sendManualWhatsAppReply } from "./whatsapp";
 import { normalizeFlashPromoPresets } from "../shared/flashPromoPresets";
 import { sendTestPushToAllAdmins, sendPushToAdmins, sendPushToProfile, sendPushToEventGuests } from "./push";
 import { runAdminDigest } from "./adminDigest";
@@ -1804,9 +1806,11 @@ export const appRouter = router({
       pushAmbassadorApplication: z.boolean(),
       pushPartyReport: z.boolean(),
       pushInstagramHandoff: z.boolean(),
+      // Opcional para no romper un panel abierto con la versión anterior.
+      pushWhatsAppHandoff: z.boolean().optional(),
       dailyDigestEmail: z.boolean(),
     })).mutation(async ({ input }) => {
-      return db.updateSiteSettings({ adminAlertsConfig: input });
+      return db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig(input) });
     }),
     // La clave pública VAPID no es secreta (viaja al navegador para armar la
     // suscripción), pero igual queda detrás de admin para no publicarla sin
@@ -1957,6 +1961,95 @@ export const appRouter = router({
       context: await buildInstagramContext(),
       defaults: DEFAULT_INSTAGRAM_AGENT_CONFIG,
     })),
+  }),
+
+  /* Bandeja del agente de WhatsApp (server/whatsapp.ts). Espejo del router
+   * de Instagram -- mismo criterio de `adminProcedure` para todo, lecturas
+   * incluidas. El conocimiento del agente (notas de marca, tono, mensaje de
+   * derivación) se edita en `instagram.saveConfig` y lo comparten los dos
+   * canales; acá solo va lo propio de WhatsApp. */
+  whatsapp: router({
+    getConfig: adminProcedure.query(async () => {
+      const settings = await db.getSiteSettings();
+      return normalizeWhatsAppAgentConfig((settings as any).whatsappAgentConfig);
+    }),
+    saveConfig: adminProcedure.input(z.object({
+      enabled: z.boolean(),
+      welcomeMenuEnabled: z.boolean(),
+      welcomeMessage: z.string().min(1).max(1000),
+      dailyReplyLimitPerThread: z.number().int().min(1).max(200),
+      followUpEnabled: z.boolean(),
+      followUpMinutes: z.number().int().min(1).max(1440),
+      followUpMessage: z.string().min(1).max(WA_MAX_REPLY_CHARS),
+    })).mutation(async ({ input }) => {
+      return db.updateSiteSettings({ whatsappAgentConfig: input });
+    }),
+    connectionStatus: adminProcedure.query(async () => ({
+      hasAppSecret: Boolean(process.env.WA_APP_SECRET),
+      hasVerifyToken: Boolean(process.env.WA_VERIFY_TOKEN),
+      hasAccessToken: Boolean(process.env.WA_ACCESS_TOKEN),
+      hasPhoneNumberId: Boolean(process.env.WA_PHONE_NUMBER_ID),
+      webhookUrl: `${process.env.APP_URL || 'https://mansionplayroom.cl'}/api/webhooks/whatsapp`,
+    })),
+    listThreads: adminProcedure.query(async () => {
+      const threads = await db.listWaThreads(100);
+      return threads.map((t) => ({ ...t, canReply: canReplyWithinWindow(t.lastInboundAt) }));
+    }),
+    getThread: adminProcedure.input(z.object({ threadId: z.number() })).query(async ({ input }) => {
+      const thread = await db.getWaThreadById(input.threadId);
+      if (!thread) throw new TRPCError({ code: 'NOT_FOUND', message: 'Conversación no encontrada' });
+      const messages = await db.getWaMessages(input.threadId, 100);
+      return { thread: { ...thread, canReply: canReplyWithinWindow(thread.lastInboundAt) }, messages };
+    }),
+    markRead: adminProcedure.input(z.object({ threadId: z.number() })).mutation(async ({ input }) => {
+      await db.markWaThreadRead(input.threadId);
+      return { success: true };
+    }),
+    setBotPaused: adminProcedure.input(z.object({
+      threadId: z.number(),
+      paused: z.boolean(),
+    })).mutation(async ({ input }) => {
+      await db.setWaThreadBotPaused(input.threadId, input.paused, input.paused ? 'Lo tomó el equipo desde el panel' : null);
+      return { success: true };
+    }),
+    deleteThread: adminPasswordProcedure.input(z.object({ threadId: z.number() })).mutation(async ({ input, ctx }) => {
+      const result = await db.deleteWaThread(input.threadId);
+      await db.recordAdminAudit({ action: 'whatsapp.deleteThread', targetType: 'waThread', targetId: input.threadId, ip: clientIp(ctx) });
+      return result;
+    }),
+    reply: adminProcedure.input(z.object({
+      threadId: z.number(),
+      text: z.string().min(1).max(WA_MAX_REPLY_CHARS),
+    })).mutation(async ({ input }) => {
+      const thread = await db.getWaThreadById(input.threadId);
+      if (!thread) throw new TRPCError({ code: 'NOT_FOUND', message: 'Conversación no encontrada' });
+      try {
+        await sendManualWhatsAppReply({
+          threadId: thread.id,
+          waId: thread.waId,
+          lastInboundAt: thread.lastInboundAt,
+          text: input.text,
+        });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo enviar el mensaje' });
+      }
+      return { success: true };
+    }),
+    /* Prueba en seco con el canal WhatsApp: devuelve también los botones y
+     * la acción (lista de fechas / botón de compra) que se mostrarían. */
+    preview: adminProcedure.input(z.object({
+      message: z.string().min(1).max(1000),
+    })).mutation(async ({ input }) => {
+      const settings = await db.getSiteSettings();
+      const config = normalizeInstagramAgentConfig((settings as any).instagramAgentConfig);
+      return runInstagramAgent({
+        incomingText: input.message,
+        history: [],
+        config: { ...config, enabled: true },
+        channel: 'whatsapp',
+      });
+    }),
+    defaults: adminProcedure.query(() => DEFAULT_WHATSAPP_AGENT_CONFIG),
   }),
 
   // Automatizaciones por palabra clave: comentar o responder a una historia

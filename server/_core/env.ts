@@ -38,4 +38,17 @@ export const ENV = {
   // Se usa para distinguir los mensajes que mandamos nosotros (`is_echo`) de
   // los que manda la gente.
   igUserId: process.env.IG_USER_ID ?? "",
+  // --- Agente de IA del WhatsApp (server/whatsapp.ts) ---
+  // Secreto de la app de Meta que recibe el webhook de WhatsApp. Si es la
+  // misma app que la de Instagram, es el mismo valor que IG_APP_SECRET. Sin
+  // esta variable el webhook RECHAZA todo en producción (misma regla).
+  waAppSecret: process.env.WA_APP_SECRET ?? "",
+  // Palabra inventada, la misma acá y en el panel de Meta (alta del webhook).
+  waVerifyToken: process.env.WA_VERIFY_TOKEN ?? "",
+  // Token PERMANENTE de un "usuario del sistema" del Business Manager con
+  // permiso whatsapp_business_messaging -- a diferencia del de Instagram no
+  // vence, así que no hace falta cron de renovación.
+  waAccessToken: process.env.WA_ACCESS_TOKEN ?? "",
+  // Id del número de teléfono en la Cloud API (no es el número en sí).
+  waPhoneNumberId: process.env.WA_PHONE_NUMBER_ID ?? "",
 };

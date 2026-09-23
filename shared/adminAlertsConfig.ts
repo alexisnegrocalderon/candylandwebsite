@@ -15,6 +15,9 @@ export interface AdminAlertsConfig {
    * (el agente derivó, se cayó la IA, o el hilo está en manos del admin). No
    * avisa de cada DM: solo de los que el bot NO resolvió. */
   pushInstagramHandoff: boolean;
+  /** Push inmediato: una conversación del WhatsApp quedó esperando a una
+   * persona -- mismo criterio que pushInstagramHandoff. */
+  pushWhatsAppHandoff: boolean;
   /** Correo diario a ADMIN_NOTIFICATION_EMAIL con el resumen de novedades. */
   dailyDigestEmail: boolean;
 }
@@ -24,6 +27,7 @@ export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
   pushAmbassadorApplication: false,
   pushPartyReport: false,
   pushInstagramHandoff: false,
+  pushWhatsAppHandoff: false,
   dailyDigestEmail: false,
 };
 
@@ -37,6 +41,7 @@ export function normalizeAdminAlertsConfig(raw: unknown): AdminAlertsConfig {
     pushAmbassadorApplication: partial.pushAmbassadorApplication ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushAmbassadorApplication,
     pushPartyReport: partial.pushPartyReport ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushPartyReport,
     pushInstagramHandoff: partial.pushInstagramHandoff ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushInstagramHandoff,
+    pushWhatsAppHandoff: partial.pushWhatsAppHandoff ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushWhatsAppHandoff,
     dailyDigestEmail: partial.dailyDigestEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.dailyDigestEmail,
   };
 }

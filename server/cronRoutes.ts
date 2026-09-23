@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { ENV } from "./_core/env";
 import { processMailingCronBatch } from "./mailing";
-import { purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, purgeOldIgThreads, getEventHappeningToday, getCajaDashboard, getHomeEvents } from "./db";
+import { purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, purgeOldIgThreads, purgeOldWaThreads, getEventHappeningToday, getCajaDashboard, getHomeEvents } from "./db";
 import { sendEmail, buildCheckinSummaryEmail } from "./email";
 import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
 import { runAbandonedCartCron } from "./orderReminders";
@@ -10,6 +10,7 @@ import { runFoundersPromoDaily } from "./foundersPromo";
 import { runAdminDigest } from "./adminDigest";
 import { refreshInstagramToken } from "./instagramSend";
 import { runInstagramFollowUps } from "./instagramFollowUp";
+import { runWhatsAppFollowUps } from "./whatsappFollowUp";
 import { shouldSendWeeklyAmbassadorEmailNow } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 
@@ -132,7 +133,14 @@ export function registerCronRoutes(app: Express) {
       console.error('[Cron] Error limpiando conversaciones viejas de Instagram:', err);
     }
 
-    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, igThreadsPurged });
+    let waThreadsPurged = 0;
+    try {
+      waThreadsPurged = (await purgeOldWaThreads()).threadsDeleted;
+    } catch (err) {
+      console.error('[Cron] Error limpiando conversaciones viejas de WhatsApp:', err);
+    }
+
+    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, igThreadsPurged, waThreadsPurged });
   });
 
   /* Correo semanal de embajadores (docs: pestaña "Material" en /admin →
@@ -262,7 +270,17 @@ export function registerCronRoutes(app: Express) {
     if (!requireCronSecret(req, res)) return;
     try {
       const result = await runInstagramFollowUps();
-      res.json({ success: true, ...result });
+      // El recordatorio de WhatsApp comparte este cron (misma frecuencia,
+      // mismo mecanismo) en vez de sumar otra entrada en vercel.json. Un
+      // fallo de un canal no tapa el resultado del otro.
+      let whatsapp: Awaited<ReturnType<typeof runWhatsAppFollowUps>> | { error: string };
+      try {
+        whatsapp = await runWhatsAppFollowUps();
+      } catch (err) {
+        console.error('[Cron] Error mandando los recordatorios de cierre de WhatsApp:', err);
+        whatsapp = { error: err instanceof Error ? err.message : 'Error desconocido' };
+      }
+      res.json({ success: true, ...result, whatsapp });
     } catch (err) {
       console.error('[Cron] Error mandando los recordatorios de cierre de Instagram:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });

@@ -33,6 +33,7 @@ import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { InstagramInbox } from '@/components/admin/InstagramInbox';
+import { WhatsAppInbox } from '@/components/admin/WhatsAppInbox';
 import { StatusBadge } from '@/components/admin/StatusBadge';
 import { StatTile } from '@/components/admin/StatTile';
 import { BentoGrid, BentoTile } from '@/components/admin/BentoGrid';
@@ -7981,17 +7982,18 @@ function AlertasCard() {
     }
   };
 
-  const ALERT_TOGGLES: { key: 'pushNewOrder' | 'pushAmbassadorApplication' | 'pushPartyReport' | 'pushInstagramHandoff'; label: string; help: string }[] = [
+  const ALERT_TOGGLES: { key: 'pushNewOrder' | 'pushAmbassadorApplication' | 'pushPartyReport' | 'pushInstagramHandoff' | 'pushWhatsAppHandoff'; label: string; help: string }[] = [
     { key: 'pushNewOrder', label: 'Venta web nueva', help: 'Push apenas se aprueba una compra en el sitio.' },
     { key: 'pushAmbassadorApplication', label: 'Postulación de embajador', help: 'Push cuando alguien postula a Embajador VIP.' },
     { key: 'pushPartyReport', label: 'Denuncia en la fiesta', help: 'Push cuando alguien reporta a otra persona desde Playmatch.' },
     { key: 'pushInstagramHandoff', label: 'Instagram sin resolver', help: 'Push cuando el agente de Instagram deriva una conversación a una persona.' },
+    { key: 'pushWhatsAppHandoff', label: 'WhatsApp sin resolver', help: 'Push cuando el agente de WhatsApp deriva una conversación a una persona.' },
   ];
 
   const allOn = !!config && ALERT_TOGGLES.every((t) => config[t.key]) && config.dailyDigestEmail;
   const setAll = (value: boolean) => {
     if (!config) return;
-    saveConfig.mutate({ pushNewOrder: value, pushAmbassadorApplication: value, pushPartyReport: value, pushInstagramHandoff: value, dailyDigestEmail: value });
+    saveConfig.mutate({ pushNewOrder: value, pushAmbassadorApplication: value, pushPartyReport: value, pushInstagramHandoff: value, pushWhatsAppHandoff: value, dailyDigestEmail: value });
   };
 
   return (
@@ -9202,6 +9204,7 @@ const ADMIN_SECTIONS = [
   { id: 'blocked-customers', label: 'Bloqueo de Clientes', group: 'Clientes', icon: Ban, render: () => <BlockedCustomersManager /> },
 
   { id: 'instagram', label: 'Instagram', group: 'Marketing', icon: Instagram, render: () => <InstagramInbox /> },
+  { id: 'whatsapp', label: 'WhatsApp', group: 'Marketing', icon: MessageCircle, render: () => <WhatsAppInbox /> },
   { id: 'mailing', label: 'Mailing', group: 'Marketing', icon: Mail, render: () => <MailingSection /> },
   { id: 'mailing-history', label: 'Historial de Mailing', group: 'Marketing', icon: History, render: () => <MailingHistoryView /> },
   { id: 'email-templates', label: 'Plantillas de correo', group: 'Marketing', icon: Send, render: () => <EmailTemplatesManager /> },

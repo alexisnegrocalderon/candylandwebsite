@@ -513,6 +513,11 @@ export const siteSettings = mysqlTable("siteSettings", {
   // por defecto: desplegar este código no debe empezar a contestarle a
   // nadie solo (mismo criterio que foundersPromoEnabled y adminAlertsConfig).
   instagramAgentConfig: json("instagramAgentConfig"),
+  // Config del agente de WhatsApp -- forma en shared/whatsappAgentConfig.ts.
+  // Solo lo propio del canal (interruptor, menú, tope, recordatorio): lo que
+  // el agente SABE (notas de marca, tono, mensaje de derivación) se comparte
+  // con el de Instagram. null = APAGADO, mismo criterio que arriba.
+  whatsappAgentConfig: json("whatsappAgentConfig"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -1795,6 +1800,64 @@ export const igMessages = mysqlTable("igMessages", {
 
 export type IgMessage = typeof igMessages.$inferSelect;
 export type InsertIgMessage = typeof igMessages.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// WhatsApp: hilos y mensajes del agente (server/whatsapp.ts). Espejo de
+// igThreads/igMessages -- tablas aparte y no una columna `channel` en las de
+// Instagram para no tocar nada de lo que ya funciona allá; el cerebro (el
+// agente) sí es el mismo, ver server/instagramAgent.ts.
+// ---------------------------------------------------------------------------
+
+export const waThreads = mysqlTable("waThreads", {
+  id: int("id").autoincrement().primaryKey(),
+  // Número de WhatsApp de la persona tal cual lo manda Meta (`wa_id`: solo
+  // dígitos, con código de país, sin "+").
+  waId: varchar("waId", { length: 32 }).notNull().unique(),
+  // Nombre que la persona tiene puesto en su perfil de WhatsApp.
+  profileName: varchar("profileName", { length: 255 }),
+  // Mismo interruptor por conversación que igThreads.botPaused.
+  botPaused: int("botPaused").default(0).notNull(),
+  handoffReason: varchar("handoffReason", { length: 500 }),
+  // Ventana de 24 horas de Meta: fuera de ella solo se puede escribir con
+  // una plantilla aprobada (y pagada).
+  lastInboundAt: timestamp("lastInboundAt"),
+  lastMessageAt: timestamp("lastMessageAt"),
+  lastMessagePreview: varchar("lastMessagePreview", { length: 300 }),
+  unreadCount: int("unreadCount").default(0).notNull(),
+  // Recordatorio de cierre por silencio -- mismo mecanismo que
+  // igThreads.closingMessageSentAt.
+  closingMessageSentAt: timestamp("closingMessageSentAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  lastMessageIdx: index("wa_threads_last_message_idx").on(table.lastMessageAt),
+}));
+
+export type WaThread = typeof waThreads.$inferSelect;
+export type InsertWaThread = typeof waThreads.$inferInsert;
+
+export const waMessages = mysqlTable("waMessages", {
+  id: int("id").autoincrement().primaryKey(),
+  threadId: int("threadId").notNull(),
+  // `wamid` de Meta. UNIQUE por lo mismo que igMessages.mid: el webhook
+  // reintenta, y sin esto el agente contestaría dos veces.
+  wamid: varchar("wamid", { length: 191 }).unique(),
+  direction: mysqlEnum("direction", ["in", "out"]).notNull(),
+  // `owner_app`: lo escribió el dueño directo desde la app WhatsApp Business
+  // del teléfono (coexistencia), sin pasar por el panel.
+  source: mysqlEnum("source", ["user", "bot", "admin", "owner_app"]).notNull(),
+  text: text("text"),
+  // Botones/lista que se mandaron, o el botón/fila que tocó la persona --
+  // para que la bandeja muestre la conversación como se vio en el teléfono.
+  interactive: json("interactive"),
+  attachments: json("attachments"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  threadIdx: index("wa_messages_thread_idx").on(table.threadId, table.createdAt),
+}));
+
+export type WaMessage = typeof waMessages.$inferSelect;
+export type InsertWaMessage = typeof waMessages.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Automatizaciones de Instagram por palabra clave (server/instagramAutomations.ts):
