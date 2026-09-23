@@ -1962,6 +1962,18 @@ export const appRouter = router({
       context: await buildInstagramContext(),
       defaults: DEFAULT_INSTAGRAM_AGENT_CONFIG,
     })),
+    /* Registro permanente de derivaciones (Instagram Y WhatsApp, cerebro
+     * compartido) -- a diferencia del `handoffReason` de un hilo, que se
+     * borra apenas se reactiva, esto queda como historial fijo para que el
+     * dueño revise qué preguntas no supo resolver el agente y decida qué
+     * agregar a `brandNotes`. Ver drizzle/schema.ts `agentHandoffLog`. */
+    listHandoffLog: adminProcedure.query(async () => {
+      return db.listAgentHandoffLog({ onlyPending: true });
+    }),
+    resolveHandoffLog: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await db.resolveAgentHandoffLog(input.id);
+      return { success: true };
+    }),
   }),
 
   /* Bandeja del agente de WhatsApp (server/whatsapp.ts). Espejo del router

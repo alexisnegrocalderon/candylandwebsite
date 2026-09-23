@@ -25,6 +25,7 @@ vi.mock('./db', async (importOriginal) => {
     getWaMessages: vi.fn(),
     setWaThreadBotPaused: vi.fn(),
     countWaBotRepliesSince: vi.fn(),
+    logAgentHandoff: vi.fn(),
   };
 });
 const getHomeEventsMock = vi.mocked(db.getHomeEvents);
@@ -35,6 +36,7 @@ const appendWaMessageMock = vi.mocked(db.appendWaMessage);
 const getWaMessagesMock = vi.mocked(db.getWaMessages);
 const setWaThreadBotPausedMock = vi.mocked(db.setWaThreadBotPaused);
 const countWaBotRepliesSinceMock = vi.mocked(db.countWaBotRepliesSince);
+const logAgentHandoffMock = vi.mocked(db.logAgentHandoff);
 
 vi.mock('./whatsappSend', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./whatsappSend')>();
@@ -189,6 +191,9 @@ describe('handleInboundMessage', () => {
     expect(invokeLLMMock).not.toHaveBeenCalled();
     expect(setWaThreadBotPausedMock).toHaveBeenCalledWith(7, true, expect.any(String));
     expect(lastPayload().type).toBe('text');
+    // Derivación nueva de verdad -- queda en el registro de entrenamiento
+    // (pedido del dueño, 23/09).
+    expect(logAgentHandoffMock).toHaveBeenCalledWith(expect.objectContaining({ channel: 'whatsapp', threadId: 7 }));
   });
 
   it('una pregunta abierta va al agente en modo WhatsApp y manda sus botones sugeridos', async () => {
@@ -222,6 +227,9 @@ describe('handleInboundMessage', () => {
     expect(sendPushToAdminsMock).toHaveBeenCalledWith('pushWhatsAppHandoff', expect.objectContaining({
       body: expect.stringContaining('mensaje personal'),
     }));
+    expect(logAgentHandoffMock).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'whatsapp', threadId: 7, reason: 'La IA lo marcó como mensaje personal, no de cliente',
+    }));
   });
 
   it('si la IA se cae, contesta el mensaje de derivación y pausa', async () => {
@@ -231,23 +239,31 @@ describe('handleInboundMessage', () => {
     expect(setWaThreadBotPausedMock).toHaveBeenCalledWith(7, true, 'La IA no pudo responder');
   });
 
-  it('un hilo pausado no recibe respuesta automática', async () => {
+  // No es una derivación nueva -- solo el aviso repetido de un hilo que ya
+  // estaba derivado. No debe duplicar la fila en el registro de
+  // entrenamiento cada vez que la persona escribe mientras espera.
+  it('un hilo pausado no recibe respuesta automática ni duplica el registro', async () => {
     getOrCreateWaThreadMock.mockResolvedValue(thread({ botPaused: 1 }));
     await handleInboundMessage(textMessage('hola?'));
     expect(sendPayloadMock).not.toHaveBeenCalled();
+    expect(logAgentHandoffMock).not.toHaveBeenCalled();
   });
 
   it('un audio sin texto queda para una persona sin mandar nada', async () => {
     await handleInboundMessage({ from: '56911111111', id: 'wamid.A', type: 'audio', audio: { id: 'm1' } });
     expect(sendPayloadMock).not.toHaveBeenCalled();
     expect(setWaThreadBotPausedMock).toHaveBeenCalledWith(7, true, expect.stringContaining('adjunto'));
+    expect(logAgentHandoffMock).toHaveBeenCalledWith(expect.objectContaining({ channel: 'whatsapp', threadId: 7 }));
   });
 
-  it('si Meta rechaza el envío, no lo guarda como enviado y pausa el hilo', async () => {
+  // Falla de infraestructura (token vencido), no un hueco de conocimiento
+  // del agente -- no tiene que ensuciar el registro de entrenamiento.
+  it('si Meta rechaza el envío, no lo guarda como enviado, pausa el hilo y no lo registra como derivación', async () => {
     sendPayloadMock.mockRejectedValueOnce(new Error('token vencido'));
     await handleInboundMessage(tapMessage('menu:fechas', 'Próximas fechas'));
     expect(appendWaMessageMock).toHaveBeenCalledTimes(1); // solo el entrante
     expect(setWaThreadBotPausedMock).toHaveBeenCalledWith(7, true, expect.stringContaining('Falló el envío'));
+    expect(logAgentHandoffMock).not.toHaveBeenCalled();
   });
 });
 
