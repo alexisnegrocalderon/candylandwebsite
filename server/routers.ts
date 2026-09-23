@@ -85,6 +85,7 @@ import { getFoundersPromoStatus, runFoundersPromoDaily, buildFoundersPromoConten
 import { EMAIL_BASE_URL } from "./emailLayout";
 import { sendPendingReminders, generateReminderCopy } from "./orderReminders";
 import { generateEventDescription } from "./eventDescriptions";
+import { generateAutomationReplyDraft } from "./instagramAutomationDraft";
 import { answerSalesQuestion } from "./adminQa";
 import { parseCsv, extractEmailColumn } from "./csv";
 import QRCode from "qrcode";
@@ -2061,6 +2062,32 @@ export const appRouter = router({
   // Advanced Access) que hoy no está aprobado -- ver docs/INSTAGRAM-AGENT.md.
   instagramAutomations: router({
     list: adminProcedure.query(() => db.listIgKeywordAutomationsWithStats()),
+    // IA: arma el mensaje del DM a partir de lo que ya está configurado en
+    // el formulario (palabra clave, dónde aplica, recompensa) + una idea
+    // libre y opcional (no se guarda, ver server/instagramAutomationDraft.ts).
+    generateReplyDraft: adminProcedure.input(z.object({
+      keyword: z.string().min(1).max(120),
+      triggerSource: z.enum(['comment', 'story_reply', 'both']),
+      idea: z.string().max(500).optional(),
+      reward: z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('none') }),
+        z.object({
+          kind: z.literal('discount'),
+          discountType: z.enum(['percentage', 'fixed']),
+          discountValue: z.number().positive(),
+        }),
+        z.object({
+          kind: z.literal('gift'),
+          productName: z.string(),
+        }),
+      ]),
+    })).mutation(async ({ input }) => {
+      try {
+        return await generateAutomationReplyDraft(input);
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar el mensaje.' });
+      }
+    }),
     save: adminProcedure.input(z.object({
       id: z.number().optional(),
       keyword: z.string().min(1).max(120),

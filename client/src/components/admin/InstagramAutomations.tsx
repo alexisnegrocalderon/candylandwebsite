@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { toast } from 'sonner';
-import { Zap } from 'lucide-react';
+import { Zap, Sparkles, Loader2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
@@ -49,6 +49,7 @@ export function InstagramAutomations() {
   const [giftTicketTypeId, setGiftTicketTypeId] = useState<string>('');
   const [maxUses, setMaxUses] = useState('');
   const [validUntil, setValidUntil] = useState('');
+  const [aiIdea, setAiIdea] = useState('');
 
   // Productos del evento activo, para elegir cuál regalar -- mismo par de
   // queries que ya usa FlashPromoCard, sin filtrar por categoría acá: a
@@ -74,6 +75,7 @@ export function InstagramAutomations() {
     setGiftTicketTypeId('');
     setMaxUses('');
     setValidUntil('');
+    setAiIdea('');
     setShowForm(false);
   };
 
@@ -87,6 +89,10 @@ export function InstagramAutomations() {
   });
   const remove = trpc.instagramAutomations.delete.useMutation({
     onSuccess: () => utils.instagramAutomations.list.invalidate(),
+    onError,
+  });
+  const generateReply = trpc.instagramAutomations.generateReplyDraft.useMutation({
+    onSuccess: (data) => { setReplyMessage(data.replyMessage); toast.success('Mensaje generado.'); },
     onError,
   });
 
@@ -170,12 +176,39 @@ export function InstagramAutomations() {
             </div>
             <div>
               <Label>Mensaje que le llega</Label>
+              <div className="mt-1 space-y-2 rounded-lg bg-muted/30 p-3">
+                <Input
+                  value={aiIdea}
+                  onChange={(e) => setAiIdea(e.target.value)}
+                  placeholder="Opcional: qué quieres lograr con este mensaje -- ej. 'avisa que ganó 1 piscola gratis, tono juguetón'"
+                />
+                <WriteButton
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => generateReply.mutate({
+                    keyword: keyword.trim(),
+                    triggerSource,
+                    idea: aiIdea.trim() || undefined,
+                    reward: rewardMode === 'discount'
+                      ? { kind: 'discount', discountType, discountValue }
+                      : rewardMode === 'gift'
+                        ? { kind: 'gift', productName: giftableProducts.find((t: any) => String(t.id) === giftTicketTypeId)?.name ?? '' }
+                        : { kind: 'none' },
+                  })}
+                  disabled={generateReply.isPending || !keyword.trim()}
+                >
+                  {generateReply.isPending
+                    ? <><Loader2 className="w-3 h-3 mr-2 animate-spin" /> Generando...</>
+                    : <><Sparkles className="w-3 h-3 mr-2" /> Rellenar con IA</>}
+                </WriteButton>
+              </div>
               <Textarea
                 rows={4}
                 value={replyMessage}
                 onChange={(e) => setReplyMessage(e.target.value)}
                 placeholder='Escribe lo que le quieres mandar. Placeholders disponibles: {{codigo}} (el código), {{producto}} (si regalas un producto) y {{link}} (el link de compra -- si hay código, ya lo lleva pegado para que se aplique solo).'
-                className="mt-1"
+                className="mt-2"
               />
             </div>
 
