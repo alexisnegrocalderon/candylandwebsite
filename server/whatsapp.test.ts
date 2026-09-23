@@ -250,12 +250,22 @@ describe('handleOwnerAppEcho (coexistencia)', () => {
 });
 
 describe('runInstagramAgent por canal', () => {
-  it('en Instagram no devuelve botones ni acción aunque el modelo los mande', async () => {
+  // Instagram no tiene respuestas rápidas de texto como WhatsApp (buttons
+  // siempre vacío), pero sí soporta un botón real de "Comprar" -- por eso
+  // `action: 'buy_link'` SÍ pasa para este canal (ver server/instagram.ts,
+  // botón "Comprar entrada" vía Button Template).
+  it('en Instagram nunca devuelve botones de texto, pero sí puede pedir el botón de compra', async () => {
     mockLlmJson({ reply: 'hola', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, buttons: ['a'], action: 'buy_link' });
     const result = await runInstagramAgent({ incomingText: 'hola', history: [], config: {} });
     expect(result.buttons).toEqual([]);
-    expect(result.action).toBe('none');
+    expect(result.action).toBe('buy_link');
     const call = invokeLLMMock.mock.calls[0][0] as any;
-    expect(call.responseFormat.json_schema.name).toBe('respuesta_instagram');
+    expect(call.responseFormat.json_schema.name).toBe('respuesta_instagram_v2');
+  });
+
+  it('en Instagram fuerza action a "none" si el modelo pide "event_list" (no soportado en ese canal)', async () => {
+    mockLlmJson({ reply: 'hola', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'event_list' });
+    const result = await runInstagramAgent({ incomingText: 'hola', history: [], config: {} });
+    expect(result.action).toBe('none');
   });
 });

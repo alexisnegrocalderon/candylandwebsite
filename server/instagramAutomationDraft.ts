@@ -13,7 +13,7 @@ import { EVENT_BRAND } from "../shared/eventBrand";
  * suene coherente con el resto de los DMs automáticos del sitio. */
 
 export const AutomationReplyDraftSchema = z.object({
-  replyMessage: z.string().min(1).max(500),
+  replyMessage: z.string().min(1).max(700),
 });
 export type AutomationReplyDraftResult = z.infer<typeof AutomationReplyDraftSchema>;
 
@@ -27,7 +27,7 @@ const AUTOMATION_REPLY_JSON_SCHEMA = {
     properties: {
       replyMessage: {
         type: "string",
-        description: "El mensaje que se le manda por DM a la persona que comentó/respondió la palabra clave. 1 a 3 frases, tono cercano, sin markdown.",
+        description: "El mensaje que se le manda por DM a la persona que comentó/respondió la palabra clave. Tono cercano, sin markdown. Si tiene más de una parte (saludo/oferta/cierre), separadas por una línea en blanco (\\n\\n) entre cada una, no todo corrido en un solo párrafo.",
       },
     },
   },
@@ -83,7 +83,9 @@ export async function generateAutomationReplyDraft(input: {
     "CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):",
     config.brandNotes,
     "",
-    "Escribe UN mensaje de 1 a 3 frases, español chileno, cercano y natural -- como si el dueño le estuviera respondiendo el DM en persona, no una campaña. Sin markdown, sin listas, como mucho un emoji.",
+    "Escribe UN mensaje español chileno, cercano y natural -- como si el dueño le estuviera respondiendo el DM en persona, no una campaña. Sin markdown, sin listas, como mucho un emoji.",
+    "Si el mensaje tiene más de una parte (ej. saludo + oferta/código + link + cierre), sepáralas con una línea en blanco entre cada una (un salto de línea real, no una sola oración corrida) -- así se lee ordenado en el DM, como un mensaje bien armado, no como un bloque de texto. No metas la idea del saludo, el código y el link todos pegados en la misma oración. Ejemplo de formato esperado (no copies el contenido, es solo la forma):",
+    "¡Hola! Gracias por tu onda 💜\n\nTe dejamos este código AUTOXX00 con $5.000 de descuento para tu entrada\n\nO directamente entra acá y ya te queda aplicado: {{link}}\n\nNos vemos en Mansion 🎉",
     "Usa los placeholders {{codigo}}, {{producto}} y {{link}} literalmente tal cual (con las llaves dobles) cuando corresponda según la recompensa -- nunca inventes un código, un nombre de producto que no te dieron, ni una URL.",
     "No prometas nada que no esté en los datos de abajo. Responde ÚNICAMENTE con el JSON pedido.",
     ...(config.styleExamples.trim().length > 0

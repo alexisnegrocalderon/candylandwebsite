@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAutomationReplyText, matchesKeyword } from './instagramAutomations';
+import { buildAutomationReplyText, matchesKeyword, splitAutomationLink } from './instagramAutomations';
 
 describe('matchesKeyword', () => {
   it('calza sin importar mayúsculas ni tildes', () => {
@@ -53,5 +53,40 @@ describe('buildAutomationReplyText', () => {
   it('ignora los placeholders que no vienen resueltos', () => {
     const text = buildAutomationReplyText({ replyMessage: 'Hola {{producto}} {{link}}', discountCode: null });
     expect(text).toBe('Hola {{producto}} {{link}}');
+  });
+});
+
+describe('splitAutomationLink', () => {
+  it('saca {{link}} del texto y lo devuelve como buttonUrl cuando hay un link resuelto', () => {
+    const result = splitAutomationLink(
+      { replyMessage: 'Tu código {{codigo}} te regala {{producto}} 🍹 Cómpralo acá: {{link}}', discountCode: 'AUTOXY99' },
+      { productName: '1 Piscola', link: 'https://mansionplayroom.cl/eventos/aniversario?code=AUTOXY99' },
+    );
+    expect(result.text).toBe('Tu código AUTOXY99 te regala 1 Piscola 🍹 Cómpralo acá:');
+    expect(result.buttonUrl).toBe('https://mansionplayroom.cl/eventos/aniversario?code=AUTOXY99');
+  });
+
+  it('deja buttonUrl null y el texto igual cuando el mensaje no usa {{link}}', () => {
+    const result = splitAutomationLink(
+      { replyMessage: 'Solo un mensaje de texto, sin link.', discountCode: null },
+      { link: 'https://mansionplayroom.cl/eventos/aniversario' },
+    );
+    expect(result.text).toBe('Solo un mensaje de texto, sin link.');
+    expect(result.buttonUrl).toBeNull();
+  });
+
+  it('deja buttonUrl null si {{link}} está en el mensaje pero no hay ningún link resuelto', () => {
+    const result = splitAutomationLink({ replyMessage: 'Cómpralo acá: {{link}}', discountCode: null });
+    expect(result.text).toBe('Cómpralo acá: ');
+    expect(result.buttonUrl).toBeNull();
+  });
+
+  it('limpia los saltos de línea que quedan sueltos alrededor del {{link}} sacado', () => {
+    const result = splitAutomationLink(
+      { replyMessage: 'Hola!\n\n{{link}}\n\nNos vemos 🎉', discountCode: null },
+      { link: 'https://mansionplayroom.cl/eventos/aniversario' },
+    );
+    expect(result.text).toBe('Hola!\n\nNos vemos 🎉');
+    expect(result.buttonUrl).toBe('https://mansionplayroom.cl/eventos/aniversario');
   });
 });

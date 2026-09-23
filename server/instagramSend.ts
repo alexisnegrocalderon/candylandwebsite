@@ -30,10 +30,11 @@ export function canReplyWithinWindow(lastInboundAt: Date | null | undefined, now
 }
 
 /** POST compartido al endpoint `/messages` -- lo único que cambia entre un
- * DM normal y una "Private Reply" a un comentario es la forma del
- * `recipient` (`{ id }` vs `{ comment_id }`), todo lo demás (auth, manejo
- * de errores) es idéntico. */
-async function postToMessagesEndpoint(recipient: Record<string, string>, text: string): Promise<{ mid: string | null }> {
+ * DM de texto, una "Private Reply" a un comentario, y un mensaje con botón
+ * es la forma del `recipient` (`{ id }` vs `{ comment_id }`) y del
+ * `message` (`{text}` vs `{attachment}`); auth y manejo de errores es
+ * idéntico en los tres casos. */
+async function postToMessagesEndpoint(recipient: Record<string, string>, message: Record<string, unknown>): Promise<{ mid: string | null }> {
   if (!ENV.igAccessToken || !ENV.igUserId) {
     throw new InstagramApiError('Faltan IG_ACCESS_TOKEN o IG_USER_ID en el servidor.');
   }
@@ -44,7 +45,7 @@ async function postToMessagesEndpoint(recipient: Record<string, string>, text: s
       'Content-Type': 'application/json',
       Authorization: `Bearer ${ENV.igAccessToken}`,
     },
-    body: JSON.stringify({ recipient, message: { text } }),
+    body: JSON.stringify({ recipient, message }),
   });
 
   const body = await response.json().catch(() => ({}));
@@ -67,7 +68,41 @@ export async function sendInstagramMessage(input: {
   recipientId: string;
   text: string;
 }): Promise<{ mid: string | null }> {
-  return postToMessagesEndpoint({ id: input.recipientId }, input.text);
+  return postToMessagesEndpoint({ id: input.recipientId }, { text: input.text });
+}
+
+/** Manda una imagen como su propio mensaje (adjunto simple, no un Generic
+ * Template) -- se usa para mandar el flyer del evento o el logo de marca
+ * ANTES del mensaje con el botón "Comprar", ya que el Button Template no
+ * acepta imagen y el Generic Template la reemplazaría por una tarjeta con
+ * un tope de 80 caracteres de título (perdería el texto ya armado). Mismo
+ * `recipient` genérico que `sendButtonMessage`. */
+export async function sendImageMessage(recipient: Record<string, string>, imageUrl: string): Promise<{ mid: string | null }> {
+  return postToMessagesEndpoint(recipient, { attachment: { type: 'image', payload: { url: imageUrl } } });
+}
+
+/** Manda un mensaje con un botón real (Button Template de Meta) en vez de
+ * texto plano -- el botón `web_url` abre el link tal cual, sin disparar
+ * ningún webhook nuevo ni pedir un permiso extra (a diferencia de un botón
+ * `postback`, que si se necesitara algún día exigiría suscribirse a
+ * `messaging_postbacks`). Mismo `recipient` genérico que `sendPrivateReply`
+ * para poder usarse tanto en un DM normal (`{id}`) como en una Private
+ * Reply de comentario (`{comment_id}`). */
+export async function sendButtonMessage(
+  recipient: Record<string, string>,
+  text: string,
+  button: { title: string; url: string },
+): Promise<{ mid: string | null }> {
+  return postToMessagesEndpoint(recipient, {
+    attachment: {
+      type: 'template',
+      payload: {
+        template_type: 'button',
+        text,
+        buttons: [{ type: 'web_url', url: button.url, title: button.title }],
+      },
+    },
+  });
 }
 
 /** "Private Reply": manda un DM disparado por un comentario en un post/reel,
@@ -79,7 +114,7 @@ export async function sendInstagramMessage(input: {
  * permiso `instagram_business_manage_comments` todavía no está aprobado
  * para esta app, ver docs/INSTAGRAM-AGENT.md. */
 export async function sendPrivateReply(commentId: string, text: string): Promise<{ mid: string | null }> {
-  return postToMessagesEndpoint({ comment_id: commentId }, text);
+  return postToMessagesEndpoint({ comment_id: commentId }, { text });
 }
 
 /** Perfil público de quien escribe (arroba y nombre), solo para que la

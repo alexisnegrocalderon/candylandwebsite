@@ -16,10 +16,11 @@ import {
   getFeaturedEvent,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
-import { sendInstagramMessage, sendPrivateReply, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
+import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, sendImageMessage, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
+import { resolveInstagramBuyLink, resolveEventCardImage } from './instagramInteractive';
 import { sendPushToAdmins } from './push';
 import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
-import { buildAutomationReplyText } from './instagramAutomations';
+import { buildAutomationReplyText, splitAutomationLink } from './instagramAutomations';
 
 /* Entrada de los mensajes directos de Instagram (Messenger Platform, campo
  * `messages`). Ver docs/INSTAGRAM-AGENT.md para el alta en el panel de Meta.
@@ -310,7 +311,20 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   // que Meta reintente la entrega pensando que se perdió.
   await sleep(humanReplyDelayMs());
 
-  await deliver(thread.id, senderId, result.reply, 'bot');
+  let buyButton: { title: string; url: string } | undefined;
+  if (result.action === 'buy_link' && !result.handoff) {
+    const resolved = await resolveInstagramBuyLink();
+    if (resolved) {
+      buyButton = { title: 'Comprar entrada', url: resolved.url };
+      try {
+        const { mid: imageMid } = await sendImageMessage({ id: senderId }, resolved.imageUrl);
+        await appendIgMessage({ threadId: thread.id, mid: imageMid, direction: 'out', source: 'bot', text: '[imagen]' });
+      } catch (err) {
+        console.error('[Instagram] No se pudo mandar la imagen de la tarjeta:', err);
+      }
+    }
+  }
+  await deliver(thread.id, senderId, result.reply, 'bot', buyButton);
 
   if (isFinalReplyOfDay) {
     const reason = 'Llegó al tope diario de respuestas automáticas -- se cerró la conversación con un mensaje final';
@@ -346,18 +360,19 @@ async function matchKeywordTrigger(
  * nuevo en `client/src/pages/Checkout.tsx`, mismo patrón que ya usa el link
  * de embajador). Nunca lanza: si algo no se puede resolver (evento sin
  * publicar, producto borrado), el mensaje se manda igual sin ese dato. */
-async function resolveAutomationExtras(automation: { discountCode: string | null }): Promise<{ productName?: string; link?: string }> {
+async function resolveAutomationExtras(automation: { discountCode: string | null }): Promise<{ productName?: string; link?: string; imageUrl?: string }> {
   const event = await getFeaturedEvent();
+  const imageUrl = event ? resolveEventCardImage(event) : undefined;
   if (!automation.discountCode) {
-    return event ? { link: `${APP_URL}/eventos/${event.slug}` } : {};
+    return event ? { link: `${APP_URL}/eventos/${event.slug}`, imageUrl } : {};
   }
 
   const link = event ? `${APP_URL}/eventos/${event.slug}?code=${automation.discountCode}` : undefined;
   const discount = await getDiscountCodeByCode(automation.discountCode);
-  if (!discount?.giftTicketTypeId) return { link };
+  if (!discount?.giftTicketTypeId) return { link, imageUrl };
 
   const product = await getTicketTypeById(discount.giftTicketTypeId);
-  return { link, productName: product?.name };
+  return { link, imageUrl, productName: product?.name };
 }
 
 /** Respuesta a una historia con la palabra clave correcta: manda el regalo
@@ -375,11 +390,56 @@ export async function tryHandleKeywordTrigger(input: {
   if (!automation) return false;
 
   const extras = await resolveAutomationExtras(automation);
-  const replyText = buildAutomationReplyText(automation, extras);
-  const { mid } = await sendInstagramMessage({ recipientId: input.igUserId, text: replyText });
+  const { text: replyText, mid, imageMid } = await sendAutomationReply(
+    automation,
+    extras,
+    (text, button) => (button
+      ? sendButtonMessage({ id: input.igUserId }, text, button)
+      : sendInstagramMessage({ recipientId: input.igUserId, text })),
+    (imageUrl) => sendImageMessage({ id: input.igUserId }, imageUrl),
+  );
+  if (imageMid !== undefined) {
+    await appendIgMessage({ threadId: input.threadId, mid: imageMid, direction: 'out', source: 'bot', text: '[imagen]' });
+  }
   await appendIgMessage({ threadId: input.threadId, mid, direction: 'out', source: 'bot', text: replyText });
   await recordIgKeywordRedemption({ automationId: automation.id, igUserId: input.igUserId, source: input.source });
   return true;
+}
+
+/** Arma y manda el mensaje de una automatización, con botón "Comprar" real
+ * cuando el mensaje trae `{{link}}` y el texto sin el link entra en el tope
+ * del Button Template de Meta (640 caracteres) -- si no entra (mensaje
+ * largo escrito a mano), cae a texto plano con el link pegado, para no
+ * perder el mensaje por un límite de formato. `send` abstrae el destino
+ * real (DM normal vs. Private Reply de comentario), que ya difiere entre
+ * `tryHandleKeywordTrigger` y `handleCommentChange`.
+ *
+ * Cuando hay botón, manda antes la imagen de marca (flyer del evento o el
+ * logo genérico, `extras.imageUrl`) como su propio mensaje -- "best
+ * effort": si falla, no bloquea el mensaje real (solo se pierde la
+ * imagen, no el regalo/link que la persona sí está esperando). */
+async function sendAutomationReply(
+  automation: { replyMessage: string; discountCode: string | null },
+  extras: { productName?: string; link?: string; imageUrl?: string },
+  send: (text: string, button?: { title: string; url: string }) => Promise<{ mid: string | null }>,
+  sendImage: (imageUrl: string) => Promise<{ mid: string | null }>,
+): Promise<{ text: string; mid: string | null; imageMid?: string | null }> {
+  const { text, buttonUrl } = splitAutomationLink(automation, extras);
+  if (buttonUrl && text.length <= 640) {
+    let imageMid: string | null | undefined;
+    if (extras.imageUrl) {
+      try {
+        imageMid = (await sendImage(extras.imageUrl)).mid;
+      } catch (err) {
+        console.error('[Instagram] No se pudo mandar la imagen de la tarjeta:', err);
+      }
+    }
+    const { mid } = await send(text, { title: automation.discountCode ? 'Comprar con código' : 'Ver más', url: buttonUrl });
+    return { text, mid, imageMid };
+  }
+  const fallbackText = buildAutomationReplyText(automation, extras);
+  const { mid } = await send(fallbackText);
+  return { text: fallbackText, mid };
 }
 
 /** Comentario nuevo en un post/reel, con la forma que manda el campo de
@@ -399,8 +459,14 @@ export async function handleCommentChange(value: { id?: string; text?: string; f
   if (!automation) return;
 
   const extras = await resolveAutomationExtras(automation);
-  const replyText = buildAutomationReplyText(automation, extras);
-  await sendPrivateReply(commentId, replyText);
+  await sendAutomationReply(
+    automation,
+    extras,
+    (replyText, button) => (button
+      ? sendButtonMessage({ comment_id: commentId }, replyText, button)
+      : sendPrivateReply(commentId, replyText)),
+    (imageUrl) => sendImageMessage({ comment_id: commentId }, imageUrl),
+  );
   await recordIgKeywordRedemption({ automationId: automation.id, igUserId, source: 'comment' });
 }
 
@@ -447,9 +513,11 @@ export async function handleOwnerEcho(event: MetaMessaging, message: NonNullable
 /** Manda la respuesta y la guarda en el hilo. Si Meta la rechaza (token
  * vencido, ventana de 24 horas cerrada) NO se guarda como enviada: la
  * bandeja tiene que mostrar lo que realmente le llegó a la persona. */
-async function deliver(threadId: number, recipientId: string, text: string, source: 'bot' | 'admin'): Promise<void> {
+async function deliver(threadId: number, recipientId: string, text: string, source: 'bot' | 'admin', button?: { title: string; url: string }): Promise<void> {
   try {
-    const { mid } = await sendInstagramMessage({ recipientId, text });
+    const { mid } = button
+      ? await sendButtonMessage({ id: recipientId }, text, button)
+      : await sendInstagramMessage({ recipientId, text });
     await appendIgMessage({ threadId, mid, direction: 'out', source, text });
   } catch (err) {
     console.error('[Instagram] No se pudo enviar la respuesta:', err);

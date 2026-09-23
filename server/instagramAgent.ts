@@ -283,6 +283,29 @@ const WHATSAPP_RESPONSE_SCHEMA = {
   },
 } as const;
 
+/* Instagram sí soporta un botón real de "Comprar" (Button Template, mismo
+ * token que ya usamos para mandar texto, sin permiso nuevo de Meta) -- pero
+ * no respuestas rápidas ni listas como WhatsApp, así que este esquema suma
+ * solo `action` (sin `buttons`), con un enum más chico (`event_list` queda
+ * fuera: Instagram no tiene una lista tappable como WhatsApp). */
+const INSTAGRAM_RESPONSE_SCHEMA = {
+  name: 'respuesta_instagram_v2',
+  strict: true,
+  schema: {
+    type: 'object',
+    properties: {
+      ...RESPONSE_SCHEMA.schema.properties,
+      action: {
+        type: 'string',
+        enum: ['none', 'buy_link'],
+        description: '"buy_link" agrega el botón de compra del próximo evento debajo de tu mensaje. "none" si no corresponde.',
+      },
+    },
+    required: [...RESPONSE_SCHEMA.schema.required, 'action'],
+    additionalProperties: false,
+  },
+} as const;
+
 /** Botones y listas de WhatsApp. El modelo solo PIDE mostrarlos: los textos
  * de las fechas, los precios y los links los arma el servidor desde la base,
  * con la misma regla de siempre (nada inventado). */
@@ -291,6 +314,16 @@ const WHATSAPP_INTERACTIVE_RULES = [
   '- `buttons`: cuando le haces una pregunta con pocas respuestas posibles, ofrécelas como botones para que la persona toque en vez de escribir (máximo 3, máximo 20 caracteres cada uno, sin emojis). Ej.: si preguntas si viene sola, en pareja o en grupo -> ["Solo/a", "En pareja", "En grupo"]. Si la pregunta es abierta o no preguntas nada, deja `buttons` vacío. Nunca pongas un link, un precio ni una fecha dentro de un botón.',
   '- `action: "event_list"`: cuando preguntan por las fechas o por "la próxima fiesta" y hay más de una fecha en los datos, para que elija tocando. Tu `reply` igual tiene que tener sentido solo (ej. "¡Estas son las próximas fechas! Toca la que te tinca 💜").',
   '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón "Comprar entrada" con el link real debajo de tu mensaje, así que no hace falta que pegues el link en el texto.',
+  '- En cualquier otro caso, `action: "none"`.',
+];
+
+/** Mismo mecanismo que WHATSAPP_INTERACTIVE_RULES pero acotado a lo único
+ * que Instagram soporta con el token que tenemos: un botón "Comprar" tipo
+ * Button Template (sin permisos nuevos de Meta). No hay quick-replies de
+ * texto en Instagram, así que no hay equivalente a `buttons`. */
+const INSTAGRAM_BUTTON_RULES = [
+  'BOTÓN DE COMPRA (solo en Instagram):',
+  '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón "Comprar entrada" con el link real debajo de tu mensaje, así que NO escribas el link dentro de `reply` -- tu `reply` tiene que tener sentido solo, sin el link (ej. "¡Dale! Toca el botón de abajo para asegurar tu entrada 💜").',
   '- En cualquier otro caso, `action: "none"`.',
 ];
 
@@ -332,7 +365,8 @@ function buildSystemPrompt(
     '- Saluda de forma natural solo la primera vez que le escribes a alguien en el hilo -- no repitas un saludo tipo "¡Hola! 💜" en cada respuesta del mismo hilo, ya se conocen.',
     '- Muestra entusiasmo genuino cuando corresponda, sin sobreactuar (el límite de un emoji sigue aplicando). Si la persona ya te contó algo de ella (su nombre, que va con amigas, que es su primera vez), úsalo para que se sienta una conversación real -- nunca le repitas una pregunta que ya te respondió.',
     '- Evita sonar a folleto o catálogo: si tienes 3 o más datos para dar, no los metas todos en una sola frase -- da lo esencial y cierra con una pregunta, en vez de listar todo de un tirón.',
-    '- Cuando alguien muestra una intención REAL de ir o comprar (dice "quiero ir", "cómo compro", "sí me interesa", te pide el link directamente, o responde que sí a una pregunta tuya anterior sobre si quiere el link/info), manda el link del evento tal cual está en los datos, de inmediato y sin preguntar nada más -- acá la prioridad es no hacerla esperar.',
+    '- Si tu respuesta tiene más de una idea o parte separable (ej. el precio de un acceso + la urgencia de tanda + una pregunta de cierre, o una respuesta + el link de una página), sepáralas con una línea en blanco entre cada una en vez de escribirlo todo pegado en un solo bloque -- se lee más ordenado en el DM. Esto no cambia el límite de frases ni de caracteres, es solo cómo se presenta el mismo contenido.',
+    '- Cuando alguien muestra una intención REAL de ir o comprar (dice "quiero ir", "cómo compro", "sí me interesa", te pide el link directamente, o responde que sí a una pregunta tuya anterior sobre si quiere el link/info), corresponde mandar el link de compra de inmediato y sin preguntar nada más -- acá la prioridad es no hacerla esperar. Cómo se manda depende de tu canal: ver el bloque de botones más abajo.',
     '- Cuando la pregunta es de CURIOSIDAD o interés general sobre el evento (ej. "cuéntame del próximo evento", "cuándo es la próxima fiesta", "qué onda con Mansion Playroom"), sin que hayan dicho que quieren ir o comprar: contesta en 1-2 frases breves con la info real (fecha, de qué se trata) y cierra con una pregunta abierta y cálida, tipo "¿te tinca venir?" o "¿quieres que te cuente cómo son los accesos?" -- NO incluyas el link de compra en esa primera respuesta. Recién cuando la persona confirme interés en el siguiente mensaje (dice que sí, pregunta por precio/accesos, pide el link), trátalo como intención real y mándalo.',
     '- Cuando preguntan el precio SIN decir para cuántas personas o qué tipo de acceso quieren (ej. "cuánto vale la entrada", "qué precio tiene"): no listes todos los tipos ni asumas uno -- pregúntales primero, corto y natural, algo como "¿vienes solo/a, en pareja o en grupo?" o "¿qué tipo de acceso te tinca?", así les das el precio exacto que les sirve en vez de tirarles una lista. Cuando SÍ especifican (mencionan "sola", "dúo", "en pareja", "grupo de x", o nombran un tipo de acceso que está en los datos, o ya respondieron tu pregunta anterior en el historial), ahí contesta directo con el precio de ESE acceso, sin listar los demás -- eso es "personalizado": una respuesta para lo que esa persona realmente preguntó, no un catálogo. Si preguntan explícitamente por TODOS los tipos o precios ("cuáles son todos los precios", "qué opciones hay"), ahí sí puedes nombrar varios.',
     '- Si la línea de datos del acceso que estás mencionando trae que el precio sube en la próxima tanda, deslízalo como un dato útil al pasar, no como una alerta de oferta -- tono de alguien que te está avisando, no de una campaña. Por ejemplo (no lo copies literal, es solo el tono): "la Soltera está en $10.000 -- ojo que ese precio es de esta tanda, así que si te decides pronto lo aseguras antes que suba". Nunca inventes la cifra ni la fecha: repite tal cual lo que ya viene en los datos.',
@@ -347,10 +381,11 @@ function buildSystemPrompt(
     ...(opts.isFinalReplyOfDay
       ? [
           '',
-          'ÚLTIMA RESPUESTA DEL DÍA PARA ESTA PERSONA: este es el último mensaje automático que le vas a poder mandar hoy a este hilo (se llegó al tope diario de respuestas). No la dejes esperando ni la conversación cortada a medias: cierra este mensaje dándole lo que le falta para decidir -- si la conversación iba de interés en el evento, incluye el link real de compra tal cual está en los datos AUNQUE normalmente hubieras preguntado antes (esta regla pisa, solo por esta vez, la de "curiosidad vs. intención real" y la de "preguntar antes del link de contenido" de más arriba, justamente porque después de este mensaje el bot no vuelve a contestar hoy). Si ya le diste todo lo que pidió y no queda nada pendiente, despídete cálido nomás. Mantén el mismo tono cercano de siempre, no le digas que "se acabaron tus respuestas" ni nada que suene a límite técnico.',
+          'ÚLTIMA RESPUESTA DEL DÍA PARA ESTA PERSONA: este es el último mensaje automático que le vas a poder mandar hoy a este hilo (se llegó al tope diario de respuestas). No la dejes esperando ni la conversación cortada a medias: cierra este mensaje dándole lo que le falta para decidir -- si la conversación iba de interés en el evento, corresponde mandar el link de compra AUNQUE normalmente hubieras preguntado antes (esta regla pisa, solo por esta vez, la de "curiosidad vs. intención real" y la de "preguntar antes del link de contenido" de más arriba, justamente porque después de este mensaje el bot no vuelve a contestar hoy) -- usa el mecanismo de tu canal (botón/`action`) para mandarlo, igual que en cualquier otra intención real. Si ya le diste todo lo que pidió y no queda nada pendiente, despídete cálido nomás. Mantén el mismo tono cercano de siempre, no le digas que "se acabaron tus respuestas" ni nada que suene a límite técnico.',
         ]
       : []),
     ...(channel === 'whatsapp' ? ['', ...WHATSAPP_INTERACTIVE_RULES] : []),
+    ...(channel === 'instagram' ? ['', ...INSTAGRAM_BUTTON_RULES] : []),
     '',
     'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras), `isPersonal` (ver regla 0) e `isThanks` (ver regla 9). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. Las excepciones son isPersonal=true (no se manda nada) e isThanks=true (se manda un mensaje fijo aparte, no el reply que generes) -- en esos dos casos `reply` puede quedar vacío.',
   ].join('\n');
@@ -451,7 +486,7 @@ export async function runInstagramAgent(input: {
       ],
       responseFormat: {
         type: 'json_schema',
-        json_schema: (channel === 'whatsapp' ? WHATSAPP_RESPONSE_SCHEMA : RESPONSE_SCHEMA) as any,
+        json_schema: (channel === 'whatsapp' ? WHATSAPP_RESPONSE_SCHEMA : INSTAGRAM_RESPONSE_SCHEMA) as any,
       },
       maxTokens: 600,
     });
@@ -486,10 +521,12 @@ export async function runInstagramAgent(input: {
       isPersonal,
       isThanks: false,
       buttons: channel === 'whatsapp' && !isPersonal ? sanitizeButtons(parsed.buttons) : [],
-      action:
-        channel === 'whatsapp' && !isPersonal && (parsed.action === 'event_list' || parsed.action === 'buy_link')
-          ? parsed.action
-          : 'none',
+      action: !isPersonal && (
+        (channel === 'whatsapp' && (parsed.action === 'event_list' || parsed.action === 'buy_link'))
+        || (channel === 'instagram' && parsed.action === 'buy_link')
+      )
+        ? (parsed.action as AgentAction)
+        : 'none',
     };
   } catch (err) {
     console.error(`[${CHANNEL_NAME[channel]}] El agente no pudo responder:`, err);
