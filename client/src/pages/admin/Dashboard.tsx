@@ -42,7 +42,7 @@ import { SwipeToDeleteRow } from '@/components/admin/SwipeToDeleteRow';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { TableSkeleton } from '@/components/admin/TableSkeleton';
 import { useCoarsePointer } from '@/hooks/useCoarsePointer';
-import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
+import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug } from '@shared/mission300';
 import { computePhasePrice, nextPhase, normalizeTandaSchedule, type TandaPhase } from '@shared/tandaSchedule';
 import {
   EXPENSE_CATEGORIES, EXPENSE_DOCUMENT_TYPES, EXPENSE_PAYMENT_METHODS,
@@ -6887,10 +6887,45 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
 }) {
   const [form, setForm] = useState<SimForm>(initial);
   const [eventToLink, setEventToLink] = useState<string>(linkedEventId ? String(linkedEventId) : '');
+  const [filling, setFilling] = useState(false);
+  const utils = trpc.useUtils();
 
   const result = computeBudgetResult(form);
 
   const linkToEvent = trpc.budgetSimulations.linkToEvent.useMutation({ onError: onMutationError });
+
+  /** Trae las tandas de acceso YA cargadas para el evento elegido, con su
+   * precio real y cuántas se han vendido hasta ahora (ticketTypes.soldCount)
+   * -- reemplaza las filas de tanda del formulario UNA vez; desde ahí sigue
+   * 100% editable, no se vuelve a sincronizar solo. */
+  const handleFillFromReal = async () => {
+    if (!eventToLink) return;
+    const hasData = form.revenueTiers.some((t) => t.label.trim() || t.price > 0 || t.expectedQty > 0);
+    if (hasData && !window.confirm('Esto va a reemplazar las tandas que ya cargaste en el formulario por las ventas reales de este evento. ¿Continuar?')) {
+      return;
+    }
+    setFilling(true);
+    try {
+      const rows = await utils.events.listTicketTypes.fetch({ eventId: Number(eventToLink) });
+      const accesoRows = (rows ?? []).filter((r: any) => r.category === 'acceso');
+      if (accesoRows.length === 0) {
+        toast.error('Ese evento todavía no tiene tandas de acceso cargadas en Eventos.');
+        return;
+      }
+      const tiers: RevenueTier[] = accesoRows.map((r: any) => ({
+        label: r.name,
+        price: Number(r.price),
+        expectedQty: r.soldCount,
+        personasPorEntrada: personasForAccesoSlug(r.accesoSlug),
+      }));
+      setForm((f) => ({ ...f, revenueTiers: tiers }));
+      toast.success('Tandas rellenadas con las ventas reales -- edítalas libremente desde acá.');
+    } catch (err) {
+      onMutationError(err);
+    } finally {
+      setFilling(false);
+    }
+  };
 
   const create = trpc.budgetSimulations.create.useMutation({
     onSuccess: (res) => {
@@ -7052,11 +7087,18 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
 
         <div className="flex items-center gap-2 flex-wrap">
           <Select value={eventToLink} onValueChange={setEventToLink}>
-            <SelectTrigger className="w-64"><SelectValue placeholder="Vincular a un evento (opcional)" /></SelectTrigger>
+            <SelectTrigger className="w-64"><SelectValue placeholder="Elegir un evento real" /></SelectTrigger>
             <SelectContent>
               {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
             </SelectContent>
           </Select>
+          <Button
+            variant="outline" size="sm"
+            disabled={!eventToLink || filling}
+            onClick={handleFillFromReal}
+          >
+            {filling ? 'Trayendo ventas…' : 'Rellenar con ventas reales'}
+          </Button>
           {simId && (
             <Button
               variant="outline" size="sm"
@@ -7071,6 +7113,11 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
             <WriteButton onClick={handleSave} disabled={create.isPending || update.isPending}>Guardar simulación</WriteButton>
           </div>
         </div>
+        <p className="text-xs text-muted-foreground -mt-4">
+          "Rellenar con ventas reales" trae las tandas de acceso YA cargadas en ese evento con su precio y cuántas
+          entradas se han vendido hasta ahora -- reemplaza las tandas de arriba una vez, después las editas libre.
+          "Vincular a este evento" además guarda la conexión para comparar presupuestado vs. real en su P&L.
+        </p>
       </CardContent>
     </Card>
   );
