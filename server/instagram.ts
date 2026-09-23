@@ -262,11 +262,11 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   // El hilo ya está en manos de una persona (lo derivó el agente antes, o lo
   // tomó el admin desde la bandeja): el bot no vuelve a meterse.
   if (thread.botPaused === 1) {
-    // No es una derivación nueva, solo el aviso repetido de un hilo que ya
-    // estaba derivado -- no se loguea en el registro de entrenamiento (ver
-    // notifyHandoff más abajo), o quedaría un duplicado por cada mensaje que
-    // la persona mande mientras espera.
-    await notifyHandoff(thread.id, thread.username ?? senderId, text, 'El hilo está en manos del equipo', { log: false });
+    // No manda push de nuevo (pedido del dueño, 23/09): ya avisó una vez
+    // cuando se derivó, y mientras esté respondiendo a mano en ese hilo no
+    // tiene sentido que le llegue un push por cada mensaje nuevo del
+    // cliente. El mensaje igual queda guardado arriba y sube el contador de
+    // no leídos de la bandeja -- no es que desaparezca, solo no interrumpe.
     return;
   }
   // Solo texto: un adjunto suelto (reel, meme, foto, audio) no se puede leer
