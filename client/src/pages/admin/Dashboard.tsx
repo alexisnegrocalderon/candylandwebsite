@@ -3400,6 +3400,7 @@ function MailingSection() {
   const [tagFilter, setTagFilter] = useState('');
   const [excludeTagFilters, setExcludeTagFilters] = useState<string[]>([]);
   const [eventFilter, setEventFilter] = useState<string>('all');
+  const [excludeBuyersOfEventId, setExcludeBuyersOfEventId] = useState<string>('none');
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [campaignTag, setCampaignTag] = useState('');
   const [importingCsv, setImportingCsv] = useState(false);
@@ -3415,6 +3416,7 @@ function MailingSection() {
     tag: tagFilter || undefined,
     excludeTags: excludeTagFilters.length > 0 ? excludeTagFilters : undefined,
     eventId: eventFilter === 'all' ? undefined : Number(eventFilter),
+    notPurchasedEventId: excludeBuyersOfEventId === 'none' ? undefined : Number(excludeBuyersOfEventId),
   });
   const customersList = customersData ?? [];
 
@@ -3476,6 +3478,10 @@ function MailingSection() {
     if (accessType !== 'all') parts.push(`tipo de acceso "${ACCESO_SLUG_OPTIONS.find((o) => o.value === accessType)?.label ?? accessType}"`);
     if (tagFilter) parts.push(`etiqueta "${tagFilter}"`);
     if (excludeTagFilters.length > 0) parts.push(`sin las etiquetas ${excludeTagFilters.map((t) => `"${t}"`).join(', ')}`);
+    if (excludeBuyersOfEventId !== 'none') {
+      const ev = events.find((e: any) => String(e.id) === excludeBuyersOfEventId);
+      parts.push(`que NO compraron ${ev?.title ?? 'ese evento'}`);
+    }
     if (search) parts.push(`búsqueda "${search}"`);
     return parts.length > 0 ? parts.join(', ') : 'toda la base de clientes';
   })();
@@ -3572,6 +3578,13 @@ function MailingSection() {
               <SelectContent>
                 <SelectItem value="all">Todos los eventos</SelectItem>
                 {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={excludeBuyersOfEventId} onValueChange={setExcludeBuyersOfEventId}>
+              <SelectTrigger className="w-56"><SelectValue placeholder="Excluir compradores de…" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No excluir compradores</SelectItem>
+                {events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>Ya compraron {e.title}</SelectItem>)}
               </SelectContent>
             </Select>
             <WriteButton
