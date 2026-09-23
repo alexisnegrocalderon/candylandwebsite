@@ -1,6 +1,6 @@
 import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, isNull, isNotNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, emailLog } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, emailLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -876,7 +876,7 @@ export async function deleteBlockedCustomer(id: number) {
 
 // Site settings (fila única — Instagram followers/posts para el footer, y el
 // recargo por servicio (%) que se suma a toda venta nueva)
-const SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0, emailTemplateConfig: null, instagramAgentConfig: null };
+const SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0, emailTemplateConfig: null, instagramAgentConfig: null, whatsappAgentConfig: null };
 
 export async function getSiteSettings() {
   const db = await getDb();
@@ -892,6 +892,7 @@ export async function updateSiteSettings(data: {
   emailTemplateConfig?: EmailTemplateConfig;
   adminAlertsConfig?: AdminAlertsConfig;
   instagramAgentConfig?: import('../shared/instagramAgentConfig').InstagramAgentConfig;
+  whatsappAgentConfig?: import('../shared/whatsappAgentConfig').WhatsAppAgentConfig;
   flashPromoPresets?: import('../shared/flashPromoPresets').FlashPromoPreset[];
 }) {
   const db = await getDb();
@@ -6206,4 +6207,202 @@ export async function markMailingRecipientSkipped(recipientId: number, campaignI
   if (Number(remaining.count) === 0) {
     await db.update(mailingCampaigns).set({ status: 'done' }).where(eq(mailingCampaigns.id, campaignId));
   }
+}
+
+// ---------------------------------------------------------------------------
+// WhatsApp: hilos y mensajes del agente (server/whatsapp.ts). Mismo contrato
+// que los helpers de Instagram de más arriba -- ver sus comentarios para el
+// porqué de cada decisión (idempotencia por UNIQUE, orden del historial, etc.).
+// ---------------------------------------------------------------------------
+
+/** Busca el hilo de este número o lo crea. El nombre de perfil se refresca
+ * en cada mensaje, igual que el @ en Instagram. */
+export async function getOrCreateWaThread(input: {
+  waId: string;
+  profileName?: string | null;
+}): Promise<WaThread | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [existing] = await db.select().from(waThreads).where(eq(waThreads.waId, input.waId)).limit(1);
+  if (existing) {
+    if (input.profileName && input.profileName !== existing.profileName) {
+      await db.update(waThreads).set({ profileName: input.profileName }).where(eq(waThreads.id, existing.id));
+      return { ...existing, profileName: input.profileName };
+    }
+    return existing;
+  }
+
+  try {
+    await db.insert(waThreads).values({ waId: input.waId, profileName: input.profileName ?? null });
+  } catch (err) {
+    // Dos mensajes seguidos de un número nuevo pueden llegar en paralelo a
+    // dos instancias: la segunda choca con el UNIQUE y simplemente lee el
+    // hilo que creó la primera.
+    const message = String((err as { message?: unknown })?.message ?? '');
+    if (!/duplicate entry/i.test(message)) throw err;
+  }
+  const [created] = await db.select().from(waThreads).where(eq(waThreads.waId, input.waId)).limit(1);
+  return created ?? null;
+}
+
+/** Guarda un mensaje y deja el resumen del hilo al día. `null` = el `wamid`
+ * ya estaba guardado (reintento de Meta o eco de un mensaje nuestro). */
+export async function appendWaMessage(input: {
+  threadId: number;
+  wamid?: string | null;
+  direction: 'in' | 'out';
+  source: 'user' | 'bot' | 'admin' | 'owner_app';
+  text?: string | null;
+  interactive?: unknown;
+  attachments?: unknown;
+}): Promise<WaMessage | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  try {
+    await db.insert(waMessages).values({
+      threadId: input.threadId,
+      wamid: input.wamid ?? null,
+      direction: input.direction,
+      source: input.source,
+      text: input.text ?? null,
+      interactive: (input.interactive ?? null) as any,
+      attachments: (input.attachments ?? null) as any,
+    });
+  } catch (err) {
+    const message = String((err as { message?: unknown })?.message ?? '');
+    if (/duplicate entry/i.test(message)) return null;
+    throw err;
+  }
+
+  const now = new Date();
+  const preview = (input.text ?? '[adjunto]').slice(0, 300);
+  await db.update(waThreads).set({
+    lastMessageAt: now,
+    lastMessagePreview: preview,
+    ...(input.direction === 'in'
+      ? { lastInboundAt: now, unreadCount: sql`unreadCount + 1` as any }
+      : {}),
+  }).where(eq(waThreads.id, input.threadId));
+
+  const [saved] = await db.select().from(waMessages)
+    .where(eq(waMessages.threadId, input.threadId))
+    .orderBy(desc(waMessages.id))
+    .limit(1);
+  return saved ?? null;
+}
+
+/** Últimos mensajes del hilo, del más viejo al más nuevo. */
+export async function getWaMessages(threadId: number, limit = 50): Promise<WaMessage[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(waMessages)
+    .where(eq(waMessages.threadId, threadId))
+    .orderBy(desc(waMessages.id))
+    .limit(limit);
+  return rows.reverse();
+}
+
+export async function listWaThreads(limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(waThreads)
+    .orderBy(desc(waThreads.lastMessageAt))
+    .limit(limit);
+}
+
+export async function getWaThreadById(id: number): Promise<WaThread | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(waThreads).where(eq(waThreads.id, id)).limit(1);
+  return row ?? null;
+}
+
+export async function setWaThreadBotPaused(id: number, paused: boolean, reason?: string | null) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(waThreads).set({
+    botPaused: paused ? 1 : 0,
+    handoffReason: paused ? (reason ?? null) : null,
+  }).where(eq(waThreads.id, id));
+}
+
+export async function markWaThreadRead(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(waThreads).set({ unreadCount: 0 }).where(eq(waThreads.id, id));
+}
+
+/** Respuestas automáticas del hilo desde `since` (tope diario). */
+export async function countWaBotRepliesSince(threadId: number, since: Date): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [row] = await db.select({ count: sql<number>`count(*)` }).from(waMessages)
+    .where(and(
+      eq(waMessages.threadId, threadId),
+      eq(waMessages.source, 'bot'),
+      gte(waMessages.createdAt, since),
+    ));
+  return Number(row?.count ?? 0);
+}
+
+/** Hilos candidatos al recordatorio de cierre por silencio -- mismo filtro
+ * en dos pasos que getIgThreadsAwaitingFollowUp. */
+export async function getWaThreadsAwaitingFollowUp(cutoff: Date, limit = 25): Promise<WaThread[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const candidates = await db.select().from(waThreads).where(and(
+    eq(waThreads.botPaused, 0),
+    isNotNull(waThreads.lastMessageAt),
+    lte(waThreads.lastMessageAt, cutoff),
+    or(
+      isNull(waThreads.closingMessageSentAt),
+      lt(waThreads.closingMessageSentAt, waThreads.lastMessageAt),
+    ),
+  )).orderBy(waThreads.lastMessageAt).limit(limit);
+  if (candidates.length === 0) return [];
+
+  const eligible: WaThread[] = [];
+  for (const thread of candidates) {
+    const [lastMessage] = await db.select({ direction: waMessages.direction, source: waMessages.source })
+      .from(waMessages)
+      .where(eq(waMessages.threadId, thread.id))
+      .orderBy(desc(waMessages.id))
+      .limit(1);
+    if (lastMessage?.direction === 'out' && lastMessage.source === 'bot') eligible.push(thread);
+  }
+  return eligible;
+}
+
+export async function markWaThreadFollowUpSent(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(waThreads).set({ closingMessageSentAt: new Date() }).where(eq(waThreads.id, id));
+}
+
+/** Borra un hilo entero y sus mensajes (botón manual del admin). */
+export async function deleteWaThread(id: number): Promise<{ deleted: boolean }> {
+  const db = await getDb();
+  if (!db) return { deleted: false };
+  await db.delete(waMessages).where(eq(waMessages.threadId, id));
+  await db.delete(waThreads).where(eq(waThreads.id, id));
+  return { deleted: true };
+}
+
+/** Misma retención que Instagram: conversaciones sin actividad por más de
+ * 30 días se borran solas (cron de mantenimiento). */
+export async function purgeOldWaThreads(now: Date = new Date()): Promise<{ threadsDeleted: number }> {
+  const db = await getDb();
+  if (!db) return { threadsDeleted: 0 };
+
+  const cutoff = new Date(now.getTime() - IG_THREAD_RETENTION_MS);
+  const old = await db.select({ id: waThreads.id }).from(waThreads).where(lte(waThreads.lastMessageAt, cutoff));
+  if (old.length === 0) return { threadsDeleted: 0 };
+
+  const ids = old.map((t: any) => t.id);
+  await db.delete(waMessages).where(inArray(waMessages.threadId, ids));
+  await db.delete(waThreads).where(inArray(waThreads.id, ids));
+  return { threadsDeleted: ids.length };
 }

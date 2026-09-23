@@ -8,6 +8,7 @@ import { registerBlobUploadRoutes } from "../blobUpload";
 import { appRouter } from "../routers";
 import { webhooksRouter } from "../webhooks";
 import { instagramRouter } from "../instagram";
+import { whatsappRouter } from "../whatsapp";
 import { createContext } from "./context";
 import { resetDb } from "../db";
 
@@ -45,6 +46,7 @@ export function createApp(): Express {
    * de Meta (ver server/instagram.ts). Una vez que express.json() consumió
    * el stream, esos bytes ya no se pueden recuperar. */
   app.use(instagramRouter);
+  app.use(whatsappRouter);
   app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ limit: "10mb", extended: true }));
   registerOAuthRoutes(app);

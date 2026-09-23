@@ -5,10 +5,10 @@ reales del panel: fechas publicadas, precios vigentes y si quedan entradas.
 Lo que no puede resolver lo deriva a una persona y queda esperando en
 **/admin → Marketing → Instagram**.
 
-Es el equivalente propio del asistente de Meta que ya contesta el WhatsApp
-Business, con una diferencia que es todo el punto: aquel solo sabe lo que uno
-le escribió a mano en su configuración, y este lee la base de datos, así que
-"¿queda cupo para el sábado?" se responde con el stock de verdad.
+Lee la base de datos, así que "¿queda cupo para el sábado?" se responde con
+el stock de verdad. El mismo agente contesta también el WhatsApp (ver
+`docs/WHATSAPP-AGENT.md`): las notas de marca, el tono y el mensaje de
+derivación que se editan acá aplican a los dos canales.
 
 ---
 
