@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invokeLLM } from './_core/llm';
 import * as db from './db';
 import * as whatsappSend from './whatsappSend';
+import * as push from './push';
 import { handleInboundMessage, handleOwnerAppEcho, isSimpleGreeting, parseInbound, type WaInboundMessage } from './whatsapp';
 import { buildButtonsPayload, buildListPayload, buildCtaUrlPayload } from './whatsappSend';
 import { runInstagramAgent, sanitizeButtons } from './instagramAgent';
@@ -42,6 +43,7 @@ vi.mock('./whatsappSend', async (importOriginal) => {
 const sendPayloadMock = vi.mocked(whatsappSend.sendWhatsAppPayload);
 
 vi.mock('./push', () => ({ sendPushToAdmins: vi.fn() }));
+const sendPushToAdminsMock = vi.mocked(push.sendPushToAdmins);
 
 function mockLlmJson(payload: unknown) {
   invokeLLMMock.mockResolvedValueOnce({
@@ -206,6 +208,20 @@ describe('handleInboundMessage', () => {
     const payload = lastPayload();
     expect(payload.interactive.type).toBe('cta_url');
     expect(payload.interactive.action.parameters.url).toMatch(/\/eventos\/aniversario$/);
+  });
+
+  // Pedido del dueño (23/09, mismo caso que Instagram): la clasificación de
+  // "personal" la hace la IA y puede fallar con una pregunta real de
+  // cliente -- así que no manda nada automático, pero SIEMPRE avisa por
+  // push para que no quede en silencio total sin que nadie se entere.
+  it('mensaje marcado como personal no manda nada automático pero SIEMPRE avisa por push', async () => {
+    mockLlmJson({ reply: '', handoff: true, handoffReason: '', isPersonal: true, isThanks: false, buttons: [], action: 'none' });
+    await handleInboundMessage(textMessage('jaja mira este reel'));
+    expect(sendPayloadMock).not.toHaveBeenCalled();
+    expect(setWaThreadBotPausedMock).toHaveBeenCalledWith(7, true, 'La IA lo marcó como mensaje personal, no de cliente');
+    expect(sendPushToAdminsMock).toHaveBeenCalledWith('pushWhatsAppHandoff', expect.objectContaining({
+      body: expect.stringContaining('mensaje personal'),
+    }));
   });
 
   it('si la IA se cae, contesta el mensaje de derivación y pausa', async () => {
