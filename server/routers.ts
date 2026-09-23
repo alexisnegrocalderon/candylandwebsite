@@ -3223,6 +3223,10 @@ export const appRouter = router({
       tag: z.string().optional(),
       excludeTags: z.array(z.string()).optional(),
       eventId: z.number().optional(),
+      // Ya lo usaba internamente Founders Promo (server/foundersPromo.ts) --
+      // se expone acá para poder armar audiencias de mailing manual tipo
+      // "todos menos los que ya compraron este evento".
+      notPurchasedEventId: z.number().optional(),
     }).optional()).query(async ({ input }) => {
       return db.listCustomers(input ?? {});
     }),
