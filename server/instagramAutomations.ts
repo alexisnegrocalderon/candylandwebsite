@@ -29,6 +29,29 @@ export function buildAutomationReplyText(
   return text;
 }
 
+/** Separa el link del cuerpo del mensaje: si el mensaje usa `{{link}}` y hay
+ * un link resuelto, lo saca del texto (junto con el salto de línea que haya
+ * quedado suelto alrededor) para mandarlo aparte como un botón real
+ * "Comprar" en vez de una URL pegada en el texto (ver `sendButtonMessage`,
+ * `server/instagramSend.ts`). `{{codigo}}`/`{{producto}}` se sustituyen
+ * igual que siempre. */
+export function splitAutomationLink(
+  automation: Pick<IgKeywordAutomation, 'replyMessage' | 'discountCode'>,
+  extra: { productName?: string | null; link?: string | null } = {},
+): { text: string; buttonUrl: string | null } {
+  const withoutLink = buildAutomationReplyText(automation, { productName: extra.productName });
+  const hasLinkPlaceholder = withoutLink.includes('{{link}}');
+  if (!hasLinkPlaceholder) return { text: withoutLink, buttonUrl: null };
+  if (!extra.link) return { text: withoutLink.split('{{link}}').join(''), buttonUrl: null };
+
+  const text = withoutLink
+    .split('{{link}}').join('')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return { text, buttonUrl: extra.link };
+}
+
 /** Normaliza para comparar sin que mayúsculas o tildes rompan el calce
  * ("Disfraz", "disfraz!", "DISFRAZ" tienen que calzar todas con "disfraz"). */
 function normalizeForMatch(text: string): string {

@@ -45,10 +45,11 @@ const getFeaturedEventMock = vi.mocked(db.getFeaturedEvent);
 
 vi.mock('./instagramSend', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./instagramSend')>();
-  return { ...actual, sendInstagramMessage: vi.fn(), sendPrivateReply: vi.fn() };
+  return { ...actual, sendInstagramMessage: vi.fn(), sendPrivateReply: vi.fn(), sendButtonMessage: vi.fn() };
 });
 const sendInstagramMessageMock = vi.mocked(instagramSend.sendInstagramMessage);
 const sendPrivateReplyMock = vi.mocked(instagramSend.sendPrivateReply);
+const sendButtonMessageMock = vi.mocked(instagramSend.sendButtonMessage);
 
 function mockLlmJson(payload: unknown) {
   invokeLLMMock.mockResolvedValueOnce({
@@ -261,7 +262,9 @@ describe('tryHandleKeywordTrigger', () => {
   // mensaje reemplaza {{producto}} con el nombre real del producto y
   // {{link}} con el link de compra CON el código pegado, para que se
   // aplique solo al entrar al checkout.
-  it('resuelve {{producto}} y {{link}} cuando la automatización regala un producto', async () => {
+  // El {{link}} ya no se pega como texto -- se saca del mensaje y se manda
+  // como un botón real "Comprar con código" (Button Template de Meta).
+  it('resuelve {{producto}} y manda {{link}} como botón cuando la automatización regala un producto', async () => {
     findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({
       id: 6, keyword: 'piscola', triggerSource: 'story_reply', replyMessage: 'Tu código {{codigo}} te regala {{producto}} 🍹 Cómpralo acá: {{link}}', discountCode: 'AUTOXY99', active: 1, createdAt: new Date(),
     } as any);
@@ -269,12 +272,32 @@ describe('tryHandleKeywordTrigger', () => {
     getFeaturedEventMock.mockResolvedValueOnce({ slug: 'aniversario' } as any);
     getDiscountCodeByCodeMock.mockResolvedValueOnce({ giftTicketTypeId: 42 } as any);
     getTicketTypeByIdMock.mockResolvedValueOnce({ id: 42, name: '1 Piscola' } as any);
-    sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'mid-out-2' } as any);
+    sendButtonMessageMock.mockResolvedValueOnce({ mid: 'mid-out-2' } as any);
 
     await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'ig-user-1', text: 'quiero mi piscola', source: 'story_reply' });
 
-    const expectedText = 'Tu código AUTOXY99 te regala 1 Piscola 🍹 Cómpralo acá: https://mansionplayroom.cl/eventos/aniversario?code=AUTOXY99';
-    expect(sendInstagramMessageMock).toHaveBeenCalledWith({ recipientId: 'ig-user-1', text: expectedText });
+    expect(sendInstagramMessageMock).not.toHaveBeenCalled();
+    expect(sendButtonMessageMock).toHaveBeenCalledWith(
+      { id: 'ig-user-1' },
+      'Tu código AUTOXY99 te regala 1 Piscola 🍹 Cómpralo acá:',
+      { title: 'Comprar con código', url: 'https://mansionplayroom.cl/eventos/aniversario?code=AUTOXY99' },
+    );
+    expect(appendIgMessageMock).toHaveBeenCalledWith({ threadId: 7, mid: 'mid-out-2', direction: 'out', source: 'bot', text: 'Tu código AUTOXY99 te regala 1 Piscola 🍹 Cómpralo acá:' });
+  });
+
+  it('manda como texto plano si el mensaje sin el link ya supera el tope del botón (640 caracteres)', async () => {
+    const longMessage = `${'x'.repeat(650)} {{link}}`;
+    findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({
+      id: 7, keyword: 'largo', triggerSource: 'story_reply', replyMessage: longMessage, discountCode: null, active: 1, createdAt: new Date(),
+    } as any);
+    hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
+    getFeaturedEventMock.mockResolvedValueOnce({ slug: 'aniversario' } as any);
+    sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'mid-out-3' } as any);
+
+    await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'ig-user-1', text: 'largo', source: 'story_reply' });
+
+    expect(sendButtonMessageMock).not.toHaveBeenCalled();
+    expect(sendInstagramMessageMock).toHaveBeenCalledWith({ recipientId: 'ig-user-1', text: `${'x'.repeat(650)} https://mansionplayroom.cl/eventos/aniversario` });
   });
 });
 
@@ -288,6 +311,7 @@ describe('handleCommentChange', () => {
       id: 9, keyword: 'link', triggerSource: 'comment', replyMessage: 'Acá tienes: mansionplayroom.cl/blog', discountCode: null, active: 1, createdAt: new Date(),
     } as any);
     hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
+    sendPrivateReplyMock.mockResolvedValueOnce({ mid: 'mid-priv-1' } as any);
 
     await handleCommentChange({ id: 'comment-123', text: 'quiero el link porfa', from: { id: 'ig-user-2', username: 'alguien' } });
 
@@ -481,6 +505,26 @@ describe('runInstagramAgent', () => {
     const result = await runInstagramAgent({ incomingText: 'jajaja mira este reel', history: [], config });
     expect(result.isPersonal).toBe(true);
     expect(result.reply).toBe('');
+  });
+
+  // Instagram (canal por defecto) también puede pedir el botón de compra --
+  // mismo mecanismo que ya usa WhatsApp (`action`), acotado a 'buy_link'.
+  it('acepta action: "buy_link" para Instagram, el canal por defecto', async () => {
+    mockLlmJson({ reply: '¡Dale! Toca el botón de abajo 💜', handoff: false, handoffReason: '', action: 'buy_link' });
+    const result = await runInstagramAgent({ incomingText: 'quiero comprar', history: [], config });
+    expect(result.action).toBe('buy_link');
+  });
+
+  it('nunca manda action: "event_list" para Instagram, aunque la IA lo pida (no soportado en ese canal)', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '', action: 'event_list' });
+    const result = await runInstagramAgent({ incomingText: 'hola', history: [], config });
+    expect(result.action).toBe('none');
+  });
+
+  it('fuerza action a "none" en Instagram cuando el mensaje es personal', async () => {
+    mockLlmJson({ reply: '', handoff: true, handoffReason: 'Es un mensaje personal', isPersonal: true, action: 'buy_link' });
+    const result = await runInstagramAgent({ incomingText: 'jajaja mira esto', history: [], config });
+    expect(result.action).toBe('none');
   });
 
   // Pedido explícito del dueño: un "muchas gracias" puro no se deriva ni se
