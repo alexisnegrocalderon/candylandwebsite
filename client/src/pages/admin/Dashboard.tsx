@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut } from '@shared/rut';
@@ -6660,7 +6660,6 @@ function GastosView() {
         <TabsList>
           <TabsTrigger value="ventas">Ventas</TabsTrigger>
           <TabsTrigger value="gastos">Gastos</TabsTrigger>
-          <TabsTrigger value="presupuesto">Presupuesto</TabsTrigger>
         </TabsList>
         <TabsContent value="ventas" className="space-y-6 mt-4">
           {activeEventId && <ReportToolbar eventId={activeEventId} kind="ventas" />}
@@ -6675,12 +6674,19 @@ function GastosView() {
           <ExpenseForm events={events} onSaved={refresh} />
           <ExpensesList events={events} refreshKey={refreshKey} onChanged={refresh} />
         </TabsContent>
-        <TabsContent value="presupuesto" className="space-y-6 mt-4">
-          <BudgetSimulatorTab events={events} />
-        </TabsContent>
       </Tabs>
     </div>
   );
+}
+
+/** Ítem propio del menú (grupo Negocio) -- antes vivía como pestaña dentro
+ * de Gastos y P&L, se separó para que se pueda armar/comparar simulaciones
+ * sin tener que entrar a esa sección. Misma función `BudgetSimulatorTab` de
+ * siempre, todo se mantiene igual (guardar, comparar, vincular a evento). */
+function EventBudgetSimulatorView() {
+  const { data: eventsData } = trpc.events.listAll.useQuery();
+  const events = eventsData ?? [];
+  return <BudgetSimulatorTab events={events} />;
 }
 
 /* ─── Simulador de presupuesto pre-evento ──────────────────── */
@@ -6753,7 +6759,7 @@ function BudgetSimulatorTab({ events }: { events: any[] }) {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h3 className="font-heading text-xl">Simulador de presupuesto</h3>
+          <h2 className="font-heading text-2xl">Simulador de Evento</h2>
           <p className="text-sm text-muted-foreground mt-0.5 max-w-2xl">
             Calcula ANTES de crear el evento cuánto puedes gastar sin perder tu margen mínimo, y cuántas entradas
             necesitas vender para no perder plata. No toca ningún gasto ni venta real.
@@ -9122,6 +9128,7 @@ const ADMIN_SECTIONS = [
   { id: 'birthdays', label: 'Cumpleañeros', group: 'Marketing', icon: Cake, render: () => <BirthdaysView /> },
 
   { id: 'gastos', label: 'Gastos y P&L', group: 'Negocio', icon: Receipt, render: () => <GastosView /> },
+  { id: 'event-budget', label: 'Simulador de Evento', group: 'Negocio', icon: Calculator, render: () => <EventBudgetSimulatorView /> },
   { id: 'settings', label: 'Ajustes', group: 'Negocio', icon: SettingsIcon, render: () => <SettingsManager /> },
 ] as const;
 
