@@ -76,26 +76,20 @@ export default function EventDetail() {
   return (
     <div className="min-h-screen pt-24 pb-16">
       {/* Botón flotante persistente -- solo mobile/tablet, donde el CTA de
-       * compra vive al final del stack (ver comentario más abajo) y antes
-       * quedaba invisible hasta hacer scroll hasta el fondo. En escritorio
-       * no hace falta: el CTA ya es `lg:sticky` dentro de la grilla y queda
-       * siempre visible. Vidrio OSCURO ("night glass") a propósito -- la
-       * primera versión usaba el mismo vidrio blanco del countdown de la
-       * Home, pero ahí se confundía con el fondo pastel; con base oscura
-       * translúcida el contraste queda garantizado sobre cualquier fondo
-       * claro, y el texto en degradé cherry→primary resalta más brillante
-       * encima. */}
+       * compra vive al final del stack (ver más abajo) y antes quedaba
+       * invisible hasta hacer scroll hasta el fondo. En escritorio no hace
+       * falta: el CTA de la tarjeta ya es `lg:sticky` dentro de la grilla y
+       * queda siempre visible. Mismo botón sólido (`glow-pink`) que el de
+       * la tarjeta -- se probó vidrio blanco y luego vidrio oscuro, pero el
+       * dueño prefirió mantener el diseño original del botón, solo que
+       * ahora fijo. El botón DENTRO de la tarjeta se oculta en mobile
+       * (`hidden lg:block` más abajo) para no duplicarlo. */}
       {!isPast && (
         <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-6 bg-gradient-to-t from-background via-background/90 to-transparent pointer-events-none">
           <Link href={`/checkout/${slug}`} className="pointer-events-auto block max-w-md mx-auto">
-            <button className="relative w-full h-14 rounded-full flex items-center justify-center gap-2 bg-black/55 backdrop-blur-xl border border-white/20 shadow-[0_8px_32px_oklch(0.70_0.19_340_/_0.45),inset_0_1px_0_oklch(1_0_0_/_0.15),inset_0_-2px_6px_oklch(0_0_0_/_0.3)] overflow-hidden interactive">
-              <span aria-hidden className="absolute -inset-6 rounded-full bg-gradient-to-br from-cherry/50 via-primary/35 to-transparent blur-2xl" />
-              <span aria-hidden className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/15 to-transparent rounded-t-full" />
-              <span className="relative font-heading font-black text-lg bg-gradient-to-br from-cherry to-primary bg-clip-text text-transparent drop-shadow-[0_1px_2px_oklch(0_0_0_/_0.5)]">
-                Comprar entrada
-              </span>
-              <ArrowRight className="relative w-5 h-5 text-primary" />
-            </button>
+            <Button className="w-full h-14 rounded-full text-lg font-semibold glow-pink interactive">
+              Comprar entrada <ArrowRight className="w-5 h-5 ml-2" />
+            </Button>
           </Link>
         </div>
       )}
@@ -215,7 +209,11 @@ export default function EventDetail() {
                 <>
                   <h3 className="font-heading text-2xl mb-2">¿Vienes a {event.title}?</h3>
                   <p className="text-muted-foreground text-sm mb-6">Elige cómo vienes y te mostramos tu acceso y el valor al tiro.</p>
-                  <Link href={`/checkout/${slug}`}>
+                  {/* En mobile/tablet este botón se reemplaza por el flotante
+                   * de más arriba (mismo diseño) para que quede siempre
+                   * visible en vez de solo acá abajo; se mantiene en
+                   * escritorio porque ahí toda la tarjeta ya es sticky. */}
+                  <Link href={`/checkout/${slug}`} className="hidden lg:block">
                     <Button className="w-full h-12 rounded-full text-lg font-semibold glow-pink interactive">
                       Comprar entrada <ArrowRight className="w-5 h-5 ml-2" />
                     </Button>
