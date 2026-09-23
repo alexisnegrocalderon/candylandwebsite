@@ -191,6 +191,13 @@ export function humanReplyDelayMs(): number {
 async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   const senderId = event.sender?.id;
   const message = event.message;
+  // Log temporal de diagnóstico (23/09): el dueño reporta que el bot se
+  // pausa solo con abrir una conversación en el panel, sin escribir nada --
+  // pero ningún código del panel (ThreadDetail, markRead) manda a pausar. La
+  // sospecha es que Meta esté mandando algo (recibo de lectura, u otro
+  // evento sin `message`) que se está interpretando como un mensaje real.
+  // Sacar esta línea una vez que se confirme la causa real.
+  console.log(`[Instagram][diag] entrada webhook: sender=${senderId ?? '-'} hasMessage=${!!message} is_echo=${!!message?.is_echo} hasText=${!!(message?.text && message.text.trim().length > 0)} mid=${message?.mid ?? '-'}`);
   if (!senderId || !message) return;
   if (message.is_deleted) return;
 
