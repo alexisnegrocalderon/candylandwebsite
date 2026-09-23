@@ -844,10 +844,10 @@ function UpcomingEventsSection() {
 function CountdownUnit({ value, label }: { value: number; label: string }) {
   return (
     <div className="flex flex-col items-center gap-1">
-      <div className="relative w-14 h-14 sm:w-24 sm:h-24 md:w-28 md:h-28 lg:w-32 lg:h-32 rounded-xl sm:rounded-2xl md:rounded-3xl bg-white/25 backdrop-blur-xl border border-white/60 shadow-[0_8px_28px_oklch(0.70_0.19_340_/_0.28),inset_0_1px_0_oklch(1_0_0_/_0.6),inset_0_-2px_6px_oklch(0.70_0.19_340_/_0.1)] flex items-center justify-center overflow-hidden">
+      <div className="relative w-16 h-16 sm:w-28 sm:h-28 md:w-32 md:h-32 lg:w-36 lg:h-36 rounded-xl sm:rounded-2xl md:rounded-3xl bg-white/25 backdrop-blur-xl border border-white/60 shadow-[0_8px_28px_oklch(0.70_0.19_340_/_0.28),inset_0_1px_0_oklch(1_0_0_/_0.6),inset_0_-2px_6px_oklch(0.70_0.19_340_/_0.1)] flex items-center justify-center overflow-hidden">
         <div aria-hidden className="absolute -inset-6 rounded-full bg-gradient-to-br from-cherry/40 via-primary/25 to-transparent blur-2xl" />
         <div aria-hidden className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/50 to-transparent" />
-        <span className="relative font-heading font-black text-xl sm:text-5xl md:text-6xl lg:text-7xl tabular-nums bg-gradient-to-br from-cherry to-primary bg-clip-text text-transparent drop-shadow-[0_1px_1px_oklch(1_0_0_/_0.4)]">
+        <span className="relative font-heading font-black text-2xl sm:text-5xl md:text-6xl lg:text-7xl tabular-nums bg-gradient-to-br from-cherry to-primary bg-clip-text text-transparent drop-shadow-[0_1px_1px_oklch(1_0_0_/_0.4)]">
           {String(value).padStart(2, '0')}
         </span>
       </div>
@@ -980,13 +980,13 @@ function UrgencySection({
             <span className="w-2 h-2 rounded-full bg-cherry candy-pulse inline-block" />
             {esHoy ? '¡Es hoy! 🍭' : '🔥 La fiesta empieza en'}
           </p>
-          <div className="relative flex items-center gap-1 sm:gap-3 md:gap-4">
+          <div className="relative flex items-center gap-1.5 sm:gap-3 md:gap-4">
             <CountdownUnit value={dias} label="Días" />
-            <span className="text-lg sm:text-5xl md:text-5xl lg:text-6xl font-heading font-black text-cherry/50 -mt-2 sm:-mt-4 md:-mt-6">:</span>
+            <span className="text-xl sm:text-5xl md:text-5xl lg:text-6xl font-heading font-black text-cherry/50 -mt-2 sm:-mt-4 md:-mt-6">:</span>
             <CountdownUnit value={horas} label="Hrs" />
-            <span className="text-lg sm:text-5xl md:text-5xl lg:text-6xl font-heading font-black text-cherry/50 -mt-2 sm:-mt-4 md:-mt-6">:</span>
+            <span className="text-xl sm:text-5xl md:text-5xl lg:text-6xl font-heading font-black text-cherry/50 -mt-2 sm:-mt-4 md:-mt-6">:</span>
             <CountdownUnit value={minutos} label="Min" />
-            <span className="text-lg sm:text-5xl md:text-5xl lg:text-6xl font-heading font-black text-cherry/50 -mt-2 sm:-mt-4 md:-mt-6">:</span>
+            <span className="text-xl sm:text-5xl md:text-5xl lg:text-6xl font-heading font-black text-cherry/50 -mt-2 sm:-mt-4 md:-mt-6">:</span>
             <CountdownUnit value={segundos} label="Seg" />
           </div>
           <p className="relative text-muted-foreground text-xs md:text-sm font-medium">
