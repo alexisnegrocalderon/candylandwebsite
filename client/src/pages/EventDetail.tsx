@@ -79,16 +79,19 @@ export default function EventDetail() {
        * compra vive al final del stack (ver comentario más abajo) y antes
        * quedaba invisible hasta hacer scroll hasta el fondo. En escritorio
        * no hace falta: el CTA ya es `lg:sticky` dentro de la grilla y queda
-       * siempre visible. Mismo estilo glassmorphism que los tiles del
-       * countdown de la Home (`bg-white/25 backdrop-blur-xl border
-       * border-white/60` + glow cherry/primary). */}
+       * siempre visible. Vidrio OSCURO ("night glass") a propósito -- la
+       * primera versión usaba el mismo vidrio blanco del countdown de la
+       * Home, pero ahí se confundía con el fondo pastel; con base oscura
+       * translúcida el contraste queda garantizado sobre cualquier fondo
+       * claro, y el texto en degradé cherry→primary resalta más brillante
+       * encima. */}
       {!isPast && (
         <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-6 bg-gradient-to-t from-background via-background/90 to-transparent pointer-events-none">
           <Link href={`/checkout/${slug}`} className="pointer-events-auto block max-w-md mx-auto">
-            <button className="relative w-full h-14 rounded-full flex items-center justify-center gap-2 bg-white/25 backdrop-blur-xl border border-white/60 shadow-[0_8px_28px_oklch(0.70_0.19_340_/_0.35),inset_0_1px_0_oklch(1_0_0_/_0.6),inset_0_-2px_6px_oklch(0.70_0.19_340_/_0.1)] overflow-hidden interactive">
-              <span aria-hidden className="absolute -inset-6 rounded-full bg-gradient-to-br from-cherry/40 via-primary/25 to-transparent blur-2xl" />
-              <span aria-hidden className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/50 to-transparent rounded-t-full" />
-              <span className="relative font-heading font-black text-lg bg-gradient-to-br from-cherry to-primary bg-clip-text text-transparent drop-shadow-[0_1px_1px_oklch(1_0_0_/_0.4)]">
+            <button className="relative w-full h-14 rounded-full flex items-center justify-center gap-2 bg-black/55 backdrop-blur-xl border border-white/20 shadow-[0_8px_32px_oklch(0.70_0.19_340_/_0.45),inset_0_1px_0_oklch(1_0_0_/_0.15),inset_0_-2px_6px_oklch(0_0_0_/_0.3)] overflow-hidden interactive">
+              <span aria-hidden className="absolute -inset-6 rounded-full bg-gradient-to-br from-cherry/50 via-primary/35 to-transparent blur-2xl" />
+              <span aria-hidden className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/15 to-transparent rounded-t-full" />
+              <span className="relative font-heading font-black text-lg bg-gradient-to-br from-cherry to-primary bg-clip-text text-transparent drop-shadow-[0_1px_2px_oklch(0_0_0_/_0.5)]">
                 Comprar entrada
               </span>
               <ArrowRight className="relative w-5 h-5 text-primary" />
