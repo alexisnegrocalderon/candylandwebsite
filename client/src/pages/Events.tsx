@@ -65,9 +65,7 @@ export default function Events() {
                       <img
                         src={event.imageUrl}
                         alt={event.title}
-                        className={`w-full h-full object-cover transition-all duration-500 ${
-                          isPast ? 'grayscale group-hover:grayscale-0 opacity-80 group-hover:opacity-100' : ''
-                        }`}
+                        className="w-full h-full object-cover transition-all duration-500"
                       />
                     ) : (
                       <div className="w-full h-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
