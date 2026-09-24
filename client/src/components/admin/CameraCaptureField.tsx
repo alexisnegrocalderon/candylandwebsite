@@ -17,8 +17,8 @@ import { useDemoProps } from '@/lib/demoMode';
  * - Expone `analyzing` (controlado por quien lo usa) para mostrar el paso
  *   "leyendo la foto…" después de que terminó de subir. */
 export function CameraCaptureField({
-  label, pathPrefix, onScanned, analyzing,
-}: { label: string; pathPrefix: string; onScanned: (url: string) => void; analyzing?: boolean }) {
+  label, pathPrefix, onScanned, analyzing, buttonClassName,
+}: { label: string; pathPrefix: string; onScanned: (url: string) => void; analyzing?: boolean; buttonClassName?: string }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -67,6 +67,7 @@ export function CameraCaptureField({
         disabled={busy || demoProps.disabled}
         title={demoProps.title}
         onClick={() => inputRef.current?.click()}
+        className={buttonClassName}
       >
         {uploading ? (
           <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Subiendo foto…</>

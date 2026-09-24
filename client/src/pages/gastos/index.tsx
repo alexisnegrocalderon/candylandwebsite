@@ -9,6 +9,7 @@ import { useInstallableApp } from '@/hooks/useInstallableApp';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
+import { CameraCaptureField } from '@/components/admin/CameraCaptureField';
 import {
   EXPENSE_CATEGORIES, EXPENSE_DOCUMENT_TYPES, EXPENSE_PAYMENT_METHODS,
   deriveAmounts, categoryLabel,
@@ -108,6 +109,34 @@ function ExpenseCapture() {
     .reduce((s: number, e: any) => s + e.amountTotal, 0);
   const lastExpense = allExpenses?.[0];
 
+  const scanReceipt = trpc.expenses.scanReceipt.useMutation({
+    onSuccess: (result) => {
+      if (!result.isReceipt) {
+        toast.error('No pudimos leer la foto como boleta o factura -- completa a mano.');
+        return;
+      }
+      if (result.amountTotal) setAmount(result.amountTotal);
+      if (result.category) setCategory(result.category);
+      if (result.documentType) setDocumentType(result.documentType);
+      if (result.description) setDescription(result.description);
+      if (result.supplier) setSupplier(result.supplier);
+      if (result.description || result.supplier) setShowOptional(true);
+      if (result.confidence !== 'alta' || result.notes) {
+        toast.warning(result.notes || 'Revisa los datos leídos antes de guardar.');
+      } else {
+        toast.success('Boleta leída -- revisa y guarda.');
+      }
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const handleScan = (imageUrl: string) => {
+    if ((amount > 0 || description.trim() || supplier.trim())
+      && !window.confirm('Ya hay datos cargados -- esto los va a reemplazar con lo que lea la foto. ¿Continuar?')) {
+      return;
+    }
+    scanReceipt.mutate({ imageUrl });
+  };
+
   const create = trpc.expenses.create.useMutation({
     onSuccess: () => {
       toast.success(`Gasto de $${amount.toLocaleString('es-CL')} guardado`);
@@ -185,6 +214,18 @@ function ExpenseCapture() {
               <br />Mes ${monthTotal.toLocaleString('es-CL')}
             </p>
           )}
+        </div>
+
+        {/* 0. Escanear -- opcional, antes que todo: si hay foto, la IA
+         * precarga el resto y ahorra los 5 toques de siempre. */}
+        <div className="flex justify-center">
+          <CameraCaptureField
+            label="Escanear boleta o factura"
+            pathPrefix="expenses"
+            onScanned={handleScan}
+            analyzing={scanReceipt.isPending}
+            buttonClassName="border-white/15 bg-white/5 text-white hover:bg-white/10"
+          />
         </div>
 
         {/* 1. Monto -- lo primero porque es lo único que siempre cambia. */}
