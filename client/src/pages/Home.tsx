@@ -561,7 +561,7 @@ function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'n
     <Link
       href={event.href}
       className={`group relative block rounded-2xl md:rounded-3xl overflow-hidden glass-candy interactive ${
-        isSmall ? 'aspect-square' : 'aspect-[4/5]'
+        isSmall ? 'aspect-[3/4]' : 'aspect-[4/5]'
       }`}
     >
       {/* width/height declarados aunque el contenedor ya reserve el espacio
@@ -577,9 +577,7 @@ function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'n
           width={1060}
           height={1413}
           onError={() => setImgOk(false)}
-          className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${
-            event.isPast ? 'grayscale group-hover:grayscale-0 opacity-80 group-hover:opacity-100' : 'group-hover:scale-105'
-          }`}
+          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
         />
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-primary/20 via-cherry/10 to-violet-electric/15">
@@ -607,6 +605,54 @@ function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'n
         )}
       </div>
     </Link>
+  );
+}
+
+/** Tira de "Ediciones anteriores": carrusel automático en loop (la lista se
+ * duplica una vez y la pista anima de 0 a -50%, así el corte no se nota) en
+ * vez del viejo scroll manual -- con 6-7 ediciones cargadas, todas entraban
+ * en pantalla sin que el usuario tuviera que deslizar, así que la tira se
+ * veía estática en vez de sentirse como un carrusel vivo. Se pausa con el
+ * mouse encima o con el dedo apoyado para poder seguir mirando/deslizando a
+ * mano. Con `prefers-reduced-motion` se cae directo al scroll manual de
+ * siempre, sin duplicar la lista ni animar. */
+function PastEventsCarousel({ events }: { events: HomeEventItem[] }) {
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const [paused, setPaused] = useState(false);
+  useEffect(() => {
+    setReducedMotion(prefersReducedMotion());
+  }, []);
+
+  if (reducedMotion) {
+    return (
+      <div className="flex gap-3 md:gap-4 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-1">
+        {events.map((e) => (
+          <div key={e.id} className="snap-start shrink-0 w-28 md:w-40">
+            <EventCard event={e} size="small" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const looped = [...events, ...events];
+  return (
+    <div className="overflow-hidden pb-1 [mask-image:linear-gradient(to_right,transparent,black_6%,black_94%,transparent)] [-webkit-mask-image:linear-gradient(to_right,transparent,black_6%,black_94%,transparent)]">
+      <div
+        className="flex gap-3 md:gap-4 w-max animate-marquee-scroll"
+        style={{ animationDuration: `${events.length * 3.5}s`, animationPlayState: paused ? 'paused' : 'running' }}
+        onPointerEnter={() => setPaused(true)}
+        onPointerLeave={() => setPaused(false)}
+        onPointerDown={() => setPaused(true)}
+        onPointerUp={() => setPaused(false)}
+      >
+        {looped.map((e, i) => (
+          <div key={`${e.id}-${i}`} className="shrink-0 w-28 md:w-40">
+            <EventCard event={e} size="small" />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -821,17 +867,7 @@ function UpcomingEventsSection() {
         {stripPast.length > 0 && (
           <motion.div {...reveal}>
             <p className="text-sm uppercase tracking-[0.25em] text-muted-foreground mb-4">Ediciones anteriores</p>
-            {/* Tira horizontal con scroll-snap en vez de una grilla fija --
-             * escala mejor a medida que se acumulan más ediciones pasadas
-             * (una grilla de 6 columnas se ve bien con 6 items, rara con 4
-             * u 8; la tira siempre se ve intencional). */}
-            <div className="flex gap-3 md:gap-4 overflow-x-auto snap-x snap-mandatory scrollbar-hide pb-1">
-              {stripPast.map((e) => (
-                <div key={e.id} className="snap-start shrink-0 w-28 md:w-40">
-                  <EventCard event={e} size="small" />
-                </div>
-              ))}
-            </div>
+            <PastEventsCarousel events={stripPast} />
           </motion.div>
         )}
       </div>
