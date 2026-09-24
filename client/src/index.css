@@ -148,6 +148,19 @@ html {
   animation: candy-pulse 2.4s ease-out infinite;
 }
 
+/* Carrusel en loop de "Ediciones anteriores" (Home.tsx `PastEventsCarousel`)
+   -- la pista duplica la lista una vez, así que -50% deja la segunda copia
+   exactamente donde empezaba la primera y el loop no se nota. */
+@keyframes marquee-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.animate-marquee-scroll {
+  animation-name: marquee-scroll;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
 /* Card glossy translúcida — glassmorphism claro/mate sobre el fondo pastel */
 .glass-candy {
   background: oklch(0.995 0.006 340 / 0.55);
