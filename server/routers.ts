@@ -17,6 +17,7 @@ import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanit
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
+import { scanReceiptImage } from "./receiptScan";
 import * as applications from "./ambassadorApplications";
 import * as birthdayApplications from "./birthdayApplications";
 import * as birthdayProgram from "./birthdayProgram";
@@ -2345,6 +2346,20 @@ export const appRouter = router({
       const result = await db.deleteExpense(input.id);
       await db.recordAdminAudit({ action: 'expenses.delete', targetType: 'expense', targetId: input.id, ip: clientIp(ctx) });
       return result;
+    }),
+    // Lee una foto de boleta/factura con IA para precargar el formulario de
+    // arriba -- nunca guarda nada por sí solo, el admin siempre revisa y
+    // aprieta "Guardar gasto" (server/receiptScan.ts).
+    scanReceipt: adminProcedure.input(z.object({ imageUrl: z.string().url() })).mutation(async ({ input }) => {
+      try {
+        return await scanReceiptImage(input.imageUrl);
+      } catch (err) {
+        throw new TRPCError({
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'No se pudo leer la foto. Completa el formulario a mano.',
+          cause: err,
+        });
+      }
     }),
   }),
 
