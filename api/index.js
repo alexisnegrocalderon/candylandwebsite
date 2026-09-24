@@ -11,7 +11,7 @@ var __export = (target, all) => {
 // drizzle/schema.ts
 import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
-var users, events, ticketTypes, stockPools, ticketStockHistory, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, siteSettings, referrals, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorBenefitDeliveries, ambassadorWeeklyMaterial, ambassadorApplications, operators, registers, devices, customers, ops, rateLimits, adminAuditLog, shifts, lockerItems, kitchenTickets, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyGifts, adminTotp, adminWebauthnCredentials, expenses, pushSubscriptions, partyPushSubscriptions;
+var users, events, ticketTypes, stockPools, ticketStockHistory, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, siteSettings, referrals, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorBenefitDeliveries, ambassadorWeeklyMaterial, ambassadorApplications, birthdayApplications, birthdayPeople, operators, registers, devices, customers, ops, rateLimits, adminAuditLog, shifts, lockerItems, kitchenTickets, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyGifts, adminTotp, adminWebauthnCredentials, expenses, budgetSimulations, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, waThreads, waMessages, agentHandoffLog, igKeywordAutomations, igKeywordRedemptions, emailLog;
 var init_schema = __esm({
   "drizzle/schema.ts"() {
     "use strict";
@@ -339,6 +339,22 @@ var init_schema = __esm({
       // Ajustes → Descuentos) = comportamiento de siempre, sobre el carrito
       // completo -- no rompe nada existente.
       applicableTicketTypeIds: json("applicableTicketTypeIds").$type(),
+      // Cuando está seteado, este código además REGALA una unidad de este
+      // producto (cualquier categoría de la Carta -- no solo 'extra') al
+      // comprar una entrada con él -- ver server/webhooks.ts, donde se genera
+      // el orderItem sintético de precio $0 que hace que el regalo aparezca
+      // junto al QR/PlayCard del comprador, listo para canjear en caja igual
+      // que cualquier extra. `null` = comportamiento de siempre (solo
+      // descuento en dinero, si lo tiene).
+      giftTicketTypeId: int("giftTicketTypeId"),
+      // `1` = el % de descuento se calcula sobre ticketTypes.originalPrice (el
+      // precio general tachado), no sobre el precio vigente de la tanda actual
+      // -- así el % no cambia según qué tan avanzada esté la venta. Hoy solo lo
+      // usa el programa Cumpleañeros (ver server/birthdayApplications.ts
+      // approveApplication); `0`/default = comportamiento de siempre (% sobre
+      // el precio vigente), para no romper ningún código manual ni de
+      // embajadores/promos ya existente.
+      basedOnOriginalPrice: int("basedOnOriginalPrice").default(0).notNull(),
       validFrom: timestamp("validFrom"),
       validUntil: timestamp("validUntil"),
       isActive: int("isActive").default(1).notNull(),
@@ -434,6 +450,16 @@ var init_schema = __esm({
       // la fiesta -- forma en shared/flashPromoPresets.ts. null = ninguna
       // guardada todavía.
       flashPromoPresets: json("flashPromoPresets"),
+      // Config del agente de IA que contesta el Instagram -- forma en
+      // shared/instagramAgentConfig.ts. null = agente APAGADO y con los textos
+      // por defecto: desplegar este código no debe empezar a contestarle a
+      // nadie solo (mismo criterio que foundersPromoEnabled y adminAlertsConfig).
+      instagramAgentConfig: json("instagramAgentConfig"),
+      // Config del agente de WhatsApp -- forma en shared/whatsappAgentConfig.ts.
+      // Solo lo propio del canal (interruptor, menú, tope, recordatorio): lo que
+      // el agente SABE (notas de marca, tono, mensaje de derivación) se comparte
+      // con el de Instagram. null = APAGADO, mismo criterio que arriba.
+      whatsappAgentConfig: json("whatsappAgentConfig"),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     });
     referrals = mysqlTable("referrals", {
@@ -524,8 +550,9 @@ var init_schema = __esm({
       weeklyEmailEnabled: int("weeklyEmailEnabled").default(1).notNull(),
       // 0=domingo .. 1=lunes, igual que Date.getUTCDay().
       weeklyEmailWeekday: int("weeklyEmailWeekday").default(1).notNull(),
-      // Solo informativo: Vercel Hobby dispara el cron una vez al día a la hora
-      // fija de vercel.json, así que esto no puede mover el disparo real.
+      // Hora del día (0-23) en que sale el correo semanal, en hora de Chile --
+      // el cron corre cada hora y se autolimita a esta (server/cronRoutes.ts
+      // /api/cron/ambassador-weekly, vía shouldSendWeeklyAmbassadorEmailNow).
       weeklyEmailHourChile: int("weeklyEmailHourChile").default(9).notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     });
@@ -546,7 +573,15 @@ var init_schema = __esm({
       reelText: text("reelText"),
       postText: text("postText"),
       countdownText: text("countdownText"),
+      // Legacy: un único link ("Descargar el material"), reemplazado por
+      // `links` de abajo (pedido explícito del dueño, 14/09: puede necesitar
+      // más de uno -- carpeta de Drive, un doc de instrucciones, etc). Se deja
+      // la columna sin borrar para no perder el valor de filas ya guardadas
+      // antes de este cambio; el correo ya no la usa si `links` trae algo.
       linkUrl: varchar("linkUrl", { length: 500 }),
+      // { label: string; url: string }[] -- cuantos links haga falta cada
+      // semana, cada uno con su propio texto (ej. "📂 Carpeta de Drive").
+      links: json("links"),
       active: int("active").default(1).notNull(),
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
@@ -575,6 +610,56 @@ var init_schema = __esm({
     }, (t2) => [
       index("ambassadorApplications_email_idx").on(t2.email),
       index("ambassadorApplications_status_idx").on(t2.status)
+    ]);
+    birthdayApplications = mysqlTable("birthdayApplications", {
+      id: int("id").autoincrement().primaryKey(),
+      eventId: int("eventId").notNull(),
+      name: varchar("name", { length: 255 }).notNull(),
+      email: varchar("email", { length: 320 }).notNull(),
+      whatsapp: varchar("whatsapp", { length: 20 }).notNull(),
+      instagram: varchar("instagram", { length: 100 }),
+      // Fecha de nacimiento declarada -- solo se usa el día/mes para calcular la
+      // ventana ±5 días respecto a events.eventDate, no se pide ni valida el año.
+      birthDate: varchar("birthDate", { length: 10 }).notNull(),
+      message: text("message"),
+      acceptedTerms: int("acceptedTerms").default(0).notNull(),
+      status: mysqlEnum("status", ["pendiente", "aprobada", "rechazada"]).default("pendiente").notNull(),
+      reviewNote: text("reviewNote"),
+      reviewedAt: timestamp("reviewedAt"),
+      createdBirthdayPersonId: int("createdBirthdayPersonId"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (t2) => [
+      index("birthdayApplications_email_idx").on(t2.email),
+      index("birthdayApplications_event_idx").on(t2.eventId),
+      index("birthdayApplications_status_idx").on(t2.status)
+    ]);
+    birthdayPeople = mysqlTable("birthdayPeople", {
+      id: int("id").autoincrement().primaryKey(),
+      applicationId: int("applicationId").notNull(),
+      eventId: int("eventId").notNull(),
+      name: varchar("name", { length: 255 }).notNull(),
+      email: varchar("email", { length: 320 }).notNull(),
+      whatsapp: varchar("whatsapp", { length: 20 }).notNull(),
+      birthDate: varchar("birthDate", { length: 10 }).notNull(),
+      discountCodeId: int("discountCodeId").notNull(),
+      // Último tramo alcanzado (0 = ninguno todavía), ver BIRTHDAY_TIERS.
+      currentTier: int("currentTier").default(0).notNull(),
+      // true cuando el tramo alcanzado incluye "entrada gratis para el próximo
+      // evento" y todavía no se le asignó un evento destino.
+      pendingNextEventCredit: int("pendingNextEventCredit").default(0).notNull(),
+      pendingCreditRedeemedEventId: int("pendingCreditRedeemedEventId"),
+      // Orden $0 (paymentStatus='approved') donde viven los orderItems/tickets
+      // sintéticos de su premio vigente -- se crea la primera vez que alcanza
+      // el tramo 1, y se reutiliza (reemplazando ítems) en tramos siguientes.
+      rewardOrderId: int("rewardOrderId"),
+      active: int("active").default(1).notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (t2) => [
+      uniqueIndex("birthdayPeople_application_idx").on(t2.applicationId),
+      uniqueIndex("birthdayPeople_discountCode_idx").on(t2.discountCodeId),
+      index("birthdayPeople_event_idx").on(t2.eventId)
     ]);
     operators = mysqlTable("operators", {
       id: int("id").autoincrement().primaryKey(),
@@ -908,9 +993,21 @@ var init_schema = __esm({
       // `mailingRecipients` quedan huérfanas sin más acción (el cron ya
       // filtra por `status = 'sending'`, ver getPendingMailingRecipients).
       status: mysqlEnum("status", ["sending", "done", "cancelled"]).default("sending").notNull(),
+      // Evento al que se refiere esta campaña (pedido explícito del dueño,
+      // 14/09): nullable porque no toda campaña habla de un evento puntual (ej.
+      // un newsletter general) -- cuando SÍ está seteado, el cron lo usa para
+      // saltarse a quien compró ese evento MIENTRAS estaba pendiente en la cola
+      // (ver getPendingMailingRecipients / processMailingCronBatch). Se completa
+      // solo con el evento que estaba elegido en el filtro de audiencia al armar
+      // la campaña -- no es un campo nuevo que el admin tenga que llenar aparte.
+      eventId: int("eventId"),
       totalRecipients: int("totalRecipients").notNull(),
       sentCount: int("sentCount").default(0).notNull(),
       failedCount: int("failedCount").default(0).notNull(),
+      // Pendientes que NUNCA se llegaron a mandar porque, cuando les tocó el
+      // turno en la cola, ya habían comprado la entrada de `eventId` -- no
+      // cuentan como enviado ni como fallado, son un tercer resultado.
+      skippedCount: int("skippedCount").default(0).notNull(),
       createdAt: timestamp("createdAt").defaultNow().notNull(),
       updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
     });
@@ -918,7 +1015,11 @@ var init_schema = __esm({
       id: int("id").autoincrement().primaryKey(),
       campaignId: int("campaignId").notNull(),
       customerId: int("customerId").notNull(),
-      status: mysqlEnum("status", ["pending", "sent", "failed"]).default("pending").notNull(),
+      // 'skipped' = seguía pendiente cuando le tocó el turno, pero para
+      // entonces ya había comprado la entrada del evento de la campaña (ver
+      // `eventId` en mailingCampaigns) -- no se le manda un correo ofreciéndole
+      // algo que ya tiene.
+      status: mysqlEnum("status", ["pending", "sent", "failed", "skipped"]).default("pending").notNull(),
       reason: varchar("reason", { length: 500 }),
       sentAt: timestamp("sentAt")
     }, (table) => ({
@@ -1166,6 +1267,43 @@ var init_schema = __esm({
       // gastos normales (sin `recurringParentId`) no chocan nunca con este único.
       recurringEventUnique: uniqueIndex("expenses_recurring_event_unique").on(table.recurringParentId, table.eventId)
     }));
+    budgetSimulations = mysqlTable("budgetSimulations", {
+      id: int("id").autoincrement().primaryKey(),
+      name: varchar("name", { length: 255 }).notNull(),
+      // Se setea con "Vincular a este evento" una vez que el evento ya existe de
+      // verdad -- desde ahí el admin puede comparar presupuestado vs. real en
+      // Gastos y P&L. Nace siempre NULL (la simulación corre antes de crear el
+      // evento).
+      eventId: int("eventId"),
+      ivaApplies: int("ivaApplies").default(0).notNull(),
+      // % de margen neto mínimo que el dueño quiere cuidar -- de acá sale el
+      // techo de gasto (maxDirectExpenses) que pinta la barra verde/amarilla/roja.
+      marginTargetPercent: decimal("marginTargetPercent", { precision: 5, scale: 2 }).notNull(),
+      // Default siteSettings.cardFeePercent, editable por simulación.
+      cardFeePercent: decimal("cardFeePercent", { precision: 5, scale: 2 }).default("0").notNull(),
+      // % simple de comisión de embajadores sobre el ingreso -- estimación, no
+      // replica la escala real por tramos de ventas del mes.
+      commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }).default("0").notNull(),
+      // $/persona: bebida de bienvenida, pulsera, seguridad que escala con el
+      // aforo -- se multiplica por el aforo estimado (suma de las filas de
+      // revenueTiers), no es un monto fijo.
+      variableCostPerPerson: decimal("variableCostPerPerson", { precision: 10, scale: 0 }).default("0").notNull(),
+      // Opcional: venta de barra/consumo estimada por persona, para no dejar
+      // afuera ese ingreso si el dueño quiere incluirlo en la proyección.
+      otherRevenuePerPerson: decimal("otherRevenuePerPerson", { precision: 10, scale: 0 }).default("0").notNull(),
+      // [{ label, price, expectedQty, personasPorEntrada }] -- una fila por tanda
+      // (Founders/General/etc), igual que se arman los precios reales en Eventos.
+      revenueTiers: json("revenueTiers").notNull(),
+      // [{ category, label, amount }] -- category es un ExpenseCategory de
+      // shared/expenses.ts, mismo catálogo que ya usa el gasto real.
+      expenseLines: json("expenseLines").notNull(),
+      notes: text("notes"),
+      createdByUserId: int("createdByUserId"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (table) => ({
+      eventIdx: index("budgetSimulations_event_idx").on(table.eventId)
+    }));
     pushSubscriptions = mysqlTable("pushSubscriptions", {
       id: int("id").autoincrement().primaryKey(),
       // 512 y no más: con utf8mb4 (4 bytes/char) un UNIQUE de varchar(1024)
@@ -1192,6 +1330,171 @@ var init_schema = __esm({
     }, (table) => ({
       eventIdx: index("party_push_subscriptions_event_idx").on(table.eventId),
       profileIdx: index("party_push_subscriptions_profile_idx").on(table.profileId)
+    }));
+    igThreads = mysqlTable("igThreads", {
+      id: int("id").autoincrement().primaryKey(),
+      igUserId: varchar("igUserId", { length: 64 }).notNull().unique(),
+      username: varchar("username", { length: 120 }),
+      name: varchar("name", { length: 255 }),
+      // Interruptor POR CONVERSACIÓN: cuando está en 1 el bot deja de contestar
+      // este hilo y las respuestas las escribe una persona desde el admin. Lo
+      // prende el propio agente cuando detecta que no puede resolver (ver
+      // `handoff` en server/instagramAgent.ts) y también el admin a mano. Es lo
+      // que evita el peor escenario de estos bots: seguir respondiendo encima de
+      // una conversación que ya tomó un humano.
+      botPaused: int("botPaused").default(0).notNull(),
+      handoffReason: varchar("handoffReason", { length: 500 }),
+      // Último mensaje ENTRANTE: con esto se calcula la ventana de 24 horas de
+      // Meta, fuera de la cual la API rechaza cualquier envío que no lleve una
+      // etiqueta especial (ver canReplyWithinWindow en server/instagramSend.ts).
+      lastInboundAt: timestamp("lastInboundAt"),
+      lastMessageAt: timestamp("lastMessageAt"),
+      // Vista previa del último mensaje, para listar la bandeja sin traerse los
+      // mensajes de todos los hilos.
+      lastMessagePreview: varchar("lastMessagePreview", { length: 300 }),
+      // Mensajes entrantes que el admin todavía no abrió en la bandeja. No
+      // depende de quién respondió: un hilo contestado por el bot igual queda
+      // marcado para que el dueño pueda revisar qué se dijo en su nombre.
+      unreadCount: int("unreadCount").default(0).notNull(),
+      // Cuándo se mandó el mensaje de cierre por silencio (pedido explícito del
+      // dueño, 17/09): si la persona no vuelve a escribir pasados los minutos
+      // configurados (instagramAgentConfig.followUpMinutes) después de la
+      // última respuesta del bot, se le manda un único recordatorio con el link
+      // del sitio -- ver runInstagramFollowUps en server/instagramFollowUp.ts.
+      // `null` = todavía no se mandó ninguno para la ronda de silencio actual.
+      // Vuelve a quedar habilitado solo cuando `lastMessageAt` avanza más allá
+      // de este valor (la persona escribió de nuevo y el bot le contestó otra
+      // vez) -- no hace falta limpiarlo a mano en ningún lado.
+      closingMessageSentAt: timestamp("closingMessageSentAt"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (table) => ({
+      lastMessageIdx: index("ig_threads_last_message_idx").on(table.lastMessageAt)
+    }));
+    igMessages = mysqlTable("igMessages", {
+      id: int("id").autoincrement().primaryKey(),
+      threadId: int("threadId").notNull(),
+      // `mid` de Meta. UNIQUE porque el webhook REINTENTA cualquier entrega que
+      // no haya respondido 200 a tiempo: sin esta restricción, un reintento
+      // guardaría el mensaje dos veces y el agente contestaría dos veces lo
+      // mismo. Nullable porque los mensajes que escribimos nosotros se insertan
+      // antes de tener el mid que devuelve la API de envío.
+      mid: varchar("mid", { length: 191 }).unique(),
+      direction: mysqlEnum("direction", ["in", "out"]).notNull(),
+      // Quién lo escribió: la persona, el agente, o el admin desde la bandeja.
+      // Sirve para auditar (¿esto lo dijo la IA o lo dije yo?) y para armar el
+      // historial que se le pasa al modelo con los roles correctos.
+      source: mysqlEnum("source", ["user", "bot", "admin"]).notNull(),
+      text: text("text"),
+      // Adjuntos tal cual los manda Meta (fotos, audios, stickers, respuestas a
+      // historias). Se guardan crudos porque el agente hoy solo contesta texto:
+      // tener el JSON permite mostrarlos en el admin sin otra migración.
+      attachments: json("attachments"),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => ({
+      threadIdx: index("ig_messages_thread_idx").on(table.threadId, table.createdAt)
+    }));
+    waThreads = mysqlTable("waThreads", {
+      id: int("id").autoincrement().primaryKey(),
+      // Número de WhatsApp de la persona tal cual lo manda Meta (`wa_id`: solo
+      // dígitos, con código de país, sin "+").
+      waId: varchar("waId", { length: 32 }).notNull().unique(),
+      // Nombre que la persona tiene puesto en su perfil de WhatsApp.
+      profileName: varchar("profileName", { length: 255 }),
+      // Mismo interruptor por conversación que igThreads.botPaused.
+      botPaused: int("botPaused").default(0).notNull(),
+      handoffReason: varchar("handoffReason", { length: 500 }),
+      // Ventana de 24 horas de Meta: fuera de ella solo se puede escribir con
+      // una plantilla aprobada (y pagada).
+      lastInboundAt: timestamp("lastInboundAt"),
+      lastMessageAt: timestamp("lastMessageAt"),
+      lastMessagePreview: varchar("lastMessagePreview", { length: 300 }),
+      unreadCount: int("unreadCount").default(0).notNull(),
+      // Recordatorio de cierre por silencio -- mismo mecanismo que
+      // igThreads.closingMessageSentAt.
+      closingMessageSentAt: timestamp("closingMessageSentAt"),
+      createdAt: timestamp("createdAt").defaultNow().notNull(),
+      updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull()
+    }, (table) => ({
+      lastMessageIdx: index("wa_threads_last_message_idx").on(table.lastMessageAt)
+    }));
+    waMessages = mysqlTable("waMessages", {
+      id: int("id").autoincrement().primaryKey(),
+      threadId: int("threadId").notNull(),
+      // `wamid` de Meta. UNIQUE por lo mismo que igMessages.mid: el webhook
+      // reintenta, y sin esto el agente contestaría dos veces.
+      wamid: varchar("wamid", { length: 191 }).unique(),
+      direction: mysqlEnum("direction", ["in", "out"]).notNull(),
+      // `owner_app`: lo escribió el dueño directo desde la app WhatsApp Business
+      // del teléfono (coexistencia), sin pasar por el panel.
+      source: mysqlEnum("source", ["user", "bot", "admin", "owner_app"]).notNull(),
+      text: text("text"),
+      // Botones/lista que se mandaron, o el botón/fila que tocó la persona --
+      // para que la bandeja muestre la conversación como se vio en el teléfono.
+      interactive: json("interactive"),
+      attachments: json("attachments"),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => ({
+      threadIdx: index("wa_messages_thread_idx").on(table.threadId, table.createdAt)
+    }));
+    agentHandoffLog = mysqlTable("agentHandoffLog", {
+      id: int("id").autoincrement().primaryKey(),
+      channel: mysqlEnum("channel", ["instagram", "whatsapp"]).notNull(),
+      // Apunta a igThreads.id o waThreads.id según `channel` -- dos tablas
+      // distintas, así que no lleva FK cruzada (mismo criterio ya usado en el
+      // resto de este schema para este tipo de referencia).
+      threadId: int("threadId").notNull(),
+      who: varchar("who", { length: 255 }).notNull(),
+      incomingText: varchar("incomingText", { length: 2e3 }).notNull(),
+      reason: varchar("reason", { length: 500 }).notNull(),
+      // `null` = todavía pendiente de revisar. Se setea cuando el dueño toca "Ya
+      // lo agregué" en el admin -- no borra la fila, solo la saca de la lista.
+      resolvedAt: timestamp("resolvedAt"),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => ({
+      pendingIdx: index("agent_handoff_log_pending_idx").on(table.resolvedAt, table.createdAt)
+    }));
+    igKeywordAutomations = mysqlTable("igKeywordAutomations", {
+      id: int("id").autoincrement().primaryKey(),
+      keyword: varchar("keyword", { length: 120 }).notNull(),
+      // Dónde puede dispararla: comentario en post/reel, respuesta a historia, o
+      // ambas. "comment" no hace nada todavía -- Meta exige un permiso aparte
+      // (instagram_business_manage_comments, Advanced Access) que hoy no está
+      // aprobado; ver docs/INSTAGRAM-AGENT.md.
+      triggerSource: mysqlEnum("triggerSource", ["comment", "story_reply", "both"]).notNull().default("both"),
+      // Texto libre que se le manda por DM -- puede ser un link, un artículo, un
+      // mensaje de puro texto, o incluir el placeholder {{codigo}} si además
+      // regala un código de descuento (discountCode, abajo).
+      replyMessage: text("replyMessage").notNull(),
+      // Opcional a propósito: no toda automatización regala plata, algunas solo
+      // mandan un link o un mensaje. Cuando existe, ya viaja creado en
+      // discountCodes (mismo mecanismo que Promo Flash) -- este campo es solo la
+      // referencia para poder armar el mensaje y mostrarlo en el panel.
+      discountCode: varchar("discountCode", { length: 40 }),
+      active: int("active").default(1).notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => ({
+      keywordIdx: index("ig_keyword_automations_keyword_idx").on(table.keyword)
+    }));
+    igKeywordRedemptions = mysqlTable("igKeywordRedemptions", {
+      id: int("id").autoincrement().primaryKey(),
+      automationId: int("automationId").notNull(),
+      igUserId: varchar("igUserId", { length: 64 }).notNull(),
+      source: mysqlEnum("source", ["comment", "story_reply"]).notNull(),
+      createdAt: timestamp("createdAt").defaultNow().notNull()
+    }, (table) => ({
+      // Una persona no recibe el regalo dos veces por la misma automatización,
+      // ni aunque comente/responda la palabra varias veces.
+      uniquePerPerson: uniqueIndex("ig_keyword_redemptions_unique_idx").on(table.automationId, table.igUserId)
+    }));
+    emailLog = mysqlTable("emailLog", {
+      id: int("id").autoincrement().primaryKey(),
+      to: varchar("to", { length: 320 }).notNull(),
+      subject: varchar("subject", { length: 255 }),
+      success: int("success").notNull(),
+      sentAt: timestamp("sentAt").defaultNow().notNull()
+    }, (table) => ({
+      sentAtIdx: index("email_log_sent_at_idx").on(table.sentAt)
     }));
   }
 });
@@ -1244,7 +1547,7 @@ var init_ops = __esm({
 });
 
 // server/_core/app.ts
-import express from "express";
+import express3 from "express";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 
 // shared/const.ts
@@ -1278,7 +1581,7 @@ import { parse as parseCookieHeader2 } from "cookie";
 
 // server/db.ts
 init_schema();
-import { eq as eq4, desc, and as and3, sql as sql2, or, gt, gte, lte, like, inArray as inArray2, isNull as isNull2, ne } from "drizzle-orm";
+import { eq as eq4, desc, and as and3, sql as sql2, or, gt, gte, lt, lte, like, inArray as inArray2, isNull as isNull2, isNotNull, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 
 // server/_core/env.ts
@@ -1295,11 +1598,46 @@ var ENV = {
   // (ver server/_core/llm.ts, resolveProvider) -- variable propia, nunca
   // pisa BUILT_IN_FORGE_*, que siguen usando llm/notification.
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+  // Proveedor de IA principal cuando está configurada (ver
+  // server/_core/llm.ts, resolveProvider) -- tiene prioridad sobre
+  // geminiApiKey/forgeApiKey. Créditos propios del dueño en Claude Console.
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
   // Autentica al cron diario de mailing (server/cronRoutes.ts) -- Vercel
   // manda `Authorization: Bearer <CRON_SECRET>` automáticamente en cada
   // invocación cuando esta variable está seteada en el proyecto. Sin ella
   // configurada en producción, el endpoint queda abierto a cualquiera.
-  cronSecret: process.env.CRON_SECRET ?? ""
+  cronSecret: process.env.CRON_SECRET ?? "",
+  // --- Agente de IA del Instagram (server/instagram.ts) ---
+  // Secreto de la app de Meta: firma cada entrega del webhook en la cabecera
+  // `X-Hub-Signature-256`. Sin esta variable el webhook RECHAZA todo en
+  // producción -- la URL es pública y adivinable, la firma es lo único que
+  // distingue a Meta de cualquiera que le pegue al endpoint.
+  igAppSecret: process.env.IG_APP_SECRET ?? "",
+  // Palabra que uno inventa y escribe en los dos lados (acá y en el panel de
+  // Meta) -- Meta la devuelve en el GET de verificación al dar de alta o
+  // reactivar el webhook.
+  igVerifyToken: process.env.IG_VERIFY_TOKEN ?? "",
+  // Token de larga duración de la cuenta de Instagram (60 días). Lo renueva
+  // solo el cron /api/cron/instagram-token; si igual caduca, el envío falla
+  // con 190 y el hilo queda en la bandeja esperando a una persona.
+  igAccessToken: process.env.IG_ACCESS_TOKEN ?? "",
+  // IGSID de la cuenta de la productora (el destinatario de los webhooks).
+  // Se usa para distinguir los mensajes que mandamos nosotros (`is_echo`) de
+  // los que manda la gente.
+  igUserId: process.env.IG_USER_ID ?? "",
+  // --- Agente de IA del WhatsApp (server/whatsapp.ts) ---
+  // Secreto de la app de Meta que recibe el webhook de WhatsApp. Si es la
+  // misma app que la de Instagram, es el mismo valor que IG_APP_SECRET. Sin
+  // esta variable el webhook RECHAZA todo en producción (misma regla).
+  waAppSecret: process.env.WA_APP_SECRET ?? "",
+  // Palabra inventada, la misma acá y en el panel de Meta (alta del webhook).
+  waVerifyToken: process.env.WA_VERIFY_TOKEN ?? "",
+  // Token PERMANENTE de un "usuario del sistema" del Business Manager con
+  // permiso whatsapp_business_messaging -- a diferencia del de Instagram no
+  // vence, así que no hace falta cron de renovación.
+  waAccessToken: process.env.WA_ACCESS_TOKEN ?? "",
+  // Id del número de teléfono en la Cloud API (no es el número en sí).
+  waPhoneNumberId: process.env.WA_PHONE_NUMBER_ID ?? ""
 };
 
 // server/db.ts
@@ -1652,6 +1990,10 @@ function isWeeklyEmailDay(now, weekday = DEFAULT_WEEKLY_EMAIL_WEEKDAY, offsetHou
   const shifted = new Date(now.getTime() + offsetHours * 60 * 60 * 1e3);
   return shifted.getUTCDay() === weekday;
 }
+var WEEKLY_EMAIL_HOUR_CHILE = 9;
+function shouldSendWeeklyAmbassadorEmailNow(now, weekday = DEFAULT_WEEKLY_EMAIL_WEEKDAY, hour = WEEKLY_EMAIL_HOUR_CHILE) {
+  return chileHourOf(now) === hour && isWeeklyEmailDay(now, weekday);
+}
 
 // shared/tandaSchedule.ts
 var DEFAULT_TANDA_SCHEDULE = [
@@ -1736,6 +2078,12 @@ var EXPENSE_CATEGORIES = [
   { value: "suscripciones", label: "Apps y suscripciones", emoji: "\u{1F501}" },
   { value: "comisiones", label: "Comisiones", emoji: "\u{1F3E6}" },
   { value: "otros", label: "Otros", emoji: "\u{1F4E6}" }
+];
+var EXPENSE_DOCUMENT_TYPES = [
+  { value: "boleta", label: "Boleta", short: "Boleta" },
+  { value: "factura", label: "Factura (da cr\xE9dito fiscal)", short: "Factura" },
+  { value: "boleta_honorarios", label: "Boleta de honorarios", short: "Honorarios" },
+  { value: "sin_documento", label: "Sin documento", short: "Sin doc" }
 ];
 function categoryLabel(value) {
   return EXPENSE_CATEGORIES.find((c) => c.value === value)?.label ?? value;
@@ -1827,9 +2175,35 @@ function computePnl(input) {
   };
 }
 
+// server/instagramAutomations.ts
+function buildAutomationReplyText(automation, extra = {}) {
+  let text2 = automation.replyMessage;
+  if (automation.discountCode) text2 = text2.split("{{codigo}}").join(automation.discountCode);
+  if (extra.productName) text2 = text2.split("{{producto}}").join(extra.productName);
+  if (extra.link) text2 = text2.split("{{link}}").join(extra.link);
+  return text2;
+}
+function splitAutomationLink(automation, extra = {}) {
+  const withoutLink = buildAutomationReplyText(automation, { productName: extra.productName });
+  const hasLinkPlaceholder = withoutLink.includes("{{link}}");
+  if (!hasLinkPlaceholder) return { text: withoutLink, buttonUrl: null };
+  if (!extra.link) return { text: withoutLink.split("{{link}}").join(""), buttonUrl: null };
+  const text2 = withoutLink.split("{{link}}").join("").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return { text: text2, buttonUrl: extra.link };
+}
+function normalizeForMatch(text2) {
+  return text2.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+}
+function matchesKeyword(text2, keyword) {
+  return normalizeForMatch(text2).includes(normalizeForMatch(keyword));
+}
+
 // shared/parking.ts
 function isParkingTicketType(name) {
   return /estacionamiento|parking/i.test(name) && !/vip/i.test(name);
+}
+function isAnyParkingTicketType(name) {
+  return /estacionamiento|parking/i.test(name);
 }
 var PLACEHOLDER_BUYER_EMAILS = /* @__PURE__ */ new Set(["invitacion@mansionplayroom.cl", "caja@mansionplayroom.cl"]);
 function classifyParkingOrigin(row) {
@@ -2194,6 +2568,12 @@ async function getTicketTypesByEventId(eventId) {
   const rows = created ? await db.select().from(ticketTypes).where(eq4(ticketTypes.eventId, eventId)).orderBy(ticketTypes.sortOrder) : existing;
   return attachStockPoolInfo(rows);
 }
+async function getTicketTypeById(id) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(ticketTypes).where(eq4(ticketTypes.id, id)).limit(1);
+  return row ?? null;
+}
 async function attachStockPoolInfo(rows) {
   const poolIds = Array.from(new Set(rows.map((r) => r.stockPoolId).filter((id) => id != null)));
   if (poolIds.length === 0) return rows.map((r) => ({ ...r, poolRemaining: null, poolTotalCap: null }));
@@ -2407,8 +2787,9 @@ async function getOrderExtras(orderId) {
   const orderTickets = await db.select().from(tickets).where(eq4(tickets.orderId, orderId));
   const grouped = /* @__PURE__ */ new Map();
   for (const t2 of orderTickets) {
+    if (!t2.displayCode || t2.status === "cancelled") continue;
     const [tt] = await db.select().from(ticketTypes).where(eq4(ticketTypes.id, t2.ticketTypeId)).limit(1);
-    if (tt?.category !== "extra") continue;
+    if (!tt) continue;
     const entry = grouped.get(t2.ticketTypeId) ?? { name: tt.name, quantity: 0, codes: [] };
     entry.quantity += 1;
     entry.codes.push(t2.displayCode || t2.ticketCode);
@@ -2428,6 +2809,12 @@ async function validateDiscountCode(code, eventId) {
   if (discount.validFrom && new Date(discount.validFrom) > /* @__PURE__ */ new Date()) return { valid: false, message: "C\xF3digo a\xFAn no v\xE1lido" };
   if (discount.eventId && discount.eventId !== eventId) return { valid: false, message: "C\xF3digo no v\xE1lido para este evento" };
   return { valid: true, discount };
+}
+async function getDiscountCodeByCode(code) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(discountCodes).where(eq4(discountCodes.code, code.trim().toUpperCase())).limit(1);
+  return row ?? null;
 }
 async function getActiveFlashPromo(eventId) {
   const db = await getDb();
@@ -2458,13 +2845,19 @@ async function getAllDiscountCodes() {
 async function createDiscountCode(data) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.insert(discountCodes).values({
-    ...data,
-    discountValue: String(data.discountValue),
-    minPurchase: data.minPurchase ? String(data.minPurchase) : void 0,
-    validFrom: data.validFrom ? new Date(data.validFrom) : void 0,
-    validUntil: data.validUntil ? new Date(data.validUntil) : void 0
-  });
+  try {
+    await db.insert(discountCodes).values({
+      ...data,
+      discountValue: String(data.discountValue),
+      minPurchase: data.minPurchase ? String(data.minPurchase) : void 0,
+      validFrom: data.validFrom ? new Date(data.validFrom) : void 0,
+      validUntil: data.validUntil ? new Date(data.validUntil) : void 0
+    });
+  } catch (err) {
+    const isDuplicate = err?.code === "ER_DUP_ENTRY" || /duplicate entry/i.test(String(err?.message ?? ""));
+    if (isDuplicate) throw new Error(`Ya existe un c\xF3digo de descuento llamado "${data.code}" -- usa otro nombre.`);
+    throw err;
+  }
   return { success: true };
 }
 async function deleteDiscountCode(id) {
@@ -2570,7 +2963,7 @@ async function deleteBlockedCustomer(id) {
   await db.delete(blockedCustomers).where(eq4(blockedCustomers.id, id));
   return { success: true };
 }
-var SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3e3, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0, emailTemplateConfig: null };
+var SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3e3, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0, emailTemplateConfig: null, instagramAgentConfig: null, whatsappAgentConfig: null };
 async function getSiteSettings() {
   const db = await getDb();
   if (!db) return SITE_SETTINGS_DEFAULTS;
@@ -2709,7 +3102,12 @@ async function createOrder(input) {
       const disc = validation.discount;
       discountCodeId = disc.id;
       const scopeIds = disc.applicableTicketTypeIds;
-      const eligibleSubtotal = scopeIds && scopeIds.length > 0 ? input.items.filter((item) => tts.find((t2) => t2.id === item.ticketTypeId)?.category === "acceso" && scopeIds.includes(item.ticketTypeId)).reduce((sum, item) => sum + (unitPrices.get(item.ticketTypeId) ?? 0) * item.quantity, 0) : accesoSubtotal;
+      const priceForDiscount = (ticketTypeId) => {
+        if (!disc.basedOnOriginalPrice) return unitPrices.get(ticketTypeId) ?? 0;
+        const tt = tts.find((t2) => t2.id === ticketTypeId);
+        return tt ? Number(tt.originalPrice ?? tt.price) : 0;
+      };
+      const eligibleSubtotal = (scopeIds && scopeIds.length > 0 ? input.items.filter((item) => tts.find((t2) => t2.id === item.ticketTypeId)?.category === "acceso" && scopeIds.includes(item.ticketTypeId)) : input.items.filter((item) => tts.find((t2) => t2.id === item.ticketTypeId)?.category === "acceso")).reduce((sum, item) => sum + priceForDiscount(item.ticketTypeId) * item.quantity, 0);
       if (disc.discountType === "percentage") {
         discountAmount = Math.round(eligibleSubtotal * Number(disc.discountValue) / 100);
       } else {
@@ -3044,7 +3442,7 @@ async function getAllOrders(page = 1, limit = 50, status, channel, eventId) {
       extrasByOrderId.set(item.orderId, list);
     }
   }
-  const ordersWithExtras = allOrders.map((o) => ({ ...o, extras: extrasByOrderId.get(o.id) ?? [] }));
+  const ordersWithExtras = allOrders.map((o) => ({ ...o, extras: extrasByOrderId.get(o.id) ?? [], attendees: parseAttendees(o.attendeeData) }));
   return { orders: ordersWithExtras, total: ordersWithExtras.length };
 }
 async function getOrderTickets(orderId) {
@@ -4288,7 +4686,7 @@ async function getParkingReport(eventId) {
   if (!db) return null;
   const allTicketTypes = await db.select().from(ticketTypes).where(eq4(ticketTypes.eventId, eventId));
   const parkingTypeIds = new Set(
-    allTicketTypes.filter((tt) => tt.category === "extra" && isParkingTicketType(tt.name)).map((tt) => tt.id)
+    allTicketTypes.filter((tt) => tt.category === "extra" && isAnyParkingTicketType(tt.name)).map((tt) => tt.id)
   );
   if (parkingTypeIds.size === 0) {
     return { online: 0, puerta: 0, staff: 0, totalPaid: 0, totalCars: 0, venueFeePerCarClp: 0, amountOwedToVenueClp: 0, puertaByMethod: { efectivo: 0, debito: 0, credito: 0 } };
@@ -4937,7 +5335,7 @@ async function getPlaycoinsBalance(email) {
   if (!db) return null;
   const [customer] = await db.select().from(customers).where(eq4(customers.email, email.trim().toLowerCase())).limit(1);
   if (!customer) return null;
-  return { email: customer.email, playcoins: customer.playcoins };
+  return { email: customer.email, fullName: customer.fullName, playcoins: customer.playcoins, prepaidBalance: customer.prepaidBalance };
 }
 var PREPAID_REASON_LABEL = {
   topup_web: "Recarga de saldo",
@@ -5073,6 +5471,7 @@ async function createMailingCampaign(input) {
     content: input.content,
     ctaUrl: input.ctaUrl,
     eventSections: input.eventSections,
+    eventId: input.eventId ?? null,
     totalRecipients: input.customerIds.length
   });
   const campaignId = result.insertId;
@@ -5157,7 +5556,10 @@ async function getPendingMailingRecipients(limit) {
     campaignName: mailingCampaigns.name,
     content: mailingCampaigns.content,
     ctaUrl: mailingCampaigns.ctaUrl,
-    eventSections: mailingCampaigns.eventSections
+    eventSections: mailingCampaigns.eventSections,
+    // Para el chequeo de "¿ya compró mientras esperaba en la cola?" (ver
+    // hasApprovedOrderForEvent / markMailingRecipientSkipped más abajo).
+    campaignEventId: mailingCampaigns.eventId
   }).from(mailingRecipients).innerJoin(mailingCampaigns, eq4(mailingCampaigns.id, mailingRecipients.campaignId)).innerJoin(customers, eq4(customers.id, mailingRecipients.customerId)).where(and3(eq4(mailingRecipients.status, "pending"), eq4(mailingCampaigns.status, "sending"))).orderBy(mailingCampaigns.createdAt, mailingRecipients.id).limit(limit);
 }
 async function markMailingRecipientResult(recipientId, campaignId, success, reason) {
@@ -5770,6 +6172,407 @@ async function resetIpRateLimit(key) {
   const db = await getDb();
   if (!db) return;
   await db.delete(rateLimits).where(eq4(rateLimits.key, key));
+}
+async function getOrCreateIgThread(input) {
+  const db = await getDb();
+  if (!db) return null;
+  const [existing] = await db.select().from(igThreads).where(eq4(igThreads.igUserId, input.igUserId)).limit(1);
+  if (existing) {
+    const patch = {};
+    if (input.username && input.username !== existing.username) patch.username = input.username;
+    if (input.name && input.name !== existing.name) patch.name = input.name;
+    if (Object.keys(patch).length > 0) {
+      await db.update(igThreads).set(patch).where(eq4(igThreads.id, existing.id));
+      return { ...existing, ...patch };
+    }
+    return existing;
+  }
+  await db.insert(igThreads).values({
+    igUserId: input.igUserId,
+    username: input.username ?? null,
+    name: input.name ?? null
+  });
+  const [created] = await db.select().from(igThreads).where(eq4(igThreads.igUserId, input.igUserId)).limit(1);
+  return created ?? null;
+}
+async function appendIgMessage(input) {
+  const db = await getDb();
+  if (!db) return null;
+  try {
+    await db.insert(igMessages).values({
+      threadId: input.threadId,
+      mid: input.mid ?? null,
+      direction: input.direction,
+      source: input.source,
+      text: input.text ?? null,
+      attachments: input.attachments ?? null
+    });
+  } catch (err) {
+    const message = String(err?.message ?? "");
+    if (/duplicate entry/i.test(message)) return null;
+    throw err;
+  }
+  const now = /* @__PURE__ */ new Date();
+  const preview = (input.text ?? "[adjunto]").slice(0, 300);
+  await db.update(igThreads).set({
+    lastMessageAt: now,
+    lastMessagePreview: preview,
+    ...input.direction === "in" ? { lastInboundAt: now, unreadCount: sql2`unreadCount + 1` } : {}
+  }).where(eq4(igThreads.id, input.threadId));
+  const [saved] = await db.select().from(igMessages).where(eq4(igMessages.threadId, input.threadId)).orderBy(desc(igMessages.id)).limit(1);
+  return saved ?? null;
+}
+async function getIgMessages(threadId, limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(igMessages).where(eq4(igMessages.threadId, threadId)).orderBy(desc(igMessages.id)).limit(limit);
+  return rows.reverse();
+}
+async function listIgThreads(limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(igThreads).orderBy(desc(igThreads.lastMessageAt)).limit(limit);
+}
+async function getIgThreadById(id) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(igThreads).where(eq4(igThreads.id, id)).limit(1);
+  return row ?? null;
+}
+async function setIgThreadBotPaused(id, paused, reason) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(igThreads).set({
+    botPaused: paused ? 1 : 0,
+    handoffReason: paused ? reason ?? null : null
+  }).where(eq4(igThreads.id, id));
+}
+async function markIgThreadRead(id) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(igThreads).set({ unreadCount: 0 }).where(eq4(igThreads.id, id));
+}
+async function countIgBotRepliesSince(threadId, since) {
+  const db = await getDb();
+  if (!db) return 0;
+  const [row] = await db.select({ count: sql2`count(*)` }).from(igMessages).where(and3(
+    eq4(igMessages.threadId, threadId),
+    eq4(igMessages.source, "bot"),
+    gte(igMessages.createdAt, since)
+  ));
+  return Number(row?.count ?? 0);
+}
+async function getIgThreadsAwaitingFollowUp(cutoff, limit = 25) {
+  const db = await getDb();
+  if (!db) return [];
+  const candidates = await db.select().from(igThreads).where(and3(
+    eq4(igThreads.botPaused, 0),
+    isNotNull(igThreads.lastMessageAt),
+    lte(igThreads.lastMessageAt, cutoff),
+    or(
+      isNull2(igThreads.closingMessageSentAt),
+      lt(igThreads.closingMessageSentAt, igThreads.lastMessageAt)
+    )
+  )).orderBy(igThreads.lastMessageAt).limit(limit);
+  if (candidates.length === 0) return [];
+  const eligible = [];
+  for (const thread of candidates) {
+    const [lastMessage] = await db.select({ direction: igMessages.direction, source: igMessages.source }).from(igMessages).where(eq4(igMessages.threadId, thread.id)).orderBy(desc(igMessages.id)).limit(1);
+    if (lastMessage?.direction === "out" && lastMessage.source === "bot") eligible.push(thread);
+  }
+  return eligible;
+}
+async function markIgThreadFollowUpSent(id) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(igThreads).set({ closingMessageSentAt: /* @__PURE__ */ new Date() }).where(eq4(igThreads.id, id));
+}
+async function deleteIgThread(id) {
+  const db = await getDb();
+  if (!db) return { deleted: false };
+  await db.delete(igMessages).where(eq4(igMessages.threadId, id));
+  await db.delete(igThreads).where(eq4(igThreads.id, id));
+  return { deleted: true };
+}
+var IG_THREAD_RETENTION_MS = 30 * 24 * 60 * 60 * 1e3;
+async function purgeOldIgThreads(now = /* @__PURE__ */ new Date()) {
+  const db = await getDb();
+  if (!db) return { threadsDeleted: 0 };
+  const cutoff = new Date(now.getTime() - IG_THREAD_RETENTION_MS);
+  const old = await db.select({ id: igThreads.id }).from(igThreads).where(lte(igThreads.lastMessageAt, cutoff));
+  if (old.length === 0) return { threadsDeleted: 0 };
+  const ids = old.map((t2) => t2.id);
+  await db.delete(igMessages).where(inArray2(igMessages.threadId, ids));
+  await db.delete(igThreads).where(inArray2(igThreads.id, ids));
+  return { threadsDeleted: ids.length };
+}
+async function listActiveIgKeywordAutomations() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(igKeywordAutomations).where(eq4(igKeywordAutomations.active, 1));
+}
+async function listIgKeywordAutomationsWithStats() {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(igKeywordAutomations).orderBy(desc(igKeywordAutomations.createdAt));
+  const counts = await db.select({
+    automationId: igKeywordRedemptions.automationId,
+    count: sql2`count(*)`
+  }).from(igKeywordRedemptions).groupBy(igKeywordRedemptions.automationId);
+  const countByAutomation = new Map(counts.map((c) => [c.automationId, Number(c.count)]));
+  return rows.map((r) => ({ ...r, redemptions: countByAutomation.get(r.id) ?? 0 }));
+}
+async function createIgKeywordAutomation(input) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(igKeywordAutomations).values({
+    keyword: input.keyword,
+    triggerSource: input.triggerSource,
+    replyMessage: input.replyMessage,
+    discountCode: input.discountCode ?? null
+  });
+}
+async function updateIgKeywordAutomation(id, input) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(igKeywordAutomations).set({
+    keyword: input.keyword,
+    triggerSource: input.triggerSource,
+    replyMessage: input.replyMessage
+  }).where(eq4(igKeywordAutomations.id, id));
+}
+async function setIgKeywordAutomationActive(id, active) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(igKeywordAutomations).set({ active: active ? 1 : 0 }).where(eq4(igKeywordAutomations.id, id));
+}
+async function deleteIgKeywordAutomation(id) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(igKeywordAutomations).where(eq4(igKeywordAutomations.id, id));
+}
+async function findMatchingIgKeywordAutomation(text2, source) {
+  const automations = await listActiveIgKeywordAutomations();
+  const match = automations.find(
+    (a) => (a.triggerSource === source || a.triggerSource === "both") && matchesKeyword(text2, a.keyword)
+  );
+  return match ?? null;
+}
+async function hasRedeemedIgKeywordAutomation(automationId, igUserId) {
+  const db = await getDb();
+  if (!db) return false;
+  const [row] = await db.select({ id: igKeywordRedemptions.id }).from(igKeywordRedemptions).where(and3(eq4(igKeywordRedemptions.automationId, automationId), eq4(igKeywordRedemptions.igUserId, igUserId))).limit(1);
+  return Boolean(row);
+}
+async function recordIgKeywordRedemption(input) {
+  const db = await getDb();
+  if (!db) return false;
+  try {
+    await db.insert(igKeywordRedemptions).values(input);
+    return true;
+  } catch (err) {
+    const isDuplicate = err?.code === "ER_DUP_ENTRY" || /duplicate entry/i.test(String(err?.message ?? ""));
+    if (isDuplicate) return false;
+    throw err;
+  }
+}
+async function logAgentHandoff(input) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(agentHandoffLog).values({
+    channel: input.channel,
+    threadId: input.threadId,
+    who: input.who.slice(0, 255),
+    incomingText: input.incomingText.slice(0, 2e3),
+    reason: input.reason.slice(0, 500)
+  });
+}
+async function listAgentHandoffLog(opts = {}) {
+  const db = await getDb();
+  if (!db) return [];
+  const onlyPending = opts.onlyPending !== false;
+  const limit = opts.limit ?? 50;
+  const query = db.select().from(agentHandoffLog);
+  const rows = onlyPending ? await query.where(isNull2(agentHandoffLog.resolvedAt)).orderBy(desc(agentHandoffLog.createdAt)).limit(limit) : await query.orderBy(desc(agentHandoffLog.createdAt)).limit(limit);
+  return rows;
+}
+async function resolveAgentHandoffLog(id) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(agentHandoffLog).set({ resolvedAt: /* @__PURE__ */ new Date() }).where(eq4(agentHandoffLog.id, id));
+}
+async function logEmailSent(input) {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(emailLog).values({
+    to: input.to,
+    subject: input.subject ? input.subject.slice(0, 255) : null,
+    success: input.success ? 1 : 0
+  });
+}
+async function countEmailsSentToday(now = /* @__PURE__ */ new Date()) {
+  const db = await getDb();
+  if (!db) return 0;
+  const dayStart = startOfChileDay(now);
+  const [row] = await db.select({ count: sql2`count(*)` }).from(emailLog).where(gte(emailLog.sentAt, dayStart));
+  return Number(row?.count ?? 0);
+}
+async function hasApprovedOrderForEvent(email, eventId) {
+  const db = await getDb();
+  if (!db) return false;
+  const normalized = email.trim().toLowerCase();
+  const [row] = await db.select({ id: orders.id }).from(orders).where(and3(
+    eq4(orders.eventId, eventId),
+    eq4(orders.paymentStatus, "approved"),
+    sql2`LOWER(${orders.buyerEmail}) = ${normalized}`
+  )).limit(1);
+  return !!row;
+}
+async function markMailingRecipientSkipped(recipientId, campaignId) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(mailingRecipients).set({
+    status: "skipped",
+    reason: "Ya hab\xEDa comprado esta entrada"
+  }).where(eq4(mailingRecipients.id, recipientId));
+  await db.update(mailingCampaigns).set({
+    skippedCount: sql2`skippedCount + 1`
+  }).where(eq4(mailingCampaigns.id, campaignId));
+  const [remaining] = await db.select({ count: sql2`COUNT(*)` }).from(mailingRecipients).where(and3(eq4(mailingRecipients.campaignId, campaignId), eq4(mailingRecipients.status, "pending")));
+  if (Number(remaining.count) === 0) {
+    await db.update(mailingCampaigns).set({ status: "done" }).where(eq4(mailingCampaigns.id, campaignId));
+  }
+}
+async function getOrCreateWaThread(input) {
+  const db = await getDb();
+  if (!db) return null;
+  const [existing] = await db.select().from(waThreads).where(eq4(waThreads.waId, input.waId)).limit(1);
+  if (existing) {
+    if (input.profileName && input.profileName !== existing.profileName) {
+      await db.update(waThreads).set({ profileName: input.profileName }).where(eq4(waThreads.id, existing.id));
+      return { ...existing, profileName: input.profileName };
+    }
+    return existing;
+  }
+  try {
+    await db.insert(waThreads).values({ waId: input.waId, profileName: input.profileName ?? null });
+  } catch (err) {
+    const message = String(err?.message ?? "");
+    if (!/duplicate entry/i.test(message)) throw err;
+  }
+  const [created] = await db.select().from(waThreads).where(eq4(waThreads.waId, input.waId)).limit(1);
+  return created ?? null;
+}
+async function appendWaMessage(input) {
+  const db = await getDb();
+  if (!db) return null;
+  try {
+    await db.insert(waMessages).values({
+      threadId: input.threadId,
+      wamid: input.wamid ?? null,
+      direction: input.direction,
+      source: input.source,
+      text: input.text ?? null,
+      interactive: input.interactive ?? null,
+      attachments: input.attachments ?? null
+    });
+  } catch (err) {
+    const message = String(err?.message ?? "");
+    if (/duplicate entry/i.test(message)) return null;
+    throw err;
+  }
+  const now = /* @__PURE__ */ new Date();
+  const preview = (input.text ?? "[adjunto]").slice(0, 300);
+  await db.update(waThreads).set({
+    lastMessageAt: now,
+    lastMessagePreview: preview,
+    ...input.direction === "in" ? { lastInboundAt: now, unreadCount: sql2`unreadCount + 1` } : {}
+  }).where(eq4(waThreads.id, input.threadId));
+  const [saved] = await db.select().from(waMessages).where(eq4(waMessages.threadId, input.threadId)).orderBy(desc(waMessages.id)).limit(1);
+  return saved ?? null;
+}
+async function getWaMessages(threadId, limit = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(waMessages).where(eq4(waMessages.threadId, threadId)).orderBy(desc(waMessages.id)).limit(limit);
+  return rows.reverse();
+}
+async function listWaThreads(limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(waThreads).orderBy(desc(waThreads.lastMessageAt)).limit(limit);
+}
+async function getWaThreadById(id) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(waThreads).where(eq4(waThreads.id, id)).limit(1);
+  return row ?? null;
+}
+async function setWaThreadBotPaused(id, paused, reason) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(waThreads).set({
+    botPaused: paused ? 1 : 0,
+    handoffReason: paused ? reason ?? null : null
+  }).where(eq4(waThreads.id, id));
+}
+async function markWaThreadRead(id) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(waThreads).set({ unreadCount: 0 }).where(eq4(waThreads.id, id));
+}
+async function countWaBotRepliesSince(threadId, since) {
+  const db = await getDb();
+  if (!db) return 0;
+  const [row] = await db.select({ count: sql2`count(*)` }).from(waMessages).where(and3(
+    eq4(waMessages.threadId, threadId),
+    eq4(waMessages.source, "bot"),
+    gte(waMessages.createdAt, since)
+  ));
+  return Number(row?.count ?? 0);
+}
+async function getWaThreadsAwaitingFollowUp(cutoff, limit = 25) {
+  const db = await getDb();
+  if (!db) return [];
+  const candidates = await db.select().from(waThreads).where(and3(
+    eq4(waThreads.botPaused, 0),
+    isNotNull(waThreads.lastMessageAt),
+    lte(waThreads.lastMessageAt, cutoff),
+    or(
+      isNull2(waThreads.closingMessageSentAt),
+      lt(waThreads.closingMessageSentAt, waThreads.lastMessageAt)
+    )
+  )).orderBy(waThreads.lastMessageAt).limit(limit);
+  if (candidates.length === 0) return [];
+  const eligible = [];
+  for (const thread of candidates) {
+    const [lastMessage] = await db.select({ direction: waMessages.direction, source: waMessages.source }).from(waMessages).where(eq4(waMessages.threadId, thread.id)).orderBy(desc(waMessages.id)).limit(1);
+    if (lastMessage?.direction === "out" && lastMessage.source === "bot") eligible.push(thread);
+  }
+  return eligible;
+}
+async function markWaThreadFollowUpSent(id) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(waThreads).set({ closingMessageSentAt: /* @__PURE__ */ new Date() }).where(eq4(waThreads.id, id));
+}
+async function deleteWaThread(id) {
+  const db = await getDb();
+  if (!db) return { deleted: false };
+  await db.delete(waMessages).where(eq4(waMessages.threadId, id));
+  await db.delete(waThreads).where(eq4(waThreads.id, id));
+  return { deleted: true };
+}
+async function purgeOldWaThreads(now = /* @__PURE__ */ new Date()) {
+  const db = await getDb();
+  if (!db) return { threadsDeleted: 0 };
+  const cutoff = new Date(now.getTime() - IG_THREAD_RETENTION_MS);
+  const old = await db.select({ id: waThreads.id }).from(waThreads).where(lte(waThreads.lastMessageAt, cutoff));
+  if (old.length === 0) return { threadsDeleted: 0 };
+  const ids = old.map((t2) => t2.id);
+  await db.delete(waMessages).where(inArray2(waMessages.threadId, ids));
+  await db.delete(waThreads).where(inArray2(waThreads.id, ids));
+  return { threadsDeleted: ids.length };
 }
 
 // server/_core/cookies.ts
@@ -6883,9 +7686,10 @@ function registerAdminRoutes(app2) {
 
 // server/mailing.ts
 import { z as z2 } from "zod";
-import { nanoid as nanoid3 } from "nanoid";
+import { nanoid as nanoid4 } from "nanoid";
 
 // server/_core/llm.ts
+import Anthropic from "@anthropic-ai/sdk";
 var ensureArray = (value) => Array.isArray(value) ? value : [value];
 var normalizeContentPart = (part) => {
   if (typeof part === "string") {
@@ -6968,8 +7772,8 @@ var resolveProvider = () => {
   return { baseUrl: `${forgeBase}/v1`, apiKey: ENV.forgeApiKey };
 };
 var assertApiKey = () => {
-  if (!resolveProvider().apiKey) {
-    throw new Error("No hay ninguna API key de IA configurada (GEMINI_API_KEY o BUILT_IN_FORGE_API_KEY)");
+  if (!ENV.anthropicApiKey && !resolveProvider().apiKey) {
+    throw new Error("No hay ninguna API key de IA configurada (ANTHROPIC_API_KEY, GEMINI_API_KEY o BUILT_IN_FORGE_API_KEY)");
   }
 };
 var normalizeResponseFormat = ({
@@ -7047,8 +7851,90 @@ var fetchWithBackoff = async (url, init) => {
   }
   throw lastError instanceof Error ? lastError : new Error("LLM request failed after exhausting retries");
 };
+var ANTHROPIC_DEFAULT_MODEL = "claude-haiku-4-5";
+var ANTHROPIC_DEFAULT_MAX_TOKENS = 4096;
+var anthropicClient = null;
+var getAnthropicClient = () => {
+  if (!anthropicClient) {
+    anthropicClient = new Anthropic({ apiKey: ENV.anthropicApiKey });
+  }
+  return anthropicClient;
+};
+var getMessageText = (message) => ensureArray(message.content).map((part) => typeof part === "string" ? part : part.type === "text" ? part.text : "").join("\n");
+var toAnthropicContent = (message) => {
+  const parts = ensureArray(message.content);
+  const hasImage = parts.some((part) => typeof part !== "string" && part.type === "image_url");
+  if (!hasImage) return getMessageText(message);
+  return parts.map((part) => {
+    if (typeof part === "string") return { type: "text", text: part };
+    if (part.type === "text") return { type: "text", text: part.text };
+    if (part.type === "image_url") {
+      return { type: "image", source: { type: "url", url: part.image_url.url } };
+    }
+    return null;
+  }).filter((block) => block !== null);
+};
+async function invokeAnthropic(params) {
+  const { messages, model, maxTokens, max_tokens, responseFormat, response_format, outputSchema, output_schema } = params;
+  const systemParts = [];
+  const anthropicMessages = [];
+  for (const message of messages) {
+    if (message.role === "system") {
+      systemParts.push(getMessageText(message));
+      continue;
+    }
+    const role = message.role === "assistant" ? "assistant" : "user";
+    if (message.role !== "user" && message.role !== "assistant") {
+      console.warn(`invokeAnthropic: rol "${message.role}" no soportado, tratado como "user"`);
+    }
+    anthropicMessages.push({ role, content: toAnthropicContent(message) });
+  }
+  const normalizedFormat = normalizeResponseFormat({
+    responseFormat,
+    response_format,
+    outputSchema,
+    output_schema
+  });
+  const outputConfig = normalizedFormat?.type === "json_schema" ? { format: { type: "json_schema", schema: normalizedFormat.json_schema.schema } } : void 0;
+  let response;
+  try {
+    response = await getAnthropicClient().messages.create({
+      model: model ?? ANTHROPIC_DEFAULT_MODEL,
+      max_tokens: max_tokens ?? maxTokens ?? ANTHROPIC_DEFAULT_MAX_TOKENS,
+      ...systemParts.length > 0 ? { system: systemParts.join("\n\n") } : {},
+      messages: anthropicMessages,
+      ...outputConfig ? { output_config: outputConfig } : {}
+    });
+  } catch (err) {
+    if (err instanceof Anthropic.APIError) {
+      throw new Error(`LLM invoke failed: ${err.status} ${err.name} \u2013 ${err.message}`);
+    }
+    throw err;
+  }
+  const text2 = response.content.map((block) => block.type === "text" ? block.text : "").join("");
+  return {
+    id: response.id,
+    created: Math.floor(Date.now() / 1e3),
+    model: response.model,
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content: text2 },
+        finish_reason: response.stop_reason
+      }
+    ],
+    usage: {
+      prompt_tokens: response.usage.input_tokens,
+      completion_tokens: response.usage.output_tokens,
+      total_tokens: response.usage.input_tokens + response.usage.output_tokens
+    }
+  };
+}
 async function invokeLLM(params) {
   assertApiKey();
+  if (ENV.anthropicApiKey) {
+    return invokeAnthropic(params);
+  }
   const {
     messages,
     tools,
@@ -7341,12 +8227,22 @@ async function sendEmail(input) {
     });
     if (!response.ok) {
       console.error("[Email] Resend error:", await response.text());
+      await logSendAttempt(input, false);
       return { success: false, reason: "API error" };
     }
+    await logSendAttempt(input, true);
     return { success: true };
   } catch (error) {
     console.error("[Email] Error:", error);
+    await logSendAttempt(input, false);
     return { success: false, reason: "Network error" };
+  }
+}
+async function logSendAttempt(input, success) {
+  try {
+    await logEmailSent({ to: input.to, subject: input.subject, success });
+  } catch (err) {
+    console.error("[Email] No se pudo registrar el env\xEDo en el contador diario:", err);
   }
 }
 var CONTENT = {
@@ -7807,10 +8703,146 @@ function buildAmbassadorWelcomeEmail(data) {
     `
   });
 }
+function buildBirthdayApplicationEmail(data) {
+  return emailShell({
+    footer: false,
+    rawBody: true,
+    body: `
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+    <h1 style="color:${REPORT_INK};font-size:20px;font-weight:800;margin:0 0 4px;">\u{1F382} Nueva postulaci\xF3n a cumplea\xF1ero</h1>
+    <p style="color:${REPORT_MUTED};font-size:13px;margin:0 0 20px;">${data.name} \u2014 ${data.eventTitle}</p>
+
+    ${card(`
+      <div style="padding:6px 0;border-bottom:1px solid ${REPORT_BORDER};">
+        <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Fecha de nacimiento</p>
+        <p style="color:${REPORT_INK};font-size:15px;font-weight:700;margin:0;">${data.birthDate}</p>
+      </div>
+      <div style="padding:6px 0;border-bottom:1px solid ${REPORT_BORDER};">
+        <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">WhatsApp</p>
+        <p style="margin:0;"><a href="${data.whatsappLink}" style="color:${ACCENT.blue.solid};font-size:15px;font-weight:700;text-decoration:none;">${data.whatsapp}</a></p>
+      </div>
+      ${data.instagram ? `
+      <div style="padding:6px 0;border-bottom:1px solid ${REPORT_BORDER};">
+        <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Instagram</p>
+        <p style="color:${REPORT_INK};font-size:14px;margin:0;">@${data.instagram}</p>
+      </div>` : ""}
+      <div style="padding:6px 0;">
+        <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 2px;">Correo</p>
+        <p style="color:${REPORT_INK};font-size:14px;margin:0;">${data.email}</p>
+      </div>
+    `, { bg: "#F9FAFB", borderColor: REPORT_BORDER })}
+
+    ${data.message ? card(`
+      <p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Lo que escribi\xF3</p>
+      <p style="color:${REPORT_INK};font-size:14px;margin:0;line-height:1.6;">${data.message}</p>
+    `, { bg: "#F9FAFB", borderColor: REPORT_BORDER }) : ""}
+
+    <p style="color:${REPORT_MUTED};font-size:13px;margin:0;">
+      Rev\xEDsala en el panel: Cumplea\xF1eros \u2192 Postulaciones. Desde ah\xED la apruebas, defines el % de descuento y se genera su c\xF3digo.
+    </p>
+  </div>
+    `
+  });
+}
+function buildBirthdayApplicationReceivedEmail(data) {
+  const lista = (items) => items.map((t2) => `<p style="color:${INK3};font-size:14px;margin:0 0 6px;">\u2022 ${t2}</p>`).join("");
+  return emailShell({
+    preheader: `Recibimos tu postulaci\xF3n a cumplea\xF1ero para ${data.eventTitle}.`,
+    footer: false,
+    hero: emailHero({
+      accent: "lilac",
+      emoji: "\u{1F382}",
+      title: `Recibimos tu postulaci\xF3n, ${data.name}`,
+      subtitle: `Para ${data.eventTitle} -- te vamos a escribir por WhatsApp para contarte c\xF3mo sigue.`
+    }),
+    body: `
+      ${sectionTitle("\u2705", "Lo que pedimos")}
+      ${card(lista(data.requirements))}
+
+      ${card(`
+        <p style="color:${INK3};font-size:14px;margin:0;line-height:1.6;">
+          Si quedas aprobado te llega tu <strong>c\xF3digo personal</strong> para compartir con tus invitados.
+          Desde que se venda la primera entrada con tu c\xF3digo, tus premios se activan solos.
+        </p>
+      `)}
+
+      <p style="color:${FAINT};font-size:12px;text-align:center;margin:24px 0 0;">
+        Si no postulaste t\xFA, ignora este correo y no pasa nada.
+      </p>
+    `
+  });
+}
+function buildBirthdayApprovedEmail(data) {
+  const tramos = data.tiers.map((t2) => `
+    <div style="padding:10px 0;border-bottom:1px solid ${REPORT_BORDER};">
+      <p style="color:${ACCENT.pink.solid};font-size:13px;font-weight:800;margin:0 0 4px;">Con ${t2.minTickets} ${t2.minTickets === 1 ? "entrada vendida" : "entradas vendidas"}</p>
+      ${t2.items.map((i) => `<p style="color:${INK3};font-size:14px;margin:0;">\u2022 ${i.label}</p>`).join("")}
+    </div>
+  `).join("");
+  return emailShell({
+    preheader: `Ya eres cumplea\xF1ero de Mansion Playroom, ${data.name}.`,
+    footer: false,
+    hero: emailHero({
+      accent: "yellow",
+      emoji: "\u{1F389}",
+      title: `\xA1Listo, ${data.name}!`,
+      subtitle: "Ya eres cumplea\xF1ero de Mansion Playroom."
+    }),
+    body: `
+      ${sectionTitle("\u{1F39F}", "Tu c\xF3digo")}
+      ${card(`
+        <p style="color:${INK3};font-size:32px;font-weight:800;font-family:monospace;margin:0 0 8px;text-align:center;">${data.code}</p>
+        <p style="color:${MUTED2};font-size:13px;margin:0;text-align:center;">
+          Comp\xE1rtelo con tus invitados: al comprar su entrada con este c\xF3digo obtienen ${data.discountPercent}% de descuento,
+          y cada entrada vendida suma para tus premios.
+        </p>
+      `, { bg: ACCENT.pink.bg, border: false })}
+
+      ${sectionTitle("\u{1F381}", "Tus premios")}
+      ${card(tramos)}
+
+      ${card(`
+        <p style="color:${INK3};font-size:14px;margin:0;line-height:1.6;">
+          Ojo: cada tramo <strong>reemplaza</strong> al anterior, no se suman. Apenas se venda una entrada con tu c\xF3digo
+          te avisamos por correo qu\xE9 premio desbloqueaste.
+        </p>
+      `)}
+    `
+  });
+}
+function buildBirthdayTierUnlockedEmail(data) {
+  return emailShell({
+    preheader: `\xA1Desbloqueaste un premio nuevo, ${data.name}!`,
+    footer: false,
+    hero: emailHero({
+      accent: "yellow",
+      emoji: "\u{1F973}",
+      title: `\xA1Nuevo premio desbloqueado, ${data.name}!`,
+      subtitle: `Ya llevas ${data.ticketsSold} ${data.ticketsSold === 1 ? "entrada vendida" : "entradas vendidas"} con tu c\xF3digo.`
+    }),
+    body: `
+      ${sectionTitle("\u{1F381}", data.tierLabel)}
+      ${card(data.items.map((i) => `<p style="color:${INK3};font-size:14px;margin:0 0 6px;">\u2022 ${i.label}</p>`).join(""))}
+
+      ${data.includesNextEventCredit ? card(`
+        <p style="color:${INK3};font-size:14px;margin:0;line-height:1.6;">
+          Tu entrada gratis para el pr\xF3ximo evento queda guardada -- te la asignamos apenas anunciemos la pr\xF3xima fecha.
+        </p>
+      `, { bg: ACCENT.yellow.bg, border: false }) : ""}
+
+      ${card(`
+        <p style="color:${INK3};font-size:14px;margin:0;line-height:1.6;">
+          Tus premios ya est\xE1n listos para retirar en caja el d\xEDa del evento, con tu QR de siempre.
+        </p>
+      `)}
+    `
+  });
+}
 function buildAmbassadorWeeklyEmail(data) {
   const money2 = (n) => `$${Math.round(n).toLocaleString("es-CL")}`;
   const m = data.material;
-  const tieneMaterial = !!m && !!(m.storiesText || m.reelText || m.postText || m.countdownText || m.linkUrl);
+  const links = (m?.links ?? []).filter((l) => l.url);
+  const tieneMaterial = !!m && !!(m.storiesText || m.reelText || m.postText || m.countdownText || links.length > 0);
   const progreso = data.nextTarget ? Math.min(100, Math.round(data.monthlySales / data.nextTarget.target * 100)) : 100;
   const materialRow = (label, value) => value ? `<div style="padding:8px 0;border-bottom:1px solid ${BORDER2};">
          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 3px;">${label}</p>
@@ -7898,8 +8930,24 @@ function buildAmbassadorWeeklyEmail(data) {
         ${materialRow("Reel", m?.reelText)}
         ${materialRow("Publicaci\xF3n", m?.postText)}
         ${materialRow("Cuenta regresiva", m?.countdownText)}
-        ${m?.linkUrl ? `<p style="margin:12px 0 0;"><a href="${m.linkUrl}" style="color:${ACCENT.pink.text};font-size:13px;font-weight:700;">Descargar el material \u2192</a></p>` : ""}
+        ${links.length > 0 ? `
+        <div style="padding:8px 0 0;">
+          ${links.map((l) => `<p style="margin:6px 0;"><a href="${l.url}" style="color:${ACCENT.pink.text};font-size:13px;font-weight:700;">${l.label} \u2192</a></p>`).join("")}
+        </div>` : ""}
       `)}
+      ` : ""}
+
+      ${data.referralUrl ? `
+      ${sectionTitle("\u{1F517}", "Tu link para compartir")}
+      ${card(`
+        <p style="color:${MUTED2};font-size:13px;margin:0 0 10px;line-height:1.5;">
+          Pon este link en el swipe-up de tus historias: cuando alguien lo abre y compra, la venta queda atribuida a
+          vos autom\xE1ticamente -- aunque compre m\xE1s tarde, no tiene que ser en el momento.
+        </p>
+        <p style="background:${ACCENT.lilac.bg};border-radius:12px;padding:12px 14px;word-break:break-all;color:${INK3};font-size:13px;font-family:monospace;margin:0;">
+          ${data.referralUrl}
+        </p>
+      `, { bg: ACCENT.pink.bg, border: false })}
       ` : ""}
 
       <div style="text-align:center;margin-top:28px;">
@@ -8303,6 +9351,8 @@ var DEFAULT_ADMIN_ALERTS_CONFIG = {
   pushNewOrder: false,
   pushAmbassadorApplication: false,
   pushPartyReport: false,
+  pushInstagramHandoff: false,
+  pushWhatsAppHandoff: false,
   dailyDigestEmail: false
 };
 function normalizeAdminAlertsConfig(raw) {
@@ -8311,6 +9361,8 @@ function normalizeAdminAlertsConfig(raw) {
     pushNewOrder: partial.pushNewOrder ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushNewOrder,
     pushAmbassadorApplication: partial.pushAmbassadorApplication ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushAmbassadorApplication,
     pushPartyReport: partial.pushPartyReport ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushPartyReport,
+    pushInstagramHandoff: partial.pushInstagramHandoff ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushInstagramHandoff,
+    pushWhatsAppHandoff: partial.pushWhatsAppHandoff ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushWhatsAppHandoff,
     dailyDigestEmail: partial.dailyDigestEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.dailyDigestEmail
   };
 }
@@ -8732,7 +9784,8 @@ async function getAmbassadorPanel(code, now = /* @__PURE__ */ new Date()) {
     existingClientPercent: config.existingClientPercent,
     overridePercent,
     avgSalePrice,
-    eventStats
+    eventStats,
+    referralUrl: buildAmbassadorReferralUrl(featuredEvent, ambassador.code)
   };
 }
 async function getAmbassadorRanking(monthKey) {
@@ -8880,18 +9933,29 @@ async function saveWeeklyMaterial(data) {
     reelText: data.reelText,
     postText: data.postText,
     countdownText: data.countdownText,
-    linkUrl: data.linkUrl,
+    links: (data.links ?? []).filter((l) => l.url.trim()),
     active: 1
   });
   return { success: true };
 }
 var PANEL_BASE_URL = process.env.APP_URL && process.env.APP_URL !== "https://mansionplayroom.cl" ? process.env.APP_URL : "https://mansionplayroom.cl";
+function buildAmbassadorReferralUrl(featured, code) {
+  if (!featured?.slug) return null;
+  return `${PANEL_BASE_URL}/eventos/${featured.slug}?embajador=${encodeURIComponent(code)}`;
+}
+function resolveMaterialLinks(material) {
+  if (!material) return [];
+  if (Array.isArray(material.links) && material.links.length > 0) return material.links;
+  if (material.linkUrl) return [{ label: "Material", url: material.linkUrl }];
+  return [];
+}
 async function sendWeeklyAmbassadorEmails(now = /* @__PURE__ */ new Date()) {
   const db = await getDb();
   if (!db) return { sent: 0, skipped: 0, failed: 0 };
   const monthKey = monthKeyFor(now);
   const material = await getWeeklyMaterial();
   const featured = await getFeaturedEvent();
+  const materialLinks = resolveMaterialLinks(material);
   let countdownText = material?.countdownText ?? null;
   if (!countdownText && featured?.eventDate) {
     const dias = Math.ceil((new Date(featured.eventDate).getTime() - now.getTime()) / (1e3 * 60 * 60 * 24));
@@ -8923,7 +9987,8 @@ async function sendWeeklyAmbassadorEmails(now = /* @__PURE__ */ new Date()) {
         benefitBonusClp: stats.benefits.bonusClp,
         exclusiveClientsCount: stats.exclusiveClientsCount,
         panelUrl: `${PANEL_BASE_URL}/embajador/${a.code}`,
-        material: material ? { ...material, countdownText } : countdownText ? { countdownText } : null
+        referralUrl: buildAmbassadorReferralUrl(featured, a.code),
+        material: material || countdownText || materialLinks.length > 0 ? { ...material, countdownText, links: materialLinks } : null
       });
       const res = await sendEmail({
         to: a.email,
@@ -9028,8 +10093,276 @@ ${partesContexto.join("\n")}` }
 
 // server/webhooks.ts
 init_schema();
-import { eq as eq7, and as and5, sql as sql4, isNotNull, ne as ne2, inArray as inArray4 } from "drizzle-orm";
+import { eq as eq8, and as and6, sql as sql5, isNotNull as isNotNull2, ne as ne2, inArray as inArray5 } from "drizzle-orm";
+import { nanoid as nanoid3 } from "nanoid";
+
+// server/birthdayProgram.ts
+import { and as and5, eq as eq7, inArray as inArray4, sql as sql4 } from "drizzle-orm";
 import { nanoid as nanoid2 } from "nanoid";
+init_schema();
+
+// shared/birthdayTiers.ts
+var BIRTHDAY_TIERS = [
+  {
+    tier: 1,
+    minTickets: 1,
+    label: "1 entrada vendida con tu c\xF3digo",
+    items: [
+      { matchBy: "accesoSlug", value: "duo", quantity: 1, label: "Tu entrada gratis (Acceso D\xFAo, para 2 personas)" },
+      { matchBy: "internalCode", value: "BDESP", quantity: 1, label: "1 espumante para celebrar y cantar cumplea\xF1os feliz" }
+    ],
+    includesNextEventCredit: false
+  },
+  {
+    tier: 2,
+    minTickets: 3,
+    label: "3 entradas vendidas con tu c\xF3digo",
+    items: [
+      { matchBy: "internalCode", value: "BDESP", quantity: 1, label: "1 espumante de regalo" },
+      { matchBy: "internalCode", value: "BDCOV", quantity: 2, label: "2 covers" }
+    ],
+    includesNextEventCredit: true
+  },
+  {
+    tier: 3,
+    minTickets: 5,
+    label: "5 entradas vendidas con tu c\xF3digo",
+    items: [
+      { matchBy: "internalCode", value: "BDBOT", quantity: 1, label: "Botella de regalo (pisco o ron)" },
+      { matchBy: "internalCode", value: "BDBEB", quantity: 1, label: "Bebidas de regalo" }
+    ],
+    includesNextEventCredit: false
+  }
+];
+function tierForCount2(count) {
+  return BIRTHDAY_TIERS.filter((t2) => count >= t2.minTickets).pop();
+}
+
+// server/birthdayProgram.ts
+var BIRTHDAY_REWARD_PRODUCTS = [
+  { internalCode: "BDESP", name: "Espumante Cumplea\xF1ero", price: 8e3 },
+  { internalCode: "BDBOT", name: "Botella Cumplea\xF1ero (Pisco o Ron)", price: 18e3 },
+  { internalCode: "BDCOV", name: "Cover Cumplea\xF1ero", price: 3e3 },
+  { internalCode: "BDBEB", name: "Bebidas Cumplea\xF1ero", price: 5e3 }
+];
+async function createBirthdayRewardProducts(eventId) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await db.select({ internalCode: ticketTypes.internalCode }).from(ticketTypes).where(eq7(ticketTypes.eventId, eventId));
+  const existingCodes = new Set(existing.map((t2) => t2.internalCode));
+  const created = [];
+  const skipped = [];
+  for (const product of BIRTHDAY_REWARD_PRODUCTS) {
+    if (existingCodes.has(product.internalCode)) {
+      skipped.push(product.internalCode);
+      continue;
+    }
+    await createTicketType({
+      eventId,
+      name: product.name,
+      category: "consumo",
+      status: "hidden",
+      groupName: "Premios Cumplea\xF1eros",
+      emoji: "\u{1F382}",
+      price: product.price,
+      totalStock: 9999,
+      internalCode: product.internalCode,
+      toKitchen: 0
+    });
+    created.push(product.internalCode);
+  }
+  return { created, skipped };
+}
+async function countAccesoTicketsForCode(discountCodeId, eventId) {
+  const db = await getDb();
+  if (!db) return 0;
+  const [row] = await db.select({ total: sql4`COALESCE(SUM(${orderItems.quantity}), 0)` }).from(orderItems).innerJoin(orders, eq7(orderItems.orderId, orders.id)).innerJoin(ticketTypes, eq7(orderItems.ticketTypeId, ticketTypes.id)).where(and5(
+    eq7(orders.discountCodeId, discountCodeId),
+    eq7(orders.eventId, eventId),
+    eq7(orders.paymentStatus, "approved"),
+    eq7(ticketTypes.category, "acceso")
+  ));
+  return Number(row?.total ?? 0);
+}
+async function findTierTicketType(eventId, matchBy, value) {
+  const db = await getDb();
+  if (!db) return null;
+  const condition = matchBy === "accesoSlug" ? eq7(ticketTypes.accesoSlug, value) : eq7(ticketTypes.internalCode, value);
+  const [row] = await db.select().from(ticketTypes).where(and5(eq7(ticketTypes.eventId, eventId), condition)).limit(1);
+  return row ?? null;
+}
+async function cancelUnredeemedRewardTickets(rewardOrderId) {
+  const db = await getDb();
+  if (!db) return;
+  const rewardTickets = await db.select({ id: tickets.id, ticketTypeId: tickets.ticketTypeId }).from(tickets).where(and5(eq7(tickets.orderId, rewardOrderId), eq7(tickets.status, "valid")));
+  if (!rewardTickets.length) return;
+  const ticketTypeIds = Array.from(new Set(rewardTickets.map((t2) => t2.ticketTypeId)));
+  const types = await db.select({ id: ticketTypes.id, category: ticketTypes.category }).from(ticketTypes).where(inArray4(ticketTypes.id, ticketTypeIds));
+  const categoryById = new Map(types.map((t2) => [t2.id, t2.category]));
+  const idsToCancel = rewardTickets.filter((t2) => categoryById.get(t2.ticketTypeId) !== "acceso").map((t2) => t2.id);
+  if (!idsToCancel.length) return;
+  await db.update(tickets).set({ status: "cancelled" }).where(inArray4(tickets.id, idsToCancel));
+}
+async function ensureRewardOrder(person) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  if (person.rewardOrderId) return person.rewardOrderId;
+  const orderNumber = `BDAY-${Date.now().toString(36).toUpperCase()}-${nanoid2(4).toUpperCase()}`;
+  const inserted = await db.insert(orders).values({
+    orderNumber,
+    buyerName: person.name,
+    buyerEmail: person.email,
+    buyerPhone: person.whatsapp,
+    eventId: person.eventId,
+    subtotal: "0",
+    total: "0",
+    paymentStatus: "approved",
+    paymentId: `BDAY-${orderNumber}`,
+    channel: "import"
+  });
+  const rewardOrderId = inserted.insertId;
+  await db.update(birthdayPeople).set({ rewardOrderId }).where(eq7(birthdayPeople.id, person.id));
+  return rewardOrderId;
+}
+async function materializeTierReward(birthdayPersonId, tier) {
+  const db = await getDb();
+  if (!db) return;
+  const [person] = await db.select().from(birthdayPeople).where(eq7(birthdayPeople.id, birthdayPersonId)).limit(1);
+  if (!person) return;
+  const [event] = await db.select().from(events).where(eq7(events.id, person.eventId)).limit(1);
+  if (!event) return;
+  const hadRewardOrder = !!person.rewardOrderId;
+  const rewardOrderId = await ensureRewardOrder(person);
+  if (hadRewardOrder) await cancelUnredeemedRewardTickets(rewardOrderId);
+  for (const item of tier.items) {
+    const tt = await findTierTicketType(person.eventId, item.matchBy, item.value);
+    if (!tt) {
+      console.error(`[Cumplea\xF1eros] Falta crear el producto "${item.value}" (${item.matchBy}) para el evento ${person.eventId} -- premio del tramo ${tier.tier} incompleto`);
+      continue;
+    }
+    const [insertedItem] = await db.insert(orderItems).values({
+      orderId: rewardOrderId,
+      ticketTypeId: tt.id,
+      quantity: item.quantity,
+      unitPrice: "0",
+      totalPrice: "0",
+      unitCost: tt.costPrice ?? void 0
+    });
+    const orderItemId = insertedItem.insertId;
+    const isRedeemable = tt.category !== "acceso";
+    const prefix = tt.internalCode || fallbackInternalCode(tt.name);
+    for (let i = 0; i < item.quantity; i++) {
+      const ticketCode = `MP-${nanoid2(12).toUpperCase()}`;
+      const { qrData, qrImageUrl } = await generateTicketQR(ticketCode, event.title);
+      const displayCode = isRedeemable ? generateDisplayCode(prefix) : null;
+      await db.insert(tickets).values({
+        ticketCode,
+        orderId: rewardOrderId,
+        orderItemId,
+        eventId: person.eventId,
+        ticketTypeId: tt.id,
+        holderName: person.name,
+        qrData,
+        qrImageUrl,
+        status: "valid",
+        displayCode
+      });
+    }
+    await db.update(ticketTypes).set({ soldCount: sql4`soldCount + ${item.quantity}` }).where(eq7(ticketTypes.id, tt.id));
+  }
+  await db.update(birthdayPeople).set({
+    currentTier: tier.tier,
+    pendingNextEventCredit: tier.includesNextEventCredit ? 1 : 0
+  }).where(eq7(birthdayPeople.id, birthdayPersonId));
+}
+async function checkAndApplyBirthdayTier(discountCodeId) {
+  const db = await getDb();
+  if (!db) return null;
+  const [person] = await db.select().from(birthdayPeople).where(and5(eq7(birthdayPeople.discountCodeId, discountCodeId), eq7(birthdayPeople.active, 1))).limit(1);
+  if (!person) return null;
+  const count = await countAccesoTicketsForCode(discountCodeId, person.eventId);
+  const tier = tierForCount2(count);
+  if (!tier || tier.tier <= person.currentTier) return null;
+  await materializeTierReward(person.id, tier);
+  const [updated] = await db.select().from(birthdayPeople).where(eq7(birthdayPeople.id, person.id)).limit(1);
+  return { person: updated ?? person, tier };
+}
+async function getBirthdayPeopleForEvent(eventId) {
+  const db = await getDb();
+  if (!db) return [];
+  const people = await db.select().from(birthdayPeople).where(eq7(birthdayPeople.eventId, eventId));
+  if (!people.length) return [];
+  const codeIds = people.map((p) => p.discountCodeId);
+  const codes = await db.select().from(discountCodes).where(inArray4(discountCodes.id, codeIds));
+  const codeById = new Map(codes.map((c) => [c.id, c]));
+  const rows = await Promise.all(people.map(async (p) => {
+    const ticketsSold = await countAccesoTicketsForCode(p.discountCodeId, p.eventId);
+    return {
+      ...p,
+      code: codeById.get(p.discountCodeId)?.code ?? null,
+      discountPercent: codeById.get(p.discountCodeId)?.discountValue ?? null,
+      ticketsSold,
+      nextTier: tierForCount2(ticketsSold + 1) ?? null
+    };
+  }));
+  return rows;
+}
+async function assignNextEventCredit(params) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [person] = await db.select().from(birthdayPeople).where(eq7(birthdayPeople.id, params.birthdayPersonId)).limit(1);
+  if (!person) throw new Error("No encontramos ese cumplea\xF1ero");
+  if (!person.pendingNextEventCredit) throw new Error("Ese cumplea\xF1ero no tiene un cr\xE9dito pendiente");
+  const [tt] = await db.select().from(ticketTypes).where(and5(eq7(ticketTypes.id, params.ticketTypeId), eq7(ticketTypes.eventId, params.targetEventId))).limit(1);
+  if (!tt) throw new Error("Ese producto no pertenece al evento elegido");
+  const [event] = await db.select().from(events).where(eq7(events.id, params.targetEventId)).limit(1);
+  if (!event) throw new Error("Evento no encontrado");
+  const orderNumber = `BDAY-${Date.now().toString(36).toUpperCase()}-${nanoid2(4).toUpperCase()}`;
+  const insertedOrder = await db.insert(orders).values({
+    orderNumber,
+    buyerName: person.name,
+    buyerEmail: person.email,
+    buyerPhone: person.whatsapp,
+    eventId: params.targetEventId,
+    subtotal: "0",
+    total: "0",
+    paymentStatus: "approved",
+    paymentId: `BDAY-${orderNumber}`,
+    channel: "import"
+  });
+  const creditOrderId = insertedOrder.insertId;
+  const [insertedItem] = await db.insert(orderItems).values({
+    orderId: creditOrderId,
+    ticketTypeId: tt.id,
+    quantity: 1,
+    unitPrice: "0",
+    totalPrice: "0",
+    unitCost: tt.costPrice ?? void 0
+  });
+  const orderItemId = insertedItem.insertId;
+  const ticketCode = `MP-${nanoid2(12).toUpperCase()}`;
+  const { qrData, qrImageUrl } = await generateTicketQR(ticketCode, event.title);
+  await db.insert(tickets).values({
+    ticketCode,
+    orderId: creditOrderId,
+    orderItemId,
+    eventId: params.targetEventId,
+    ticketTypeId: tt.id,
+    holderName: person.name,
+    qrData,
+    qrImageUrl,
+    status: "valid",
+    displayCode: tt.category !== "acceso" ? generateDisplayCode(tt.internalCode || fallbackInternalCode(tt.name)) : null
+  });
+  await db.update(ticketTypes).set({ soldCount: sql4`soldCount + 1` }).where(eq7(ticketTypes.id, tt.id));
+  await db.update(birthdayPeople).set({
+    pendingNextEventCredit: 0,
+    pendingCreditRedeemedEventId: params.targetEventId
+  }).where(eq7(birthdayPeople.id, person.id));
+  return { success: true, orderId: creditOrderId };
+}
+
+// server/webhooks.ts
 var webhooksRouter = Router();
 function formatEventDate(date) {
   return formatChileDate(date, { withYear: true });
@@ -9043,7 +10376,7 @@ function mapPaymentStatus(mpStatus) {
 async function applyPaymentResult(input) {
   const db = await getDb();
   if (!db) return { ok: false, reason: "Database not available" };
-  const [order] = await db.select().from(orders).where(eq7(orders.orderNumber, input.orderNumber)).limit(1);
+  const [order] = await db.select().from(orders).where(eq8(orders.orderNumber, input.orderNumber)).limit(1);
   if (!order) return { ok: false, reason: "Order not found" };
   if (order.paymentId === input.paymentId && order.paymentStatus !== "pending") {
     return { ok: true, alreadyProcessed: true };
@@ -9052,21 +10385,21 @@ async function applyPaymentResult(input) {
     paymentStatus: input.status,
     paymentId: input.paymentId,
     paymentMethod: input.paymentMethodId || void 0
-  }).where(eq7(orders.id, order.id));
+  }).where(eq8(orders.id, order.id));
   if (input.status === "approved") {
     const isTopupPayment = order.missionTopupStatus === "pending";
     const isMissionDeposit = order.missionDeposit === 1 && order.missionTopupStatus === "none";
     if (!isTopupPayment) {
-      const items = await db.select().from(orderItems).where(eq7(orderItems.orderId, order.id));
+      const items = await db.select().from(orderItems).where(eq8(orderItems.orderId, order.id));
       for (const item of items) {
-        await db.update(ticketTypes).set({ soldCount: sql4`soldCount + ${item.quantity}` }).where(eq7(ticketTypes.id, item.ticketTypeId));
+        await db.update(ticketTypes).set({ soldCount: sql5`soldCount + ${item.quantity}` }).where(eq8(ticketTypes.id, item.ticketTypeId));
       }
       if (order.eventId) await checkAndAdvanceTandaIfNeeded(order.eventId);
     }
     if (isMissionDeposit) {
       if (!order.depositEmailSent) await sendMissionDepositEmail(order);
     } else if (isTopupPayment) {
-      await db.update(orders).set({ missionTopupStatus: "paid" }).where(eq7(orders.id, order.id));
+      await db.update(orders).set({ missionTopupStatus: "paid" }).where(eq8(orders.id, order.id));
       if (!order.emailSent) await processApprovedOrder(order);
     } else if (!order.emailSent) {
       await processApprovedOrder(order);
@@ -9077,20 +10410,20 @@ async function applyPaymentResult(input) {
 async function approveMissionTopupWithoutPayment(orderId) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [order] = await db.select().from(orders).where(eq7(orders.id, orderId)).limit(1);
+  const [order] = await db.select().from(orders).where(eq8(orders.id, orderId)).limit(1);
   if (!order) throw new Error("Orden no encontrada");
   if (order.missionTopupStatus !== "pending") throw new Error("Esta orden no tiene un pago de diferencia pendiente");
-  await db.update(orders).set({ missionTopupStatus: "paid", missionTopupAmount: "0" }).where(eq7(orders.id, order.id));
+  await db.update(orders).set({ missionTopupStatus: "paid", missionTopupAmount: "0" }).where(eq8(orders.id, order.id));
   if (!order.emailSent) await processApprovedOrder(order);
   return { success: true };
 }
 async function processCardPaymentForOrder(input) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [order] = await db.select().from(orders).where(eq7(orders.orderNumber, input.orderNumber)).limit(1);
+  const [order] = await db.select().from(orders).where(eq8(orders.orderNumber, input.orderNumber)).limit(1);
   if (!order) throw new Error("Order not found");
   if (order.paymentStatus === "approved") throw new Error("Order already paid");
-  const [event] = await db.select().from(events).where(eq7(events.id, order.eventId)).limit(1);
+  const [event] = await db.select().from(events).where(eq8(events.id, order.eventId)).limit(1);
   const result = await createCardPayment({
     orderNumber: order.orderNumber,
     amount: Number(order.total),
@@ -9114,7 +10447,7 @@ async function processCardPaymentForOrder(input) {
 async function confirmFreeOrder(orderNumber) {
   const db = await getDb();
   if (!db) return;
-  const [order] = await db.select().from(orders).where(eq7(orders.orderNumber, orderNumber)).limit(1);
+  const [order] = await db.select().from(orders).where(eq8(orders.orderNumber, orderNumber)).limit(1);
   if (!order || order.paymentStatus !== "approved" || order.emailSent) return;
   await processApprovedOrder(order);
 }
@@ -9151,21 +10484,21 @@ webhooksRouter.post("/api/webhooks/mercadopago", async (req, res) => {
   }
 });
 async function ensureOwnAmbassadorCode(db, order) {
-  const [previousOrder] = await db.select().from(orders).where(and5(eq7(orders.buyerEmail, order.buyerEmail), eq7(orders.paymentStatus, "approved"), isNotNull(orders.ambassadorCode), ne2(orders.id, order.id))).orderBy(orders.createdAt).limit(1);
-  const existingUsers = previousOrder ? null : await db.select().from(users).where(eq7(users.email, order.buyerEmail)).limit(1);
-  const code = previousOrder?.ambassadorCode || existingUsers?.[0]?.ambassadorCode || nanoid2(8).toUpperCase();
-  await db.update(orders).set({ ambassadorCode: code }).where(eq7(orders.id, order.id));
+  const [previousOrder] = await db.select().from(orders).where(and6(eq8(orders.buyerEmail, order.buyerEmail), eq8(orders.paymentStatus, "approved"), isNotNull2(orders.ambassadorCode), ne2(orders.id, order.id))).orderBy(orders.createdAt).limit(1);
+  const existingUsers = previousOrder ? null : await db.select().from(users).where(eq8(users.email, order.buyerEmail)).limit(1);
+  const code = previousOrder?.ambassadorCode || existingUsers?.[0]?.ambassadorCode || nanoid3(8).toUpperCase();
+  await db.update(orders).set({ ambassadorCode: code }).where(eq8(orders.id, order.id));
   return code;
 }
 async function sendMissionDepositEmail(order) {
   const db = await getDb();
   if (!db) return { success: false };
-  const [event] = await db.select().from(events).where(eq7(events.id, order.eventId)).limit(1);
+  const [event] = await db.select().from(events).where(eq8(events.id, order.eventId)).limit(1);
   if (!event) return { success: false };
-  const items = await db.select().from(orderItems).where(eq7(orderItems.orderId, order.id));
+  const items = await db.select().from(orderItems).where(eq8(orderItems.orderId, order.id));
   const emailItems = [];
   for (const item of items) {
-    const [tt] = await db.select().from(ticketTypes).where(eq7(ticketTypes.id, item.ticketTypeId)).limit(1);
+    const [tt] = await db.select().from(ticketTypes).where(eq8(ticketTypes.id, item.ticketTypeId)).limit(1);
     emailItems.push({ name: tt?.name || "Entrada", quantity: item.quantity, price: Number(item.totalPrice) });
   }
   const ambassadorCode = await ensureOwnAmbassadorCode(db, order);
@@ -9193,25 +10526,25 @@ async function sendMissionDepositEmail(order) {
     html
   });
   if (result.success) {
-    await db.update(orders).set({ depositEmailSent: 1 }).where(eq7(orders.id, order.id));
+    await db.update(orders).set({ depositEmailSent: 1 }).where(eq8(orders.id, order.id));
   }
   return result;
 }
 async function sendConfirmationEmailForOrder(order) {
   const db = await getDb();
   if (!db) return { success: false };
-  const [event] = await db.select().from(events).where(eq7(events.id, order.eventId)).limit(1);
+  const [event] = await db.select().from(events).where(eq8(events.id, order.eventId)).limit(1);
   if (!event) return { success: false };
-  const items = await db.select().from(orderItems).where(eq7(orderItems.orderId, order.id));
+  const items = await db.select().from(orderItems).where(eq8(orderItems.orderId, order.id));
   const emailItems = [];
   for (const item of items) {
-    const [tt] = await db.select().from(ticketTypes).where(eq7(ticketTypes.id, item.ticketTypeId)).limit(1);
+    const [tt] = await db.select().from(ticketTypes).where(eq8(ticketTypes.id, item.ticketTypeId)).limit(1);
     emailItems.push({ name: tt?.name || "Entrada", quantity: item.quantity, price: Number(item.totalPrice) });
   }
-  const orderTickets = await db.select().from(tickets).where(eq7(tickets.orderId, order.id));
+  const orderTickets = await db.select().from(tickets).where(eq8(tickets.orderId, order.id));
   let mainTicket = null;
   for (const t2 of orderTickets) {
-    const [tt] = await db.select().from(ticketTypes).where(eq7(ticketTypes.id, t2.ticketTypeId)).limit(1);
+    const [tt] = await db.select().from(ticketTypes).where(eq8(ticketTypes.id, t2.ticketTypeId)).limit(1);
     if (tt?.category === "acceso") {
       mainTicket = t2;
       break;
@@ -9251,10 +10584,10 @@ async function sendConfirmationEmailForOrder(order) {
 async function resendConfirmationEmail(orderNumber) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [order] = await db.select().from(orders).where(eq7(orders.orderNumber, orderNumber)).limit(1);
+  const [order] = await db.select().from(orders).where(eq8(orders.orderNumber, orderNumber)).limit(1);
   if (!order) throw new Error("Orden no encontrada");
   if (order.paymentStatus !== "approved") throw new Error("La orden todav\xEDa no est\xE1 aprobada");
-  const existingTickets = await db.select().from(tickets).where(eq7(tickets.orderId, order.id)).limit(1);
+  const existingTickets = await db.select().from(tickets).where(eq8(tickets.orderId, order.id)).limit(1);
   const isUnresolvedDeposit = existingTickets.length === 0 && order.missionDeposit === 1;
   const result = isUnresolvedDeposit ? await sendMissionDepositEmail(order) : await sendConfirmationEmailForOrder(order);
   if (!result.success) throw new Error("Resend rechaz\xF3 el env\xEDo -- revisa la configuraci\xF3n de RESEND_API_KEY/RESEND_FROM_EMAIL en Vercel.");
@@ -9263,8 +10596,31 @@ async function resendConfirmationEmail(orderNumber) {
 async function processApprovedOrder(order) {
   const db = await getDb();
   if (!db) return;
-  const items = await db.select().from(orderItems).where(eq7(orderItems.orderId, order.id));
-  const [event] = await db.select().from(events).where(eq7(events.id, order.eventId)).limit(1);
+  let giftTicketTypeId = null;
+  if (order.discountCodeId) {
+    try {
+      const [discount] = await db.select().from(discountCodes).where(eq8(discountCodes.id, order.discountCodeId)).limit(1);
+      if (discount?.giftTicketTypeId) {
+        const [giftProduct] = await db.select().from(ticketTypes).where(eq8(ticketTypes.id, discount.giftTicketTypeId)).limit(1);
+        if (giftProduct) {
+          giftTicketTypeId = giftProduct.id;
+          await db.insert(orderItems).values({
+            orderId: order.id,
+            ticketTypeId: giftProduct.id,
+            quantity: 1,
+            unitPrice: "0",
+            totalPrice: "0",
+            unitCost: giftProduct.costPrice ?? void 0
+          });
+          await db.update(ticketTypes).set({ soldCount: sql5`soldCount + 1` }).where(eq8(ticketTypes.id, giftProduct.id));
+        }
+      }
+    } catch (err) {
+      console.error("[Webhooks] No se pudo generar el regalo del c\xF3digo de descuento:", err);
+    }
+  }
+  const items = await db.select().from(orderItems).where(eq8(orderItems.orderId, order.id));
+  const [event] = await db.select().from(events).where(eq8(events.id, order.eventId)).limit(1);
   if (!event) return;
   const gift = await getPartyGiftByOrderId(order.id);
   const giftRecipient = gift ? await getPartyProfileContact(gift.toProfileId) : null;
@@ -9272,15 +10628,15 @@ async function processApprovedOrder(order) {
   let giftTicketId = null;
   let giftDisplayCode = null;
   const orderTicketTypeIds = Array.from(new Set(items.map((i) => i.ticketTypeId)));
-  const orderTicketTypes = orderTicketTypeIds.length ? await db.select().from(ticketTypes).where(inArray4(ticketTypes.id, orderTicketTypeIds)) : [];
+  const orderTicketTypes = orderTicketTypeIds.length ? await db.select().from(ticketTypes).where(inArray5(ticketTypes.id, orderTicketTypeIds)) : [];
   const ticketTypeById = new Map(orderTicketTypes.map((tt) => [tt.id, tt]));
   for (const item of items) {
     const tt = ticketTypeById.get(item.ticketTypeId);
     if (tt && isTopupProduct(tt)) continue;
-    const isRedeemable = tt?.category === "extra";
+    const isRedeemable = tt?.category === "extra" || item.ticketTypeId === giftTicketTypeId;
     const prefix = tt ? tt.internalCode || fallbackInternalCode(tt.name) : "EXT";
     for (let i = 0; i < item.quantity; i++) {
-      const ticketCode = `MP-${nanoid2(12).toUpperCase()}`;
+      const ticketCode = `MP-${nanoid3(12).toUpperCase()}`;
       const { qrData, qrImageUrl } = await generateTicketQR(ticketCode, event.title);
       const displayCode = isRedeemable ? generateDisplayCode(prefix) : null;
       const [inserted] = await db.insert(tickets).values({
@@ -9312,8 +10668,8 @@ async function processApprovedOrder(order) {
   if (topupCredit > 0) {
     await creditPrepaid({ email: order.buyerEmail, amountClp: topupCredit, reason: "topup_web", orderId: order.id });
   }
-  const [customerRow] = await db.select({ id: customers.id }).from(customers).where(eq7(customers.email, order.buyerEmail.trim().toLowerCase())).limit(1);
-  if (customerRow) await db.update(orders).set({ customerId: customerRow.id }).where(eq7(orders.id, order.id));
+  const [customerRow] = await db.select({ id: customers.id }).from(customers).where(eq8(customers.email, order.buyerEmail.trim().toLowerCase())).limit(1);
+  if (customerRow) await db.update(orders).set({ customerId: customerRow.id }).where(eq8(orders.id, order.id));
   const topupCharge = topupChargeForLines(topupLines);
   await awardPlaycoins({ email: order.buyerEmail, totalClp: Number(order.total) - topupCharge, reason: "earn_web", orderId: order.id });
   const referrerCode = order.referredByCode || order.ambassadorCode;
@@ -9323,7 +10679,7 @@ async function processApprovedOrder(order) {
   }, 0);
   const vipAttribution = await attributeAmbassadorSale({ order, accesoSubtotal, priorCustomer });
   if (referrerCode && !vipAttribution.attributed) {
-    const [ambassadorOrder] = await db.select().from(orders).where(and5(eq7(orders.ambassadorCode, referrerCode), eq7(orders.paymentStatus, "approved"))).limit(1);
+    const [ambassadorOrder] = await db.select().from(orders).where(and6(eq8(orders.ambassadorCode, referrerCode), eq8(orders.paymentStatus, "approved"))).limit(1);
     if (ambassadorOrder && ambassadorOrder.id !== order.id) {
       const totalTickets = items.reduce((sum, item) => sum + item.quantity, 0);
       await db.insert(referrals).values({
@@ -9333,7 +10689,7 @@ async function processApprovedOrder(order) {
         ticketCount: totalTickets,
         orderTotal: order.total
       });
-      const [{ count: referralCount }] = await db.select({ count: sql4`COUNT(*)` }).from(referrals).where(eq7(referrals.ambassadorCode, referrerCode));
+      const [{ count: referralCount }] = await db.select({ count: sql5`COUNT(*)` }).from(referrals).where(eq8(referrals.ambassadorCode, referrerCode));
       const count = Number(referralCount);
       if (AMBASSADOR_TIERS.some((t2) => t2.min === count)) {
         const html = buildTierUpEmail({ buyerName: ambassadorOrder.buyerName, ambassadorCode: referrerCode, referralCount: count });
@@ -9347,8 +10703,29 @@ async function processApprovedOrder(order) {
       }
     }
   }
+  if (order.discountCodeId) {
+    try {
+      const unlocked = await checkAndApplyBirthdayTier(order.discountCodeId);
+      if (unlocked) {
+        const html = buildBirthdayTierUnlockedEmail({
+          name: unlocked.person.name,
+          ticketsSold: unlocked.tier.minTickets,
+          tierLabel: unlocked.tier.label,
+          items: unlocked.tier.items,
+          includesNextEventCredit: unlocked.tier.includesNextEventCredit
+        });
+        await sendEmail({ to: unlocked.person.email, subject: `\u{1F973} \xA1Nuevo premio desbloqueado! \u2014 ${unlocked.tier.label}`, html });
+        if (unlocked.person.rewardOrderId) {
+          const [rewardOrder] = await db.select().from(orders).where(eq8(orders.id, unlocked.person.rewardOrderId)).limit(1);
+          if (rewardOrder) await sendConfirmationEmailForOrder(rewardOrder);
+        }
+      }
+    } catch (err) {
+      console.error("[Cumplea\xF1eros] No se pudo procesar el tramo de premios:", err);
+    }
+  }
   await ensureOwnAmbassadorCode(db, order);
-  const [refreshedOrder] = await db.select().from(orders).where(eq7(orders.id, order.id)).limit(1);
+  const [refreshedOrder] = await db.select().from(orders).where(eq8(orders.id, order.id)).limit(1);
   if (gift && giftTicketId !== null) {
     await markGiftPaid(gift.id, giftTicketId, giftDisplayCode);
     if (giftRecipient?.email && giftDisplayCode) {
@@ -9362,12 +10739,12 @@ async function processApprovedOrder(order) {
       });
       await sendEmail({ to: giftRecipient.email, subject: `\u{1F379} ${giftSender?.alias ?? "Alguien"} te invit\xF3 un ${gift.drinkName}`, html });
     }
-    await db.update(orders).set({ emailSent: 1 }).where(eq7(orders.id, order.id));
+    await db.update(orders).set({ emailSent: 1 }).where(eq8(orders.id, order.id));
     return;
   }
   const result = await sendConfirmationEmailForOrder(refreshedOrder ?? order);
   if (result.success) {
-    await db.update(orders).set({ emailSent: 1 }).where(eq7(orders.id, order.id));
+    await db.update(orders).set({ emailSent: 1 }).where(eq8(orders.id, order.id));
   }
   if (order.channel === "web") {
     await sendPushToAdmins("pushNewOrder", {
@@ -9380,19 +10757,19 @@ async function processApprovedOrder(order) {
 async function getMission300Status(eventId) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [event] = await db.select().from(events).where(eq7(events.id, eventId)).limit(1);
+  const [event] = await db.select().from(events).where(eq8(events.id, eventId)).limit(1);
   if (!event) throw new Error("Event not found");
-  const eligible = await db.select().from(orders).where(and5(
-    eq7(orders.eventId, eventId),
-    eq7(orders.missionDeposit, 1),
-    eq7(orders.paymentStatus, "approved"),
-    eq7(orders.missionTopupStatus, "none")
+  const eligible = await db.select().from(orders).where(and6(
+    eq8(orders.eventId, eventId),
+    eq8(orders.missionDeposit, 1),
+    eq8(orders.paymentStatus, "approved"),
+    eq8(orders.missionTopupStatus, "none")
   ));
   let totalPersonas = 0;
   for (const order of eligible) {
-    const items = await db.select().from(orderItems).where(eq7(orderItems.orderId, order.id));
+    const items = await db.select().from(orderItems).where(eq8(orderItems.orderId, order.id));
     for (const item of items) {
-      const [tt] = await db.select().from(ticketTypes).where(eq7(ticketTypes.id, item.ticketTypeId)).limit(1);
+      const [tt] = await db.select().from(ticketTypes).where(eq8(ticketTypes.id, item.ticketTypeId)).limit(1);
       if (tt?.category === "acceso") totalPersonas += personasForAccesoSlug(tt.accesoSlug) * item.quantity;
     }
   }
@@ -9407,21 +10784,21 @@ async function getMission300Status(eventId) {
 async function evaluateMission300(eventId) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [event] = await db.select().from(events).where(eq7(events.id, eventId)).limit(1);
+  const [event] = await db.select().from(events).where(eq8(events.id, eventId)).limit(1);
   if (!event) throw new Error("Event not found");
-  const eligible = await db.select().from(orders).where(and5(
-    eq7(orders.eventId, eventId),
-    eq7(orders.missionDeposit, 1),
-    eq7(orders.paymentStatus, "approved"),
-    eq7(orders.missionTopupStatus, "none")
+  const eligible = await db.select().from(orders).where(and6(
+    eq8(orders.eventId, eventId),
+    eq8(orders.missionDeposit, 1),
+    eq8(orders.paymentStatus, "approved"),
+    eq8(orders.missionTopupStatus, "none")
   ));
   const orderItemsByOrder = /* @__PURE__ */ new Map();
   let totalPersonas = 0;
   for (const order of eligible) {
-    const items = await db.select().from(orderItems).where(eq7(orderItems.orderId, order.id));
+    const items = await db.select().from(orderItems).where(eq8(orderItems.orderId, order.id));
     const withTt = [];
     for (const item of items) {
-      const [tt] = await db.select().from(ticketTypes).where(eq7(ticketTypes.id, item.ticketTypeId)).limit(1);
+      const [tt] = await db.select().from(ticketTypes).where(eq8(ticketTypes.id, item.ticketTypeId)).limit(1);
       withTt.push({ ...item, ticketType: tt });
       if (tt?.category === "acceso") totalPersonas += personasForAccesoSlug(tt.accesoSlug) * item.quantity;
     }
@@ -9432,7 +10809,7 @@ async function evaluateMission300(eventId) {
   let topupRequested = 0;
   for (const order of eligible) {
     if (success) {
-      await db.update(orders).set({ missionTopupStatus: "paid", missionTopupAmount: "0" }).where(eq7(orders.id, order.id));
+      await db.update(orders).set({ missionTopupStatus: "paid", missionTopupAmount: "0" }).where(eq8(orders.id, order.id));
       if (!order.emailSent) await processApprovedOrder(order);
       resolved++;
       continue;
@@ -9446,7 +10823,7 @@ async function evaluateMission300(eventId) {
       topupAmount += Math.max(0, cap - alreadyPaidUnit) * item.quantity;
     }
     if (topupAmount <= 0) {
-      await db.update(orders).set({ missionTopupStatus: "paid", missionTopupAmount: "0" }).where(eq7(orders.id, order.id));
+      await db.update(orders).set({ missionTopupStatus: "paid", missionTopupAmount: "0" }).where(eq8(orders.id, order.id));
       if (!order.emailSent) await processApprovedOrder(order);
       resolved++;
       continue;
@@ -9462,7 +10839,7 @@ async function evaluateMission300(eventId) {
       missionTopupStatus: "pending",
       missionTopupAmount: String(topupAmount),
       missionTopupPreferenceId: pref.id
-    }).where(eq7(orders.id, order.id));
+    }).where(eq8(orders.id, order.id));
     const html = buildMissionTopupEmail({
       buyerName: order.buyerName,
       eventTitle: event.title,
@@ -9571,7 +10948,7 @@ async function sendMailingBatch(customerIds, content, ctaUrl, campaignTag, event
   const recipients = await listCustomersByIds(customerIds);
   const results = [];
   const cleanCampaignTag = campaignTag?.trim();
-  const batchId = nanoid3();
+  const batchId = nanoid4();
   for (const customer of recipients) {
     const html = buildMailingBlastEmail({
       buyerName: customer.fullName ?? "",
@@ -9620,7 +10997,8 @@ async function createAutoMailingCampaign(input) {
     content: input.content,
     ctaUrl: input.ctaUrl,
     eventSections: input.eventSections ?? null,
-    customerIds: input.customerIds
+    customerIds: input.customerIds,
+    eventId: input.eventId ?? null
   });
 }
 var CRON_TIME_BUDGET_MS = 5e4;
@@ -9631,15 +11009,22 @@ async function processMailingCronBatch() {
   const sentToday = await countAutomatedEmailsSentToday();
   const dailyRemaining = AUTOMATED_EMAIL_DAILY_CAP - sentToday;
   if (dailyRemaining <= 0) {
-    return { processed: 0, sent: 0, failed: 0, campaignsTouched: 0 };
+    return { processed: 0, sent: 0, failed: 0, skipped: 0, campaignsTouched: 0 };
   }
   const pending = await getPendingMailingRecipients(Math.min(CRON_MAX_PER_RUN, dailyRemaining));
   let sent = 0;
   let failed = 0;
   const campaignsTouched = /* @__PURE__ */ new Set();
   let eventInfo;
+  let skipped = 0;
   for (const recipient of pending) {
     if (Date.now() - start > CRON_TIME_BUDGET_MS) break;
+    if (recipient.campaignEventId && await hasApprovedOrderForEvent(recipient.email, recipient.campaignEventId)) {
+      await markMailingRecipientSkipped(recipient.id, recipient.campaignId);
+      campaignsTouched.add(recipient.campaignId);
+      skipped++;
+      continue;
+    }
     const content = recipient.content;
     const eventSections = recipient.eventSections ?? void 0;
     if (eventSections && eventInfo === void 0) {
@@ -9672,12 +11057,12 @@ async function processMailingCronBatch() {
     }
     await sleep2(THROTTLE_MS);
   }
-  return { processed: sent + failed, sent, failed, campaignsTouched: campaignsTouched.size };
+  return { processed: sent + failed, sent, failed, skipped, campaignsTouched: campaignsTouched.size };
 }
 
 // server/orderReminders.ts
 import { z as z3 } from "zod";
-import { eq as eq8, inArray as inArray5, and as and6, lte as lte2 } from "drizzle-orm";
+import { eq as eq9, inArray as inArray6, and as and7, lte as lte2 } from "drizzle-orm";
 init_schema();
 var APP_URL = process.env.APP_URL && process.env.APP_URL !== "https://mansionplayroom.cl" ? process.env.APP_URL : "https://mansionplayroom.cl";
 async function sendPendingReminders(params) {
@@ -9696,7 +11081,7 @@ async function sendPendingReminders(params) {
     eventTitle: events.title,
     eventSlug: events.slug,
     eventDate: events.eventDate
-  }).from(orders).leftJoin(events, eq8(orders.eventId, events.id)).where(inArray5(orders.id, params.orderIds));
+  }).from(orders).leftJoin(events, eq9(orders.eventId, events.id)).where(inArray6(orders.id, params.orderIds));
   for (const orden of filas) {
     if (orden.paymentStatus !== "pending") {
       resultado.skipped.push({
@@ -9718,7 +11103,7 @@ async function sendPendingReminders(params) {
           customBody: params.customBody
         })
       });
-      await db.update(orders).set({ reminderSentAt: /* @__PURE__ */ new Date(), reminderCount: (orden.reminderCount ?? 0) + 1 }).where(eq8(orders.id, orden.id));
+      await db.update(orders).set({ reminderSentAt: /* @__PURE__ */ new Date(), reminderCount: (orden.reminderCount ?? 0) + 1 }).where(eq9(orders.id, orden.id));
       resultado.sent++;
     } catch (err) {
       resultado.failed.push({
@@ -9745,9 +11130,9 @@ async function getOrdersDueForAbandonedCartReminder() {
     reminderSentAt: orders.reminderSentAt,
     reminderCount: orders.reminderCount,
     eventDate: events.eventDate
-  }).from(orders).leftJoin(events, eq8(orders.eventId, events.id)).where(and6(
-    eq8(orders.paymentStatus, "pending"),
-    eq8(orders.channel, "web"),
+  }).from(orders).leftJoin(events, eq9(orders.eventId, events.id)).where(and7(
+    eq9(orders.paymentStatus, "pending"),
+    eq9(orders.channel, "web"),
     lte2(orders.createdAt, cutoffCreated)
   )).orderBy(orders.createdAt);
   return candidatas.filter((o) => {
@@ -9823,17 +11208,17 @@ async function generateReminderCopy(idea) {
 }
 
 // server/foundersPromo.ts
-import { eq as eq9, and as and7 } from "drizzle-orm";
+import { eq as eq10, and as and8 } from "drizzle-orm";
 init_schema();
 var FOUNDERS_PROMO_TAG = "promo-primeros-cupos";
 var FOUNDERS_PROMO_DAILY_TARGET = Number(process.env.FOUNDERS_PROMO_DAILY_CAP) || 50;
 async function resolveSharedPoolRemaining(eventId) {
   const db = await getDb();
   if (!db) return null;
-  const activos = await db.select().from(ticketTypes).where(and7(
-    eq9(ticketTypes.eventId, eventId),
-    eq9(ticketTypes.category, "acceso"),
-    eq9(ticketTypes.status, "active")
+  const activos = await db.select().from(ticketTypes).where(and8(
+    eq10(ticketTypes.eventId, eventId),
+    eq10(ticketTypes.category, "acceso"),
+    eq10(ticketTypes.status, "active")
   ));
   const poolIds = Array.from(new Set(activos.map((a) => a.stockPoolId).filter((id) => id != null)));
   if (poolIds.length !== 1) return null;
@@ -9946,6 +11331,331 @@ async function runAdminDigest() {
   return { success: result.success, sent: result.success, reason: result.success ? void 0 : result.reason };
 }
 
+// shared/instagramAgentConfig.ts
+var DEFAULT_INSTAGRAM_AGENT_CONFIG = {
+  enabled: false,
+  brandNotes: [
+    "Mansion Playroom es una productora de fiestas liberales en Valpara\xEDso / Vi\xF1a del Mar, Chile.",
+    "Tono: cercano, chileno, breve y respetuoso. Nada de doble sentido expl\xEDcito ni lenguaje sexual en los mensajes.",
+    "Entrada solo mayores de 18 a\xF1os, con carnet. La lista y los datos de quienes asisten son privados.",
+    "Las entradas se compran \xFAnicamente en mansionplayroom.cl -- no se reservan por Instagram ni se venden por transferencia.",
+    "La direcci\xF3n exacta del local se env\xEDa por correo junto con la entrada, despu\xE9s de comprar."
+  ].join("\n"),
+  handoffMessage: "Te respondo esto con m\xE1s calma en un rato, que lo vea alguien del equipo \u{1F49C}",
+  historyLimit: 12,
+  dailyReplyLimitPerThread: 30,
+  styleExamples: "",
+  followUpEnabled: true,
+  followUpMinutes: 120,
+  followUpMessage: "Cuando quieras retomamos \u{1F49C} mientras tanto puedes ver fechas y entradas directo en mansionplayroom.cl/entradas",
+  thanksMessage: "Un gusto y cualquier otra cosa que necesites estamos aqu\xED para poder ayudar"
+};
+function normalizeInstagramAgentConfig(raw) {
+  const partial = raw && typeof raw === "object" ? raw : {};
+  const historyLimit = Number(partial.historyLimit);
+  const dailyLimit = Number(partial.dailyReplyLimitPerThread);
+  const followUpMinutes = Number(partial.followUpMinutes);
+  return {
+    enabled: partial.enabled === true,
+    brandNotes: typeof partial.brandNotes === "string" && partial.brandNotes.trim().length > 0 ? partial.brandNotes : DEFAULT_INSTAGRAM_AGENT_CONFIG.brandNotes,
+    handoffMessage: typeof partial.handoffMessage === "string" && partial.handoffMessage.trim().length > 0 ? partial.handoffMessage : DEFAULT_INSTAGRAM_AGENT_CONFIG.handoffMessage,
+    historyLimit: Number.isFinite(historyLimit) && historyLimit > 0 ? Math.min(Math.floor(historyLimit), 40) : DEFAULT_INSTAGRAM_AGENT_CONFIG.historyLimit,
+    dailyReplyLimitPerThread: Number.isFinite(dailyLimit) && dailyLimit > 0 ? Math.min(Math.floor(dailyLimit), 200) : DEFAULT_INSTAGRAM_AGENT_CONFIG.dailyReplyLimitPerThread,
+    styleExamples: typeof partial.styleExamples === "string" ? partial.styleExamples : DEFAULT_INSTAGRAM_AGENT_CONFIG.styleExamples,
+    followUpEnabled: partial.followUpEnabled !== false,
+    followUpMinutes: Number.isFinite(followUpMinutes) && followUpMinutes > 0 ? Math.min(Math.floor(followUpMinutes), 1440) : DEFAULT_INSTAGRAM_AGENT_CONFIG.followUpMinutes,
+    followUpMessage: typeof partial.followUpMessage === "string" && partial.followUpMessage.trim().length > 0 ? partial.followUpMessage : DEFAULT_INSTAGRAM_AGENT_CONFIG.followUpMessage,
+    thanksMessage: typeof partial.thanksMessage === "string" && partial.thanksMessage.trim().length > 0 ? partial.thanksMessage : DEFAULT_INSTAGRAM_AGENT_CONFIG.thanksMessage
+  };
+}
+var IG_MAX_REPLY_CHARS = 600;
+var IG_MESSAGING_WINDOW_MS = 24 * 60 * 60 * 1e3;
+
+// server/instagramSend.ts
+var GRAPH_VERSION = "v23.0";
+var GRAPH_BASE = `https://graph.instagram.com/${GRAPH_VERSION}`;
+var InstagramApiError = class extends Error {
+  constructor(message, code, subcode) {
+    super(message);
+    this.code = code;
+    this.subcode = subcode;
+    this.name = "InstagramApiError";
+  }
+};
+function canReplyWithinWindow(lastInboundAt, now = /* @__PURE__ */ new Date()) {
+  if (!lastInboundAt) return false;
+  return now.getTime() - new Date(lastInboundAt).getTime() < IG_MESSAGING_WINDOW_MS;
+}
+async function postToMessagesEndpoint(recipient, message) {
+  if (!ENV.igAccessToken || !ENV.igUserId) {
+    throw new InstagramApiError("Faltan IG_ACCESS_TOKEN o IG_USER_ID en el servidor.");
+  }
+  const response = await fetch(`${GRAPH_BASE}/${ENV.igUserId}/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${ENV.igAccessToken}`
+    },
+    body: JSON.stringify({ recipient, message })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = body.error;
+    throw new InstagramApiError(
+      error?.message ?? `Instagram respondi\xF3 ${response.status}`,
+      error?.code,
+      error?.error_subcode
+    );
+  }
+  return { mid: body.message_id ?? null };
+}
+async function sendInstagramMessage(input) {
+  return postToMessagesEndpoint({ id: input.recipientId }, { text: input.text });
+}
+async function sendImageMessage(recipient, imageUrl) {
+  return postToMessagesEndpoint(recipient, { attachment: { type: "image", payload: { url: imageUrl } } });
+}
+async function sendButtonMessage(recipient, text2, button) {
+  return postToMessagesEndpoint(recipient, {
+    attachment: {
+      type: "template",
+      payload: {
+        template_type: "button",
+        text: text2,
+        buttons: [{ type: "web_url", url: button.url, title: button.title }]
+      }
+    }
+  });
+}
+async function sendPrivateReply(commentId, text2) {
+  return postToMessagesEndpoint({ comment_id: commentId }, { text: text2 });
+}
+async function fetchInstagramProfile(igUserId) {
+  if (!ENV.igAccessToken) return {};
+  try {
+    const response = await fetch(
+      `${GRAPH_BASE}/${igUserId}?fields=username,name&access_token=${encodeURIComponent(ENV.igAccessToken)}`
+    );
+    if (!response.ok) return {};
+    const body = await response.json();
+    return { username: body.username, name: body.name };
+  } catch {
+    return {};
+  }
+}
+async function refreshInstagramToken() {
+  if (!ENV.igAccessToken) throw new InstagramApiError("Falta IG_ACCESS_TOKEN en el servidor.");
+  const response = await fetch(
+    `${GRAPH_BASE}/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(ENV.igAccessToken)}`
+  );
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = body.error;
+    throw new InstagramApiError(error?.message ?? `Instagram respondi\xF3 ${response.status}`);
+  }
+  const typed = body;
+  if (!typed.access_token) throw new InstagramApiError("Instagram no devolvi\xF3 un token nuevo.");
+  return {
+    accessToken: typed.access_token,
+    expiresInDays: Math.round((typed.expires_in ?? 0) / 86400)
+  };
+}
+
+// server/instagramFollowUp.ts
+async function runInstagramFollowUps(now = /* @__PURE__ */ new Date()) {
+  const settings = await getSiteSettings();
+  const config = normalizeInstagramAgentConfig(settings?.instagramAgentConfig);
+  if (!config.enabled || !config.followUpEnabled) return { sent: 0, skipped: 0, failed: 0 };
+  const cutoff = new Date(now.getTime() - config.followUpMinutes * 60 * 1e3);
+  const threads = await getIgThreadsAwaitingFollowUp(cutoff);
+  let sent = 0, skipped = 0, failed = 0;
+  for (const thread of threads) {
+    try {
+      if (!canReplyWithinWindow(thread.lastInboundAt, now)) {
+        await markIgThreadFollowUpSent(thread.id);
+        skipped++;
+        continue;
+      }
+      const { mid } = await sendInstagramMessage({ recipientId: thread.igUserId, text: config.followUpMessage });
+      await appendIgMessage({ threadId: thread.id, mid, direction: "out", source: "bot", text: config.followUpMessage });
+      await markIgThreadFollowUpSent(thread.id);
+      sent++;
+    } catch (err) {
+      console.error(`[Instagram] Fall\xF3 el recordatorio de cierre del hilo ${thread.id}:`, err);
+      failed++;
+    }
+  }
+  return { sent, skipped, failed };
+}
+
+// server/whatsappSend.ts
+var GRAPH_VERSION2 = "v23.0";
+var GRAPH_BASE2 = `https://graph.facebook.com/${GRAPH_VERSION2}`;
+var WhatsAppApiError = class extends Error {
+  constructor(message, code) {
+    super(message);
+    this.code = code;
+    this.name = "WhatsAppApiError";
+  }
+};
+function clip(text2, max) {
+  const chars = Array.from(text2.trim());
+  if (chars.length <= max) return chars.join("");
+  return chars.slice(0, max - 1).join("").trimEnd() + "\u2026";
+}
+function buildTextPayload(to, body) {
+  return {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: "text",
+    text: { body: clip(body, 4096), preview_url: true }
+  };
+}
+function buildButtonsPayload(to, body, buttons) {
+  const seen = /* @__PURE__ */ new Set();
+  const clean = buttons.map((b) => ({ id: clip(b.id, 256), title: clip(b.title, 20) })).filter((b) => b.title.length > 0 && !seen.has(b.title.toLowerCase()) && seen.add(b.title.toLowerCase())).slice(0, 3);
+  return {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: clip(body, 1024) },
+      action: { buttons: clean.map((b) => ({ type: "reply", reply: b })) }
+    }
+  };
+}
+function buildListPayload(to, body, buttonLabel, sectionTitle2, rows) {
+  return {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "list",
+      body: { text: clip(body, 4096) },
+      action: {
+        button: clip(buttonLabel, 20),
+        sections: [{
+          title: clip(sectionTitle2, 24),
+          rows: rows.slice(0, 10).map((r) => ({
+            id: clip(r.id, 200),
+            title: clip(r.title, 24),
+            ...r.description ? { description: clip(r.description, 72) } : {}
+          }))
+        }]
+      }
+    }
+  };
+}
+function buildCtaUrlPayload(to, body, displayText, url) {
+  return {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "cta_url",
+      body: { text: clip(body, 1024) },
+      action: { name: "cta_url", parameters: { display_text: clip(displayText, 20), url } }
+    }
+  };
+}
+async function postMessages(payload) {
+  if (!ENV.waAccessToken || !ENV.waPhoneNumberId) {
+    throw new WhatsAppApiError("Faltan WA_ACCESS_TOKEN o WA_PHONE_NUMBER_ID en el servidor.");
+  }
+  const response = await fetch(`${GRAPH_BASE2}/${ENV.waPhoneNumberId}/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${ENV.waAccessToken}`
+    },
+    body: JSON.stringify(payload)
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = body.error;
+    throw new WhatsAppApiError(error?.message ?? `WhatsApp respondi\xF3 ${response.status}`, error?.code);
+  }
+  return body;
+}
+async function sendWhatsAppPayload(payload) {
+  const body = await postMessages(payload);
+  const messages = body.messages;
+  return { wamid: messages?.[0]?.id ?? null };
+}
+async function sendWhatsAppText(to, text2) {
+  return sendWhatsAppPayload(buildTextPayload(to, text2));
+}
+async function markReadWithTyping(wamid) {
+  try {
+    await postMessages({
+      messaging_product: "whatsapp",
+      status: "read",
+      message_id: wamid,
+      typing_indicator: { type: "text" }
+    });
+  } catch (err) {
+    console.warn("[WhatsApp] No se pudo marcar como le\xEDdo:", err);
+  }
+}
+
+// shared/whatsappAgentConfig.ts
+var DEFAULT_WHATSAPP_AGENT_CONFIG = {
+  enabled: false,
+  welcomeMenuEnabled: true,
+  welcomeMessage: "\xA1Hola! \u{1F49C} Te escribe Mansion Playroom. \xBFEn qu\xE9 te puedo ayudar? Toca una opci\xF3n o escr\xEDbeme tu pregunta.",
+  dailyReplyLimitPerThread: 30,
+  followUpEnabled: true,
+  followUpMinutes: 120,
+  followUpMessage: "Cuando quieras retomamos \u{1F49C} mientras tanto puedes ver fechas y entradas directo en mansionplayroom.cl/entradas"
+};
+function normalizeWhatsAppAgentConfig(raw) {
+  const partial = raw && typeof raw === "object" ? raw : {};
+  const dailyLimit = Number(partial.dailyReplyLimitPerThread);
+  const followUpMinutes = Number(partial.followUpMinutes);
+  return {
+    enabled: partial.enabled === true,
+    welcomeMenuEnabled: partial.welcomeMenuEnabled !== false,
+    welcomeMessage: typeof partial.welcomeMessage === "string" && partial.welcomeMessage.trim().length > 0 ? partial.welcomeMessage : DEFAULT_WHATSAPP_AGENT_CONFIG.welcomeMessage,
+    dailyReplyLimitPerThread: Number.isFinite(dailyLimit) && dailyLimit > 0 ? Math.min(Math.floor(dailyLimit), 200) : DEFAULT_WHATSAPP_AGENT_CONFIG.dailyReplyLimitPerThread,
+    followUpEnabled: partial.followUpEnabled !== false,
+    followUpMinutes: Number.isFinite(followUpMinutes) && followUpMinutes > 0 ? Math.min(Math.floor(followUpMinutes), 1440) : DEFAULT_WHATSAPP_AGENT_CONFIG.followUpMinutes,
+    followUpMessage: typeof partial.followUpMessage === "string" && partial.followUpMessage.trim().length > 0 ? partial.followUpMessage : DEFAULT_WHATSAPP_AGENT_CONFIG.followUpMessage
+  };
+}
+var WA_MAX_REPLY_CHARS = 600;
+
+// server/whatsappFollowUp.ts
+async function runWhatsAppFollowUps(now = /* @__PURE__ */ new Date()) {
+  const settings = await getSiteSettings();
+  const config = normalizeWhatsAppAgentConfig(settings?.whatsappAgentConfig);
+  if (!config.enabled || !config.followUpEnabled) return { sent: 0, skipped: 0, failed: 0 };
+  const cutoff = new Date(now.getTime() - config.followUpMinutes * 60 * 1e3);
+  const threads = await getWaThreadsAwaitingFollowUp(cutoff);
+  let sent = 0, skipped = 0, failed = 0;
+  for (const thread of threads) {
+    try {
+      if (!canReplyWithinWindow(thread.lastInboundAt, now)) {
+        await markWaThreadFollowUpSent(thread.id);
+        skipped++;
+        continue;
+      }
+      const { wamid } = await sendWhatsAppText(thread.waId, config.followUpMessage);
+      await appendWaMessage({ threadId: thread.id, wamid, direction: "out", source: "bot", text: config.followUpMessage });
+      await markWaThreadFollowUpSent(thread.id);
+      sent++;
+    } catch (err) {
+      console.error(`[WhatsApp] Fall\xF3 el recordatorio de cierre del hilo ${thread.id}:`, err);
+      failed++;
+    }
+  }
+  return { sent, skipped, failed };
+}
+
 // server/cronRoutes.ts
 var CHECKIN_SUMMARY_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 function requireCronSecret(req, res) {
@@ -10008,16 +11718,33 @@ function registerCronRoutes(app2) {
     } catch (err) {
       console.error("[Cron] Error limpiando datos de fiestas terminadas:", err);
     }
+    let igThreadsPurged = 0;
+    try {
+      igThreadsPurged = (await purgeOldIgThreads()).threadsDeleted;
+    } catch (err) {
+      console.error("[Cron] Error limpiando conversaciones viejas de Instagram:", err);
+    }
+    let waThreadsPurged = 0;
+    try {
+      waThreadsPurged = (await purgeOldWaThreads()).threadsDeleted;
+    } catch (err) {
+      console.error("[Cron] Error limpiando conversaciones viejas de WhatsApp:", err);
+    }
+    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, igThreadsPurged, waThreadsPurged });
+  });
+  app2.get("/api/cron/ambassador-weekly", async (req, res) => {
+    if (!requireCronSecret(req, res)) return;
     let ambassadorWeekly = null;
     try {
       const config = await getProgramConfig();
-      if (config.weeklyEmailEnabled && isWeeklyEmailDay(/* @__PURE__ */ new Date(), config.weeklyEmailWeekday)) {
+      if (config.weeklyEmailEnabled && shouldSendWeeklyAmbassadorEmailNow(/* @__PURE__ */ new Date(), config.weeklyEmailWeekday, config.weeklyEmailHourChile)) {
         ambassadorWeekly = await sendWeeklyAmbassadorEmails();
       }
+      res.json({ success: true, ambassadorWeekly });
     } catch (err) {
       console.error("[Cron] Error mandando el correo semanal de embajadores:", err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : "Error desconocido" });
     }
-    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, ambassadorWeekly });
   });
   app2.get("/api/cron/checkin-summary", async (req, res) => {
     if (!requireCronSecret(req, res)) return;
@@ -10065,6 +11792,41 @@ function registerCronRoutes(app2) {
       res.json(result);
     } catch (err) {
       console.error("[Cron] Error en el resumen diario del admin:", err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : "Error desconocido" });
+    }
+  });
+  app2.get("/api/cron/instagram-token", async (req, res) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const { expiresInDays } = await refreshInstagramToken();
+      if (expiresInDays <= 10) {
+        await sendEmail({
+          to: ADMIN_NOTIFICATION_EMAIL,
+          subject: "[Candyland] El token de Instagram est\xE1 por vencer",
+          html: `<p>Al token de Instagram le quedan <strong>${expiresInDays} d\xEDas</strong>.</p>
+                 <p>Hay que generar uno nuevo en el panel de Meta y pegarlo en la variable <code>IG_ACCESS_TOKEN</code> de Vercel. Mientras tanto el agente sigue contestando, pero cuando venza deja de hacerlo.</p>`
+        });
+      }
+      res.json({ success: true, expiresInDays });
+    } catch (err) {
+      console.error("[Cron] Error renovando el token de Instagram:", err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : "Error desconocido" });
+    }
+  });
+  app2.get("/api/cron/instagram-followup", async (req, res) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const result = await runInstagramFollowUps();
+      let whatsapp;
+      try {
+        whatsapp = await runWhatsAppFollowUps();
+      } catch (err) {
+        console.error("[Cron] Error mandando los recordatorios de cierre de WhatsApp:", err);
+        whatsapp = { error: err instanceof Error ? err.message : "Error desconocido" };
+      }
+      res.json({ success: true, ...result, whatsapp });
+    } catch (err) {
+      console.error("[Cron] Error mandando los recordatorios de cierre de Instagram:", err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : "Error desconocido" });
     }
   });
@@ -10156,6 +11918,419 @@ function registerBlobUploadRoutes(app2) {
       res.json(jsonResponse);
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : "No se pudo autorizar la subida." });
+    }
+  });
+}
+
+// client/src/content/guias/vina-del-mar.ts
+var guiaVinaDelMar = {
+  slug: "vina-del-mar",
+  category: "guia",
+  title: "Qu\xE9 Hacer en Vi\xF1a del Mar de Noche \u2014 Gu\xEDa",
+  heading: "Qu\xE9 hacer en Vi\xF1a del Mar de noche",
+  description: "C\xF3mo se vive realmente la noche en Vi\xF1a del Mar y alrededores: horarios, qu\xE9 esperar, c\xF3mo llegar y c\xF3mo elegir tu panorama. Gu\xEDa escrita por quienes producen las noches.",
+  publishedAt: "2026-07-30",
+  readMinutes: 6,
+  emoji: "\u{1F319}",
+  sections: [
+    {
+      heading: "La noche en Vi\xF1a empieza m\xE1s tarde de lo que crees",
+      body: [
+        "Si vienes de otra ciudad, lo primero que sorprende es el horario. Ac\xE1 la noche no arranca a las 22:00: arranca cuando en otras partes ya est\xE1 terminando. Las puertas de un evento pueden abrir a las 21:00, pero el momento real \u2014cuando el lugar est\xE1 lleno y la m\xFAsica ya encontr\xF3 su ritmo\u2014 llega bastante despu\xE9s.",
+        "Eso cambia c\xF3mo se planifica la salida. Llegar demasiado temprano significa esperar; llegar demasiado tarde significa perderse la primera parte, que suele ser la m\xE1s tranquila para conocer gente antes de que todo se ponga intenso."
+      ],
+      note: "Regla pr\xE1ctica: si el evento abre a las 21:00 y termina a las 04:30, el punto medio de la noche est\xE1 m\xE1s cerca de la 01:00 que de las 23:00."
+    },
+    {
+      heading: "Tres tipos de panorama nocturno, y para qui\xE9n es cada uno",
+      body: [
+        "No todos los panoramas nocturnos buscan lo mismo, y elegir mal es la raz\xF3n m\xE1s com\xFAn de una noche que no funcion\xF3. A grandes rasgos hay tres caminos:"
+      ],
+      list: [
+        "Salir a bailar sin m\xE1s: lo que importa es la m\xFAsica y la pista. Se decide por el g\xE9nero, no por el lugar.",
+        "Salir a conversar: bares y espacios donde se puede escuchar a la otra persona. La m\xFAsica es fondo, no protagonista.",
+        "Salir a vivir una experiencia: eventos con una propuesta propia \u2014tem\xE1tica, zonas distintas, c\xF3digo de vestimenta\u2014 donde el lugar mismo es parte del panorama."
+      ],
+      note: "El tercero es el que m\xE1s se ha movido en la Quinta Regi\xF3n en los \xFAltimos a\xF1os, y es donde entra lo que hacemos nosotros."
+    },
+    {
+      heading: "Qu\xE9 hace distinto a un evento con propuesta propia",
+      body: [
+        'La diferencia entre "una fiesta" y "una experiencia" est\xE1 en si el lugar te propone algo o simplemente te abre la puerta. En un evento con propuesta hay zonas con identidades distintas, un c\xF3digo de vestimenta que todo el mundo respeta, y reglas de convivencia expl\xEDcitas.',
+        "En nuestro caso eso se traduce en dos pistas con m\xFAsica distinta \u2014una de house y techno, otra de reggaet\xF3n y perreo\u2014, adem\xE1s de espacios que no son pista: barra completa, zona de fumadores techada, guardarrop\xEDa y \xE1reas pensadas para otra cosa que bailar.",
+        "El dress code no es un capricho: cuando todos llegan vestidos para la ocasi\xF3n, el ambiente cambia por completo. Es la diferencia entre un lugar donde la gente se arregl\xF3 y uno donde lleg\xF3 de paso."
+      ]
+    },
+    {
+      heading: "C\xF3mo llegar y volver",
+      body: [
+        "La log\xEDstica es lo que m\xE1s frena a quien no conoce la zona, y tiene soluci\xF3n simple. Hay dos formas de resolverlo:"
+      ],
+      list: [
+        "En auto: conviene asegurar estacionamiento con anticipaci\xF3n. En nuestros eventos hay estacionamiento privado dentro del recinto, que se toma al comprar.",
+        "En app de transporte: se puede llegar directo a la entrada. Para la vuelta, a esa hora conviene pedirlo desde adentro y esperar en el lugar, no en la calle."
+      ],
+      note: "Si vas a tomar, la decisi\xF3n del transporte se toma antes de salir de la casa, no a las 04:00."
+    },
+    {
+      heading: "Lo que conviene saber antes de ir",
+      body: [
+        "Tres cosas que se preguntan siempre y que vale resolver antes de comprar:"
+      ],
+      list: [
+        "Edad: los eventos de este tipo son estrictamente +18 y se pide carnet en la entrada, sin excepciones.",
+        "Dress code: se revisa en la puerta. Vale la pena leerlo antes y no improvisar.",
+        "Acceso: hay eventos donde no todos los tipos de entrada est\xE1n abiertos a todo el mundo. Conviene revisarlo antes de llegar."
+      ]
+    },
+    {
+      heading: "C\xF3mo elegir tu pr\xF3xima noche",
+      body: [
+        'Si est\xE1s decidiendo qu\xE9 hacer un fin de semana en Vi\xF1a del Mar o alrededores, la pregunta \xFAtil no es "d\xF3nde hay fiesta" sino "qu\xE9 quiero que pase esta noche". Bailar hasta que cierren, conocer gente, celebrar algo o simplemente salir de la rutina son noches distintas y se resuelven con panoramas distintos.',
+        "Una vez que sabes eso, elegir es f\xE1cil: revisa qu\xE9 eventos hay en las fechas que te sirven, mira la propuesta de cada uno y compra con anticipaci\xF3n. Los que valen la pena se agotan."
+      ]
+    }
+  ],
+  relatedSlugs: ["valparaiso", "como-llegar-y-estacionar", "primera-vez-que-esperar"],
+  cta: {
+    text: "\xBFBuscas un panorama para este fin de semana? Revisa las pr\xF3ximas fechas.",
+    label: "Ver pr\xF3ximos eventos",
+    href: "/eventos"
+  }
+};
+
+// client/src/content/guias/valparaiso.ts
+var guiaValparaiso = {
+  slug: "valparaiso",
+  category: "guia",
+  title: "Vida Nocturna en Valpara\xEDso \u2014 D\xF3nde Salir de Noche",
+  heading: "Vida nocturna en Valpara\xEDso",
+  description: "C\xF3mo funciona la noche en Valpara\xEDso, qu\xE9 tipos de panorama existen y c\xF3mo elegir seg\xFAn lo que buscas. Gu\xEDa pr\xE1ctica escrita desde adentro de la escena.",
+  publishedAt: "2026-07-30",
+  readMinutes: 5,
+  emoji: "\u{1F3AD}",
+  sections: [
+    {
+      heading: "Valpara\xEDso no tiene una sola noche, tiene varias",
+      body: [
+        "Lo que hace distinta a la noche porte\xF1a es que conviven escenas que en otras ciudades estar\xEDan separadas. La misma noche puede ser bohemia, electr\xF3nica, under o de fiesta grande, seg\xFAn d\xF3nde est\xE9s parado y a qu\xE9 hora.",
+        "Esa variedad es una ventaja y un problema al mismo tiempo: hay para todos los gustos, pero es f\xE1cil terminar en el panorama equivocado si uno sale sin decidir qu\xE9 anda buscando."
+      ]
+    },
+    {
+      heading: "Primero decide la energ\xEDa, despu\xE9s el lugar",
+      body: [
+        "El error m\xE1s com\xFAn es elegir por lugar. Funciona mucho mejor al rev\xE9s: decidir primero qu\xE9 tipo de noche quieres y reci\xE9n ah\xED buscar d\xF3nde. Cuatro energ\xEDas distintas:"
+      ],
+      list: [
+        "Bailar sin parar: la m\xFAsica manda y la noche se mide en horas de pista.",
+        "Conocer gente: importa que el espacio permita hablar y moverse, no solo bailar.",
+        "Celebrar algo: cumplea\xF1os, cierre de mes, lo que sea. Ah\xED pesa el grupo y el ambiente.",
+        "Vivir algo distinto: cuando la rutina de siempre ya aburre y se busca una propuesta con identidad propia."
+      ],
+      note: "Las dos \xFAltimas son las que m\xE1s han crecido en la Regi\xF3n de Valpara\xEDso, y las que peor resuelve un panorama improvisado."
+    },
+    {
+      heading: "El fin de semana largo de la Quinta Regi\xF3n",
+      body: [
+        "Algo particular de la zona: la noche no se concentra solo en el s\xE1bado. Entre Valpara\xEDso y Vi\xF1a del Mar hay movimiento distribuido, y los eventos con propuesta propia suelen elegir fechas donde no compiten con todo lo dem\xE1s.",
+        "Para quien planifica, eso significa que vale la pena mirar el calendario con anticipaci\xF3n en vez de decidir el mismo d\xEDa. Los eventos que valen la pena venden antes, no en la puerta."
+      ]
+    },
+    {
+      heading: "Salir de noche sin auto",
+      body: [
+        "Valpara\xEDso y Vi\xF1a est\xE1n conectadas, pero la noche cambia las reglas: a las 04:00 las opciones se reducen. Lo que funciona:"
+      ],
+      list: [
+        "Resolver la vuelta antes de salir, no cuando ya termin\xF3 la fiesta.",
+        "Si es un evento cerrado, pedir el transporte desde adentro y esperar en el lugar.",
+        "Si vas en auto y vas a tomar, definir de antemano qui\xE9n maneja o dejarlo estacionado."
+      ]
+    },
+    {
+      heading: "Qu\xE9 esperar de un evento con propuesta",
+      body: [
+        "Si te decides por la cuarta opci\xF3n \u2014vivir algo distinto\u2014 hay un par de cosas que conviene tener claras antes de comprar.",
+        "Estos eventos suelen ser +18 estrictos con revisi\xF3n de carnet, tienen c\xF3digo de vestimenta que se aplica en la puerta, y funcionan con reglas de convivencia expl\xEDcitas: respeto, consentimiento y libertad. No son reglas decorativas, son lo que hace que el espacio funcione.",
+        "A cambio, la experiencia es otra cosa: zonas con identidades distintas, m\xFAsica pensada, y gente que lleg\xF3 por lo mismo que t\xFA."
+      ]
+    }
+  ],
+  relatedSlugs: ["vina-del-mar", "primera-vez-que-esperar"],
+  cta: {
+    text: "Si buscas una noche con propuesta propia, mira las pr\xF3ximas fechas.",
+    label: "Ver pr\xF3ximos eventos",
+    href: "/eventos"
+  }
+};
+
+// client/src/content/blog/que-llevar.ts
+var queLlevar = {
+  slug: "que-llevar",
+  category: "blog",
+  title: "Qu\xE9 Llevar a un Evento Nocturno \u2014 La Lista Corta",
+  heading: "Qu\xE9 llevar a un evento nocturno",
+  description: "La lista corta de lo que s\xED necesitas y lo que te va a estorbar toda la noche. Incluye lo que mucha gente olvida y termina lamentando.",
+  publishedAt: "2026-07-30",
+  readMinutes: 3,
+  emoji: "\u{1F392}",
+  sections: [
+    {
+      heading: "Lo que no puede faltar",
+      body: ["Tres cosas. Sin la primera no entras, as\xED de simple."],
+      list: [
+        "Carnet de identidad. Los eventos +18 lo piden en la puerta sin excepciones, y una foto en el celular no siempre sirve.",
+        "Tu entrada o el c\xF3digo que te lleg\xF3 por correo. T\xE9nlo a mano antes de llegar a la fila, no cuando ya est\xE9s adelante.",
+        "Medio de pago para la barra. Aunque hayas comprado todo online, la barra se paga aparte."
+      ]
+    },
+    {
+      heading: "Lo que se agradece a las 03:00",
+      list: [
+        "Cargador o bater\xEDa port\xE1til: entre fotos y pedir transporte, el celular no llega al final.",
+        "Algo de abrigo para la salida. Entras con calor y sales a otra temperatura.",
+        "Un cambio de calzado si vas con tacos. Bailar seis horas con el mismo par es una decisi\xF3n que se paga."
+      ]
+    },
+    {
+      heading: "Lo que mejor dejas en la casa",
+      body: [
+        "Todo lo que tengas que estar cuidando toda la noche te va a arruinar la experiencia. Si el lugar tiene guardarrop\xEDa \u2014el nuestro tiene\u2014 \xFAsala apenas llegues, en vez de andar cargando cosas."
+      ],
+      list: [
+        "Bolsos grandes: inc\xF3modos en la pista y dif\xEDciles de vigilar.",
+        "Objetos de valor que no vas a usar.",
+        "Expectativas r\xEDgidas sobre c\xF3mo tiene que salir la noche."
+      ]
+    },
+    {
+      heading: "Antes de salir de la casa",
+      body: [
+        "Dos decisiones que se toman antes y no despu\xE9s: c\xF3mo vuelves, y qu\xE9 te vas a poner. La primera evita el peor momento de la noche; la segunda evita que te devuelvan en la puerta por no cumplir el dress code."
+      ]
+    }
+  ],
+  relatedSlugs: ["como-llegar-y-estacionar"],
+  cta: {
+    text: "Revisa el dress code y los detalles de la pr\xF3xima fecha antes de comprar.",
+    label: "Ver pr\xF3ximos eventos",
+    href: "/eventos"
+  }
+};
+
+// client/src/content/blog/primera-vez-que-esperar.ts
+var primeraVezQueEsperar = {
+  slug: "primera-vez-que-esperar",
+  category: "blog",
+  title: "Primera Vez en una Fiesta Liberal: Qu\xE9 Esperar",
+  heading: "Primera vez: qu\xE9 esperar",
+  description: "C\xF3mo funciona realmente una fiesta liberal, qu\xE9 pasa cuando entras, cu\xE1les son las reglas y qu\xE9 NO va a pasar. Para quien nunca ha ido y tiene dudas.",
+  publishedAt: "2026-07-30",
+  readMinutes: 6,
+  emoji: "\u{1F6AA}",
+  sections: [
+    {
+      heading: "Lo primero: nadie te va a presionar a nada",
+      body: [
+        "Esta es la duda que frena a casi todo el mundo, as\xED que va primero. En un espacio bien llevado, no pasa nada que t\xFA no quieras que pase. Puedes ir, bailar toda la noche, tomarte algo y volver a tu casa sin haber hecho nada m\xE1s. Es completamente v\xE1lido y pasa todo el tiempo.",
+        'El consentimiento no es un eslogan en la pared: es la regla que hace que el lugar funcione. Un "no" se respeta a la primera, sin explicaciones y sin insistir.'
+      ]
+    },
+    {
+      heading: "Las tres reglas que sostienen todo",
+      body: ["Respeto, consentimiento y libertad. En la pr\xE1ctica se traducen as\xED:"],
+      list: [
+        "Respeto: nadie comenta, juzga ni fotograf\xEDa lo que hacen los dem\xE1s.",
+        "Consentimiento: todo se pregunta. Un no es un no, y no se insiste.",
+        "Libertad: cada quien decide su noche. Mirar es v\xE1lido, participar es v\xE1lido, y no hacer ninguna de las dos tambi\xE9n."
+      ],
+      note: "Si alguien no respeta esto, se lo saca. No hay una segunda conversaci\xF3n."
+    },
+    {
+      heading: "C\xF3mo es entrar",
+      body: [
+        "La entrada es m\xE1s simple de lo que uno imagina: se revisa el carnet (son eventos estrictamente +18), se valida la entrada y se revisa el dress code. Nada m\xE1s.",
+        "Adentro, lo primero que conviene hacer es dejar las cosas en guardarrop\xEDa y dar una vuelta completa para ubicarse. Saber d\xF3nde est\xE1 cada cosa quita la mitad de la ansiedad inicial."
+      ]
+    },
+    {
+      heading: "No todo el lugar es lo mismo",
+      body: [
+        "Este es el punto que m\xE1s tranquiliza a quien va por primera vez: los espacios est\xE1n separados y cada uno tiene su propia intensidad."
+      ],
+      list: [
+        "Las pistas son pistas: se baila, se conversa, se toma algo. Es una fiesta normal.",
+        "La barra y la zona de fumadores son los lugares donde la gente conversa y se conoce.",
+        "Las zonas m\xE1s \xEDntimas est\xE1n aparte, y entrar es una decisi\xF3n activa: nadie llega ah\xED por accidente."
+      ],
+      note: "Puedes pasar toda la noche solo en las pistas. Mucha gente lo hace, sobre todo la primera vez."
+    },
+    {
+      heading: "Ir en pareja, ir solo, ir con amigos",
+      body: [
+        "Las tres formas funcionan, pero conviene saber qu\xE9 esperar de cada una.",
+        "En pareja: es la m\xE1s com\xFAn. Lo que s\xED conviene es conversar antes qu\xE9 quieren y qu\xE9 no. Las conversaciones inc\xF3modas se tienen en la casa, no adentro.",
+        "Con amigos: la m\xE1s relajada para una primera vez, porque llegas con tu grupo y no dependes de nadie.",
+        "Solo o sola: ac\xE1 hay que revisar bien qu\xE9 tipo de acceso corresponde, porque no todos los eventos tienen las mismas condiciones para quien va sin acompa\xF1ante."
+      ]
+    },
+    {
+      heading: "Qu\xE9 hacer si algo te incomoda",
+      body: [
+        "Te vas de esa zona. As\xED de simple, y no le debes una explicaci\xF3n a nadie.",
+        "Si alguien no respeta un no o te hace sentir inseguro, se le avisa al equipo del local. Est\xE1n para eso y act\xFAan. Un espacio que no cuida a quien est\xE1 adentro no dura, y quien lo produce lo sabe mejor que nadie."
+      ]
+    }
+  ],
+  relatedSlugs: ["que-llevar", "como-llegar-y-estacionar"],
+  cta: {
+    text: "\xBFTe dieron ganas de conocerlo? Mira la pr\xF3xima fecha.",
+    label: "Ver pr\xF3ximos eventos",
+    href: "/eventos"
+  }
+};
+
+// client/src/content/blog/como-llegar-y-estacionar.ts
+var comoLlegarYEstacionar = {
+  slug: "como-llegar-y-estacionar",
+  category: "blog",
+  title: "C\xF3mo Llegar a un Evento Nocturno y D\xF3nde Estacionar",
+  heading: "C\xF3mo llegar y d\xF3nde estacionar",
+  description: "La log\xEDstica que casi nadie planifica y siempre termina siendo un problema: c\xF3mo llegar, d\xF3nde dejar el auto y \u2014lo m\xE1s importante\u2014 c\xF3mo vuelves.",
+  publishedAt: "2026-07-30",
+  readMinutes: 4,
+  emoji: "\u{1F697}",
+  sections: [
+    {
+      heading: "La direcci\xF3n llega con tu entrada",
+      body: [
+        "En eventos con un recinto privado, la direcci\xF3n exacta no se publica: llega por correo junto con la entrada. No es para complicarte, es para cuidar la privacidad del espacio y de quienes van.",
+        "Eso significa una cosa pr\xE1ctica: revisa ese correo antes de salir de tu casa, no cuando ya vas en camino. Y si no te lleg\xF3, b\xFAscalo en spam antes de escribir."
+      ]
+    },
+    {
+      heading: "Si vas en auto",
+      body: [
+        "Nuestro recinto tiene estacionamiento privado adentro, que se toma al momento de comprar. Es la opci\xF3n m\xE1s c\xF3moda, sobre todo si vienes de fuera de la zona."
+      ],
+      list: [
+        "Aseg\xFAralo al comprar: los cupos son limitados y no se garantizan en la puerta.",
+        "Llega con margen: buscar estacionamiento a \xFAltimo minuto es la forma m\xE1s r\xE1pida de empezar la noche estresado.",
+        "Si vas a tomar, define antes qui\xE9n maneja. O deja el auto y resuelve la vuelta de otra forma."
+      ]
+    },
+    {
+      heading: "Si vas en app de transporte",
+      body: [
+        "Funciona bien y puedes llegar directo a la entrada. Le pasas la direcci\xF3n que te lleg\xF3 por correo y listo.",
+        "Para la vuelta hay un detalle que vale oro: p\xEDdelo desde adentro y espera en el lugar, no en la calle. A las 04:00 la espera puede ser m\xE1s larga de lo normal, y es mucho mejor esperar adentro que afuera."
+      ]
+    },
+    {
+      heading: "La regla que evita el peor momento de la noche",
+      body: [
+        "Decide c\xF3mo vuelves antes de salir de tu casa.",
+        "Suena obvio y casi nadie lo hace. El final de una buena noche no deber\xEDa ser media hora de fr\xEDo calculando c\xF3mo llegar de vuelta. Si vas con gente, acuerden esto antes: qui\xE9n maneja, o si van a pedir transporte juntos."
+      ],
+      note: "Los eventos que van hasta el amanecer tienen una ventaja: puedes quedarte hasta que amanezca y volver con luz."
+    }
+  ],
+  relatedSlugs: ["que-llevar", "vina-del-mar"],
+  cta: {
+    text: "Revisa los detalles y asegura tu estacionamiento al comprar.",
+    label: "Ver entradas",
+    href: "/entradas"
+  }
+};
+
+// client/src/content/types.ts
+function articlePath(article) {
+  return article.category === "guia" ? `/panoramas/${article.slug}` : `/blog/${article.slug}`;
+}
+
+// client/src/content/index.ts
+var ALL_ARTICLES = [
+  guiaVinaDelMar,
+  guiaValparaiso,
+  primeraVezQueEsperar,
+  queLlevar,
+  comoLlegarYEstacionar
+];
+function byDateDesc(a, b) {
+  return b.publishedAt.localeCompare(a.publishedAt);
+}
+function getGuides() {
+  return ALL_ARTICLES.filter((a) => a.category === "guia").sort(byDateDesc);
+}
+function getPosts() {
+  return ALL_ARTICLES.filter((a) => a.category === "blog").sort(byDateDesc);
+}
+
+// server/sitemap.ts
+var SITE_URL = "https://mansionplayroom.cl";
+var STATIC_ENTRIES = [
+  { path: "/", changefreq: "weekly", priority: "1.0" },
+  { path: "/eventos", changefreq: "weekly", priority: "0.9" },
+  { path: "/entradas", changefreq: "monthly", priority: "0.7" },
+  { path: "/playmatch", changefreq: "monthly", priority: "0.6" },
+  { path: "/embajadores", changefreq: "monthly", priority: "0.7" },
+  { path: "/panoramas", changefreq: "monthly", priority: "0.8" },
+  { path: "/blog", changefreq: "weekly", priority: "0.7" },
+  { path: "/blog/que-son-las-fiestas-liberales", changefreq: "monthly", priority: "0.7" },
+  { path: "/blog/tarjeta-playcard", changefreq: "monthly", priority: "0.7" },
+  { path: "/blog/dress-code-explicado", changefreq: "monthly", priority: "0.6" },
+  { path: "/politica-de-reembolso", changefreq: "yearly", priority: "0.3" },
+  { path: "/politica-de-privacidad", changefreq: "yearly", priority: "0.3" }
+];
+function escapeXml(value) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function xmlFor(entries) {
+  const urls = entries.map(
+    (e) => `  <url>
+    <loc>${escapeXml(SITE_URL + e.path)}</loc>
+    <changefreq>${e.changefreq}</changefreq>
+    <priority>${e.priority}</priority>
+  </url>`
+  ).join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls}
+</urlset>
+`;
+}
+async function buildSitemapXml() {
+  const entries = [...STATIC_ENTRIES];
+  const events2 = await getPublishedEvents();
+  for (const event of events2) {
+    if (event.status !== "published" && event.status !== "soldout") continue;
+    entries.push({ path: `/eventos/${event.slug}`, changefreq: "weekly", priority: "0.8" });
+  }
+  for (const guide of getGuides()) {
+    entries.push({ path: articlePath(guide), changefreq: "monthly", priority: "0.8" });
+  }
+  for (const post of getPosts()) {
+    entries.push({ path: articlePath(post), changefreq: "monthly", priority: "0.6" });
+  }
+  return xmlFor(entries);
+}
+var CACHE_TTL_MS = 10 * 60 * 1e3;
+var cache = null;
+function registerSitemapRoute(app2) {
+  app2.get("/sitemap.xml", async (_req, res) => {
+    try {
+      if (!cache || cache.expiresAt <= Date.now()) {
+        const xml = await buildSitemapXml();
+        cache = { xml, expiresAt: Date.now() + CACHE_TTL_MS };
+      }
+      res.set("Content-Type", "application/xml; charset=utf-8");
+      res.set("Cache-Control", "public, s-maxage=3600, stale-while-revalidate=86400");
+      res.send(cache.xml);
+    } catch (err) {
+      console.error("[sitemap] no se pudo generar con datos en vivo, sirviendo solo las p\xE1ginas fijas:", err);
+      res.set("Content-Type", "application/xml; charset=utf-8");
+      res.send(xmlFor(STATIC_ENTRIES));
     }
   });
 }
@@ -10473,9 +12648,9 @@ var systemRouter = router({
 });
 
 // server/routers.ts
-import { z as z6 } from "zod";
+import { z as z7 } from "zod";
 import { TRPCError as TRPCError3 } from "@trpc/server";
-import { nanoid as nanoid4 } from "nanoid";
+import { nanoid as nanoid5 } from "nanoid";
 
 // server/caja/deviceAuth.ts
 import { createHash, randomBytes as randomBytes2 } from "crypto";
@@ -10519,7 +12694,7 @@ async function verifyDeviceSession(cookieValue) {
 // server/caja/redeem.ts
 init_schema();
 init_ops();
-import { eq as eq10 } from "drizzle-orm";
+import { eq as eq11 } from "drizzle-orm";
 async function redeemDisplayCode(db, params) {
   const code = params.displayCode.trim().toUpperCase();
   const { result, conflictNote } = await applyOp(
@@ -10536,9 +12711,9 @@ async function redeemDisplayCode(db, params) {
       clientAt: params.clientAt
     },
     async () => {
-      const [ticket] = await db.select().from(tickets).where(eq10(tickets.displayCode, code)).limit(1);
+      const [ticket] = await db.select().from(tickets).where(eq11(tickets.displayCode, code)).limit(1);
       if (!ticket) return { result: "rejected", conflictNote: "El c\xF3digo no existe" };
-      const [gift] = await db.select().from(partyGifts).where(eq10(partyGifts.ticketId, ticket.id)).limit(1);
+      const [gift] = await db.select().from(partyGifts).where(eq11(partyGifts.ticketId, ticket.id)).limit(1);
       if (!gift && ticket.eventId !== params.eventId) {
         return { result: "rejected", conflictNote: "El c\xF3digo no corresponde a este evento" };
       }
@@ -10551,9 +12726,9 @@ async function redeemDisplayCode(db, params) {
         usedAt: /* @__PURE__ */ new Date(),
         usedByOperatorId: params.operatorId,
         usedAtRegisterId: params.registerId ?? null
-      }).where(eq10(tickets.id, ticket.id));
+      }).where(eq11(tickets.id, ticket.id));
       if (gift) {
-        await db.update(partyGifts).set({ status: "redeemed", redeemedAt: /* @__PURE__ */ new Date() }).where(eq10(partyGifts.id, gift.id));
+        await db.update(partyGifts).set({ status: "redeemed", redeemedAt: /* @__PURE__ */ new Date() }).where(eq11(partyGifts.id, gift.id));
       }
       return { result: "applied" };
     }
@@ -10564,7 +12739,7 @@ async function redeemDisplayCode(db, params) {
 // server/caja/checkin.ts
 init_schema();
 init_ops();
-import { eq as eq11 } from "drizzle-orm";
+import { eq as eq12 } from "drizzle-orm";
 async function checkInTicket(db, params) {
   const code = params.ticketCode.trim().toUpperCase();
   const { result, conflictNote } = await applyOp(
@@ -10581,14 +12756,14 @@ async function checkInTicket(db, params) {
       clientAt: params.clientAt
     },
     async () => {
-      const [ticket] = await db.select().from(tickets).where(eq11(tickets.ticketCode, code)).limit(1);
+      const [ticket] = await db.select().from(tickets).where(eq12(tickets.ticketCode, code)).limit(1);
       if (!ticket) return { result: "rejected", conflictNote: "El c\xF3digo no existe" };
       if (ticket.eventId !== params.eventId) return { result: "rejected", conflictNote: "El c\xF3digo no corresponde a este evento" };
       if (ticket.status === "cancelled") return { result: "rejected", conflictNote: "El acceso fue anulado" };
       if (ticket.status === "used") {
         return { result: "conflict", conflictNote: `Esta persona ya entr\xF3 el ${ticket.usedAt?.toISOString?.() ?? ticket.usedAt}` };
       }
-      const [tt] = await db.select().from(ticketTypes).where(eq11(ticketTypes.id, ticket.ticketTypeId)).limit(1);
+      const [tt] = await db.select().from(ticketTypes).where(eq12(ticketTypes.id, ticket.ticketTypeId)).limit(1);
       if (tt?.category !== "acceso") {
         return { result: "rejected", conflictNote: "Ese c\xF3digo es de un extra, no de un acceso" };
       }
@@ -10597,7 +12772,7 @@ async function checkInTicket(db, params) {
         usedAt: /* @__PURE__ */ new Date(),
         usedByOperatorId: params.operatorId,
         usedAtRegisterId: params.registerId ?? null
-      }).where(eq11(tickets.id, ticket.id));
+      }).where(eq12(tickets.id, ticket.id));
       return { result: "applied" };
     }
   );
@@ -10607,15 +12782,15 @@ async function checkInTicket(db, params) {
 // server/caja/parkingPaid.ts
 init_schema();
 init_ops();
-import { eq as eq12, and as and8, inArray as inArray6, ne as ne3, sql as sql5 } from "drizzle-orm";
+import { eq as eq13, and as and9, inArray as inArray7, ne as ne3, sql as sql6 } from "drizzle-orm";
 async function resolveParkingCharge(db, params) {
-  const [scanned] = await db.select().from(tickets).where(eq12(tickets.ticketCode, params.ticketCode)).limit(1);
+  const [scanned] = await db.select().from(tickets).where(eq13(tickets.ticketCode, params.ticketCode)).limit(1);
   if (!scanned) return { ok: false, conflictNote: "El c\xF3digo no existe" };
   if (scanned.eventId !== params.eventId) return { ok: false, conflictNote: "El c\xF3digo no corresponde a este evento" };
   if (scanned.status === "cancelled") return { ok: false, conflictNote: "El acceso fue anulado" };
-  const [buyerOrder] = await db.select().from(orders).where(eq12(orders.id, scanned.orderId)).limit(1);
+  const [buyerOrder] = await db.select().from(orders).where(eq13(orders.id, scanned.orderId)).limit(1);
   if (!buyerOrder) return { ok: false, conflictNote: "No se encontr\xF3 la orden de este ticket" };
-  const eventTicketTypes = await db.select().from(ticketTypes).where(eq12(ticketTypes.eventId, params.eventId));
+  const eventTicketTypes = await db.select().from(ticketTypes).where(eq13(ticketTypes.eventId, params.eventId));
   const parkingTypes = eventTicketTypes.filter((tt) => tt.category === "extra" && isParkingTicketType(tt.name));
   if (parkingTypes.length !== 1) {
     return {
@@ -10626,16 +12801,16 @@ async function resolveParkingCharge(db, params) {
   const parkingType = parkingTypes[0];
   const buyerEmail = (buyerOrder.buyerEmail || "").trim().toLowerCase();
   if (buyerEmail && !PLACEHOLDER_BUYER_EMAILS.has(buyerEmail)) {
-    const sameBuyerOrders = await db.select({ id: orders.id }).from(orders).where(and8(
-      eq12(orders.eventId, params.eventId),
-      eq12(orders.buyerEmail, buyerOrder.buyerEmail),
-      eq12(orders.paymentStatus, "approved")
+    const sameBuyerOrders = await db.select({ id: orders.id }).from(orders).where(and9(
+      eq13(orders.eventId, params.eventId),
+      eq13(orders.buyerEmail, buyerOrder.buyerEmail),
+      eq13(orders.paymentStatus, "approved")
     ));
     const orderIds = sameBuyerOrders.map((o) => o.id);
     if (orderIds.length > 0) {
-      const existingParking = await db.select({ id: tickets.id }).from(tickets).where(and8(
-        inArray6(tickets.orderId, orderIds),
-        eq12(tickets.ticketTypeId, parkingType.id),
+      const existingParking = await db.select({ id: tickets.id }).from(tickets).where(and9(
+        inArray7(tickets.orderId, orderIds),
+        eq13(tickets.ticketTypeId, parkingType.id),
         ne3(tickets.status, "cancelled")
       ));
       if (existingParking.length > 0) {
@@ -10684,7 +12859,7 @@ async function createParkingOrderAndTicket(db, params) {
     usedByOperatorId: params.operatorId,
     displayCode: generateDisplayCode(params.parkingType.internalCode || fallbackInternalCode(params.parkingType.name))
   });
-  await db.update(ticketTypes).set({ soldCount: sql5`soldCount + 1` }).where(eq12(ticketTypes.id, params.parkingType.id));
+  await db.update(ticketTypes).set({ soldCount: sql6`soldCount + 1` }).where(eq13(ticketTypes.id, params.parkingType.id));
 }
 async function sellParkingAtDoor(db, params) {
   const code = params.ticketCode.trim().toUpperCase();
@@ -10719,16 +12894,116 @@ async function sellParkingAtDoor(db, params) {
   return { result, conflictNote };
 }
 
+// shared/receiptScan.ts
+var EXPENSE_CATEGORY_VALUES = [
+  "decoracion",
+  "barra",
+  "merch",
+  "staff",
+  "produccion",
+  "arriendo",
+  "marketing",
+  "transporte",
+  "suscripciones",
+  "comisiones",
+  "otros"
+];
+var EXPENSE_DOCUMENT_TYPE_VALUES = ["boleta", "factura", "boleta_honorarios", "sin_documento"];
+var RECEIPT_SCAN_SCHEMA = {
+  name: "receipt_scan",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      isReceipt: {
+        type: "boolean",
+        description: "true si la foto muestra una boleta/factura/documento de compra legible."
+      },
+      amountTotal: {
+        type: "number",
+        description: "Monto TOTAL pagado, bruto (con IVA incluido si aplica), como entero en pesos chilenos. 0 si no se pudo leer."
+      },
+      documentType: { type: "string", enum: EXPENSE_DOCUMENT_TYPE_VALUES },
+      documentNumber: { type: "string", description: "Folio del documento. Vac\xEDo si no se ve." },
+      expenseDate: { type: "string", description: "Fecha impresa en el documento, formato YYYY-MM-DD. Vac\xEDo si no se ve." },
+      supplier: { type: "string", description: "Nombre del negocio/proveedor. Vac\xEDo si no se ve." },
+      supplierRut: { type: "string", description: "RUT del proveedor, formato 12.345.678-9. Vac\xEDo si no se ve." },
+      category: { type: "string", enum: EXPENSE_CATEGORY_VALUES },
+      description: { type: "string", description: "Resumen corto (m\xE1x. 6 palabras) de qu\xE9 se compr\xF3." },
+      ivaExempt: { type: "boolean", description: "true si el documento dice EXENTA/EXENTO." },
+      confidence: { type: "string", enum: ["alta", "media", "baja"] },
+      notes: { type: "string", description: "Vac\xEDo si todo se ve claro, o una frase corta avisando qu\xE9 revisar." }
+    },
+    required: [
+      "isReceipt",
+      "amountTotal",
+      "documentType",
+      "documentNumber",
+      "expenseDate",
+      "supplier",
+      "supplierRut",
+      "category",
+      "description",
+      "ivaExempt",
+      "confidence",
+      "notes"
+    ],
+    additionalProperties: false
+  }
+};
+
+// server/receiptScan.ts
+async function scanReceiptImage(imageUrl) {
+  const categoriesList = EXPENSE_CATEGORIES.map((c) => `- ${c.value}: ${c.label}`).join("\n");
+  const docTypesList = EXPENSE_DOCUMENT_TYPES.map((d) => `- ${d.value}: ${d.label}`).join("\n");
+  const systemPrompt = `Eres un asistente que lee boletas y facturas chilenas (documentos del SII) desde una foto y extrae sus datos en JSON estructurado.
+
+Vocabulario de documentos (elige uno de estos valores exactos para "documentType"):
+${docTypesList}
+- Una "Boleta Electr\xF3nica" impresa dice justamente eso. Una "Factura Electr\xF3nica" dice eso. Una "Boleta de Honorarios Electr\xF3nica" (BHE) es para servicios profesionales, no lleva IVA, lleva retenci\xF3n. Si no se ve ning\xFAn documento formal, usa "sin_documento".
+- Solo una factura NO exenta da cr\xE9dito fiscal. Si el documento dice "EXENTA" o "EXENTO", marca ivaExempt=true.
+- Si la foto no trae ning\xFAn documento de compra (es otra cosa, o es ilegible), pon isReceipt=false, amountTotal=0, todos los campos de texto en "" (string vac\xEDo, nunca null) y explica por qu\xE9 en "notes".
+- Ning\xFAn campo puede ser null: si no se lee un dato, usa "" para texto, 0 para n\xFAmeros, "otros" para category y "sin_documento" para documentType.
+
+Categor\xEDas de gasto (elige la que mejor calce para "category", o null si no es claro):
+${categoriesList}
+
+Reglas:
+- "amountTotal" es el monto TOTAL pagado (bruto, con IVA incluido si aplica), como n\xFAmero entero en pesos chilenos, sin puntos ni s\xEDmbolo.
+- "expenseDate" en formato "YYYY-MM-DD", tomado de la fecha impresa en el documento (no inventes la fecha de hoy).
+- "supplierRut" en formato "12.345.678-9" si se ve, o null si no aparece.
+- "description" es un resumen corto (m\xE1x. 6 palabras) de qu\xE9 se compr\xF3, en espa\xF1ol, ej. "Hielo y bebidas" o "Arriendo de luces".
+- "confidence": "alta" si los datos clave (monto, tipo de documento) se leen con claridad; "media" si hay alguna duda razonable; "baja" si la foto est\xE1 borrosa/incompleta.
+- "notes": null si todo est\xE1 claro, o una frase corta avisando qu\xE9 revisar (ej. "el monto final est\xE1 tapado por un dedo, conf\xEDrmalo").
+- Responde SOLO con el JSON pedido, ning\xFAn texto extra.`;
+  const result = await invokeLLM({
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Extrae los datos de esta boleta o factura." },
+          { type: "image_url", image_url: { url: imageUrl } }
+        ]
+      }
+    ],
+    responseFormat: { type: "json_schema", json_schema: RECEIPT_SCAN_SCHEMA },
+    maxTokens: 1024
+  });
+  const text2 = extractContent(result.choices[0]?.message ?? { content: "" });
+  return JSON.parse(text2);
+}
+
 // server/ambassadorApplications.ts
-import { and as and9, desc as desc3, eq as eq13 } from "drizzle-orm";
+import { and as and10, desc as desc3, eq as eq14 } from "drizzle-orm";
 init_schema();
 async function createApplication(data) {
   const db = await getDb();
   if (!db) return { ok: false, reason: "sin_base" };
   const email = data.email.trim().toLowerCase();
-  const [pendiente] = await db.select({ id: ambassadorApplications.id }).from(ambassadorApplications).where(and9(
-    eq13(ambassadorApplications.email, email),
-    eq13(ambassadorApplications.status, "pendiente")
+  const [pendiente] = await db.select({ id: ambassadorApplications.id }).from(ambassadorApplications).where(and10(
+    eq14(ambassadorApplications.email, email),
+    eq14(ambassadorApplications.status, "pendiente")
   )).limit(1);
   if (pendiente) return { ok: false, reason: "ya_pendiente" };
   const inserted = await db.insert(ambassadorApplications).values({
@@ -10747,12 +13022,12 @@ async function createApplication(data) {
 async function listApplications(status) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(ambassadorApplications).where(status ? eq13(ambassadorApplications.status, status) : void 0).orderBy(desc3(ambassadorApplications.createdAt));
+  return db.select().from(ambassadorApplications).where(status ? eq14(ambassadorApplications.status, status) : void 0).orderBy(desc3(ambassadorApplications.createdAt));
 }
 async function getApplication(id) {
   const db = await getDb();
   if (!db) return null;
-  const [row] = await db.select().from(ambassadorApplications).where(eq13(ambassadorApplications.id, id)).limit(1);
+  const [row] = await db.select().from(ambassadorApplications).where(eq14(ambassadorApplications.id, id)).limit(1);
   return row ?? null;
 }
 async function reviewApplication(params) {
@@ -10762,7 +13037,7 @@ async function reviewApplication(params) {
     status: params.status,
     reviewNote: params.note ?? null,
     reviewedAt: /* @__PURE__ */ new Date()
-  }).where(eq13(ambassadorApplications.id, params.id));
+  }).where(eq14(ambassadorApplications.id, params.id));
   return { success: true };
 }
 async function approveApplication(params) {
@@ -10781,12 +13056,12 @@ async function approveApplication(params) {
     email: application.email,
     instagram: application.instagram
   });
-  const [created] = await db.select({ id: exclusiveAmbassadors.id }).from(exclusiveAmbassadors).where(eq13(exclusiveAmbassadors.code, params.code.trim().toUpperCase())).limit(1);
+  const [created] = await db.select({ id: exclusiveAmbassadors.id }).from(exclusiveAmbassadors).where(eq14(exclusiveAmbassadors.code, params.code.trim().toUpperCase())).limit(1);
   await db.update(ambassadorApplications).set({
     status: "aprobada",
     reviewedAt: /* @__PURE__ */ new Date(),
     createdAmbassadorId: created?.id ?? null
-  }).where(eq13(ambassadorApplications.id, params.id));
+  }).where(eq14(ambassadorApplications.id, params.id));
   console.log(`[Postulaciones] ${application.name} aprobado como embajador con el c\xF3digo ${params.code.trim().toUpperCase()}`);
   return {
     success: true,
@@ -10799,18 +13074,293 @@ async function approveApplication(params) {
 async function countPendingApplications() {
   const db = await getDb();
   if (!db) return 0;
-  const rows = await db.select({ id: ambassadorApplications.id }).from(ambassadorApplications).where(eq13(ambassadorApplications.status, "pendiente"));
+  const rows = await db.select({ id: ambassadorApplications.id }).from(ambassadorApplications).where(eq14(ambassadorApplications.status, "pendiente"));
   return rows.length;
+}
+
+// server/birthdayApplications.ts
+import { and as and11, desc as desc4, eq as eq15 } from "drizzle-orm";
+init_schema();
+
+// shared/birthdayApplication.ts
+var MIN_APPLICANT_NAME_LENGTH2 = 3;
+var MAX_APPLICANT_NAME_LENGTH2 = 80;
+var MAX_APPLICATION_MESSAGE_LENGTH2 = 500;
+var BIRTHDAY_WINDOW_DAYS = 5;
+var BIRTHDAY_REQUIREMENTS = [
+  `Tu cumplea\xF1os debe caer dentro de ${BIRTHDAY_WINDOW_DAYS} d\xEDas antes o despu\xE9s de la fecha del evento`,
+  "Postula por cada evento en el que quieras participar (no es autom\xE1tico de una fiesta a otra)",
+  "Comparte tu c\xF3digo con tus invitados para que sus entradas cuenten para tus premios"
+];
+function sanitizeApplicantName2(raw) {
+  const value = (raw ?? "").replace(/\s+/g, " ").trim();
+  if (value.length < MIN_APPLICANT_NAME_LENGTH2) return { ok: false, reason: "Escribe tu nombre completo" };
+  if (value.length > MAX_APPLICANT_NAME_LENGTH2) {
+    return { ok: false, reason: `M\xE1ximo ${MAX_APPLICANT_NAME_LENGTH2} caracteres` };
+  }
+  return { ok: true, value };
+}
+function sanitizeWhatsapp2(raw) {
+  const digits = (raw ?? "").replace(/\D/g, "");
+  if (!digits) return { ok: false, reason: "Escribe tu WhatsApp" };
+  let local = digits;
+  if (local.startsWith("56")) local = local.slice(2);
+  if (local.startsWith("0")) local = local.replace(/^0+/, "");
+  if (local.length !== 9) {
+    return { ok: false, reason: "Revisa el n\xFAmero: un m\xF3vil chileno tiene 9 d\xEDgitos y empieza con 9" };
+  }
+  if (!local.startsWith("9")) {
+    return { ok: false, reason: "Tiene que ser un celular, que empieza con 9" };
+  }
+  return { ok: true, value: `+56${local}` };
+}
+function sanitizeInstagram2(raw) {
+  let value = (raw ?? "").trim();
+  if (!value) return { ok: true, value: "" };
+  const urlMatch = value.match(/(?:instagram\.com|instagr\.am)\/+([^/?#\s]+)/i);
+  if (urlMatch) value = urlMatch[1];
+  value = value.replace(/^@+/, "").replace(/\/+$/, "").trim();
+  if (!value) return { ok: true, value: "" };
+  if (value.length > 30) return { ok: false, reason: "Ese usuario de Instagram es demasiado largo" };
+  if (!/^[A-Za-z0-9._]+$/.test(value)) {
+    return { ok: false, reason: "El usuario de Instagram solo puede tener letras, n\xFAmeros, puntos y guion bajo" };
+  }
+  return { ok: true, value };
+}
+function sanitizeApplicationMessage2(raw) {
+  const value = (raw ?? "").replace(/\s+/g, " ").trim();
+  if (value.length > MAX_APPLICATION_MESSAGE_LENGTH2) {
+    return { ok: false, reason: `M\xE1ximo ${MAX_APPLICATION_MESSAGE_LENGTH2} caracteres` };
+  }
+  return { ok: true, value };
+}
+function sanitizeBirthDate(raw) {
+  const value = (raw ?? "").trim();
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return { ok: false, reason: "Escribe tu fecha de nacimiento" };
+  const [, y, m, d] = match;
+  const year = Number(y);
+  const month = Number(m);
+  const day = Number(d);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const isRealDate = date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  if (!isRealDate) return { ok: false, reason: "Esa fecha no existe" };
+  const currentYear = (/* @__PURE__ */ new Date()).getFullYear();
+  if (year < currentYear - 100 || year > currentYear) {
+    return { ok: false, reason: "Revisa el a\xF1o de nacimiento" };
+  }
+  return { ok: true, value };
+}
+function toTime3(value) {
+  if (!value) return null;
+  const t2 = new Date(value).getTime();
+  return Number.isFinite(t2) ? t2 : null;
+}
+function daysBetweenIgnoringYear(eventDate, birthMonth, birthDay) {
+  const MS_PER_DAY = 24 * 60 * 60 * 1e3;
+  const eventYear = eventDate.getFullYear();
+  let minDiff = null;
+  for (const year of [eventYear - 1, eventYear, eventYear + 1]) {
+    const candidate = new Date(year, birthMonth - 1, birthDay);
+    if (Number.isNaN(candidate.getTime())) continue;
+    const eventMidnight = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate());
+    const candidateMidnight = new Date(candidate.getFullYear(), candidate.getMonth(), candidate.getDate());
+    const diffDays = Math.round(Math.abs(eventMidnight.getTime() - candidateMidnight.getTime()) / MS_PER_DAY);
+    if (minDiff === null || diffDays < minDiff) minDiff = diffDays;
+  }
+  return minDiff;
+}
+function isBirthdayEligible(eventDate, birthDate, windowDays = BIRTHDAY_WINDOW_DAYS) {
+  const eventTime = toTime3(eventDate);
+  if (eventTime === null) return false;
+  const match = birthDate.match(/^\d{4}-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const [, m, d] = match;
+  const diff = daysBetweenIgnoringYear(new Date(eventTime), Number(m), Number(d));
+  return diff !== null && diff <= windowDays;
+}
+
+// server/birthdayApplications.ts
+async function createApplication2(data) {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: "sin_base" };
+  const [event] = await db.select({ id: events.id, eventDate: events.eventDate }).from(events).where(eq15(events.id, data.eventId)).limit(1);
+  if (!event) return { ok: false, reason: "evento_no_existe" };
+  if (!isBirthdayEligible(event.eventDate, data.birthDate)) return { ok: false, reason: "fuera_de_ventana" };
+  const email = data.email.trim().toLowerCase();
+  const [pendiente] = await db.select({ id: birthdayApplications.id }).from(birthdayApplications).where(and11(
+    eq15(birthdayApplications.email, email),
+    eq15(birthdayApplications.eventId, data.eventId),
+    eq15(birthdayApplications.status, "pendiente")
+  )).limit(1);
+  if (pendiente) return { ok: false, reason: "ya_pendiente" };
+  const inserted = await db.insert(birthdayApplications).values({
+    eventId: data.eventId,
+    name: data.name,
+    email,
+    whatsapp: data.whatsapp,
+    instagram: data.instagram || null,
+    birthDate: data.birthDate,
+    message: data.message || null,
+    acceptedTerms: data.acceptedTerms ? 1 : 0
+  });
+  const id = inserted.insertId;
+  console.log(`[Cumplea\xF1eros] Nueva postulaci\xF3n de ${data.name} (${email}) para el evento ${data.eventId}`);
+  return { ok: true, id };
+}
+async function listApplications2(status, eventId) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [
+    status ? eq15(birthdayApplications.status, status) : void 0,
+    eventId ? eq15(birthdayApplications.eventId, eventId) : void 0
+  ].filter((c) => c !== void 0);
+  return db.select().from(birthdayApplications).where(conditions.length ? and11(...conditions) : void 0).orderBy(desc4(birthdayApplications.createdAt));
+}
+async function getApplication2(id) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(birthdayApplications).where(eq15(birthdayApplications.id, id)).limit(1);
+  return row ?? null;
+}
+async function reviewApplication2(params) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(birthdayApplications).set({
+    status: params.status,
+    reviewNote: params.note ?? null,
+    reviewedAt: /* @__PURE__ */ new Date()
+  }).where(eq15(birthdayApplications.id, params.id));
+  return { success: true };
+}
+async function approveApplication2(params) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const application = await getApplication2(params.id);
+  if (!application) throw new Error("No encontramos esa postulaci\xF3n");
+  if (application.status === "aprobada" && application.createdBirthdayPersonId) {
+    throw new Error("Esa postulaci\xF3n ya fue aprobada");
+  }
+  const code = params.code.trim().toUpperCase();
+  const [existingCode] = await db.select({ id: discountCodes.id }).from(discountCodes).where(eq15(discountCodes.code, code)).limit(1);
+  if (existingCode) throw new Error(`El c\xF3digo ${code} ya est\xE1 en uso por otro c\xF3digo de descuento`);
+  await db.insert(discountCodes).values({
+    code,
+    description: `Cumplea\xF1ero: ${application.name}`,
+    discountType: "percentage",
+    discountValue: String(params.discountPercent),
+    eventId: application.eventId,
+    isActive: 1,
+    // El % siempre es sobre el precio general (originalPrice), no sobre el
+    // precio vigente de la tanda -- así no cambia según qué tan avanzada
+    // esté la venta cuando el invitado compre. Ver drizzle/schema.ts.
+    basedOnOriginalPrice: 1
+  });
+  const [discountRow] = await db.select({ id: discountCodes.id }).from(discountCodes).where(eq15(discountCodes.code, code)).limit(1);
+  if (!discountRow) throw new Error("No se pudo crear el c\xF3digo de descuento");
+  const insertedPerson = await db.insert(birthdayPeople).values({
+    applicationId: application.id,
+    eventId: application.eventId,
+    name: application.name,
+    email: application.email,
+    whatsapp: application.whatsapp,
+    birthDate: application.birthDate,
+    discountCodeId: discountRow.id
+  });
+  const birthdayPersonId = insertedPerson.insertId;
+  await db.update(birthdayApplications).set({
+    status: "aprobada",
+    reviewedAt: /* @__PURE__ */ new Date(),
+    createdBirthdayPersonId: birthdayPersonId
+  }).where(eq15(birthdayApplications.id, params.id));
+  console.log(`[Cumplea\xF1eros] ${application.name} aprobado con el c\xF3digo ${code} (${params.discountPercent}% para sus invitados)`);
+  return {
+    success: true,
+    birthdayPersonId,
+    code,
+    name: application.name,
+    email: application.email
+  };
+}
+async function countPendingApplications2() {
+  const db = await getDb();
+  if (!db) return 0;
+  const rows = await db.select({ id: birthdayApplications.id }).from(birthdayApplications).where(eq15(birthdayApplications.status, "pendiente"));
+  return rows.length;
+}
+
+// server/eventBudget.ts
+import { desc as desc5, eq as eq16 } from "drizzle-orm";
+init_schema();
+async function listSimulations(eventId) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(budgetSimulations).where(eventId ? eq16(budgetSimulations.eventId, eventId) : void 0).orderBy(desc5(budgetSimulations.updatedAt));
+}
+async function getSimulation(id) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(budgetSimulations).where(eq16(budgetSimulations.id, id)).limit(1);
+  return row ?? null;
+}
+async function createSimulation(data, createdByUserId) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const inserted = await db.insert(budgetSimulations).values({
+    name: data.name,
+    eventId: data.eventId ?? null,
+    ivaApplies: data.ivaApplies ? 1 : 0,
+    marginTargetPercent: String(data.marginTargetPercent),
+    cardFeePercent: String(data.cardFeePercent),
+    commissionPercent: String(data.commissionPercent),
+    variableCostPerPerson: String(data.variableCostPerPerson),
+    otherRevenuePerPerson: String(data.otherRevenuePerPerson),
+    revenueTiers: data.revenueTiers,
+    expenseLines: data.expenseLines,
+    notes: data.notes || null,
+    createdByUserId: createdByUserId ?? null
+  });
+  const id = inserted.insertId;
+  return { success: true, id };
+}
+async function updateSimulation(id, data) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(budgetSimulations).set({
+    name: data.name,
+    ivaApplies: data.ivaApplies ? 1 : 0,
+    marginTargetPercent: String(data.marginTargetPercent),
+    cardFeePercent: String(data.cardFeePercent),
+    commissionPercent: String(data.commissionPercent),
+    variableCostPerPerson: String(data.variableCostPerPerson),
+    otherRevenuePerPerson: String(data.otherRevenuePerPerson),
+    revenueTiers: data.revenueTiers,
+    expenseLines: data.expenseLines,
+    notes: data.notes || null
+  }).where(eq16(budgetSimulations.id, id));
+  return { success: true };
+}
+async function deleteSimulation(id) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(budgetSimulations).where(eq16(budgetSimulations.id, id));
+  return { success: true };
+}
+async function linkSimulationToEvent(id, eventId) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(budgetSimulations).set({ eventId }).where(eq16(budgetSimulations.id, id));
+  return { success: true };
 }
 
 // server/caja/sale.ts
 init_schema();
 init_ops();
-import { eq as eq14, sql as sql6, inArray as inArray7, and as and10 } from "drizzle-orm";
+import { eq as eq17, sql as sql7, inArray as inArray8, and as and12 } from "drizzle-orm";
 async function createCajaSale(db, params) {
   if (params.items.length === 0) throw new Error("La venta necesita al menos un producto");
   const ticketTypeIds = params.items.map((i) => i.ticketTypeId);
-  const tts = await db.select().from(ticketTypes).where(inArray7(ticketTypes.id, ticketTypeIds));
+  const tts = await db.select().from(ticketTypes).where(inArray8(ticketTypes.id, ticketTypeIds));
   const ttById = new Map(tts.map((t2) => [t2.id, t2]));
   let total = 0;
   const lineItems = [];
@@ -10878,12 +13428,12 @@ async function createCajaSale(db, params) {
       const totalAfterDiscount = Math.max(0, total - discountAmount);
       if (params.lockerTag?.trim()) {
         const tagNumber = params.lockerTag.trim();
-        const existing = await db.select().from(lockerItems).where(and10(eq14(lockerItems.eventId, params.eventId), eq14(lockerItems.tagNumber, tagNumber))).limit(1);
+        const existing = await db.select().from(lockerItems).where(and12(eq17(lockerItems.eventId, params.eventId), eq17(lockerItems.tagNumber, tagNumber))).limit(1);
         if (existing.length > 0) throw new Error(`El n\xFAmero ${tagNumber} ya est\xE1 en uso esta noche`);
       }
       if (kitchenItems.length > 0) {
         const ticketNumber = params.kitchenTicketNumber.trim();
-        const existing = await db.select().from(kitchenTickets).where(and10(eq14(kitchenTickets.eventId, params.eventId), eq14(kitchenTickets.ticketNumber, ticketNumber))).limit(1);
+        const existing = await db.select().from(kitchenTickets).where(and12(eq17(kitchenTickets.eventId, params.eventId), eq17(kitchenTickets.ticketNumber, ticketNumber))).limit(1);
         if (existing.length > 0) throw new Error(`La comanda ${ticketNumber} ya est\xE1 en uso esta noche`);
       }
       let redeemedAmount = 0;
@@ -10911,7 +13461,7 @@ async function createCajaSale(db, params) {
         else redeemConflictNote = redemption.conflictNote;
       }
       if (appliedDiscountId) {
-        await db.update(discountCodes).set({ usedCount: sql6`usedCount + 1` }).where(eq14(discountCodes.id, appliedDiscountId));
+        await db.update(discountCodes).set({ usedCount: sql7`usedCount + 1` }).where(eq17(discountCodes.id, appliedDiscountId));
       }
       const finalTotal = totalAfterDiscount - redeemedAmount;
       const orderNumber = `CAJA-${Date.now().toString(36).toUpperCase()}`;
@@ -10962,7 +13512,7 @@ async function createCajaSale(db, params) {
           totalPrice: String(item.unitPrice * item.quantity),
           unitCost: item.unitCost != null ? String(item.unitCost) : null
         });
-        await db.update(ticketTypes).set({ soldCount: sql6`soldCount + ${item.quantity}` }).where(eq14(ticketTypes.id, item.ticketTypeId));
+        await db.update(ticketTypes).set({ soldCount: sql7`soldCount + ${item.quantity}` }).where(eq17(ticketTypes.id, item.ticketTypeId));
       }
       if (params.buyerEmail) {
         await awardPlaycoins({ email: params.buyerEmail, totalClp: finalTotal, reason: "earn_caja", opId: params.opId });
@@ -10979,7 +13529,7 @@ async function createCajaSale(db, params) {
 init_ops();
 
 // server/kitchen.ts
-import { and as and11, asc, desc as desc4, eq as eq15, gte as gte2, inArray as inArray8 } from "drizzle-orm";
+import { and as and13, asc, desc as desc6, eq as eq18, gte as gte2, inArray as inArray9 } from "drizzle-orm";
 init_schema();
 init_ops();
 
@@ -10995,9 +13545,9 @@ function canTransitionKitchenTicket(from, to) {
 async function listKitchenTickets(eventId) {
   const db = await getDb();
   if (!db) return { active: [], recentlyDelivered: [] };
-  const active = await db.select().from(kitchenTickets).where(and11(eq15(kitchenTickets.eventId, eventId), inArray8(kitchenTickets.status, ["pendiente", "aprobado"]))).orderBy(asc(kitchenTickets.createdAt));
+  const active = await db.select().from(kitchenTickets).where(and13(eq18(kitchenTickets.eventId, eventId), inArray9(kitchenTickets.status, ["pendiente", "aprobado"]))).orderBy(asc(kitchenTickets.createdAt));
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1e3);
-  const recentlyDelivered = await db.select().from(kitchenTickets).where(and11(eq15(kitchenTickets.eventId, eventId), eq15(kitchenTickets.status, "entregado"), gte2(kitchenTickets.deliveredAt, oneHourAgo))).orderBy(desc4(kitchenTickets.deliveredAt));
+  const recentlyDelivered = await db.select().from(kitchenTickets).where(and13(eq18(kitchenTickets.eventId, eventId), eq18(kitchenTickets.status, "entregado"), gte2(kitchenTickets.deliveredAt, oneHourAgo))).orderBy(desc6(kitchenTickets.deliveredAt));
   return { active, recentlyDelivered };
 }
 async function updateKitchenTicket(rawDb, params) {
@@ -11015,7 +13565,7 @@ async function updateKitchenTicket(rawDb, params) {
       clientAt: params.clientAt
     },
     async () => {
-      const [ticket] = await rawDb.select().from(kitchenTickets).where(and11(eq15(kitchenTickets.eventId, params.eventId), eq15(kitchenTickets.ticketNumber, params.ticketNumber))).limit(1);
+      const [ticket] = await rawDb.select().from(kitchenTickets).where(and13(eq18(kitchenTickets.eventId, params.eventId), eq18(kitchenTickets.ticketNumber, params.ticketNumber))).limit(1);
       if (!ticket) return { result: "rejected", conflictNote: "No existe esa comanda" };
       if (!canTransitionKitchenTicket(ticket.status, params.to)) {
         return { result: "conflict", conflictNote: `La comanda ya est\xE1 en estado "${ticket.status}"` };
@@ -11034,7 +13584,7 @@ async function updateKitchenTicket(rawDb, params) {
         patch.deliveredAt = now;
         patch.deliveredByOperatorId = params.operatorId;
       }
-      await rawDb.update(kitchenTickets).set(patch).where(eq15(kitchenTickets.id, ticket.id));
+      await rawDb.update(kitchenTickets).set(patch).where(eq18(kitchenTickets.id, ticket.id));
       return { result: "applied" };
     }
   );
@@ -11051,13 +13601,13 @@ async function listKitchenProducts(eventId) {
     totalStock: ticketTypes.totalStock,
     soldCount: ticketTypes.soldCount,
     status: ticketTypes.status
-  }).from(ticketTypes).where(and11(eq15(ticketTypes.eventId, eventId), eq15(ticketTypes.toKitchen, 1))).orderBy(asc(ticketTypes.groupName), asc(ticketTypes.sortOrder));
+  }).from(ticketTypes).where(and13(eq18(ticketTypes.eventId, eventId), eq18(ticketTypes.toKitchen, 1))).orderBy(asc(ticketTypes.groupName), asc(ticketTypes.sortOrder));
   return rows;
 }
 async function updateKitchenProductStock(productId, eventId, totalStock, operatorId) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [product] = await db.select({ id: ticketTypes.id, toKitchen: ticketTypes.toKitchen, eventId: ticketTypes.eventId }).from(ticketTypes).where(eq15(ticketTypes.id, productId)).limit(1);
+  const [product] = await db.select({ id: ticketTypes.id, toKitchen: ticketTypes.toKitchen, eventId: ticketTypes.eventId }).from(ticketTypes).where(eq18(ticketTypes.id, productId)).limit(1);
   if (!product || product.eventId !== eventId || product.toKitchen !== 1) {
     throw new Error("Ese producto no pertenece a cocina en este evento");
   }
@@ -11066,17 +13616,17 @@ async function updateKitchenProductStock(productId, eventId, totalStock, operato
 async function toggleKitchenProductSoldOut(productId, eventId, soldOut) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const [product] = await db.select({ id: ticketTypes.id, toKitchen: ticketTypes.toKitchen, eventId: ticketTypes.eventId, status: ticketTypes.status }).from(ticketTypes).where(eq15(ticketTypes.id, productId)).limit(1);
+  const [product] = await db.select({ id: ticketTypes.id, toKitchen: ticketTypes.toKitchen, eventId: ticketTypes.eventId, status: ticketTypes.status }).from(ticketTypes).where(eq18(ticketTypes.id, productId)).limit(1);
   if (!product || product.eventId !== eventId || product.toKitchen !== 1) {
     throw new Error("Ese producto no pertenece a cocina en este evento");
   }
   if (product.status === "hidden") throw new Error("Ese producto est\xE1 oculto por el admin");
-  await db.update(ticketTypes).set({ status: soldOut ? "soldout" : "active" }).where(eq15(ticketTypes.id, productId));
+  await db.update(ticketTypes).set({ status: soldOut ? "soldout" : "active" }).where(eq18(ticketTypes.id, productId));
   return { success: true };
 }
 
 // server/locker.ts
-import { and as and12, eq as eq16 } from "drizzle-orm";
+import { and as and14, eq as eq19 } from "drizzle-orm";
 init_schema();
 init_ops();
 
@@ -11092,7 +13642,7 @@ function canTransitionLockerItem(from, to) {
 async function listLockerItems(eventId) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(lockerItems).where(eq16(lockerItems.eventId, eventId));
+  return db.select().from(lockerItems).where(eq19(lockerItems.eventId, eventId));
 }
 async function updateLockerItem(rawDb, params) {
   const { result, conflictNote } = await applyOp(
@@ -11109,7 +13659,7 @@ async function updateLockerItem(rawDb, params) {
       clientAt: params.clientAt
     },
     async () => {
-      const [item] = await rawDb.select().from(lockerItems).where(and12(eq16(lockerItems.eventId, params.eventId), eq16(lockerItems.tagNumber, params.tagNumber))).limit(1);
+      const [item] = await rawDb.select().from(lockerItems).where(and14(eq19(lockerItems.eventId, params.eventId), eq19(lockerItems.tagNumber, params.tagNumber))).limit(1);
       if (!item) return { result: "rejected", conflictNote: "No existe esa percha" };
       if (!canTransitionLockerItem(item.status, params.to)) {
         return { result: "conflict", conflictNote: `Esa percha ya est\xE1 en estado "${item.status}"` };
@@ -11124,7 +13674,7 @@ async function updateLockerItem(rawDb, params) {
         patch.retrievedAt = now;
         patch.retrievedByOperatorId = params.operatorId;
       }
-      await rawDb.update(lockerItems).set(patch).where(eq16(lockerItems.id, item.id));
+      await rawDb.update(lockerItems).set(patch).where(eq19(lockerItems.id, item.id));
       return { result: "applied" };
     }
   );
@@ -11134,7 +13684,7 @@ async function updateLockerItem(rawDb, params) {
 // server/caja/void.ts
 init_schema();
 init_ops();
-import { eq as eq17 } from "drizzle-orm";
+import { eq as eq20 } from "drizzle-orm";
 async function voidTicketCode(db, params) {
   const code = params.displayCode.trim().toUpperCase();
   const { result, conflictNote } = await applyOp(
@@ -11151,15 +13701,1030 @@ async function voidTicketCode(db, params) {
       clientAt: params.clientAt
     },
     async () => {
-      const [ticket] = await db.select().from(tickets).where(eq17(tickets.displayCode, code)).limit(1);
+      const [ticket] = await db.select().from(tickets).where(eq20(tickets.displayCode, code)).limit(1);
       if (!ticket) return { result: "rejected", conflictNote: "El c\xF3digo no existe" };
       if (ticket.eventId !== params.eventId) return { result: "rejected", conflictNote: "El c\xF3digo no corresponde a este evento" };
       if (ticket.status === "cancelled") return { result: "rejected", conflictNote: "El c\xF3digo ya estaba anulado" };
-      await db.update(tickets).set({ status: "cancelled" }).where(eq17(tickets.id, ticket.id));
+      await db.update(tickets).set({ status: "cancelled" }).where(eq20(tickets.id, ticket.id));
       return { result: "applied" };
     }
   );
   return { result, conflictNote };
+}
+
+// server/instagram.ts
+import crypto from "crypto";
+import express, { Router as Router2 } from "express";
+
+// server/instagramAgent.ts
+var APP_URL2 = (process.env.APP_URL || "https://mansionplayroom.cl").replace(/\/+$/, "");
+var CHANNEL_NAME = {
+  instagram: "Instagram",
+  whatsapp: "WhatsApp"
+};
+function availabilityLabel(remaining, soldOut) {
+  if (soldOut) return "AGOTADA";
+  if (remaining == null) return "disponible";
+  if (remaining <= 0) return "AGOTADA";
+  if (remaining <= 10) return "quedan pocas";
+  return "disponible";
+}
+async function getUpcomingPublicEvents(now = /* @__PURE__ */ new Date()) {
+  const events2 = await getHomeEvents();
+  return events2.filter((e) => e.status !== "past" && new Date(e.eventDate).getTime() >= now.getTime() - 12 * 60 * 60 * 1e3).slice(0, 3);
+}
+async function buildInstagramContext(now = /* @__PURE__ */ new Date()) {
+  const upcoming = await getUpcomingPublicEvents(now);
+  const dressCodeBlock = `DRESS CODE: ${EVENT_BRAND.dressCode}`;
+  if (upcoming.length === 0) {
+    return [
+      "FECHAS Y ENTRADAS (datos reales del sitio):",
+      "No hay ninguna fiesta publicada con fecha futura en este momento.",
+      `Si preguntan por la pr\xF3xima fecha, decir que todav\xEDa no est\xE1 anunciada y que la van a ver primero en el Instagram y en ${APP_URL2}.`,
+      "",
+      dressCodeBlock
+    ].join("\n");
+  }
+  const blocks = ["FECHAS Y ENTRADAS (datos reales del sitio, la \xFAnica fuente v\xE1lida de fechas y precios):"];
+  for (const event of upcoming) {
+    const lines = [];
+    const fecha = formatChileDate(new Date(event.eventDate), { withYear: true });
+    lines.push(`
+### ${event.title}`);
+    lines.push(`- Fecha: ${fecha}`);
+    if (event.doorsOpen) lines.push(`- Apertura de puertas: ${formatChileTime(new Date(event.doorsOpen))}`);
+    if (event.eventEnd) lines.push(`- Cierre: ${formatChileTime(new Date(event.eventEnd))}`);
+    if (event.venue) lines.push(`- Lugar: ${event.venue}`);
+    if (event.shortDescription) lines.push(`- De qu\xE9 se trata: ${event.shortDescription}`);
+    lines.push(`- Link para comprar: ${APP_URL2}/eventos/${event.slug}`);
+    if (event.status === "soldout") {
+      lines.push("- ESTADO: ENTRADAS AGOTADAS para esta fecha.");
+    }
+    const tickets2 = await getTicketTypesByEventId(event.id);
+    const accesos = tickets2.filter((t2) => t2.category === "acceso" && t2.status !== "hidden");
+    if (accesos.length > 0) {
+      const schedule = normalizeTandaSchedule(event.tandaDiscountSchedule);
+      const phaseIndex = event.tandaPhaseIndex ?? 0;
+      const upcomingPhase = nextPhase(phaseIndex, schedule);
+      const currentUntil = schedule[phaseIndex]?.untilDate;
+      lines.push("- Entradas:");
+      for (const t2 of accesos) {
+        const remaining = t2.poolRemaining ?? t2.totalStock - t2.soldCount;
+        const label = availabilityLabel(remaining, t2.status === "soldout");
+        const precio = `$${Number(t2.price).toLocaleString("es-CL")}`;
+        let linea = `  \xB7 ${t2.name}: ${precio} CLP \u2014 ${label}${t2.description ? ` (${t2.description})` : ""}`;
+        if (label !== "AGOTADA" && upcomingPhase && t2.originalPrice) {
+          const proximoPrecio = computePhasePrice(Number(t2.originalPrice), upcomingPhase.phase.percent);
+          if (proximoPrecio > Number(t2.price)) {
+            const proximo = `$${proximoPrecio.toLocaleString("es-CL")}`;
+            linea += ` -- este precio es de esta tanda: sube a ${proximo} en la pr\xF3xima tanda, ni bien se acabe el cupo de esta tanda`;
+            linea += currentUntil ? ` o llegue el ${formatChileDate(new Date(currentUntil), { withYear: true })} (lo que pase primero).` : ".";
+          }
+        }
+        lines.push(linea);
+      }
+    }
+    const extras = tickets2.filter((t2) => t2.category === "extra" && t2.status === "active");
+    if (extras.length > 0) {
+      const nombres = extras.map((t2) => `${t2.name} $${Number(t2.price).toLocaleString("es-CL")}`).join(", ");
+      lines.push(`- Extras que se pueden agregar al comprar: ${nombres}`);
+    }
+    blocks.push(lines.join("\n"));
+  }
+  blocks.push(`
+${dressCodeBlock}`);
+  return blocks.join("\n");
+}
+var STANDALONE_SITE_PAGES = [
+  {
+    topic: "Tarjeta PlayCard (QR, saldo, Playcoins)",
+    path: "/blog/tarjeta-playcard",
+    summary: "Tu QR de acceso, saldo prepagado y Playcoins en un solo lugar, paso a paso."
+  },
+  {
+    topic: "Qu\xE9 son las fiestas liberales",
+    path: "/blog/que-son-las-fiestas-liberales",
+    summary: "Mitos y realidades de las fiestas liberales."
+  },
+  {
+    topic: "Disfraz obligatorio (quiz de nivel de disfraz)",
+    path: "/blog/dress-code-explicado",
+    summary: "No tiene que ser profesional, pero s\xED es obligatorio -- tips y un quiz de 1 minuto."
+  },
+  {
+    topic: "Qui\xE9nes somos",
+    path: "/nosotros",
+    summary: "Qui\xE9nes son y la historia de Mansion Playroom."
+  },
+  {
+    topic: "Reembolso o transferencia de una entrada",
+    path: "/politica-de-reembolso",
+    summary: "Reglas de reembolso y transferencia de entradas."
+  },
+  {
+    topic: "Privacidad de los datos",
+    path: "/politica-de-privacidad",
+    summary: "C\xF3mo se usan los datos personales."
+  },
+  {
+    topic: "Programa de embajadores",
+    path: "/embajadores",
+    summary: "C\xF3mo funciona el programa de embajadores/referidos."
+  }
+];
+function buildSiteLinksBlock() {
+  const lines = [
+    "P\xC1GINAS DEL SITIO CON M\xC1S INFORMACI\xD3N (para responder breve y mandar a leer el resto ah\xED, en vez de explicarlo todo t\xFA):",
+    ...ALL_ARTICLES.map((a) => `- ${a.title}: ${a.description} \u2014 ${APP_URL2}${articlePath(a)}`),
+    ...STANDALONE_SITE_PAGES.map((p) => `- ${p.topic}: ${p.summary} \u2014 ${APP_URL2}${p.path}`)
+  ];
+  return lines.join("\n");
+}
+var RESPONSE_SCHEMA = {
+  name: "respuesta_instagram",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      reply: {
+        type: "string",
+        description: "El mensaje que se le manda a la persona por Instagram. Espa\xF1ol chileno, breve."
+      },
+      handoff: {
+        type: "boolean",
+        description: "true si esta conversaci\xF3n tiene que seguirla una persona del equipo."
+      },
+      handoffReason: {
+        type: "string",
+        description: "Por qu\xE9 hay que derivar, en pocas palabras. Vac\xEDo si handoff es false."
+      },
+      isPersonal: {
+        type: "boolean",
+        description: "true si este mensaje es de un conocido personal del due\xF1o y no tiene nada que ver con la productora (chat de amigos, un meme o un reel reenviado, planes personales, saludos). Con isPersonal=true no se manda ning\xFAn mensaje autom\xE1tico, as\xED que reply puede quedar vac\xEDo."
+      },
+      isThanks: {
+        type: "boolean",
+        description: 'true si el mensaje es SOLO un agradecimiento o cierre por lo ya conversado ("muchas gracias", "gracias!", "ok gracias", "genial gracias \u{1F64F}") sin ninguna pregunta ni pedido nuevo. Con isThanks=true no se deriva ni se usa el reply generado: se manda un mensaje fijo configurado aparte. Si adem\xE1s de agradecer pregunta o pide algo nuevo, isThanks=false.'
+      }
+    },
+    required: ["reply", "handoff", "handoffReason", "isPersonal", "isThanks"],
+    additionalProperties: false
+  }
+};
+var WHATSAPP_RESPONSE_SCHEMA = {
+  name: "respuesta_whatsapp",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      ...RESPONSE_SCHEMA.schema.properties,
+      reply: {
+        type: "string",
+        description: "El mensaje que se le manda a la persona por WhatsApp. Espa\xF1ol chileno, breve."
+      },
+      buttons: {
+        type: "array",
+        items: { type: "string" },
+        description: 'Hasta 3 respuestas r\xE1pidas que la persona puede tocar en vez de escribir (m\xE1ximo 20 caracteres cada una), ej. ["Solo/a", "En pareja", "En grupo"]. Vac\xEDo si no hace falta.'
+      },
+      action: {
+        type: "string",
+        enum: ["none", "event_list", "buy_link"],
+        description: '"event_list" muestra la lista de pr\xF3ximas fechas para elegir, "buy_link" agrega el bot\xF3n de compra del pr\xF3ximo evento. "none" si no corresponde.'
+      }
+    },
+    required: [...RESPONSE_SCHEMA.schema.required, "buttons", "action"],
+    additionalProperties: false
+  }
+};
+var INSTAGRAM_RESPONSE_SCHEMA = {
+  name: "respuesta_instagram_v2",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      ...RESPONSE_SCHEMA.schema.properties,
+      action: {
+        type: "string",
+        enum: ["none", "buy_link"],
+        description: '"buy_link" agrega el bot\xF3n de compra del pr\xF3ximo evento debajo de tu mensaje. "none" si no corresponde.'
+      }
+    },
+    required: [...RESPONSE_SCHEMA.schema.required, "action"],
+    additionalProperties: false
+  }
+};
+var WHATSAPP_INTERACTIVE_RULES = [
+  "BOTONES Y LISTAS (solo en WhatsApp):",
+  '- `buttons`: cuando le haces una pregunta con pocas respuestas posibles, ofr\xE9celas como botones para que la persona toque en vez de escribir (m\xE1ximo 3, m\xE1ximo 20 caracteres cada uno, sin emojis). Ej.: si preguntas si viene sola, en pareja o en grupo -> ["Solo/a", "En pareja", "En grupo"]. Si la pregunta es abierta o no preguntas nada, deja `buttons` vac\xEDo. Nunca pongas un link, un precio ni una fecha dentro de un bot\xF3n.',
+  '- `action: "event_list"`: cuando preguntan por las fechas o por "la pr\xF3xima fiesta" y hay m\xE1s de una fecha en los datos, para que elija tocando. Tu `reply` igual tiene que tener sentido solo (ej. "\xA1Estas son las pr\xF3ximas fechas! Toca la que te tinca \u{1F49C}").',
+  '- `action: "buy_link"`: en los mismos casos en que la regla de intenci\xF3n real dice mandar el link de compra. Se agrega solo un bot\xF3n "Comprar entrada" con el link real debajo de tu mensaje, as\xED que no hace falta que pegues el link en el texto.',
+  '- En cualquier otro caso, `action: "none"`.'
+];
+var INSTAGRAM_BUTTON_RULES = [
+  "BOT\xD3N DE COMPRA (solo en Instagram):",
+  '- `action: "buy_link"`: en los mismos casos en que la regla de intenci\xF3n real dice mandar el link de compra. Se agrega solo un bot\xF3n "Comprar entrada" con el link real debajo de tu mensaje, as\xED que NO escribas el link dentro de `reply` -- tu `reply` tiene que tener sentido solo, sin el link (ej. "\xA1Dale! Toca el bot\xF3n de abajo para asegurar tu entrada \u{1F49C}").',
+  '- En cualquier otro caso, `action: "none"`.'
+];
+function buildSystemPrompt(config, opts = {}) {
+  const channel = opts.channel ?? "instagram";
+  const name = CHANNEL_NAME[channel];
+  return [
+    `Eres quien contesta los mensajes ${channel === "instagram" ? "directos del Instagram" : "del WhatsApp"} de Mansion Playroom. Le escribes a personas de afuera, en p\xFAblico: cada respuesta tuya se lee como si la hubiera escrito la productora.`,
+    "",
+    "CONTEXTO DE LA MARCA (lo escribi\xF3 el due\xF1o, resp\xE9talo):",
+    config.brandNotes,
+    "",
+    buildSiteLinksBlock(),
+    "",
+    "REGLAS QUE NO SE NEGOCIAN:",
+    `0. Este ${name} lo usa el due\xF1o tambi\xE9n para cosas personales: amigos que le escriben, le mandan memes o reels, hacen planes, saludan. Eso NO es una consulta de cliente. Se\xF1ales de que un mensaje es personal: te habla como si te conociera (tono familiar, sobrenombres, chilenismos entre amigos), comparte contenido (reel, meme, foto) sin pedir informaci\xF3n del evento, o hace referencia a algo que no tiene que ver con la productora. Si el mensaje es personal, marca isPersonal=true y deja reply vac\xEDo -- no se le manda nada autom\xE1tico, lo ve el due\xF1o y contesta \xE9l. Ante la duda entre "cliente" y "personal", si hay CUALQUIER pregunta sobre la fiesta (fecha, precio, entradas, lugar, c\xF3mo llegar) tr\xE1talo como cliente, no como personal. EXCEPCI\xD3N importante: un saludo simple y ambiguo como "hola", "holaa", "hey" -- sin nada m\xE1s, sin decir de qu\xE9 se conocen ni preguntar nada de la fiesta -- todav\xEDa NO tiene ninguna se\xF1al real de ser personal ni de ser cliente. En ese caso NO marques isPersonal=true de entrada (no se puede saber todav\xEDa): responde con un saludo c\xE1lido y una pregunta corta y abierta para descubrir qu\xE9 necesita, tipo "\xA1Hola! \u{1F49C} \xBFen qu\xE9 te puedo ayudar? \xBFquieres saber de nuestras fiestas?" -- isPersonal=false, handoff=false. Reci\xE9n si la respuesta siguiente confirma que es personal (tono de conocido, no pregunta nada de la fiesta) tr\xE1talo como personal desde ese mensaje.`,
+    "1. Fechas, horarios, precios, lugar y disponibilidad: SOLO los que aparecen en el bloque de datos del mensaje. Si te preguntan algo que no est\xE1 ah\xED, dilo y deriva. Jam\xE1s estimes ni recuerdes un precio.",
+    '2. Nunca digas cu\xE1ntas entradas quedan. Como mucho "quedan pocas" o "est\xE1 agotada", nunca un n\xFAmero. Si el bloque de datos trae que el precio sube en la pr\xF3xima tanda, s\xED puedes mencionar esa urgencia real (a cu\xE1nto sube y cu\xE1ndo/por qu\xE9 cambia) -- eso no es el remanente del cupo, es informaci\xF3n p\xFAblica de precio.',
+    "3. Nunca hables de otras personas: si van, qui\xE9nes son, cu\xE1ntas parejas hay, ni nada de ning\xFAn cliente. Si preguntan qui\xE9n va, deriva.",
+    `4. No reserves, no apartes, no ofrezcas pagar por transferencia ni por ${name}. Todo se compra en el link del evento.`,
+    "5. No des la direcci\xF3n exacta del local: se manda por correo con la entrada. S\xED puedes decir la ciudad/sector si est\xE1 en los datos.",
+    "6. Mant\xE9n siempre un tono respetuoso. Si el mensaje es sexual, agresivo, o busca algo que no sea informaci\xF3n de la fiesta, no le sigas la conversaci\xF3n: responde breve y amable, y deriva.",
+    "7. Si te piden hablar con una persona, reclaman por una compra, un cobro, un reembolso, una entrada que no lleg\xF3, o cualquier problema con plata: deriva SIEMPRE, sin intentar resolverlo t\xFA.",
+    `8. Si no est\xE1s seguro de algo, deriva. Es mucho mejor derivar de m\xE1s que contestar mal en nombre de la productora.`,
+    '9. Si el mensaje es SOLO un agradecimiento por lo ya conversado ("muchas gracias", "gracias!", "buen\xEDsimo gracias", "ok muchas gracias \u{1F64F}") y no trae ninguna pregunta ni pedido nuevo, marca isThanks=true y handoff=false -- eso NO se deriva, es puro cierre educado. Si el mensaje agradece PERO adem\xE1s pregunta o pide algo nuevo, isThanks=false y sigue las reglas normales.',
+    "",
+    "C\xD3MO ESCRIBIR:",
+    `- Espa\xF1ol chileno, cercano y breve: 1 a 3 frases, m\xE1ximo ${IG_MAX_REPLY_CHARS} caracteres. Es un chat, no un correo.`,
+    `- Sin markdown, sin listas con vi\xF1etas, sin negritas. Texto plano tal cual se lee en ${name}.`,
+    "- Como mucho un emoji, y solo si calza.",
+    '- Saluda de forma natural solo la primera vez que le escribes a alguien en el hilo -- no repitas un saludo tipo "\xA1Hola! \u{1F49C}" en cada respuesta del mismo hilo, ya se conocen.',
+    "- Muestra entusiasmo genuino cuando corresponda, sin sobreactuar (el l\xEDmite de un emoji sigue aplicando). Si la persona ya te cont\xF3 algo de ella (su nombre, que va con amigas, que es su primera vez), \xFAsalo para que se sienta una conversaci\xF3n real -- nunca le repitas una pregunta que ya te respondi\xF3.",
+    "- Evita sonar a folleto o cat\xE1logo: si tienes 3 o m\xE1s datos para dar, no los metas todos en una sola frase -- da lo esencial y cierra con una pregunta, en vez de listar todo de un tir\xF3n.",
+    "- Si tu respuesta tiene m\xE1s de una idea o parte separable (ej. el precio de un acceso + la urgencia de tanda + una pregunta de cierre, o una respuesta + el link de una p\xE1gina), sep\xE1ralas con una l\xEDnea en blanco entre cada una en vez de escribirlo todo pegado en un solo bloque -- se lee m\xE1s ordenado en el DM. Esto no cambia el l\xEDmite de frases ni de caracteres, es solo c\xF3mo se presenta el mismo contenido.",
+    '- Cuando alguien muestra una intenci\xF3n REAL de ir o comprar (dice "quiero ir", "c\xF3mo compro", "s\xED me interesa", te pide el link directamente, o responde que s\xED a una pregunta tuya anterior sobre si quiere el link/info), corresponde mandar el link de compra de inmediato y sin preguntar nada m\xE1s -- ac\xE1 la prioridad es no hacerla esperar. C\xF3mo se manda depende de tu canal: ver el bloque de botones m\xE1s abajo.',
+    '- Cuando la pregunta es de CURIOSIDAD o inter\xE9s general sobre el evento (ej. "cu\xE9ntame del pr\xF3ximo evento", "cu\xE1ndo es la pr\xF3xima fiesta", "qu\xE9 onda con Mansion Playroom"), sin que hayan dicho que quieren ir o comprar: contesta en 1-2 frases breves con la info real (fecha, de qu\xE9 se trata) y cierra con una pregunta abierta y c\xE1lida, tipo "\xBFte tinca venir?" o "\xBFquieres que te cuente c\xF3mo son los accesos?" -- NO incluyas el link de compra en esa primera respuesta. Reci\xE9n cuando la persona confirme inter\xE9s en el siguiente mensaje (dice que s\xED, pregunta por precio/accesos, pide el link), tr\xE1talo como intenci\xF3n real y m\xE1ndalo.',
+    '- Cuando preguntan el precio SIN decir para cu\xE1ntas personas o qu\xE9 tipo de acceso quieren (ej. "cu\xE1nto vale la entrada", "qu\xE9 precio tiene"): no listes todos los tipos ni asumas uno -- preg\xFAntales primero, corto y natural, algo como "\xBFvienes solo/a, en pareja o en grupo?" o "\xBFqu\xE9 tipo de acceso te tinca?", as\xED les das el precio exacto que les sirve en vez de tirarles una lista. Cuando S\xCD especifican (mencionan "sola", "d\xFAo", "en pareja", "grupo de x", o nombran un tipo de acceso que est\xE1 en los datos, o ya respondieron tu pregunta anterior en el historial), ah\xED contesta directo con el precio de ESE acceso, sin listar los dem\xE1s -- eso es "personalizado": una respuesta para lo que esa persona realmente pregunt\xF3, no un cat\xE1logo. Si preguntan expl\xEDcitamente por TODOS los tipos o precios ("cu\xE1les son todos los precios", "qu\xE9 opciones hay"), ah\xED s\xED puedes nombrar varios.',
+    '- Si la l\xEDnea de datos del acceso que est\xE1s mencionando trae que el precio sube en la pr\xF3xima tanda, desl\xEDzalo como un dato \xFAtil al pasar, no como una alerta de oferta -- tono de alguien que te est\xE1 avisando, no de una campa\xF1a. Por ejemplo (no lo copies literal, es solo el tono): "la Soltera est\xE1 en $10.000 -- ojo que ese precio es de esta tanda, as\xED que si te decides pronto lo aseguras antes que suba". Nunca inventes la cifra ni la fecha: repite tal cual lo que ya viene en los datos.',
+    '- Si la pregunta calza con alguno de los temas de "P\xC1GINAS DEL SITIO CON M\xC1S INFORMACI\xD3N", no te quedes explicando todo el tema en el DM: contesta en 1-2 frases breves con la info real (nunca inventada) y preg\xFAntale si quiere que le mandes el link con el detalle completo, algo como "\xBFte paso el link con todo el detalle?". NO incluyas el link en esa primera respuesta. Solo escribe el link exacto de esa p\xE1gina tal cual aparece en la lista (nunca inventes una URL) cuando la persona ya haya pedido el link/m\xE1s informaci\xF3n -- revisa el historial: si en un mensaje anterior tuyo ya preguntaste y ahora te dice que s\xED (o de entrada te pide el link/art\xEDculo/m\xE1s info sobre ese tema), ah\xED s\xED lo mandas. Esto es solo para los links de contenido/blog -- el link de compra del evento se rige por su propia regla de arriba (intenci\xF3n real vs. curiosidad), no por esta.',
+    ...config.styleExamples.trim().length > 0 ? [
+      "",
+      "EJEMPLOS DE C\xD3MO ESCRIBE EL DUE\xD1O (imita este tono y esta forma de hablar -- no copies el contenido literal si no calza con la pregunta real):",
+      config.styleExamples
+    ] : [],
+    ...opts.isFinalReplyOfDay ? [
+      "",
+      '\xDALTIMA RESPUESTA DEL D\xCDA PARA ESTA PERSONA: este es el \xFAltimo mensaje autom\xE1tico que le vas a poder mandar hoy a este hilo (se lleg\xF3 al tope diario de respuestas). No la dejes esperando ni la conversaci\xF3n cortada a medias: cierra este mensaje d\xE1ndole lo que le falta para decidir -- si la conversaci\xF3n iba de inter\xE9s en el evento, corresponde mandar el link de compra AUNQUE normalmente hubieras preguntado antes (esta regla pisa, solo por esta vez, la de "curiosidad vs. intenci\xF3n real" y la de "preguntar antes del link de contenido" de m\xE1s arriba, justamente porque despu\xE9s de este mensaje el bot no vuelve a contestar hoy) -- usa el mecanismo de tu canal (bot\xF3n/`action`) para mandarlo, igual que en cualquier otra intenci\xF3n real. Si ya le diste todo lo que pidi\xF3 y no queda nada pendiente, desp\xEDdete c\xE1lido nom\xE1s. Mant\xE9n el mismo tono cercano de siempre, no le digas que "se acabaron tus respuestas" ni nada que suene a l\xEDmite t\xE9cnico.'
+    ] : [],
+    ...channel === "whatsapp" ? ["", ...WHATSAPP_INTERACTIVE_RULES] : [],
+    ...channel === "instagram" ? ["", ...INSTAGRAM_BUTTON_RULES] : [],
+    "",
+    "FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qu\xE9, en pocas palabras), `isPersonal` (ver regla 0) e `isThanks` (ver regla 9). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. Las excepciones son isPersonal=true (no se manda nada) e isThanks=true (se manda un mensaje fijo aparte, no el reply que generes) -- en esos dos casos `reply` puede quedar vac\xEDo."
+  ].join("\n");
+}
+function toLlmMessages(history) {
+  return history.filter((m) => (m.text ?? "").trim().length > 0).map((m) => ({
+    role: m.direction === "in" ? "user" : "assistant",
+    content: m.text
+  }));
+}
+function sanitizeButtons(raw) {
+  if (!Array.isArray(raw)) return [];
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const title = item.trim().slice(0, 20).trim();
+    if (!title || seen.has(title.toLowerCase())) continue;
+    seen.add(title.toLowerCase());
+    out.push(title);
+    if (out.length === 3) break;
+  }
+  return out;
+}
+async function runInstagramAgent(input) {
+  const config = normalizeInstagramAgentConfig(input.config);
+  const channel = input.channel ?? "instagram";
+  const fallback = {
+    reply: config.handoffMessage,
+    handoff: true,
+    handoffReason: "La IA no pudo responder",
+    isPersonal: false,
+    isThanks: false,
+    buttons: [],
+    action: "none"
+  };
+  try {
+    const context = await buildInstagramContext(input.now ?? /* @__PURE__ */ new Date());
+    const history = toLlmMessages(input.history).slice(-config.historyLimit);
+    const result = await invokeLLM({
+      messages: [
+        { role: "system", content: buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay, channel }) },
+        ...history,
+        {
+          role: "user",
+          content: `${context}
+
+---
+Mensaje que acaba de llegar por ${CHANNEL_NAME[channel]}:
+"""${input.incomingText}"""`
+        }
+      ],
+      responseFormat: {
+        type: "json_schema",
+        json_schema: channel === "whatsapp" ? WHATSAPP_RESPONSE_SCHEMA : INSTAGRAM_RESPONSE_SCHEMA
+      },
+      maxTokens: 600
+    });
+    const raw = extractContent(result.choices[0]?.message ?? { content: "" });
+    const parsed = JSON.parse(raw);
+    const isPersonal = parsed.isPersonal === true;
+    const isThanks = parsed.isThanks === true && !isPersonal;
+    if (isThanks) {
+      return {
+        reply: config.thanksMessage,
+        handoff: false,
+        handoffReason: "",
+        isPersonal: false,
+        isThanks: true,
+        buttons: [],
+        action: "none"
+      };
+    }
+    const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
+    if (reply.length === 0 && !isPersonal) return fallback;
+    return {
+      reply: reply.slice(0, IG_MAX_REPLY_CHARS),
+      handoff: parsed.handoff === true,
+      handoffReason: typeof parsed.handoffReason === "string" ? parsed.handoffReason.slice(0, 500) : "",
+      isPersonal,
+      isThanks: false,
+      buttons: channel === "whatsapp" && !isPersonal ? sanitizeButtons(parsed.buttons) : [],
+      action: !isPersonal && (channel === "whatsapp" && (parsed.action === "event_list" || parsed.action === "buy_link") || channel === "instagram" && parsed.action === "buy_link") ? parsed.action : "none"
+    };
+  } catch (err) {
+    console.error(`[${CHANNEL_NAME[channel]}] El agente no pudo responder:`, err);
+    return fallback;
+  }
+}
+
+// server/instagramInteractive.ts
+var APP_URL3 = (process.env.APP_URL || "https://mansionplayroom.cl").replace(/\/+$/, "");
+var DEFAULT_CARD_IMAGE = `${APP_URL3}/candyland/og-candyland.jpg`;
+function resolveEventCardImage(event) {
+  return event?.imageUrl || DEFAULT_CARD_IMAGE;
+}
+async function resolveInstagramBuyLink(now = /* @__PURE__ */ new Date()) {
+  const upcoming = await getUpcomingPublicEvents(now);
+  const event = upcoming.find((e) => e.status !== "soldout");
+  if (!event) return null;
+  return { url: `${APP_URL3}/eventos/${event.slug}`, eventTitle: event.title, imageUrl: resolveEventCardImage(event) };
+}
+
+// server/instagram.ts
+var instagramRouter = Router2();
+var WEBHOOK_PATH = "/api/webhooks/instagram";
+var APP_URL4 = (process.env.APP_URL || "https://mansionplayroom.cl").replace(/\/+$/, "");
+var BUTTON_CARD_CAPTION = "Toca para continuar \u{1F447}";
+instagramRouter.get(WEBHOOK_PATH, (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+  if (!ENV.igVerifyToken) {
+    console.error("[Instagram] IG_VERIFY_TOKEN no est\xE1 configurada -- no se puede verificar el webhook.");
+    res.sendStatus(500);
+    return;
+  }
+  if (mode === "subscribe" && token === ENV.igVerifyToken) {
+    res.status(200).send(String(challenge ?? ""));
+    return;
+  }
+  res.sendStatus(403);
+});
+function verifyMetaSignature(rawBody, header, appSecret) {
+  if (!header || !appSecret) return false;
+  const expected = "sha256=" + crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex");
+  const a = Buffer.from(header);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+instagramRouter.post(
+  WEBHOOK_PATH,
+  express.raw({ type: "*/*", limit: "1mb" }),
+  async (req, res) => {
+    const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from("");
+    if (!ENV.igAppSecret) {
+      if (ENV.isProduction) {
+        console.error("[Instagram] IG_APP_SECRET no configurada -- se rechaza la entrega.");
+        res.sendStatus(403);
+        return;
+      }
+      console.warn("[Instagram] IG_APP_SECRET no configurada -- entrega aceptada SIN verificar firma (solo en desarrollo).");
+    } else if (!verifyMetaSignature(raw, req.header("x-hub-signature-256"), ENV.igAppSecret)) {
+      res.sendStatus(403);
+      return;
+    }
+    let body;
+    try {
+      body = JSON.parse(raw.toString("utf8"));
+    } catch {
+      res.sendStatus(400);
+      return;
+    }
+    try {
+      for (const entry of body.entry ?? []) {
+        for (const messaging of entry.messaging ?? []) {
+          await handleMessagingEvent(messaging);
+        }
+        for (const change of entry.changes ?? []) {
+          if (change.field === "comments") await handleCommentChange(change.value);
+        }
+      }
+    } catch (err) {
+      console.error("[Instagram] Error procesando la entrega del webhook:", err);
+    }
+    res.sendStatus(200);
+  }
+);
+function sleep3(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function humanReplyDelayMs() {
+  const MIN_MS = 3e3;
+  const MAX_MS = 8e3;
+  return MIN_MS + Math.floor(Math.random() * (MAX_MS - MIN_MS));
+}
+async function handleMessagingEvent(event) {
+  const senderId = event.sender?.id;
+  const message = event.message;
+  console.log(`[Instagram][diag] entrada webhook: sender=${senderId ?? "-"} hasMessage=${!!message} is_echo=${!!message?.is_echo} hasText=${!!(message?.text && message.text.trim().length > 0)} mid=${message?.mid ?? "-"}`);
+  if (!senderId || !message) return;
+  if (message.is_deleted) return;
+  if (message.is_echo) {
+    await handleOwnerEcho(event, message);
+    return;
+  }
+  if (senderId === ENV.igUserId) return;
+  const text2 = (message.text ?? "").trim();
+  const attachments = message.attachments ?? null;
+  if (text2.length === 0 && !attachments) return;
+  const profile = await fetchInstagramProfile(senderId);
+  const thread = await getOrCreateIgThread({
+    igUserId: senderId,
+    username: profile.username,
+    name: profile.name
+  });
+  if (!thread) {
+    console.error("[Instagram] Sin base de datos: el mensaje entrante se pierde.");
+    return;
+  }
+  const saved = await appendIgMessage({
+    threadId: thread.id,
+    mid: message.mid,
+    direction: "in",
+    source: "user",
+    text: text2.length > 0 ? text2 : null,
+    attachments
+  });
+  if (!saved) return;
+  if (message.reply_to?.story && text2.length > 0) {
+    const handled = await tryHandleKeywordTrigger({
+      threadId: thread.id,
+      igUserId: senderId,
+      text: text2,
+      source: "story_reply"
+    });
+    if (handled) return;
+  }
+  const settings = await getSiteSettings();
+  const config = normalizeInstagramAgentConfig(settings?.instagramAgentConfig);
+  if (!config.enabled) return;
+  if (thread.botPaused === 1) {
+    return;
+  }
+  if (text2.length === 0) {
+    await silentHandoff(thread.id, thread.username ?? senderId, text2, "Lleg\xF3 un adjunto sin texto (reel, foto, audio)");
+    return;
+  }
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1e3);
+  const repliesToday = await countIgBotRepliesSince(thread.id, since);
+  if (repliesToday >= config.dailyReplyLimitPerThread) {
+    await handoff(thread.id, thread.username ?? senderId, text2, "Se pas\xF3 del tope diario de respuestas autom\xE1ticas", config.handoffMessage, senderId);
+    return;
+  }
+  const isFinalReplyOfDay = repliesToday === config.dailyReplyLimitPerThread - 1;
+  const history = await getIgMessages(thread.id, config.historyLimit + 1);
+  const previous = history.filter((m) => m.id !== saved.id);
+  const result = await runInstagramAgent({
+    incomingText: text2,
+    history: previous,
+    config,
+    isFinalReplyOfDay
+  });
+  if (result.isPersonal) {
+    await silentHandoff(thread.id, thread.username ?? senderId, text2, "La IA lo marc\xF3 como mensaje personal, no de cliente");
+    return;
+  }
+  await sleep3(humanReplyDelayMs());
+  let buyButton;
+  if (result.action === "buy_link" && !result.handoff) {
+    const resolved = await resolveInstagramBuyLink();
+    if (resolved) {
+      buyButton = { title: "Comprar entrada", url: resolved.url };
+      try {
+        const { mid: imageMid } = await sendImageMessage({ id: senderId }, resolved.imageUrl);
+        await appendIgMessage({ threadId: thread.id, mid: imageMid, direction: "out", source: "bot", text: "[imagen]" });
+      } catch (err) {
+        console.error("[Instagram] No se pudo mandar la imagen de la tarjeta:", err);
+      }
+    }
+  }
+  await deliver(thread.id, senderId, result.reply, "bot", buyButton);
+  if (isFinalReplyOfDay) {
+    const reason = "Lleg\xF3 al tope diario de respuestas autom\xE1ticas -- se cerr\xF3 la conversaci\xF3n con un mensaje final";
+    await setIgThreadBotPaused(thread.id, true, reason);
+    await notifyHandoff(thread.id, thread.username ?? senderId, text2, reason);
+  } else if (result.handoff) {
+    await setIgThreadBotPaused(thread.id, true, result.handoffReason || "La IA deriv\xF3 la conversaci\xF3n");
+    await notifyHandoff(thread.id, thread.username ?? senderId, text2, result.handoffReason);
+  }
+}
+async function matchKeywordTrigger(text2, igUserId, source) {
+  const automation = await findMatchingIgKeywordAutomation(text2, source);
+  if (!automation) return null;
+  if (await hasRedeemedIgKeywordAutomation(automation.id, igUserId)) return null;
+  return automation;
+}
+async function resolveAutomationExtras(automation) {
+  const event = await getFeaturedEvent();
+  const imageUrl = event ? resolveEventCardImage(event) : void 0;
+  if (!automation.discountCode) {
+    return event ? { link: `${APP_URL4}/eventos/${event.slug}`, imageUrl } : {};
+  }
+  const link = event ? `${APP_URL4}/eventos/${event.slug}?code=${automation.discountCode}` : void 0;
+  const discount = await getDiscountCodeByCode(automation.discountCode);
+  if (!discount?.giftTicketTypeId) return { link, imageUrl };
+  const product = await getTicketTypeById(discount.giftTicketTypeId);
+  return { link, imageUrl, productName: product?.name };
+}
+async function tryHandleKeywordTrigger(input) {
+  const automation = await matchKeywordTrigger(input.text, input.igUserId, input.source);
+  if (!automation) return false;
+  const extras = await resolveAutomationExtras(automation);
+  const { text: replyText, mid, imageMid, buttonMid, buttonTitle } = await sendAutomationReply(
+    automation,
+    extras,
+    (text2) => sendInstagramMessage({ recipientId: input.igUserId, text: text2 }),
+    (caption, button) => sendButtonMessage({ id: input.igUserId }, caption, button),
+    (imageUrl) => sendImageMessage({ id: input.igUserId }, imageUrl)
+  );
+  if (imageMid !== void 0) {
+    await appendIgMessage({ threadId: input.threadId, mid: imageMid, direction: "out", source: "bot", text: "[imagen]" });
+  }
+  if (mid !== void 0) {
+    await appendIgMessage({ threadId: input.threadId, mid, direction: "out", source: "bot", text: replyText });
+  }
+  if (buttonMid !== void 0) {
+    await appendIgMessage({ threadId: input.threadId, mid: buttonMid, direction: "out", source: "bot", text: `[bot\xF3n] ${buttonTitle}` });
+  }
+  await recordIgKeywordRedemption({ automationId: automation.id, igUserId: input.igUserId, source: input.source });
+  return true;
+}
+async function sendAutomationReply(automation, extras, sendText, sendButton, sendImage) {
+  const { text: text2, buttonUrl } = splitAutomationLink(automation, extras);
+  if (!buttonUrl) {
+    const { mid: mid2 } = await sendText(text2);
+    return { text: text2, mid: mid2 };
+  }
+  let imageMid;
+  if (extras.imageUrl) {
+    try {
+      imageMid = (await sendImage(extras.imageUrl)).mid;
+    } catch (err) {
+      console.error("[Instagram] No se pudo mandar la imagen de la tarjeta:", err);
+    }
+  }
+  const mid = text2.trim().length > 0 ? (await sendText(text2)).mid : void 0;
+  const buttonTitle = automation.discountCode ? "Comprar con c\xF3digo" : "Ver m\xE1s";
+  const { mid: buttonMid } = await sendButton(BUTTON_CARD_CAPTION, { title: buttonTitle, url: buttonUrl });
+  return { text: text2, mid, imageMid, buttonMid, buttonTitle };
+}
+async function handleCommentChange(value) {
+  const commentId = value?.id;
+  const igUserId = value?.from?.id;
+  const text2 = (value?.text ?? "").trim();
+  if (!commentId || !igUserId || text2.length === 0) return;
+  const automation = await matchKeywordTrigger(text2, igUserId, "comment");
+  if (!automation) return;
+  const extras = await resolveAutomationExtras(automation);
+  await sendAutomationReply(
+    automation,
+    extras,
+    (replyText) => sendPrivateReply(commentId, replyText),
+    (caption, button) => sendButtonMessage({ comment_id: commentId }, caption, button),
+    (imageUrl) => sendImageMessage({ comment_id: commentId }, imageUrl)
+  );
+  await recordIgKeywordRedemption({ automationId: automation.id, igUserId, source: "comment" });
+}
+async function handleOwnerEcho(event, message) {
+  const recipientId = event.recipient?.id;
+  if (!recipientId) return;
+  const text2 = (message.text ?? "").trim();
+  if (text2.length === 0) return;
+  const thread = await getOrCreateIgThread({ igUserId: recipientId });
+  if (!thread) return;
+  const saved = await appendIgMessage({
+    threadId: thread.id,
+    mid: message.mid,
+    direction: "out",
+    source: "admin",
+    text: text2
+  });
+  if (!saved) return;
+  await setIgThreadBotPaused(thread.id, true, "El due\xF1o contest\xF3 directo desde Instagram");
+}
+async function deliver(threadId, recipientId, text2, source, button) {
+  try {
+    const { mid } = await sendInstagramMessage({ recipientId, text: text2 });
+    await appendIgMessage({ threadId, mid, direction: "out", source, text: text2 });
+    if (button) {
+      const { mid: buttonMid } = await sendButtonMessage({ id: recipientId }, BUTTON_CARD_CAPTION, button);
+      await appendIgMessage({ threadId, mid: buttonMid, direction: "out", source, text: `[bot\xF3n] ${button.title}` });
+    }
+  } catch (err) {
+    console.error("[Instagram] No se pudo enviar la respuesta:", err);
+    await setIgThreadBotPaused(threadId, true, "Fall\xF3 el env\xEDo a Instagram, revisar el token");
+  }
+}
+async function handoff(threadId, who, incoming, reason, handoffMessage, recipientId) {
+  await deliver(threadId, recipientId, handoffMessage, "bot");
+  await setIgThreadBotPaused(threadId, true, reason);
+  await notifyHandoff(threadId, who, incoming, reason);
+}
+async function silentHandoff(threadId, who, incoming, reason) {
+  await setIgThreadBotPaused(threadId, true, reason);
+  await notifyHandoff(threadId, who, incoming, reason);
+}
+async function notifyHandoff(threadId, who, incoming, reason, opts = {}) {
+  if (opts.log !== false) {
+    await logAgentHandoff({ channel: "instagram", threadId, who, incomingText: incoming, reason: reason || "Necesita respuesta de una persona" });
+  }
+  await sendPushToAdmins("pushInstagramHandoff", {
+    title: `\u{1F4E9} Instagram: ${who}`,
+    body: `${reason || "Necesita respuesta de una persona"} \u2014 "${incoming.slice(0, 80)}"`,
+    url: "/admin?section=instagram"
+  });
+}
+async function sendManualInstagramReply(input) {
+  if (!canReplyWithinWindow(input.lastInboundAt)) {
+    throw new Error("Pasaron m\xE1s de 24 horas desde el \xFAltimo mensaje de esta persona: Instagram ya no deja responderle por ac\xE1.");
+  }
+  const { mid } = await sendInstagramMessage({ recipientId: input.igUserId, text: input.text });
+  await appendIgMessage({ threadId: input.threadId, mid, direction: "out", source: "admin", text: input.text });
+  await setIgThreadBotPaused(input.threadId, true, "El due\xF1o tom\xF3 la conversaci\xF3n a mano");
+}
+
+// server/whatsapp.ts
+import express2, { Router as Router3 } from "express";
+
+// server/whatsappInteractive.ts
+var APP_URL5 = (process.env.APP_URL || "https://mansionplayroom.cl").replace(/\/+$/, "");
+var WA_IDS = {
+  dates: "menu:fechas",
+  prices: "menu:precios",
+  human: "menu:humano",
+  eventPrefix: "event:",
+  // Respuesta rápida sugerida por la IA: lo que importa es el texto (se le
+  // pasa al agente como si la persona lo hubiera escrito).
+  quickPrefix: "quick:"
+};
+var WELCOME_BUTTONS = [
+  { id: WA_IDS.dates, title: "Pr\xF3ximas fechas" },
+  { id: WA_IDS.prices, title: "Precios" },
+  { id: WA_IDS.human, title: "Hablar con alguien" }
+];
+function welcomeMenuMessage(to, welcomeMessage) {
+  return {
+    payload: buildButtonsPayload(to, welcomeMessage, WELCOME_BUTTONS),
+    text: welcomeMessage,
+    interactive: { type: "button", buttons: WELCOME_BUTTONS.map((b) => b.title) }
+  };
+}
+function replyWithButtons(to, text2, buttons) {
+  if (buttons.length === 0) return { payload: buildTextPayload(to, text2), text: text2, interactive: null };
+  const waButtons = buttons.map((title, i) => ({ id: `${WA_IDS.quickPrefix}${i}:${title}`, title }));
+  return {
+    payload: buildButtonsPayload(to, text2, waButtons),
+    text: text2,
+    interactive: { type: "button", buttons }
+  };
+}
+async function eventListMessage(to, intro, now = /* @__PURE__ */ new Date()) {
+  const upcoming = await getUpcomingPublicEvents(now);
+  if (upcoming.length === 0) {
+    const text3 = `Todav\xEDa no hay una pr\xF3xima fecha anunciada \u{1F49C} La vas a ver primero en nuestro Instagram y en ${APP_URL5}`;
+    return { payload: buildTextPayload(to, text3), text: text3, interactive: null };
+  }
+  if (upcoming.length === 1) return eventDetailMessage(to, upcoming[0].slug, now);
+  const text2 = intro ?? "Estas son las pr\xF3ximas fechas \u{1F49C} Toca la que te tinca para ver precios y entradas.";
+  const rows = upcoming.map((e) => ({
+    id: `${WA_IDS.eventPrefix}${e.slug}`,
+    title: e.title,
+    description: `${formatChileDate(new Date(e.eventDate))}${e.status === "soldout" ? " \xB7 AGOTADA" : ""}`
+  }));
+  return {
+    payload: buildListPayload(to, text2, "Ver fechas", "Pr\xF3ximas fechas", rows),
+    text: text2,
+    interactive: { type: "list", rows: rows.map((r) => `${r.title} (${r.description})`) }
+  };
+}
+async function eventDetailMessage(to, slug, now = /* @__PURE__ */ new Date()) {
+  const upcoming = await getUpcomingPublicEvents(now);
+  const event = upcoming.find((e) => e.slug === slug);
+  if (!event) {
+    if (upcoming.length === 0) return eventListMessage(to, void 0, now);
+    return eventListMessage(to, "Esa fecha ya no est\xE1 disponible \u{1F648} Estas son las pr\xF3ximas:", now);
+  }
+  const lines = [`*${event.title}*`, `\u{1F4C5} ${formatChileDate(new Date(event.eventDate), { withYear: true })}`];
+  if (event.doorsOpen) lines.push(`\u{1F558} Desde las ${formatChileTime(new Date(event.doorsOpen))}`);
+  if (event.venue) lines.push(`\u{1F4CD} ${event.venue}`);
+  if (event.status === "soldout") {
+    lines.push("", "Las entradas para esta fecha est\xE1n AGOTADAS.");
+  } else {
+    const tickets2 = await getTicketTypesByEventId(event.id);
+    const accesos = tickets2.filter((t2) => t2.category === "acceso" && t2.status !== "hidden");
+    if (accesos.length > 0) {
+      lines.push("");
+      for (const t2 of accesos) {
+        const remaining = t2.poolRemaining ?? t2.totalStock - t2.soldCount;
+        const label = availabilityLabel(remaining, t2.status === "soldout");
+        const precio = `$${Number(t2.price).toLocaleString("es-CL")}`;
+        lines.push(`\u2022 ${t2.name}: ${precio}${label === "disponible" ? "" : ` (${label})`}`);
+      }
+    }
+  }
+  const text2 = lines.join("\n");
+  const url = `${APP_URL5}/eventos/${event.slug}`;
+  if (event.status === "soldout") {
+    return { payload: buildTextPayload(to, text2), text: text2, interactive: null };
+  }
+  return {
+    payload: buildCtaUrlPayload(to, text2, "Comprar entrada", url),
+    text: text2,
+    interactive: { type: "cta_url", label: "Comprar entrada", url }
+  };
+}
+async function replyWithBuyLink(to, text2, now = /* @__PURE__ */ new Date()) {
+  const upcoming = await getUpcomingPublicEvents(now);
+  const event = upcoming.find((e) => e.status !== "soldout");
+  if (!event) return { payload: buildTextPayload(to, text2), text: text2, interactive: null };
+  const url = `${APP_URL5}/eventos/${event.slug}`;
+  return {
+    payload: buildCtaUrlPayload(to, text2, "Comprar entrada", url),
+    text: text2,
+    interactive: { type: "cta_url", label: "Comprar entrada", url }
+  };
+}
+
+// server/whatsapp.ts
+var whatsappRouter = Router3();
+var WEBHOOK_PATH2 = "/api/webhooks/whatsapp";
+whatsappRouter.get(WEBHOOK_PATH2, (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+  if (!ENV.waVerifyToken) {
+    console.error("[WhatsApp] WA_VERIFY_TOKEN no est\xE1 configurada -- no se puede verificar el webhook.");
+    res.sendStatus(500);
+    return;
+  }
+  if (mode === "subscribe" && token === ENV.waVerifyToken) {
+    res.status(200).send(String(challenge ?? ""));
+    return;
+  }
+  res.sendStatus(403);
+});
+whatsappRouter.post(
+  WEBHOOK_PATH2,
+  express2.raw({ type: "*/*", limit: "1mb" }),
+  async (req, res) => {
+    const raw = Buffer.isBuffer(req.body) ? req.body : Buffer.from("");
+    if (!ENV.waAppSecret) {
+      if (ENV.isProduction) {
+        console.error("[WhatsApp] WA_APP_SECRET no configurada -- se rechaza la entrega.");
+        res.sendStatus(403);
+        return;
+      }
+      console.warn("[WhatsApp] WA_APP_SECRET no configurada -- entrega aceptada SIN verificar firma (solo en desarrollo).");
+    } else if (!verifyMetaSignature(raw, req.header("x-hub-signature-256"), ENV.waAppSecret)) {
+      res.sendStatus(403);
+      return;
+    }
+    let body;
+    try {
+      body = JSON.parse(raw.toString("utf8"));
+    } catch {
+      res.sendStatus(400);
+      return;
+    }
+    try {
+      for (const entry of body.entry ?? []) {
+        for (const change of entry.changes ?? []) {
+          await handleChange(change.field, change.value);
+        }
+      }
+    } catch (err) {
+      console.error("[WhatsApp] Error procesando la entrega del webhook:", err);
+    }
+    res.sendStatus(200);
+  }
+);
+async function handleChange(field, value) {
+  if (!value) return;
+  const phoneNumberId = value.metadata?.phone_number_id;
+  if (ENV.waPhoneNumberId && phoneNumberId && phoneNumberId !== ENV.waPhoneNumberId) return;
+  if (field === "messages") {
+    for (const message of value.messages ?? []) {
+      const contact = value.contacts?.find((c) => c.wa_id === message.from) ?? value.contacts?.[0];
+      await handleInboundMessage(message, contact?.profile?.name);
+    }
+    for (const status of value.statuses ?? []) {
+      handleStatus(status);
+    }
+  } else if (field === "smb_message_echoes") {
+    for (const echo of value.message_echoes ?? []) {
+      await handleOwnerAppEcho(echo);
+    }
+  }
+}
+function parseInbound(message) {
+  if (message.type === "text") return { text: (message.text?.body ?? "").trim(), replyId: null, hasMedia: false };
+  if (message.type === "interactive") {
+    const reply = message.interactive?.button_reply ?? message.interactive?.list_reply;
+    return { text: (reply?.title ?? "").trim(), replyId: reply?.id ?? null, hasMedia: false };
+  }
+  if (message.type === "button") {
+    return { text: (message.button?.text ?? "").trim(), replyId: message.button?.payload ?? null, hasMedia: false };
+  }
+  const caption = message.image?.caption ?? message.video?.caption ?? message.document?.caption ?? "";
+  return { text: caption.trim(), replyId: null, hasMedia: true };
+}
+function isSimpleGreeting(text2) {
+  const normalized = text2.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z\s]/g, "").replace(/\s+/g, " ").trim();
+  return /^(h+o+l+a+s?|buen[oa]s?( (dias|tardes|noches))?|hey+|ey+|hi+|hello|alo+|wena+s?)( (que tal|como estas))?$/.test(normalized);
+}
+async function handleInboundMessage(message, profileName) {
+  const waId = message.from;
+  if (!waId || !message.id) return;
+  if (message.type === "reaction" || message.type === "system" || message.type === "unsupported") return;
+  const { text: text2, replyId, hasMedia } = parseInbound(message);
+  if (text2.length === 0 && !hasMedia) return;
+  const thread = await getOrCreateWaThread({ waId, profileName });
+  if (!thread) {
+    console.error("[WhatsApp] Sin base de datos: el mensaje entrante se pierde.");
+    return;
+  }
+  const isNewThread = thread.lastMessageAt == null;
+  const saved = await appendWaMessage({
+    threadId: thread.id,
+    wamid: message.id,
+    direction: "in",
+    source: "user",
+    text: text2.length > 0 ? text2 : null,
+    interactive: replyId ? { type: "reply", id: replyId, title: text2 } : null,
+    attachments: hasMedia ? { type: message.type, data: message[message.type] ?? null } : null
+  });
+  if (!saved) return;
+  const settings = await getSiteSettings();
+  const waConfig = normalizeWhatsAppAgentConfig(settings?.whatsappAgentConfig);
+  const agentConfig = normalizeInstagramAgentConfig(settings?.instagramAgentConfig);
+  const who = thread.profileName ?? profileName ?? `+${waId}`;
+  if (!waConfig.enabled) return;
+  if (thread.botPaused === 1) {
+    return;
+  }
+  if (text2.length === 0) {
+    await setWaThreadBotPaused(thread.id, true, "Lleg\xF3 un adjunto sin texto (audio, foto, sticker)");
+    await notifyHandoff2(thread.id, who, "[adjunto]", "Mand\xF3 un audio o archivo sin texto");
+    return;
+  }
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1e3);
+  const repliesToday = await countWaBotRepliesSince(thread.id, since);
+  if (repliesToday >= waConfig.dailyReplyLimitPerThread) {
+    await deliver2(thread.id, waId, textOnly(waId, agentConfig.handoffMessage));
+    await setWaThreadBotPaused(thread.id, true, "Se pas\xF3 del tope diario de respuestas autom\xE1ticas");
+    await notifyHandoff2(thread.id, who, text2, "Se pas\xF3 del tope diario de respuestas autom\xE1ticas");
+    return;
+  }
+  await markReadWithTyping(message.id);
+  if (replyId === WA_IDS.dates) {
+    await deliver2(thread.id, waId, await eventListMessage(waId));
+    return;
+  }
+  if (replyId === WA_IDS.prices) {
+    await deliver2(thread.id, waId, await eventListMessage(waId, "Elige la fecha y te muestro los precios \u{1F49C}"));
+    return;
+  }
+  if (replyId === WA_IDS.human) {
+    await deliver2(thread.id, waId, textOnly(waId, agentConfig.handoffMessage));
+    await setWaThreadBotPaused(thread.id, true, "Pidi\xF3 hablar con una persona (bot\xF3n del men\xFA)");
+    await notifyHandoff2(thread.id, who, text2, "Pidi\xF3 hablar con una persona");
+    return;
+  }
+  if (replyId?.startsWith(WA_IDS.eventPrefix)) {
+    await deliver2(thread.id, waId, await eventDetailMessage(waId, replyId.slice(WA_IDS.eventPrefix.length)));
+    return;
+  }
+  if (isNewThread && waConfig.welcomeMenuEnabled && isSimpleGreeting(text2)) {
+    await deliver2(thread.id, waId, welcomeMenuMessage(waId, waConfig.welcomeMessage));
+    return;
+  }
+  const isFinalReplyOfDay = repliesToday === waConfig.dailyReplyLimitPerThread - 1;
+  const history = await getWaMessages(thread.id, agentConfig.historyLimit + 1);
+  const previous = history.filter((m) => m.id !== saved.id);
+  const result = await runInstagramAgent({
+    incomingText: text2,
+    history: previous,
+    config: agentConfig,
+    isFinalReplyOfDay,
+    channel: "whatsapp"
+  });
+  if (result.isPersonal) {
+    await setWaThreadBotPaused(thread.id, true, "La IA lo marc\xF3 como mensaje personal, no de cliente");
+    await notifyHandoff2(thread.id, who, text2, "La IA lo marc\xF3 como mensaje personal, no de cliente");
+    return;
+  }
+  let outgoing;
+  if (result.action === "event_list" && !result.handoff) {
+    const list = await eventListMessage(waId, result.reply);
+    outgoing = list.text === result.reply ? [list] : [textOnly(waId, result.reply), list];
+  } else if (result.action === "buy_link" && !result.handoff) {
+    outgoing = [await replyWithBuyLink(waId, result.reply)];
+  } else {
+    outgoing = [replyWithButtons(waId, result.reply, result.handoff ? [] : result.buttons)];
+  }
+  for (const out of outgoing) {
+    await deliver2(thread.id, waId, out);
+  }
+  if (isFinalReplyOfDay) {
+    const reason = "Lleg\xF3 al tope diario de respuestas autom\xE1ticas -- se cerr\xF3 la conversaci\xF3n con un mensaje final";
+    await setWaThreadBotPaused(thread.id, true, reason);
+    await notifyHandoff2(thread.id, who, text2, reason);
+  } else if (result.handoff) {
+    await setWaThreadBotPaused(thread.id, true, result.handoffReason || "La IA deriv\xF3 la conversaci\xF3n");
+    await notifyHandoff2(thread.id, who, text2, result.handoffReason);
+  }
+}
+async function handleOwnerAppEcho(echo) {
+  const to = echo.to;
+  if (!to || !echo.id) return;
+  const text2 = (echo.text?.body ?? "").trim();
+  if (text2.length === 0) return;
+  const thread = await getOrCreateWaThread({ waId: to });
+  if (!thread) return;
+  const saved = await appendWaMessage({
+    threadId: thread.id,
+    wamid: echo.id,
+    direction: "out",
+    source: "owner_app",
+    text: text2
+  });
+  if (!saved) return;
+  await setWaThreadBotPaused(thread.id, true, "El due\xF1o contest\xF3 directo desde la app de WhatsApp");
+}
+function handleStatus(status) {
+  if (status.status !== "failed") return;
+  const error = status.errors?.[0];
+  console.error(`[WhatsApp] No se entreg\xF3 el mensaje ${status.id} a ${status.recipient_id}:`, error?.title ?? error?.message ?? "sin detalle");
+}
+function textOnly(to, text2) {
+  return { payload: buildTextPayload(to, text2), text: text2, interactive: null };
+}
+async function deliver2(threadId, waId, out) {
+  try {
+    const { wamid } = await sendWhatsAppPayload(out.payload);
+    await appendWaMessage({ threadId, wamid, direction: "out", source: "bot", text: out.text, interactive: out.interactive });
+    return true;
+  } catch (err) {
+    console.error("[WhatsApp] No se pudo enviar la respuesta:", err);
+    await setWaThreadBotPaused(threadId, true, "Fall\xF3 el env\xEDo a WhatsApp, revisar el token");
+    await notifyHandoff2(threadId, `+${waId}`, out.text, "Fall\xF3 el env\xEDo a WhatsApp", { log: false });
+    return false;
+  }
+}
+async function notifyHandoff2(threadId, who, incoming, reason, opts = {}) {
+  if (opts.log !== false) {
+    await logAgentHandoff({ channel: "whatsapp", threadId, who, incomingText: incoming, reason: reason || "Necesita respuesta de una persona" });
+  }
+  await sendPushToAdmins("pushWhatsAppHandoff", {
+    title: `\u{1F4AC} WhatsApp: ${who}`,
+    body: `${reason || "Necesita respuesta de una persona"} \u2014 "${incoming.slice(0, 80)}"`,
+    url: "/admin?section=whatsapp"
+  });
+}
+async function sendManualWhatsAppReply(input) {
+  if (!canReplyWithinWindow(input.lastInboundAt)) {
+    throw new Error("Pasaron m\xE1s de 24 horas desde el \xFAltimo mensaje de esta persona: WhatsApp solo deja escribirle con una plantilla aprobada. Cont\xE9stale desde la app del tel\xE9fono.");
+  }
+  const { wamid } = await sendWhatsAppPayload(buildTextPayload(input.waId, input.text));
+  await appendWaMessage({ threadId: input.threadId, wamid, direction: "out", source: "admin", text: input.text });
+  await setWaThreadBotPaused(input.threadId, true, "El due\xF1o tom\xF3 la conversaci\xF3n a mano");
 }
 
 // shared/flashPromoPresets.ts
@@ -11359,6 +14924,89 @@ async function generateEventDescription(input) {
   return validated.data;
 }
 
+// server/instagramAutomationDraft.ts
+import { z as z6 } from "zod";
+var AutomationReplyDraftSchema = z6.object({
+  replyMessage: z6.string().min(1).max(700)
+});
+var AUTOMATION_REPLY_JSON_SCHEMA = {
+  name: "automation_reply_draft",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["replyMessage"],
+    properties: {
+      replyMessage: {
+        type: "string",
+        description: "El mensaje que se le manda por DM a la persona que coment\xF3/respondi\xF3 la palabra clave. Tono cercano, sin markdown. Si tiene m\xE1s de una parte (saludo/oferta/cierre), separadas por una l\xEDnea en blanco (\\n\\n) entre cada una, no todo corrido en un solo p\xE1rrafo."
+      }
+    }
+  }
+};
+var TRIGGER_LABEL = {
+  comment: "un comentario en un post/reel",
+  story_reply: "una respuesta a una historia",
+  both: "un comentario o una respuesta a una historia"
+};
+function describeReward(reward) {
+  if (reward.kind === "discount") {
+    const valor = reward.discountType === "percentage" ? `${reward.discountValue}% de descuento` : `$${reward.discountValue} CLP de descuento`;
+    return `Regala un C\xD3DIGO DE DESCUENTO (${valor}). En el mensaje, usa el placeholder literal {{codigo}} donde ir\xEDa el c\xF3digo (NUNCA inventes ni escribas un c\xF3digo real, todav\xEDa no existe) y puedes usar {{link}} para el link de compra (ya lleva el c\xF3digo aplicado solo). No escribas el valor del descuento como si fuera el c\xF3digo.`;
+  }
+  if (reward.kind === "gift") {
+    const producto = reward.productName.trim();
+    return `Regala un PRODUCTO de la Carta de la Fiesta${producto ? ` (${producto})` : ""}, gratis, para canjear en caja con la entrada. En el mensaje, usa el placeholder literal {{producto}} donde ir\xEDa el nombre del producto (no lo repitas escrito aparte) y puedes usar {{link}} para el link de compra (ya lleva el c\xF3digo del regalo aplicado solo).`;
+  }
+  return "No regala ning\xFAn c\xF3digo ni producto -- el mensaje es solo informaci\xF3n, un link o un texto (puedes usar {{link}} si tiene sentido, pero no hay ninguna obligaci\xF3n de incluir un link).";
+}
+async function generateAutomationReplyDraft(input) {
+  const settings = await getSiteSettings();
+  const config = normalizeInstagramAgentConfig(settings?.instagramAgentConfig);
+  const datos = [
+    `Se activa cuando alguien deja ${TRIGGER_LABEL[input.triggerSource]} con la palabra clave "${input.keyword}".`,
+    describeReward(input.reward),
+    input.idea?.trim() ? `Lo que quiere lograr el due\xF1o con este mensaje: ${input.idea.trim()}` : null,
+    `DRESS CODE (por si el mensaje lo menciona): ${EVENT_BRAND.dressCode}`
+  ].filter(Boolean).join("\n");
+  const systemPrompt = [
+    "Eres quien escribe los mensajes autom\xE1ticos que le llegan por Instagram a alguien que coment\xF3 o respondi\xF3 una historia con una palabra clave, para Mansion Playroom.",
+    "",
+    "CONTEXTO DE LA MARCA (lo escribi\xF3 el due\xF1o, resp\xE9talo):",
+    config.brandNotes,
+    "",
+    "Escribe UN mensaje espa\xF1ol chileno, cercano y natural -- como si el due\xF1o le estuviera respondiendo el DM en persona, no una campa\xF1a. Sin markdown, sin listas, como mucho un emoji.",
+    "Si el mensaje tiene m\xE1s de una parte (ej. saludo + oferta/c\xF3digo + link + cierre), sep\xE1ralas con una l\xEDnea en blanco entre cada una (un salto de l\xEDnea real, no una sola oraci\xF3n corrida) -- as\xED se lee ordenado en el DM, como un mensaje bien armado, no como un bloque de texto. No metas la idea del saludo, el c\xF3digo y el link todos pegados en la misma oraci\xF3n. Ejemplo de formato esperado (no copies el contenido, es solo la forma):",
+    "\xA1Hola! Gracias por tu onda \u{1F49C}\n\nTe dejamos este c\xF3digo AUTOXX00 con $5.000 de descuento para tu entrada\n\nO directamente entra ac\xE1 y ya te queda aplicado: {{link}}\n\nNos vemos en Mansion \u{1F389}",
+    "Usa los placeholders {{codigo}}, {{producto}} y {{link}} literalmente tal cual (con las llaves dobles) cuando corresponda seg\xFAn la recompensa -- nunca inventes un c\xF3digo, un nombre de producto que no te dieron, ni una URL.",
+    "No prometas nada que no est\xE9 en los datos de abajo. Responde \xDANICAMENTE con el JSON pedido.",
+    ...config.styleExamples.trim().length > 0 ? [
+      "",
+      "EJEMPLOS DE C\xD3MO ESCRIBE EL DUE\xD1O (imita este tono, no copies el contenido literal si no calza):",
+      config.styleExamples
+    ] : []
+  ].join("\n");
+  const result = await invokeLLM({
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: datos }
+    ],
+    responseFormat: { type: "json_schema", json_schema: AUTOMATION_REPLY_JSON_SCHEMA }
+  });
+  const raw = extractContent(result.choices[0]?.message ?? { content: "" });
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("La IA no devolvi\xF3 un JSON v\xE1lido. Intenta de nuevo.");
+  }
+  const validated = AutomationReplyDraftSchema.safeParse(parsed);
+  if (!validated.success) {
+    throw new Error(`El mensaje generado no tiene el formato esperado: ${validated.error.issues[0]?.message ?? "error desconocido"}.`);
+  }
+  return validated.data;
+}
+
 // server/adminQa.ts
 var clp = (n) => `$${Math.round(n).toLocaleString("es-CL")}`;
 function buildDataBlock(stats, utmSales, pnl) {
@@ -11424,15 +15072,15 @@ Pregunta: ${question}` }
 import QRCode2 from "qrcode";
 
 // server/adminSecurity.ts
-import crypto from "crypto";
+import crypto2 from "crypto";
 import { generateSecret, generateSync, verifySync, generateURI } from "otplib";
 var TOTP_TOLERANCE_SECONDS = 30;
 var BACKUP_CODE_COUNT = 8;
 var BACKUP_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function safeCompare(a, b) {
-  const ha = crypto.createHash("sha256").update(a ?? "").digest();
-  const hb = crypto.createHash("sha256").update(b ?? "").digest();
-  return crypto.timingSafeEqual(ha, hb);
+  const ha = crypto2.createHash("sha256").update(a ?? "").digest();
+  const hb = crypto2.createHash("sha256").update(b ?? "").digest();
+  return crypto2.timingSafeEqual(ha, hb);
 }
 function createTotpSecret() {
   return generateSecret();
@@ -11463,7 +15111,7 @@ function verifyTotp(params) {
   return { ok: true, timeStep };
 }
 function hashBackupCode(code) {
-  return crypto.createHash("sha256").update(normalizeBackupCode(code)).digest("hex");
+  return crypto2.createHash("sha256").update(normalizeBackupCode(code)).digest("hex");
 }
 function normalizeBackupCode(code) {
   return (code ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -11472,7 +15120,7 @@ function generateBackupCodes(count = BACKUP_CODE_COUNT) {
   const plain = [];
   for (let i = 0; i < count; i++) {
     const chars = [];
-    const bytes = crypto.randomBytes(8);
+    const bytes = crypto2.randomBytes(8);
     for (let j = 0; j < 8; j++) chars.push(BACKUP_ALPHABET[bytes[j] % BACKUP_ALPHABET.length]);
     plain.push(`${chars.slice(0, 4).join("")}-${chars.slice(4).join("")}`);
   }
@@ -11646,8 +15294,8 @@ var adminProcedure2 = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.user.role !== "admin") throw new TRPCError3({ code: "FORBIDDEN", message: "Admin access required" });
   return next({ ctx });
 });
-var adminPasswordInput = z6.object({
-  adminPassword: z6.string().min(1, "Ingresa tu clave de admin")
+var adminPasswordInput = z7.object({
+  adminPassword: z7.string().min(1, "Ingresa tu clave de admin")
 });
 var adminPasswordProcedure = adminProcedure2.input(adminPasswordInput).use(async (opts) => {
   const ipKey = `admin-reauth:${clientIp(opts.ctx)}`;
@@ -11662,17 +15310,17 @@ var adminPasswordProcedure = adminProcedure2.input(adminPasswordInput).use(async
   }
   return opts.next({ ctx: opts.ctx });
 });
-var mailingEventSectionsSchema = z6.object({
-  banner: z6.boolean(),
-  details: z6.boolean(),
-  mission300: z6.boolean(),
-  venueGrid: z6.boolean()
+var mailingEventSectionsSchema = z7.object({
+  banner: z7.boolean(),
+  details: z7.boolean(),
+  mission300: z7.boolean(),
+  venueGrid: z7.boolean()
 });
-var expenseInputSchema = z6.object({
-  scope: z6.enum(["evento", "general"]),
-  eventId: z6.number().nullable().optional(),
-  expenseDate: z6.string(),
-  category: z6.enum([
+var expenseInputSchema = z7.object({
+  scope: z7.enum(["evento", "general"]),
+  eventId: z7.number().nullable().optional(),
+  expenseDate: z7.string(),
+  category: z7.enum([
     "decoracion",
     "barra",
     "merch",
@@ -11685,22 +15333,22 @@ var expenseInputSchema = z6.object({
     "comisiones",
     "otros"
   ]),
-  description: z6.string().min(1).max(255),
-  supplier: z6.string().max(160).optional(),
-  supplierRut: z6.string().max(16).optional(),
-  documentType: z6.enum(["boleta", "factura", "boleta_honorarios", "sin_documento"]),
-  documentNumber: z6.string().max(32).optional(),
-  ivaExempt: z6.boolean().optional(),
-  amountTotal: z6.number().int().positive(),
-  ivaAmountOverride: z6.number().int().nonnegative().optional(),
-  paymentMethod: z6.enum(["efectivo", "tarjeta", "transferencia", "otro"]),
-  paidFromShiftId: z6.number().nullable().optional(),
-  recurrence: z6.enum(["none", "mensual", "por_evento"]).optional(),
-  recurrenceEndsAt: z6.string().nullable().optional(),
-  excludeFromPnl: z6.boolean().optional(),
-  prorate: z6.boolean().optional(),
-  receiptUrl: z6.string().optional(),
-  notes: z6.string().max(500).optional()
+  description: z7.string().min(1).max(255),
+  supplier: z7.string().max(160).optional(),
+  supplierRut: z7.string().max(16).optional(),
+  documentType: z7.enum(["boleta", "factura", "boleta_honorarios", "sin_documento"]),
+  documentNumber: z7.string().max(32).optional(),
+  ivaExempt: z7.boolean().optional(),
+  amountTotal: z7.number().int().positive(),
+  ivaAmountOverride: z7.number().int().nonnegative().optional(),
+  paymentMethod: z7.enum(["efectivo", "tarjeta", "transferencia", "otro"]),
+  paidFromShiftId: z7.number().nullable().optional(),
+  recurrence: z7.enum(["none", "mensual", "por_evento"]).optional(),
+  recurrenceEndsAt: z7.string().nullable().optional(),
+  excludeFromPnl: z7.boolean().optional(),
+  prorate: z7.boolean().optional(),
+  receiptUrl: z7.string().optional(),
+  notes: z7.string().max(500).optional()
   // Una plantilla 'por_evento' es el catálogo de un costo fijo de cada fiesta,
   // no un gasto de una fiesta puntual: va con scope 'evento' pero SIN eventId,
   // porque se copia a todas. Por eso queda exenta de la regla de abajo.
@@ -11722,6 +15370,28 @@ var expenseInputSchema = z6.object({
 }).refine((v) => v.recurrence !== "por_evento" || !v.eventId, {
   message: "Un costo fijo de cada fiesta no se carga a una fiesta puntual: se copia a todas autom\xE1ticamente.",
   path: ["eventId"]
+});
+var budgetSimulationInputSchema = z7.object({
+  name: z7.string().min(1).max(255),
+  eventId: z7.number().nullable().optional(),
+  ivaApplies: z7.boolean(),
+  marginTargetPercent: z7.number(),
+  cardFeePercent: z7.number().min(0).max(100),
+  commissionPercent: z7.number().min(0).max(100),
+  variableCostPerPerson: z7.number().nonnegative(),
+  otherRevenuePerPerson: z7.number().nonnegative(),
+  revenueTiers: z7.array(z7.object({
+    label: z7.string().min(1),
+    price: z7.number().nonnegative(),
+    expectedQty: z7.number().int().nonnegative(),
+    personasPorEntrada: z7.number().int().positive()
+  })),
+  expenseLines: z7.array(z7.object({
+    category: z7.string(),
+    label: z7.string().min(1),
+    amount: z7.number().nonnegative()
+  })),
+  notes: z7.string().optional()
 });
 async function verifyOperatorPinOrThrow(ctx, operatorId, pin) {
   const forwardedFor = ctx.req.headers["x-forwarded-for"];
@@ -11829,7 +15499,7 @@ var appRouter = router({
     // este endpoint firmaba la cookie de una, sin ningún límite de
     // intentos -- un script podía probar miles de contraseñas por minuto
     // contra el panel que puede borrar compras y exportar la base entera.
-    adminLogin: publicProcedure.input(z6.object({ password: z6.string() })).mutation(async ({ input, ctx }) => {
+    adminLogin: publicProcedure.input(z7.object({ password: z7.string() })).mutation(async ({ input, ctx }) => {
       const ipKey = adminIpKey(ctx);
       if (!await checkIpRateLimit(ipKey)) {
         throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: "Demasiados intentos. Espera unos minutos." });
@@ -11857,7 +15527,7 @@ var appRouter = router({
     // Genera el secreto y el QR para configurar la app de autenticación.
     // No activa nada todavía: recién se activa cuando el dueño confirma
     // con un código real (adminConfirmTotp).
-    adminSetupTotp: publicProcedure.input(z6.object({ ticket: z6.string() })).mutation(async ({ input }) => {
+    adminSetupTotp: publicProcedure.input(z7.object({ ticket: z7.string() })).mutation(async ({ input }) => {
       await requireAdminStepTicket(input.ticket);
       const existing = await getAdminTotp();
       if (existing?.confirmedAt) {
@@ -11869,7 +15539,7 @@ var appRouter = router({
     }),
     // Confirma la configuración y devuelve los códigos de respaldo. Es la
     // ÚNICA vez que se muestran legibles: después solo queda su hash.
-    adminConfirmTotp: publicProcedure.input(z6.object({ ticket: z6.string(), code: z6.string() })).mutation(async ({ input, ctx }) => {
+    adminConfirmTotp: publicProcedure.input(z7.object({ ticket: z7.string(), code: z7.string() })).mutation(async ({ input, ctx }) => {
       await requireAdminStepTicket(input.ticket);
       const totp = await getAdminTotp();
       if (!totp) throw new TRPCError3({ code: "BAD_REQUEST", message: "Primero escanea el c\xF3digo QR" });
@@ -11886,7 +15556,7 @@ var appRouter = router({
     }),
     // Paso 2 de 2: el código de la app (o uno de respaldo). Recién acá se
     // firma la sesión.
-    adminVerifyCode: publicProcedure.input(z6.object({ ticket: z6.string(), code: z6.string() })).mutation(async ({ input, ctx }) => {
+    adminVerifyCode: publicProcedure.input(z7.object({ ticket: z7.string(), code: z7.string() })).mutation(async ({ input, ctx }) => {
       const ipKey = adminIpKey(ctx);
       if (!await checkIpRateLimit(ipKey)) {
         throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: "Demasiados intentos. Espera unos minutos." });
@@ -11928,10 +15598,10 @@ var appRouter = router({
       const ticket = await signWebauthnTicket("reg", options.challenge);
       return { options, ticket };
     }),
-    webauthnRegistrationVerify: adminProcedure2.input(z6.object({
-      ticket: z6.string(),
-      deviceLabel: z6.string().min(1).max(100),
-      response: z6.any()
+    webauthnRegistrationVerify: adminProcedure2.input(z7.object({
+      ticket: z7.string(),
+      deviceLabel: z7.string().min(1).max(100),
+      response: z7.any()
     })).mutation(async ({ input, ctx }) => {
       const challenge = await requireWebauthnTicket("reg", input.ticket);
       const { rpID, origin } = getRpIdAndOrigin(ctx.req);
@@ -11964,9 +15634,9 @@ var appRouter = router({
       const ticket = await signWebauthnTicket("auth", options.challenge);
       return { options, ticket };
     }),
-    webauthnLoginVerify: publicProcedure.input(z6.object({
-      ticket: z6.string(),
-      response: z6.any()
+    webauthnLoginVerify: publicProcedure.input(z7.object({
+      ticket: z7.string(),
+      response: z7.any()
     })).mutation(async ({ input, ctx }) => {
       const ipKey = adminIpKey(ctx);
       if (!await checkIpRateLimit(ipKey)) {
@@ -12004,7 +15674,7 @@ var appRouter = router({
       const rows = await getAdminWebauthnCredentials();
       return rows.map((r) => ({ id: r.id, deviceLabel: r.deviceLabel, createdAt: r.createdAt, lastUsedAt: r.lastUsedAt }));
     }),
-    webauthnCredentialDelete: adminProcedure2.input(z6.object({ id: z6.number() })).mutation(async ({ input }) => {
+    webauthnCredentialDelete: adminProcedure2.input(z7.object({ id: z7.number() })).mutation(async ({ input }) => {
       await deleteAdminWebauthnCredential(input.id);
       return { success: true };
     })
@@ -12018,10 +15688,10 @@ var appRouter = router({
     listForHome: publicProcedure.query(async () => {
       return getHomeEvents();
     }),
-    getBySlug: publicProcedure.input(z6.object({ slug: z6.string() })).query(async ({ input }) => {
+    getBySlug: publicProcedure.input(z7.object({ slug: z7.string() })).query(async ({ input }) => {
       return getEventBySlug(input.slug);
     }),
-    getTicketTypes: publicProcedure.input(z6.object({ slug: z6.string() })).query(async ({ input }) => {
+    getTicketTypes: publicProcedure.input(z7.object({ slug: z7.string() })).query(async ({ input }) => {
       const event = await getEventBySlug(input.slug);
       if (!event) return [];
       await checkAndAdvanceTandaIfNeeded(event.id);
@@ -12041,22 +15711,22 @@ var appRouter = router({
     getActiveForCaja: adminReadProcedure.query(async () => {
       return getActiveEventForCaja() ?? null;
     }),
-    create: adminProcedure2.input(z6.object({
-      title: z6.string(),
-      slug: z6.string(),
-      description: z6.string().optional(),
-      shortDescription: z6.string().optional(),
-      imageUrl: z6.string().optional(),
-      venue: z6.string().optional(),
-      address: z6.string().optional(),
-      mapsUrl: z6.string().optional(),
-      eventDate: z6.string(),
-      doorsOpen: z6.string().optional(),
-      eventEnd: z6.string().optional(),
-      status: z6.enum(["draft", "published", "soldout", "cancelled", "past"]).optional(),
-      featured: z6.number().optional(),
-      missionForceClosed: z6.number().optional(),
-      ivaApplies: z6.number().optional()
+    create: adminProcedure2.input(z7.object({
+      title: z7.string(),
+      slug: z7.string(),
+      description: z7.string().optional(),
+      shortDescription: z7.string().optional(),
+      imageUrl: z7.string().optional(),
+      venue: z7.string().optional(),
+      address: z7.string().optional(),
+      mapsUrl: z7.string().optional(),
+      eventDate: z7.string(),
+      doorsOpen: z7.string().optional(),
+      eventEnd: z7.string().optional(),
+      status: z7.enum(["draft", "published", "soldout", "cancelled", "past"]).optional(),
+      featured: z7.number().optional(),
+      missionForceClosed: z7.number().optional(),
+      ivaApplies: z7.number().optional()
     })).mutation(async ({ input }) => {
       const result = await createEvent(input);
       try {
@@ -12071,7 +15741,7 @@ var appRouter = router({
     // Botón manual "Copiar carta del evento anterior" en Carta de la
     // Fiesta -- mismo criterio que el automático de arriba, para poder
     // repetirlo a mano (o arreglar un evento que quedó sin carta).
-    copyCartaFromPrevious: adminProcedure2.input(z6.object({ eventId: z6.number() })).mutation(async ({ input }) => {
+    copyCartaFromPrevious: adminProcedure2.input(z7.object({ eventId: z7.number() })).mutation(async ({ input }) => {
       const target = await getEventById(input.eventId);
       if (!target) throw new TRPCError3({ code: "BAD_REQUEST", message: "Evento no encontrado" });
       const previous = (await getAllEvents()).find((e) => e.id !== target.id && new Date(e.eventDate) < new Date(target.eventDate));
@@ -12079,102 +15749,102 @@ var appRouter = router({
       const copied = await copyCartaBetweenEvents(previous.id, target.id);
       return { copied, from: previous.title };
     }),
-    update: adminProcedure2.input(z6.object({
-      id: z6.number(),
-      title: z6.string().optional(),
-      slug: z6.string().optional(),
-      description: z6.string().optional(),
-      shortDescription: z6.string().optional(),
-      imageUrl: z6.string().optional(),
-      venue: z6.string().optional(),
-      address: z6.string().optional(),
-      mapsUrl: z6.string().optional(),
-      eventDate: z6.string().optional(),
-      doorsOpen: z6.string().optional(),
-      eventEnd: z6.string().optional(),
-      status: z6.enum(["draft", "published", "soldout", "cancelled", "past"]).optional(),
-      featured: z6.number().optional(),
-      missionForceClosed: z6.number().optional(),
-      ivaApplies: z6.number().optional(),
+    update: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      title: z7.string().optional(),
+      slug: z7.string().optional(),
+      description: z7.string().optional(),
+      shortDescription: z7.string().optional(),
+      imageUrl: z7.string().optional(),
+      venue: z7.string().optional(),
+      address: z7.string().optional(),
+      mapsUrl: z7.string().optional(),
+      eventDate: z7.string().optional(),
+      doorsOpen: z7.string().optional(),
+      eventEnd: z7.string().optional(),
+      status: z7.enum(["draft", "published", "soldout", "cancelled", "past"]).optional(),
+      featured: z7.number().optional(),
+      missionForceClosed: z7.number().optional(),
+      ivaApplies: z7.number().optional(),
       // Escala de descuentos por fase de este evento -- ver
       // shared/tandaSchedule.ts (TandaPhase[]: % + fecha límite opcional
       // por fase, para el avance automático). Editable desde el admin, por
       // evento.
-      tandaDiscountSchedule: z6.array(z6.object({
-        percent: z6.number().min(0).max(100),
-        untilDate: z6.string().nullable().optional()
+      tandaDiscountSchedule: z7.array(z7.object({
+        percent: z7.number().min(0).max(100),
+        untilDate: z7.string().nullable().optional()
       })).optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateEvent(id, data);
     }),
-    delete: adminPasswordProcedure.input(z6.object({ id: z6.number() })).mutation(async ({ input, ctx }) => {
+    delete: adminPasswordProcedure.input(z7.object({ id: z7.number() })).mutation(async ({ input, ctx }) => {
       const before = await getEventById(input.id);
       const result = await deleteEvent(input.id);
       await recordAdminAudit({ action: "events.delete", targetType: "event", targetId: input.id, eventId: input.id, payload: before ?? null, ip: clientIp(ctx) });
       return result;
     }),
     // Ticket types management
-    listTicketTypes: adminReadProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    listTicketTypes: adminReadProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getTicketTypesByEventId(input.eventId);
     }),
-    createTicketType: adminProcedure2.input(z6.object({
-      eventId: z6.number(),
-      name: z6.string(),
-      accesoSlug: z6.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
-      category: z6.enum(["acceso", "extra", "consumo", "locker", "merch"]).optional(),
-      description: z6.string().optional(),
-      price: z6.number(),
-      originalPrice: z6.number().optional(),
-      totalStock: z6.number(),
-      maxPerOrder: z6.number().optional(),
-      sortOrder: z6.number().optional(),
-      status: z6.enum(["active", "soldout", "hidden"]).optional(),
-      costPrice: z6.number().optional(),
-      color: z6.string().optional(),
-      internalCode: z6.string().optional(),
+    createTicketType: adminProcedure2.input(z7.object({
+      eventId: z7.number(),
+      name: z7.string(),
+      accesoSlug: z7.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
+      category: z7.enum(["acceso", "extra", "consumo", "locker", "merch"]).optional(),
+      description: z7.string().optional(),
+      price: z7.number(),
+      originalPrice: z7.number().optional(),
+      totalStock: z7.number(),
+      maxPerOrder: z7.number().optional(),
+      sortOrder: z7.number().optional(),
+      status: z7.enum(["active", "soldout", "hidden"]).optional(),
+      costPrice: z7.number().optional(),
+      color: z7.string().optional(),
+      internalCode: z7.string().optional(),
       // Carta de la fiesta (tragos/comida/guardarropía): emoji en vez de foto,
       // sección para agrupar en la grilla de /caja, y si va a cocina.
-      emoji: z6.string().max(8).optional(),
-      groupName: z6.string().max(50).optional(),
-      toKitchen: z6.number().min(0).max(1).optional(),
+      emoji: z7.string().max(8).optional(),
+      groupName: z7.string().max(50).optional(),
+      toKitchen: z7.number().min(0).max(1).optional(),
       // Cupo compartido (stockPools) -- null/omitido = sigue usando su propio
       // totalStock, como hoy.
-      stockPoolId: z6.number().nullable().optional(),
+      stockPoolId: z7.number().nullable().optional(),
       // Carga de saldo prepagado (pedido explícito del dueño): con valor,
       // este producto acredita saldo en vez de dar un derecho canjeable --
       // ver el comentario de la columna en drizzle/schema.ts.
-      topupAmount: z6.number().int().positive().optional()
+      topupAmount: z7.number().int().positive().optional()
     })).mutation(async ({ input }) => {
       return createTicketType(input);
     }),
-    updateTicketType: adminProcedure2.input(z6.object({
-      id: z6.number(),
-      name: z6.string().optional(),
-      accesoSlug: z6.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
-      category: z6.enum(["acceso", "extra", "consumo", "locker", "merch"]).optional(),
-      description: z6.string().optional(),
-      price: z6.number().optional(),
-      originalPrice: z6.number().optional(),
-      totalStock: z6.number().optional(),
-      maxPerOrder: z6.number().optional(),
-      sortOrder: z6.number().optional(),
-      status: z6.enum(["active", "soldout", "hidden"]).optional(),
-      costPrice: z6.number().optional(),
-      color: z6.string().optional(),
-      internalCode: z6.string().optional(),
+    updateTicketType: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      name: z7.string().optional(),
+      accesoSlug: z7.enum(["duo", "duo_mujeres", "soltera", "soltero", "trio", "grupo", "cumpleaneros"]).optional(),
+      category: z7.enum(["acceso", "extra", "consumo", "locker", "merch"]).optional(),
+      description: z7.string().optional(),
+      price: z7.number().optional(),
+      originalPrice: z7.number().optional(),
+      totalStock: z7.number().optional(),
+      maxPerOrder: z7.number().optional(),
+      sortOrder: z7.number().optional(),
+      status: z7.enum(["active", "soldout", "hidden"]).optional(),
+      costPrice: z7.number().optional(),
+      color: z7.string().optional(),
+      internalCode: z7.string().optional(),
       // Carta de la fiesta (tragos/comida/guardarropía): emoji en vez de foto,
       // sección para agrupar en la grilla de /caja, y si va a cocina.
-      emoji: z6.string().max(8).optional(),
-      groupName: z6.string().max(50).optional(),
-      toKitchen: z6.number().min(0).max(1).optional(),
-      stockPoolId: z6.number().nullable().optional(),
-      topupAmount: z6.number().int().positive().nullable().optional()
+      emoji: z7.string().max(8).optional(),
+      groupName: z7.string().max(50).optional(),
+      toKitchen: z7.number().min(0).max(1).optional(),
+      stockPoolId: z7.number().nullable().optional(),
+      topupAmount: z7.number().int().positive().nullable().optional()
     })).mutation(async ({ input, ctx }) => {
       const { id, ...data } = input;
       return updateTicketType(id, data, ctx.user.id);
     }),
-    deleteTicketType: adminPasswordProcedure.input(z6.object({ id: z6.number() })).mutation(async ({ input, ctx }) => {
+    deleteTicketType: adminPasswordProcedure.input(z7.object({ id: z7.number() })).mutation(async ({ input, ctx }) => {
       const result = await deleteTicketType(input.id);
       await recordAdminAudit({ action: "events.deleteTicketType", targetType: "ticketType", targetId: input.id, ip: clientIp(ctx) });
       return result;
@@ -12182,51 +15852,51 @@ var appRouter = router({
     // "Cerrar tanda y activar la siguiente" -- cierra cada fila hoy activa
     // (queda soldout) y crea la siguiente ya activa, con precio/stock
     // nuevos. Avance de fase 100% manual, ver comentario en db.advanceTanda.
-    advanceTanda: adminProcedure2.input(z6.object({
-      eventId: z6.number(),
-      rows: z6.array(z6.object({
-        oldTicketTypeId: z6.number(),
-        newPrice: z6.number(),
-        newTotalStock: z6.number(),
-        newStockPoolId: z6.number().nullable().optional()
+    advanceTanda: adminProcedure2.input(z7.object({
+      eventId: z7.number(),
+      rows: z7.array(z7.object({
+        oldTicketTypeId: z7.number(),
+        newPrice: z7.number(),
+        newTotalStock: z7.number(),
+        newStockPoolId: z7.number().nullable().optional()
       })).min(1)
     })).mutation(async ({ input }) => {
       return advanceTanda(input.eventId, input.rows);
     }),
-    ticketStockHistory: adminReadProcedure.input(z6.object({ ticketTypeId: z6.number() })).query(async ({ input }) => {
+    ticketStockHistory: adminReadProcedure.input(z7.object({ ticketTypeId: z7.number() })).query(async ({ input }) => {
       return getTicketStockHistory(input.ticketTypeId);
     }),
     // Cupos compartidos (stockPools) -- ver drizzle/schema.ts. El admin ve el
     // número real siempre; lo que se esconde es solo la vista pública.
-    listStockPools: adminReadProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    listStockPools: adminReadProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getStockPoolsByEventId(input.eventId);
     }),
-    createStockPool: adminProcedure2.input(z6.object({
-      eventId: z6.number(),
-      name: z6.string().min(1),
-      totalCap: z6.number().int().positive()
+    createStockPool: adminProcedure2.input(z7.object({
+      eventId: z7.number(),
+      name: z7.string().min(1),
+      totalCap: z7.number().int().positive()
     })).mutation(async ({ input }) => {
       return createStockPool(input);
     }),
-    updateStockPool: adminProcedure2.input(z6.object({
-      id: z6.number(),
-      name: z6.string().min(1).optional(),
-      totalCap: z6.number().int().positive().optional()
+    updateStockPool: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      name: z7.string().min(1).optional(),
+      totalCap: z7.number().int().positive().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateStockPool(id, data);
     }),
-    deleteStockPool: adminProcedure2.input(z6.object({ id: z6.number() })).mutation(async ({ input }) => {
+    deleteStockPool: adminProcedure2.input(z7.object({ id: z7.number() })).mutation(async ({ input }) => {
       return deleteStockPool(input.id);
     }),
     // IA: descripción corta + completa a partir de los datos del evento y una
     // idea/tema libre y opcional (no se guarda, ver server/eventDescriptions.ts).
-    generateDescription: adminProcedure2.input(z6.object({
-      title: z6.string().min(1),
-      venue: z6.string().optional(),
-      address: z6.string().optional(),
-      eventDateISO: z6.string().optional(),
-      idea: z6.string().max(500).optional()
+    generateDescription: adminProcedure2.input(z7.object({
+      title: z7.string().min(1),
+      venue: z7.string().optional(),
+      address: z7.string().optional(),
+      eventDateISO: z7.string().optional(),
+      idea: z7.string().max(500).optional()
     })).mutation(async ({ input }) => {
       try {
         return await generateEventDescription(input);
@@ -12236,9 +15906,9 @@ var appRouter = router({
     })
   }),
   orders: router({
-    validateDiscount: publicProcedure.input(z6.object({
-      code: z6.string(),
-      eventId: z6.number()
+    validateDiscount: publicProcedure.input(z7.object({
+      code: z7.string(),
+      eventId: z7.number()
     })).mutation(async ({ input }) => {
       return validateDiscountCode(input.code, input.eventId);
     }),
@@ -12248,9 +15918,9 @@ var appRouter = router({
      * embajadores y después contra descuentos: cuando más adelante un código
      * de embajador también traiga descuento propio, esta rama es la que va a
      * empezar a incluirlo, sin tocar la rama de descuento puro. */
-    validateCode: publicProcedure.input(z6.object({
-      code: z6.string(),
-      eventId: z6.number()
+    validateCode: publicProcedure.input(z7.object({
+      code: z7.string(),
+      eventId: z7.number()
     })).mutation(async ({ input }) => {
       const clean = input.code.trim();
       if (!clean) return { type: "none", message: "Escribe un c\xF3digo" };
@@ -12264,27 +15934,27 @@ var appRouter = router({
       }
       return { type: "none", message: "No encontramos ese c\xF3digo" };
     }),
-    create: publicProcedure.input(z6.object({
-      eventSlug: z6.string(),
-      buyerName: z6.string(),
-      buyerEmail: z6.string().email(),
-      buyerPhone: z6.string().optional(),
-      items: z6.array(z6.object({
-        ticketTypeId: z6.number(),
-        quantity: z6.number().min(1)
+    create: publicProcedure.input(z7.object({
+      eventSlug: z7.string(),
+      buyerName: z7.string(),
+      buyerEmail: z7.string().email(),
+      buyerPhone: z7.string().optional(),
+      items: z7.array(z7.object({
+        ticketTypeId: z7.number(),
+        quantity: z7.number().min(1)
       })),
-      discountCode: z6.string().optional(),
-      ambassadorCode: z6.string().optional(),
-      communityCode: z6.string().optional(),
+      discountCode: z7.string().optional(),
+      ambassadorCode: z7.string().optional(),
+      communityCode: z7.string().optional(),
       // Datos por asistente/tipo de acceso (JSON serializado). Se adjunta a la
       // preferencia de Mercado Pago como metadata; no requiere migración de schema.
-      attendeeData: z6.string().optional(),
+      attendeeData: z7.string().optional(),
       // Atribución UTM (ver client/src/lib/utm.ts): de dónde vino la venta
       // cuando no es por código de embajador.
-      utmSource: z6.string().max(100).optional(),
-      utmMedium: z6.string().max(100).optional(),
-      utmCampaign: z6.string().max(100).optional(),
-      utmContent: z6.string().max(100).optional()
+      utmSource: z7.string().max(100).optional(),
+      utmMedium: z7.string().max(100).optional(),
+      utmCampaign: z7.string().max(100).optional(),
+      utmContent: z7.string().max(100).optional()
     })).mutation(async ({ input }) => {
       const result = await createOrder(input);
       if (result.isFree) await confirmFreeOrder(result.orderNumber);
@@ -12293,73 +15963,73 @@ var appRouter = router({
     // Cobra una orden ya creada con el Payment Brick (tarjeta embebida, sin
     // modal/redirect de Mercado Pago). El monto se calcula server-side a
     // partir de la orden guardada, nunca del cliente.
-    processCardPayment: publicProcedure.input(z6.object({
-      orderNumber: z6.string(),
-      token: z6.string(),
-      paymentMethodId: z6.string(),
-      issuerId: z6.union([z6.string(), z6.number()]).optional(),
-      installments: z6.number().optional(),
-      identificationType: z6.string().optional(),
-      identificationNumber: z6.string().optional()
+    processCardPayment: publicProcedure.input(z7.object({
+      orderNumber: z7.string(),
+      token: z7.string(),
+      paymentMethodId: z7.string(),
+      issuerId: z7.union([z7.string(), z7.number()]).optional(),
+      installments: z7.number().optional(),
+      identificationType: z7.string().optional(),
+      identificationNumber: z7.string().optional()
     })).mutation(async ({ input }) => {
       return processCardPaymentForOrder(input);
     }),
     // Admin
-    listAll: adminReadProcedure.input(z6.object({
-      page: z6.number().optional(),
-      limit: z6.number().optional(),
-      status: z6.string().optional(),
-      channel: z6.enum(["web", "caja"]).optional(),
-      eventId: z6.number().optional()
+    listAll: adminReadProcedure.input(z7.object({
+      page: z7.number().optional(),
+      limit: z7.number().optional(),
+      status: z7.string().optional(),
+      channel: z7.enum(["web", "caja"]).optional(),
+      eventId: z7.number().optional()
     }).optional()).query(async ({ input }) => {
       return getAllOrders(input?.page ?? 1, input?.limit ?? 50, input?.status, input?.channel, input?.eventId);
     }),
-    getStats: adminReadProcedure.input(z6.object({
-      channel: z6.enum(["web", "caja"]).optional(),
-      eventId: z6.number().optional()
+    getStats: adminReadProcedure.input(z7.object({
+      channel: z7.enum(["web", "caja"]).optional(),
+      eventId: z7.number().optional()
     }).optional()).query(async ({ input }) => {
       return getOrderStats(input?.channel, input?.eventId);
     }),
     // "Ventas por origen" (atribución UTM, agujero 2 del plan de ventas).
-    salesByOrigin: adminReadProcedure.input(z6.object({ eventId: z6.number().optional() }).optional()).query(async ({ input }) => {
+    salesByOrigin: adminReadProcedure.input(z7.object({ eventId: z7.number().optional() }).optional()).query(async ({ input }) => {
       return getSalesByUtmOrigin(input?.eventId);
     }),
     // Mismos filtros y mismas columnas que el CSV (server/adminRoutes.ts) --
     // alimenta la vista de impresión/PDF, para que ambos formatos muestren
     // exactamente lo mismo.
-    forPrint: adminReadProcedure.input(z6.object({
-      eventId: z6.number().optional(),
-      dateFrom: z6.string().optional(),
-      dateTo: z6.string().optional(),
-      status: z6.string().optional(),
-      channel: z6.enum(["web", "caja"]).optional()
+    forPrint: adminReadProcedure.input(z7.object({
+      eventId: z7.number().optional(),
+      dateFrom: z7.string().optional(),
+      dateTo: z7.string().optional(),
+      status: z7.string().optional(),
+      channel: z7.enum(["web", "caja"]).optional()
     }).optional()).query(async ({ input }) => {
       return getOrdersForExport(input ?? {});
     }),
-    getTickets: adminReadProcedure.input(z6.object({ orderId: z6.number() })).query(async ({ input }) => {
+    getTickets: adminReadProcedure.input(z7.object({ orderId: z7.number() })).query(async ({ input }) => {
       return getOrderTickets(input.orderId);
     }),
-    resendConfirmation: adminProcedure2.input(z6.object({ orderNumber: z6.string() })).mutation(async ({ input }) => {
+    resendConfirmation: adminProcedure2.input(z7.object({ orderNumber: z7.string() })).mutation(async ({ input }) => {
       return resendConfirmationEmail(input.orderNumber);
     }),
     // "Aprobar sin pagar" (Ventas Web): para compradores con un beneficio que
     // los exime de pagar la diferencia de Misión 300 -- genera el ticket con
     // QR y manda el correo final sin pago real de por medio.
-    approveMissionTopup: adminProcedure2.input(z6.object({ orderId: z6.number() })).mutation(async ({ input }) => {
+    approveMissionTopup: adminProcedure2.input(z7.object({ orderId: z7.number() })).mutation(async ({ input }) => {
       return approveMissionTopupWithoutPayment(input.orderId);
     }),
     // Recordatorio a quien dejó la compra a medio camino (server/orderReminders.ts).
     // La selección es manual a propósito: nunca "mandar a todos".
     // No hace falta un `listPending`: `listAll` con status='pending' ya trae
     // todas las columnas de la orden, incluidas reminderSentAt/reminderCount.
-    sendReminders: adminProcedure2.input(z6.object({
-      orderIds: z6.array(z6.number()).min(1).max(200),
-      customBody: z6.string().max(4e3).optional()
+    sendReminders: adminProcedure2.input(z7.object({
+      orderIds: z7.array(z7.number()).min(1).max(200),
+      customBody: z7.string().max(4e3).optional()
     })).mutation(async ({ input }) => {
       return sendPendingReminders(input);
     }),
-    generateReminderCopy: adminProcedure2.input(z6.object({
-      idea: z6.string().min(5).max(1e3)
+    generateReminderCopy: adminProcedure2.input(z7.object({
+      idea: z7.string().min(5).max(1e3)
     })).mutation(async ({ input }) => {
       try {
         return await generateReminderCopy(input.idea);
@@ -12372,22 +16042,22 @@ var appRouter = router({
     // directo, sin pasar por Mercado Pago -- misma info del comprador que el
     // checkout público, y el mismo mail final con QR (confirmFreeOrder ya lo
     // usa el checkout público para el caso de descuento 100%).
-    createManual: adminProcedure2.input(z6.object({
-      eventSlug: z6.string(),
-      buyerName: z6.string().min(1),
-      buyerEmail: z6.string().email(),
-      buyerPhone: z6.string().optional(),
-      items: z6.array(z6.object({
-        ticketTypeId: z6.number(),
-        quantity: z6.number().min(1),
+    createManual: adminProcedure2.input(z7.object({
+      eventSlug: z7.string(),
+      buyerName: z7.string().min(1),
+      buyerEmail: z7.string().email(),
+      buyerPhone: z7.string().optional(),
+      items: z7.array(z7.object({
+        ticketTypeId: z7.number(),
+        quantity: z7.number().min(1),
         // Monto que el admin escribió a mano para este tipo de entrada
         // (pedido explícito del usuario) -- si no viene, se usa el precio de
         // catálogo/abono Misión 300 por defecto (ver priceManualOrderItems).
-        unitPrice: z6.number().min(0).optional()
+        unitPrice: z7.number().min(0).optional()
       })).min(1),
-      kind: z6.enum(["invitation", "paid"]),
-      paymentMethod: z6.string().optional(),
-      attendeeData: z6.string().optional()
+      kind: z7.enum(["invitation", "paid"]),
+      paymentMethod: z7.string().optional(),
+      attendeeData: z7.string().optional()
     })).mutation(async ({ input }) => {
       try {
         const result = await createManualOrder(input);
@@ -12404,9 +16074,9 @@ var appRouter = router({
     // del usuario): sin ningún dato salvo la cantidad de personas -- para
     // cuando llega un invitado del dueño a la puerta sin QR. Un solo
     // ticket/QR representa a todas las personas (ver createInstantInvite).
-    createInstantInvite: adminProcedure2.input(z6.object({
-      eventSlug: z6.string(),
-      personas: z6.number().int().min(1).max(20)
+    createInstantInvite: adminProcedure2.input(z7.object({
+      eventSlug: z7.string(),
+      personas: z7.number().int().min(1).max(20)
     })).mutation(async ({ input }) => {
       try {
         return await createInstantInvite(input);
@@ -12417,11 +16087,11 @@ var appRouter = router({
     // "Invitar consumo gratis a staff" de Accesos Manuales (pedido explícito
     // del usuario): el dueño elige un producto de la Carta de la Fiesta,
     // cuántas unidades y para quién es -- la cajera lo ve y lo canjea en /caja.
-    createStaffComp: adminProcedure2.input(z6.object({
-      eventSlug: z6.string(),
-      ticketTypeId: z6.number(),
-      quantity: z6.number().int().min(1).max(20),
-      staffName: z6.string().min(1)
+    createStaffComp: adminProcedure2.input(z7.object({
+      eventSlug: z7.string(),
+      ticketTypeId: z7.number(),
+      quantity: z7.number().int().min(1).max(20),
+      staffName: z7.string().min(1)
     })).mutation(async ({ input }) => {
       try {
         return await createStaffComp(input);
@@ -12429,13 +16099,13 @@ var appRouter = router({
         throw new TRPCError3({ code: "BAD_REQUEST", message: err instanceof Error ? err.message : "No se pudo crear la invitaci\xF3n de consumo." });
       }
     }),
-    listStaffComps: adminReadProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    listStaffComps: adminReadProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return listStaffComps(input.eventId);
     }),
     // Eliminar una compra (pedido explícito del usuario): irreversible, la
     // confirmación con ventana de diálogo vive en el admin, acá solo se
     // ejecuta el borrado en cascada.
-    delete: adminPasswordProcedure.input(z6.object({ id: z6.number() })).mutation(async ({ input, ctx }) => {
+    delete: adminPasswordProcedure.input(z7.object({ id: z7.number() })).mutation(async ({ input, ctx }) => {
       const before = await getOrderById(input.id);
       const result = await deleteOrderCascade(input.id);
       await recordAdminAudit({ action: "orders.delete", targetType: "order", targetId: input.id, eventId: before?.eventId ?? null, payload: before ?? null, ip: clientIp(ctx) });
@@ -12443,17 +16113,17 @@ var appRouter = router({
     })
   }),
   mission300: router({
-    status: adminReadProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    status: adminReadProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getMission300Status(input.eventId);
     }),
-    evaluate: adminProcedure2.input(z6.object({ eventId: z6.number() })).mutation(async ({ input }) => {
+    evaluate: adminProcedure2.input(z7.object({ eventId: z7.number() })).mutation(async ({ input }) => {
       return evaluateMission300(input.eventId);
     }),
     // Contador público de Home (pedido explícito del usuario): cuántas
     // personas de abonos de Misión 300 todavía NO están resueltas (ni
     // "aprobadas del todo"), para que el contador público las reste y solo
     // muestre lo que ya está confirmado -- sin datos sensibles, solo un número.
-    pendingPersonas: publicProcedure.input(z6.object({ slug: z6.string() })).query(async ({ input }) => {
+    pendingPersonas: publicProcedure.input(z7.object({ slug: z7.string() })).query(async ({ input }) => {
       const event = await getEventBySlug(input.slug);
       if (!event) return { personas: 0 };
       return { personas: await getUnresolvedDepositPersonas(event.id) };
@@ -12462,7 +16132,7 @@ var appRouter = router({
   tickets: router({
     // Página pública "Mi entrada" (/verificar/:ticketCode) — de solo lectura,
     // el ticketCode ya funciona como token portador (viene del QR/email).
-    getByCode: publicProcedure.input(z6.object({ ticketCode: z6.string() })).query(async ({ input }) => {
+    getByCode: publicProcedure.input(z7.object({ ticketCode: z7.string() })).query(async ({ input }) => {
       return getTicketByCode(input.ticketCode);
     })
   }),
@@ -12481,7 +16151,7 @@ var appRouter = router({
       const all = await listActiveOperatorsPublic(event.id);
       return all.filter((o) => o.role === "acceso" || o.role === "supervisor" || o.role === "admin");
     }),
-    login: publicProcedure.input(z6.object({ operatorId: z6.number(), pin: z6.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
+    login: publicProcedure.input(z7.object({ operatorId: z7.number(), pin: z7.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
       const operator = await verifyDoorPinOrThrow(ctx, input.operatorId, input.pin);
       const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -12504,14 +16174,14 @@ var appRouter = router({
     }),
     // Mismo snapshot que la caja: la puerta lo guarda en el mismo IndexedDB
     // y por eso funciona sin señal.
-    snapshot: doorProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    snapshot: doorProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getCajaSnapshot(input.eventId);
     }),
-    checkin: doorProcedure.input(z6.object({
-      opId: z6.string(),
-      eventId: z6.number(),
-      ticketCode: z6.string().min(1),
-      clientAt: z6.string()
+    checkin: doorProcedure.input(z7.object({
+      opId: z7.string(),
+      eventId: z7.number(),
+      ticketCode: z7.string().min(1),
+      clientAt: z7.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -12526,16 +16196,16 @@ var appRouter = router({
     // Vaciado de la cola offline. Solo acepta check-in y cobro de
     // estacionamiento: la puerta no vende de la carta ni canjea otros
     // extras, aunque comparta la cola con la caja.
-    sync: doorProcedure.input(z6.object({
-      eventId: z6.number(),
-      ops: z6.array(z6.discriminatedUnion("type", [
-        z6.object({ type: z6.literal("checkin"), opId: z6.string(), ticketCode: z6.string(), clientAt: z6.string() }),
-        z6.object({
-          type: z6.literal("parking_paid"),
-          opId: z6.string(),
-          ticketCode: z6.string(),
-          paymentMethod: z6.enum(["efectivo", "debito", "credito"]),
-          clientAt: z6.string()
+    sync: doorProcedure.input(z7.object({
+      eventId: z7.number(),
+      ops: z7.array(z7.discriminatedUnion("type", [
+        z7.object({ type: z7.literal("checkin"), opId: z7.string(), ticketCode: z7.string(), clientAt: z7.string() }),
+        z7.object({
+          type: z7.literal("parking_paid"),
+          opId: z7.string(),
+          ticketCode: z7.string(),
+          paymentMethod: z7.enum(["efectivo", "debito", "credito"]),
+          clientAt: z7.string()
         })
       ])).max(50)
     })).mutation(async ({ input, ctx }) => {
@@ -12582,7 +16252,7 @@ var appRouter = router({
       const all = await listActiveOperatorsPublic(event.id);
       return all.filter((o) => o.role === "cocina" || o.role === "supervisor" || o.role === "admin");
     }),
-    login: publicProcedure.input(z6.object({ operatorId: z6.number(), pin: z6.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
+    login: publicProcedure.input(z7.object({ operatorId: z7.number(), pin: z7.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
       const operator = await verifyKitchenPinOrThrow(ctx, input.operatorId, input.pin);
       const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -12605,15 +16275,15 @@ var appRouter = router({
     }),
     // Polling cada 4s desde el cliente -- pendientes/aprobadas más viejas
     // primero, y las entregadas de la última hora aparte (para "deshacer").
-    list: kitchenProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    list: kitchenProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return listKitchenTickets(input.eventId);
     }),
-    update: kitchenProcedure.input(z6.object({
-      opId: z6.string(),
-      eventId: z6.number(),
-      ticketNumber: z6.string(),
-      to: z6.enum(["pendiente", "aprobado", "entregado"]),
-      clientAt: z6.string()
+    update: kitchenProcedure.input(z7.object({
+      opId: z7.string(),
+      eventId: z7.number(),
+      ticketNumber: z7.string(),
+      to: z7.enum(["pendiente", "aprobado", "entregado"]),
+      clientAt: z7.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -12630,23 +16300,23 @@ var appRouter = router({
     // cocina carga cuánto hay de cada opción y la cajera solo puede vender
     // hasta ese tope -- mismo stock/soldCount que ya usa /caja, no una
     // tabla paralela.
-    products: kitchenProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    products: kitchenProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return listKitchenProducts(input.eventId);
     }),
-    updateStock: kitchenProcedure.input(z6.object({
-      productId: z6.number(),
-      eventId: z6.number(),
-      totalStock: z6.number().min(0)
+    updateStock: kitchenProcedure.input(z7.object({
+      productId: z7.number(),
+      eventId: z7.number(),
+      totalStock: z7.number().min(0)
     })).mutation(async ({ input, ctx }) => {
       return updateKitchenProductStock(input.productId, input.eventId, input.totalStock, ctx.operator.operatorId);
     }),
     // Botón de emergencia: agotar/reponer un producto sin tener que calcular
     // porciones exactas -- bloquea la venta de verdad en /caja (ver
     // getCajaSnapshot).
-    toggleSoldOut: kitchenProcedure.input(z6.object({
-      productId: z6.number(),
-      eventId: z6.number(),
-      soldOut: z6.boolean()
+    toggleSoldOut: kitchenProcedure.input(z7.object({
+      productId: z7.number(),
+      eventId: z7.number(),
+      soldOut: z7.boolean()
     })).mutation(async ({ input }) => {
       return toggleKitchenProductSoldOut(input.productId, input.eventId, input.soldOut);
     })
@@ -12662,7 +16332,7 @@ var appRouter = router({
       const all = await listActiveOperatorsPublic(event.id);
       return all.filter((o) => o.role === "guardarropia" || o.role === "supervisor" || o.role === "admin");
     }),
-    login: publicProcedure.input(z6.object({ operatorId: z6.number(), pin: z6.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
+    login: publicProcedure.input(z7.object({ operatorId: z7.number(), pin: z7.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
       const operator = await verifyGuardarropiaPinOrThrow(ctx, input.operatorId, input.pin);
       const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -12685,15 +16355,15 @@ var appRouter = router({
     }),
     // Polling cada 4s -- trae todas las prendas del evento, el cliente
     // arma la cola de "recién llegadas" y el buscador localmente.
-    list: guardarropiaProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    list: guardarropiaProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return listLockerItems(input.eventId);
     }),
-    update: guardarropiaProcedure.input(z6.object({
-      opId: z6.string(),
-      eventId: z6.number(),
-      tagNumber: z6.string(),
-      to: z6.enum(["pendiente", "guardado", "retirado"]),
-      clientAt: z6.string()
+    update: guardarropiaProcedure.input(z7.object({
+      opId: z7.string(),
+      eventId: z7.number(),
+      tagNumber: z7.string(),
+      to: z7.enum(["pendiente", "guardado", "retirado"]),
+      clientAt: z7.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -12713,11 +16383,11 @@ var appRouter = router({
   // tres condiciones desde cero contra la base -- esconder un botón en el
   // cliente no protege nada.
   party: router({
-    resolveEntryCode: publicProcedure.input(z6.object({ code: z6.string() })).query(async ({ input }) => {
+    resolveEntryCode: publicProcedure.input(z7.object({ code: z7.string() })).query(async ({ input }) => {
       const ticketCode = await resolvePartyEntryCode(input.code);
       return { ticketCode };
     }),
-    getSession: publicProcedure.input(z6.object({ ticketCode: z6.string() })).query(async ({ input }) => {
+    getSession: publicProcedure.input(z7.object({ ticketCode: z7.string() })).query(async ({ input }) => {
       const actor = await getPartyActor(input.ticketCode);
       if (!actor) return { denial: "sin_ticket", event: null, profile: null };
       const denial = partyEntryDenial(actor.ticket, actor.event, /* @__PURE__ */ new Date());
@@ -12733,12 +16403,12 @@ var appRouter = router({
         profile: actor.profile ? { id: actor.profile.id, alias: actor.profile.alias, gender: actor.profile.gender, avatarId: actor.profile.avatarId, zone: actor.profile.zone } : null
       };
     }),
-    createProfile: publicProcedure.input(z6.object({
-      ticketCode: z6.string(),
-      alias: z6.string(),
-      gender: z6.enum(PARTY_GENDERS),
-      avatarId: z6.number().int().min(1).max(AVATARS_PER_GENDER),
-      zone: z6.enum(PARTY_ZONES)
+    createProfile: publicProcedure.input(z7.object({
+      ticketCode: z7.string(),
+      alias: z7.string(),
+      gender: z7.enum(PARTY_GENDERS),
+      avatarId: z7.number().int().min(1).max(AVATARS_PER_GENDER),
+      zone: z7.enum(PARTY_ZONES)
     })).mutation(async ({ input }) => {
       const actor = await requirePartyActor(input.ticketCode);
       if (actor.profile) return { id: actor.profile.id };
@@ -12754,34 +16424,34 @@ var appRouter = router({
       });
       return { id: profile.id };
     }),
-    listMansion: publicProcedure.input(z6.object({ ticketCode: z6.string() })).query(async ({ input }) => {
+    listMansion: publicProcedure.input(z7.object({ ticketCode: z7.string() })).query(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       return listPartyMansion(actor.profile.id, actor.event.id);
     }),
-    setZone: publicProcedure.input(z6.object({ ticketCode: z6.string(), zone: z6.enum(PARTY_ZONES) })).mutation(async ({ input }) => {
+    setZone: publicProcedure.input(z7.object({ ticketCode: z7.string(), zone: z7.enum(PARTY_ZONES) })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       await updatePartyProfile(actor.profile.id, { zone: input.zone });
       return { ok: true };
     }),
-    touch: publicProcedure.input(z6.object({ ticketCode: z6.string(), targetProfileId: z6.number() })).mutation(async ({ input }) => {
+    touch: publicProcedure.input(z7.object({ ticketCode: z7.string(), targetProfileId: z7.number() })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const res = await touchPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
       if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
       return res;
     }),
-    respondTouch: publicProcedure.input(z6.object({ ticketCode: z6.string(), connectionId: z6.number(), accept: z6.boolean() })).mutation(async ({ input }) => {
+    respondTouch: publicProcedure.input(z7.object({ ticketCode: z7.string(), connectionId: z7.number(), accept: z7.boolean() })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const res = await respondToPartyTouch(actor.profile.id, input.connectionId, input.accept);
       if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
       return res;
     }),
-    getMessages: publicProcedure.input(z6.object({ ticketCode: z6.string(), connectionId: z6.number() })).query(async ({ input }) => {
+    getMessages: publicProcedure.input(z7.object({ ticketCode: z7.string(), connectionId: z7.number() })).query(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const res = await listPartyMessages(actor.profile.id, input.connectionId);
       if (!res) throw new TRPCError3({ code: "FORBIDDEN", message: "Esta conversaci\xF3n no est\xE1 abierta" });
       return res;
     }),
-    sendMessage: publicProcedure.input(z6.object({ ticketCode: z6.string(), connectionId: z6.number(), body: z6.string() })).mutation(async ({ input }) => {
+    sendMessage: publicProcedure.input(z7.object({ ticketCode: z7.string(), connectionId: z7.number(), body: z7.string() })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const check = sanitizeMessage(input.body);
       if (!check.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: check.reason });
@@ -12797,12 +16467,12 @@ var appRouter = router({
       }
       return { ok: true };
     }),
-    block: publicProcedure.input(z6.object({ ticketCode: z6.string(), targetProfileId: z6.number() })).mutation(async ({ input }) => {
+    block: publicProcedure.input(z7.object({ ticketCode: z7.string(), targetProfileId: z7.number() })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       await blockPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
       return { ok: true };
     }),
-    report: publicProcedure.input(z6.object({ ticketCode: z6.string(), targetProfileId: z6.number(), reason: z6.string().min(3).max(500) })).mutation(async ({ input }) => {
+    report: publicProcedure.input(z7.object({ ticketCode: z7.string(), targetProfileId: z7.number(), reason: z7.string().min(3).max(500) })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       await reportPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id, input.reason.trim());
       await blockPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
@@ -12819,11 +16489,11 @@ var appRouter = router({
     getVapidPublicKey: publicProcedure.query(() => {
       return { publicKey: process.env.VAPID_PUBLIC_KEY ?? null };
     }),
-    pushSubscribe: publicProcedure.input(z6.object({
-      ticketCode: z6.string(),
-      endpoint: z6.string().url().max(512),
-      p256dh: z6.string(),
-      auth: z6.string()
+    pushSubscribe: publicProcedure.input(z7.object({
+      ticketCode: z7.string(),
+      endpoint: z7.string().url().max(512),
+      p256dh: z7.string(),
+      auth: z7.string()
     })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       return savePartyPushSubscription({
@@ -12834,21 +16504,21 @@ var appRouter = router({
         auth: input.auth
       });
     }),
-    pushUnsubscribe: publicProcedure.input(z6.object({ endpoint: z6.string() })).mutation(async ({ input }) => {
+    pushUnsubscribe: publicProcedure.input(z7.object({ endpoint: z7.string() })).mutation(async ({ input }) => {
       return deletePartyPushSubscription(input.endpoint);
     }),
     // --- Invitar un trago ---
     // Tres pasos porque el destinatario puede rechazar y nadie paga por un
     // trago rechazado: invitar (gratis) -> responder -> pagar.
-    listDrinks: publicProcedure.input(z6.object({ ticketCode: z6.string() })).query(async ({ input }) => {
+    listDrinks: publicProcedure.input(z7.object({ ticketCode: z7.string() })).query(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       return listPartyDrinks(actor.event.id);
     }),
-    sendGift: publicProcedure.input(z6.object({
-      ticketCode: z6.string(),
-      targetProfileId: z6.number(),
-      ticketTypeId: z6.number(),
-      message: z6.string().optional()
+    sendGift: publicProcedure.input(z7.object({
+      ticketCode: z7.string(),
+      targetProfileId: z7.number(),
+      ticketTypeId: z7.number(),
+      message: z7.string().optional()
     })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const check = sanitizeGiftMessage(input.message ?? "");
@@ -12863,7 +16533,7 @@ var appRouter = router({
       if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
       return res;
     }),
-    respondGift: publicProcedure.input(z6.object({ ticketCode: z6.string(), giftId: z6.number(), accept: z6.boolean() })).mutation(async ({ input }) => {
+    respondGift: publicProcedure.input(z7.object({ ticketCode: z7.string(), giftId: z7.number(), accept: z7.boolean() })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const res = await respondToGiftInvitation(actor.profile.id, input.giftId, input.accept);
       if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
@@ -12871,7 +16541,7 @@ var appRouter = router({
     }),
     // Crea la orden del regalo y devuelve su número. El cobro después va
     // por `orders.processCardPayment`, el mismo endpoint que las entradas.
-    payGift: publicProcedure.input(z6.object({ ticketCode: z6.string(), giftId: z6.number() })).mutation(async ({ input }) => {
+    payGift: publicProcedure.input(z7.object({ ticketCode: z7.string(), giftId: z7.number() })).mutation(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       const contact = await getPartyProfileContact(actor.profile.id);
       if (!contact?.email) throw new TRPCError3({ code: "BAD_REQUEST", message: "No pudimos identificar tu correo" });
@@ -12879,12 +16549,12 @@ var appRouter = router({
       if (!res.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: res.reason });
       return res;
     }),
-    myGifts: publicProcedure.input(z6.object({ ticketCode: z6.string() })).query(async ({ input }) => {
+    myGifts: publicProcedure.input(z7.object({ ticketCode: z7.string() })).query(async ({ input }) => {
       const actor = await requirePartyProfile(input.ticketCode);
       return listMyGifts(actor.profile.id);
     }),
     // Para el equipo del local, durante la fiesta.
-    listGifts: adminReadProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    listGifts: adminReadProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return listPartyGiftsForEvent(input.eventId);
     }),
     // Denuncias de todos los eventos, para la sección "Denuncias" del admin:
@@ -12892,9 +16562,9 @@ var appRouter = router({
     listAllReports: adminReadProcedure.query(async () => {
       return listAllPartyReports();
     }),
-    setReportResolved: adminProcedure2.input(z6.object({
-      id: z6.number(),
-      resolved: z6.boolean()
+    setReportResolved: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      resolved: z7.boolean()
     })).mutation(async ({ input }) => {
       return setPartyReportResolved(input.id, input.resolved);
     })
@@ -12903,20 +16573,20 @@ var appRouter = router({
     listAll: adminReadProcedure.query(async () => {
       return getAllDiscountCodes();
     }),
-    create: adminProcedure2.input(z6.object({
-      code: z6.string(),
-      description: z6.string().optional(),
-      discountType: z6.enum(["percentage", "fixed"]),
-      discountValue: z6.number(),
-      minPurchase: z6.number().optional(),
-      maxUses: z6.number().optional(),
-      eventId: z6.number().optional(),
-      validFrom: z6.string().optional(),
-      validUntil: z6.string().optional()
+    create: adminProcedure2.input(z7.object({
+      code: z7.string(),
+      description: z7.string().optional(),
+      discountType: z7.enum(["percentage", "fixed"]),
+      discountValue: z7.number(),
+      minPurchase: z7.number().optional(),
+      maxUses: z7.number().optional(),
+      eventId: z7.number().optional(),
+      validFrom: z7.string().optional(),
+      validUntil: z7.string().optional()
     })).mutation(async ({ input }) => {
       return createDiscountCode(input);
     }),
-    delete: adminPasswordProcedure.input(z6.object({ id: z6.number() })).mutation(async ({ input, ctx }) => {
+    delete: adminPasswordProcedure.input(z7.object({ id: z7.number() })).mutation(async ({ input, ctx }) => {
       const result = await deleteDiscountCode(input.id);
       await recordAdminAudit({ action: "discounts.delete", targetType: "discountCode", targetId: input.id, ip: clientIp(ctx) });
       return result;
@@ -12927,15 +16597,15 @@ var appRouter = router({
   // hace falta ningún flujo de compra nuevo) + un push en vivo a todos los
   // invitados suscritos de la fiesta activa.
   flashPromo: router({
-    send: adminProcedure2.input(z6.object({
-      message: z6.string().min(3).max(200),
-      discountPercent: z6.number().int().min(1).max(100),
-      minutes: z6.number().int().min(1).max(180),
-      ticketTypeIds: z6.array(z6.number()).min(1)
+    send: adminProcedure2.input(z7.object({
+      message: z7.string().min(3).max(200),
+      discountPercent: z7.number().int().min(1).max(100),
+      minutes: z7.number().int().min(1).max(180),
+      ticketTypeIds: z7.array(z7.number()).min(1)
     })).mutation(async ({ input }) => {
       const event = await getActiveEventForCaja();
       if (!event) throw new TRPCError3({ code: "BAD_REQUEST", message: "No hay una fiesta activa ahora mismo" });
-      const code = `FLASH${nanoid4(4).toUpperCase()}`;
+      const code = `FLASH${nanoid5(4).toUpperCase()}`;
       const now = /* @__PURE__ */ new Date();
       const expiresAt = new Date(now.getTime() + input.minutes * 6e4);
       await createDiscountCode({
@@ -12958,7 +16628,7 @@ var appRouter = router({
     }),
     // Pública: Caja la pollea (sin login de cajero necesario para leerla)
     // para pintar la insignia "Promo Flash" y aplicar el descuento solo.
-    active: publicProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    active: publicProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getActiveFlashPromo(input.eventId);
     }),
     // Plantillas pregrabadas -- un toque en el admin solo RELLENA el
@@ -12967,23 +16637,23 @@ var appRouter = router({
       const settings = await getSiteSettings();
       return normalizeFlashPromoPresets(settings.flashPromoPresets);
     }),
-    savePreset: adminProcedure2.input(z6.object({
-      id: z6.string().optional(),
-      label: z6.string().min(1).max(60),
-      message: z6.string().min(3).max(200),
-      discountPercent: z6.number().int().min(1).max(100),
-      minutes: z6.number().int().min(1).max(180),
-      ticketTypeIds: z6.array(z6.number()).min(1)
+    savePreset: adminProcedure2.input(z7.object({
+      id: z7.string().optional(),
+      label: z7.string().min(1).max(60),
+      message: z7.string().min(3).max(200),
+      discountPercent: z7.number().int().min(1).max(100),
+      minutes: z7.number().int().min(1).max(180),
+      ticketTypeIds: z7.array(z7.number()).min(1)
     })).mutation(async ({ input }) => {
       const settings = await getSiteSettings();
       const presets = normalizeFlashPromoPresets(settings.flashPromoPresets);
-      const id = input.id ?? nanoid4(8);
+      const id = input.id ?? nanoid5(8);
       const preset = { ...input, id };
       const next = presets.some((p) => p.id === id) ? presets.map((p) => p.id === id ? preset : p) : [...presets, preset];
       await updateSiteSettings({ flashPromoPresets: next });
       return preset;
     }),
-    deletePreset: adminProcedure2.input(z6.object({ id: z6.string() })).mutation(async ({ input }) => {
+    deletePreset: adminProcedure2.input(z7.object({ id: z7.string() })).mutation(async ({ input }) => {
       const settings = await getSiteSettings();
       const presets = normalizeFlashPromoPresets(settings.flashPromoPresets);
       await updateSiteSettings({ flashPromoPresets: presets.filter((p) => p.id !== input.id) });
@@ -12994,16 +16664,16 @@ var appRouter = router({
     get: publicProcedure.query(async () => {
       return getSiteSettings();
     }),
-    update: adminProcedure2.input(z6.object({
-      instagramFollowers: z6.number().optional(),
-      instagramPosts: z6.number().optional(),
-      serviceFeePercent: z6.number().min(0).max(100).optional(),
-      cardFeePercent: z6.number().min(0).max(100).optional(),
-      parkingVenueFeeClp: z6.number().min(0).optional(),
-      kitchenVendorName: z6.string().nullable().optional(),
-      kitchenVendorEmail: z6.string().email().nullable().optional(),
-      ogImageUrl: z6.string().url().nullable().optional(),
-      foundersPromoEnabled: z6.boolean().optional()
+    update: adminProcedure2.input(z7.object({
+      instagramFollowers: z7.number().optional(),
+      instagramPosts: z7.number().optional(),
+      serviceFeePercent: z7.number().min(0).max(100).optional(),
+      cardFeePercent: z7.number().min(0).max(100).optional(),
+      parkingVenueFeeClp: z7.number().min(0).optional(),
+      kitchenVendorName: z7.string().nullable().optional(),
+      kitchenVendorEmail: z7.string().email().nullable().optional(),
+      ogImageUrl: z7.string().url().nullable().optional(),
+      foundersPromoEnabled: z7.boolean().optional()
     })).mutation(async ({ input }) => {
       return updateSiteSettings(input);
     }),
@@ -13023,8 +16693,8 @@ var appRouter = router({
   // localStorage) y acá se cuenta lo que llegó después -- salvo las secciones
   // de "pendiente de acción", que se cuentan siempre (ver getAdminBadgeCounts).
   adminBadges: router({
-    counts: adminReadProcedure.input(z6.object({
-      seenAt: z6.record(z6.string(), z6.string().datetime()).default({})
+    counts: adminReadProcedure.input(z7.object({
+      seenAt: z7.record(z7.string(), z7.string().datetime()).default({})
     })).query(async ({ input }) => {
       const parsed = {};
       for (const [section, iso] of Object.entries(input.seenAt)) {
@@ -13042,13 +16712,16 @@ var appRouter = router({
       const settings = await getSiteSettings();
       return normalizeAdminAlertsConfig(settings.adminAlertsConfig);
     }),
-    saveConfig: adminProcedure2.input(z6.object({
-      pushNewOrder: z6.boolean(),
-      pushAmbassadorApplication: z6.boolean(),
-      pushPartyReport: z6.boolean(),
-      dailyDigestEmail: z6.boolean()
+    saveConfig: adminProcedure2.input(z7.object({
+      pushNewOrder: z7.boolean(),
+      pushAmbassadorApplication: z7.boolean(),
+      pushPartyReport: z7.boolean(),
+      pushInstagramHandoff: z7.boolean(),
+      // Opcional para no romper un panel abierto con la versión anterior.
+      pushWhatsAppHandoff: z7.boolean().optional(),
+      dailyDigestEmail: z7.boolean()
     })).mutation(async ({ input }) => {
-      return updateSiteSettings({ adminAlertsConfig: input });
+      return updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig(input) });
     }),
     // La clave pública VAPID no es secreta (viaja al navegador para armar la
     // suscripción), pero igual queda detrás de admin para no publicarla sin
@@ -13057,21 +16730,21 @@ var appRouter = router({
     getVapidPublicKey: adminReadProcedure.query(async () => {
       return { publicKey: process.env.VAPID_PUBLIC_KEY ?? null };
     }),
-    subscribe: adminProcedure2.input(z6.object({
-      endpoint: z6.string().url().max(512),
-      p256dh: z6.string(),
-      auth: z6.string(),
-      label: z6.string().max(100).optional()
+    subscribe: adminProcedure2.input(z7.object({
+      endpoint: z7.string().url().max(512),
+      p256dh: z7.string(),
+      auth: z7.string(),
+      label: z7.string().max(100).optional()
     })).mutation(async ({ input }) => {
       return savePushSubscription(input);
     }),
-    unsubscribe: adminProcedure2.input(z6.object({ endpoint: z6.string() })).mutation(async ({ input }) => {
+    unsubscribe: adminProcedure2.input(z7.object({ endpoint: z7.string() })).mutation(async ({ input }) => {
       return deletePushSubscription(input.endpoint);
     }),
     listSubscriptions: adminReadProcedure.query(async () => {
       return listPushSubscriptions();
     }),
-    removeSubscription: adminProcedure2.input(z6.object({ id: z6.number() })).mutation(async ({ input }) => {
+    removeSubscription: adminProcedure2.input(z7.object({ id: z7.number() })).mutation(async ({ input }) => {
       return deletePushSubscriptionById(input.id);
     }),
     // Manda un push de prueba a TODOS los dispositivos suscritos ahora mismo,
@@ -13087,6 +16760,322 @@ var appRouter = router({
       return runAdminDigest();
     })
   }),
+  /* Bandeja del agente de IA que contesta el Instagram (server/instagram.ts).
+   *
+   * Todo detrás de `adminProcedure` y no de `adminReadProcedure`, incluidas
+   * las lecturas: acá viajan conversaciones privadas de personas que le
+   * escribieron a la cuenta, y el invitado de demostración del panel no
+   * tiene por qué leerlas ni siquiera enmascaradas. */
+  instagram: router({
+    getConfig: adminProcedure2.query(async () => {
+      const settings = await getSiteSettings();
+      return normalizeInstagramAgentConfig(settings.instagramAgentConfig);
+    }),
+    saveConfig: adminProcedure2.input(z7.object({
+      enabled: z7.boolean(),
+      brandNotes: z7.string().max(4e3),
+      handoffMessage: z7.string().min(1).max(IG_MAX_REPLY_CHARS),
+      historyLimit: z7.number().int().min(2).max(40),
+      dailyReplyLimitPerThread: z7.number().int().min(1).max(200),
+      styleExamples: z7.string().max(4e3),
+      followUpEnabled: z7.boolean(),
+      followUpMinutes: z7.number().int().min(1).max(1440),
+      followUpMessage: z7.string().min(1).max(IG_MAX_REPLY_CHARS),
+      thanksMessage: z7.string().min(1).max(IG_MAX_REPLY_CHARS)
+    })).mutation(async ({ input }) => {
+      return updateSiteSettings({ instagramAgentConfig: input });
+    }),
+    /* Estado de la conexión con Meta, para que el panel pueda decir QUÉ
+     * falta en vez de mostrar una bandeja vacía sin explicación. Solo
+     * informa si cada variable está puesta -- nunca devuelve su valor. */
+    connectionStatus: adminProcedure2.query(async () => ({
+      hasAppSecret: Boolean(process.env.IG_APP_SECRET),
+      hasVerifyToken: Boolean(process.env.IG_VERIFY_TOKEN),
+      hasAccessToken: Boolean(process.env.IG_ACCESS_TOKEN),
+      hasUserId: Boolean(process.env.IG_USER_ID),
+      webhookUrl: `${process.env.APP_URL || "https://mansionplayroom.cl"}/api/webhooks/instagram`
+    })),
+    listThreads: adminProcedure2.query(async () => {
+      const threads = await listIgThreads(100);
+      return threads.map((t2) => ({
+        ...t2,
+        // La ventana de 24 horas de Meta se calcula acá y no en el cliente
+        // para que el botón de responder no dependa del reloj del navegador.
+        canReply: canReplyWithinWindow(t2.lastInboundAt)
+      }));
+    }),
+    getThread: adminProcedure2.input(z7.object({ threadId: z7.number() })).query(async ({ input }) => {
+      const thread = await getIgThreadById(input.threadId);
+      if (!thread) throw new TRPCError3({ code: "NOT_FOUND", message: "Conversaci\xF3n no encontrada" });
+      const messages = await getIgMessages(input.threadId, 100);
+      return { thread: { ...thread, canReply: canReplyWithinWindow(thread.lastInboundAt) }, messages };
+    }),
+    markRead: adminProcedure2.input(z7.object({ threadId: z7.number() })).mutation(async ({ input }) => {
+      await markIgThreadRead(input.threadId);
+      return { success: true };
+    }),
+    setBotPaused: adminProcedure2.input(z7.object({
+      threadId: z7.number(),
+      paused: z7.boolean()
+    })).mutation(async ({ input }) => {
+      await setIgThreadBotPaused(input.threadId, input.paused, input.paused ? "Lo tom\xF3 el equipo desde el panel" : null);
+      return { success: true };
+    }),
+    // Irreversible (borra el hilo y todos sus mensajes) -- por eso pide la
+    // clave de admin, a diferencia del resto de este router.
+    deleteThread: adminPasswordProcedure.input(z7.object({ threadId: z7.number() })).mutation(async ({ input, ctx }) => {
+      const result = await deleteIgThread(input.threadId);
+      await recordAdminAudit({ action: "instagram.deleteThread", targetType: "igThread", targetId: input.threadId, ip: clientIp(ctx) });
+      return result;
+    }),
+    reply: adminProcedure2.input(z7.object({
+      threadId: z7.number(),
+      text: z7.string().min(1).max(IG_MAX_REPLY_CHARS)
+    })).mutation(async ({ input }) => {
+      const thread = await getIgThreadById(input.threadId);
+      if (!thread) throw new TRPCError3({ code: "NOT_FOUND", message: "Conversaci\xF3n no encontrada" });
+      try {
+        await sendManualInstagramReply({
+          threadId: thread.id,
+          igUserId: thread.igUserId,
+          lastInboundAt: thread.lastInboundAt,
+          text: input.text
+        });
+      } catch (err) {
+        throw new TRPCError3({ code: "BAD_REQUEST", message: err instanceof Error ? err.message : "No se pudo enviar el mensaje" });
+      }
+      return { success: true };
+    }),
+    /* Prueba en seco: corre el agente con los datos reales de hoy y devuelve
+     * lo que CONTESTARÍA, sin mandarle nada a nadie. Es lo que permite
+     * afinar el tono y las notas de marca antes de prender el interruptor
+     * sobre una cuenta pública. */
+    preview: adminProcedure2.input(z7.object({
+      message: z7.string().min(1).max(1e3)
+    })).mutation(async ({ input }) => {
+      const settings = await getSiteSettings();
+      const config = normalizeInstagramAgentConfig(settings.instagramAgentConfig);
+      const result = await runInstagramAgent({
+        incomingText: input.message,
+        history: [],
+        // La prueba ignora el interruptor maestro a propósito: sirve
+        // justamente para decidir si prenderlo.
+        config: { ...config, enabled: true }
+      });
+      return result;
+    }),
+    /* El bloque de datos tal cual lo ve la IA. Sin esto, cuando el agente
+     * contesta algo raro no hay forma de saber si el problema es el prompt o
+     * un evento mal cargado. */
+    previewContext: adminProcedure2.query(async () => ({
+      context: await buildInstagramContext(),
+      defaults: DEFAULT_INSTAGRAM_AGENT_CONFIG
+    })),
+    /* Registro permanente de derivaciones (Instagram Y WhatsApp, cerebro
+     * compartido) -- a diferencia del `handoffReason` de un hilo, que se
+     * borra apenas se reactiva, esto queda como historial fijo para que el
+     * dueño revise qué preguntas no supo resolver el agente y decida qué
+     * agregar a `brandNotes`. Ver drizzle/schema.ts `agentHandoffLog`. */
+    listHandoffLog: adminProcedure2.query(async () => {
+      return listAgentHandoffLog({ onlyPending: true });
+    }),
+    resolveHandoffLog: adminProcedure2.input(z7.object({ id: z7.number() })).mutation(async ({ input }) => {
+      await resolveAgentHandoffLog(input.id);
+      return { success: true };
+    })
+  }),
+  /* Bandeja del agente de WhatsApp (server/whatsapp.ts). Espejo del router
+   * de Instagram -- mismo criterio de `adminProcedure` para todo, lecturas
+   * incluidas. El conocimiento del agente (notas de marca, tono, mensaje de
+   * derivación) se edita en `instagram.saveConfig` y lo comparten los dos
+   * canales; acá solo va lo propio de WhatsApp. */
+  whatsapp: router({
+    getConfig: adminProcedure2.query(async () => {
+      const settings = await getSiteSettings();
+      return normalizeWhatsAppAgentConfig(settings.whatsappAgentConfig);
+    }),
+    saveConfig: adminProcedure2.input(z7.object({
+      enabled: z7.boolean(),
+      welcomeMenuEnabled: z7.boolean(),
+      welcomeMessage: z7.string().min(1).max(1e3),
+      dailyReplyLimitPerThread: z7.number().int().min(1).max(200),
+      followUpEnabled: z7.boolean(),
+      followUpMinutes: z7.number().int().min(1).max(1440),
+      followUpMessage: z7.string().min(1).max(WA_MAX_REPLY_CHARS)
+    })).mutation(async ({ input }) => {
+      return updateSiteSettings({ whatsappAgentConfig: input });
+    }),
+    connectionStatus: adminProcedure2.query(async () => ({
+      hasAppSecret: Boolean(process.env.WA_APP_SECRET),
+      hasVerifyToken: Boolean(process.env.WA_VERIFY_TOKEN),
+      hasAccessToken: Boolean(process.env.WA_ACCESS_TOKEN),
+      hasPhoneNumberId: Boolean(process.env.WA_PHONE_NUMBER_ID),
+      webhookUrl: `${process.env.APP_URL || "https://mansionplayroom.cl"}/api/webhooks/whatsapp`
+    })),
+    listThreads: adminProcedure2.query(async () => {
+      const threads = await listWaThreads(100);
+      return threads.map((t2) => ({ ...t2, canReply: canReplyWithinWindow(t2.lastInboundAt) }));
+    }),
+    getThread: adminProcedure2.input(z7.object({ threadId: z7.number() })).query(async ({ input }) => {
+      const thread = await getWaThreadById(input.threadId);
+      if (!thread) throw new TRPCError3({ code: "NOT_FOUND", message: "Conversaci\xF3n no encontrada" });
+      const messages = await getWaMessages(input.threadId, 100);
+      return { thread: { ...thread, canReply: canReplyWithinWindow(thread.lastInboundAt) }, messages };
+    }),
+    markRead: adminProcedure2.input(z7.object({ threadId: z7.number() })).mutation(async ({ input }) => {
+      await markWaThreadRead(input.threadId);
+      return { success: true };
+    }),
+    setBotPaused: adminProcedure2.input(z7.object({
+      threadId: z7.number(),
+      paused: z7.boolean()
+    })).mutation(async ({ input }) => {
+      await setWaThreadBotPaused(input.threadId, input.paused, input.paused ? "Lo tom\xF3 el equipo desde el panel" : null);
+      return { success: true };
+    }),
+    deleteThread: adminPasswordProcedure.input(z7.object({ threadId: z7.number() })).mutation(async ({ input, ctx }) => {
+      const result = await deleteWaThread(input.threadId);
+      await recordAdminAudit({ action: "whatsapp.deleteThread", targetType: "waThread", targetId: input.threadId, ip: clientIp(ctx) });
+      return result;
+    }),
+    reply: adminProcedure2.input(z7.object({
+      threadId: z7.number(),
+      text: z7.string().min(1).max(WA_MAX_REPLY_CHARS)
+    })).mutation(async ({ input }) => {
+      const thread = await getWaThreadById(input.threadId);
+      if (!thread) throw new TRPCError3({ code: "NOT_FOUND", message: "Conversaci\xF3n no encontrada" });
+      try {
+        await sendManualWhatsAppReply({
+          threadId: thread.id,
+          waId: thread.waId,
+          lastInboundAt: thread.lastInboundAt,
+          text: input.text
+        });
+      } catch (err) {
+        throw new TRPCError3({ code: "BAD_REQUEST", message: err instanceof Error ? err.message : "No se pudo enviar el mensaje" });
+      }
+      return { success: true };
+    }),
+    /* Prueba en seco con el canal WhatsApp: devuelve también los botones y
+     * la acción (lista de fechas / botón de compra) que se mostrarían. */
+    preview: adminProcedure2.input(z7.object({
+      message: z7.string().min(1).max(1e3)
+    })).mutation(async ({ input }) => {
+      const settings = await getSiteSettings();
+      const config = normalizeInstagramAgentConfig(settings.instagramAgentConfig);
+      return runInstagramAgent({
+        incomingText: input.message,
+        history: [],
+        config: { ...config, enabled: true },
+        channel: "whatsapp"
+      });
+    }),
+    defaults: adminProcedure2.query(() => DEFAULT_WHATSAPP_AGENT_CONFIG)
+  }),
+  // Automatizaciones por palabra clave: comentar o responder a una historia
+  // con la palabra justa dispara un DM (link, mensaje, o código de
+  // descuento). El código de descuento es opcional -- mismo `discountCodes`
+  // de siempre, generado con el mismo patrón que ya usa Promo Flash. Las de
+  // `triggerSource: 'comment'`/`'both'` no hacen nada todavía en
+  // producción: Meta exige un permiso aparte (`instagram_business_manage_comments`,
+  // Advanced Access) que hoy no está aprobado -- ver docs/INSTAGRAM-AGENT.md.
+  instagramAutomations: router({
+    list: adminProcedure2.query(() => listIgKeywordAutomationsWithStats()),
+    // IA: arma el mensaje del DM a partir de lo que ya está configurado en
+    // el formulario (palabra clave, dónde aplica, recompensa) + una idea
+    // libre y opcional (no se guarda, ver server/instagramAutomationDraft.ts).
+    generateReplyDraft: adminProcedure2.input(z7.object({
+      keyword: z7.string().min(1).max(120),
+      triggerSource: z7.enum(["comment", "story_reply", "both"]),
+      idea: z7.string().max(500).optional(),
+      reward: z7.discriminatedUnion("kind", [
+        z7.object({ kind: z7.literal("none") }),
+        z7.object({
+          kind: z7.literal("discount"),
+          discountType: z7.enum(["percentage", "fixed"]),
+          discountValue: z7.number().positive()
+        }),
+        z7.object({
+          kind: z7.literal("gift"),
+          productName: z7.string()
+        })
+      ])
+    })).mutation(async ({ input }) => {
+      try {
+        return await generateAutomationReplyDraft(input);
+      } catch (err) {
+        throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "No se pudo generar el mensaje." });
+      }
+    }),
+    save: adminProcedure2.input(z7.object({
+      id: z7.number().optional(),
+      keyword: z7.string().min(1).max(120),
+      triggerSource: z7.enum(["comment", "story_reply", "both"]),
+      replyMessage: z7.string().min(1).max(1e3),
+      // Una automatización regala UNA cosa a la vez -- descuento en dinero
+      // O un producto de la Carta, nunca los dos juntos (si más adelante
+      // hace falta combinarlos, es una vuelta aparte).
+      reward: z7.discriminatedUnion("kind", [
+        z7.object({
+          kind: z7.literal("discount"),
+          discountType: z7.enum(["percentage", "fixed"]),
+          discountValue: z7.number().positive(),
+          maxUses: z7.number().int().positive().optional(),
+          validUntil: z7.string().optional()
+        }),
+        z7.object({
+          kind: z7.literal("gift"),
+          giftTicketTypeId: z7.number(),
+          maxUses: z7.number().int().positive().optional(),
+          validUntil: z7.string().optional()
+        })
+      ]).optional()
+    })).mutation(async ({ input }) => {
+      if (input.id) {
+        await updateIgKeywordAutomation(input.id, {
+          keyword: input.keyword,
+          triggerSource: input.triggerSource,
+          replyMessage: input.replyMessage
+        });
+        return { success: true };
+      }
+      let discountCode = null;
+      if (input.reward) {
+        discountCode = `AUTO${nanoid5(4).toUpperCase()}`;
+        await createDiscountCode({
+          code: discountCode,
+          description: `Automatizaci\xF3n de Instagram: "${input.keyword}"`,
+          // Un código de "producto de regalo" no descuenta plata -- lo que
+          // regala es el producto (giftTicketTypeId), generado como
+          // orderItem de $0 al aprobarse la orden (server/webhooks.ts).
+          discountType: input.reward.kind === "gift" ? "fixed" : input.reward.discountType,
+          discountValue: input.reward.kind === "gift" ? 0 : input.reward.discountValue,
+          giftTicketTypeId: input.reward.kind === "gift" ? input.reward.giftTicketTypeId : void 0,
+          maxUses: input.reward.maxUses,
+          validUntil: input.reward.validUntil ? new Date(input.reward.validUntil) : void 0,
+          isActive: 1
+        });
+      }
+      await createIgKeywordAutomation({
+        keyword: input.keyword,
+        triggerSource: input.triggerSource,
+        replyMessage: input.replyMessage,
+        discountCode
+      });
+      return { success: true };
+    }),
+    setActive: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      active: z7.boolean()
+    })).mutation(async ({ input }) => {
+      await setIgKeywordAutomationActive(input.id, input.active);
+      return { success: true };
+    }),
+    delete: adminProcedure2.input(z7.object({ id: z7.number() })).mutation(async ({ input }) => {
+      await deleteIgKeywordAutomation(input.id);
+      return { success: true };
+    })
+  }),
   // Editor de textos + interruptores por sección del correo de compra, y
   // botón de "mandar prueba" a una casilla cualquiera con cualquiera de los
   // 4 correos de cara al cliente -- ver shared/emailTemplateConfig.ts para
@@ -13097,41 +17086,41 @@ var appRouter = router({
       const settings = await getSiteSettings();
       return normalizeOrderEmailConfig(settings.emailTemplateConfig?.orderEmail);
     }),
-    saveConfig: adminProcedure2.input(z6.object({
-      sections: z6.object({
-        quienesSomos: z6.boolean(),
-        encontraras: z6.boolean(),
-        antesDeVenir: z6.boolean(),
-        valores: z6.boolean(),
-        embajador: z6.boolean(),
-        faq: z6.boolean()
+    saveConfig: adminProcedure2.input(z7.object({
+      sections: z7.object({
+        quienesSomos: z7.boolean(),
+        encontraras: z7.boolean(),
+        antesDeVenir: z7.boolean(),
+        valores: z7.boolean(),
+        embajador: z7.boolean(),
+        faq: z7.boolean()
       }),
-      greetingText: z6.string().min(1),
-      farewellText: z6.string().min(1)
+      greetingText: z7.string().min(1),
+      farewellText: z7.string().min(1)
     })).mutation(async ({ input }) => {
       return updateSiteSettings({ emailTemplateConfig: { orderEmail: input } });
     }),
     // Vista previa en vivo del correo de compra con la config todavía sin
     // guardar (mismo patrón que mailing.renderPreview) -- datos de muestra,
     // nunca datos reales de una orden.
-    renderPreview: adminProcedure2.input(z6.object({
-      sections: z6.object({
-        quienesSomos: z6.boolean(),
-        encontraras: z6.boolean(),
-        antesDeVenir: z6.boolean(),
-        valores: z6.boolean(),
-        embajador: z6.boolean(),
-        faq: z6.boolean()
+    renderPreview: adminProcedure2.input(z7.object({
+      sections: z7.object({
+        quienesSomos: z7.boolean(),
+        encontraras: z7.boolean(),
+        antesDeVenir: z7.boolean(),
+        valores: z7.boolean(),
+        embajador: z7.boolean(),
+        faq: z7.boolean()
       }),
-      greetingText: z6.string(),
-      farewellText: z6.string()
+      greetingText: z7.string(),
+      farewellText: z7.string()
     })).mutation(async ({ input }) => {
       const eventFields = await resolveOrderPreviewEventFields();
       return { html: buildOrderEmail({ ...SAMPLE_ORDER_EMAIL_DATA, ...eventFields, templateConfig: input }) };
     }),
-    sendTest: adminProcedure2.input(z6.object({
-      toEmail: z6.string().email(),
-      templateType: z6.enum(["order", "missionTopup", "pendingReminder", "gift"])
+    sendTest: adminProcedure2.input(z7.object({
+      toEmail: z7.string().email(),
+      templateType: z7.enum(["order", "missionTopup", "pendingReminder", "gift"])
     })).mutation(async ({ input }) => {
       let html;
       let subject;
@@ -13165,8 +17154,8 @@ var appRouter = router({
     })
   }),
   communityCodes: router({
-    validate: publicProcedure.input(z6.object({
-      code: z6.string()
+    validate: publicProcedure.input(z7.object({
+      code: z7.string()
     })).mutation(async ({ input }) => {
       return validateCommunityCode(input.code);
     }),
@@ -13174,24 +17163,24 @@ var appRouter = router({
     listAll: adminReadProcedure.query(async () => {
       return getAllCommunityCodes();
     }),
-    create: adminProcedure2.input(z6.object({
-      code: z6.string(),
-      label: z6.string().optional(),
-      maxUses: z6.number().optional()
+    create: adminProcedure2.input(z7.object({
+      code: z7.string(),
+      label: z7.string().optional(),
+      maxUses: z7.number().optional()
     })).mutation(async ({ input }) => {
       return createCommunityCode(input);
     }),
-    update: adminProcedure2.input(z6.object({
-      id: z6.number(),
-      code: z6.string().optional(),
-      label: z6.string().optional(),
-      maxUses: z6.number().optional(),
-      isActive: z6.number().optional()
+    update: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      code: z7.string().optional(),
+      label: z7.string().optional(),
+      maxUses: z7.number().optional(),
+      isActive: z7.number().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateCommunityCode(id, data);
     }),
-    delete: adminPasswordProcedure.input(z6.object({ id: z6.number() })).mutation(async ({ input, ctx }) => {
+    delete: adminPasswordProcedure.input(z7.object({ id: z7.number() })).mutation(async ({ input, ctx }) => {
       const result = await deleteCommunityCode(input.id);
       await recordAdminAudit({ action: "communityCodes.delete", targetType: "communityCode", targetId: input.id, ip: clientIp(ctx) });
       return result;
@@ -13199,15 +17188,15 @@ var appRouter = router({
   }),
   leads: router({
     // Público: se llama desde LeadCaptureInline en Home.tsx, sin login.
-    create: publicProcedure.input(z6.object({
-      email: z6.string().email(),
-      phone: z6.string().optional(),
-      instagram: z6.string().optional(),
-      eventId: z6.number().optional(),
-      source: z6.string().optional(),
-      utmSource: z6.string().optional(),
-      utmMedium: z6.string().optional(),
-      utmCampaign: z6.string().optional()
+    create: publicProcedure.input(z7.object({
+      email: z7.string().email(),
+      phone: z7.string().optional(),
+      instagram: z7.string().optional(),
+      eventId: z7.number().optional(),
+      source: z7.string().optional(),
+      utmSource: z7.string().optional(),
+      utmMedium: z7.string().optional(),
+      utmCampaign: z7.string().optional()
     })).mutation(async ({ input }) => {
       return createLead(input);
     }),
@@ -13215,7 +17204,7 @@ var appRouter = router({
     listAll: adminReadProcedure.query(async () => {
       return getAllLeads();
     }),
-    delete: adminPasswordProcedure.input(z6.object({ id: z6.number() })).mutation(async ({ input, ctx }) => {
+    delete: adminPasswordProcedure.input(z7.object({ id: z7.number() })).mutation(async ({ input, ctx }) => {
       const result = await deleteLead(input.id);
       await recordAdminAudit({ action: "leads.delete", targetType: "lead", targetId: input.id, ip: clientIp(ctx) });
       return result;
@@ -13223,7 +17212,7 @@ var appRouter = router({
     // Convierte los leads sin convertir en audiencia de mailing (ver
     // db.syncLeadsAsMailingAudience) -- devuelve filas de `customers` para
     // que el selector de audiencia del admin no necesite ningún cambio.
-    syncAsAudience: adminProcedure2.input(z6.object({ eventId: z6.number().optional() }).optional()).mutation(async ({ input }) => {
+    syncAsAudience: adminProcedure2.input(z7.object({ eventId: z7.number().optional() }).optional()).mutation(async ({ input }) => {
       return syncLeadsAsMailingAudience2({ eventId: input?.eventId });
     })
   }),
@@ -13232,27 +17221,75 @@ var appRouter = router({
   // buildExpenseValues, para que no se pueda inventar crédito fiscal desde el
   // navegador.
   expenses: router({
-    listAll: adminReadProcedure.input(z6.object({
-      eventId: z6.number().optional(),
-      monthKey: z6.string().optional(),
-      scope: z6.enum(["evento", "general"]).optional(),
-      category: z6.string().optional()
+    listAll: adminReadProcedure.input(z7.object({
+      eventId: z7.number().optional(),
+      monthKey: z7.string().optional(),
+      scope: z7.enum(["evento", "general"]).optional(),
+      category: z7.string().optional()
     }).optional()).query(async ({ input }) => {
       return listExpenses(input ?? {});
     }),
     create: adminProcedure2.input(expenseInputSchema).mutation(async ({ input, ctx }) => {
       return createExpense({ ...input, createdByUserId: ctx.user.id });
     }),
-    update: adminPasswordProcedure.input(expenseInputSchema.partial().extend({ id: z6.number() })).mutation(async ({ input, ctx }) => {
+    update: adminPasswordProcedure.input(expenseInputSchema.partial().extend({ id: z7.number() })).mutation(async ({ input, ctx }) => {
       const { id, adminPassword: _pw, ...data } = input;
       const result = await updateExpense(id, data);
       await recordAdminAudit({ action: "expenses.update", targetType: "expense", targetId: id, eventId: data.eventId ?? null, payload: data, ip: clientIp(ctx) });
       return result;
     }),
-    delete: adminPasswordProcedure.input(z6.object({ id: z6.number() })).mutation(async ({ input, ctx }) => {
+    delete: adminPasswordProcedure.input(z7.object({ id: z7.number() })).mutation(async ({ input, ctx }) => {
       const result = await deleteExpense(input.id);
       await recordAdminAudit({ action: "expenses.delete", targetType: "expense", targetId: input.id, ip: clientIp(ctx) });
       return result;
+    }),
+    // Lee una foto de boleta/factura con IA para precargar el formulario de
+    // arriba -- nunca guarda nada por sí solo, el admin siempre revisa y
+    // aprieta "Guardar gasto" (server/receiptScan.ts).
+    scanReceipt: adminProcedure2.input(z7.object({ imageUrl: z7.string().url() })).mutation(async ({ input }) => {
+      try {
+        return await scanReceiptImage(input.imageUrl);
+      } catch (err) {
+        throw new TRPCError3({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "No se pudo leer la foto. Completa el formulario a mano.",
+          cause: err
+        });
+      }
+    })
+  }),
+  // Simulaciones de presupuesto pre-evento ("¿conviene hacer esta fiesta?")
+  // -- pestaña "Presupuesto" dentro de Gastos y P&L. La matemática vive en
+  // shared/eventBudget.ts (computeBudgetResult), corrida 100% del lado
+  // cliente para que la barra de estado sea instantánea; estos endpoints
+  // solo guardan/leen lo que el admin cargó.
+  budgetSimulations: router({
+    listAll: adminReadProcedure.input(z7.object({
+      eventId: z7.number().optional()
+    }).optional()).query(async ({ input }) => {
+      return listSimulations(input?.eventId);
+    }),
+    get: adminReadProcedure.input(z7.object({ id: z7.number() })).query(async ({ input }) => {
+      return getSimulation(input.id);
+    }),
+    create: adminProcedure2.input(budgetSimulationInputSchema).mutation(async ({ input, ctx }) => {
+      return createSimulation(input, ctx.user.id);
+    }),
+    update: adminProcedure2.input(budgetSimulationInputSchema.extend({ id: z7.number() })).mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      return updateSimulation(id, data);
+    }),
+    delete: adminPasswordProcedure.input(z7.object({ id: z7.number() })).mutation(async ({ input, ctx }) => {
+      const result = await deleteSimulation(input.id);
+      await recordAdminAudit({ action: "budgetSimulations.delete", targetType: "budgetSimulation", targetId: input.id, ip: clientIp(ctx) });
+      return result;
+    }),
+    /** "Vincular a este evento" -- eventId: null para desvincular. */
+    linkToEvent: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      eventId: z7.number().nullable()
+    })).mutation(async ({ input }) => {
+      return linkSimulationToEvent(input.id, input.eventId);
     })
   }),
   // Lista de bloqueo de clientes (por RUT) -- solo admin, nunca expuesta al
@@ -13261,24 +17298,24 @@ var appRouter = router({
     listAll: adminReadProcedure.query(async () => {
       return getAllBlockedCustomers();
     }),
-    create: adminProcedure2.input(z6.object({
-      rut: z6.string().min(1),
-      fullName: z6.string().optional(),
-      reason: z6.string().optional()
+    create: adminProcedure2.input(z7.object({
+      rut: z7.string().min(1),
+      fullName: z7.string().optional(),
+      reason: z7.string().optional()
     })).mutation(async ({ input }) => {
       return createBlockedCustomer(input);
     }),
-    update: adminProcedure2.input(z6.object({
-      id: z6.number(),
-      rut: z6.string().optional(),
-      fullName: z6.string().optional(),
-      reason: z6.string().optional(),
-      isActive: z6.number().optional()
+    update: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      rut: z7.string().optional(),
+      fullName: z7.string().optional(),
+      reason: z7.string().optional(),
+      isActive: z7.number().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateBlockedCustomer(id, data);
     }),
-    delete: adminPasswordProcedure.input(z6.object({ id: z6.number() })).mutation(async ({ input, ctx }) => {
+    delete: adminPasswordProcedure.input(z7.object({ id: z7.number() })).mutation(async ({ input, ctx }) => {
       const result = await deleteBlockedCustomer(input.id);
       await recordAdminAudit({ action: "blockedCustomers.delete", targetType: "blockedCustomer", targetId: input.id, ip: clientIp(ctx) });
       return result;
@@ -13290,12 +17327,12 @@ var appRouter = router({
     }),
     // Público, sin login: el mismo código de embajador que llega por email
     // es lo que valida el acceso a las propias estadísticas.
-    getByCode: publicProcedure.input(z6.object({ code: z6.string() })).query(async ({ input }) => {
+    getByCode: publicProcedure.input(z7.object({ code: z7.string() })).query(async ({ input }) => {
       return getReferralsByCode(input.code);
     }),
     // Público, para el Hall de la Fama -- solo primer nombre + código +
     // cantidad de ventas, nunca montos ni apellido (ver db.getReferralLeaderboard).
-    getLeaderboard: publicProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    getLeaderboard: publicProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getReferralLeaderboard(input.eventId);
     })
   }),
@@ -13303,36 +17340,36 @@ var appRouter = router({
   // tab aparte de "Referidos" (arriba), para embajadores dados de alta a
   // mano que cobran una comisión en plata por venta, no descuento.
   ambassadors: router({
-    listAll: adminReadProcedure.input(z6.object({ eventId: z6.number().optional() }).optional()).query(async ({ input }) => {
+    listAll: adminReadProcedure.input(z7.object({ eventId: z7.number().optional() }).optional()).query(async ({ input }) => {
       return listExclusiveAmbassadors(input?.eventId);
     }),
-    create: adminProcedure2.input(z6.object({
+    create: adminProcedure2.input(z7.object({
       // Opcional: el código es permanente y de la persona, no del evento.
-      eventId: z6.number().optional(),
-      name: z6.string().min(1),
-      code: z6.string().min(1),
+      eventId: z7.number().optional(),
+      name: z7.string().min(1),
+      code: z7.string().min(1),
       // `null` = usar la escala global del programa (lo normal).
-      commissionPercent: z6.number().min(0).max(100).nullable().optional(),
-      contact: z6.string().optional(),
-      email: z6.string().email().optional(),
-      instagram: z6.string().optional()
+      commissionPercent: z7.number().min(0).max(100).nullable().optional(),
+      contact: z7.string().optional(),
+      email: z7.string().email().optional(),
+      instagram: z7.string().optional()
     })).mutation(async ({ input }) => {
       return createExclusiveAmbassador(input);
     }),
-    update: adminProcedure2.input(z6.object({
-      id: z6.number(),
-      name: z6.string().optional(),
-      code: z6.string().optional(),
-      commissionPercent: z6.number().min(0).max(100).nullable().optional(),
-      contact: z6.string().optional(),
-      email: z6.string().email().optional(),
-      instagram: z6.string().optional(),
-      active: z6.number().optional()
+    update: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      name: z7.string().optional(),
+      code: z7.string().optional(),
+      commissionPercent: z7.number().min(0).max(100).nullable().optional(),
+      contact: z7.string().optional(),
+      email: z7.string().email().optional(),
+      instagram: z7.string().optional(),
+      active: z7.number().optional()
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return updateExclusiveAmbassador(id, data);
     }),
-    delete: adminPasswordProcedure.input(z6.object({ id: z6.number() })).mutation(async ({ input, ctx }) => {
+    delete: adminPasswordProcedure.input(z7.object({ id: z7.number() })).mutation(async ({ input, ctx }) => {
       const result = await deleteExclusiveAmbassador(input.id);
       await recordAdminAudit({ action: "ambassadors.delete", targetType: "ambassador", targetId: input.id, ip: clientIp(ctx) });
       return result;
@@ -13342,28 +17379,28 @@ var appRouter = router({
     // --- Programa VIP automatizado ---
     /** Panel público del embajador (/embajador/<CODIGO>). El código hace de
      * llave -- no hay login de embajadores, mismo criterio que /mis-referidos. */
-    getPanelByCode: publicProcedure.input(z6.object({ code: z6.string() })).query(async ({ input }) => {
+    getPanelByCode: publicProcedure.input(z7.object({ code: z7.string() })).query(async ({ input }) => {
       return getAmbassadorPanel(input.code);
     }),
     getConfig: adminReadProcedure.query(async () => {
       return getProgramConfig();
     }),
-    updateConfig: adminProcedure2.input(z6.object({
-      launchDate: z6.string().optional(),
-      commissionScale: z6.array(z6.object({
-        minSales: z6.number().int().min(1),
-        maxSales: z6.number().int().min(1).nullable(),
-        percent: z6.number().min(0).max(100)
+    updateConfig: adminProcedure2.input(z7.object({
+      launchDate: z7.string().optional(),
+      commissionScale: z7.array(z7.object({
+        minSales: z7.number().int().min(1),
+        maxSales: z7.number().int().min(1).nullable(),
+        percent: z7.number().min(0).max(100)
       })).optional(),
-      existingClientPercent: z6.number().min(0).max(100).optional(),
-      benefits: z6.array(z6.object({
-        minSales: z6.number().int().min(1),
-        items: z6.array(z6.string()),
-        bonusClp: z6.number().min(0)
+      existingClientPercent: z7.number().min(0).max(100).optional(),
+      benefits: z7.array(z7.object({
+        minSales: z7.number().int().min(1),
+        items: z7.array(z7.string()),
+        bonusClp: z7.number().min(0)
       })).optional(),
-      weeklyEmailEnabled: z6.boolean().optional(),
-      weeklyEmailWeekday: z6.number().int().min(0).max(6).optional(),
-      weeklyEmailHourChile: z6.number().int().min(0).max(23).optional()
+      weeklyEmailEnabled: z7.boolean().optional(),
+      weeklyEmailWeekday: z7.number().int().min(0).max(6).optional(),
+      weeklyEmailHourChile: z7.number().int().min(0).max(23).optional()
     })).mutation(async ({ input }) => {
       const { launchDate, ...rest } = input;
       return updateProgramConfig({
@@ -13372,13 +17409,13 @@ var appRouter = router({
       });
     }),
     /** `monthKey` en formato "2026-08"; si no viene, el mes actual de Chile. */
-    getSummary: adminReadProcedure.input(z6.object({ monthKey: z6.string().optional() }).optional()).query(async ({ input }) => {
+    getSummary: adminReadProcedure.input(z7.object({ monthKey: z7.string().optional() }).optional()).query(async ({ input }) => {
       return getAmbassadorAdminSummary(input?.monthKey || monthKeyFor(/* @__PURE__ */ new Date()));
     }),
-    getRanking: adminReadProcedure.input(z6.object({ monthKey: z6.string().optional() }).optional()).query(async ({ input }) => {
+    getRanking: adminReadProcedure.input(z7.object({ monthKey: z7.string().optional() }).optional()).query(async ({ input }) => {
       return getAmbassadorRanking(input?.monthKey || monthKeyFor(/* @__PURE__ */ new Date()));
     }),
-    getProfile: adminReadProcedure.input(z6.object({ id: z6.number(), monthKey: z6.string().optional() })).query(async ({ input }) => {
+    getProfile: adminReadProcedure.input(z7.object({ id: z7.number(), monthKey: z7.string().optional() })).query(async ({ input }) => {
       const monthKey = input.monthKey || monthKeyFor(/* @__PURE__ */ new Date());
       return {
         stats: await getAmbassadorStats(input.id, monthKey),
@@ -13389,21 +17426,21 @@ var appRouter = router({
       return listReferredClients();
     }),
     // --- Beneficios entregados ---
-    listBenefitDeliveries: adminReadProcedure.input(z6.object({ monthKey: z6.string().optional() }).optional()).query(async ({ input }) => {
+    listBenefitDeliveries: adminReadProcedure.input(z7.object({ monthKey: z7.string().optional() }).optional()).query(async ({ input }) => {
       return listBenefitDeliveries(input?.monthKey || monthKeyFor(/* @__PURE__ */ new Date()));
     }),
-    markBenefitDelivered: adminProcedure2.input(z6.object({
-      ambassadorId: z6.number(),
-      monthKey: z6.string(),
-      benefitKey: z6.string(),
-      note: z6.string().optional()
+    markBenefitDelivered: adminProcedure2.input(z7.object({
+      ambassadorId: z7.number(),
+      monthKey: z7.string(),
+      benefitKey: z7.string(),
+      note: z7.string().optional()
     })).mutation(async ({ input }) => {
       return markBenefitDelivered(input);
     }),
-    unmarkBenefitDelivered: adminProcedure2.input(z6.object({
-      ambassadorId: z6.number(),
-      monthKey: z6.string(),
-      benefitKey: z6.string()
+    unmarkBenefitDelivered: adminProcedure2.input(z7.object({
+      ambassadorId: z7.number(),
+      monthKey: z7.string(),
+      benefitKey: z7.string()
     })).mutation(async ({ input }) => {
       return unmarkBenefitDelivered(input);
     }),
@@ -13411,20 +17448,20 @@ var appRouter = router({
     getWeeklyMaterial: adminReadProcedure.query(async () => {
       return getWeeklyMaterial();
     }),
-    saveWeeklyMaterial: adminProcedure2.input(z6.object({
-      title: z6.string().optional(),
-      storiesText: z6.string().optional(),
-      reelText: z6.string().optional(),
-      postText: z6.string().optional(),
-      countdownText: z6.string().optional(),
-      linkUrl: z6.string().optional()
+    saveWeeklyMaterial: adminProcedure2.input(z7.object({
+      title: z7.string().optional(),
+      storiesText: z7.string().optional(),
+      reelText: z7.string().optional(),
+      postText: z7.string().optional(),
+      countdownText: z7.string().optional(),
+      links: z7.array(z7.object({ label: z7.string(), url: z7.string() })).optional()
     })).mutation(async ({ input }) => {
       return saveWeeklyMaterial(input);
     }),
     /** Rellena los 5 campos del material a partir de una idea. NO guarda: el
      * dueño revisa y edita antes de apretar "Guardar", igual que en mailing. */
-    generateWeeklyMaterial: adminProcedure2.input(z6.object({
-      idea: z6.string().min(5).max(1e3)
+    generateWeeklyMaterial: adminProcedure2.input(z7.object({
+      idea: z7.string().min(5).max(1e3)
     })).mutation(async ({ input }) => {
       try {
         return await generateWeeklyMaterial(input.idea);
@@ -13445,14 +17482,14 @@ var appRouter = router({
      * va con límite por IP y con la validación pura de
      * shared/ambassadorApplication.ts, que el cliente también corre pero en
      * la que no se confía. */
-    submit: publicProcedure.input(z6.object({
-      name: z6.string(),
-      email: z6.string().email("Revisa tu correo"),
-      whatsapp: z6.string(),
-      instagram: z6.string(),
-      followers: z6.string().optional(),
-      message: z6.string().optional(),
-      acceptedTerms: z6.boolean()
+    submit: publicProcedure.input(z7.object({
+      name: z7.string(),
+      email: z7.string().email("Revisa tu correo"),
+      whatsapp: z7.string(),
+      instagram: z7.string(),
+      followers: z7.string().optional(),
+      message: z7.string().optional(),
+      acceptedTerms: z7.boolean()
     })).mutation(async ({ input, ctx }) => {
       const ipKey = `postulacion:${clientIp(ctx)}`;
       if (!await checkIpRateLimit(ipKey)) {
@@ -13524,27 +17561,27 @@ var appRouter = router({
       });
       return { ok: true, alreadyPending: false };
     }),
-    listAll: adminReadProcedure.input(z6.object({
-      status: z6.enum(["pendiente", "aprobada", "rechazada"]).optional()
+    listAll: adminReadProcedure.input(z7.object({
+      status: z7.enum(["pendiente", "aprobada", "rechazada"]).optional()
     }).optional()).query(async ({ input }) => {
       return listApplications(input?.status);
     }),
     countPending: adminReadProcedure.query(async () => {
       return countPendingApplications();
     }),
-    review: adminProcedure2.input(z6.object({
-      id: z6.number(),
-      status: z6.enum(["pendiente", "aprobada", "rechazada"]),
-      note: z6.string().optional()
+    review: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      status: z7.enum(["pendiente", "aprobada", "rechazada"]),
+      note: z7.string().optional()
     })).mutation(async ({ input }) => {
       return reviewApplication(input);
     }),
     /** Aprueba y crea al embajador en un solo paso, con el código que escribe
      * el admin, y le manda su código por correo. */
-    approve: adminProcedure2.input(z6.object({
-      id: z6.number(),
-      code: z6.string().min(1),
-      commissionPercent: z6.number().min(0).max(100).nullable().optional()
+    approve: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      code: z7.string().min(1),
+      commissionPercent: z7.number().min(0).max(100).nullable().optional()
     })).mutation(async ({ input }) => {
       const result = await approveApplication(input);
       try {
@@ -13564,6 +17601,174 @@ var appRouter = router({
       return result;
     })
   }),
+  // Postulaciones públicas al programa Cumpleañeros (página
+  // /beneficios-cumpleaneros) — mismo esqueleto que ambassadorApplications
+  // arriba (rate limit por IP + validación pura del lado servidor).
+  birthdayApplications: router({
+    /** Datos del evento vigente para pintar la ventana de fechas válidas en
+     * el formulario, sin que el cliente tenga que adivinar el eventId. */
+    eligibility: publicProcedure.query(async () => {
+      const event = await getFeaturedEvent();
+      if (!event) return null;
+      return {
+        eventId: event.id,
+        eventTitle: event.title,
+        eventDate: event.eventDate,
+        windowDays: BIRTHDAY_WINDOW_DAYS,
+        requirements: [...BIRTHDAY_REQUIREMENTS],
+        tiers: BIRTHDAY_TIERS
+      };
+    }),
+    submit: publicProcedure.input(z7.object({
+      name: z7.string(),
+      email: z7.string().email("Revisa tu correo"),
+      whatsapp: z7.string(),
+      instagram: z7.string().optional(),
+      birthDate: z7.string(),
+      message: z7.string().optional(),
+      acceptedTerms: z7.boolean()
+    })).mutation(async ({ input, ctx }) => {
+      const ipKey = `postulacion-cumple:${clientIp(ctx)}`;
+      if (!await checkIpRateLimit(ipKey)) {
+        throw new TRPCError3({ code: "TOO_MANY_REQUESTS", message: "Ya mandaste varias postulaciones. Espera un rato antes de intentar de nuevo." });
+      }
+      await recordIpAttempt(ipKey, APPLICATION_MAX_PER_HOUR, 60 * 60 * 1e3);
+      if (!input.acceptedTerms) {
+        throw new TRPCError3({ code: "BAD_REQUEST", message: "Tienes que confirmar que aceptas los requisitos" });
+      }
+      const event = await getFeaturedEvent();
+      if (!event) throw new TRPCError3({ code: "BAD_REQUEST", message: "No hay un evento activo para postular ahora mismo" });
+      const nombre = sanitizeApplicantName2(input.name);
+      if (!nombre.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: nombre.reason });
+      const wsp = sanitizeWhatsapp2(input.whatsapp);
+      if (!wsp.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: wsp.reason });
+      const ig = sanitizeInstagram2(input.instagram ?? "");
+      if (!ig.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: ig.reason });
+      const fecha = sanitizeBirthDate(input.birthDate);
+      if (!fecha.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: fecha.reason });
+      const mensaje = sanitizeApplicationMessage2(input.message ?? "");
+      if (!mensaje.ok) throw new TRPCError3({ code: "BAD_REQUEST", message: mensaje.reason });
+      if (!isBirthdayEligible(event.eventDate, fecha.value)) {
+        throw new TRPCError3({
+          code: "BAD_REQUEST",
+          message: `Tu cumplea\xF1os tiene que caer dentro de ${BIRTHDAY_WINDOW_DAYS} d\xEDas antes o despu\xE9s del evento (${event.title})`
+        });
+      }
+      const created = await createApplication2({
+        eventId: event.id,
+        name: nombre.value,
+        email: input.email,
+        whatsapp: wsp.value,
+        instagram: ig.value,
+        birthDate: fecha.value,
+        message: mensaje.value,
+        acceptedTerms: true
+      });
+      if (!created.ok) {
+        if (created.reason === "ya_pendiente") {
+          return { ok: true, alreadyPending: true };
+        }
+        throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "No pudimos guardar tu postulaci\xF3n. Intenta de nuevo." });
+      }
+      try {
+        await sendEmail({
+          to: APPLICATIONS_EMAIL,
+          subject: `[Cumplea\xF1eros] ${nombre.value} \u2014 ${event.title}`,
+          html: buildBirthdayApplicationEmail({
+            name: nombre.value,
+            email: input.email.trim().toLowerCase(),
+            whatsapp: wsp.value,
+            instagram: ig.value,
+            birthDate: fecha.value,
+            message: mensaje.value,
+            eventTitle: event.title,
+            whatsappLink: whatsappLinkFor(wsp.value)
+          })
+        });
+        await sendEmail({
+          to: input.email.trim().toLowerCase(),
+          subject: "\u{1F382} Recibimos tu postulaci\xF3n \u2014 Mansion Playroom",
+          html: buildBirthdayApplicationReceivedEmail({
+            name: nombre.value,
+            eventTitle: event.title,
+            requirements: [...BIRTHDAY_REQUIREMENTS]
+          })
+        });
+      } catch (err) {
+        console.error("[Cumplea\xF1eros] Fall\xF3 el env\xEDo de correos:", err);
+      }
+      await sendPushToAdmins("pushAmbassadorApplication", {
+        title: "\u{1F382} Nueva postulaci\xF3n a cumplea\xF1ero",
+        body: `${nombre.value} \u2014 ${event.title}`,
+        url: "/admin"
+      });
+      return { ok: true, alreadyPending: false };
+    }),
+    listAll: adminReadProcedure.input(z7.object({
+      status: z7.enum(["pendiente", "aprobada", "rechazada"]).optional(),
+      eventId: z7.number().optional()
+    }).optional()).query(async ({ input }) => {
+      return listApplications2(input?.status, input?.eventId);
+    }),
+    countPending: adminReadProcedure.query(async () => {
+      return countPendingApplications2();
+    }),
+    review: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      status: z7.enum(["pendiente", "aprobada", "rechazada"]),
+      note: z7.string().optional()
+    })).mutation(async ({ input }) => {
+      return reviewApplication2(input);
+    }),
+    /** Aprueba, crea el código de descuento y liga al cumpleañero en un
+     * solo paso, con el % que define el admin. */
+    approve: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      code: z7.string().min(1),
+      discountPercent: z7.number().min(0).max(100)
+    })).mutation(async ({ input }) => {
+      const result = await approveApplication2(input);
+      try {
+        await sendEmail({
+          to: result.email,
+          subject: `\u{1F389} \xA1Listo! Tu c\xF3digo de cumplea\xF1ero es ${result.code}`,
+          html: buildBirthdayApprovedEmail({
+            name: result.name,
+            code: result.code,
+            discountPercent: input.discountPercent,
+            tiers: BIRTHDAY_TIERS
+          })
+        });
+      } catch (err) {
+        console.error("[Cumplea\xF1eros] Fall\xF3 el correo de bienvenida:", err);
+      }
+      return result;
+    })
+  }),
+  // Panel admin del programa Cumpleañeros: activos por evento, conteo de
+  // ventas por código y asignación del crédito de "próximo evento".
+  birthdayProgram: router({
+    listActiveForEvent: adminReadProcedure.input(z7.object({
+      eventId: z7.number()
+    })).query(async ({ input }) => {
+      return getBirthdayPeopleForEvent(input.eventId);
+    }),
+    assignNextEventCredit: adminProcedure2.input(z7.object({
+      birthdayPersonId: z7.number(),
+      targetEventId: z7.number(),
+      ticketTypeId: z7.number()
+    })).mutation(async ({ input }) => {
+      return assignNextEventCredit(input);
+    }),
+    // Crea (si faltan) los 4 productos de premio del evento elegido --
+    // botón "Crear productos de premio" en el admin. Idempotente: no
+    // duplica los que ya existan por internalCode.
+    createRewardProducts: adminProcedure2.input(z7.object({
+      eventId: z7.number()
+    })).mutation(async ({ input }) => {
+      return createBirthdayRewardProducts(input.eventId);
+    })
+  }),
   // Módulo /caja — login por PIN de operadores (docs/ARQUITECTURA-CAJA.md
   // Fase 0). Sesión separada de auth.adminLogin: no toca `users` ni COOKIE_NAME.
   caja: router({
@@ -13573,7 +17778,7 @@ var appRouter = router({
     deviceStatus: publicProcedure.query(({ ctx }) => {
       return ctx.device ? { enrolled: true, deviceName: ctx.device.name } : { enrolled: false };
     }),
-    enrollDevice: publicProcedure.input(z6.object({ code: z6.string().min(1) })).mutation(async ({ input, ctx }) => {
+    enrollDevice: publicProcedure.input(z7.object({ code: z7.string().min(1) })).mutation(async ({ input, ctx }) => {
       const code = input.code.trim().toUpperCase();
       const device = await getDeviceByEnrollCode(code);
       if (!device || device.enrolled || !device.enrollCodeExpiresAt || new Date(device.enrollCodeExpiresAt).getTime() < Date.now()) {
@@ -13592,7 +17797,7 @@ var appRouter = router({
     listOperators: deviceProcedure.query(async ({ ctx }) => {
       return listActiveOperatorsPublic(ctx.device.eventId);
     }),
-    login: deviceProcedure.input(z6.object({ operatorId: z6.number(), pin: z6.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
+    login: deviceProcedure.input(z7.object({ operatorId: z7.number(), pin: z7.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
       const operator = await verifyOperatorPinOrThrow(ctx, input.operatorId, input.pin);
       if (operator.eventId !== ctx.device.eventId) {
         throw new TRPCError3({ code: "UNAUTHORIZED", message: "Este operador no pertenece al evento de este dispositivo" });
@@ -13630,37 +17835,37 @@ var appRouter = router({
       if (real && isPartyWindowOpen(real)) return real;
       return getOrCreateCajaTestEvent();
     }),
-    dashboard: operatorProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    dashboard: operatorProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getCajaDashboard(input.eventId);
     }),
     // Descarga completa para el modo offline (docs/ARQUITECTURA-CAJA.md
     // §6.2) -- la tablet la guarda en IndexedDB al abrir turno y la
     // refresca cada 60s cuando hay conexión.
-    snapshot: operatorProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    snapshot: operatorProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getCajaSnapshot(input.eventId);
     }),
     // Procesa un lote de operaciones encoladas offline (§7) -- reutiliza
     // exactamente la misma lógica idempotente (applyOp) que los endpoints
     // online `redeem`/`sale`, así que reenviar el mismo opId nunca duplica nada.
-    sync: operatorProcedure.input(z6.object({
-      eventId: z6.number(),
-      registerId: z6.number().optional(),
-      ops: z6.array(z6.discriminatedUnion("type", [
-        z6.object({ type: z6.literal("redeem"), opId: z6.string(), displayCode: z6.string(), clientAt: z6.string() }),
-        z6.object({ type: z6.literal("checkin"), opId: z6.string(), ticketCode: z6.string(), clientAt: z6.string() }),
-        z6.object({
-          type: z6.literal("sale"),
-          opId: z6.string(),
-          items: z6.array(z6.object({ ticketTypeId: z6.number(), quantity: z6.number().min(1) })).min(1),
-          paymentMethod: z6.enum(["efectivo", "debito", "credito", "qr"]),
-          buyerEmail: z6.string().email().optional(),
-          redeemPlaycoins: z6.number().int().min(0).optional(),
-          discountCode: z6.string().optional(),
-          lockerTag: z6.string().max(16).optional(),
-          lockerCustomerName: z6.string().max(120).optional(),
-          kitchenTicketNumber: z6.string().max(12).optional(),
-          customerName: z6.string().max(60).optional(),
-          clientAt: z6.string()
+    sync: operatorProcedure.input(z7.object({
+      eventId: z7.number(),
+      registerId: z7.number().optional(),
+      ops: z7.array(z7.discriminatedUnion("type", [
+        z7.object({ type: z7.literal("redeem"), opId: z7.string(), displayCode: z7.string(), clientAt: z7.string() }),
+        z7.object({ type: z7.literal("checkin"), opId: z7.string(), ticketCode: z7.string(), clientAt: z7.string() }),
+        z7.object({
+          type: z7.literal("sale"),
+          opId: z7.string(),
+          items: z7.array(z7.object({ ticketTypeId: z7.number(), quantity: z7.number().min(1) })).min(1),
+          paymentMethod: z7.enum(["efectivo", "debito", "credito", "qr"]),
+          buyerEmail: z7.string().email().optional(),
+          redeemPlaycoins: z7.number().int().min(0).optional(),
+          discountCode: z7.string().optional(),
+          lockerTag: z7.string().max(16).optional(),
+          lockerCustomerName: z7.string().max(120).optional(),
+          kitchenTicketNumber: z7.string().max(12).optional(),
+          customerName: z7.string().max(60).optional(),
+          clientAt: z7.string()
         })
       ])).max(50)
     })).mutation(async ({ input, ctx }) => {
@@ -13722,8 +17927,8 @@ var appRouter = router({
     // primer plano, pestaña cerrada) -- y ahí le volvía a pedir el efectivo
     // inicial a la cajera aunque el turno siguiera abierto en la base. Ese
     // era el bug que reportó el dueño del evento pasado.
-    currentShift: operatorProcedure.input(z6.object({
-      registerId: z6.number().optional()
+    currentShift: operatorProcedure.input(z7.object({
+      registerId: z7.number().optional()
     })).query(async ({ input, ctx }) => {
       if (!ctx.device) throw new TRPCError3({ code: "FORBIDDEN", message: "Este dispositivo no est\xE1 enrolado" });
       const shift = await getOpenShift(ctx.device.eventId, input.registerId);
@@ -13738,12 +17943,12 @@ var appRouter = router({
     // Apertura de turno con cuadre de caja (pedido explícito del usuario):
     // pide el efectivo inicial declarado por la cajera. Idempotente por
     // evento+caja (un refresh de página no duplica el turno abierto).
-    shiftOpen: operatorProcedure.input(z6.object({
-      opId: z6.string(),
-      eventId: z6.number(),
-      registerId: z6.number().optional(),
-      openingCash: z6.number().min(0),
-      clientAt: z6.string()
+    shiftOpen: operatorProcedure.input(z7.object({
+      opId: z7.string(),
+      eventId: z7.number(),
+      registerId: z7.number().optional(),
+      openingCash: z7.number().min(0),
+      clientAt: z7.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -13783,15 +17988,15 @@ var appRouter = router({
     // Pide efectivo TOTAL contado (no la diferencia) + totales de débito y
     // crédito de las máquinas, hace el cuadre contra las ventas registradas
     // (solo canal caja, nunca web) y manda el informe final por correo.
-    shiftClose: operatorProcedure.input(z6.object({
-      opId: z6.string(),
-      eventId: z6.number(),
-      registerId: z6.number().optional(),
-      countedCash: z6.number().min(0),
-      countedDebit: z6.number().min(0),
-      countedCredit: z6.number().min(0),
-      countedQr: z6.number().min(0).optional(),
-      clientAt: z6.string()
+    shiftClose: operatorProcedure.input(z7.object({
+      opId: z7.string(),
+      eventId: z7.number(),
+      registerId: z7.number().optional(),
+      countedCash: z7.number().min(0),
+      countedDebit: z7.number().min(0),
+      countedCredit: z7.number().min(0),
+      countedQr: z7.number().min(0).optional(),
+      clientAt: z7.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -13835,13 +18040,13 @@ var appRouter = router({
       return { ...report, emailSent };
     }),
     // Anulación con motivo -- solo supervisor/admin (docs/ARQUITECTURA-CAJA.md §3.2).
-    voidCode: supervisorProcedure.input(z6.object({
-      opId: z6.string(),
-      eventId: z6.number(),
-      displayCode: z6.string().min(1),
-      reason: z6.string().min(3, "El motivo es obligatorio"),
-      registerId: z6.number().optional(),
-      clientAt: z6.string()
+    voidCode: supervisorProcedure.input(z7.object({
+      opId: z7.string(),
+      eventId: z7.number(),
+      displayCode: z7.string().min(1),
+      reason: z7.string().min(3, "El motivo es obligatorio"),
+      registerId: z7.number().optional(),
+      clientAt: z7.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -13858,15 +18063,15 @@ var appRouter = router({
     }),
     // Cola de conflictos para el supervisor (§8): canjes dobles todavía sin
     // revisar. "Resuelto" = existe un op manual_adjust posterior que lo referencia.
-    conflictQueue: supervisorProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    conflictQueue: supervisorProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getConflictQueue(input.eventId);
     }),
-    resolveConflict: supervisorProcedure.input(z6.object({
-      opId: z6.string(),
-      eventId: z6.number(),
-      conflictOpId: z6.string(),
-      note: z6.string().optional(),
-      clientAt: z6.string()
+    resolveConflict: supervisorProcedure.input(z7.object({
+      opId: z7.string(),
+      eventId: z7.number(),
+      conflictOpId: z7.string(),
+      note: z7.string().optional(),
+      clientAt: z7.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -13880,12 +18085,12 @@ var appRouter = router({
         clientAt: new Date(input.clientAt)
       });
     }),
-    redeem: operatorProcedure.input(z6.object({
-      opId: z6.string(),
-      eventId: z6.number(),
-      displayCode: z6.string().min(1),
-      registerId: z6.number().optional(),
-      clientAt: z6.string()
+    redeem: operatorProcedure.input(z7.object({
+      opId: z7.string(),
+      eventId: z7.number(),
+      displayCode: z7.string().min(1),
+      registerId: z7.number().optional(),
+      clientAt: z7.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -13900,12 +18105,12 @@ var appRouter = router({
     }),
     // Marca la entrada de un acceso en la puerta (mismo ledger idempotente
     // que `redeem`, pero por ticketCode y solo para category='acceso').
-    checkin: operatorProcedure.input(z6.object({
-      opId: z6.string(),
-      eventId: z6.number(),
-      ticketCode: z6.string().min(1),
-      registerId: z6.number().optional(),
-      clientAt: z6.string()
+    checkin: operatorProcedure.input(z7.object({
+      opId: z7.string(),
+      eventId: z7.number(),
+      ticketCode: z7.string().min(1),
+      registerId: z7.number().optional(),
+      clientAt: z7.string()
     })).mutation(async ({ input, ctx }) => {
       const rawDb = await getDb();
       if (!rawDb) throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: "Base de datos no disponible" });
@@ -13924,21 +18129,21 @@ var appRouter = router({
     // acepta en su discriminatedUnion): el saldo exige conexión siempre, a
     // diferencia de efectivo/débito/crédito/qr, que sí viajan por la cola
     // offline. `cardPin` es requerido cuando paymentMethod==='saldo'.
-    sale: operatorProcedure.input(z6.object({
-      opId: z6.string(),
-      eventId: z6.number(),
-      items: z6.array(z6.object({ ticketTypeId: z6.number(), quantity: z6.number().min(1) })).min(1),
-      paymentMethod: z6.enum(["efectivo", "debito", "credito", "qr", "saldo"]),
-      registerId: z6.number().optional(),
-      buyerEmail: z6.string().email().optional(),
-      cardPin: z6.string().regex(/^\d{4}$/).optional(),
-      redeemPlaycoins: z6.number().int().min(0).optional(),
-      discountCode: z6.string().optional(),
-      lockerTag: z6.string().max(16).optional(),
-      lockerCustomerName: z6.string().max(120).optional(),
-      kitchenTicketNumber: z6.string().max(12).optional(),
-      customerName: z6.string().max(60).optional(),
-      clientAt: z6.string()
+    sale: operatorProcedure.input(z7.object({
+      opId: z7.string(),
+      eventId: z7.number(),
+      items: z7.array(z7.object({ ticketTypeId: z7.number(), quantity: z7.number().min(1) })).min(1),
+      paymentMethod: z7.enum(["efectivo", "debito", "credito", "qr", "saldo"]),
+      registerId: z7.number().optional(),
+      buyerEmail: z7.string().email().optional(),
+      cardPin: z7.string().regex(/^\d{4}$/).optional(),
+      redeemPlaycoins: z7.number().int().min(0).optional(),
+      discountCode: z7.string().optional(),
+      lockerTag: z7.string().max(16).optional(),
+      lockerCustomerName: z7.string().max(120).optional(),
+      kitchenTicketNumber: z7.string().max(12).optional(),
+      customerName: z7.string().max(60).optional(),
+      clientAt: z7.string()
     })).mutation(async ({ input, ctx }) => {
       if (input.paymentMethod === "saldo" && (!input.buyerEmail || !input.cardPin)) {
         throw new TRPCError3({ code: "BAD_REQUEST", message: "Pagar con saldo necesita el email y el PIN de la tarjeta" });
@@ -13972,7 +18177,7 @@ var appRouter = router({
     // veces que haga falta mientras siga probando). Ver db.resetEventTestData
     // para el detalle exacto de qué toca y qué deja intacto (nunca compras
     // web, check-ins de puerta ni canjes de extras).
-    resetTestData: adminPasswordProcedure.input(z6.object({ eventId: z6.number() })).mutation(async ({ input, ctx }) => {
+    resetTestData: adminPasswordProcedure.input(z7.object({ eventId: z7.number() })).mutation(async ({ input, ctx }) => {
       const result = await resetEventTestData(input.eventId);
       await recordAdminAudit({ action: "caja.resetTestData", targetType: "event", targetId: input.eventId, eventId: input.eventId, payload: result, ip: clientIp(ctx) });
       return result;
@@ -13980,17 +18185,17 @@ var appRouter = router({
   }),
   // Gestión de operadores desde /admin (docs/ARQUITECTURA-CAJA.md §11).
   operators: router({
-    listAll: adminReadProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    listAll: adminReadProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return listAllOperators(input.eventId);
     }),
-    create: adminProcedure2.input(z6.object({
-      eventId: z6.number(),
-      name: z6.string().min(1),
-      pin: z6.string().min(4).max(8),
-      role: z6.enum(["admin", "supervisor", "caja", "barra", "acceso", "cocina", "guardarropia"]),
+    create: adminProcedure2.input(z7.object({
+      eventId: z7.number(),
+      name: z7.string().min(1),
+      pin: z7.string().min(4).max(8),
+      role: z7.enum(["admin", "supervisor", "caja", "barra", "acceso", "cocina", "guardarropia"]),
       // Opcional (pedido explícito del usuario): si está cargado, el cierre
       // de turno le manda el PDF de cuadre por correo a esta cajera.
-      email: z6.string().email().optional()
+      email: z7.string().email().optional()
     })).mutation(async ({ input }) => {
       const id = await createOperator({ eventId: input.eventId, name: input.name, pinHash: hashPin(input.pin), role: input.role, email: input.email });
       return { id };
@@ -13999,13 +18204,13 @@ var appRouter = router({
     // solo evento (pedido explícito del usuario). Si trabaja en otra fiesta
     // se crea de nuevo ahí -- moverlo reasignaría silenciosamente su
     // historial pasado a otro evento.
-    update: adminProcedure2.input(z6.object({
-      id: z6.number(),
-      name: z6.string().min(1).optional(),
-      pin: z6.string().min(4).max(8).optional(),
-      role: z6.enum(["admin", "supervisor", "caja", "barra", "acceso", "cocina", "guardarropia"]).optional(),
-      active: z6.number().min(0).max(1).optional(),
-      email: z6.string().email().nullable().optional()
+    update: adminProcedure2.input(z7.object({
+      id: z7.number(),
+      name: z7.string().min(1).optional(),
+      pin: z7.string().min(4).max(8).optional(),
+      role: z7.enum(["admin", "supervisor", "caja", "barra", "acceso", "cocina", "guardarropia"]).optional(),
+      active: z7.number().min(0).max(1).optional(),
+      email: z7.string().email().nullable().optional()
     })).mutation(async ({ input }) => {
       const { id, pin, ...rest } = input;
       await updateOperator(id, { ...rest, ...pin ? { pinHash: hashPin(pin) } : {} });
@@ -14014,7 +18219,7 @@ var appRouter = router({
     // Borrado real (pedido explícito del usuario: que no se vayan
     // acumulando) -- bloqueado si el operador ya tiene historial, ver
     // db.operatorHasHistory.
-    delete: adminPasswordProcedure.input(z6.object({ id: z6.number() })).mutation(async ({ input, ctx }) => {
+    delete: adminPasswordProcedure.input(z7.object({ id: z7.number() })).mutation(async ({ input, ctx }) => {
       try {
         const result = await deleteOperator(input.id);
         await recordAdminAudit({ action: "operators.delete", targetType: "operator", targetId: input.id, ip: clientIp(ctx) });
@@ -14026,12 +18231,16 @@ var appRouter = router({
   }),
   // Base de datos de clientes desde /admin (pedido explícito del usuario).
   customers: router({
-    listAll: adminReadProcedure.input(z6.object({
-      search: z6.string().optional(),
-      accessType: z6.string().optional(),
-      tag: z6.string().optional(),
-      excludeTags: z6.array(z6.string()).optional(),
-      eventId: z6.number().optional()
+    listAll: adminReadProcedure.input(z7.object({
+      search: z7.string().optional(),
+      accessType: z7.string().optional(),
+      tag: z7.string().optional(),
+      excludeTags: z7.array(z7.string()).optional(),
+      eventId: z7.number().optional(),
+      // Ya lo usaba internamente Founders Promo (server/foundersPromo.ts) --
+      // se expone acá para poder armar audiencias de mailing manual tipo
+      // "todos menos los que ya compraron este evento".
+      notPurchasedEventId: z7.number().optional()
     }).optional()).query(async ({ input }) => {
       return listCustomers(input ?? {});
     }),
@@ -14041,7 +18250,7 @@ var appRouter = router({
     listTags: adminReadProcedure.query(async () => {
       return listCustomerTags();
     }),
-    addTag: adminProcedure2.input(z6.object({ customerId: z6.number(), tag: z6.string().min(1) })).mutation(async ({ input }) => {
+    addTag: adminProcedure2.input(z7.object({ customerId: z7.number(), tag: z7.string().min(1) })).mutation(async ({ input }) => {
       await addCustomerTag(input.customerId, input.tag);
       return { success: true };
     }),
@@ -14049,9 +18258,9 @@ var appRouter = router({
     // explícito del usuario, ej. el reporte de entregados de Resend, que
     // trae la columna "to") -- no crea clientes nuevos, solo taguea los que
     // ya existen; los que no matchean se devuelven en notFound.
-    bulkTagFromCsv: adminProcedure2.input(z6.object({
-      csv: z6.string().min(1),
-      tag: z6.string().min(1)
+    bulkTagFromCsv: adminProcedure2.input(z7.object({
+      csv: z7.string().min(1),
+      tag: z7.string().min(1)
     })).mutation(async ({ input }) => {
       const rows = parseCsv(input.csv);
       const emails = extractEmailColumn(rows, ["to", "email", "correo"]);
@@ -14060,13 +18269,13 @@ var appRouter = router({
       }
       return bulkAddTagByEmails(emails, input.tag);
     }),
-    removeTag: adminProcedure2.input(z6.object({ customerId: z6.number(), tag: z6.string() })).mutation(async ({ input }) => {
+    removeTag: adminProcedure2.input(z7.object({ customerId: z7.number(), tag: z7.string() })).mutation(async ({ input }) => {
       await removeCustomerTag(input.customerId, input.tag);
       return { success: true };
     }),
     // Ajuste manual de Playcoins (pedido explícito del usuario) -- para
     // migrar saldos de Shopify a mano o corregir.
-    adjustPlaycoins: adminProcedure2.input(z6.object({ customerId: z6.number(), delta: z6.number().int(), note: z6.string().optional() })).mutation(async ({ input }) => {
+    adjustPlaycoins: adminProcedure2.input(z7.object({ customerId: z7.number(), delta: z7.number().int(), note: z7.string().optional() })).mutation(async ({ input }) => {
       await adjustPlaycoinsManually(input.customerId, input.delta, input.note ?? "");
       return { success: true };
     })
@@ -14075,9 +18284,9 @@ var appRouter = router({
   // la IA solo genera texto estructurado (server/mailing.ts), el HTML de
   // marca se arma siempre acá con buildMailingBlastEmail.
   mailing: router({
-    generateTemplate: adminProcedure2.input(z6.object({
-      objective: z6.string().min(5).max(1e3),
-      audienceDescription: z6.string()
+    generateTemplate: adminProcedure2.input(z7.object({
+      objective: z7.string().min(5).max(1e3),
+      audienceDescription: z7.string()
     })).mutation(async ({ input }) => {
       try {
         return await generateMailingTemplate(input.objective, input.audienceDescription);
@@ -14085,10 +18294,10 @@ var appRouter = router({
         throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "No se pudo generar la plantilla." });
       }
     }),
-    renderPreview: adminProcedure2.input(z6.object({
+    renderPreview: adminProcedure2.input(z7.object({
       content: MailingContentSchema,
-      ctaUrl: z6.string(),
-      sampleName: z6.string().optional(),
+      ctaUrl: z7.string(),
+      sampleName: z7.string().optional(),
       eventSections: mailingEventSectionsSchema
     })).mutation(async ({ input }) => {
       const eventInfo = Object.values(input.eventSections).some(Boolean) ? await getMailingEventInfo() : null;
@@ -14096,11 +18305,11 @@ var appRouter = router({
         html: buildMailingBlastEmail({ ...input.content, buyerName: input.sampleName || "Camila", ctaUrl: input.ctaUrl, eventInfo, eventSections: input.eventSections })
       };
     }),
-    sendBatch: adminProcedure2.input(z6.object({
-      customerIds: z6.array(z6.number()).min(1).max(MAILING_BATCH_MAX),
+    sendBatch: adminProcedure2.input(z7.object({
+      customerIds: z7.array(z7.number()).min(1).max(MAILING_BATCH_MAX),
       content: MailingContentSchema,
-      ctaUrl: z6.string(),
-      campaignTag: z6.string().optional(),
+      ctaUrl: z7.string(),
+      campaignTag: z7.string().optional(),
       eventSections: mailingEventSectionsSchema
     })).mutation(async ({ input }) => {
       const eventInfo = Object.values(input.eventSections).some(Boolean) ? await getMailingEventInfo() : null;
@@ -14110,13 +18319,14 @@ var appRouter = router({
     // Cola de envío automática (pedido explícito del usuario): a diferencia
     // de sendBatch (manda ya mismo desde el navegador), esto solo guarda la
     // campaña -- el cron diario (server/cronRoutes.ts) la va drenando.
-    createAutoCampaign: adminProcedure2.input(z6.object({
-      name: z6.string().min(1),
-      audienceDescription: z6.string(),
-      customerIds: z6.array(z6.number()).min(1),
+    createAutoCampaign: adminProcedure2.input(z7.object({
+      name: z7.string().min(1),
+      audienceDescription: z7.string(),
+      customerIds: z7.array(z7.number()).min(1),
       content: MailingContentSchema,
-      ctaUrl: z6.string(),
-      eventSections: mailingEventSectionsSchema
+      ctaUrl: z7.string(),
+      eventSections: mailingEventSectionsSchema,
+      eventId: z7.number().optional()
     })).mutation(async ({ input }) => {
       try {
         return await createAutoMailingCampaign(input);
@@ -14127,7 +18337,16 @@ var appRouter = router({
     listCampaigns: adminReadProcedure.query(async () => {
       return listMailingCampaigns();
     }),
-    getCampaignRecipients: adminReadProcedure.input(z6.object({ campaignId: z6.number() })).query(async ({ input }) => {
+    // Contador diario de TODOS los correos (server/db.ts countEmailsSentToday)
+    // -- pedido explícito del dueño para cuidar el cupo de ~100/día de
+    // Resend. `dailyCap` es informativo (RESEND_DAILY_EMAIL_CAP, default
+    // 100): no bloquea nada, no hay forma de leer la cuota real de Resend.
+    getDailyEmailUsage: adminReadProcedure.query(async () => {
+      const sentToday = await countEmailsSentToday();
+      const dailyCap = Number(process.env.RESEND_DAILY_EMAIL_CAP) || 100;
+      return { sentToday, dailyCap, remaining: Math.max(0, dailyCap - sentToday) };
+    }),
+    getCampaignRecipients: adminReadProcedure.input(z7.object({ campaignId: z7.number() })).query(async ({ input }) => {
       return getMailingCampaignRecipients(input.campaignId);
     }),
     // Envíos inmediatos (aviso automático de primeros cupos + "Enviar a N
@@ -14136,12 +18355,12 @@ var appRouter = router({
     listRecentSendBatches: adminReadProcedure.query(async () => {
       return listRecentMailingSendBatches();
     }),
-    getSendBatchDetail: adminReadProcedure.input(z6.object({ batchId: z6.string() })).query(async ({ input }) => {
+    getSendBatchDetail: adminReadProcedure.input(z7.object({ batchId: z7.string() })).query(async ({ input }) => {
       return getMailingSendLogForBatch(input.batchId);
     }),
     // Frena el drenaje del cron para una campaña todavía 'sending' (pedido
     // explícito del usuario: no había forma de cancelar una programada).
-    cancelCampaign: adminProcedure2.input(z6.object({ campaignId: z6.number() })).mutation(async ({ input }) => {
+    cancelCampaign: adminProcedure2.input(z7.object({ campaignId: z7.number() })).mutation(async ({ input }) => {
       try {
         return await cancelMailingCampaign(input.campaignId);
       } catch (err) {
@@ -14180,7 +18399,7 @@ var appRouter = router({
   // sin login, igual que referrals.getByCode: el sitio no tiene cuentas de
   // comprador, el email es lo único necesario.
   playcoins: router({
-    getBalanceByEmail: publicProcedure.input(z6.object({ email: z6.string().email() })).query(async ({ input }) => {
+    getBalanceByEmail: publicProcedure.input(z7.object({ email: z7.string().email() })).query(async ({ input }) => {
       return getPlaycoinsBalance(input.email);
     })
   }),
@@ -14208,10 +18427,10 @@ var appRouter = router({
     // arriba (verifyOperatorPinOrThrow) -- nada nuevo que mantener. Un
     // comprador legítimo llama esto una sola vez, apenas se aprueba su pago
     // (ver Checkout.tsx), así que nunca lo nota.
-    setCardPinAfterTopup: publicProcedure.input(z6.object({
-      orderNumber: z6.string().min(1),
-      pin: z6.string().regex(/^\d{4}$/, "El PIN debe tener 4 d\xEDgitos"),
-      currentPin: z6.string().regex(/^\d{4}$/).optional()
+    setCardPinAfterTopup: publicProcedure.input(z7.object({
+      orderNumber: z7.string().min(1),
+      pin: z7.string().regex(/^\d{4}$/, "El PIN debe tener 4 d\xEDgitos"),
+      currentPin: z7.string().regex(/^\d{4}$/).optional()
     })).mutation(async ({ input, ctx }) => {
       const ipKey = `cardpin-set:${clientIp(ctx)}`;
       if (!await checkIpRateLimit(ipKey)) {
@@ -14229,30 +18448,30 @@ var appRouter = router({
   // Playcoins + movimientos recientes) -- público, mismo criterio que
   // tickets.getByCode: el QR/link ya es la prueba de posesión de la entrada.
   wallet: router({
-    getByTicketCode: publicProcedure.input(z6.object({ ticketCode: z6.string() })).query(async ({ input }) => {
+    getByTicketCode: publicProcedure.input(z7.object({ ticketCode: z7.string() })).query(async ({ input }) => {
       return getWalletForTicket(input.ticketCode);
     })
   }),
   // Enrolamiento de dispositivos desde /admin (pedido explícito del usuario).
   devices: router({
-    listAll: adminReadProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    listAll: adminReadProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return listAllDevices(input.eventId);
     }),
     // Genera un código de un solo uso (vence a las 24h) para enrolar una
     // tablet nueva -- se muestra una sola vez en el admin, no se puede
     // recuperar después (mismo criterio que un PIN).
-    create: adminProcedure2.input(z6.object({ eventId: z6.number(), name: z6.string().min(1) })).mutation(async ({ input }) => {
+    create: adminProcedure2.input(z7.object({ eventId: z7.number(), name: z7.string().min(1) })).mutation(async ({ input }) => {
       const code = generateEnrollCode();
       const id = await createDeviceEnrollment(input.eventId, input.name, code, enrollCodeExpiry());
       return { id, enrollCode: code };
     }),
-    setActive: adminProcedure2.input(z6.object({ id: z6.number(), active: z6.number().min(0).max(1) })).mutation(async ({ input }) => {
+    setActive: adminProcedure2.input(z7.object({ id: z7.number(), active: z7.number().min(0).max(1) })).mutation(async ({ input }) => {
       await updateDeviceActive(input.id, input.active);
       return { success: true };
     }),
     // Ningún dispositivo queda referenciado desde otra tabla (ver
     // db.deleteDevice), así que este borrado nunca se bloquea por historial.
-    delete: adminPasswordProcedure.input(z6.object({ id: z6.number() })).mutation(async ({ input, ctx }) => {
+    delete: adminPasswordProcedure.input(z7.object({ id: z7.number() })).mutation(async ({ input, ctx }) => {
       try {
         const result = await deleteDevice(input.id);
         await recordAdminAudit({ action: "devices.delete", targetType: "device", targetId: input.id, ip: clientIp(ctx) });
@@ -14264,14 +18483,14 @@ var appRouter = router({
   }),
   // Cajas físicas ("Caja 1", "Caja 2"...) desde /admin.
   registers: router({
-    listAll: adminReadProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    listAll: adminReadProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return listAllRegisters(input.eventId);
     }),
-    create: adminProcedure2.input(z6.object({ eventId: z6.number(), name: z6.string().min(1) })).mutation(async ({ input }) => {
+    create: adminProcedure2.input(z7.object({ eventId: z7.number(), name: z7.string().min(1) })).mutation(async ({ input }) => {
       const id = await createRegister(input.eventId, input.name);
       return { id };
     }),
-    delete: adminPasswordProcedure.input(z6.object({ id: z6.number() })).mutation(async ({ input, ctx }) => {
+    delete: adminPasswordProcedure.input(z7.object({ id: z7.number() })).mutation(async ({ input, ctx }) => {
       try {
         const result = await deleteRegister(input.id);
         await recordAdminAudit({ action: "registers.delete", targetType: "register", targetId: input.id, ip: clientIp(ctx) });
@@ -14283,16 +18502,16 @@ var appRouter = router({
   }),
   // Reportes y auditoría de /caja desde /admin (docs/ARQUITECTURA-CAJA.md §11, Fase 4).
   cajaReports: router({
-    profit: adminReadProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    profit: adminReadProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getProfitReport(input.eventId);
     }),
     // IA: preguntas simples sobre ventas/movimientos, con los datos ya
     // agregados del sistema (ver server/adminQa.ts). adminProcedure (no
     // adminReadProcedure) porque dispara una llamada a IA con costo, mismo
     // criterio que mailing/recordatorios.
-    askAi: adminProcedure2.input(z6.object({
-      question: z6.string().min(3).max(500),
-      eventId: z6.number().optional()
+    askAi: adminProcedure2.input(z7.object({
+      question: z7.string().min(3).max(500),
+      eventId: z7.number().optional()
     })).mutation(async ({ input }) => {
       try {
         const answer = await answerSalesQuestion(input.question, input.eventId);
@@ -14301,12 +18520,12 @@ var appRouter = router({
         throw new TRPCError3({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "No se pudo generar la respuesta." });
       }
     }),
-    kitchenVendorReport: adminReadProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    kitchenVendorReport: adminReadProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getKitchenVendorReport(input.eventId);
     }),
     // Manda la rendición de cocina al proveedor cargado en Ajustes -- no
     // bloqueante si Resend falla, mismo criterio que shiftClose.
-    sendKitchenVendorReport: adminProcedure2.input(z6.object({ eventId: z6.number() })).mutation(async ({ input }) => {
+    sendKitchenVendorReport: adminProcedure2.input(z7.object({ eventId: z7.number() })).mutation(async ({ input }) => {
       const settings = await getSiteSettings();
       if (!settings.kitchenVendorEmail) {
         throw new TRPCError3({ code: "BAD_REQUEST", message: "Primero carga el email del proveedor de cocina en Ajustes." });
@@ -14326,9 +18545,9 @@ var appRouter = router({
     // usuario: un solo botón que arma PDF+CSV+email en vez de uno por
     // tabla). El admin siempre recibe copia; `recipientEmails` son los
     // emails de staff elegidos a mano en el diálogo de envío.
-    emailVentasReport: adminProcedure2.input(z6.object({
-      eventId: z6.number(),
-      recipientEmails: z6.array(z6.string().email()).default([])
+    emailVentasReport: adminProcedure2.input(z7.object({
+      eventId: z7.number(),
+      recipientEmails: z7.array(z7.string().email()).default([])
     })).mutation(async ({ input }) => {
       const event = await getEventById(input.eventId);
       const eventTitle = event?.title ?? `Evento #${input.eventId}`;
@@ -14349,9 +18568,9 @@ var appRouter = router({
       const results = await Promise.all(recipients.map((to) => sendEmail({ to, subject: `[Reporte de ventas] ${eventTitle}`, html, attachments })));
       return { success: true, emailSent: results.every((r) => r.success) };
     }),
-    emailGastosReport: adminProcedure2.input(z6.object({
-      eventId: z6.number(),
-      recipientEmails: z6.array(z6.string().email()).default([])
+    emailGastosReport: adminProcedure2.input(z7.object({
+      eventId: z7.number(),
+      recipientEmails: z7.array(z7.string().email()).default([])
     })).mutation(async ({ input }) => {
       const event = await getEventById(input.eventId);
       const eventTitle = event?.title ?? `Evento #${input.eventId}`;
@@ -14370,37 +18589,37 @@ var appRouter = router({
     }),
     // `eventIds` opcional: sin filtro compara todos los eventos, con filtro
     // solo los seleccionados (selector de eventos del admin).
-    eventComparison: adminReadProcedure.input(z6.object({ eventIds: z6.array(z6.number()).optional() }).optional()).query(async ({ input }) => {
+    eventComparison: adminReadProcedure.input(z7.object({ eventIds: z7.array(z7.number()).optional() }).optional()).query(async ({ input }) => {
       return getEventComparison(input?.eventIds);
     }),
     // Resultado REAL de un evento: a diferencia de `profit` (que es margen por
     // producto, sobre precios de lista), acá el ingreso es la plata que entró
     // de verdad y se restan todos los gastos, el IVA y las comisiones.
-    eventPnl: adminReadProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    eventPnl: adminReadProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getEventPnl(input.eventId);
     }),
-    pnlComparison: adminReadProcedure.input(z6.object({ eventIds: z6.array(z6.number()).optional() }).optional()).query(async ({ input }) => {
+    pnlComparison: adminReadProcedure.input(z7.object({ eventIds: z7.array(z7.number()).optional() }).optional()).query(async ({ input }) => {
       return getPnlComparison(input?.eventIds);
     }),
-    parkingReport: adminReadProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    parkingReport: adminReadProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getParkingReport(input.eventId);
     }),
-    peakHours: adminReadProcedure.input(z6.object({ eventId: z6.number() })).query(async ({ input }) => {
+    peakHours: adminReadProcedure.input(z7.object({ eventId: z7.number() })).query(async ({ input }) => {
       return getPeakHours(input.eventId);
     }),
-    ledger: adminReadProcedure.input(z6.object({
-      eventId: z6.number(),
-      operatorId: z6.number().optional(),
-      type: z6.string().optional(),
-      dateFrom: z6.string().optional(),
-      dateTo: z6.string().optional()
+    ledger: adminReadProcedure.input(z7.object({
+      eventId: z7.number(),
+      operatorId: z7.number().optional(),
+      type: z7.string().optional(),
+      dateFrom: z7.string().optional(),
+      dateTo: z7.string().optional()
     })).query(async ({ input }) => {
       const { eventId, ...filters } = input;
       return getLedger(eventId, filters);
     }),
     // Cuadres de caja guardados (pedido explícito del usuario) -- sin
     // eventId trae los de todos los eventos, para comparar entre fiestas.
-    shiftClosings: adminReadProcedure.input(z6.object({ eventId: z6.number().optional() }).optional()).query(async ({ input }) => {
+    shiftClosings: adminReadProcedure.input(z7.object({ eventId: z7.number().optional() }).optional()).query(async ({ input }) => {
       return listShiftClosings(input?.eventId);
     }),
     // Turnos todavía abiertos: los necesita el formulario de gastos para
@@ -14415,16 +18634,16 @@ var appRouter = router({
     }),
     // Bitácora de acciones destructivas del panel. Los terminales ya tenían
     // el ledger `ops`; el lado admin no dejaba ningún rastro.
-    adminAudit: adminReadProcedure.input(z6.object({ limit: z6.number().min(1).max(500).optional() }).optional()).query(async ({ input }) => {
+    adminAudit: adminReadProcedure.input(z7.object({ limit: z7.number().min(1).max(500).optional() }).optional()).query(async ({ input }) => {
       return listAdminAudit(input?.limit ?? 200);
     }),
-    openShifts: adminReadProcedure.input(z6.object({ eventId: z6.number().optional() }).optional()).query(async ({ input }) => {
+    openShifts: adminReadProcedure.input(z7.object({ eventId: z7.number().optional() }).optional()).query(async ({ input }) => {
       return listOpenShifts(input?.eventId);
     }),
     // Detalle venta por venta de un turno: con una diferencia grande, los
     // totales por medio de pago no alcanzan para explicarla -- hay que poder
     // comparar contra el voucher de la máquina línea por línea.
-    shiftSales: adminReadProcedure.input(z6.object({ shiftId: z6.number() })).query(async ({ input }) => {
+    shiftSales: adminReadProcedure.input(z7.object({ shiftId: z7.number() })).query(async ({ input }) => {
       return getShiftSales(input.shiftId);
     }),
     // Eliminar un cierre de turno (pedido explícito del usuario, para sacar
@@ -14434,8 +18653,8 @@ var appRouter = router({
     // Antes comparaba la clave con `!==` (sin tiempo constante) y sin
     // ningún límite de intentos. Ahora usa el mismo procedure que el resto
     // de las acciones destructivas, para que el arreglo valga en todas.
-    deleteShiftClosing: adminPasswordProcedure.input(z6.object({
-      shiftId: z6.number()
+    deleteShiftClosing: adminPasswordProcedure.input(z7.object({
+      shiftId: z7.number()
     })).mutation(async ({ input, ctx }) => {
       const before = await getShiftSales(input.shiftId);
       const result = await deleteShiftClosing(input.shiftId);
@@ -14489,14 +18708,17 @@ function looksLikeDbConnectionError(error) {
   return DB_CONNECTION_ERROR_PATTERN.test(message) || DB_CONNECTION_ERROR_PATTERN.test(causeMessage);
 }
 function createApp() {
-  const app2 = express();
-  app2.use(express.json({ limit: "10mb" }));
-  app2.use(express.urlencoded({ limit: "10mb", extended: true }));
+  const app2 = express3();
+  app2.use(instagramRouter);
+  app2.use(whatsappRouter);
+  app2.use(express3.json({ limit: "10mb" }));
+  app2.use(express3.urlencoded({ limit: "10mb", extended: true }));
   registerOAuthRoutes(app2);
   registerAdminRoutes(app2);
   registerCronRoutes(app2);
   registerTicketAssetRoutes(app2);
   registerBlobUploadRoutes(app2);
+  registerSitemapRoute(app2);
   app2.use(webhooksRouter);
   app2.use(
     "/api/trpc",
@@ -14514,7 +18736,7 @@ function createApp() {
 }
 
 // shared/structuredData.ts
-var SITE_URL = "https://mansionplayroom.cl";
+var SITE_URL2 = "https://mansionplayroom.cl";
 function eventSchema(event) {
   const schema = {
     "@context": "https://schema.org",
@@ -14536,7 +18758,7 @@ function eventSchema(event) {
     organizer: {
       "@type": "Organization",
       name: "Mansion Playroom",
-      url: `${SITE_URL}/`
+      url: `${SITE_URL2}/`
     }
   };
   if (event.description) schema.description = event.description;
@@ -14544,7 +18766,7 @@ function eventSchema(event) {
   if (event.imageUrl) schema.image = event.imageUrl;
   const offer = {
     "@type": "Offer",
-    url: `${SITE_URL}/eventos/${event.slug}`,
+    url: `${SITE_URL2}/eventos/${event.slug}`,
     availability: "https://schema.org/InStock"
   };
   if (event.priceFrom != null) {
@@ -14562,7 +18784,7 @@ function breadcrumbSchema(items) {
       "@type": "ListItem",
       position: i + 1,
       name: item.name,
-      item: `${SITE_URL}${item.path}`
+      item: `${SITE_URL2}${item.path}`
     }))
   };
 }
@@ -14623,8 +18845,8 @@ function injectMeta(html, overrides) {
 }
 
 // server/ssrMeta.ts
-var SITE_URL2 = "https://mansionplayroom.cl";
-var DEFAULT_OG_IMAGE = `${SITE_URL2}/candyland/og-candyland.jpg`;
+var SITE_URL3 = "https://mansionplayroom.cl";
+var DEFAULT_OG_IMAGE = `${SITE_URL3}/candyland/og-candyland.jpg`;
 var DEFAULT_EVENT_DESCRIPTION = "Fiesta liberal en la Regi\xF3n de Valpara\xEDso: fecha, horario, accesos y entradas para tu pr\xF3xima noche con Mansion Playroom.";
 var OG_IMAGE_CACHE_TTL_MS = 5 * 60 * 1e3;
 var ogImageCache = null;
@@ -14662,7 +18884,7 @@ function registerSsrMetaRoutes(app2) {
       const title = `${event.title} \u2014 Fiesta Liberal en Vi\xF1a del Mar | +18`;
       const description = event.shortDescription || DEFAULT_EVENT_DESCRIPTION;
       const image = event.imageUrl || await resolveDefaultOgImage();
-      const url = `${SITE_URL2}/eventos/${event.slug}`;
+      const url = `${SITE_URL3}/eventos/${event.slug}`;
       let priceFrom = null;
       try {
         const ticketTypes2 = await getTicketTypesByEventId(event.id);
