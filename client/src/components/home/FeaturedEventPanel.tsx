@@ -84,13 +84,11 @@ export default function FeaturedEventPanel({ event, mode }: FeaturedEventPanelPr
                 width={1060}
                 height={1413}
                 onError={() => setImgOk(false)}
-                // Blanco y negro para ediciones pasadas -- mismo criterio que
-                // ya usa EventCard (grayscale, se revela a color en hover),
-                // no un gris parcial: una edición pasada tiene que leerse
-                // como pasada de un vistazo, no como el próximo evento.
-                className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 ${
-                  !isUpcoming ? 'grayscale group-hover:grayscale-0 opacity-90 group-hover:opacity-100' : 'group-hover:scale-105'
-                }`}
+                // Se ve a color igual que las próximas -- ya no queda en
+                // blanco y negro (que en mobile nunca revertía, porque
+                // depende de :hover). La distinción "es la última vez"
+                // queda con el badge de más abajo, no con el color.
+                className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
               />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-primary/20 via-cherry/10 to-violet-electric/15 px-6 text-center">

@@ -587,8 +587,12 @@ function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'n
       )}
       <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-background/20 to-transparent" />
       {event.isPast && (
-        <span className="absolute top-3 left-3 px-2.5 py-0.5 rounded-full bg-muted/90 text-muted-foreground text-[9px] font-bold uppercase tracking-wide">
-          Finalizado
+        <span
+          className={`absolute top-2 left-2 md:top-3 md:left-3 inline-flex items-center gap-1 rounded-full bg-black/80 backdrop-blur-sm border border-white/15 text-white font-extrabold uppercase tracking-wider shadow-lg shadow-black/30 ${
+            isSmall ? 'px-2 py-0.5 text-[8px]' : 'px-3 py-1 text-[10px] md:text-xs'
+          }`}
+        >
+          <Clock className={isSmall ? 'w-2.5 h-2.5' : 'w-3 h-3'} /> Finalizado
         </span>
       )}
       <div className="absolute bottom-0 inset-x-0 p-3 md:p-5">

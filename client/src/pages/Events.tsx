@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Link } from 'wouter';
-import { Calendar, MapPin, Ticket, ArrowRight } from 'lucide-react';
+import { Calendar, Clock, MapPin, Ticket, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { breadcrumbSchema } from '@shared/structuredData';
@@ -65,9 +65,7 @@ export default function Events() {
                       <img
                         src={event.imageUrl}
                         alt={event.title}
-                        className={`w-full h-full object-cover transition-all duration-500 ${
-                          isPast ? 'grayscale group-hover:grayscale-0 opacity-80 group-hover:opacity-100' : ''
-                        }`}
+                        className="w-full h-full object-cover transition-all duration-500"
                       />
                     ) : (
                       <div className="w-full h-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
@@ -75,8 +73,8 @@ export default function Events() {
                       </div>
                     )}
                     {isPast && (
-                      <span className="absolute top-3 left-3 px-2.5 py-0.5 rounded-full bg-muted/90 text-muted-foreground text-[9px] font-bold uppercase tracking-wide">
-                        Finalizado
+                      <span className="absolute top-3 left-3 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-black/80 backdrop-blur-sm border border-white/15 text-white text-[10px] font-extrabold uppercase tracking-wider shadow-lg shadow-black/30">
+                        <Clock className="w-3 h-3" /> Finalizado
                       </span>
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-background via-background/30 to-transparent" />
