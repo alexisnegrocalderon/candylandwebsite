@@ -30,6 +30,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
+import { CameraCaptureField } from '@/components/admin/CameraCaptureField';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { InstagramInbox } from '@/components/admin/InstagramInbox';
@@ -6030,6 +6031,7 @@ const emptyExpenseForm = {
   category: 'produccion' as ExpenseCategory,
   description: '',
   supplier: '',
+  supplierRut: '',
   documentNumber: '',
   documentType: 'boleta' as ExpenseDocumentType,
   ivaExempt: false,
@@ -6039,6 +6041,7 @@ const emptyExpenseForm = {
   excludeFromPnl: false,
   prorate: true,
   notes: '',
+  receiptUrl: '',
   // Turno de cuyo cajón salió el efectivo, cuando se pagó en efectivo durante
   // el evento. `null` = no salió de ninguna caja (plata de la productora).
   paidFromShiftId: null as number | null,
@@ -6058,6 +6061,40 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
     onSuccess: () => { onSaved(); toast.success('Gasto registrado'); setForm(emptyExpenseForm); setShow(false); },
     onError: onMutationError,
   });
+  const scanReceipt = trpc.expenses.scanReceipt.useMutation({
+    onSuccess: (result) => {
+      if (!result.isReceipt) {
+        toast.error('No pudimos leer la foto como boleta o factura -- completa el formulario a mano.');
+        return;
+      }
+      setForm((f) => ({
+        ...f,
+        amountTotal: result.amountTotal || f.amountTotal,
+        documentType: result.documentType || f.documentType,
+        documentNumber: result.documentNumber || f.documentNumber,
+        expenseDate: result.expenseDate ? toChileInputValue(result.expenseDate) : f.expenseDate,
+        supplier: result.supplier || f.supplier,
+        supplierRut: result.supplierRut || f.supplierRut,
+        category: result.category || f.category,
+        description: result.description || f.description,
+        ivaExempt: result.ivaExempt || f.ivaExempt,
+      }));
+      if (result.confidence !== 'alta' || result.notes) {
+        toast.warning(result.notes || 'Revisa los datos leídos antes de guardar -- algunos no se ven del todo claros.');
+      } else {
+        toast.success('Boleta leída -- revisa los datos y guarda.');
+      }
+    },
+    onError: onMutationError,
+  });
+  const handleScan = (imageUrl: string) => {
+    const hasData = form.amountTotal > 0 || form.description.trim().length > 0 || form.documentNumber.trim().length > 0;
+    if (hasData && !window.confirm('Ya hay datos cargados en el formulario -- esto los va a reemplazar con lo que lea la foto. ¿Continuar?')) {
+      return;
+    }
+    setForm((f) => ({ ...f, receiptUrl: imageUrl }));
+    scanReceipt.mutate({ imageUrl });
+  };
 
   // Vista previa del desglose: solo la factura no exenta separa IVA.
   const preview = deriveAmounts({ amountTotal: form.amountTotal, documentType: form.documentType, ivaExempt: form.ivaExempt });
@@ -6069,8 +6106,10 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
     create.mutate({
       ...form,
       supplier: form.supplier || undefined,
+      supplierRut: form.supplierRut || undefined,
       documentNumber: form.documentNumber || undefined,
       notes: form.notes || undefined,
+      receiptUrl: form.receiptUrl || undefined,
       eventId: form.scope === 'evento' ? form.eventId : null,
       // Si el gasto dejó de ser en efectivo (o de un evento) después de
       // haber elegido caja, la marca se limpia: si no, el cierre de ese
@@ -6093,6 +6132,25 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
 
         {show && (
           <div className="mt-5 space-y-4 border-t border-border/50 pt-4">
+            <div className="rounded-xl bg-muted/40 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <CameraCaptureField
+                  label="Escanear boleta o factura"
+                  pathPrefix="expenses"
+                  onScanned={handleScan}
+                  analyzing={scanReceipt.isPending}
+                />
+                {form.receiptUrl && (
+                  <a href={form.receiptUrl} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
+                    Ver foto completa
+                  </a>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                Opcional: sácale una foto y la IA precarga monto, documento, proveedor y categoría -- siempre revisa antes de guardar.
+              </p>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <Label>¿A qué se imputa?</Label>
@@ -6180,10 +6238,14 @@ function ExpenseForm({ events, onSaved }: { events: any[]; onSaved: () => void }
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <Label>Proveedor</Label>
                 <Input value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} className="mt-1" placeholder="Opcional" />
+              </div>
+              <div>
+                <Label>RUT del proveedor</Label>
+                <Input value={form.supplierRut} onChange={(e) => setForm({ ...form, supplierRut: e.target.value })} className="mt-1" placeholder="Opcional" />
               </div>
               <div>
                 <Label>Notas</Label>

@@ -383,12 +383,41 @@ const getAnthropicClient = (): Anthropic => {
 };
 
 // Saca el texto plano de un Message de este módulo (string u array de
-// partes) -- ninguno de los llamadores de invokeLLM manda imágenes/archivos
-// hoy, así que alcanza con concatenar las partes de texto.
+// partes) -- se usa para el rol "system" (Anthropic no acepta imágenes ahí)
+// y como base de toAnthropicContent para los mensajes que resultan ser solo
+// texto.
 const getMessageText = (message: Message): string =>
   ensureArray(message.content)
     .map(part => (typeof part === "string" ? part : part.type === "text" ? part.text : ""))
     .join("\n");
+
+// Traduce un Message de este módulo a lo que espera Anthropic.MessageParam:
+// un string plano si solo hay texto (mismo resultado que getMessageText,
+// así los 6 llamadores existentes -- todos texto puro -- no notan el
+// cambio), o un array de bloques {type:'text'}/{type:'image', source:
+// {type:'url', url}} cuando el mensaje incluye una o más `image_url`. Es la
+// primera vez que invokeLLM manda imágenes -- antes se descartaban en
+// silencio acá mismo.
+const toAnthropicContent = (
+  message: Message
+): string | Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> => {
+  const parts = ensureArray(message.content);
+  const hasImage = parts.some(part => typeof part !== "string" && part.type === "image_url");
+  if (!hasImage) return getMessageText(message);
+
+  return parts
+    .map((part): Anthropic.TextBlockParam | Anthropic.ImageBlockParam | null => {
+      if (typeof part === "string") return { type: "text", text: part };
+      if (part.type === "text") return { type: "text", text: part.text };
+      if (part.type === "image_url") {
+        return { type: "image", source: { type: "url", url: part.image_url.url } };
+      }
+      // file_url no tiene traducción a bloque de Anthropic hoy -- se
+      // descarta igual que antes en vez de fallar toda la llamada.
+      return null;
+    })
+    .filter((block): block is Anthropic.TextBlockParam | Anthropic.ImageBlockParam => block !== null);
+};
 
 // Traduce una llamada de este módulo (forma OpenAI-shaped) a una llamada real
 // del SDK de Anthropic, y la respuesta de vuelta a InvokeResult -- así los 6
@@ -408,7 +437,7 @@ async function invokeAnthropic(params: InvokeParams): Promise<InvokeResult> {
     if (message.role !== "user" && message.role !== "assistant") {
       console.warn(`invokeAnthropic: rol "${message.role}" no soportado, tratado como "user"`);
     }
-    anthropicMessages.push({ role, content: getMessageText(message) });
+    anthropicMessages.push({ role, content: toAnthropicContent(message) });
   }
 
   const normalizedFormat = normalizeResponseFormat({
