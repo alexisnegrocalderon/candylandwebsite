@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invokeLLM } from './_core/llm';
 import * as db from './db';
 import * as whatsappSend from './whatsappSend';
@@ -271,15 +271,26 @@ describe('handleInboundMessage', () => {
 });
 
 describe('handleOwnerAppEcho (coexistencia)', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
   it('lo que escribe el dueño desde la app pausa el bot en ese hilo', async () => {
-    await handleOwnerAppEcho({ from: '56900000000', to: '56911111111', id: 'wamid.ECHO', type: 'text', text: { body: 'hola! te respondo yo' } });
+    const promise = handleOwnerAppEcho({ from: '56900000000', to: '56911111111', id: 'wamid.ECHO', type: 'text', text: { body: 'hola! te respondo yo' } });
+    await vi.runAllTimersAsync();
+    await promise;
     expect(appendWaMessageMock).toHaveBeenCalledWith(expect.objectContaining({ source: 'owner_app', direction: 'out' }));
     expect(setWaThreadBotPausedMock).toHaveBeenCalledWith(7, true, expect.stringContaining('app de WhatsApp'));
   });
 
+  // Caso real de producción (25/09, mismo bug que Instagram): el eco de un
+  // mensaje del propio bot puede ganarle la carrera a `deliver()` -- el
+  // margen de espera (`OWNER_ECHO_RACE_GUARD_MS`) le da tiempo a guardar
+  // primero antes de decidir si esto es genuinamente nuevo.
   it('el eco de un mensaje que mandamos nosotros por la API no pausa nada', async () => {
     appendWaMessageMock.mockResolvedValueOnce(null);
-    await handleOwnerAppEcho({ to: '56911111111', id: 'wamid.OUT', type: 'text', text: { body: 'respuesta del bot' } });
+    const promise = handleOwnerAppEcho({ to: '56911111111', id: 'wamid.OUT', type: 'text', text: { body: 'respuesta del bot' } });
+    await vi.runAllTimersAsync();
+    await promise;
     expect(setWaThreadBotPausedMock).not.toHaveBeenCalled();
   });
 });

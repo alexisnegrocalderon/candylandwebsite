@@ -151,6 +151,10 @@ whatsappRouter.post(
   },
 );
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function handleChange(field: string | undefined, value: WaChangeValue | undefined): Promise<void> {
   if (!value) return;
   // Una cuenta de WhatsApp Business puede tener varios números: solo se
@@ -336,6 +340,14 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
   }
 }
 
+// Mismo margen que Instagram (ver OWNER_ECHO_RACE_GUARD_MS en
+// server/instagram.ts, caso real visto en producción el 25/09): el eco de
+// un mensaje que ACABAMOS de mandar nosotros puede llegar por el webhook y
+// ganarle la carrera al propio `deliver()`, que corre en otra invocación
+// serverless -- sin este margen, el mensaje del bot queda marcado como si
+// el dueño lo hubiera escrito a mano y el bot se pausa solo.
+const OWNER_ECHO_RACE_GUARD_MS = 1500;
+
 /** Coexistencia: el dueño escribió desde la app WhatsApp Business del
  * teléfono. En el eco, `to` es la persona. Si el `id` ya estaba guardado es
  * un mensaje que mandamos nosotros por la API (se descarta solo por el
@@ -346,6 +358,8 @@ export async function handleOwnerAppEcho(echo: WaEcho): Promise<void> {
   if (!to || !echo.id) return;
   const text = (echo.text?.body ?? '').trim();
   if (text.length === 0) return;
+
+  await sleep(OWNER_ECHO_RACE_GUARD_MS);
 
   const thread = await getOrCreateWaThread({ waId: to });
   if (!thread) return;
