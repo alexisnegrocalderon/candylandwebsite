@@ -57,8 +57,15 @@ export default function Events() {
         </motion.div>
 
         {isLoading ? (
-          <div className="space-y-8">
-            <div className="aspect-[16/9] md:aspect-[21/9] rounded-2xl bg-card animate-pulse" />
+          <div className="space-y-12">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10">
+              <div className="aspect-[3/4] rounded-2xl bg-card animate-pulse" />
+              <div className="space-y-4 pt-4">
+                <div className="h-5 w-40 rounded-full bg-card animate-pulse" />
+                <div className="h-10 w-3/4 rounded-lg bg-card animate-pulse" />
+                <div className="h-20 w-full rounded-lg bg-card animate-pulse" />
+              </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="aspect-[3/4] rounded-2xl bg-card animate-pulse" />
@@ -98,12 +105,16 @@ export default function Events() {
 /** El próximo evento sale del grid parejo y se muestra solo, grande, arriba
  * de todo -- para que se note de un vistazo cuál es el vigente sin tener
  * que leer la fecha de cada tarjeta (pedido explícito del dueño: "que se
- * note más una diferencia visual"). */
+ * note más una diferencia visual"). Flyer completo a la izquierda (mismo
+ * tamaño/proporción que las tarjetas del grid de abajo, no recortado en un
+ * banner ancho) y la descripción aparte a la derecha, en vez de texto
+ * superpuesto sobre la imagen. */
 function NextEventHero({ event }: { event: any }) {
+  const href = `/eventos/${event.slug}`;
   return (
-    <motion.div {...reveal}>
-      <Link href={`/eventos/${event.slug}`} className="group block">
-        <div className="relative aspect-[16/9] md:aspect-[21/9] rounded-2xl md:rounded-3xl overflow-hidden glass-candy interactive transition-all duration-500 border border-primary/40 shadow-[0_0_60px_-15px_oklch(0.70_0.19_340_/_0.4)] group-hover:border-primary/70 group-hover:scale-[1.01]">
+    <motion.div {...reveal} className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 items-center">
+      <Link href={href} className="group block">
+        <div className="relative aspect-[3/4] rounded-2xl md:rounded-3xl overflow-hidden glass-candy interactive transition-all duration-500 border border-primary/40 shadow-[0_0_60px_-15px_oklch(0.70_0.19_340_/_0.4)] group-hover:border-primary/70 group-hover:scale-[1.01]">
           {event.imageUrl ? (
             <img src={event.imageUrl} alt={event.title} className="w-full h-full object-cover transition-all duration-500" />
           ) : (
@@ -111,31 +122,35 @@ function NextEventHero({ event }: { event: any }) {
               <Ticket className="w-20 h-20 text-primary/50" />
             </div>
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
-          <span className="absolute top-4 left-4 md:top-6 md:left-6 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-extrabold uppercase tracking-wider shadow-lg shadow-primary/40">
+          <span className="absolute top-4 left-4 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-extrabold uppercase tracking-wider shadow-lg shadow-primary/40">
             ✨ Próximo evento
           </span>
-          <div className="absolute bottom-0 left-0 right-0 p-6 md:p-10">
-            <div className="flex items-center gap-2 text-primary text-sm md:text-base mb-3 font-semibold">
-              <Calendar className="w-4 h-4 md:w-5 md:h-5" />
-              <span>{formatEventDate(event.eventDate)}</span>
-            </div>
-            <h3 className="font-heading text-3xl md:text-5xl mb-2 md:mb-3">{event.title}</h3>
-            {event.shortDescription && (
-              <p className="text-muted-foreground text-sm md:text-base mb-4 max-w-2xl line-clamp-2">{event.shortDescription}</p>
-            )}
-            {event.venue && (
-              <div className="flex items-center gap-2 text-muted-foreground text-sm mb-5">
-                <MapPin className="w-4 h-4" />
-                <span>{event.venue}</span>
-              </div>
-            )}
-            <span className="btn-jelly inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide">
-              Comprar entradas <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-            </span>
-          </div>
         </div>
       </Link>
+      <div>
+        <div className="flex items-center gap-2 text-primary text-sm md:text-base mb-3 font-semibold">
+          <Calendar className="w-4 h-4 md:w-5 md:h-5" />
+          <span>{formatEventDate(event.eventDate)}</span>
+        </div>
+        <Link href={href} className="interactive">
+          <h3 className="font-heading text-3xl md:text-5xl mb-3 hover:text-primary transition-colors">{event.title}</h3>
+        </Link>
+        {event.shortDescription && (
+          <p className="text-muted-foreground text-base md:text-lg mb-4 leading-relaxed">{event.shortDescription}</p>
+        )}
+        {event.venue && (
+          <div className="flex items-center gap-2 text-muted-foreground text-sm mb-6">
+            <MapPin className="w-4 h-4" />
+            <span>{event.venue}</span>
+          </div>
+        )}
+        <Link
+          href={href}
+          className="btn-jelly inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-full text-sm font-bold uppercase tracking-wide interactive"
+        >
+          Comprar entradas <ArrowRight className="w-4 h-4" />
+        </Link>
+      </div>
     </motion.div>
   );
 }
@@ -162,7 +177,7 @@ function EventCard({ event, isPast, index }: { event: any; isPast: boolean; inde
             <img
               src={event.imageUrl}
               alt={event.title}
-              className={`w-full h-full object-cover transition-all duration-500 ${isPast ? 'grayscale opacity-60' : ''}`}
+              className="w-full h-full object-cover transition-all duration-500"
             />
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
