@@ -191,13 +191,6 @@ export function humanReplyDelayMs(): number {
 async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   const senderId = event.sender?.id;
   const message = event.message;
-  // Log temporal de diagnóstico (23/09): el dueño reporta que el bot se
-  // pausa solo con abrir una conversación en el panel, sin escribir nada --
-  // pero ningún código del panel (ThreadDetail, markRead) manda a pausar. La
-  // sospecha es que Meta esté mandando algo (recibo de lectura, u otro
-  // evento sin `message`) que se está interpretando como un mensaje real.
-  // Sacar esta línea una vez que se confirme la causa real.
-  console.log(`[Instagram][diag] entrada webhook: sender=${senderId ?? '-'} hasMessage=${!!message} is_echo=${!!message?.is_echo} hasText=${!!(message?.text && message.text.trim().length > 0)} mid=${message?.mid ?? '-'}`);
   if (!senderId || !message) return;
   if (message.is_deleted) return;
 
@@ -499,6 +492,13 @@ export async function handleCommentChange(value: { id?: string; text?: string; f
   await recordIgKeywordRedemption({ automationId: automation.id, igUserId, source: 'comment' });
 }
 
+// Caso real visto en producción (25/09): el bot contestó, y el eco de ESE
+// MISMO mensaje llegó por este webhook y ganó la carrera contra el propio
+// `deliver()` -- terminó guardado como si el dueño lo hubiera escrito a
+// mano, y pausó el bot sin que nadie hubiera tocado nada. Ver el comentario
+// grande de `handleOwnerEcho` más abajo para el porqué exacto.
+const OWNER_ECHO_RACE_GUARD_MS = 1500;
+
 /** Eco de un mensaje SALIENTE de la cuenta de la productora. En un eco,
  * `sender` es la cuenta propia y `recipient` es la persona del otro lado --
  * al revés que en un mensaje entrante, por eso el hilo se resuelve por
@@ -506,15 +506,27 @@ export async function handleCommentChange(value: { id?: string; text?: string; f
  *
  * Dos orígenes posibles, indistinguibles salvo por el `mid`:
  * 1. Un mensaje que YA mandamos nosotros (el agente vía `deliver()`, o una
- *    respuesta manual vía `sendManualInstagramReply`) -- ambos guardan el
- *    mensaje con su `mid` real ANTES de que llegue este eco, así que
- *    `appendIgMessage` lo descarta solo por el `mid` duplicado (mismo
- *    mecanismo que ya evita procesar dos veces un reintento de Meta). No
- *    hay nada más que hacer acá.
+ *    respuesta manual vía `sendManualInstagramReply`) -- la idea es que
+ *    ambos guarden el mensaje con su `mid` real ANTES de que llegue este
+ *    eco, así `appendIgMessage` lo descarta por el `mid` duplicado (mismo
+ *    mecanismo que evita procesar dos veces un reintento de Meta).
  * 2. Un mensaje que el dueño escribió directo en SU PROPIA app de Instagram,
  *    sin pasar por el panel -- genuinamente nuevo para nosotros. Se guarda
  *    recién acá y se pausa el bot, para que no le conteste encima al mismo
- *    cliente con el que el dueño ya está hablando a mano. */
+ *    cliente con el que el dueño ya está hablando a mano.
+ *
+ * El problema real del caso 1: este eco y el propio `deliver()` arrancan
+ * casi en el mismo instante (el envío que dispara el eco es el mismo que
+ * `deliver()` está terminando de guardar) y corren en invocaciones
+ * serverless DISTINTAS -- no hay ninguna garantía de que `deliver()` gane
+ * esa carrera. Si el eco llega primero, `appendIgMessage` de acá SÍ
+ * inserta (nada duplicado todavía), y el mensaje del propio bot termina
+ * marcado como si lo hubiera escrito el dueño a mano, pausando el bot solo.
+ * El margen de espera de acá le da tiempo a `deliver()` a terminar su
+ * guardado ANTES de decidir si esto es genuinamente nuevo -- un dueño
+ * escribiendo de verdad tolera perfecto un par de segundos más de espera
+ * antes de que se pause el bot; lo que no se puede tolerar es que el bot se
+ * pause solo por contestar. */
 export async function handleOwnerEcho(event: MetaMessaging, message: NonNullable<MetaMessaging['message']>): Promise<void> {
   const recipientId = event.recipient?.id;
   if (!recipientId) return;
@@ -523,6 +535,8 @@ export async function handleOwnerEcho(event: MetaMessaging, message: NonNullable
   // el mismo criterio que ya usa el lado entrante, no hay nada que mostrar
   // en el historial del agente igual, y no vale la pena pausar por eso.
   if (text.length === 0) return;
+
+  if (message.mid) await sleep(OWNER_ECHO_RACE_GUARD_MS);
 
   const thread = await getOrCreateIgThread({ igUserId: recipientId });
   if (!thread) return;

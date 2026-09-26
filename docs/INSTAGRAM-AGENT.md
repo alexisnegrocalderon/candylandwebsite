@@ -57,6 +57,17 @@ Decisiones que vale la pena conocer antes de tocar el código:
   mandando NO generan otro push. Igual quedan guardados y suben el contador
   de no leídos de la bandeja; solo se evita interrumpir con una notificación
   por cada mensaje de una conversación que ya se está atendiendo.
+- **El bot no se pausa solo por contestar** (caso real de producción, 25/09):
+  cuando el bot manda un mensaje, Meta le hace "eco" de ESE MISMO mensaje de
+  vuelta por el webhook -- así es como se detecta si el dueño contestó
+  directo desde su app (`handleOwnerEcho`). El eco puede llegar por una
+  invocación serverless distinta y más rápido que el propio guardado del
+  mensaje, así que sin cuidado especial el bot terminaba leyendo su propia
+  respuesta como si el dueño la hubiera escrito a mano, y se pausaba solo.
+  Por eso `handleOwnerEcho` espera un margen corto (`OWNER_ECHO_RACE_GUARD_MS`,
+  1.5s) antes de decidir si un eco es genuinamente nuevo -- imperceptible
+  para un dueño escribiendo de verdad, suficiente para que gane la carrera
+  el guardado real del mensaje del bot.
 
 ## 2. Alta en Meta (es lo que más demora, no el código)
 

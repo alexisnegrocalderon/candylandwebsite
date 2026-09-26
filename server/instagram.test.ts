@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invokeLLM } from './_core/llm';
 import * as db from './db';
 import * as instagramSend from './instagramSend';
@@ -152,7 +152,8 @@ describe('sendManualInstagramReply', () => {
 });
 
 describe('handleOwnerEcho', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
 
   // Lo importante que pidió el dueño: él habla con los clientes directo
   // desde SU app de Instagram (no desde el panel). Ese mensaje le llega al
@@ -162,10 +163,12 @@ describe('handleOwnerEcho', () => {
     getOrCreateIgThreadMock.mockResolvedValueOnce({ id: 7 } as any);
     appendIgMessageMock.mockResolvedValueOnce({ id: 99 } as any);
 
-    await handleOwnerEcho(
+    const promise = handleOwnerEcho(
       { sender: { id: 'ig-cuenta-productora' }, recipient: { id: 'ig-user-cliente' } } as any,
       { mid: 'mid-nuevo', text: 'hola! sí, disfraz es obligatorio' } as any,
     );
+    await vi.runAllTimersAsync();
+    await promise;
 
     expect(getOrCreateIgThreadMock).toHaveBeenCalledWith({ igUserId: 'ig-user-cliente' });
     expect(appendIgMessageMock).toHaveBeenCalledWith({
@@ -182,14 +185,22 @@ describe('handleOwnerEcho', () => {
   // respuesta manual del panel) también llega por acá -- appendIgMessage ya
   // lo descarta por el mid duplicado (mismo mecanismo que evita procesar dos
   // veces un reintento de Meta), así que no hay que pausar de nuevo por eso.
+  //
+  // Caso real de producción (25/09): el eco de un mensaje del propio bot
+  // ganó esta carrera contra `deliver()` y terminó pausando el bot como si
+  // el dueño hubiera escrito a mano -- por eso ahora hay un margen de
+  // espera antes de decidir (`OWNER_ECHO_RACE_GUARD_MS`), para darle tiempo
+  // a `deliver()` a guardar primero.
   it('no hace nada si el eco es de un mensaje que ya habíamos guardado nosotros', async () => {
     getOrCreateIgThreadMock.mockResolvedValueOnce({ id: 7 } as any);
     appendIgMessageMock.mockResolvedValueOnce(null); // mid duplicado
 
-    await handleOwnerEcho(
+    const promise = handleOwnerEcho(
       { sender: { id: 'ig-cuenta-productora' }, recipient: { id: 'ig-user-cliente' } } as any,
       { mid: 'mid-ya-guardado', text: 'la Soltera está en $10.000' } as any,
     );
+    await vi.runAllTimersAsync();
+    await promise;
 
     expect(setIgThreadBotPausedMock).not.toHaveBeenCalled();
   });
