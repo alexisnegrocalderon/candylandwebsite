@@ -183,20 +183,32 @@ export default function Navbar() {
             )}
           </div>
 
-          {/* Mobile: Instagram + menú */}
+          {/* Mobile: Instagram + menú -- mismo criterio de contraste que el
+           * nav de escritorio (líneas de arriba): blanco con sombra mientras
+           * flota sobre el Hero oscuro, tono normal del sitio una vez que
+           * aparece el fondo del nav (`scrolled`) O el menú está abierto (el
+           * overlay `bg-background/95` de más abajo es claro, así que ahí
+           * también hace falta el tono oscuro normal, no el blanco).
+           * Antes usaban `text-muted-foreground` fijo, casi invisibles sobre
+           * el video del Hero -- reportado por el dueño (mucha gente ni
+           * notaba que había un menú, solo veía el botón "Quiero ir"). */}
           <div className="flex items-center gap-3 md:hidden">
             <a
               href={CANDYLAND.redes.instagram}
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Instagram de Mansion Playroom"
-              className="text-muted-foreground hover:text-primary transition-colors interactive"
+              className={`transition-colors interactive ${
+                scrolled || mobileOpen ? 'text-muted-foreground hover:text-primary' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
+              }`}
             >
               <Instagram size={20} strokeWidth={1.75} />
             </a>
             <button
               onClick={() => setMobileOpen(!mobileOpen)}
-              className="p-2 text-foreground interactive"
+              className={`p-2 transition-colors interactive ${
+                scrolled || mobileOpen ? 'text-foreground' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
+              }`}
               aria-label={mobileOpen ? 'Cerrar menú' : 'Abrir menú'}
               aria-expanded={mobileOpen}
             >
