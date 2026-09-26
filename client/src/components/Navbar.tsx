@@ -16,6 +16,23 @@ const navLinks = [
   { href: '/embajadores', label: 'Embajadores' },
 ];
 
+// Solo para el nav de ESCRITORIO (mobile sigue usando `navLinks` tal cual,
+// como una lista plana -- no tenía el problema de header "lleno" que
+// reportó el dueño). Agrupa por INTENCIÓN del visitante en vez de dejar 6
+// links + 2 dropdowns sueltos compitiendo por espacio en una sola fila:
+// "Eventos" es todo lo de "voy a ir / cuánto sale", "Comunidad" es todo lo
+// de "quiero conocer más / participar" (incluye el contenido de Blog y
+// Guías, que antes era su propio dropdown).
+const desktopEventosLinks = [
+  { href: '/eventos', label: 'Eventos' },
+  { href: '/entradas', label: 'Entradas' },
+  { href: '/blog/tarjeta-playcard', label: 'PlayCard' },
+];
+const desktopComunidadLinks = [
+  { href: '/playmatch', label: 'Playmatch' },
+  { href: '/embajadores', label: 'Embajadores' },
+];
+
 // Antes acá había un link plano a "Panoramas" -- se reemplaza por el
 // dropdown "Blog y Guías" de abajo, que muestra el título real de cada
 // artículo (guías + posts + las 2 páginas standalone, PlayCard incluida)
@@ -96,30 +113,55 @@ export default function Navbar() {
            * claros -- casi invisible contra el video oscuro. Mientras no hay
            * scroll, usa un tono claro con sombra propia; apenas aparece el
            * fondo (`scrolled`), vuelve al esquema normal del resto del sitio. */}
-          <div className="hidden md:flex items-center gap-8">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`text-sm font-medium tracking-wide uppercase transition-colors duration-300 interactive ${
-                  location === link.href
-                    ? 'text-primary'
-                    : scrolled
-                      ? 'text-muted-foreground hover:text-foreground'
-                      : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
-                }`}
-              >
-                {link.label}
-              </Link>
-            ))}
+          <div className="hidden md:flex items-center gap-7">
+            <Link
+              href="/"
+              className={`text-sm font-medium tracking-wide uppercase transition-colors duration-300 interactive ${
+                location === '/'
+                  ? 'text-primary'
+                  : scrolled
+                    ? 'text-muted-foreground hover:text-foreground'
+                    : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
+              }`}
+            >
+              Inicio
+            </Link>
 
+            {/* "Eventos ▾": todo lo de "voy a ir / cuánto sale" -- antes eran
+             * 3 links sueltos (Eventos, Entradas, PlayCard) compitiendo por
+             * espacio en la misma fila que el resto. */}
             <DropdownMenu>
               <DropdownMenuTrigger className={`flex items-center gap-1 text-sm font-medium tracking-wide uppercase transition-colors duration-300 interactive outline-none ${
                 scrolled ? 'text-muted-foreground hover:text-foreground' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
               }`}>
-                Blog y Guías <ChevronDown size={14} strokeWidth={2} />
+                Eventos <ChevronDown size={14} strokeWidth={2} />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {desktopEventosLinks.map((link) => (
+                  <DropdownMenuItem key={link.href} asChild>
+                    <Link href={link.href}>{link.label}</Link>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* "Comunidad ▾": todo lo de "quiero conocer más / participar" --
+             * Playmatch y Embajadores arriba, más abajo el mismo contenido
+             * que antes vivía en su propio dropdown "Blog y Guías" (se
+             * mueve acá adentro en vez de sumar un tercer dropdown suelto). */}
+            <DropdownMenu>
+              <DropdownMenuTrigger className={`flex items-center gap-1 text-sm font-medium tracking-wide uppercase transition-colors duration-300 interactive outline-none ${
+                scrolled ? 'text-muted-foreground hover:text-foreground' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
+              }`}>
+                Comunidad <ChevronDown size={14} strokeWidth={2} />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-[26rem] max-h-[75vh] overflow-y-auto p-3">
+                {desktopComunidadLinks.map((link) => (
+                  <DropdownMenuItem key={link.href} asChild>
+                    <Link href={link.href}>{link.label}</Link>
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuSeparator />
                 <DropdownMenuLabel>Guías</DropdownMenuLabel>
                 <div className="grid grid-cols-2 gap-2 mb-1">
                   {blogMenuGuias.map((link) => (
@@ -163,23 +205,34 @@ export default function Navbar() {
               </DropdownMenuContent>
             </DropdownMenu>
 
+            {/* Instagram en su propio botón circular + separador antes del
+             * CTA (pedido explícito del dueño): antes flotaba suelto justo
+             * al lado del botón "Comprar Entradas" y el ojo iba directo al
+             * botón grande -- ahora se lee como un grupo aparte. */}
             <a
               href={CANDYLAND.redes.instagram}
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Instagram de Mansion Playroom"
-              className="text-muted-foreground hover:text-primary transition-colors duration-300 interactive"
+              className={`flex items-center justify-center w-9 h-9 rounded-full border transition-colors duration-300 interactive ${
+                scrolled
+                  ? 'border-border/50 text-muted-foreground hover:text-primary hover:border-primary/40'
+                  : 'border-white/25 bg-white/10 text-white/90 hover:text-white hover:bg-white/15'
+              }`}
             >
-              <Instagram size={20} strokeWidth={1.75} />
+              <Instagram size={16} strokeWidth={1.75} />
             </a>
 
             {EVENTO.fechaConfirmada && (
-              <Link
-                href={`/checkout/${CANDYLAND.slug}`}
-                className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-semibold tracking-wide uppercase transition-transform duration-200 hover:scale-105 active:scale-95 interactive"
-              >
-                Comprar Entradas
-              </Link>
+              <>
+                <span aria-hidden className={`w-px h-6 ${scrolled ? 'bg-border' : 'bg-white/25'}`} />
+                <Link
+                  href={`/checkout/${CANDYLAND.slug}`}
+                  className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-semibold tracking-wide uppercase transition-transform duration-200 hover:scale-105 active:scale-95 interactive"
+                >
+                  Comprar Entradas
+                </Link>
+              </>
             )}
           </div>
 
