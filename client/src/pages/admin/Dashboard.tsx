@@ -2180,6 +2180,18 @@ function ReminderDialog({ orders, open, onOpenChange, onSent }: {
 }
 
 function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
+  // Antes la tabla completa (con Estado/Fecha/Contacto/Acciones) se elegía
+  // por ancho de pantalla (`md:`), así que un iPad -- angosto en vertical y
+  // sin espacio para 9 columnas incluso apaisado -- quedaba con columnas
+  // fuera de la pantalla e IMPOSIBLES de alcanzar: el swipe-to-delete de
+  // SwipeToDeleteRow bloquea el scroll horizontal nativo de la tabla
+  // (`touch-pan-y`) a propósito, para que arrastrar el dedo no se confunda
+  // con "hacer scroll". `useCoarsePointer` (mismo criterio que en
+  // ExpensesList más abajo) elige por tipo de puntero, no por ancho: mouse
+  // real ve la tabla siempre, y cualquier pantalla táctil -- iPhone Y
+  // iPad, en cualquier orientación -- ve las tarjetas, que sí muestran todo
+  // sin necesitar scroll horizontal.
+  const coarse = useCoarsePointer();
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -2357,13 +2369,12 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         />
       ) : (
         <>
-          {/* Tabla completa -- iPad horizontal y escritorio. Cada fila usa
-              SwipeToDeleteRow, que solo activa el gesto en táctil
-              (`useCoarsePointer`, no un ancho de pantalla): en iPad el
-              swipe revela "Eliminar" igual que en la tarjeta de iPhone; en
-              mouse/escritorio real la fila se renderiza tal cual, sin
-              ningún rastro de borrar -- pedido explícito del dueño. */}
-          <Card className="hidden md:block admin-clay border-0">
+          {/* Tabla completa -- solo mouse/trackpad real (ver `coarse` arriba).
+              SwipeToDeleteRow ya no tiene nada que activar acá (siempre cae
+              en su rama sin gesto), pero se deja igual por si algún puntero
+              raro se cuela como fino. */}
+          {!coarse && (
+          <Card className="admin-clay border-0">
             <CardContent className="pt-6">
               <div className="overflow-x-auto">
                 <table className="w-full text-[16px]">
@@ -2549,11 +2560,14 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
               </div>
             </CardContent>
           </Card>
+          )}
 
-          {/* Tarjetas -- iPhone. Cada una con swipe-to-delete (deslizar
+          {/* Tarjetas -- cualquier pantalla táctil (iPhone Y iPad, en
+              cualquier orientación). Cada una con swipe-to-delete (deslizar
               revela "Eliminar", hay que tocarlo -- mismo diálogo con clave
               de admin de siempre). */}
-          <div className="md:hidden space-y-3">
+          {coarse && (
+          <div className="space-y-3">
             {visibleOrders.map((order: any) => (
               <SwipeToDeleteCard
                 key={order.id}
@@ -2646,6 +2660,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
               </SwipeToDeleteCard>
             ))}
           </div>
+          )}
         </>
       )}
     </div>

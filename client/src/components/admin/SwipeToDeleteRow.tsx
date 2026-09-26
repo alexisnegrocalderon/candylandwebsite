@@ -5,13 +5,15 @@ import { useCoarsePointer } from '@/hooks/useCoarsePointer';
 
 const REVEAL_WIDTH = 96;
 
-/** Versión de `SwipeToDeleteCard` para una fila de tabla real (iPad, que
- * sigue mostrando la tabla en vez de tarjetas -- solo iPhone usa
- * `SwipeToDeleteCard`). Detecta táctil con `useCoarsePointer` en vez de un
- * ancho de pantalla: en mouse/escritorio real esto renderiza la fila tal
- * cual, sin ningún rastro de swipe ni de borrar (pedido explícito del
- * dueño), y en iPad (pantalla grande pero táctil) el swipe funciona igual
- * que en la tarjeta de iPhone.
+/** Versión de `SwipeToDeleteCard` para una fila de tabla real. La tabla en sí
+ * ahora solo se monta para mouse/trackpad (ver `OrdersView` en
+ * admin/Dashboard.tsx: cualquier pantalla táctil, iPhone o iPad, ve tarjetas
+ * en su lugar -- una tabla ancha de 9 columnas no entra en un iPad ni
+ * apaisado, y el swipe-to-delete necesita bloquear el scroll horizontal
+ * nativo, así que ambas cosas compiten por el mismo gesto). Este componente
+ * detecta táctil con `useCoarsePointer` igual que antes y se deja como red
+ * de seguridad por si algún día vuelve a usarse con una tabla visible en
+ * touch.
  *
  * `children` deben ser los `<td>` de siempre de la fila -- se clonan para
  * inyectarles el desplazamiento, así no hace falta envolverlos en nada (un
