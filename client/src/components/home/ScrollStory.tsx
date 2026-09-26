@@ -37,8 +37,19 @@ export default function ScrollStory() {
   const beatOpacities = [beat1Opacity, beat2Opacity, beat3Opacity];
 
   if (!pointerFine || reducedMotion) {
+    // Esquina redondeada + sombra propia + solapado hacia arriba (-mt-8):
+    // hace que esta sección se lea como una tarjeta apoyada SOBRE el video
+    // del Hero (que ahora mide menos del 100svh a propósito, ver Home.tsx
+    // `Hero()`) en vez de un corte recto entre dos bloques -- el "efecto
+    // apilado" que le muestra a la persona, sin animar nada ligado al
+    // scroll, que hay una interfaz de verdad debajo del Hero y no una foto
+    // fija. Solo en esta variante estática (mobile/reduced-motion): la
+    // versión con pin+scrub de abajo ya comunica movimiento de sobra.
     return (
-      <motion.section {...reveal} className="relative py-16 px-4 text-center overflow-hidden">
+      <motion.section
+        {...reveal}
+        className="relative z-10 -mt-8 md:mt-0 py-16 px-4 text-center overflow-hidden rounded-t-[2rem] md:rounded-none bg-background shadow-[0_-12px_40px_rgba(0,0,0,0.25)] md:shadow-none"
+      >
         <p className="font-heading text-2xl sm:text-3xl font-bold text-gradient-candy max-w-xl mx-auto">
           {FULL_SENTENCE}
         </p>
