@@ -244,28 +244,36 @@ export default function Navbar() {
            * también hace falta el tono oscuro normal, no el blanco).
            * Antes usaban `text-muted-foreground` fijo, casi invisibles sobre
            * el video del Hero -- reportado por el dueño (mucha gente ni
-           * notaba que había un menú, solo veía el botón "Quiero ir"). */}
-          <div className="flex items-center gap-3 md:hidden">
+           * notaba que había un menú, solo veía el botón "Quiero ir").
+           * El círculo de Instagram es el mismo tratamiento que en
+           * escritorio (borde + fondo sutil) -- pedido explícito del dueño
+           * para que se vean iguales en las dos versiones. El botón de menú
+           * suma el mismo círculo, para que ambos combinen entre sí. */}
+          <div className="flex items-center gap-2.5 md:hidden">
             <a
               href={CANDYLAND.redes.instagram}
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Instagram de Mansion Playroom"
-              className={`transition-colors interactive ${
-                scrolled || mobileOpen ? 'text-muted-foreground hover:text-primary' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
+              className={`flex items-center justify-center w-9 h-9 rounded-full border transition-colors interactive ${
+                scrolled || mobileOpen
+                  ? 'border-border/50 text-muted-foreground hover:text-primary hover:border-primary/40'
+                  : 'border-white/25 bg-white/10 text-white/90 hover:text-white hover:bg-white/15'
               }`}
             >
-              <Instagram size={20} strokeWidth={1.75} />
+              <Instagram size={17} strokeWidth={1.75} />
             </a>
             <button
               onClick={() => setMobileOpen(!mobileOpen)}
-              className={`p-2 transition-colors interactive ${
-                scrolled || mobileOpen ? 'text-foreground' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
+              className={`flex items-center justify-center w-9 h-9 rounded-full border transition-colors interactive ${
+                scrolled || mobileOpen
+                  ? 'border-border/50 text-foreground hover:border-primary/40'
+                  : 'border-white/25 bg-white/10 text-white/90 hover:text-white hover:bg-white/15'
               }`}
               aria-label={mobileOpen ? 'Cerrar menú' : 'Abrir menú'}
               aria-expanded={mobileOpen}
             >
-              {mobileOpen ? <X size={24} /> : <Menu size={24} />}
+              {mobileOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
           </div>
         </div>
