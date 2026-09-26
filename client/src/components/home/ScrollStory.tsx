@@ -43,12 +43,13 @@ export default function ScrollStory() {
     // `Hero()`) en vez de un corte recto entre dos bloques -- el "efecto
     // apilado" que le muestra a la persona, sin animar nada ligado al
     // scroll, que hay una interfaz de verdad debajo del Hero y no una foto
-    // fija. Solo en esta variante estática (mobile/reduced-motion): la
-    // versión con pin+scrub de abajo ya comunica movimiento de sobra.
+    // fija. Se aplica igual en cualquier ancho (pedido explícito del dueño:
+    // la misma experiencia visual en desktop y mobile) -- la versión con
+    // pin+scrub de abajo (mouse fino) suma su propio solapado más abajo.
     return (
       <motion.section
         {...reveal}
-        className="relative z-10 -mt-8 md:mt-0 py-16 px-4 text-center overflow-hidden rounded-t-[2rem] md:rounded-none bg-background shadow-[0_-12px_40px_rgba(0,0,0,0.25)] md:shadow-none"
+        className="relative z-10 -mt-8 py-16 px-4 text-center overflow-hidden rounded-t-[2rem] bg-background shadow-[0_-12px_40px_rgba(0,0,0,0.25)]"
       >
         <p className="font-heading text-2xl sm:text-3xl font-bold text-gradient-candy max-w-xl mx-auto">
           {FULL_SENTENCE}
@@ -58,8 +59,8 @@ export default function ScrollStory() {
   }
 
   return (
-    <div ref={pinRef} className="relative h-[250vh]">
-      <div className="sticky top-0 h-screen overflow-hidden flex items-center justify-center">
+    <div ref={pinRef} className="relative z-10 -mt-8 h-[250vh]">
+      <div className="sticky top-0 h-screen overflow-hidden flex items-center justify-center rounded-t-[2rem] bg-background shadow-[0_-12px_40px_rgba(0,0,0,0.25)]">
         <motion.div
           aria-hidden
           className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-secondary/10"

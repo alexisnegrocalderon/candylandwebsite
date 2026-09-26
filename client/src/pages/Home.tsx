@@ -382,7 +382,7 @@ function Hero() {
   }, [videoReady, videoPlaying]);
 
   return (
-    <section ref={sectionRef} className="relative min-h-[92svh] md:min-h-[100svh] flex items-center justify-center overflow-hidden">
+    <section ref={sectionRef} className="relative min-h-[92svh] flex items-center justify-center overflow-hidden">
       {/* Fondo: el video candy define la paleta del sitio, con un velo claro
           suficiente para que el texto se lea sin taparle el color. */}
       <motion.div className="absolute inset-0" style={pointerFine ? { y: bgY } : undefined}>
@@ -530,19 +530,19 @@ function Hero() {
           )}
         </motion.div>
 
-        {/* Invitación a scrollear -- solo mobile (en escritorio el mouse/
-         * scrollbar ya son una señal familiar, y ScrollStory con parallax
-         * de por sí comunica que hay más). Se pidió porque mucha gente
-         * confundía el Hero con una imagen fija de Instagram: solo veía y
-         * apretaba "Quiero ir" sin darse cuenta de que abajo sigue toda la
-         * info de precios. `contentOpacity` ya existe arriba y hoy
-         * desvanece el resto del bloque al scrollear -- se reusa tal cual
-         * para que esto se apague solo apenas la persona empieza a bajar. */}
+        {/* Invitación a scrollear -- en las dos versiones (pedido explícito
+         * del dueño: la misma experiencia en desktop y mobile). Se agregó
+         * porque mucha gente confundía el Hero con una imagen fija de
+         * Instagram: solo veía y apretaba "Quiero ir" sin darse cuenta de
+         * que abajo sigue toda la info de precios. `contentOpacity` ya
+         * existe arriba y hoy desvanece el resto del bloque al scrollear --
+         * se reusa tal cual para que esto se apague solo apenas la persona
+         * empieza a bajar. */}
         <motion.button
           type="button"
           onClick={() => scrollToId('proxima-fecha')}
           style={{ opacity: contentOpacity }}
-          className="md:hidden mt-8 flex flex-col items-center gap-1.5 text-white/80 mx-auto interactive"
+          className="mt-8 flex flex-col items-center gap-1.5 text-white/80 mx-auto interactive"
           aria-label="Bajar para ver los precios"
         >
           <span className="text-xs uppercase tracking-[0.2em] drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]">
