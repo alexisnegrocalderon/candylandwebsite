@@ -58,7 +58,7 @@ export default function Events() {
 
         {isLoading ? (
           <div className="space-y-12">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10">
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,320px)_1fr] gap-6 md:gap-10">
               <div className="aspect-[3/4] rounded-2xl bg-card animate-pulse" />
               <div className="space-y-4 pt-4">
                 <div className="h-5 w-40 rounded-full bg-card animate-pulse" />
@@ -112,8 +112,13 @@ export default function Events() {
 function NextEventHero({ event }: { event: any }) {
   const href = `/eventos/${event.slug}`;
   return (
-    <motion.div {...reveal} className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 items-center">
-      <Link href={href} className="group block">
+    <motion.div {...reveal} className="grid grid-cols-1 md:grid-cols-[minmax(0,320px)_1fr] gap-6 md:gap-10 items-center">
+      {/* Ancho fijo (no 50/50 del grid): en pantallas anchas un flyer a la
+          mitad del contenedor terminaba mucho más grande que las tarjetas
+          de "Ediciones anteriores" de abajo -- ocupaba casi toda la
+          pantalla y no dejaba ver que había más eventos. Mismo tamaño que
+          una tarjeta normal, ni más ni menos. */}
+      <Link href={href} className="group block w-full">
         <div className="relative aspect-[3/4] rounded-2xl md:rounded-3xl overflow-hidden glass-candy interactive transition-all duration-500 border border-primary/40 shadow-[0_0_60px_-15px_oklch(0.70_0.19_340_/_0.4)] group-hover:border-primary/70 group-hover:scale-[1.01]">
           {event.imageUrl ? (
             <img src={event.imageUrl} alt={event.title} className="w-full h-full object-cover transition-all duration-500" />
