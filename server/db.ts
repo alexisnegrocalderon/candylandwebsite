@@ -5877,6 +5877,17 @@ export async function getIgMessages(threadId: number, limit = 50): Promise<IgMes
   return rows.reverse();
 }
 
+/** Busca un mensaje por su `mid` de Meta -- usado para verificar, sondeando
+ * un par de veces en vez de adivinar con un solo `sleep`, si un eco es en
+ * realidad el mensaje que el propio bot acaba de mandar (ver
+ * `handleOwnerEcho` en server/instagram.ts). */
+export async function getIgMessageByMid(mid: string): Promise<IgMessage | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(igMessages).where(eq(igMessages.mid, mid)).limit(1);
+  return row ?? null;
+}
+
 export async function listIgThreads(limit = 100) {
   const db = await getDb();
   if (!db) return [];
@@ -6355,6 +6366,15 @@ export async function getWaMessages(threadId: number, limit = 50): Promise<WaMes
     .orderBy(desc(waMessages.id))
     .limit(limit);
   return rows.reverse();
+}
+
+/** Busca un mensaje por su `wamid` de Meta -- mismo motivo que
+ * `getIgMessageByMid`, para `handleOwnerAppEcho` en server/whatsapp.ts. */
+export async function getWaMessageByWamid(wamid: string): Promise<WaMessage | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(waMessages).where(eq(waMessages.wamid, wamid)).limit(1);
+  return row ?? null;
 }
 
 export async function listWaThreads(limit = 100) {

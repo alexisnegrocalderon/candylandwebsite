@@ -26,6 +26,7 @@ vi.mock('./db', async (importOriginal) => {
     setWaThreadBotPaused: vi.fn(),
     countWaBotRepliesSince: vi.fn(),
     logAgentHandoff: vi.fn(),
+    getWaMessageByWamid: vi.fn(),
   };
 });
 const getHomeEventsMock = vi.mocked(db.getHomeEvents);
@@ -37,6 +38,7 @@ const getWaMessagesMock = vi.mocked(db.getWaMessages);
 const setWaThreadBotPausedMock = vi.mocked(db.setWaThreadBotPaused);
 const countWaBotRepliesSinceMock = vi.mocked(db.countWaBotRepliesSince);
 const logAgentHandoffMock = vi.mocked(db.logAgentHandoff);
+const getWaMessageByWamidMock = vi.mocked(db.getWaMessageByWamid);
 
 vi.mock('./whatsappSend', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./whatsappSend')>();
@@ -282,16 +284,26 @@ describe('handleOwnerAppEcho (coexistencia)', () => {
     expect(setWaThreadBotPausedMock).toHaveBeenCalledWith(7, true, expect.stringContaining('app de WhatsApp'));
   });
 
-  // Caso real de producción (25/09, mismo bug que Instagram): el eco de un
-  // mensaje del propio bot puede ganarle la carrera a `deliver()` -- el
-  // margen de espera (`OWNER_ECHO_RACE_GUARD_MS`) le da tiempo a guardar
-  // primero antes de decidir si esto es genuinamente nuevo.
+  // Caso real de producción (25/09 y 26/09, mismo bug que Instagram): el
+  // eco de un mensaje del propio bot puede ganarle la carrera a `deliver()`
+  // -- un `sleep` fijo (primer intento) no alcanzó a cubrir todos los
+  // casos, por eso ahora se sondea si `deliver()` ya lo guardó en vez de
+  // adivinar un número fijo de milisegundos.
   it('el eco de un mensaje que mandamos nosotros por la API no pausa nada', async () => {
-    appendWaMessageMock.mockResolvedValueOnce(null);
+    getWaMessageByWamidMock.mockResolvedValueOnce({ id: 5 } as any); // deliver() ya lo guardó
     const promise = handleOwnerAppEcho({ to: '56911111111', id: 'wamid.OUT', type: 'text', text: { body: 'respuesta del bot' } });
     await vi.runAllTimersAsync();
     await promise;
+    expect(getOrCreateWaThreadMock).not.toHaveBeenCalled();
     expect(setWaThreadBotPausedMock).not.toHaveBeenCalled();
+  });
+
+  it('si nunca aparece guardado, sigue el camino normal tras agotar el sondeo', async () => {
+    getWaMessageByWamidMock.mockResolvedValue(null);
+    const promise = handleOwnerAppEcho({ to: '56911111111', id: 'wamid.GENUINO', type: 'text', text: { body: 'hola! dame un segundo' } });
+    await vi.runAllTimersAsync();
+    await promise;
+    expect(setWaThreadBotPausedMock).toHaveBeenCalledWith(7, true, expect.stringContaining('app de WhatsApp'));
   });
 });
 

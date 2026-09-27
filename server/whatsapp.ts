@@ -8,6 +8,7 @@ import {
   countWaBotRepliesSince,
   getSiteSettings,
   logAgentHandoff,
+  getWaMessageByWamid,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
 import { verifyMetaSignature } from './instagram';
@@ -340,13 +341,28 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
   }
 }
 
-// Mismo margen que Instagram (ver OWNER_ECHO_RACE_GUARD_MS en
-// server/instagram.ts, caso real visto en producción el 25/09): el eco de
-// un mensaje que ACABAMOS de mandar nosotros puede llegar por el webhook y
-// ganarle la carrera al propio `deliver()`, que corre en otra invocación
-// serverless -- sin este margen, el mensaje del bot queda marcado como si
-// el dueño lo hubiera escrito a mano y el bot se pausa solo.
-const OWNER_ECHO_RACE_GUARD_MS = 1500;
+// Mismo problema que Instagram (ver server/instagram.ts, caso real visto en
+// producción el 25/09 y 26/09): el eco de un mensaje que ACABAMOS de mandar
+// nosotros puede llegar por el webhook y ganarle la carrera al propio
+// `deliver()`, que corre en otra invocación serverless -- sin cuidado, el
+// mensaje del bot queda marcado como si el dueño lo hubiera escrito a mano
+// y el bot se pausa solo. Un `sleep` fijo no alcanzó a cubrir todos los
+// casos -- se SONDEA en vez de adivinar un número fijo de milisegundos.
+const OWNER_ECHO_POLL_INTERVAL_MS = 300;
+const OWNER_ECHO_POLL_MAX_WAIT_MS = 6000;
+
+/** Igual que `waitForOwnSend` en server/instagram.ts: sondea si `deliver()`
+ * ya ganó la carrera guardando este `wamid`, en vez de adivinar con un
+ * `sleep` fijo. */
+async function waitForOwnSend(wamid: string | undefined): Promise<boolean> {
+  if (!wamid) return false;
+  const deadline = Date.now() + OWNER_ECHO_POLL_MAX_WAIT_MS;
+  while (Date.now() < deadline) {
+    if (await getWaMessageByWamid(wamid)) return true;
+    await sleep(OWNER_ECHO_POLL_INTERVAL_MS);
+  }
+  return false;
+}
 
 /** Coexistencia: el dueño escribió desde la app WhatsApp Business del
  * teléfono. En el eco, `to` es la persona. Si el `id` ya estaba guardado es
@@ -359,7 +375,7 @@ export async function handleOwnerAppEcho(echo: WaEcho): Promise<void> {
   const text = (echo.text?.body ?? '').trim();
   if (text.length === 0) return;
 
-  await sleep(OWNER_ECHO_RACE_GUARD_MS);
+  if (await waitForOwnSend(echo.id)) return; // Ganó deliver() -- es nuestro propio envío.
 
   const thread = await getOrCreateWaThread({ waId: to });
   if (!thread) return;

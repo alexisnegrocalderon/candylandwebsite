@@ -15,6 +15,7 @@ import {
   getTicketTypeById,
   getFeaturedEvent,
   logAgentHandoff,
+  getIgMessageByMid,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
 import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, sendImageMessage, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
@@ -492,12 +493,32 @@ export async function handleCommentChange(value: { id?: string; text?: string; f
   await recordIgKeywordRedemption({ automationId: automation.id, igUserId, source: 'comment' });
 }
 
-// Caso real visto en producción (25/09): el bot contestó, y el eco de ESE
-// MISMO mensaje llegó por este webhook y ganó la carrera contra el propio
-// `deliver()` -- terminó guardado como si el dueño lo hubiera escrito a
-// mano, y pausó el bot sin que nadie hubiera tocado nada. Ver el comentario
-// grande de `handleOwnerEcho` más abajo para el porqué exacto.
-const OWNER_ECHO_RACE_GUARD_MS = 1500;
+// Caso real visto en producción (25/09 y 26/09): el bot contestó, y el eco
+// de ESE MISMO mensaje llegó por este webhook y ganó la carrera contra el
+// propio `deliver()` -- terminó guardado como si el dueño lo hubiera escrito
+// a mano, y pausó el bot sin que nadie hubiera tocado nada. Un `sleep` fijo
+// de 1.5s (primer intento) no alcanzó a cubrir todos los casos -- por eso
+// ahora se SONDEA cada tanto si `deliver()` ya guardó el mensaje, en vez de
+// adivinar un número fijo de milisegundos. Ver el comentario grande de
+// `handleOwnerEcho` más abajo para el porqué exacto de la carrera.
+const OWNER_ECHO_POLL_INTERVAL_MS = 300;
+const OWNER_ECHO_POLL_MAX_WAIT_MS = 6000;
+
+/** Sondea si ya existe un mensaje guardado con este `mid` -- o sea, si
+ * `deliver()` (u otro envío nuestro) ya ganó la carrera contra este eco.
+ * A diferencia de un `sleep` fijo, esto resuelve apenas aparece el guardado
+ * real (normalmente unos cientos de ms) y solo llega al tope de espera en
+ * el peor caso, sin penalizar el caso común con una espera más larga de la
+ * necesaria. */
+async function waitForOwnSend(mid: string | undefined): Promise<boolean> {
+  if (!mid) return false;
+  const deadline = Date.now() + OWNER_ECHO_POLL_MAX_WAIT_MS;
+  while (Date.now() < deadline) {
+    if (await getIgMessageByMid(mid)) return true;
+    await sleep(OWNER_ECHO_POLL_INTERVAL_MS);
+  }
+  return false;
+}
 
 /** Eco de un mensaje SALIENTE de la cuenta de la productora. En un eco,
  * `sender` es la cuenta propia y `recipient` es la persona del otro lado --
@@ -522,11 +543,11 @@ const OWNER_ECHO_RACE_GUARD_MS = 1500;
  * esa carrera. Si el eco llega primero, `appendIgMessage` de acá SÍ
  * inserta (nada duplicado todavía), y el mensaje del propio bot termina
  * marcado como si lo hubiera escrito el dueño a mano, pausando el bot solo.
- * El margen de espera de acá le da tiempo a `deliver()` a terminar su
- * guardado ANTES de decidir si esto es genuinamente nuevo -- un dueño
- * escribiendo de verdad tolera perfecto un par de segundos más de espera
- * antes de que se pause el bot; lo que no se puede tolerar es que el bot se
- * pause solo por contestar. */
+ * `waitForOwnSend` le da a `deliver()` una ventana real (sondeada, no un
+ * número fijo adivinado) para terminar su guardado ANTES de decidir si esto
+ * es genuinamente nuevo -- un dueño escribiendo de verdad tolera perfecto
+ * unos segundos más de espera antes de que se pause el bot; lo que no se
+ * puede tolerar es que el bot se pause solo por contestar. */
 export async function handleOwnerEcho(event: MetaMessaging, message: NonNullable<MetaMessaging['message']>): Promise<void> {
   const recipientId = event.recipient?.id;
   if (!recipientId) return;
@@ -536,7 +557,7 @@ export async function handleOwnerEcho(event: MetaMessaging, message: NonNullable
   // en el historial del agente igual, y no vale la pena pausar por eso.
   if (text.length === 0) return;
 
-  if (message.mid) await sleep(OWNER_ECHO_RACE_GUARD_MS);
+  if (await waitForOwnSend(message.mid ?? undefined)) return; // Ganó deliver() -- es nuestro propio envío.
 
   const thread = await getOrCreateIgThread({ igUserId: recipientId });
   if (!thread) return;
