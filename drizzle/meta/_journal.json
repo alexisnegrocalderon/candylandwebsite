@@ -477,6 +477,13 @@
       "when": 1790191276488,
       "tag": "0067_right_celestials",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "5",
+      "when": 1790534851624,
+      "tag": "0068_low_lady_mastermind",
+      "breakpoints": true
     }
   ]
 }

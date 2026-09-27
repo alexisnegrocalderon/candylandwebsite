@@ -131,6 +131,23 @@ export default function DressCodeArticle() {
             {EVENT_BRAND.dressCode}
           </p>
 
+          {/* Atajo al Oráculo de Disfraces (/disfraces): este artículo mide
+           * cuánto esfuerzo vas a poner, pero no sugiere disfraces concretos
+           * -- el oráculo sí, con IA. */}
+          <Link
+            href="/disfraces"
+            className="group block rounded-2xl p-[1.5px] bg-gradient-to-br from-[#e0be6b] via-[#9b5de5] to-[#f07a2b] mb-10 interactive"
+          >
+            <div className="rounded-[calc(1rem-1.5px)] bg-[#120a16] text-[#f3e9f2] p-6 md:p-7 flex items-center gap-5">
+              <span className="text-5xl shrink-0 transition-transform group-hover:scale-110" aria-hidden>🔮</span>
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-[#d4a537] mb-1">Nuevo · con IA</p>
+                <p className="font-heading font-bold text-xl md:text-2xl leading-tight">¿No sabes de qué disfrazarte? Pregúntale al Oráculo</p>
+                <p className="text-sm text-[#b9a6c2] mt-1">5 preguntas y te revela 3 ideas: con lo que tienes, con accesorios o full producción →</p>
+              </div>
+            </div>
+          </Link>
+
           <div className="glass-candy rounded-2xl p-6 md:p-8 mb-14">
             <p className="text-sm uppercase tracking-[0.3em] text-primary mb-3">No tiene que ser profesional</p>
             <ul className="space-y-3">

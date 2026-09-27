@@ -18,6 +18,8 @@ import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { scanReceiptImage } from "./receiptScan";
+import { generateCostumeIdeas, fallbackResult as fallbackCostumeResult } from "./costumeOracle";
+import { ORACLE_VIBES, ORACLE_COMPANY, ORACLE_LEVELS, ORACLE_SKIN, ORACLE_ITEMS, ORACLE_EXTRA_MAX } from "../shared/costumeOracle";
 import * as applications from "./ambassadorApplications";
 import * as birthdayApplications from "./birthdayApplications";
 import * as birthdayProgram from "./birthdayProgram";
@@ -96,6 +98,8 @@ import { buildAuthenticationOptions, buildRegistrationOptions, getRpIdAndOrigin,
 const SHIFT_CLOSE_REPORT_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 const APPLICATIONS_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 const APPLICATION_MAX_PER_HOUR = 5;
+const COSTUME_ORACLE_MAX_PER_HOUR = 8;
+const COSTUME_ORACLE_MAX_PER_DAY = 1500;
 
 // Datos ficticios para "mandar prueba" / vista previa de los correos de cara
 // al cliente desde el admin -- nunca datos de una orden real.
@@ -1763,6 +1767,7 @@ export const appRouter = router({
       kitchenVendorEmail: z.string().email().nullable().optional(),
       ogImageUrl: z.string().url().nullable().optional(),
       foundersPromoEnabled: z.boolean().optional(),
+      halloweenModeEnabled: z.boolean().optional(),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings(input);
     }),
@@ -2323,6 +2328,34 @@ export const appRouter = router({
   // contable NO se reciben del cliente: los calcula el servidor en
   // buildExpenseValues, para que no se pueda inventar crédito fiscal desde el
   // navegador.
+  // Oráculo de Disfraces (/disfraces) -- el primer endpoint PÚBLICO que
+  // llama a la IA, así que va con dos frenos: por IP (una persona curiosa
+  // no puede quemar la cuota) y un tope global por día (un bot rotando IPs
+  // tampoco). Si la IA falla, server/costumeOracle.ts cae solo a un
+  // catálogo estático: nunca devuelve error por culpa del modelo.
+  costumeOracle: router({
+    generate: publicProcedure.input(z.object({
+      vibe: z.enum(ORACLE_VIBES),
+      company: z.enum(ORACLE_COMPANY),
+      level: z.enum(ORACLE_LEVELS),
+      skin: z.enum(ORACLE_SKIN),
+      items: z.array(z.enum(ORACLE_ITEMS)).max(ORACLE_ITEMS.length),
+      extra: z.string().max(ORACLE_EXTRA_MAX).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const ipKey = `costume-oracle:${clientIp(ctx)}`;
+      const globalKey = `costume-oracle:global:${new Date().toISOString().slice(0, 10)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'El oráculo necesita descansar un rato 🔮 Vuelve a consultarlo en una hora.' });
+      }
+      await db.recordIpAttempt(ipKey, COSTUME_ORACLE_MAX_PER_HOUR, 60 * 60 * 1000);
+      // Pasado el tope global del día no se corta la experiencia: se sigue
+      // respondiendo, pero con el catálogo estático (costo cero).
+      if (!(await db.checkIpRateLimit(globalKey))) return fallbackCostumeResult(input.vibe);
+      await db.recordIpAttempt(globalKey, COSTUME_ORACLE_MAX_PER_DAY, 24 * 60 * 60 * 1000);
+      return generateCostumeIdeas(input);
+    }),
+  }),
+
   expenses: router({
     listAll: adminReadProcedure.input(z.object({
       eventId: z.number().optional(),

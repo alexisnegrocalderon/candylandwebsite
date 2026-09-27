@@ -179,6 +179,11 @@ const STANDALONE_SITE_PAGES: { topic: string; path: string; summary: string }[] 
     summary: 'No tiene que ser profesional, pero sí es obligatorio -- tips y un quiz de 1 minuto.',
   },
   {
+    topic: 'Ideas de disfraz / "¿de qué me disfrazo?" (Oráculo de Disfraces con IA)',
+    path: '/disfraces',
+    summary: 'Contestas 5 preguntas y te recomienda 3 disfraces concretos: con lo que tienes en casa, con accesorios o full producción. Mandar este link cuando pidan ideas de disfraz.',
+  },
+  {
     topic: 'Quiénes somos',
     path: '/nosotros',
     summary: 'Quiénes son y la historia de Mansion Playroom.',

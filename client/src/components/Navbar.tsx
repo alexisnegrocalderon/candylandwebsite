@@ -75,6 +75,8 @@ const secondaryNavLinks = [
   { href: '/politica-de-privacidad', label: 'Política de privacidad' },
 ];
 
+const DARK_TOP_ROUTES = ['/', '/halloween', '/disfraces'];
+
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -85,6 +87,12 @@ export default function Navbar() {
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  // El estilo blanco (sin fondo, con sombra) solo sirve sobre un fondo
+  // oscuro arriba de todo: el Hero de la Home, la portada Halloween y el
+  // Oráculo. En el resto de las páginas el fondo es claro y los íconos
+  // blancos quedaban casi invisibles -- ahí se usa siempre el tono normal.
+  const lightChrome = scrolled || !DARK_TOP_ROUTES.includes(location);
 
   return (
     <>
@@ -119,7 +127,7 @@ export default function Navbar() {
               className={`text-sm font-medium tracking-wide uppercase transition-colors duration-300 interactive ${
                 location === '/'
                   ? 'text-primary'
-                  : scrolled
+                  : lightChrome
                     ? 'text-muted-foreground hover:text-foreground'
                     : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
               }`}
@@ -132,7 +140,7 @@ export default function Navbar() {
              * espacio en la misma fila que el resto. */}
             <DropdownMenu>
               <DropdownMenuTrigger className={`flex items-center gap-1 text-sm font-medium tracking-wide uppercase transition-colors duration-300 interactive outline-none ${
-                scrolled ? 'text-muted-foreground hover:text-foreground' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
+                lightChrome ? 'text-muted-foreground hover:text-foreground' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
               }`}>
                 Eventos <ChevronDown size={14} strokeWidth={2} />
               </DropdownMenuTrigger>
@@ -151,7 +159,7 @@ export default function Navbar() {
              * mueve acá adentro en vez de sumar un tercer dropdown suelto). */}
             <DropdownMenu>
               <DropdownMenuTrigger className={`flex items-center gap-1 text-sm font-medium tracking-wide uppercase transition-colors duration-300 interactive outline-none ${
-                scrolled ? 'text-muted-foreground hover:text-foreground' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
+                lightChrome ? 'text-muted-foreground hover:text-foreground' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
               }`}>
                 Comunidad <ChevronDown size={14} strokeWidth={2} />
               </DropdownMenuTrigger>
@@ -192,7 +200,7 @@ export default function Navbar() {
 
             <DropdownMenu>
               <DropdownMenuTrigger className={`flex items-center gap-1 text-sm font-medium tracking-wide uppercase transition-colors duration-300 interactive outline-none ${
-                scrolled ? 'text-muted-foreground hover:text-foreground' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
+                lightChrome ? 'text-muted-foreground hover:text-foreground' : 'text-white/90 hover:text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.6)]'
               }`}>
                 Más <ChevronDown size={14} strokeWidth={2} />
               </DropdownMenuTrigger>
@@ -215,7 +223,7 @@ export default function Navbar() {
               rel="noopener noreferrer"
               aria-label="Instagram de Mansion Playroom"
               className={`flex items-center justify-center w-9 h-9 rounded-full border transition-colors duration-300 interactive ${
-                scrolled
+                lightChrome
                   ? 'border-border/50 text-muted-foreground hover:text-primary hover:border-primary/40'
                   : 'border-white/25 bg-white/10 text-white/90 hover:text-white hover:bg-white/15'
               }`}
@@ -225,7 +233,7 @@ export default function Navbar() {
 
             {EVENTO.fechaConfirmada && (
               <>
-                <span aria-hidden className={`w-px h-6 ${scrolled ? 'bg-border' : 'bg-white/25'}`} />
+                <span aria-hidden className={`w-px h-6 ${lightChrome ? 'bg-border' : 'bg-white/25'}`} />
                 <Link
                   href={`/checkout/${CANDYLAND.slug}`}
                   className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-semibold tracking-wide uppercase transition-transform duration-200 hover:scale-105 active:scale-95 interactive"
@@ -256,7 +264,7 @@ export default function Navbar() {
               rel="noopener noreferrer"
               aria-label="Instagram de Mansion Playroom"
               className={`flex items-center justify-center w-9 h-9 rounded-full border transition-colors interactive ${
-                scrolled || mobileOpen
+                lightChrome || mobileOpen
                   ? 'border-border/50 text-muted-foreground hover:text-primary hover:border-primary/40'
                   : 'border-white/25 bg-white/10 text-white/90 hover:text-white hover:bg-white/15'
               }`}
@@ -266,7 +274,7 @@ export default function Navbar() {
             <button
               onClick={() => setMobileOpen(!mobileOpen)}
               className={`flex items-center justify-center w-9 h-9 rounded-full border transition-colors interactive ${
-                scrolled || mobileOpen
+                lightChrome || mobileOpen
                   ? 'border-border/50 text-foreground hover:border-primary/40'
                   : 'border-white/25 bg-white/10 text-white/90 hover:text-white hover:bg-white/15'
               }`}

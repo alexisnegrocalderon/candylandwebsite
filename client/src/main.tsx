@@ -45,7 +45,9 @@ if (analyticsEndpoint && analyticsWebsiteId) {
 // ruta a la que llega la enorme mayoría del tráfico (Instagram/WhatsApp);
 // quien entra directo a otra ruta (ticket, checkout) no paga estos bytes de más.
 if (window.location.pathname === '/') {
-  import('./pages/Home');
+  // HalloweenHome importa Home de forma estática: pedir este módulo baja los
+  // dos chunks en paralelo, igual que antes con Home sola.
+  import('./pages/HalloweenHome');
 }
 
 // Autolimpieza de un bug ya corregido: el service worker de /caja se

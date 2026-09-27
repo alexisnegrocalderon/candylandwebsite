@@ -20,7 +20,10 @@ import { isFinePointer, resetScrollPosition } from "./lib/smoothScroll";
 // sitio lo hace desde el celular (tráfico de Instagram/WhatsApp), así que
 // era peso muerto para la mayoría de las visitas.
 import { lazy, Suspense, useEffect } from "react";
-const Home = lazy(() => import("./pages/Home"));
+// La portada "/" pasa por HalloweenHome: renderiza la Home oficial tal cual,
+// y solo le agrega la paleta Halloween si el switch del admin está prendido
+// (o siempre en /halloween, la vista previa).
+const HalloweenHome = lazy(() => import("./pages/HalloweenHome"));
 const CustomCursor = lazy(() => import("./components/CustomCursor"));
 const SmoothScroll = lazy(() => import("./components/SmoothScroll"));
 const Events = lazy(() => import("./pages/Events"));
@@ -48,6 +51,7 @@ const Blog = lazy(() => import("./pages/Blog"));
 const QueSonLasFiestasLiberales = lazy(() => import("./pages/QueSonLasFiestasLiberales"));
 const PlayCardArticle = lazy(() => import("./pages/PlayCardArticle"));
 const DressCodeArticle = lazy(() => import("./pages/DressCodeArticle"));
+const CostumeOracle = lazy(() => import("./pages/CostumeOracle"));
 const Puerta = lazy(() => import("./pages/Puerta"));
 const Cocina = lazy(() => import("./pages/Cocina"));
 const Guardarropia = lazy(() => import("./pages/Guardarropia"));
@@ -95,7 +99,8 @@ function Router() {
         transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
       >
         <Switch>
-          <Route path="/" component={Home} />
+          <Route path="/">{() => <HalloweenHome />}</Route>
+          <Route path="/halloween">{() => <HalloweenHome force />}</Route>
           <Route path="/eventos" component={Events} />
           <Route path="/eventos/:slug" component={EventDetail} />
           <Route path="/checkout/:eventSlug" component={Checkout} />
@@ -113,6 +118,7 @@ function Router() {
           <Route path="/blog/que-son-las-fiestas-liberales" component={QueSonLasFiestasLiberales} />
           <Route path="/blog/tarjeta-playcard" component={PlayCardArticle} />
           <Route path="/blog/dress-code-explicado" component={DressCodeArticle} />
+          <Route path="/disfraces" component={CostumeOracle} />
           <Route path="/blog/:slug" component={Blog} />
           <Route path="/embajadores" component={Embajadores} />
           <Route path="/beneficios-cumpleaneros" component={BeneficiosCumpleaneros} />
