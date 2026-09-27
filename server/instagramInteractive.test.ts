@@ -32,7 +32,8 @@ describe('resolveInstagramBuyLink', () => {
     const result = await resolveInstagramBuyLink();
 
     expect(result).toEqual({
-      url: 'https://mansionplayroom.cl/eventos/aniversario',
+      // Con UTM: la venta que entra por el botón queda atribuida al agente.
+      url: 'https://mansionplayroom.cl/eventos/aniversario?utm_source=instagram&utm_medium=dm&utm_campaign=agente',
       eventTitle: '2do Aniversario',
       imageUrl: 'https://blob.vercel-storage.com/events/flyer.jpg',
     });

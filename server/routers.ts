@@ -1879,8 +1879,16 @@ export const appRouter = router({
       followUpMinutes: z.number().int().min(1).max(1440),
       followUpMessage: z.string().min(1).max(IG_MAX_REPLY_CHARS),
       thanksMessage: z.string().min(1).max(IG_MAX_REPLY_CHARS),
+      autoResumeHours: z.number().int().min(0).max(720),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings({ instagramAgentConfig: input });
+    }),
+    /* Cuánto vendió el agente (Instagram + WhatsApp): órdenes aprobadas
+     * que entraron por un botón del agente (utm_campaign=agente...). */
+    agentSales: adminProcedure.query(async () => {
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const [last7Days, total] = await Promise.all([db.getAgentSalesSummary(weekAgo), db.getAgentSalesSummary()]);
+      return { last7Days, total };
     }),
     /* Estado de la conexión con Meta, para que el panel pueda decir QUÉ
      * falta en vez de mostrar una bandeja vacía sin explicación. Solo

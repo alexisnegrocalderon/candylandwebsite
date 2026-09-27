@@ -185,7 +185,7 @@ describe('handleInboundMessage', () => {
     expect(payload.interactive.body.text).toContain('quedan pocas');
     expect(payload.interactive.body.text).not.toMatch(/\b5\b/);
     expect(payload.interactive.body.text).not.toContain('Pisco');
-    expect(payload.interactive.action.parameters.url).toMatch(/\/eventos\/aniversario$/);
+    expect(payload.interactive.action.parameters.url).toMatch(/\/eventos\/aniversario\?utm_source=whatsapp&utm_medium=dm&utm_campaign=agente$/);
   });
 
   it('"Hablar con alguien" deriva y pausa el bot', async () => {
@@ -214,7 +214,7 @@ describe('handleInboundMessage', () => {
     await handleInboundMessage(textMessage('quiero ir, cómo compro?'));
     const payload = lastPayload();
     expect(payload.interactive.type).toBe('cta_url');
-    expect(payload.interactive.action.parameters.url).toMatch(/\/eventos\/aniversario$/);
+    expect(payload.interactive.action.parameters.url).toMatch(/\/eventos\/aniversario\?utm_source=whatsapp&utm_medium=dm&utm_campaign=agente$/);
   });
 
   // Pedido del dueño (23/09, mismo caso que Instagram): la clasificación de

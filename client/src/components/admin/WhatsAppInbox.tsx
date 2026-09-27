@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { MessageCircle, Bot, Hand, Send, Sparkles, AlertTriangle, List, Link as LinkIcon } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { Switch } from '@/components/ui/switch';
@@ -347,6 +348,9 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
           <CardTitle className="text-base">{threadTitle(thread)}</CardTitle>
           {thread.botPaused === 1 && thread.handoffReason && (
             <p className="text-xs text-amber-600 mt-1">Bot pausado: {thread.handoffReason}</p>
+          )}
+          {thread.botPaused === 1 && (
+            <AgentAutoResumeNote botPausedAt={thread.botPausedAt} handoffReason={thread.handoffReason} />
           )}
         </div>
         <div className="flex items-center gap-2">

@@ -8,6 +8,7 @@ import {
   buildTextPayload,
   type WaButton,
 } from './whatsappSend';
+import { withAgentUtm } from './agentLinks';
 
 /* Mensajes interactivos de WhatsApp armados SOLO con datos de la base, sin
  * IA: menú de bienvenida, lista de próximas fechas, detalle de una fecha con
@@ -71,7 +72,7 @@ export function replyWithButtons(to: string, text: string, buttons: string[]): W
 export async function eventListMessage(to: string, intro?: string, now: Date = new Date()): Promise<WaOutgoing> {
   const upcoming = await getUpcomingPublicEvents(now);
   if (upcoming.length === 0) {
-    const text = `Todavía no hay una próxima fecha anunciada 💜 La vas a ver primero en nuestro Instagram y en ${APP_URL}`;
+    const text = 'Todavía no hay una próxima fecha anunciada 💜 La vas a ver primero en nuestro Instagram y en la web.';
     return { payload: buildTextPayload(to, text), text, interactive: null };
   }
   if (upcoming.length === 1) return eventDetailMessage(to, upcoming[0].slug, now);
@@ -121,7 +122,7 @@ export async function eventDetailMessage(to: string, slug: string, now: Date = n
   }
 
   const text = lines.join('\n');
-  const url = `${APP_URL}/eventos/${event.slug}`;
+  const url = withAgentUtm(`${APP_URL}/eventos/${event.slug}`, 'whatsapp');
   if (event.status === 'soldout') {
     return { payload: buildTextPayload(to, text), text, interactive: null };
   }
@@ -134,14 +135,19 @@ export async function eventDetailMessage(to: string, slug: string, now: Date = n
 
 /** Texto de la IA + botón "Comprar entrada" del próximo evento con venta
  * abierta. Si no hay ninguno, solo el texto. */
-export async function replyWithBuyLink(to: string, text: string, now: Date = new Date()): Promise<WaOutgoing> {
+export async function replyWithBuyLink(to: string, text: string, now: Date = new Date(), campaign: string = 'agente'): Promise<WaOutgoing> {
   const upcoming = await getUpcomingPublicEvents(now);
   const event = upcoming.find((e) => e.status !== 'soldout');
   if (!event) return { payload: buildTextPayload(to, text), text, interactive: null };
-  const url = `${APP_URL}/eventos/${event.slug}`;
+  return replyWithLinkButton(to, text, 'Comprar entrada', withAgentUtm(`${APP_URL}/eventos/${event.slug}`, 'whatsapp', campaign));
+}
+
+/** Texto + botón a cualquier link ya armado (con su UTM) -- así el link
+ * nunca queda escrito a la vista en el mensaje. */
+export function replyWithLinkButton(to: string, text: string, label: string, url: string): WaOutgoing {
   return {
-    payload: buildCtaUrlPayload(to, text, 'Comprar entrada', url),
+    payload: buildCtaUrlPayload(to, text, label, url),
     text,
-    interactive: { type: 'cta_url', label: 'Comprar entrada', url },
+    interactive: { type: 'cta_url', label, url },
   };
 }

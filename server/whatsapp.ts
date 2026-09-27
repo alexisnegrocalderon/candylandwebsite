@@ -11,7 +11,8 @@ import {
   getWaMessageByWamid,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
-import { verifyMetaSignature } from './instagram';
+import { verifyMetaSignature, bubbleGapMs } from './instagram';
+import { resolvePageLink, splitIntoBubbles } from './agentLinks';
 import { canReplyWithinWindow } from './instagramSend';
 import { sendWhatsAppPayload, markReadWithTyping, buildTextPayload } from './whatsappSend';
 import {
@@ -21,10 +22,11 @@ import {
   eventListMessage,
   eventDetailMessage,
   replyWithBuyLink,
+  replyWithLinkButton,
   type WaOutgoing,
 } from './whatsappInteractive';
 import { sendPushToAdmins } from './push';
-import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
+import { normalizeInstagramAgentConfig, PERSONAL_HANDOFF_REASON } from '../shared/instagramAgentConfig';
 import { normalizeWhatsAppAgentConfig } from '../shared/whatsappAgentConfig';
 
 /* Entrada de los mensajes de WhatsApp (Cloud API, campo `messages` del
@@ -311,24 +313,35 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
   // cliente -- así que, a diferencia de los demás casos de esta rama, acá
   // no se manda respuesta automática pero SIEMPRE se avisa por push.
   if (result.isPersonal) {
-    await setWaThreadBotPaused(thread.id, true, 'La IA lo marcó como mensaje personal, no de cliente');
-    await notifyHandoff(thread.id, who, text, 'La IA lo marcó como mensaje personal, no de cliente');
+    await setWaThreadBotPaused(thread.id, true, PERSONAL_HANDOFF_REASON);
+    await notifyHandoff(thread.id, who, text, PERSONAL_HANDOFF_REASON);
     return;
   }
 
+  // Burbujas cortas como escribe una persona (pedido del dueño, 27/09): las
+  // primeras van como texto suelto y la última lleva el botón o la lista.
+  // Los links viajan siempre como botón, nunca escritos.
+  const bubbles = splitIntoBubbles(result.reply);
+  const leading = bubbles.slice(0, -1).map((b) => textOnly(waId, b));
+  const lastText = bubbles[bubbles.length - 1] ?? result.reply;
+  const pageLink = result.action === 'page_link' && !result.handoff ? resolvePageLink(result.pageKey, 'whatsapp') : null;
+
   let outgoing: WaOutgoing[];
   if (result.action === 'event_list' && !result.handoff) {
-    const list = await eventListMessage(waId, result.reply);
+    const list = await eventListMessage(waId, lastText);
     // Con una sola fecha (o ninguna) la "lista" es el detalle o un aviso con
     // su propio texto: la respuesta de la IA va antes, como mensaje aparte.
-    outgoing = list.text === result.reply ? [list] : [textOnly(waId, result.reply), list];
+    outgoing = list.text === lastText ? [...leading, list] : [...leading, textOnly(waId, lastText), list];
   } else if (result.action === 'buy_link' && !result.handoff) {
-    outgoing = [await replyWithBuyLink(waId, result.reply)];
+    outgoing = [...leading, await replyWithBuyLink(waId, lastText)];
+  } else if (pageLink) {
+    outgoing = [...leading, replyWithLinkButton(waId, lastText, pageLink.title, pageLink.url)];
   } else {
-    outgoing = [replyWithButtons(waId, result.reply, result.handoff ? [] : result.buttons)];
+    outgoing = [...leading, replyWithButtons(waId, lastText, result.handoff ? [] : result.buttons)];
   }
-  for (const out of outgoing) {
-    await deliver(thread.id, waId, out);
+  for (let i = 0; i < outgoing.length; i++) {
+    if (i > 0) await sleep(bubbleGapMs());
+    if (!(await deliver(thread.id, waId, outgoing[i]))) break;
   }
 
   if (isFinalReplyOfDay) {

@@ -157,7 +157,13 @@ que se ve al abrir un hilo, que se borra al reactivarlo). El flujo:
 ## 7. Operación diaria
 
 - **Tomar una conversación**: abrir el hilo y apagar *"Respuesta automática en
-  esta conversación"*. El agente no vuelve a meterse hasta que se prenda.
+  esta conversación"*, o simplemente contestar a mano (se pausa solo).
+- **Reactivación automática** (27/09): un hilo pausado -- porque el agente lo
+  derivó o porque el dueño contestó a mano -- vuelve solo a tener agente
+  pasadas las horas de "Reactivar el agente solo después de" (24 por defecto)
+  desde la pausa o desde el último mensaje a mano. Lo hace el mismo cron de
+  cada 15 minutos (`server/agentAutoResume.ts`). Los chats marcados como
+  personales NO se reactivan. La bandeja muestra "Se reactiva solo el ...".
 - **Ventana de 24 horas**: Meta solo deja responder dentro de las 24 horas
   siguientes al último mensaje de la persona. Pasado ese plazo la bandeja lo
   avisa y hay que contestar desde la app de Instagram.
@@ -170,7 +176,18 @@ que se ve al abrir un hilo, que se borra al reactivarlo). El flujo:
   (cada 15 minutos) le manda un único mensaje de cierre pasados los minutos
   configurados (Ajustes del agente → "Recordatorio si no contesta", 120 min
   por defecto). No es un cierre generado por IA -- es el texto fijo que se
-  edita ahí mismo.
+  edita ahí mismo, y va con el botón de compra debajo (sin URL escrita).
+- **Nunca una URL a la vista** (27/09): todo link sale como botón -- el de
+  compra (`action: "buy_link"`) o el de una página del sitio (`action:
+  "page_link"` + `pageKey` de una lista cerrada, `server/agentLinks.ts`). El
+  modelo ni siquiera ve las URLs; si igual se cuela una en el texto, se saca
+  y se convierte en el botón que corresponde. Cada botón lleva
+  `utm_source=instagram|whatsapp&utm_medium=dm&utm_campaign=agente` (o
+  `agente-recordatorio`), así las compras que trae el agente aparecen en
+  "Ventas por Origen" y en la tarjeta "Ventas del agente".
+- **Burbujas**: las respuestas del agente con más de una idea salen en hasta
+  3 mensajes cortos seguidos (una pausa breve entre cada uno), como escribe
+  una persona; el botón va al final.
 - **"Muchas gracias"**: si el mensaje que llega es solo un agradecimiento por
   lo ya conversado (sin ninguna pregunta ni pedido nuevo), el agente NO
   deriva a una persona -- contesta con el texto fijo de "Mensaje cuando solo
@@ -196,6 +213,8 @@ que se ve al abrir un hilo, que se borra al reactivarlo). El flujo:
 | `server/instagramSend.ts` | Graph API: enviar, perfil, refrescar token |
 | `server/instagramAutomations.ts` | Armado del mensaje de una automatización por palabra clave |
 | `server/instagramFollowUp.ts` | Recordatorio de cierre por silencio (cron cada 15 min) |
+| `server/agentLinks.ts` | Links como botón: páginas permitidas, UTM, limpieza de URLs, burbujas |
+| `server/agentAutoResume.ts` | Reactivación automática de hilos pausados |
 | `shared/instagramAgentConfig.ts` | Config editable desde el admin (compartida con WhatsApp) |
 | `drizzle/schema.ts` (`agentHandoffLog`) | Registro permanente de derivaciones, para "seguir entrenando" (sección 6) |
 | `client/src/components/admin/InstagramInbox.tsx` | Bandeja del panel |

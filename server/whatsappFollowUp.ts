@@ -1,7 +1,9 @@
 import { getWaThreadsAwaitingFollowUp, markWaThreadFollowUpSent, appendWaMessage, getSiteSettings } from './db';
 import { canReplyWithinWindow } from './instagramSend';
-import { sendWhatsAppText } from './whatsappSend';
-import { normalizeWhatsAppAgentConfig } from '../shared/whatsappAgentConfig';
+import { sendWhatsAppPayload } from './whatsappSend';
+import { replyWithBuyLink } from './whatsappInteractive';
+import { stripUrlsFromReply } from './agentLinks';
+import { normalizeWhatsAppAgentConfig, DEFAULT_WHATSAPP_AGENT_CONFIG } from '../shared/whatsappAgentConfig';
 
 /* Recordatorio de cierre por silencio en WhatsApp -- mismo mecanismo que
  * server/instagramFollowUp.ts, colgado del mismo cron
@@ -18,6 +20,11 @@ export async function runWhatsAppFollowUps(now: Date = new Date()): Promise<What
 
   const cutoff = new Date(now.getTime() - config.followUpMinutes * 60 * 1000);
   const threads = await getWaThreadsAwaitingFollowUp(cutoff);
+  if (threads.length === 0) return { sent: 0, skipped: 0, failed: 0 };
+
+  // Nunca una URL a la vista (regla del dueño, 27/09): el texto se limpia y
+  // el link va como botón de compra, con su UTM de recordatorio.
+  const text = stripUrlsFromReply(config.followUpMessage).text || DEFAULT_WHATSAPP_AGENT_CONFIG.followUpMessage;
 
   let sent = 0, skipped = 0, failed = 0;
   for (const thread of threads) {
@@ -27,8 +34,9 @@ export async function runWhatsAppFollowUps(now: Date = new Date()): Promise<What
         skipped++;
         continue;
       }
-      const { wamid } = await sendWhatsAppText(thread.waId, config.followUpMessage);
-      await appendWaMessage({ threadId: thread.id, wamid, direction: 'out', source: 'bot', text: config.followUpMessage });
+      const out = await replyWithBuyLink(thread.waId, text, now, 'agente-recordatorio');
+      const { wamid } = await sendWhatsAppPayload(out.payload);
+      await appendWaMessage({ threadId: thread.id, wamid, direction: 'out', source: 'bot', text: out.text, interactive: out.interactive });
       await markWaThreadFollowUpSent(thread.id);
       sent++;
     } catch (err) {
