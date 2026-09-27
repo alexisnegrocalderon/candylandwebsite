@@ -29,6 +29,7 @@ vi.mock('./db', async (importOriginal) => {
     getDiscountCodeByCode: vi.fn(),
     getTicketTypeById: vi.fn(),
     getFeaturedEvent: vi.fn(),
+    getIgMessageByMid: vi.fn(),
   };
 });
 const getHomeEventsMock = vi.mocked(db.getHomeEvents);
@@ -36,6 +37,7 @@ const getTicketTypesMock = vi.mocked(db.getTicketTypesByEventId);
 const appendIgMessageMock = vi.mocked(db.appendIgMessage);
 const setIgThreadBotPausedMock = vi.mocked(db.setIgThreadBotPaused);
 const getOrCreateIgThreadMock = vi.mocked(db.getOrCreateIgThread);
+const getIgMessageByMidMock = vi.mocked(db.getIgMessageByMid);
 const findMatchingIgKeywordAutomationMock = vi.mocked(db.findMatchingIgKeywordAutomation);
 const hasRedeemedIgKeywordAutomationMock = vi.mocked(db.hasRedeemedIgKeywordAutomation);
 const recordIgKeywordRedemptionMock = vi.mocked(db.recordIgKeywordRedemption);
@@ -182,18 +184,15 @@ describe('handleOwnerEcho', () => {
   });
 
   // El eco de un mensaje que YA mandamos nosotros (el agente, o una
-  // respuesta manual del panel) también llega por acá -- appendIgMessage ya
-  // lo descarta por el mid duplicado (mismo mecanismo que evita procesar dos
-  // veces un reintento de Meta), así que no hay que pausar de nuevo por eso.
+  // respuesta manual del panel) también llega por acá -- `waitForOwnSend`
+  // lo detecta sondeando por el mid, sin llegar siquiera a tocar el hilo.
   //
-  // Caso real de producción (25/09): el eco de un mensaje del propio bot
-  // ganó esta carrera contra `deliver()` y terminó pausando el bot como si
-  // el dueño hubiera escrito a mano -- por eso ahora hay un margen de
-  // espera antes de decidir (`OWNER_ECHO_RACE_GUARD_MS`), para darle tiempo
-  // a `deliver()` a guardar primero.
+  // Caso real de producción (25/09 y 26/09): el eco de un mensaje del propio
+  // bot ganó esta carrera contra `deliver()` y terminó pausando el bot como
+  // si el dueño hubiera escrito a mano -- un `sleep` fijo (primer intento)
+  // no alcanzó a cubrir todos los casos, por eso ahora se sondea de verdad.
   it('no hace nada si el eco es de un mensaje que ya habíamos guardado nosotros', async () => {
-    getOrCreateIgThreadMock.mockResolvedValueOnce({ id: 7 } as any);
-    appendIgMessageMock.mockResolvedValueOnce(null); // mid duplicado
+    getIgMessageByMidMock.mockResolvedValueOnce({ id: 5 } as any); // deliver() ya lo guardó
 
     const promise = handleOwnerEcho(
       { sender: { id: 'ig-cuenta-productora' }, recipient: { id: 'ig-user-cliente' } } as any,
@@ -202,7 +201,26 @@ describe('handleOwnerEcho', () => {
     await vi.runAllTimersAsync();
     await promise;
 
+    expect(getOrCreateIgThreadMock).not.toHaveBeenCalled();
     expect(setIgThreadBotPausedMock).not.toHaveBeenCalled();
+  });
+
+  // Si `deliver()` nunca gana la carrera (p. ej. porque de verdad es un
+  // mensaje nuevo del dueño), el sondeo agota su tope de espera y sigue el
+  // camino normal: se guarda y se pausa.
+  it('si nunca aparece guardado, sigue el camino normal tras agotar el sondeo', async () => {
+    getIgMessageByMidMock.mockResolvedValue(null);
+    getOrCreateIgThreadMock.mockResolvedValueOnce({ id: 7 } as any);
+    appendIgMessageMock.mockResolvedValueOnce({ id: 99 } as any);
+
+    const promise = handleOwnerEcho(
+      { sender: { id: 'ig-cuenta-productora' }, recipient: { id: 'ig-user-cliente' } } as any,
+      { mid: 'mid-genuino-del-dueno', text: 'hola! dame un segundo' } as any,
+    );
+    await vi.runAllTimersAsync();
+    await promise;
+
+    expect(setIgThreadBotPausedMock).toHaveBeenCalledWith(7, true, 'El dueño contestó directo desde Instagram');
   });
 
   it('no hace nada con un adjunto suelto sin texto', async () => {
