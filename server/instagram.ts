@@ -16,6 +16,7 @@ import {
   getFeaturedEvent,
   logAgentHandoff,
   getIgMessageByMid,
+  setIgThreadCustomerNotes,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
 import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, sendImageMessage, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
@@ -316,7 +317,14 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     history: previous,
     config,
     isFinalReplyOfDay,
+    customerNotes: thread.customerNotes,
   });
+
+  // Ficha de la persona: se guarda cada vez que el agente aprende algo nuevo
+  // y vuelve al prompt en el próximo mensaje (aunque el historial se corte).
+  if (result.customerNotes && result.customerNotes !== thread.customerNotes) {
+    await setIgThreadCustomerNotes(thread.id, result.customerNotes);
+  }
 
   // Mensaje personal (amigo, meme, plan, saludo -- nada que ver con la
   // productora): no se manda nada automático, queda en la bandeja para que

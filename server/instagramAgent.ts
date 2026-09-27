@@ -196,8 +196,13 @@ const RESPONSE_SCHEMA = {
         description:
           'true si el mensaje es SOLO un agradecimiento o cierre por lo ya conversado ("muchas gracias", "gracias!", "ok gracias", "genial gracias 🙏") sin ninguna pregunta ni pedido nuevo. Con isThanks=true no se deriva ni se usa el reply generado: se manda un mensaje fijo configurado aparte. Si además de agradecer pregunta o pide algo nuevo, isThanks=false.',
       },
+      customerNotes: {
+        type: 'string',
+        description:
+          'Ficha breve y actualizada de esta persona (máx. 300 caracteres) para recordarla en los próximos mensajes: nombre si lo dijo, si viene sola/o, en pareja o en grupo (y cuántos), si es su primera vez o ya vino, qué le interesa, qué dudas u objeciones tuvo, y si ya le mandaste el botón de compra. Parte de lo que ya sabías (bloque "LO QUE YA SABES DE ESTA PERSONA") y súmale lo nuevo. Sin datos sensibles (nada de lo que pase adentro de la fiesta ni de su vida íntima). Vacío si todavía no sabes nada útil.',
+      },
     },
-    required: ['reply', 'handoff', 'handoffReason', 'isPersonal', 'isThanks'],
+    required: ['reply', 'handoff', 'handoffReason', 'isPersonal', 'isThanks', 'customerNotes'],
     additionalProperties: false,
   },
 } as const;
@@ -294,6 +299,21 @@ const INSTAGRAM_BUTTON_RULES = [
   '- En cualquier otro caso, `action: "none"`.',
 ];
 
+/** Cómo vender (pedido del dueño, 27/09, arrancando la venta profunda del
+ * próximo evento): persuasivo pero cálido, con urgencia natural y nunca
+ * desesperado. Vive acá junto a las reglas duras -- la guía de tipos de
+ * cliente y objeciones sí es editable (`salesPlaybook`). */
+const WARM_SALES_RULES = [
+  'VENTA CÁLIDA (tu objetivo es que la persona termine con su entrada, pero como lo haría alguien de la productora genuinamente entusiasmado con la fiesta, no un vendedor):',
+  '- Primero conecta, después vende. Lee qué tipo de cliente es (ver la guía de ventas) y acompáñalo desde donde está: al nervioso, calma; al curioso, info justa; al decidido, rapidez.',
+  '- Vende la experiencia, no la entrada: cuenta lo épico de esta fecha con lo que dice la descripción real del evento, con emoción contagiosa pero creíble. Nada de inventar shows, invitados ni sorpresas que no estén en los datos.',
+  '- Urgencia solo si es real y dicha como un dato útil: que el precio sube en la próxima tanda, que quedan pocas, que la fecha está cerca. Como mucho una vez por conversación, no en cada mensaje. Jamás inventes escasez.',
+  '- Nunca suenes desesperado: nada de "¡compra ya!", "¡última oportunidad!", mayúsculas, varios signos de exclamación seguidos, ni insistir cuando la persona dijo que lo va a pensar -- ahí respétalo, déjale el botón y la puerta abierta.',
+  '- Cada respuesta termina con un siguiente paso suave: una pregunta que avance la conversación (¿vienen en pareja?, ¿te tinca la del sábado?) o el botón de compra si ya hay intención.',
+  '- Cuando hay intención real (pregunta el precio de un acceso puntual, dice "me tinca", "¿cómo compro?", "vamos"), no des más vueltas: dale el precio de ESE acceso y el botón de compra en el mismo mensaje.',
+  '- Suena humano: espeja el estilo de la persona (si escribe corto, corto; si usa emojis, puedes usar uno), usa su nombre si lo sabes, varía cómo empiezas cada mensaje (no repitas "¡Buenísimo!" o "¡Qué bueno!" seguido), chilenismos cercanos sin exagerar ("te tinca", "bacán"). Nunca digas que eres un bot, un asistente virtual ni una IA.',
+];
+
 /* Las reglas duras viven acá y NO en la config editable del admin, a
  * propósito: son las que impiden que el agente invente un precio, prometa un
  * cupo que no existe o hable de otra persona. Poder apagarlas desde un panel
@@ -301,7 +321,7 @@ const INSTAGRAM_BUTTON_RULES = [
  * solo en una cuenta pública. */
 function buildSystemPrompt(
   config: InstagramAgentConfig,
-  opts: { isFinalReplyOfDay?: boolean; channel?: AgentChannel } = {},
+  opts: { isFinalReplyOfDay?: boolean; channel?: AgentChannel; customerNotes?: string | null } = {},
 ): string {
   const channel = opts.channel ?? 'instagram';
   const name = CHANNEL_NAME[channel];
@@ -311,6 +331,12 @@ function buildSystemPrompt(
     'CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):',
     config.brandNotes,
     '',
+    ...(config.salesPlaybook.trim().length > 0
+      ? ['GUÍA DE VENTAS DEL DUEÑO (tipos de cliente y objeciones -- úsala para leer a quién le hablas y cómo acompañarlo):', config.salesPlaybook, '']
+      : []),
+    ...(opts.customerNotes && opts.customerNotes.trim().length > 0
+      ? ['LO QUE YA SABES DE ESTA PERSONA (de conversaciones anteriores -- úsalo con naturalidad, nunca le repitas una pregunta que ya está respondida acá):', opts.customerNotes.trim(), '']
+      : []),
     buildSiteLinksBlock(),
     '',
     'REGLAS QUE NO SE NEGOCIAN:',
@@ -339,6 +365,8 @@ function buildSystemPrompt(
     '- Si la línea de datos del acceso que estás mencionando trae que el precio sube en la próxima tanda, deslízalo como un dato útil al pasar, no como una alerta de oferta -- tono de alguien que te está avisando, no de una campaña. Por ejemplo (no lo copies literal, es solo el tono): "la Soltera está en $10.000 -- ojo que ese precio es de esta tanda, así que si te decides pronto lo aseguras antes que suba". Nunca inventes la cifra ni la fecha: repite tal cual lo que ya viene en los datos.',
     '- Si la pregunta calza con alguno de los temas de "PÁGINAS DEL SITIO CON MÁS INFORMACIÓN", no te quedes explicando todo el tema en el chat: contesta en 1-2 frases breves con la info real (nunca inventada) y ofrécele el detalle, algo como "¿te paso donde está todo el detalle?". Cuando la persona ya lo pidió (o de entrada pide más info/el link sobre ese tema, o responde que sí a tu oferta anterior -- revisa el historial), mándalo como botón: `action: "page_link"` con la `pageKey` exacta de esa página. Esto es solo para páginas de contenido -- el de compra del evento se rige por su propia regla de arriba (intención real vs. curiosidad).',
     '- NUNCA escribas una URL, un dominio ni una dirección web dentro de `reply` (ni "mansionplayroom.cl", ni "www", ni "https"). Los links viajan SIEMPRE como botón (`action`), y tu texto tiene que tener sentido sin el link (ej. "Te dejo acá abajo todas las ideas 👇").',
+    '',
+    ...WARM_SALES_RULES,
     ...(config.styleExamples.trim().length > 0
       ? [
           '',
@@ -355,7 +383,7 @@ function buildSystemPrompt(
     ...(channel === 'whatsapp' ? ['', ...WHATSAPP_INTERACTIVE_RULES] : []),
     ...(channel === 'instagram' ? ['', ...INSTAGRAM_BUTTON_RULES] : []),
     '',
-    'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras), `isPersonal` (ver regla 0) e `isThanks` (ver regla 9). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. Las excepciones son isPersonal=true (no se manda nada) e isThanks=true (se manda un mensaje fijo aparte, no el reply que generes) -- en esos dos casos `reply` puede quedar vacío.',
+    'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras), `isPersonal` (ver regla 0), `isThanks` (ver regla 9) y `customerNotes` (la ficha actualizada de la persona). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. Las excepciones son isPersonal=true (no se manda nada) e isThanks=true (se manda un mensaje fijo aparte, no el reply que generes) -- en esos dos casos `reply` puede quedar vacío.',
   ].join('\n');
 }
 
@@ -390,6 +418,9 @@ export type InstagramAgentResult = {
   /** Con `action: 'page_link'`: la página del sitio (clave de
    * server/agentLinks.ts). '' en cualquier otro caso. */
   pageKey: string;
+  /** Ficha actualizada de la persona para guardar en el hilo. '' = no la
+   * toques (el modelo todavía no sabe nada útil, o hubo un error). */
+  customerNotes: string;
 };
 
 /** Topes de Meta para los botones de respuesta rápida: 3 botones de hasta
@@ -429,6 +460,8 @@ export async function runInstagramAgent(input: {
   /** Canal por el que llegó el mensaje. Por defecto Instagram, que es el
    * llamador histórico. */
   channel?: AgentChannel;
+  /** Ficha guardada de la persona (igThreads/waThreads.customerNotes). */
+  customerNotes?: string | null;
 }): Promise<InstagramAgentResult> {
   const config = normalizeInstagramAgentConfig(input.config);
   const channel = input.channel ?? 'instagram';
@@ -441,6 +474,7 @@ export async function runInstagramAgent(input: {
     buttons: [],
     action: 'none',
     pageKey: '',
+    customerNotes: '',
   };
 
   try {
@@ -449,7 +483,7 @@ export async function runInstagramAgent(input: {
 
     const result = await invokeLLM({
       messages: [
-        { role: 'system', content: buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay, channel }) },
+        { role: 'system', content: buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes }) },
         ...history,
         {
           role: 'user',
@@ -481,6 +515,7 @@ export async function runInstagramAgent(input: {
         buttons: [],
         action: 'none',
         pageKey: '',
+        customerNotes: typeof parsed.customerNotes === 'string' ? parsed.customerNotes.trim().slice(0, 500) : '',
       };
     }
 
@@ -515,6 +550,7 @@ export async function runInstagramAgent(input: {
       buttons: channel === 'whatsapp' && !isPersonal ? sanitizeButtons(parsed.buttons) : [],
       action,
       pageKey,
+      customerNotes: !isPersonal && typeof parsed.customerNotes === 'string' ? parsed.customerNotes.trim().slice(0, 500) : '',
     };
   } catch (err) {
     console.error(`[${CHANNEL_NAME[channel]}] El agente no pudo responder:`, err);

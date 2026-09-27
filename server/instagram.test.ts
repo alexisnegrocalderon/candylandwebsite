@@ -684,6 +684,27 @@ describe('runInstagramAgent', () => {
     expect(result.pageKey).toBe('');
   });
 
+  // Venta profunda (27/09): persuasivo pero cálido, con la guía de ventas
+  // del dueño y la ficha de la persona en el prompt.
+  it('el system prompt trae la venta cálida y la guía de ventas', async () => {
+    mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
+    await runInstagramAgent({ incomingText: 'hola', history: [], config });
+    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    expect(systemPrompt).toContain('VENTA CÁLIDA');
+    expect(systemPrompt).toContain('Nunca suenes desesperado');
+    expect(systemPrompt).toContain('GUÍA DE VENTAS DEL DUEÑO');
+    expect(systemPrompt).toContain('Primera vez, con nervios');
+  });
+
+  it('le pasa al modelo la ficha guardada de la persona y devuelve la actualizada', async () => {
+    mockLlmJson({ reply: '¡Hola Cami! 💜', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'none', pageKey: '', customerNotes: 'Cami, viene en pareja, primera vez.' });
+    const result = await runInstagramAgent({ incomingText: 'hola de nuevo', history: [], config, customerNotes: 'Cami, viene en pareja.' });
+    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    expect(systemPrompt).toContain('LO QUE YA SABES DE ESTA PERSONA');
+    expect(systemPrompt).toContain('Cami, viene en pareja.');
+    expect(result.customerNotes).toBe('Cami, viene en pareja, primera vez.');
+  });
+
   it('isThanks no pisa a isPersonal si la IA marca ambos', async () => {
     mockLlmJson({ reply: '', handoff: true, handoffReason: '', isPersonal: true, isThanks: true });
     const result = await runInstagramAgent({ incomingText: 'jaja gracias crack', history: [], config });
@@ -868,5 +889,23 @@ describe('normalizeInstagramAgentConfig', () => {
   it('trae un mensaje de agradecimiento por defecto y respeta uno propio', () => {
     expect(normalizeInstagramAgentConfig({}).thanksMessage.length).toBeGreaterThan(0);
     expect(normalizeInstagramAgentConfig({ thanksMessage: 'gracias a ti!' }).thanksMessage).toBe('gracias a ti!');
+  });
+
+  it('la reactivación arranca en 24 horas y acota valores raros', () => {
+    expect(normalizeInstagramAgentConfig({}).autoResumeHours).toBe(24);
+    expect(normalizeInstagramAgentConfig({ autoResumeHours: 0 }).autoResumeHours).toBe(0);
+    expect(normalizeInstagramAgentConfig({ autoResumeHours: 99999 }).autoResumeHours).toBe(720);
+    expect(normalizeInstagramAgentConfig({ autoResumeHours: -3 }).autoResumeHours).toBe(24);
+  });
+
+  it('trae una guía de ventas por defecto y respeta la del dueño (aunque la deje vacía)', () => {
+    expect(normalizeInstagramAgentConfig({}).salesPlaybook).toContain('OBJECIONES');
+    expect(normalizeInstagramAgentConfig({ salesPlaybook: 'mi guía' }).salesPlaybook).toBe('mi guía');
+    expect(normalizeInstagramAgentConfig({ salesPlaybook: '' }).salesPlaybook).toBe('');
+  });
+
+  // El recordatorio viejo traía "mansionplayroom.cl/entradas" escrito.
+  it('el recordatorio por defecto no trae ninguna URL', () => {
+    expect(normalizeInstagramAgentConfig({}).followUpMessage).not.toMatch(/mansionplayroom|https?:/);
   });
 });

@@ -1880,6 +1880,7 @@ export const appRouter = router({
       followUpMessage: z.string().min(1).max(IG_MAX_REPLY_CHARS),
       thanksMessage: z.string().min(1).max(IG_MAX_REPLY_CHARS),
       autoResumeHours: z.number().int().min(0).max(720),
+      salesPlaybook: z.string().max(6000),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings({ instagramAgentConfig: input });
     }),
@@ -1924,6 +1925,15 @@ export const appRouter = router({
       paused: z.boolean(),
     })).mutation(async ({ input }) => {
       await db.setIgThreadBotPaused(input.threadId, input.paused, input.paused ? 'Lo tomó el equipo desde el panel' : null);
+      return { success: true };
+    }),
+    /* Ficha del cliente editable a mano -- el agente la va armando solo,
+     * pero el dueño puede corregirla o agregarle lo que sabe él. */
+    setCustomerNotes: adminProcedure.input(z.object({
+      threadId: z.number(),
+      notes: z.string().max(1000),
+    })).mutation(async ({ input }) => {
+      await db.setIgThreadCustomerNotes(input.threadId, input.notes.trim() || null);
       return { success: true };
     }),
     // Irreversible (borra el hilo y todos sus mensajes) -- por eso pide la
@@ -2037,6 +2047,15 @@ export const appRouter = router({
       paused: z.boolean(),
     })).mutation(async ({ input }) => {
       await db.setWaThreadBotPaused(input.threadId, input.paused, input.paused ? 'Lo tomó el equipo desde el panel' : null);
+      return { success: true };
+    }),
+    /* Ficha del cliente editable a mano -- el agente la va armando solo,
+     * pero el dueño puede corregirla o agregarle lo que sabe él. */
+    setCustomerNotes: adminProcedure.input(z.object({
+      threadId: z.number(),
+      notes: z.string().max(1000),
+    })).mutation(async ({ input }) => {
+      await db.setWaThreadCustomerNotes(input.threadId, input.notes.trim() || null);
       return { success: true };
     }),
     deleteThread: adminPasswordProcedure.input(z.object({ threadId: z.number() })).mutation(async ({ input, ctx }) => {
