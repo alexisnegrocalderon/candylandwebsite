@@ -167,6 +167,19 @@ recibió el botón) y la guarda en `igThreads/waThreads.customerNotes`. Vuelve
 al prompt en cada mensaje, así la recuerda aunque vuelva días después. Se ve
 y se edita en la bandeja, arriba de cada conversación.
 
+**Coach semanal** (27/09): los lunes a las 10:00 de Chile (cron
+`/api/cron/agent-coach`, cada hora, se auto-limita con `chileHourOf`) la IA
+lee las conversaciones de la semana de Instagram y WhatsApp, las
+derivaciones y las compras que trajo el agente, y manda un reporte por
+correo a `ADMIN_NOTIFICATION_EMAIL`: resumen, lo que más preguntan, dónde se
+enfría la gente, y textos listos para pegar en "Qué tiene que saber el
+agente" y en la guía de ventas. El último reporte queda en
+`siteSettings.agentCoachReport` y se ve en la tarjeta "Coach semanal" del
+panel, con botón "Generar ahora" y un "Agregar" por sugerencia (la suma al
+borrador; se guarda recién con "Guardar"). Se apaga con el interruptor
+"Coach semanal" en Ajustes del agente. Usa un modelo más capaz que el del
+chat (`claude-sonnet-5` cuando el proveedor es Anthropic).
+
 ## 7. Operación diaria
 
 - **Tomar una conversación**: abrir el hilo y apagar *"Respuesta automática en
@@ -228,6 +241,7 @@ y se edita en la bandeja, arriba de cada conversación.
 | `server/instagramFollowUp.ts` | Recordatorio de cierre por silencio (cron cada 15 min) |
 | `server/agentLinks.ts` | Links como botón: páginas permitidas, UTM, limpieza de URLs, burbujas |
 | `server/agentAutoResume.ts` | Reactivación automática de hilos pausados |
+| `server/agentCoach.ts` | Coach semanal: analiza la semana y sugiere mejoras |
 | `shared/instagramAgentConfig.ts` | Config editable desde el admin (compartida con WhatsApp) |
 | `drizzle/schema.ts` (`agentHandoffLog`) | Registro permanente de derivaciones, para "seguir entrenando" (sección 6) |
 | `client/src/components/admin/InstagramInbox.tsx` | Bandeja del panel |
