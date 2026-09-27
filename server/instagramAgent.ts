@@ -8,7 +8,7 @@ import {
 } from '../shared/instagramAgentConfig';
 import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/tandaSchedule';
 import type { IgMessage } from '../drizzle/schema';
-import { ALL_ARTICLES, articlePath } from '../client/src/content';
+import { AGENT_SITE_PAGES, AGENT_PAGE_KEYS, stripUrlsFromReply } from './agentLinks';
 import { EVENT_BRAND } from '../shared/eventBrand';
 
 /* El cerebro del agente que contesta los mensajes directos del Instagram.
@@ -24,10 +24,6 @@ import { EVENT_BRAND } from '../shared/eventBrand';
  * todo el contexto ya resuelto desde la base alcanza para la pregunta real
  * que llega por DM ("¿cuánto vale?", "¿queda cupo?", "¿dónde es?"). */
 
-// Sin el replace, un APP_URL guardado con "/" al final en Vercel deja los
-// links armados acá con doble slash ("mansionplayroom.cl//eventos/...") --
-// visto en producción en la prueba del agente de Instagram.
-const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
 
 /** Por dónde llegó el mensaje. El cerebro es uno solo (mismas reglas, mismos
  * datos reales, mismas notas de marca editadas en el admin) y lo usan tanto
@@ -45,7 +41,7 @@ const CHANNEL_NAME: Record<AgentChannel, string> = {
  * la lista o del botón de compra lo arma SIEMPRE el servidor desde la base
  * (server/whatsappInteractive.ts): el modelo solo decide cuándo mostrarlo,
  * nunca escribe una fecha ni un link dentro de un botón. */
-export type AgentAction = 'none' | 'event_list' | 'buy_link';
+export type AgentAction = 'none' | 'event_list' | 'buy_link' | 'page_link';
 
 /** Regla de la casa (ver el comentario de `attachStockPoolInfo` en
  * server/db.ts y TandaUrgencyCard): el remanente exacto de un cupo NUNCA se
@@ -85,7 +81,7 @@ export async function buildInstagramContext(now: Date = new Date()): Promise<str
     return [
       'FECHAS Y ENTRADAS (datos reales del sitio):',
       'No hay ninguna fiesta publicada con fecha futura en este momento.',
-      `Si preguntan por la próxima fecha, decir que todavía no está anunciada y que la van a ver primero en el Instagram y en ${APP_URL}.`,
+      'Si preguntan por la próxima fecha, decir que todavía no está anunciada y que la van a ver primero en el Instagram y en el sitio web.',
       '',
       dressCodeBlock,
     ].join('\n');
@@ -102,7 +98,9 @@ export async function buildInstagramContext(now: Date = new Date()): Promise<str
     if (event.eventEnd) lines.push(`- Cierre: ${formatChileTime(new Date(event.eventEnd))}`);
     if (event.venue) lines.push(`- Lugar: ${event.venue}`);
     if (event.shortDescription) lines.push(`- De qué se trata: ${event.shortDescription}`);
-    lines.push(`- Link para comprar: ${APP_URL}/eventos/${event.slug}`);
+    // Sin la URL a propósito (regla del dueño: nunca se ve un link escrito):
+    // la compra viaja como botón con `action: "buy_link"`.
+    lines.push('- Cómo se compra: con el botón de compra (`action: "buy_link"`), nunca escribiendo un link.');
     if (event.status === 'soldout') {
       lines.push('- ESTADO: ENTRADAS AGOTADAS para esta fecha.');
     }
@@ -157,64 +155,15 @@ export async function buildInstagramContext(now: Date = new Date()): Promise<str
   return blocks.join('\n');
 }
 
-/** Páginas informativas del sitio que no viven en `content/index.ts` (son
- * rutas standalone, ver client/src/App.tsx) -- cambian poco, así que se
- * mantienen a mano acá. Los artículos de blog/panoramas SÍ se toman de
- * `ALL_ARTICLES` más abajo, para que uno nuevo aparezca solo sin tocar este
- * archivo de nuevo. */
-const STANDALONE_SITE_PAGES: { topic: string; path: string; summary: string }[] = [
-  {
-    topic: 'Tarjeta PlayCard (QR, saldo, Playcoins)',
-    path: '/blog/tarjeta-playcard',
-    summary: 'Tu QR de acceso, saldo prepagado y Playcoins en un solo lugar, paso a paso.',
-  },
-  {
-    topic: 'Qué son las fiestas liberales',
-    path: '/blog/que-son-las-fiestas-liberales',
-    summary: 'Mitos y realidades de las fiestas liberales.',
-  },
-  {
-    topic: 'Disfraz obligatorio (quiz de nivel de disfraz)',
-    path: '/blog/dress-code-explicado',
-    summary: 'No tiene que ser profesional, pero sí es obligatorio -- tips y un quiz de 1 minuto.',
-  },
-  {
-    topic: 'Ideas de disfraz / "¿de qué me disfrazo?" (Oráculo de Disfraces con IA)',
-    path: '/disfraces',
-    summary: 'Contestas 5 preguntas y te recomienda 3 disfraces concretos: con lo que tienes en casa, con accesorios o full producción. Mandar este link cuando pidan ideas de disfraz.',
-  },
-  {
-    topic: 'Quiénes somos',
-    path: '/nosotros',
-    summary: 'Quiénes son y la historia de Mansion Playroom.',
-  },
-  {
-    topic: 'Reembolso o transferencia de una entrada',
-    path: '/politica-de-reembolso',
-    summary: 'Reglas de reembolso y transferencia de entradas.',
-  },
-  {
-    topic: 'Privacidad de los datos',
-    path: '/politica-de-privacidad',
-    summary: 'Cómo se usan los datos personales.',
-  },
-  {
-    topic: 'Programa de embajadores',
-    path: '/embajadores',
-    summary: 'Cómo funciona el programa de embajadores/referidos.',
-  },
-];
-
 /** Lista de temas con página propia en el sitio, para que el agente conteste
- * breve y mande a leer el resto ahí en vez de explicarlo todo en el DM (así
- * se evita una conversación larga por cada tema que ya está resuelto en la
- * web). Es contenido estático (no depende de `now` ni de la base), así que
- * se arma una sola vez por llamada dentro del propio system prompt. */
+ * breve y mande a leer el resto ahí en vez de explicarlo todo en el DM. Va
+ * SIN URLs a propósito (regla del dueño: nunca se ve un link escrito): el
+ * modelo elige la página por su clave (`pageKey`) y el servidor manda el
+ * botón (ver server/agentLinks.ts). */
 function buildSiteLinksBlock(): string {
   const lines = [
-    'PÁGINAS DEL SITIO CON MÁS INFORMACIÓN (para responder breve y mandar a leer el resto ahí, en vez de explicarlo todo tú):',
-    ...ALL_ARTICLES.map((a) => `- ${a.title}: ${a.description} — ${APP_URL}${articlePath(a)}`),
-    ...STANDALONE_SITE_PAGES.map((p) => `- ${p.topic}: ${p.summary} — ${APP_URL}${p.path}`),
+    'PÁGINAS DEL SITIO CON MÁS INFORMACIÓN (para responder breve y mandar el resto como botón con `action: "page_link"` y la `pageKey` exacta de esta lista):',
+    ...AGENT_SITE_PAGES.map((p) => `- pageKey "${p.path}" -- ${p.topic}: ${p.summary}`),
   ];
   return lines.join('\n');
 }
@@ -253,6 +202,15 @@ const RESPONSE_SCHEMA = {
   },
 } as const;
 
+/** La página del sitio para `action: "page_link"`: una clave de la lista
+ * cerrada (server/agentLinks.ts), o '' cuando no aplica. Con `enum` el
+ * modelo no puede inventar una ruta. */
+const PAGE_KEY_PROPERTY = {
+  type: 'string',
+  enum: ['', ...AGENT_PAGE_KEYS],
+  description: 'Solo con action "page_link": la pageKey exacta de la lista de páginas del sitio. Vacío en cualquier otro caso.',
+} as const;
+
 /* WhatsApp permite botones de respuesta rápida y listas, Instagram (tal como
  * está conectado hoy) no -- por eso el esquema de WhatsApp suma dos campos en
  * vez de agregarlos al de Instagram, donde el modelo los rellenaría para
@@ -278,12 +236,13 @@ const WHATSAPP_RESPONSE_SCHEMA = {
       },
       action: {
         type: 'string',
-        enum: ['none', 'event_list', 'buy_link'],
+        enum: ['none', 'event_list', 'buy_link', 'page_link'],
         description:
-          '"event_list" muestra la lista de próximas fechas para elegir, "buy_link" agrega el botón de compra del próximo evento. "none" si no corresponde.',
+          '"event_list" muestra la lista de próximas fechas para elegir, "buy_link" agrega el botón de compra del próximo evento, "page_link" agrega un botón a la página del sitio indicada en `pageKey`. "none" si no corresponde.',
       },
+      pageKey: PAGE_KEY_PROPERTY,
     },
-    required: [...RESPONSE_SCHEMA.schema.required, 'buttons', 'action'],
+    required: [...RESPONSE_SCHEMA.schema.required, 'buttons', 'action', 'pageKey'],
     additionalProperties: false,
   },
 } as const;
@@ -302,11 +261,12 @@ const INSTAGRAM_RESPONSE_SCHEMA = {
       ...RESPONSE_SCHEMA.schema.properties,
       action: {
         type: 'string',
-        enum: ['none', 'buy_link'],
-        description: '"buy_link" agrega el botón de compra del próximo evento debajo de tu mensaje. "none" si no corresponde.',
+        enum: ['none', 'buy_link', 'page_link'],
+        description: '"buy_link" agrega el botón de compra del próximo evento debajo de tu mensaje, "page_link" agrega un botón a la página del sitio indicada en `pageKey`. "none" si no corresponde.',
       },
+      pageKey: PAGE_KEY_PROPERTY,
     },
-    required: [...RESPONSE_SCHEMA.schema.required, 'action'],
+    required: [...RESPONSE_SCHEMA.schema.required, 'action', 'pageKey'],
     additionalProperties: false,
   },
 } as const;
@@ -318,7 +278,8 @@ const WHATSAPP_INTERACTIVE_RULES = [
   'BOTONES Y LISTAS (solo en WhatsApp):',
   '- `buttons`: cuando le haces una pregunta con pocas respuestas posibles, ofrécelas como botones para que la persona toque en vez de escribir (máximo 3, máximo 20 caracteres cada uno, sin emojis). Ej.: si preguntas si viene sola, en pareja o en grupo -> ["Solo/a", "En pareja", "En grupo"]. Si la pregunta es abierta o no preguntas nada, deja `buttons` vacío. Nunca pongas un link, un precio ni una fecha dentro de un botón.',
   '- `action: "event_list"`: cuando preguntan por las fechas o por "la próxima fiesta" y hay más de una fecha en los datos, para que elija tocando. Tu `reply` igual tiene que tener sentido solo (ej. "¡Estas son las próximas fechas! Toca la que te tinca 💜").',
-  '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón "Comprar entrada" con el link real debajo de tu mensaje, así que no hace falta que pegues el link en el texto.',
+  '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón "Comprar entrada" con el link real debajo de tu mensaje -- NUNCA escribas el link en el texto.',
+  '- `action: "page_link"` + `pageKey`: cuando corresponde mandar una página del sitio (ver la regla de páginas más arriba). Se agrega un botón a esa página debajo de tu mensaje. `pageKey` tiene que ser EXACTAMENTE una de la lista; con cualquier otra action, `pageKey` va vacío.',
   '- En cualquier otro caso, `action: "none"`.',
 ];
 
@@ -327,8 +288,9 @@ const WHATSAPP_INTERACTIVE_RULES = [
  * Button Template (sin permisos nuevos de Meta). No hay quick-replies de
  * texto en Instagram, así que no hay equivalente a `buttons`. */
 const INSTAGRAM_BUTTON_RULES = [
-  'BOTÓN DE COMPRA (solo en Instagram):',
+  'BOTONES (solo en Instagram):',
   '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón "Comprar entrada" con el link real debajo de tu mensaje, así que NO escribas el link dentro de `reply` -- tu `reply` tiene que tener sentido solo, sin el link (ej. "¡Dale! Toca el botón de abajo para asegurar tu entrada 💜").',
+  '- `action: "page_link"` + `pageKey`: cuando corresponde mandar una página del sitio (ver la regla de páginas más arriba). Se agrega un botón a esa página debajo de tu mensaje. `pageKey` tiene que ser EXACTAMENTE una de la lista; con cualquier otra action, `pageKey` va vacío.',
   '- En cualquier otro caso, `action: "none"`.',
 ];
 
@@ -375,7 +337,8 @@ function buildSystemPrompt(
     '- Cuando la pregunta es de CURIOSIDAD o interés general sobre el evento (ej. "cuéntame del próximo evento", "cuándo es la próxima fiesta", "qué onda con Mansion Playroom"), sin que hayan dicho que quieren ir o comprar: contesta en 1-2 frases breves con la info real (fecha, de qué se trata) y cierra con una pregunta abierta y cálida, tipo "¿te tinca venir?" o "¿quieres que te cuente cómo son los accesos?" -- NO incluyas el link de compra en esa primera respuesta. Recién cuando la persona confirme interés en el siguiente mensaje (dice que sí, pregunta por precio/accesos, pide el link), trátalo como intención real y mándalo.',
     '- Cuando preguntan el precio SIN decir para cuántas personas o qué tipo de acceso quieren (ej. "cuánto vale la entrada", "qué precio tiene"): no listes todos los tipos ni asumas uno -- pregúntales primero, corto y natural, algo como "¿vienes solo/a, en pareja o en grupo?" o "¿qué tipo de acceso te tinca?", así les das el precio exacto que les sirve en vez de tirarles una lista. Cuando SÍ especifican (mencionan "sola", "dúo", "en pareja", "grupo de x", o nombran un tipo de acceso que está en los datos, o ya respondieron tu pregunta anterior en el historial), ahí contesta directo con el precio de ESE acceso, sin listar los demás -- eso es "personalizado": una respuesta para lo que esa persona realmente preguntó, no un catálogo. Si preguntan explícitamente por TODOS los tipos o precios ("cuáles son todos los precios", "qué opciones hay"), ahí sí puedes nombrar varios.',
     '- Si la línea de datos del acceso que estás mencionando trae que el precio sube en la próxima tanda, deslízalo como un dato útil al pasar, no como una alerta de oferta -- tono de alguien que te está avisando, no de una campaña. Por ejemplo (no lo copies literal, es solo el tono): "la Soltera está en $10.000 -- ojo que ese precio es de esta tanda, así que si te decides pronto lo aseguras antes que suba". Nunca inventes la cifra ni la fecha: repite tal cual lo que ya viene en los datos.',
-    '- Si la pregunta calza con alguno de los temas de "PÁGINAS DEL SITIO CON MÁS INFORMACIÓN", no te quedes explicando todo el tema en el DM: contesta en 1-2 frases breves con la info real (nunca inventada) y pregúntale si quiere que le mandes el link con el detalle completo, algo como "¿te paso el link con todo el detalle?". NO incluyas el link en esa primera respuesta. Solo escribe el link exacto de esa página tal cual aparece en la lista (nunca inventes una URL) cuando la persona ya haya pedido el link/más información -- revisa el historial: si en un mensaje anterior tuyo ya preguntaste y ahora te dice que sí (o de entrada te pide el link/artículo/más info sobre ese tema), ahí sí lo mandas. Esto es solo para los links de contenido/blog -- el link de compra del evento se rige por su propia regla de arriba (intención real vs. curiosidad), no por esta.',
+    '- Si la pregunta calza con alguno de los temas de "PÁGINAS DEL SITIO CON MÁS INFORMACIÓN", no te quedes explicando todo el tema en el chat: contesta en 1-2 frases breves con la info real (nunca inventada) y ofrécele el detalle, algo como "¿te paso donde está todo el detalle?". Cuando la persona ya lo pidió (o de entrada pide más info/el link sobre ese tema, o responde que sí a tu oferta anterior -- revisa el historial), mándalo como botón: `action: "page_link"` con la `pageKey` exacta de esa página. Esto es solo para páginas de contenido -- el de compra del evento se rige por su propia regla de arriba (intención real vs. curiosidad).',
+    '- NUNCA escribas una URL, un dominio ni una dirección web dentro de `reply` (ni "mansionplayroom.cl", ni "www", ni "https"). Los links viajan SIEMPRE como botón (`action`), y tu texto tiene que tener sentido sin el link (ej. "Te dejo acá abajo todas las ideas 👇").',
     ...(config.styleExamples.trim().length > 0
       ? [
           '',
@@ -422,8 +385,11 @@ export type InstagramAgentResult = {
   /** Solo WhatsApp: respuestas rápidas sugeridas, ya recortadas a los topes
    * de Meta (ver `sanitizeButtons`). Siempre vacío en Instagram. */
   buttons: string[];
-  /** Solo WhatsApp: qué agregar debajo del texto. Siempre 'none' en Instagram. */
+  /** Qué botón agregar debajo del texto (`event_list` solo en WhatsApp). */
   action: AgentAction;
+  /** Con `action: 'page_link'`: la página del sitio (clave de
+   * server/agentLinks.ts). '' en cualquier otro caso. */
+  pageKey: string;
 };
 
 /** Topes de Meta para los botones de respuesta rápida: 3 botones de hasta
@@ -474,6 +440,7 @@ export async function runInstagramAgent(input: {
     isThanks: false,
     buttons: [],
     action: 'none',
+    pageKey: '',
   };
 
   try {
@@ -497,7 +464,7 @@ export async function runInstagramAgent(input: {
     });
 
     const raw = extractContent(result.choices[0]?.message ?? { content: '' });
-    const parsed = JSON.parse(raw) as Partial<InstagramAgentResult> & { buttons?: unknown; action?: unknown };
+    const parsed = JSON.parse(raw) as Partial<InstagramAgentResult> & { buttons?: unknown; action?: unknown; pageKey?: unknown };
     const isPersonal = parsed.isPersonal === true;
     const isThanks = parsed.isThanks === true && !isPersonal;
 
@@ -513,11 +480,31 @@ export async function runInstagramAgent(input: {
         isThanks: true,
         buttons: [],
         action: 'none',
+        pageKey: '',
       };
     }
 
-    const reply = typeof parsed.reply === 'string' ? parsed.reply.trim() : '';
+    // Red de seguridad de la regla "nunca una URL a la vista": si igual se
+    // coló un link en el texto, se saca y se convierte en el botón que
+    // corresponde (ver server/agentLinks.ts).
+    const stripped = stripUrlsFromReply(typeof parsed.reply === 'string' ? parsed.reply : '');
+    const reply = stripped.text;
     if (reply.length === 0 && !isPersonal) return fallback;
+
+    const allowedActions: AgentAction[] = channel === 'whatsapp'
+      ? ['event_list', 'buy_link', 'page_link']
+      : ['buy_link', 'page_link'];
+    const requestedPageKey = typeof parsed.pageKey === 'string' && AGENT_PAGE_KEYS.includes(parsed.pageKey) ? parsed.pageKey : '';
+    let action: AgentAction = !isPersonal && allowedActions.includes(parsed.action as AgentAction)
+      ? (parsed.action as AgentAction)
+      : 'none';
+    let pageKey = action === 'page_link' ? requestedPageKey : '';
+    // Un page_link sin página válida no tiene botón que mandar.
+    if (action === 'page_link' && !pageKey) action = 'none';
+    if (action === 'none' && !isPersonal) {
+      if (stripped.eventLink) action = 'buy_link';
+      else if (stripped.pageKey) { action = 'page_link'; pageKey = stripped.pageKey; }
+    }
 
     return {
       reply: reply.slice(0, IG_MAX_REPLY_CHARS),
@@ -526,12 +513,8 @@ export async function runInstagramAgent(input: {
       isPersonal,
       isThanks: false,
       buttons: channel === 'whatsapp' && !isPersonal ? sanitizeButtons(parsed.buttons) : [],
-      action: !isPersonal && (
-        (channel === 'whatsapp' && (parsed.action === 'event_list' || parsed.action === 'buy_link'))
-        || (channel === 'instagram' && parsed.action === 'buy_link')
-      )
-        ? (parsed.action as AgentAction)
-        : 'none',
+      action,
+      pageKey,
     };
   } catch (err) {
     console.error(`[${CHANNEL_NAME[channel]}] El agente no pudo responder:`, err);

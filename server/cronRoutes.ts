@@ -11,6 +11,7 @@ import { runAdminDigest } from "./adminDigest";
 import { refreshInstagramToken } from "./instagramSend";
 import { runInstagramFollowUps } from "./instagramFollowUp";
 import { runWhatsAppFollowUps } from "./whatsappFollowUp";
+import { runAgentAutoResume } from "./agentAutoResume";
 import { shouldSendWeeklyAmbassadorEmailNow } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 
@@ -280,7 +281,17 @@ export function registerCronRoutes(app: Express) {
         console.error('[Cron] Error mandando los recordatorios de cierre de WhatsApp:', err);
         whatsapp = { error: err instanceof Error ? err.message : 'Error desconocido' };
       }
-      res.json({ success: true, ...result, whatsapp });
+      // Reactivación automática de los hilos pausados (ver
+      // server/agentAutoResume.ts) -- mismo cron, sin entrada nueva en
+      // vercel.json. Un fallo acá no tapa el resultado de los recordatorios.
+      let autoResume: Awaited<ReturnType<typeof runAgentAutoResume>> | { error: string };
+      try {
+        autoResume = await runAgentAutoResume();
+      } catch (err) {
+        console.error('[Cron] Error reactivando hilos pausados del agente:', err);
+        autoResume = { error: err instanceof Error ? err.message : 'Error desconocido' };
+      }
+      res.json({ success: true, ...result, whatsapp, autoResume });
     } catch (err) {
       console.error('[Cron] Error mandando los recordatorios de cierre de Instagram:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });

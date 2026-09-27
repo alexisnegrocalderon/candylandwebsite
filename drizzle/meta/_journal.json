@@ -484,6 +484,13 @@
       "when": 1790534851624,
       "tag": "0068_low_lady_mastermind",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "5",
+      "when": 1790550177961,
+      "tag": "0069_parched_warbound",
+      "breakpoints": true
     }
   ]
 }

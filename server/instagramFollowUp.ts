@@ -1,6 +1,9 @@
 import { getIgThreadsAwaitingFollowUp, markIgThreadFollowUpSent, appendIgMessage, getSiteSettings } from './db';
-import { sendInstagramMessage, canReplyWithinWindow } from './instagramSend';
-import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
+import { sendInstagramMessage, sendButtonMessage, canReplyWithinWindow } from './instagramSend';
+import { resolveInstagramBuyLink } from './instagramInteractive';
+import { stripUrlsFromReply } from './agentLinks';
+import { BUTTON_CARD_CAPTION } from './instagram';
+import { normalizeInstagramAgentConfig, DEFAULT_INSTAGRAM_AGENT_CONFIG } from '../shared/instagramAgentConfig';
 
 /* Recordatorio de cierre por silencio (pedido explícito del dueño, 17/09):
  * si alguien deja de contestar después de que el bot ya le respondió, no
@@ -30,6 +33,13 @@ export async function runInstagramFollowUps(now: Date = new Date()): Promise<Ins
 
   const cutoff = new Date(now.getTime() - config.followUpMinutes * 60 * 1000);
   const threads = await getIgThreadsAwaitingFollowUp(cutoff);
+  if (threads.length === 0) return { sent: 0, skipped: 0, failed: 0 };
+
+  // Regla del dueño (27/09): nunca una URL a la vista. Un texto guardado
+  // antes de esta regla ("...en mansionplayroom.cl/entradas") se limpia acá,
+  // y el link va como botón de compra debajo, con su UTM de recordatorio.
+  const text = stripUrlsFromReply(config.followUpMessage).text || DEFAULT_INSTAGRAM_AGENT_CONFIG.followUpMessage;
+  const buyLink = await resolveInstagramBuyLink(now, 'agente-recordatorio');
 
   let sent = 0, skipped = 0, failed = 0;
   for (const thread of threads) {
@@ -42,8 +52,13 @@ export async function runInstagramFollowUps(now: Date = new Date()): Promise<Ins
         continue;
       }
 
-      const { mid } = await sendInstagramMessage({ recipientId: thread.igUserId, text: config.followUpMessage });
-      await appendIgMessage({ threadId: thread.id, mid, direction: 'out', source: 'bot', text: config.followUpMessage });
+      const { mid } = await sendInstagramMessage({ recipientId: thread.igUserId, text });
+      await appendIgMessage({ threadId: thread.id, mid, direction: 'out', source: 'bot', text });
+      if (buyLink) {
+        const button = { title: 'Ver fechas y entradas', url: buyLink.url };
+        const { mid: buttonMid } = await sendButtonMessage({ id: thread.igUserId }, BUTTON_CARD_CAPTION, button);
+        await appendIgMessage({ threadId: thread.id, mid: buttonMid, direction: 'out', source: 'bot', text: `[botón] ${button.title}` });
+      }
       await markIgThreadFollowUpSent(thread.id);
       sent++;
     } catch (err) {

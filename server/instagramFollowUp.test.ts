@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as db from './db';
 import * as instagramSend from './instagramSend';
+import * as instagramInteractive from './instagramInteractive';
 import { runInstagramFollowUps } from './instagramFollowUp';
 
 vi.mock('./db', async (importOriginal) => {
@@ -20,9 +21,16 @@ const appendIgMessageMock = vi.mocked(db.appendIgMessage);
 
 vi.mock('./instagramSend', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./instagramSend')>();
-  return { ...actual, sendInstagramMessage: vi.fn(), canReplyWithinWindow: vi.fn() };
+  return { ...actual, sendInstagramMessage: vi.fn(), sendButtonMessage: vi.fn(), canReplyWithinWindow: vi.fn() };
 });
 const sendInstagramMessageMock = vi.mocked(instagramSend.sendInstagramMessage);
+const sendButtonMessageMock = vi.mocked(instagramSend.sendButtonMessage);
+
+vi.mock('./instagramInteractive', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./instagramInteractive')>();
+  return { ...actual, resolveInstagramBuyLink: vi.fn() };
+});
+const resolveInstagramBuyLinkMock = vi.mocked(instagramInteractive.resolveInstagramBuyLink);
 const canReplyWithinWindowMock = vi.mocked(instagramSend.canReplyWithinWindow);
 
 const baseThread = {
@@ -96,6 +104,23 @@ describe('runInstagramFollowUps', () => {
     expect(sendInstagramMessageMock).not.toHaveBeenCalled();
     expect(markIgThreadFollowUpSentMock).toHaveBeenCalledWith(1);
     expect(result).toEqual({ sent: 0, skipped: 1, failed: 0 });
+  });
+
+  // Regla del dueño (27/09): nunca una URL a la vista. Un texto guardado
+  // antes de la regla se limpia, y el link va como botón con su UTM.
+  it('manda el recordatorio sin URL y con el botón de compra', async () => {
+    getSiteSettingsMock.mockResolvedValueOnce(configWith({ followUpMessage: 'Cuando quieras retomamos 💜 mira fechas en mansionplayroom.cl/entradas' }) as any);
+    getIgThreadsAwaitingFollowUpMock.mockResolvedValueOnce([baseThread] as any);
+    resolveInstagramBuyLinkMock.mockResolvedValueOnce({ url: 'https://mansionplayroom.cl/eventos/x?utm_campaign=agente-recordatorio', eventTitle: 'X', imageUrl: '' });
+    sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'mid-1' } as any);
+    sendButtonMessageMock.mockResolvedValueOnce({ mid: 'mid-2' } as any);
+
+    await runInstagramFollowUps();
+
+    const sentText = sendInstagramMessageMock.mock.calls[0][0].text;
+    expect(sentText).not.toContain('mansionplayroom');
+    expect(resolveInstagramBuyLinkMock).toHaveBeenCalledWith(expect.any(Date), 'agente-recordatorio');
+    expect(sendButtonMessageMock).toHaveBeenCalledWith({ id: 'ig-user-1' }, expect.any(String), { title: 'Ver fechas y entradas', url: 'https://mansionplayroom.cl/eventos/x?utm_campaign=agente-recordatorio' });
   });
 
   it('un fallo en un hilo no corta el resto de la tanda', async () => {

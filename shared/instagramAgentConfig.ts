@@ -62,6 +62,10 @@ export interface InstagramAgentConfig {
    * con este texto fijo (igual que handoffMessage, la IA solo detecta el
    * caso, nunca genera las palabras). */
   thanksMessage: string;
+  /** Horas después de pausarse (o del último mensaje a mano del dueño) en
+   * que un hilo vuelve solo a tener agente -- pedido del dueño, 27/09. Los
+   * hilos marcados como personales NO se reactivan. 0 = apagado. */
+  autoResumeHours: number;
 }
 
 export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
@@ -79,8 +83,10 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   styleExamples: '',
   followUpEnabled: true,
   followUpMinutes: 120,
-  followUpMessage: 'Cuando quieras retomamos 💜 mientras tanto puedes ver fechas y entradas directo en mansionplayroom.cl/entradas',
+  // Sin URL a propósito: el recordatorio va con el botón de compra abajo.
+  followUpMessage: 'Cuando quieras retomamos 💜 mientras tanto puedes ver fechas y entradas acá abajo 👇',
   thanksMessage: 'Un gusto y cualquier otra cosa que necesites estamos aquí para poder ayudar',
+  autoResumeHours: 24,
 };
 
 /** Completa con los valores por defecto cualquier campo faltante -- una
@@ -116,6 +122,9 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
     thanksMessage: typeof partial.thanksMessage === 'string' && partial.thanksMessage.trim().length > 0
       ? partial.thanksMessage
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.thanksMessage,
+    autoResumeHours: Number.isFinite(Number(partial.autoResumeHours)) && Number(partial.autoResumeHours) >= 0
+      ? Math.min(Math.floor(Number(partial.autoResumeHours)), 720)
+      : DEFAULT_INSTAGRAM_AGENT_CONFIG.autoResumeHours,
   };
 }
 
@@ -124,6 +133,11 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
  * lee nadie -- el modelo recibe esta misma cifra en el prompt y acá se
  * recorta por si igual se pasa. */
 export const IG_MAX_REPLY_CHARS = 600;
+
+/** Motivo de pausa cuando la IA marca un mensaje como personal (chat de un
+ * amigo del dueño). Compartido entre Instagram, WhatsApp y la reactivación
+ * automática, que justamente NO reactiva estos hilos. */
+export const PERSONAL_HANDOFF_REASON = 'La IA lo marcó como mensaje personal, no de cliente';
 
 /** Ventana de mensajería estándar de Meta: fuera de estas 24 horas contadas
  * desde el último mensaje de la persona, la API rechaza el envío salvo con

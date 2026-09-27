@@ -523,6 +523,9 @@ export const siteSettings = mysqlTable("siteSettings", {
   // el agente SABE (notas de marca, tono, mensaje de derivación) se comparte
   // con el de Instagram. null = APAGADO, mismo criterio que arriba.
   whatsappAgentConfig: json("whatsappAgentConfig"),
+  // Último reporte del coach semanal del agente (server/agentCoach.ts): qué
+  // preguntan más, dónde se enfría la gente y qué agregarle al conocimiento.
+  agentCoachReport: json("agentCoachReport"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -1748,6 +1751,14 @@ export const igThreads = mysqlTable("igThreads", {
   // una conversación que ya tomó un humano.
   botPaused: int("botPaused").default(0).notNull(),
   handoffReason: varchar("handoffReason", { length: 500 }),
+  // Cuándo se pausó (o cuándo el dueño volvió a escribir a mano): el cron
+  // de instagram-followup reactiva el hilo pasadas
+  // `instagramAgentConfig.autoResumeHours` desde acá, salvo los personales.
+  botPausedAt: timestamp("botPausedAt"),
+  // Ficha que el agente va armando de la persona (nombre, con quién viene,
+  // primera vez, dudas...) y que vuelve al prompt en cada turno -- así
+  // recuerda a la persona aunque el historial que se le pasa se corte.
+  customerNotes: text("customerNotes"),
   // Último mensaje ENTRANTE: con esto se calcula la ventana de 24 horas de
   // Meta, fuera de la cual la API rechaza cualquier envío que no lleve una
   // etiqueta especial (ver canReplyWithinWindow en server/instagramSend.ts).
@@ -1823,6 +1834,9 @@ export const waThreads = mysqlTable("waThreads", {
   // Mismo interruptor por conversación que igThreads.botPaused.
   botPaused: int("botPaused").default(0).notNull(),
   handoffReason: varchar("handoffReason", { length: 500 }),
+  // Mismo criterio que igThreads.botPausedAt / customerNotes.
+  botPausedAt: timestamp("botPausedAt"),
+  customerNotes: text("customerNotes"),
   // Ventana de 24 horas de Meta: fuera de ella solo se puede escribir con
   // una plantilla aprobada (y pagada).
   lastInboundAt: timestamp("lastInboundAt"),

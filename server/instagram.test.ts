@@ -112,11 +112,13 @@ describe('humanReplyDelayMs', () => {
   // segundos, no los 20-30s que hubiera sido lo ideal, porque el webhook
   // tiene que confirmarle a Meta antes de que se arriesgue a reintentar la
   // entrega.
-  it('devuelve un valor entre 3 y 8 segundos', () => {
+  // 2-5s desde que las respuestas van en varias burbujas (27/09): las
+  // pausas entre burbujas se suman al total.
+  it('devuelve un valor entre 2 y 5 segundos', () => {
     for (let i = 0; i < 50; i++) {
       const ms = humanReplyDelayMs();
-      expect(ms).toBeGreaterThanOrEqual(3000);
-      expect(ms).toBeLessThan(8000);
+      expect(ms).toBeGreaterThanOrEqual(2000);
+      expect(ms).toBeLessThan(5000);
     }
   });
 });
@@ -445,7 +447,7 @@ describe('handleCommentChange', () => {
 describe('buildInstagramContext', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it('arma el bloque con fecha, precio y link de compra del próximo evento', async () => {
+  it('arma el bloque con fecha y precio del próximo evento, sin ninguna URL', async () => {
     getHomeEventsMock.mockResolvedValueOnce([
       { id: 1, title: 'Aniversario', slug: 'aniversario', status: 'published', eventDate: new Date('2026-10-10T23:00:00Z'), venue: 'Viña del Mar' },
     ] as any);
@@ -456,7 +458,10 @@ describe('buildInstagramContext', () => {
     const context = await buildInstagramContext(new Date('2026-09-13T12:00:00Z'));
     expect(context).toContain('Aniversario');
     expect(context).toContain('$45.000');
-    expect(context).toContain('/eventos/aniversario');
+    // Regla del dueño (27/09): nunca una URL a la vista -- la compra va
+    // como botón, así que el modelo ni siquiera ve el link.
+    expect(context).not.toMatch(/https?:\/\//);
+    expect(context).toContain('botón de compra');
   });
 
   // La regla del sitio (ver attachStockPoolInfo en server/db.ts) es que el
@@ -656,6 +661,29 @@ describe('runInstagramAgent', () => {
     expect(result.reply).toBe('Un gusto, cualquier cosa avísanos');
   });
 
+  // Regla del dueño (27/09): nunca una URL a la vista. Si igual se cuela un
+  // link en el texto, se saca y se convierte en el botón que corresponde.
+  it('saca una URL de compra que se coló en el texto y la convierte en botón', async () => {
+    mockLlmJson({ reply: 'Te dejo el link: https://mansionplayroom.cl/eventos/aniversario', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'none', pageKey: '' });
+    const result = await runInstagramAgent({ incomingText: 'quiero ir', history: [], config });
+    expect(result.reply).not.toMatch(/https?:|mansionplayroom/);
+    expect(result.action).toBe('buy_link');
+  });
+
+  it('manda una página del sitio como botón con su pageKey', async () => {
+    mockLlmJson({ reply: 'Te dejo acá abajo todas las ideas 👇', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'page_link', pageKey: '/disfraces' });
+    const result = await runInstagramAgent({ incomingText: 'dame el link de ideas de disfraz', history: [], config });
+    expect(result.action).toBe('page_link');
+    expect(result.pageKey).toBe('/disfraces');
+  });
+
+  it('un page_link con una página que no existe no manda ningún botón', async () => {
+    mockLlmJson({ reply: 'mira esto', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'page_link', pageKey: '/inventada' });
+    const result = await runInstagramAgent({ incomingText: 'hola', history: [], config });
+    expect(result.action).toBe('none');
+    expect(result.pageKey).toBe('');
+  });
+
   it('isThanks no pisa a isPersonal si la IA marca ambos', async () => {
     mockLlmJson({ reply: '', handoff: true, handoffReason: '', isPersonal: true, isThanks: true });
     const result = await runInstagramAgent({ incomingText: 'jaja gracias crack', history: [], config });
@@ -668,12 +696,13 @@ describe('runInstagramAgent', () => {
   // sitio, el agente debe poder linkear a la info completa en vez de
   // explicarlo todo en el DM -- el system prompt tiene que traer esos links
   // reales, no inventados.
-  it('el system prompt trae los links reales de las páginas del sitio', async () => {
+  it('el system prompt trae las páginas del sitio por su clave, sin URLs', async () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     await runInstagramAgent({ incomingText: 'qué es la tarjeta playcard?', history: [], config });
     const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
-    expect(systemPrompt).toContain('https://mansionplayroom.cl/blog/tarjeta-playcard');
-    expect(systemPrompt).toContain('https://mansionplayroom.cl/blog/dress-code-explicado');
+    expect(systemPrompt).toContain('pageKey "/blog/tarjeta-playcard"');
+    expect(systemPrompt).toContain('pageKey "/disfraces"');
+    expect(systemPrompt).not.toMatch(/https?:\/\//);
   });
 
   // Lo que pidió el dueño: no mandar el link de contenido/blog de entrada --
@@ -684,8 +713,9 @@ describe('runInstagramAgent', () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     await runInstagramAgent({ incomingText: 'qué es la tarjeta playcard?', history: [], config });
     const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
-    expect(systemPrompt).toContain('¿te paso el link con todo el detalle?');
-    expect(systemPrompt).toContain('NO incluyas el link en esa primera respuesta');
+    expect(systemPrompt).toContain('¿te paso donde está todo el detalle?');
+    expect(systemPrompt).toContain('action: "page_link"');
+    expect(systemPrompt).toContain('NUNCA escribas una URL');
   });
 
   // Pedido del dueño: si esta va a ser la última respuesta automática del

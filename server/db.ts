@@ -1271,6 +1271,36 @@ export async function getSalesByUtmOrigin(eventId?: number) {
   }));
 }
 
+/** Ventas que entraron por un botón del agente de IA (Instagram/WhatsApp):
+ * los links que manda el agente llevan `utm_campaign=agente...` (ver
+ * `withAgentUtm` en server/agentLinks.ts), y el checkout guarda esa UTM en
+ * la orden igual que cualquier otra. `since` = solo desde esa fecha. */
+export async function getAgentSalesSummary(since?: Date): Promise<{ ordersCount: number; revenue: number; bySource: { source: string; ordersCount: number; revenue: number }[] }> {
+  const db = await getDb();
+  if (!db) return { ordersCount: 0, revenue: 0, bySource: [] };
+  const conditions = [
+    eq(orders.paymentStatus, 'approved'),
+    eq(orders.channel, 'web'),
+    like(orders.utmCampaign, 'agente%'),
+  ];
+  if (since) conditions.push(gte(orders.createdAt, since));
+  const rows = await db
+    .select({
+      source: orders.utmSource,
+      ordersCount: sql<number>`count(*)`,
+      revenue: sql<number>`sum(${orders.total})`,
+    })
+    .from(orders)
+    .where(and(...conditions))
+    .groupBy(orders.utmSource);
+  const bySource = rows.map((r) => ({ source: r.source ?? '(sin fuente)', ordersCount: Number(r.ordersCount), revenue: Number(r.revenue ?? 0) }));
+  return {
+    ordersCount: bySource.reduce((s, r) => s + r.ordersCount, 0),
+    revenue: bySource.reduce((s, r) => s + r.revenue, 0),
+    bySource,
+  };
+}
+
 /** Parte pura de createManualOrder(): valida stock y calcula el precio de
  * cada item -- separada para poder testearla sin base de datos. Una
  * invitación sale a $0 siempre, sin importar el tipo de entrada. Un acceso
@@ -5913,7 +5943,31 @@ export async function setIgThreadBotPaused(id: number, paused: boolean, reason?:
   await db.update(igThreads).set({
     botPaused: paused ? 1 : 0,
     handoffReason: paused ? (reason ?? null) : null,
+    // Se refresca en cada pausa: si el dueño sigue escribiendo a mano,
+    // la reactivación automática corre desde su último mensaje.
+    botPausedAt: paused ? new Date() : null,
   }).where(eq(igThreads.id, id));
+}
+
+/** Reactivación automática: vuelve a prender el bot en los hilos pausados
+ * hace más de `cutoff`, salvo los que la IA marcó como personales (chats
+ * de amigos del dueño). Los pausados antes de que existiera `botPausedAt`
+ * (null) también se reactivan. Devuelve cuántos hilos reactivó. */
+export async function resumeStaleIgThreads(cutoff: Date, personalReason: string): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [result] = await db.update(igThreads).set({ botPaused: 0, handoffReason: null, botPausedAt: null }).where(and(
+    eq(igThreads.botPaused, 1),
+    or(isNull(igThreads.handoffReason), ne(igThreads.handoffReason, personalReason)),
+    or(isNull(igThreads.botPausedAt), lte(igThreads.botPausedAt, cutoff)),
+  ));
+  return Number((result as unknown as { affectedRows?: number })?.affectedRows ?? 0);
+}
+
+export async function setIgThreadCustomerNotes(id: number, notes: string | null): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(igThreads).set({ customerNotes: notes }).where(eq(igThreads.id, id));
 }
 
 export async function markIgThreadRead(id: number) {
@@ -6399,7 +6453,26 @@ export async function setWaThreadBotPaused(id: number, paused: boolean, reason?:
   await db.update(waThreads).set({
     botPaused: paused ? 1 : 0,
     handoffReason: paused ? (reason ?? null) : null,
+    botPausedAt: paused ? new Date() : null,
   }).where(eq(waThreads.id, id));
+}
+
+/** Mismo criterio que `resumeStaleIgThreads`. */
+export async function resumeStaleWaThreads(cutoff: Date, personalReason: string): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [result] = await db.update(waThreads).set({ botPaused: 0, handoffReason: null, botPausedAt: null }).where(and(
+    eq(waThreads.botPaused, 1),
+    or(isNull(waThreads.handoffReason), ne(waThreads.handoffReason, personalReason)),
+    or(isNull(waThreads.botPausedAt), lte(waThreads.botPausedAt, cutoff)),
+  ));
+  return Number((result as unknown as { affectedRows?: number })?.affectedRows ?? 0);
+}
+
+export async function setWaThreadCustomerNotes(id: number, notes: string | null): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(waThreads).set({ customerNotes: notes }).where(eq(waThreads.id, id));
 }
 
 export async function markWaThreadRead(id: number) {

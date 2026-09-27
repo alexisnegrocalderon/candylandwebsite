@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap } from 'lucide-react';
+import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { Switch } from '@/components/ui/switch';
@@ -43,6 +44,7 @@ export function InstagramInbox() {
 
       <ConnectionCard />
       <AgentConfigCard />
+      <AgentSalesCard />
       <HandoffLogCard />
       <InstagramAutomations />
 
@@ -216,6 +218,19 @@ function AgentConfigCard() {
           </div>
         </div>
 
+        <div className="space-y-2">
+          <Label>Reactivar el agente solo después de (horas)</Label>
+          <Input
+            type="number" min={0} max={720} className="max-w-[180px]"
+            value={draft.autoResumeHours}
+            onChange={(e) => setDraft({ ...draft, autoResumeHours: Number(e.target.value) })}
+          />
+          <p className="text-xs text-muted-foreground">
+            Una conversación pausada (porque el agente la derivó o porque contestaste tú) vuelve a tener agente sola pasado
+            este tiempo desde tu último mensaje. Los chats personales no se reactivan. 0 = no reactivar nunca solo.
+          </p>
+        </div>
+
         <WriteButton onClick={() => save.mutate(draft)} disabled={save.isPending}>
           {save.isPending ? 'Guardando...' : 'Guardar'}
         </WriteButton>
@@ -237,6 +252,12 @@ function AgentConfigCard() {
               ) : (
                 <>
                   <p className="whitespace-pre-wrap">{preview.data.reply}</p>
+                  {preview.data.action === 'buy_link' && (
+                    <p className="text-xs text-primary">+ botón "Comprar entrada"</p>
+                  )}
+                  {preview.data.action === 'page_link' && (
+                    <p className="text-xs text-primary">+ botón a la página {preview.data.pageKey}</p>
+                  )}
                   {preview.data.handoff && (
                     <p className="text-amber-600 text-xs">Derivaría a una persona: {preview.data.handoffReason}</p>
                   )}
@@ -253,6 +274,40 @@ function AgentConfigCard() {
             </pre>
           )}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Cuánto vendió el agente: órdenes aprobadas que entraron por un botón del
+ * agente (Instagram + WhatsApp), gracias a la UTM que lleva cada link. */
+function AgentSalesCard() {
+  const { data } = trpc.instagram.agentSales.useQuery();
+  if (!data) return null;
+  const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+  const bySource = (source: string) => data.total.bySource.find((r) => r.source === source);
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><TrendingUp className="w-5 h-5" /> Ventas del agente</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-2xl border p-3">
+            <p className="text-xs text-muted-foreground">Últimos 7 días</p>
+            <p className="text-2xl font-semibold">{data.last7Days.ordersCount}</p>
+            <p className="text-xs text-muted-foreground">{clp(data.last7Days.revenue)}</p>
+          </div>
+          <div className="rounded-2xl border p-3">
+            <p className="text-xs text-muted-foreground">Total</p>
+            <p className="text-2xl font-semibold">{data.total.ordersCount}</p>
+            <p className="text-xs text-muted-foreground">{clp(data.total.revenue)}</p>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Instagram: {bySource('instagram')?.ordersCount ?? 0} · WhatsApp: {bySource('whatsapp')?.ordersCount ?? 0}. Cuenta las compras que
+          entraron tocando un botón que mandó el agente (el detalle también está en "Ventas por Origen").
+        </p>
       </CardContent>
     </Card>
   );
@@ -449,6 +504,9 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
           <CardTitle className="text-base">{thread.username ? `@${thread.username}` : thread.name ?? thread.igUserId}</CardTitle>
           {thread.botPaused === 1 && thread.handoffReason && (
             <p className="text-xs text-amber-600 mt-1">Bot pausado: {thread.handoffReason}</p>
+          )}
+          {thread.botPaused === 1 && (
+            <AgentAutoResumeNote botPausedAt={thread.botPausedAt} handoffReason={thread.handoffReason} />
           )}
         </div>
         <div className="flex items-center gap-2">

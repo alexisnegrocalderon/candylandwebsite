@@ -30,7 +30,8 @@ export const DEFAULT_WHATSAPP_AGENT_CONFIG: WhatsAppAgentConfig = {
   dailyReplyLimitPerThread: 30,
   followUpEnabled: true,
   followUpMinutes: 120,
-  followUpMessage: 'Cuando quieras retomamos 💜 mientras tanto puedes ver fechas y entradas directo en mansionplayroom.cl/entradas',
+  // Sin URL a propósito: el recordatorio va con el botón de compra abajo.
+  followUpMessage: 'Cuando quieras retomamos 💜 mientras tanto puedes ver fechas y entradas acá abajo 👇',
 };
 
 /** Completa con los valores por defecto cualquier campo faltante -- mismo

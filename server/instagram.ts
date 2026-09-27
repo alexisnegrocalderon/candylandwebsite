@@ -20,8 +20,9 @@ import {
 import { runInstagramAgent } from './instagramAgent';
 import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, sendImageMessage, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
 import { resolveInstagramBuyLink, resolveEventCardImage } from './instagramInteractive';
+import { resolvePageLink, splitIntoBubbles } from './agentLinks';
 import { sendPushToAdmins } from './push';
-import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
+import { normalizeInstagramAgentConfig, PERSONAL_HANDOFF_REASON } from '../shared/instagramAgentConfig';
 import { splitAutomationLink } from './instagramAutomations';
 
 /* Entrada de los mensajes directos de Instagram (Messenger Platform, campo
@@ -47,7 +48,7 @@ const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\
 // tarjeta. El botón va aparte, en su propia tarjeta chica: Meta exige texto
 // no vacío arriba de un botón (no puede ir el botón solo), así que lleva
 // esta frase fija y corta en vez de repetir el mensaje real.
-const BUTTON_CARD_CAPTION = 'Toca para continuar 👇';
+export const BUTTON_CARD_CAPTION = 'Toca para continuar 👇';
 
 /** Alta y reactivación del webhook: Meta pega un GET con el token que uno
  * configuró y espera de vuelta el `hub.challenge` tal cual, en texto plano. */
@@ -184,9 +185,18 @@ function sleep(ms: number): Promise<void> {
  * ya arriesga que Meta piense que la entrega se perdió y reintente.
  * Aleatorio dentro del rango para que tampoco se sienta como un timer fijo. */
 export function humanReplyDelayMs(): number {
-  const MIN_MS = 3000;
-  const MAX_MS = 8000;
+  // 2-5s (antes 3-8s): con las respuestas en varias burbujas se suman las
+  // pausas entre burbuja y burbuja, y el total tiene que seguir holgado
+  // bajo lo que tolera el webhook de Meta.
+  const MIN_MS = 2000;
+  const MAX_MS = 5000;
   return MIN_MS + Math.floor(Math.random() * (MAX_MS - MIN_MS));
+}
+
+/** Pausa entre una burbuja y la siguiente, como alguien que sigue
+ * escribiendo. */
+export function bubbleGapMs(): number {
+  return 900 + Math.floor(Math.random() * 900);
 }
 
 async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
@@ -312,7 +322,7 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   // productora): no se manda nada automático, queda en la bandeja para que
   // el dueño lo vea y conteste él como cualquier DM normal.
   if (result.isPersonal) {
-    await silentHandoff(thread.id, thread.username ?? senderId, text, 'La IA lo marcó como mensaje personal, no de cliente');
+    await silentHandoff(thread.id, thread.username ?? senderId, text, PERSONAL_HANDOFF_REASON);
     return;
   }
 
@@ -324,11 +334,16 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   // que Meta reintente la entrega pensando que se perdió.
   await sleep(humanReplyDelayMs());
 
-  let buyButton: { title: string; url: string } | undefined;
+  // Los links viajan SIEMPRE como botón, nunca escritos (regla del dueño,
+  // 27/09): el de compra del próximo evento, o el de una página del sitio.
+  let linkButton: { title: string; url: string } | undefined;
+  if (result.action === 'page_link' && !result.handoff) {
+    linkButton = resolvePageLink(result.pageKey, 'instagram') ?? undefined;
+  }
   if (result.action === 'buy_link' && !result.handoff) {
     const resolved = await resolveInstagramBuyLink();
     if (resolved) {
-      buyButton = { title: 'Comprar entrada', url: resolved.url };
+      linkButton = { title: 'Comprar entrada', url: resolved.url };
       try {
         const { mid: imageMid } = await sendImageMessage({ id: senderId }, resolved.imageUrl);
         await appendIgMessage({ threadId: thread.id, mid: imageMid, direction: 'out', source: 'bot', text: '[imagen]' });
@@ -337,7 +352,7 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
       }
     }
   }
-  await deliver(thread.id, senderId, result.reply, 'bot', buyButton);
+  await deliver(thread.id, senderId, result.reply, 'bot', linkButton);
 
   if (isFinalReplyOfDay) {
     const reason = 'Llegó al tope diario de respuestas automáticas -- se cerró la conversación con un mensaje final';
@@ -579,8 +594,15 @@ export async function handleOwnerEcho(event: MetaMessaging, message: NonNullable
  * bandeja tiene que mostrar lo que realmente le llegó a la persona. */
 async function deliver(threadId: number, recipientId: string, text: string, source: 'bot' | 'admin', button?: { title: string; url: string }): Promise<void> {
   try {
-    const { mid } = await sendInstagramMessage({ recipientId, text });
-    await appendIgMessage({ threadId, mid, direction: 'out', source, text });
+    // Lo del bot sale en burbujas cortas, como escribe una persona (pedido
+    // del dueño, 27/09); cada una se guarda como su propio mensaje.
+    const bubbles = source === 'bot' ? splitIntoBubbles(text) : [text];
+    for (let i = 0; i < bubbles.length; i++) {
+      const bubble = bubbles[i];
+      if (i > 0) await sleep(bubbleGapMs());
+      const { mid } = await sendInstagramMessage({ recipientId, text: bubble });
+      await appendIgMessage({ threadId, mid, direction: 'out', source, text: bubble });
+    }
     // El botón va aparte, en su propia tarjeta chica -- así el texto de
     // arriba se ve como una burbuja normal, no encerrado en el recuadro
     // del Button Template junto al botón.
