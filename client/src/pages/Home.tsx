@@ -1631,13 +1631,21 @@ function HalloweenTeaserSection() {
           <HalloweenCountdownUnit value={segundos} label="Seg" />
         </div>
 
-        <Link
-          href="/blog/dress-code-explicado"
-          className="btn-jelly inline-flex items-center gap-2 px-7 py-3.5 rounded-full font-bold interactive"
-          style={{ background: '#D4A537', color: '#241432' }}
-        >
-          Descubre tu nivel de disfraz <ArrowRight className="w-4 h-4" />
-        </Link>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+          <Link
+            href="/disfraces"
+            className="btn-jelly inline-flex items-center gap-2 px-7 py-3.5 rounded-full font-bold interactive"
+            style={{ background: '#D4A537', color: '#241432' }}
+          >
+            🔮 Pregúntale al Oráculo de Disfraces
+          </Link>
+          <Link
+            href="/blog/dress-code-explicado"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-full font-semibold text-sm border border-[#D4A537]/50 text-[#E0BE6B] hover:bg-[#D4A537]/10 interactive"
+          >
+            Descubre tu nivel de disfraz <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
       </div>
     </section>
   );

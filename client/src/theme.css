@@ -4,7 +4,12 @@
  * y el reset base viven acá para que las dos hojas nunca puedan quedar
  * desincronizadas entre sí. */
 
-@theme inline {
+/* `@theme` y no `@theme inline`: así las utilidades (`bg-primary`, etc.)
+ * leen `var(--color-*)` en vez de congelar el valor, y un contenedor
+ * `.halloween` (index.css) puede re-teñir una página entera redefiniendo
+ * solo las variables. Los valores de acá no cambian: el sitio oficial se ve
+ * idéntico. */
+@theme {
   /* Playroom Pastel — fucsia pastel + celeste pastel como los dos colores de
      marca, con acentos rosa/lavanda de puente entre ambos. Fondo claro, mate,
      minimalista; el color vive en los acentos, no en el fondo. */

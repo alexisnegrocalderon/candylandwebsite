@@ -34,6 +34,12 @@ export const STANDALONE_PAGES: StandalonePage[] = [
     path: '/blog/dress-code-explicado',
   },
   {
+    title: 'El Oráculo de Disfraces',
+    description: 'Contesta 5 preguntas y la IA te revela 3 ideas de disfraz: con lo que tienes, con accesorios o full producción.',
+    emoji: '🔮',
+    path: '/disfraces',
+  },
+  {
     title: 'Beneficios Cumpleañeros',
     description: 'Postula si tu cumpleaños cae cerca de la fiesta y desbloquea entrada gratis, espumante y más.',
     emoji: '🎂',

@@ -169,6 +169,53 @@ html {
   box-shadow: 0 4px 24px oklch(0.70 0.19 340 / 0.06);
 }
 
+/* ─── Modo Halloween ─────────────────────────────────────────
+   Todo lo que esté dentro de un contenedor `.halloween` se re-tiñe solo:
+   los tokens de theme.css se declaran con `@theme` (no `inline`), así que
+   `bg-primary`, `text-foreground`, `border-border`, etc. leen la variable y
+   acá basta con redefinirla -- la Home oficial no se toca. Lo usan
+   HalloweenHome (/halloween y la portada con el switch del admin
+   prendido) y el Oráculo de Disfraces (/disfraces).
+   PALETA PROVISORIA tomada del teaser Halloween de la Home (morado casi
+   negro + dorado + morado + naranjo calabaza) -- se reemplazan solo estos
+   valores cuando llegue la paleta oficial del dueño. */
+.halloween {
+  --color-background: #120a16;
+  --color-foreground: #f3e9f2;
+  --color-card: #1d1224;
+  --color-card-foreground: #f3e9f2;
+  --color-popover: #1d1224;
+  --color-popover-foreground: #f3e9f2;
+  --color-primary: #d4a537;
+  --color-primary-foreground: #1a0f14;
+  --color-secondary: #7a3fa0;
+  --color-secondary-foreground: #f3e9f2;
+  --color-muted: #2a1b33;
+  --color-muted-foreground: #b9a6c2;
+  --color-accent: #f07a2b;
+  --color-accent-foreground: #1a0f14;
+  --color-border: #3a2742;
+  --color-input: #2a1b33;
+  --color-ring: #d4a537;
+  --color-cherry: #f07a2b;
+  --color-violet-electric: #9b5de5;
+  --color-candy-blue: #7a3fa0;
+  --color-candy-cream: #1d1224;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+}
+.halloween .glass-candy,
+.halloween .glass-candy-pastel {
+  background: oklch(0.22 0.04 320 / 0.55);
+  border-color: oklch(0.75 0.13 80 / 0.22);
+  box-shadow: 0 4px 24px oklch(0 0 0 / 0.35);
+}
+.halloween .text-gradient-candy {
+  background: linear-gradient(120deg, #e0be6b, #d4a537 35%, #f07a2b 65%, #9b5de5);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
 /* Variante para el Candy Pass: un poco más opaca/tinte cálido para separarse
    del fondo cuando hay varias tarjetas encimadas. */
 .glass-candy-pastel {
