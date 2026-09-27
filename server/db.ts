@@ -876,7 +876,7 @@ export async function deleteBlockedCustomer(id: number) {
 
 // Site settings (fila única — Instagram followers/posts para el footer, y el
 // recargo por servicio (%) que se suma a toda venta nueva)
-const SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0, emailTemplateConfig: null, instagramAgentConfig: null, whatsappAgentConfig: null };
+const SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0, halloweenModeEnabled: 0, emailTemplateConfig: null, instagramAgentConfig: null, whatsappAgentConfig: null };
 
 export async function getSiteSettings() {
   const db = await getDb();
@@ -888,7 +888,7 @@ export async function getSiteSettings() {
 
 export async function updateSiteSettings(data: {
   instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number; cardFeePercent?: number; parkingVenueFeeClp?: number;
-  kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null; foundersPromoEnabled?: boolean;
+  kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null; foundersPromoEnabled?: boolean; halloweenModeEnabled?: boolean;
   emailTemplateConfig?: EmailTemplateConfig;
   adminAlertsConfig?: AdminAlertsConfig;
   instagramAgentConfig?: import('../shared/instagramAgentConfig').InstagramAgentConfig;
@@ -904,6 +904,7 @@ export async function updateSiteSettings(data: {
   // `missionForceClosed` en events) -- el resto del sistema lo maneja como
   // boolean real, se convierte acá en el borde.
   if (data.foundersPromoEnabled !== undefined) updateData.foundersPromoEnabled = data.foundersPromoEnabled ? 1 : 0;
+  if (data.halloweenModeEnabled !== undefined) updateData.halloweenModeEnabled = data.halloweenModeEnabled ? 1 : 0;
   const [row] = await db.select().from(siteSettings).limit(1);
   if (row) {
     await db.update(siteSettings).set(updateData).where(eq(siteSettings.id, row.id));

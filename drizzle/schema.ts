@@ -496,6 +496,11 @@ export const siteSettings = mysqlTable("siteSettings", {
   // -- desplegar el código no debe empezar a mandar correos solo, el dueño
   // lo prende desde el admin cuando esté listo.
   foundersPromoEnabled: int("foundersPromoEnabled").default(0).notNull(),
+  // Modo Halloween (pedido explícito del dueño): con esto en 1, la portada
+  // "/" se muestra con la paleta Halloween (clase `.halloween` en <html>,
+  // ver client/src/pages/HalloweenHome.tsx). Se prende y apaga a mano
+  // desde Admin -> Ajustes; /halloween siempre muestra la vista previa.
+  halloweenModeEnabled: int("halloweenModeEnabled").default(0).notNull(),
   // Textos editables + interruptores por sección del correo de compra
   // (server/email.ts buildOrderEmail) -- forma en shared/emailTemplateConfig.ts.
   // null = usar todos los valores por defecto (todas las secciones prendidas).

@@ -1,0 +1,1 @@
+ALTER TABLE `siteSettings` ADD `halloweenModeEnabled` int DEFAULT 0 NOT NULL;

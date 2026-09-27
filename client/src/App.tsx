@@ -20,7 +20,10 @@ import { isFinePointer, resetScrollPosition } from "./lib/smoothScroll";
 // sitio lo hace desde el celular (tráfico de Instagram/WhatsApp), así que
 // era peso muerto para la mayoría de las visitas.
 import { lazy, Suspense, useEffect } from "react";
-const Home = lazy(() => import("./pages/Home"));
+// La portada "/" pasa por HalloweenHome: renderiza la Home oficial tal cual,
+// y solo le agrega la paleta Halloween si el switch del admin está prendido
+// (o siempre en /halloween, la vista previa).
+const HalloweenHome = lazy(() => import("./pages/HalloweenHome"));
 const CustomCursor = lazy(() => import("./components/CustomCursor"));
 const SmoothScroll = lazy(() => import("./components/SmoothScroll"));
 const Events = lazy(() => import("./pages/Events"));
@@ -96,7 +99,8 @@ function Router() {
         transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
       >
         <Switch>
-          <Route path="/" component={Home} />
+          <Route path="/">{() => <HalloweenHome />}</Route>
+          <Route path="/halloween">{() => <HalloweenHome force />}</Route>
           <Route path="/eventos" component={Events} />
           <Route path="/eventos/:slug" component={EventDetail} />
           <Route path="/checkout/:eventSlug" component={Checkout} />

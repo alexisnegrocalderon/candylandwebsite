@@ -1767,6 +1767,7 @@ export const appRouter = router({
       kitchenVendorEmail: z.string().email().nullable().optional(),
       ogImageUrl: z.string().url().nullable().optional(),
       foundersPromoEnabled: z.boolean().optional(),
+      halloweenModeEnabled: z.boolean().optional(),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings(input);
     }),
