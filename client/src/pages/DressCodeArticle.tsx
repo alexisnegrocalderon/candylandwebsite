@@ -136,14 +136,14 @@ export default function DressCodeArticle() {
            * -- el oráculo sí, con IA. */}
           <Link
             href="/disfraces"
-            className="group block rounded-2xl p-[1.5px] bg-gradient-to-br from-[#e0be6b] via-[#9b5de5] to-[#f07a2b] mb-10 interactive"
+            className="group block rounded-2xl p-[1.5px] bg-gradient-to-br from-[#c4ff4d] via-[#ba8cff] to-[#4d4d4d] mb-10 interactive"
           >
-            <div className="rounded-[calc(1rem-1.5px)] bg-[#120a16] text-[#f3e9f2] p-6 md:p-7 flex items-center gap-5">
+            <div className="rounded-[calc(1rem-1.5px)] bg-[#1a1a1a] text-[#f4f4ef] p-6 md:p-7 flex items-center gap-5">
               <span className="text-5xl shrink-0 transition-transform group-hover:scale-110" aria-hidden>🔮</span>
               <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-[#d4a537] mb-1">Nuevo · con IA</p>
+                <p className="text-xs uppercase tracking-[0.3em] text-[#c4ff4d] mb-1">Nuevo · con IA</p>
                 <p className="font-heading font-bold text-xl md:text-2xl leading-tight">¿No sabes de qué disfrazarte? Pregúntale al Oráculo</p>
-                <p className="text-sm text-[#b9a6c2] mt-1">5 preguntas y te revela 3 ideas: con lo que tienes, con accesorios o full producción →</p>
+                <p className="text-sm text-[#a6a6a6] mt-1">5 preguntas y te revela 3 ideas: con lo que tienes, con accesorios o full producción →</p>
               </div>
             </div>
           </Link>

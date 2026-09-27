@@ -133,7 +133,7 @@ export default function CostumeOracle() {
   return (
     <div className="halloween relative min-h-screen overflow-hidden pt-24 pb-20">
       {/* Fondo: niebla morada + dorado, con emoji flotando (se apagan con reduced-motion) */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_0%,#3b1d4d_0%,transparent_65%),radial-gradient(ellipse_60%_50%_at_80%_100%,#4a2a10_0%,transparent_60%)] opacity-80" />
+      <div aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_0%,rgba(186,140,255,0.28)_0%,transparent_65%),radial-gradient(ellipse_60%_50%_at_80%_100%,rgba(196,255,77,0.12)_0%,transparent_60%)] opacity-80" />
       {FOG.map((e, i) => (
         <motion.span
           key={e}
@@ -328,7 +328,7 @@ function OptionCard<T extends string>({ option, selected, onClick, compact }: {
       aria-pressed={selected}
       className={`glass-candy rounded-2xl flex flex-col items-center justify-center text-center gap-2 border-2 transition-colors interactive ${
         compact ? 'py-4 px-3' : 'py-7 px-4'
-      } ${selected ? '!border-primary shadow-[0_0_24px_rgba(212,165,55,0.35)]' : 'border-transparent hover:!border-primary/50'}`}
+      } ${selected ? '!border-primary shadow-[0_0_24px_rgba(196,255,77,0.35)]' : 'border-transparent hover:!border-primary/50'}`}
     >
       <span className={compact ? 'text-2xl' : 'text-4xl'} aria-hidden>{option.emoji}</span>
       <span className={`font-semibold ${compact ? 'text-sm' : 'text-base'}`}>{option.label}</span>
@@ -344,14 +344,14 @@ function CrystalBall({ pulsing }: { pulsing?: boolean }) {
       animate={pulsing ? { scale: [1, 1.06, 1] } : { y: [0, -8, 0] }}
       transition={{ duration: pulsing ? 1.4 : 4, repeat: Infinity, ease: 'easeInOut' }}
     >
-      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_35%_30%,#f6e3a6_0%,#9b5de5_35%,#3b1d4d_70%,#120a16_100%)] shadow-[0_0_60px_rgba(155,93,229,0.55),0_0_120px_rgba(212,165,55,0.25)]" />
+      <div className="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_35%_30%,#eaffb8_0%,#ba8cff_38%,#4d4d4d_75%,#1a1a1a_100%)] shadow-[0_0_60px_rgba(186,140,255,0.55),0_0_120px_rgba(196,255,77,0.25)]" />
       <motion.div
-        className="absolute inset-3 rounded-full bg-[conic-gradient(from_0deg,transparent,rgba(240,122,43,0.35),transparent,rgba(212,165,55,0.35),transparent)] blur-md"
+        className="absolute inset-3 rounded-full bg-[conic-gradient(from_0deg,transparent,rgba(196,255,77,0.35),transparent,rgba(186,140,255,0.4),transparent)] blur-md"
         animate={{ rotate: 360 }}
         transition={{ duration: pulsing ? 2.5 : 10, repeat: Infinity, ease: 'linear' }}
       />
       <div className="absolute top-5 left-8 w-8 h-5 rounded-full bg-white/40 blur-sm" />
-      <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-24 h-6 rounded-[50%] bg-[#4a2a10] shadow-[0_6px_20px_rgba(0,0,0,0.6)]" />
+      <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-24 h-6 rounded-[50%] bg-[#4d4d4d] shadow-[0_6px_20px_rgba(0,0,0,0.6)]" />
     </motion.div>
   );
 }
@@ -384,7 +384,7 @@ function TarotCard({ card, index, showGroupTip }: { card: CostumeCard; index: nu
       animate={{ opacity: 1, rotateY: 0 }}
       transition={{ duration: 0.7, delay: 0.25 + index * 0.45, ease: [0.23, 1, 0.32, 1] }}
       style={{ transformPerspective: 1000 }}
-      className="relative rounded-3xl p-[1.5px] bg-gradient-to-br from-[#e0be6b] via-[#9b5de5]/70 to-[#f07a2b]"
+      className="relative rounded-3xl p-[1.5px] bg-gradient-to-br from-[#c4ff4d] via-[#ba8cff]/70 to-[#4d4d4d]"
     >
       <div className="rounded-[calc(1.5rem-1.5px)] bg-card p-6 md:p-7">
         <div className="flex items-start justify-between gap-3 mb-3">

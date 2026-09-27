@@ -176,42 +176,42 @@ html {
    acá basta con redefinirla -- la Home oficial no se toca. Lo usan
    HalloweenHome (/halloween y la portada con el switch del admin
    prendido) y el Oráculo de Disfraces (/disfraces).
-   PALETA PROVISORIA tomada del teaser Halloween de la Home (morado casi
-   negro + dorado + morado + naranjo calabaza) -- se reemplazan solo estos
-   valores cuando llegue la paleta oficial del dueño. */
+   Paleta oficial del dueño: Noir Void #1A1A1A, Cyber Lime #C4FF4D,
+   Vapor Violet #BA8CFF, Grid Gray #4D4D4D (los tonos intermedios de
+   tarjetas/textos salen de mezclar esos cuatro). */
 .halloween {
-  --color-background: #120a16;
-  --color-foreground: #f3e9f2;
-  --color-card: #1d1224;
-  --color-card-foreground: #f3e9f2;
-  --color-popover: #1d1224;
-  --color-popover-foreground: #f3e9f2;
-  --color-primary: #d4a537;
-  --color-primary-foreground: #1a0f14;
-  --color-secondary: #7a3fa0;
-  --color-secondary-foreground: #f3e9f2;
-  --color-muted: #2a1b33;
-  --color-muted-foreground: #b9a6c2;
-  --color-accent: #f07a2b;
-  --color-accent-foreground: #1a0f14;
-  --color-border: #3a2742;
-  --color-input: #2a1b33;
-  --color-ring: #d4a537;
-  --color-cherry: #f07a2b;
-  --color-violet-electric: #9b5de5;
-  --color-candy-blue: #7a3fa0;
-  --color-candy-cream: #1d1224;
+  --color-background: #1a1a1a;
+  --color-foreground: #f4f4ef;
+  --color-card: #232323;
+  --color-card-foreground: #f4f4ef;
+  --color-popover: #232323;
+  --color-popover-foreground: #f4f4ef;
+  --color-primary: #c4ff4d;
+  --color-primary-foreground: #1a1a1a;
+  --color-secondary: #ba8cff;
+  --color-secondary-foreground: #1a1a1a;
+  --color-muted: #2d2d2d;
+  --color-muted-foreground: #a6a6a6;
+  --color-accent: #ba8cff;
+  --color-accent-foreground: #1a1a1a;
+  --color-border: #4d4d4d;
+  --color-input: #2d2d2d;
+  --color-ring: #c4ff4d;
+  --color-cherry: #ba8cff;
+  --color-violet-electric: #ba8cff;
+  --color-candy-blue: #c4ff4d;
+  --color-candy-cream: #232323;
   background-color: var(--color-background);
   color: var(--color-foreground);
 }
 .halloween .glass-candy,
 .halloween .glass-candy-pastel {
-  background: oklch(0.22 0.04 320 / 0.55);
-  border-color: oklch(0.75 0.13 80 / 0.22);
-  box-shadow: 0 4px 24px oklch(0 0 0 / 0.35);
+  background: rgb(35 35 35 / 0.6);
+  border-color: rgb(186 140 255 / 0.25);
+  box-shadow: 0 4px 24px rgb(0 0 0 / 0.4);
 }
 .halloween .text-gradient-candy {
-  background: linear-gradient(120deg, #e0be6b, #d4a537 35%, #f07a2b 65%, #9b5de5);
+  background: linear-gradient(120deg, #c4ff4d, #ba8cff);
   -webkit-background-clip: text;
   background-clip: text;
 }
