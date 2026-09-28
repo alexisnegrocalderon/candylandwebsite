@@ -88,7 +88,8 @@ function ConnectionCard() {
 
 function AgentConfigCard() {
   const utils = trpc.useUtils();
-  const { data: config } = trpc.whatsapp.getConfig.useQuery();
+  const configQuery = trpc.whatsapp.getConfig.useQuery();
+  const config = configQuery.data;
   const save = trpc.whatsapp.saveConfig.useMutation({
     onSuccess: () => { utils.whatsapp.getConfig.invalidate(); toast.success('Guardado.'); },
     onError,
@@ -99,7 +100,23 @@ function AgentConfigCard() {
   const [testMessage, setTestMessage] = useState('hola, cuándo es la próxima fiesta?');
   useEffect(() => { if (config && !draft) setDraft(config); }, [config, draft]);
 
-  if (!draft) return null;
+  // Nunca una tarjeta vacía en silencio (ver el mismo caso en InstagramInbox).
+  if (!draft) {
+    if (configQuery.isError) {
+      return (
+        <Card className="rounded-2xl border-destructive/40 bg-destructive/5">
+          <CardContent className="space-y-3 pt-6 text-sm">
+            <p className="font-medium flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> No se pudo cargar la configuración del agente</p>
+            <p className="text-muted-foreground break-words">{configQuery.error.message}</p>
+            <Button variant="outline" size="sm" onClick={() => configQuery.refetch()} disabled={configQuery.isFetching}>
+              {configQuery.isFetching ? 'Reintentando...' : 'Reintentar'}
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+    return <p className="text-sm text-muted-foreground">Cargando la configuración del agente...</p>;
+  }
 
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
@@ -121,7 +138,7 @@ function AgentConfigCard() {
 
         <p className="text-sm rounded-2xl border p-3 text-muted-foreground">
           Lo que el agente sabe (notas de la marca, ejemplos de tono, mensaje cuando deriva y cuando agradecen) se edita
-          en la sección <strong>Instagram</strong> y aplica a los dos canales.
+          en la sección <strong>Instagram</strong>, pestaña <strong>Conocimiento y tono</strong>, y aplica a los dos canales.
         </p>
 
         <div className="space-y-3 rounded-2xl border p-4">

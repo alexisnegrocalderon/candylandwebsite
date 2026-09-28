@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp, Lightbulb } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
@@ -28,8 +29,33 @@ const onError = (error: unknown) => {
   toast.error(error instanceof Error ? error.message : 'No se pudo completar la acción.');
 };
 
+/* Pestañas de la pantalla (pedido del dueño, 28/09: todo en una sola página
+ * ya era demasiado largo). La elegida se recuerda en este navegador. */
+const TAB_STORAGE_KEY = 'admin-instagram-tab';
+const TABS = ['conversaciones', 'conocimiento', 'ajustes', 'ventas', 'automatizaciones'] as const;
+type InboxTab = (typeof TABS)[number];
+
+function readStoredTab(): InboxTab {
+  try {
+    const stored = window.localStorage.getItem(TAB_STORAGE_KEY);
+    if (stored && (TABS as readonly string[]).includes(stored)) return stored as InboxTab;
+  } catch { /* sin localStorage (modo privado): pestaña por defecto */ }
+  return 'conversaciones';
+}
+
 export function InstagramInbox() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [tab, setTabState] = useState<InboxTab>(readStoredTab);
+  const setTab = (next: InboxTab) => {
+    setTabState(next);
+    try { window.localStorage.setItem(TAB_STORAGE_KEY, next); } catch { /* ídem */ }
+  };
+  // El borrador vive acá arriba y no dentro de cada pestaña: las pestañas se
+  // desmontan al cambiar, y "Conocimiento" y "Ajustes" editan la misma
+  // config -- cambiar de pestaña no puede perder lo escrito sin guardar.
+  const agent = useAgentConfigDraft(() => setTab('conocimiento'));
+  const { data: pendingHandoffs } = trpc.instagram.listHandoffLog.useQuery();
+  const pendingCount = pendingHandoffs?.length ?? 0;
 
   return (
     <div className="space-y-6">
@@ -38,108 +64,164 @@ export function InstagramInbox() {
         <p className="text-sm text-muted-foreground mt-1">
           Mensajes directos de @mansionplayroom y el agente de IA que los contesta.
         </p>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Las conversaciones sin actividad por más de 30 días se borran solas. Puedes borrar una antes con el ícono de tacho al abrirla.
-        </p>
       </div>
 
       <ConnectionCard />
-      <AgentConfigCard />
-      <AgentCoachCard />
-      <AgentSalesCard />
-      <HandoffLogCard />
-      <InstagramAutomations />
+      <AgentMasterSwitch agent={agent} />
 
-      {selectedId === null
-        ? <ThreadList onOpen={setSelectedId} />
-        : <ThreadDetail threadId={selectedId} onBack={() => setSelectedId(null)} />}
+      <Tabs value={tab} onValueChange={(v) => setTab(v as InboxTab)}>
+        <TabsList className="h-auto w-full flex-wrap justify-start">
+          <TabsTrigger value="conversaciones" className="flex-none">Conversaciones</TabsTrigger>
+          <TabsTrigger value="conocimiento" className="flex-none">
+            Conocimiento y tono{agent.dirty ? ' •' : ''}
+          </TabsTrigger>
+          <TabsTrigger value="ajustes" className="flex-none">Ajustes del agente</TabsTrigger>
+          <TabsTrigger value="ventas" className="flex-none">
+            Ventas y aprendizaje
+            {pendingCount > 0 && (
+              <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 text-[10px] font-semibold text-white">{pendingCount}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="automatizaciones" className="flex-none">Automatizaciones</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="conversaciones" className="space-y-3 pt-2">
+          <p className="text-xs text-muted-foreground">
+            Las conversaciones sin actividad por más de 30 días se borran solas. Puedes borrar una antes con el ícono de tacho al abrirla.
+          </p>
+          {selectedId === null
+            ? <ThreadList onOpen={setSelectedId} />
+            : <ThreadDetail threadId={selectedId} onBack={() => setSelectedId(null)} />}
+        </TabsContent>
+        <TabsContent value="conocimiento" className="pt-2">
+          <AgentKnowledgeCard agent={agent} />
+        </TabsContent>
+        <TabsContent value="ajustes" className="pt-2">
+          <AgentSettingsCard agent={agent} />
+        </TabsContent>
+        <TabsContent value="ventas" className="space-y-6 pt-2">
+          <AgentSalesCard />
+          <AgentCoachCard />
+          <HandoffLogCard />
+        </TabsContent>
+        <TabsContent value="automatizaciones" className="pt-2">
+          <InstagramAutomations />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
 
-/** Qué falta para que esto funcione. Sin esta tarjeta, una variable sin
- * configurar en Vercel se manifiesta como una bandeja vacía sin explicación
- * -- que es indistinguible de "nadie ha escrito". */
-function ConnectionCard() {
-  const { data } = trpc.instagram.connectionStatus.useQuery();
-  if (!data) return null;
-
-  const items: { ok: boolean; label: string }[] = [
-    { ok: data.hasAppSecret, label: 'IG_APP_SECRET (firma del webhook)' },
-    { ok: data.hasVerifyToken, label: 'IG_VERIFY_TOKEN (alta del webhook)' },
-    { ok: data.hasAccessToken, label: 'IG_ACCESS_TOKEN (para poder responder)' },
-    { ok: data.hasUserId, label: 'IG_USER_ID (cuenta de la productora)' },
-  ];
-  const pending = items.filter((i) => !i.ok);
-  if (pending.length === 0) return null;
-
-  return (
-    <Card className="rounded-2xl border-amber-500/30 bg-amber-500/5">
-      <CardHeader><CardTitle className="text-base flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Falta terminar la conexión con Meta</CardTitle></CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <ul className="space-y-1">
-          {items.map((i) => (
-            <li key={i.label} className={i.ok ? 'text-muted-foreground' : ''}>
-              {i.ok ? '✅' : '⬜'} {i.label}
-            </li>
-          ))}
-        </ul>
-        <p className="text-muted-foreground">
-          Se configuran como variables de entorno en Vercel. El paso a paso completo está en <code>docs/INSTAGRAM-AGENT.md</code>.
-        </p>
-        <p className="text-muted-foreground">
-          URL del webhook para pegar en el panel de Meta: <code className="break-all">{data.webhookUrl}</code>
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function AgentConfigCard() {
+/** Un solo borrador de la config del agente, compartido por las pestañas
+ * "Conocimiento y tono" y "Ajustes del agente" (un solo "Guardar"). */
+function useAgentConfigDraft(onCoachAppend: () => void) {
   const utils = trpc.useUtils();
-  const { data: config } = trpc.instagram.getConfig.useQuery();
-  const { data: contextPreview } = trpc.instagram.previewContext.useQuery();
+  const query = trpc.instagram.getConfig.useQuery();
+  const config = query.data;
   const save = trpc.instagram.saveConfig.useMutation({
     onSuccess: () => { utils.instagram.getConfig.invalidate(); toast.success('Guardado.'); },
     onError,
   });
-  const preview = trpc.instagram.preview.useMutation({ onError });
-
   const [draft, setDraft] = useState<InstagramAgentConfig | null>(null);
-  const [testMessage, setTestMessage] = useState('hola, cuánto vale la entrada?');
-  const [showContext, setShowContext] = useState(false);
   useEffect(() => { if (config && !draft) setDraft(config); }, [config, draft]);
 
   // "Agregar" desde el coach semanal: suma la sugerencia al borrador (no la
-  // guarda sola -- el conocimiento del agente lo guarda el dueño).
+  // guarda sola -- el conocimiento del agente lo guarda el dueño) y lleva a
+  // la pestaña donde quedó, para que la vea y toque "Guardar".
+  const onAppendRef = useRef(onCoachAppend);
+  onAppendRef.current = onCoachAppend;
   useEffect(() => {
     const onAppend = (e: Event) => {
       const { field, text } = (e as CustomEvent<CoachAppendDetail>).detail;
       setDraft((d) => (d ? { ...d, [field]: d[field].trim().length > 0 ? `${d[field].trimEnd()}\n${text}` : text } : d));
+      onAppendRef.current();
       toast.success('Agregado al borrador: revísalo y toca "Guardar".');
     };
     window.addEventListener(COACH_APPEND_EVENT, onAppend);
     return () => window.removeEventListener(COACH_APPEND_EVENT, onAppend);
   }, []);
 
+  const dirty = !!draft && !!config && JSON.stringify(draft) !== JSON.stringify(config);
+  return { query, config, draft, setDraft, save, dirty };
+}
+type AgentDraft = ReturnType<typeof useAgentConfigDraft>;
+
+/** Lo que se muestra mientras la config no está: nunca una tarjeta vacía en
+ * silencio. Pasó (27/09): faltaba una columna en la base, `getConfig` daba
+ * error y todo el conocimiento del agente "desapareció" del panel sin
+ * ningún aviso. `null` = la config ya está y se puede mostrar el resto. */
+function AgentConfigLoadState({ agent }: { agent: AgentDraft }) {
+  if (agent.draft) return null;
+  if (agent.query.isError) {
+    return (
+      <Card className="rounded-2xl border-destructive/40 bg-destructive/5">
+        <CardContent className="space-y-3 pt-6 text-sm">
+          <p className="font-medium flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> No se pudo cargar la configuración del agente</p>
+          <p className="text-muted-foreground break-words">{agent.query.error.message}</p>
+          <Button variant="outline" size="sm" onClick={() => agent.query.refetch()} disabled={agent.query.isFetching}>
+            {agent.query.isFetching ? 'Reintentando...' : 'Reintentar'}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+  return <p className="text-sm text-muted-foreground">Cargando la configuración del agente...</p>;
+}
+
+/** El interruptor maestro, siempre a la vista arriba de las pestañas: es lo
+ * más importante de la pantalla. Guarda solo el cambio de encendido sobre la
+ * config ya guardada, sin arrastrar ediciones a medio hacer del borrador. */
+function AgentMasterSwitch({ agent }: { agent: AgentDraft }) {
+  const { draft, config, setDraft, save } = agent;
+  if (!draft || !config) return <AgentConfigLoadState agent={agent} />;
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardContent className="flex items-start justify-between gap-4 pt-6">
+        <div>
+          <p className="font-medium flex items-center gap-2"><Bot className="w-5 h-5" /> Contestar automáticamente</p>
+          <p className="text-sm text-muted-foreground">
+            Apagado, los mensajes igual llegan a esta bandeja: simplemente nadie recibe respuesta automática.
+          </p>
+        </div>
+        <Switch
+          checked={draft.enabled}
+          disabled={save.isPending}
+          onCheckedChange={(enabled) => { setDraft({ ...draft, enabled }); save.mutate({ ...config, enabled }); }}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function SaveBar({ agent }: { agent: AgentDraft }) {
+  const { draft, save, dirty } = agent;
   if (!draft) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      <WriteButton onClick={() => save.mutate(draft)} disabled={save.isPending}>
+        {save.isPending ? 'Guardando...' : 'Guardar'}
+      </WriteButton>
+      {dirty && <span className="text-xs text-amber-600">Tienes cambios sin guardar (en esta pestaña o en la otra del agente).</span>}
+    </div>
+  );
+}
+
+function AgentKnowledgeCard({ agent }: { agent: AgentDraft }) {
+  const { draft, setDraft } = agent;
+  const { data: contextPreview } = trpc.instagram.previewContext.useQuery();
+  const preview = trpc.instagram.preview.useMutation({ onError });
+  const [testMessage, setTestMessage] = useState('hola, cuánto vale la entrada?');
+  const [showContext, setShowContext] = useState(false);
+
+  if (!draft) return <AgentConfigLoadState agent={agent} />;
 
   return (
     <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-      <CardHeader><CardTitle className="flex items-center gap-2"><Bot className="w-5 h-5" /> Agente de IA</CardTitle></CardHeader>
+      <CardHeader><CardTitle className="flex items-center gap-2"><Bot className="w-5 h-5" /> Conocimiento y tono del agente</CardTitle></CardHeader>
       <CardContent className="space-y-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="font-medium">Contestar automáticamente</p>
-            <p className="text-sm text-muted-foreground">
-              Apagado, los mensajes igual llegan a esta bandeja: simplemente nadie recibe respuesta automática.
-            </p>
-          </div>
-          <Switch
-            checked={draft.enabled}
-            onCheckedChange={(enabled) => { const next = { ...draft, enabled }; setDraft(next); save.mutate(next); }}
-          />
-        </div>
+        <p className="text-xs text-muted-foreground">
+          Instagram y WhatsApp usan este mismo conocimiento: se edita solo acá.
+        </p>
 
         <div className="space-y-2">
           <Label>Qué tiene que saber el agente</Label>
@@ -168,6 +250,11 @@ function AgentConfigCard() {
           </p>
         </div>
 
+        <StyleExamplesField
+          value={draft.styleExamples}
+          onChange={(styleExamples) => setDraft({ ...draft, styleExamples })}
+        />
+
         <div className="space-y-2">
           <Label>Mensaje cuando deriva a una persona</Label>
           <Input
@@ -190,18 +277,68 @@ function AgentConfigCard() {
           </p>
         </div>
 
-        <StyleExamplesField
-          value={draft.styleExamples}
-          onChange={(styleExamples) => setDraft({ ...draft, styleExamples })}
-        />
+        <SaveBar agent={agent} />
 
+        <div className="border-t pt-5 space-y-3">
+          <p className="font-medium flex items-center gap-2"><Sparkles className="w-4 h-4" /> Probar sin mandar nada</p>
+          <p className="text-xs text-muted-foreground">La prueba usa lo que ya está guardado: guarda primero si cambiaste algo.</p>
+          <div className="flex gap-2">
+            <Input value={testMessage} onChange={(e) => setTestMessage(e.target.value)} placeholder="Escribe un mensaje como si fueras un seguidor" />
+            <WriteButton onClick={() => preview.mutate({ message: testMessage })} disabled={preview.isPending}>
+              {preview.isPending ? '...' : 'Probar'}
+            </WriteButton>
+          </div>
+          {preview.data && (
+            <div className="rounded-2xl border p-4 space-y-2 text-sm">
+              {preview.data.isPersonal ? (
+                <p className="text-muted-foreground">
+                  🤫 Esto lo marcó como mensaje personal (no de cliente): no se mandaría ninguna respuesta automática, quedaría en la bandeja para que lo veas y contestes vos.
+                </p>
+              ) : (
+                <>
+                  <p className="whitespace-pre-wrap">{preview.data.reply}</p>
+                  {preview.data.action === 'buy_link' && (
+                    <p className="text-xs text-primary">+ botón "Comprar entrada"</p>
+                  )}
+                  {preview.data.action === 'page_link' && (
+                    <p className="text-xs text-primary">+ botón a la página {preview.data.pageKey}</p>
+                  )}
+                  {preview.data.handoff && (
+                    <p className="text-amber-600 text-xs">Derivaría a una persona: {preview.data.handoffReason}</p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => setShowContext((v) => !v)}>
+            {showContext ? 'Ocultar' : 'Ver'} los datos que recibe la IA
+          </Button>
+          {showContext && (
+            <pre className="text-xs bg-muted/40 rounded-2xl p-4 overflow-x-auto whitespace-pre-wrap">
+              {contextPreview?.context ?? 'Cargando...'}
+            </pre>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AgentSettingsCard({ agent }: { agent: AgentDraft }) {
+  const { draft, setDraft } = agent;
+  if (!draft) return <AgentConfigLoadState agent={agent} />;
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader><CardTitle className="flex items-center gap-2"><Bot className="w-5 h-5" /> Ajustes del agente</CardTitle></CardHeader>
+      <CardContent className="space-y-5">
         <div className="space-y-3 rounded-2xl border p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="font-medium">Recordatorio si no contesta</p>
               <p className="text-sm text-muted-foreground">
                 Si la persona no vuelve a escribir pasado este tiempo desde la última respuesta del bot, se le manda
-                un único mensaje de cierre con el link del sitio.
+                un único mensaje de cierre con el botón para comprar.
               </p>
             </div>
             <Switch
@@ -273,49 +410,45 @@ function AgentConfigCard() {
           />
         </div>
 
-        <WriteButton onClick={() => save.mutate(draft)} disabled={save.isPending}>
-          {save.isPending ? 'Guardando...' : 'Guardar'}
-        </WriteButton>
+        <SaveBar agent={agent} />
+      </CardContent>
+    </Card>
+  );
+}
 
-        <div className="border-t pt-5 space-y-3">
-          <p className="font-medium flex items-center gap-2"><Sparkles className="w-4 h-4" /> Probar sin mandar nada</p>
-          <div className="flex gap-2">
-            <Input value={testMessage} onChange={(e) => setTestMessage(e.target.value)} placeholder="Escribe un mensaje como si fueras un seguidor" />
-            <WriteButton onClick={() => preview.mutate({ message: testMessage })} disabled={preview.isPending}>
-              {preview.isPending ? '...' : 'Probar'}
-            </WriteButton>
-          </div>
-          {preview.data && (
-            <div className="rounded-2xl border p-4 space-y-2 text-sm">
-              {preview.data.isPersonal ? (
-                <p className="text-muted-foreground">
-                  🤫 Esto lo marcó como mensaje personal (no de cliente): no se mandaría ninguna respuesta automática, quedaría en la bandeja para que lo veas y contestes vos.
-                </p>
-              ) : (
-                <>
-                  <p className="whitespace-pre-wrap">{preview.data.reply}</p>
-                  {preview.data.action === 'buy_link' && (
-                    <p className="text-xs text-primary">+ botón "Comprar entrada"</p>
-                  )}
-                  {preview.data.action === 'page_link' && (
-                    <p className="text-xs text-primary">+ botón a la página {preview.data.pageKey}</p>
-                  )}
-                  {preview.data.handoff && (
-                    <p className="text-amber-600 text-xs">Derivaría a una persona: {preview.data.handoffReason}</p>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-          <Button variant="ghost" size="sm" onClick={() => setShowContext((v) => !v)}>
-            {showContext ? 'Ocultar' : 'Ver'} los datos que recibe la IA
-          </Button>
-          {showContext && (
-            <pre className="text-xs bg-muted/40 rounded-2xl p-4 overflow-x-auto whitespace-pre-wrap">
-              {contextPreview?.context ?? 'Cargando...'}
-            </pre>
-          )}
-        </div>
+/** Qué falta para que esto funcione. Sin esta tarjeta, una variable sin
+ * configurar en Vercel se manifiesta como una bandeja vacía sin explicación
+ * -- que es indistinguible de "nadie ha escrito". */
+function ConnectionCard() {
+  const { data } = trpc.instagram.connectionStatus.useQuery();
+  if (!data) return null;
+
+  const items: { ok: boolean; label: string }[] = [
+    { ok: data.hasAppSecret, label: 'IG_APP_SECRET (firma del webhook)' },
+    { ok: data.hasVerifyToken, label: 'IG_VERIFY_TOKEN (alta del webhook)' },
+    { ok: data.hasAccessToken, label: 'IG_ACCESS_TOKEN (para poder responder)' },
+    { ok: data.hasUserId, label: 'IG_USER_ID (cuenta de la productora)' },
+  ];
+  const pending = items.filter((i) => !i.ok);
+  if (pending.length === 0) return null;
+
+  return (
+    <Card className="rounded-2xl border-amber-500/30 bg-amber-500/5">
+      <CardHeader><CardTitle className="text-base flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Falta terminar la conexión con Meta</CardTitle></CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <ul className="space-y-1">
+          {items.map((i) => (
+            <li key={i.label} className={i.ok ? 'text-muted-foreground' : ''}>
+              {i.ok ? '✅' : '⬜'} {i.label}
+            </li>
+          ))}
+        </ul>
+        <p className="text-muted-foreground">
+          Se configuran como variables de entorno en Vercel. El paso a paso completo está en <code>docs/INSTAGRAM-AGENT.md</code>.
+        </p>
+        <p className="text-muted-foreground">
+          URL del webhook para pegar en el panel de Meta: <code className="break-all">{data.webhookUrl}</code>
+        </p>
       </CardContent>
     </Card>
   );
@@ -451,7 +584,7 @@ function HandoffLogCard() {
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
           Cada derivación del agente (Instagram o WhatsApp) queda acá, aunque después reactives la conversación. Revísalo
-          de vez en cuando y decide qué agregar a "Qué tiene que saber el agente" más arriba.
+          de vez en cuando y decide qué agregar a "Qué tiene que saber el agente" (pestaña "Conocimiento y tono").
         </p>
         {isLoading ? null : !data || data.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nada pendiente por ahora -- buena señal.</p>
@@ -529,7 +662,7 @@ function StyleExamplesField({ value, onChange }: { value: string; onChange: (val
       )}
       <p className="text-xs text-muted-foreground">
         El agente las usa como muestra de tono a imitar, no como texto fijo para copiar. Igual que el resto de esta
-        tarjeta, quedan guardadas recién al tocar "Guardar" más abajo.
+        pestaña, quedan guardadas recién al tocar "Guardar" más abajo.
       </p>
     </div>
   );
