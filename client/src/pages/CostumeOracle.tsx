@@ -215,7 +215,7 @@ export default function CostumeOracle() {
                         type="button"
                         onClick={next}
                         disabled={items.length === 0}
-                        className="mt-8 w-full py-4 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide disabled:opacity-40 interactive"
+                        className="btn-jelly mt-8 w-full py-4 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide disabled:opacity-40 interactive"
                       >
                         Seguir
                       </button>
