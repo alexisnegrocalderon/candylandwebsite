@@ -35,8 +35,7 @@ export const EVENT_BRAND = {
   /** Nombre corto del evento (título grande del Hero y asuntos de correo). */
   nombre: 'ANIVERSARIO',
   fechaTexto: 'Viernes 30 de octubre',
-  /** ⚠️ Reemplazar por la hora real apenas se defina (ver EVENTO en candyland.ts). */
-  horarioTexto: 'Hora por confirmar',
+  horarioTexto: '22:00 hrs',
   dressCode:
     'Disfraz obligatorio: es nuestro 2º aniversario y lo celebramos en grande. ' +
     'Además de tu disfraz, que te haga sentir irresistible -- nada de tenida deportiva.',
