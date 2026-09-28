@@ -75,6 +75,8 @@ import { normalizeInstagramAgentConfig, DEFAULT_INSTAGRAM_AGENT_CONFIG, IG_MAX_R
 import { sendManualInstagramReply } from "./instagram";
 import { canReplyWithinWindow } from "./instagramSend";
 import { runInstagramAgent, buildInstagramContext } from "./instagramAgent";
+import { runAgentCoach } from "./agentCoach";
+import { normalizeAgentCoachReport } from "../shared/agentCoach";
 import { normalizeWhatsAppAgentConfig, DEFAULT_WHATSAPP_AGENT_CONFIG, WA_MAX_REPLY_CHARS } from "../shared/whatsappAgentConfig";
 import { sendManualWhatsAppReply } from "./whatsapp";
 import { normalizeFlashPromoPresets } from "../shared/flashPromoPresets";
@@ -1881,11 +1883,24 @@ export const appRouter = router({
       thanksMessage: z.string().min(1).max(IG_MAX_REPLY_CHARS),
       autoResumeHours: z.number().int().min(0).max(720),
       salesPlaybook: z.string().max(6000),
+      coachWeeklyEnabled: z.boolean(),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings({ instagramAgentConfig: input });
     }),
     /* Cuánto vendió el agente (Instagram + WhatsApp): órdenes aprobadas
      * que entraron por un botón del agente (utm_campaign=agente...). */
+    /* Coach semanal: último reporte guardado, y botón para generarlo ya. */
+    coachReport: adminProcedure.query(async () => {
+      const settings = await db.getSiteSettings();
+      return normalizeAgentCoachReport((settings as any).agentCoachReport);
+    }),
+    runCoachNow: adminProcedure.mutation(async () => {
+      try {
+        return await runAgentCoach({ trigger: 'manual', email: false });
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar el reporte' });
+      }
+    }),
     agentSales: adminProcedure.query(async () => {
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const [last7Days, total] = await Promise.all([db.getAgentSalesSummary(weekAgo), db.getAgentSalesSummary()]);

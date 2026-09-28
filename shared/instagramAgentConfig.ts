@@ -70,6 +70,10 @@ export interface InstagramAgentConfig {
    * abordar a cada uno, y las objeciones típicas con cómo responderlas. Se
    * le pasa al modelo junto al contexto de marca. */
   salesPlaybook: string;
+  /** Coach semanal: los lunes a las 10:00 (Chile) la IA revisa las
+   * conversaciones de la semana y manda un reporte por correo al dueño
+   * (server/agentCoach.ts). Prendido por defecto. */
+  coachWeeklyEnabled: boolean;
 }
 
 export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
@@ -91,6 +95,7 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   followUpMessage: 'Cuando quieras retomamos 💜 mientras tanto puedes ver fechas y entradas acá abajo 👇',
   thanksMessage: 'Un gusto y cualquier otra cosa que necesites estamos aquí para poder ayudar',
   autoResumeHours: 24,
+  coachWeeklyEnabled: true,
   salesPlaybook: [
     'TIPOS DE CLIENTE Y CÓMO ACOMPAÑAR A CADA UNO:',
     '- Primera vez, con nervios o dudas: mucha calidez y cero presión. Contarle que es un espacio seguro, con reglas claras de consentimiento, y que nadie hace nada que no quiera. Ofrecerle la guía de primera vez.',
@@ -143,6 +148,7 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
       ? partial.thanksMessage
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.thanksMessage,
     salesPlaybook: typeof partial.salesPlaybook === 'string' ? partial.salesPlaybook : DEFAULT_INSTAGRAM_AGENT_CONFIG.salesPlaybook,
+    coachWeeklyEnabled: partial.coachWeeklyEnabled !== false,
     autoResumeHours: Number.isFinite(Number(partial.autoResumeHours)) && Number(partial.autoResumeHours) >= 0
       ? Math.min(Math.floor(Number(partial.autoResumeHours)), 720)
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.autoResumeHours,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp } from 'lucide-react';
+import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp, Lightbulb } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
 import { CustomerNotesCard } from '@/components/admin/CustomerNotesCard';
@@ -45,6 +45,7 @@ export function InstagramInbox() {
 
       <ConnectionCard />
       <AgentConfigCard />
+      <AgentCoachCard />
       <AgentSalesCard />
       <HandoffLogCard />
       <InstagramAutomations />
@@ -108,6 +109,18 @@ function AgentConfigCard() {
   const [testMessage, setTestMessage] = useState('hola, cuánto vale la entrada?');
   const [showContext, setShowContext] = useState(false);
   useEffect(() => { if (config && !draft) setDraft(config); }, [config, draft]);
+
+  // "Agregar" desde el coach semanal: suma la sugerencia al borrador (no la
+  // guarda sola -- el conocimiento del agente lo guarda el dueño).
+  useEffect(() => {
+    const onAppend = (e: Event) => {
+      const { field, text } = (e as CustomEvent<CoachAppendDetail>).detail;
+      setDraft((d) => (d ? { ...d, [field]: d[field].trim().length > 0 ? `${d[field].trimEnd()}\n${text}` : text } : d));
+      toast.success('Agregado al borrador: revísalo y toca "Guardar".');
+    };
+    window.addEventListener(COACH_APPEND_EVENT, onAppend);
+    return () => window.removeEventListener(COACH_APPEND_EVENT, onAppend);
+  }, []);
 
   if (!draft) return null;
 
@@ -246,6 +259,20 @@ function AgentConfigCard() {
           </p>
         </div>
 
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="font-medium">Coach semanal</p>
+            <p className="text-sm text-muted-foreground">
+              Los lunes a las 10:00 la IA revisa las conversaciones de la semana y te manda por correo qué preguntan más, dónde
+              se enfría la gente y qué agregarle al conocimiento del agente.
+            </p>
+          </div>
+          <Switch
+            checked={draft.coachWeeklyEnabled}
+            onCheckedChange={(coachWeeklyEnabled) => setDraft({ ...draft, coachWeeklyEnabled })}
+          />
+        </div>
+
         <WriteButton onClick={() => save.mutate(draft)} disabled={save.isPending}>
           {save.isPending ? 'Guardando...' : 'Guardar'}
         </WriteButton>
@@ -289,6 +316,79 @@ function AgentConfigCard() {
             </pre>
           )}
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+const COACH_APPEND_EVENT = 'agent-coach-append';
+type CoachAppendDetail = { field: 'brandNotes' | 'salesPlaybook'; text: string };
+
+/** Coach semanal del agente (server/agentCoach.ts): el último reporte, con
+ * botón para generarlo ahora y para sumar cada sugerencia al borrador de la
+ * config del agente con un toque. */
+function AgentCoachCard() {
+  const utils = trpc.useUtils();
+  const { data: report } = trpc.instagram.coachReport.useQuery();
+  const run = trpc.instagram.runCoachNow.useMutation({
+    onSuccess: (result) => {
+      if (result.ran) {
+        utils.instagram.coachReport.invalidate();
+        toast.success('Reporte listo.');
+      } else {
+        toast.info(`No se generó: ${result.reason ?? 'sin datos'}.`);
+      }
+    },
+    onError,
+  });
+  const append = (field: CoachAppendDetail['field'], text: string) => {
+    window.dispatchEvent(new CustomEvent<CoachAppendDetail>(COACH_APPEND_EVENT, { detail: { field, text } }));
+  };
+
+  const list = (title: string, items: string[], field?: CoachAppendDetail['field']) =>
+    items.length === 0 ? null : (
+      <div className="space-y-1.5">
+        <p className="text-sm font-medium">{title}</p>
+        <ul className="space-y-1.5">
+          {items.map((item, i) => (
+            <li key={i} className="text-sm flex items-start justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2">
+              <span className="whitespace-pre-wrap">{item}</span>
+              {field && (
+                <Button variant="ghost" size="sm" className="shrink-0" onClick={() => append(field, item)}>Agregar</Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Lightbulb className="w-5 h-5" /> Coach semanal del agente</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {report ? (
+          <>
+            <p className="text-xs text-muted-foreground">
+              {formatChileDateTime(report.generatedAt)} · {report.stats.conversations} conversaciones · {report.stats.handoffs} derivaciones ·{' '}
+              {report.stats.agentOrders} compras por el agente
+            </p>
+            <p className="text-sm">{report.summary}</p>
+            {list('Lo que más preguntan', report.topQuestions)}
+            {list('Dónde se enfría la gente', report.dropOffPoints)}
+            {list('Para agregar a "Qué tiene que saber el agente"', report.knowledgeSuggestions, 'brandNotes')}
+            {list('Para agregar a la guía de ventas', report.playbookSuggestions, 'salesPlaybook')}
+            {list('Lo que funcionó y lo que no', report.highlights)}
+          </>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Todavía no hay reporte. Se genera solo los lunes a las 10:00, o puedes generarlo ahora.
+          </p>
+        )}
+        <WriteButton variant="outline" onClick={() => run.mutate()} disabled={run.isPending}>
+          {run.isPending ? 'Analizando la semana (puede tardar un minuto)...' : 'Generar ahora'}
+        </WriteButton>
       </CardContent>
     </Card>
   );

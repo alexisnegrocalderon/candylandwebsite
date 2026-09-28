@@ -12,6 +12,7 @@ import { refreshInstagramToken } from "./instagramSend";
 import { runInstagramFollowUps } from "./instagramFollowUp";
 import { runWhatsAppFollowUps } from "./whatsappFollowUp";
 import { runAgentAutoResume } from "./agentAutoResume";
+import { runAgentCoach, shouldRunAgentCoachNow } from "./agentCoach";
 import { shouldSendWeeklyAmbassadorEmailNow } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 
@@ -267,6 +268,25 @@ export function registerCronRoutes(app: Express) {
   /* Recordatorio de cierre por silencio en el Instagram (docs: server/
    * instagramFollowUp.ts). Cada 15 minutos -- suficiente precisión para una
    * ventana pensada en horas (default 120 min) sin sobre-consultar. */
+  // Coach semanal del agente (server/agentCoach.ts). Corre cada hora y se
+  // auto-limita a lunes 10:00 de Chile -- mismo criterio que el correo
+  // semanal de embajadores, así el horario de verano no lo corre de hora.
+  app.get("/api/cron/agent-coach", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    const now = new Date();
+    if (!shouldRunAgentCoachNow(now)) {
+      res.json({ success: true, ran: false, reason: "no es lunes 10:00 en Chile" });
+      return;
+    }
+    try {
+      const result = await runAgentCoach({ now, trigger: "cron" });
+      res.json({ success: true, ran: result.ran, reason: result.reason, emailed: result.emailed });
+    } catch (err) {
+      console.error("[Cron] Error generando el coach semanal del agente:", err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : "Error desconocido" });
+    }
+  });
+
   app.get("/api/cron/instagram-followup", async (req: Request, res: Response) => {
     if (!requireCronSecret(req, res)) return;
     try {

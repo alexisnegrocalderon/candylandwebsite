@@ -893,6 +893,7 @@ export async function updateSiteSettings(data: {
   adminAlertsConfig?: AdminAlertsConfig;
   instagramAgentConfig?: import('../shared/instagramAgentConfig').InstagramAgentConfig;
   whatsappAgentConfig?: import('../shared/whatsappAgentConfig').WhatsAppAgentConfig;
+  agentCoachReport?: import('../shared/agentCoach').AgentCoachReport;
   flashPromoPresets?: import('../shared/flashPromoPresets').FlashPromoPreset[];
 }) {
   const db = await getDb();
