@@ -59,8 +59,9 @@ import { formatChileDateTime, formatChileShortDate, formatChileTime } from '@sha
 import {
   SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
   SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuBadge, SidebarInset, SidebarTrigger,
-  SidebarGroup, useSidebar,
+  SidebarGroup, SidebarSeparator, useSidebar,
 } from '@/components/ui/sidebar';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 /* Toda escritura del admin pasa por acá: sin esto, un error del servidor
  * (típicamente "Database not available" si falta DATABASE_URL) fallaba en
@@ -9526,12 +9527,20 @@ function AdminSidebarNav({
 
   return (
     <>
-      {ADMIN_SECTION_GROUPS.map((group) => {
+      {ADMIN_SECTION_GROUPS.map((group, groupIndex) => {
         const isOpen = iconOnly || openGroups.has(group);
         const sections = ADMIN_SECTIONS.filter((s) => s.group === group);
         const hasBadge = sections.some((s) => (badgeCounts[s.id] ?? 0) > 0);
         return (
-          <SidebarGroup key={group} className="py-1">
+          <Fragment key={group}>
+            {/* Con el menú colapsado, el título de cada grupo desaparece sin
+                dejar rastro (ver `group-data-[collapsible=icon]:hidden` más
+                abajo) -- este separador marca el corte de sección, como la
+                línea entre apps fijas y recientes en el Dock de macOS. */}
+            {groupIndex > 0 && (
+              <SidebarSeparator className="mx-auto hidden w-6 opacity-50 group-data-[collapsible=icon]:block" />
+            )}
+            <SidebarGroup className="py-1">
             <button
               type="button"
               onClick={() => toggleGroup(group)}
@@ -9554,7 +9563,7 @@ function AdminSidebarNav({
                         isActive={activeSection === section.id}
                         onClick={() => openSection(section.id)}
                         tooltip={count > 0 ? `${section.label} (${count})` : section.label}
-                        className="h-10 rounded-xl text-[15px] data-[active=true]:bg-gradient-to-r data-[active=true]:from-primary/15 data-[active=true]:to-secondary/15 data-[active=true]:text-primary data-[active=true]:font-semibold"
+                        className="h-10 rounded-xl text-[15px] data-[active=true]:bg-gradient-to-r data-[active=true]:from-primary/15 data-[active=true]:to-secondary/15 data-[active=true]:text-primary data-[active=true]:font-semibold group-data-[collapsible=icon]:data-[active=true]:bg-transparent"
                       >
                         {/* El ícono va como hijo DIRECTO del botón a propósito:
                             sidebarMenuButtonVariants lo dimensiona con `[&>svg]` y
@@ -9562,6 +9571,13 @@ function AdminSidebarNav({
                         <section.icon className="h-4 w-4" />
                         <span>{section.label}</span>
                       </SidebarMenuButton>
+                      {activeSection === section.id && (
+                        /* Con la franja de gradiente apagada en modo colapsado
+                           (arriba), este puntito -- como el indicador de app
+                           abierta en el Dock de macOS -- es lo único que marca
+                           cuál sección está activa. */
+                        <span className="pointer-events-none absolute -bottom-0.5 left-1/2 hidden h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-gradient-to-r from-primary to-secondary group-data-[collapsible=icon]:block" aria-hidden="true" />
+                      )}
                       {count > 0 && (
                         <>
                           <SidebarMenuBadge className="bg-primary/15 text-primary font-bold">
@@ -9580,10 +9596,39 @@ function AdminSidebarNav({
                 })}
               </SidebarMenu>
             )}
-          </SidebarGroup>
+            </SidebarGroup>
+          </Fragment>
         );
       })}
     </>
+  );
+}
+
+/** Igual que `AdminSidebarNav`: separado en su propio componente porque
+ * necesita `useSidebar()`, y ese hook solo funciona dentro del árbol de
+ * `SidebarProvider` (no en el mismo componente que lo renderiza). Con el
+ * menú colapsado, el resto de los íconos muestra su tooltip al hover --
+ * este es el único que no lo tenía. */
+function AdminSidebarFooter({ onLogout }: { onLogout: () => void }) {
+  const { state, isMobile } = useSidebar();
+
+  const button = (
+    <button
+      onClick={onLogout}
+      className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive group-data-[collapsible=icon]:justify-center"
+    >
+      <LogOut className="h-4 w-4 shrink-0" />
+      <span className="group-data-[collapsible=icon]:hidden">Cerrar sesión</span>
+    </button>
+  );
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent side="right" align="center" hidden={state !== 'collapsed' || isMobile}>
+        Cerrar sesión
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -9635,12 +9680,12 @@ export default function AdminDashboard() {
     <SidebarProvider data-admin-theme="light-pro">
       <Sidebar collapsible="icon" className="border-r-0 bg-transparent">
         <div className="admin-clay-shell flex h-full w-full flex-col m-3 mr-0 group-data-[collapsible=icon]:mr-3">
-          <SidebarHeader className="h-16 justify-center px-3">
-            <div className="flex items-center gap-2">
+          <SidebarHeader className="h-16 justify-center px-3 group-data-[collapsible=icon]:px-0">
+            <div className="flex w-full items-center gap-2 group-data-[collapsible=icon]:justify-center">
               <img
                 src="/candyland/logo-isotipo-transparent.png"
                 alt="Mansion Playroom"
-                className="h-9 w-9 object-contain shrink-0"
+                className="h-9 w-9 shrink-0 object-contain transition-transform duration-150 ease-out group-data-[collapsible=icon]:hover:scale-110"
               />
               <span className="font-heading text-lg tracking-tight group-data-[collapsible=icon]:hidden">
                 {isDemo ? 'Invitado (demo)' : 'Mansion Playroom'}
@@ -9651,13 +9696,7 @@ export default function AdminDashboard() {
             <AdminSidebarNav activeSection={activeSection} openSection={openSection} badgeCounts={badgeCounts} />
           </SidebarContent>
           <SidebarFooter className="p-3">
-            <button
-              onClick={() => logout()}
-              className="flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-destructive/10 hover:text-destructive transition-colors w-full text-left text-sm text-muted-foreground"
-            >
-              <LogOut className="h-4 w-4 shrink-0" />
-              <span className="group-data-[collapsible=icon]:hidden">Cerrar sesión</span>
-            </button>
+            <AdminSidebarFooter onLogout={() => logout()} />
           </SidebarFooter>
         </div>
       </Sidebar>
