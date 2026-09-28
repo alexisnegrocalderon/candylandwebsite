@@ -240,14 +240,11 @@ export const EVENTO = {
   heroGancho: 'Dos años de mansión.',
   heroSub: 'Una noche para celebrarlo.',
 
-  // Fecha confirmada: viernes 30 de octubre de 2026. La hora de puertas
-  // todavía no está definida -- `eventDate` usa 21:00 (mismo horario que
-  // Candyland) solo como marcador interno para que el countdown y el
-  // JSON-LD tengan una fecha-hora válida, pero esa hora NO se muestra en
-  // ningún lado: `horarioTexto` dice "Hora por confirmar" a propósito.
-  // ⚠️ Reemplazar `eventDate` por la hora real apenas esté definida.
+  // Fecha y hora confirmadas: viernes 30 de octubre de 2026, 22:00 hrs
+  // (puertas). `eventDate` ahora sí es la hora real y se muestra en el
+  // sitio (countdown, JSON-LD y `horarioTexto` vía EVENT_BRAND).
   fechaConfirmada: true,
-  eventDate: new Date('2026-10-30T21:00:00-03:00'),
+  eventDate: new Date('2026-10-30T22:00:00-03:00'),
   fechaTexto: EVENT_BRAND.fechaTexto,
   horarioTexto: EVENT_BRAND.horarioTexto,
   // Disfraz obligatorio como dato práctico del dress code. El resto del
@@ -347,7 +344,7 @@ export const CANDYLAND = {
     },
     {
       q: '¿A qué hora empieza y termina?',
-      a: 'Puertas por confirmar -- te avisamos apenas esté el horario definitivo. El after sigue hasta el amanecer.',
+      a: 'Puertas a las 22:00 hrs. El after sigue hasta el amanecer.',
     },
     {
       q: '¿Cuál es el dress code?',
@@ -383,7 +380,7 @@ export const CANDYLAND = {
     },
     {
       q: '¿Qué pasa si llego tarde?',
-      a: 'Puedes entrar en cualquier momento mientras el evento esté abierto. El horario de puertas todavía está por confirmarse, y el after sigue hasta el amanecer. Eso sí, si compraste estacionamiento conviene llegar temprano.',
+      a: 'Puedes entrar en cualquier momento mientras el evento esté abierto. Puertas a las 22:00 hrs, y el after sigue hasta el amanecer. Eso sí, si compraste estacionamiento conviene llegar temprano.',
     },
     {
       q: '¿Hay dónde dejar mis cosas?',

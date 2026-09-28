@@ -55,7 +55,7 @@ import {
   computeBudgetResult, type BudgetSimulationInput, type RevenueTier, type BudgetExpenseLine, type BudgetResult,
 } from '@shared/eventBudget';
 import { monthKeyFor } from '@shared/ambassadorProgram';
-import { formatChileDateTime, formatChileShortDate } from '@shared/chileDate';
+import { formatChileDateTime, formatChileShortDate, formatChileTime } from '@shared/chileDate';
 import {
   SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
   SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuBadge, SidebarInset, SidebarTrigger,
@@ -2394,7 +2394,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                       <th className="text-left py-2.5 px-3">Total</th>
                       <th className="text-left py-2.5 px-3">Extras</th>
                       <th className="text-left py-2.5 px-3">Estado</th>
-                      <th className="text-left py-2.5 px-3">Fecha</th>
+                      <th className="text-left py-2.5 px-3">Fecha y hora</th>
                       {remindersMode && <th className="text-left py-2.5 px-3">Recordatorio</th>}
                       <th className="text-left py-2.5 px-3">Contacto</th>
                       <th className="text-left py-2.5 px-3">Acciones</th>
@@ -2437,7 +2437,10 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                           <td className="py-2.5 px-3">
                             <StatusBadge status={order.paymentStatus} />
                           </td>
-                          <td className="py-2.5 px-3 text-[var(--admin-muted)]">{formatChileShortDate(order.createdAt)}</td>
+                          <td className="py-2.5 px-3 text-[var(--admin-muted)]">
+                            {formatChileShortDate(order.createdAt)}
+                            <br /><span className="text-xs">{formatChileTime(order.createdAt)}</span>
+                          </td>
                           {remindersMode && (
                             <td className="py-2.5 px-3 text-sm">
                               {order.reminderCount > 0 ? (
@@ -2586,7 +2589,10 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="tabular-nums font-medium">${Number(order.total).toLocaleString('es-CL')}</span>
-                    <span className="text-[var(--admin-muted)]">{formatChileShortDate(order.createdAt)}</span>
+                    <span className="text-[var(--admin-muted)]">
+                      {formatChileShortDate(order.createdAt)}
+                      <br /><span className="text-xs">{formatChileTime(order.createdAt)}</span>
+                    </span>
                   </div>
                   {order.extras && order.extras.length > 0 && (
                     <div className="flex flex-wrap gap-1">
