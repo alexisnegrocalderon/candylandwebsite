@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
+import { CustomerNotesCard } from '@/components/admin/CustomerNotesCard';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { Switch } from '@/components/ui/switch';
@@ -137,6 +138,20 @@ function AgentConfigCard() {
           <p className="text-xs text-muted-foreground">
             Tono de la marca y respuestas a las preguntas de siempre. Las fechas y los precios NO se escriben acá: salen
             solos de los eventos cargados en el panel.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Guía de ventas</Label>
+          <Textarea
+            rows={10}
+            maxLength={6000}
+            value={draft.salesPlaybook}
+            onChange={(e) => setDraft({ ...draft, salesPlaybook: e.target.value })}
+          />
+          <p className="text-xs text-muted-foreground">
+            Tipos de cliente y cómo acompañar a cada uno, más las objeciones típicas y cómo responderlas. El agente la usa para
+            leer a quién le habla y venderle con calidez. Súmale lo que vayas aprendiendo de las conversaciones.
           </p>
         </div>
 
@@ -518,6 +533,7 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <CustomerNotesCard channel="instagram" threadId={threadId} notes={thread.customerNotes} />
         <div className="flex items-center justify-between gap-4 rounded-2xl border p-3">
           <div className="text-sm">
             <p className="font-medium">Respuesta automática en esta conversación</p>

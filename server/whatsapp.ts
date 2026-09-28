@@ -9,6 +9,7 @@ import {
   getSiteSettings,
   logAgentHandoff,
   getWaMessageByWamid,
+  setWaThreadCustomerNotes,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
 import { verifyMetaSignature, bubbleGapMs } from './instagram';
@@ -306,7 +307,13 @@ export async function handleInboundMessage(message: WaInboundMessage, profileNam
     config: agentConfig,
     isFinalReplyOfDay,
     channel: 'whatsapp',
+    customerNotes: thread.customerNotes,
   });
+
+  // Ficha de la persona (mismo criterio que Instagram).
+  if (result.customerNotes && result.customerNotes !== thread.customerNotes) {
+    await setWaThreadCustomerNotes(thread.id, result.customerNotes);
+  }
 
   // Igual que en Instagram (pedido del dueño, 23/09): la clasificación de
   // "personal" la hace la IA y puede fallar con una pregunta real de

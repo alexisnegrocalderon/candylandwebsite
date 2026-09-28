@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { MessageCircle, Bot, Hand, Send, Sparkles, AlertTriangle, List, Link as LinkIcon } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
+import { CustomerNotesCard } from '@/components/admin/CustomerNotesCard';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { Switch } from '@/components/ui/switch';
@@ -362,6 +363,7 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <CustomerNotesCard channel="whatsapp" threadId={threadId} notes={thread.customerNotes} />
         <div className="flex items-center justify-between gap-4 rounded-2xl border p-3">
           <div className="text-sm">
             <p className="font-medium">Respuesta automática en esta conversación</p>

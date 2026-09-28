@@ -66,6 +66,10 @@ export interface InstagramAgentConfig {
    * que un hilo vuelve solo a tener agente -- pedido del dueño, 27/09. Los
    * hilos marcados como personales NO se reactivan. 0 = apagado. */
   autoResumeHours: number;
+  /** Guía de ventas del dueño (texto libre): tipos de cliente y cómo
+   * abordar a cada uno, y las objeciones típicas con cómo responderlas. Se
+   * le pasa al modelo junto al contexto de marca. */
+  salesPlaybook: string;
 }
 
 export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
@@ -87,6 +91,22 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   followUpMessage: 'Cuando quieras retomamos 💜 mientras tanto puedes ver fechas y entradas acá abajo 👇',
   thanksMessage: 'Un gusto y cualquier otra cosa que necesites estamos aquí para poder ayudar',
   autoResumeHours: 24,
+  salesPlaybook: [
+    'TIPOS DE CLIENTE Y CÓMO ACOMPAÑAR A CADA UNO:',
+    '- Primera vez, con nervios o dudas: mucha calidez y cero presión. Contarle que es un espacio seguro, con reglas claras de consentimiento, y que nadie hace nada que no quiera. Ofrecerle la guía de primera vez.',
+    '- Pareja curiosa: hablarles en plural, que se sientan bienvenidos juntos. Destacar la experiencia compartida y el acceso Dúo si está en los datos.',
+    '- Soltera o soltero: que se sienta cómoda/o yendo sola/o, que mucha gente llega así y conoce gente adentro.',
+    '- Grupo de amigos: entusiasmo, que la pasen increíble juntos, preguntar cuántos son para darles el precio justo.',
+    '- Cliente que ya vino: tratarlo como de la casa, "¡qué bueno tenerte de vuelta!", contarle qué trae de nuevo esta fecha.',
+    '- Curioso sin apuro: dar la info justa, dejar la puerta abierta y cerrar con una pregunta suave, sin empujar.',
+    '',
+    'OBJECIONES TÍPICAS:',
+    '- "Está caro": mostrar todo lo que incluye y que el precio de esta tanda es el más bajo que va a tener (si los datos dicen que sube).',
+    '- "Me da vergüenza / no sé si es para mí": normalizarlo, contar que es súper común la primera vez y que el ambiente es respetuoso.',
+    '- "No sé qué ponerme": el disfraz no tiene que ser profesional; ofrecer las ideas de disfraz.',
+    '- "¿Es seguro?": reglas claras, consentimiento siempre, equipo atento durante toda la fiesta.',
+    '- "Lo voy a pensar": respetarlo, recordar al pasar si el precio sube pronto, y dejarle el botón para cuando se decida.',
+  ].join('\n'),
 };
 
 /** Completa con los valores por defecto cualquier campo faltante -- una
@@ -122,6 +142,7 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
     thanksMessage: typeof partial.thanksMessage === 'string' && partial.thanksMessage.trim().length > 0
       ? partial.thanksMessage
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.thanksMessage,
+    salesPlaybook: typeof partial.salesPlaybook === 'string' ? partial.salesPlaybook : DEFAULT_INSTAGRAM_AGENT_CONFIG.salesPlaybook,
     autoResumeHours: Number.isFinite(Number(partial.autoResumeHours)) && Number(partial.autoResumeHours) >= 0
       ? Math.min(Math.floor(Number(partial.autoResumeHours)), 720)
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.autoResumeHours,

@@ -154,6 +154,19 @@ que se ve al abrir un hilo, que se borra al reactivarlo). El flujo:
    agente" (curada, no copiada tal cual -- son las conclusiones, no el log).
 3. Tocar **"Ya lo agregué"** para sacarla de pendientes.
 
+**Guía de ventas** (27/09): campo aparte en Ajustes del agente con los tipos
+de cliente (primera vez con nervios, pareja curiosa, soltera/o, grupo,
+cliente que vuelve, curioso sin apuro) y las objeciones típicas con cómo
+responderlas. Se le pasa al modelo junto a "Qué tiene que saber el agente".
+El tono de venta (persuasivo pero cálido, urgencia solo con datos reales,
+nunca desesperado) vive fijo en el prompt (`WARM_SALES_RULES`).
+
+**Ficha del cliente**: el agente va armando una ficha corta de cada persona
+(nombre, con quién viene, primera vez o no, qué le interesa, dudas, si ya
+recibió el botón) y la guarda en `igThreads/waThreads.customerNotes`. Vuelve
+al prompt en cada mensaje, así la recuerda aunque vuelva días después. Se ve
+y se edita en la bandeja, arriba de cada conversación.
+
 ## 7. Operación diaria
 
 - **Tomar una conversación**: abrir el hilo y apagar *"Respuesta automática en
