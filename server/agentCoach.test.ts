@@ -22,6 +22,7 @@ vi.mock('./db', async (importOriginal) => {
     getWaMessages: vi.fn(),
     listAgentHandoffLog: vi.fn(),
     getAgentSalesSummary: vi.fn(),
+    getAgentCoachReport: vi.fn(),
   };
 });
 const getSiteSettingsMock = vi.mocked(db.getSiteSettings);
@@ -107,10 +108,7 @@ describe('runAgentCoach', () => {
   });
 
   it('no corre dos veces el mismo día desde el cron', async () => {
-    getSiteSettingsMock.mockResolvedValueOnce({
-      instagramAgentConfig: {},
-      agentCoachReport: { generatedAt: new Date(NOW.getTime() - 60 * 60 * 1000).toISOString(), summary: 'ya' },
-    } as any);
+    vi.mocked(db.getAgentCoachReport).mockResolvedValueOnce({ generatedAt: new Date(NOW.getTime() - 60 * 60 * 1000).toISOString(), summary: 'ya' });
     const result = await runAgentCoach({ now: NOW, trigger: 'cron' });
     expect(result.ran).toBe(false);
   });
