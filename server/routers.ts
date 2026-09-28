@@ -1891,8 +1891,7 @@ export const appRouter = router({
      * que entraron por un botón del agente (utm_campaign=agente...). */
     /* Coach semanal: último reporte guardado, y botón para generarlo ya. */
     coachReport: adminProcedure.query(async () => {
-      const settings = await db.getSiteSettings();
-      return normalizeAgentCoachReport((settings as any).agentCoachReport);
+      return normalizeAgentCoachReport(await db.getAgentCoachReport());
     }),
     runCoachNow: adminProcedure.mutation(async () => {
       try {

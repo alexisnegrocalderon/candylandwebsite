@@ -1,4 +1,4 @@
-import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, isNull, isNotNull, ne } from "drizzle-orm";
+import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, isNull, isNotNull, ne, getTableColumns } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -878,12 +878,34 @@ export async function deleteBlockedCustomer(id: number) {
 // recargo por servicio (%) que se suma a toda venta nueva)
 const SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0, halloweenModeEnabled: 0, emailTemplateConfig: null, instagramAgentConfig: null, whatsappAgentConfig: null };
 
+/* La config del sitio se lee SIN `agentCoachReport` a propósito (28/09):
+ * en producción esa columna (migración 0069) quedó sin aplicar, y como se
+ * leía acá, se cayeron el panel del agente, sus respuestas, el cron de
+ * recordatorios y todo lo que lee la config del sitio. El reporte del coach
+ * no lo necesita nadie más que el coach, así que se lee aparte
+ * (`getAgentCoachReport`), y el sitio no depende de que la columna exista. */
+const { agentCoachReport: _agentCoachReportColumn, ...SITE_SETTINGS_READ_COLUMNS } = getTableColumns(siteSettings);
+
 export async function getSiteSettings() {
   const db = await getDb();
   if (!db) return SITE_SETTINGS_DEFAULTS;
-  const [row] = await db.select().from(siteSettings).limit(1);
+  const [row] = await db.select(SITE_SETTINGS_READ_COLUMNS).from(siteSettings).limit(1);
   if (row) return row;
   return SITE_SETTINGS_DEFAULTS;
+}
+
+/** Último reporte del coach semanal, o `null` si no hay (o si la columna
+ * todavía no existe en la base -- nunca tira, ver arriba). */
+export async function getAgentCoachReport(): Promise<unknown> {
+  const db = await getDb();
+  if (!db) return null;
+  try {
+    const [row] = await db.select({ report: siteSettings.agentCoachReport }).from(siteSettings).limit(1);
+    return row?.report ?? null;
+  } catch (error) {
+    console.warn('[Database] No se pudo leer el reporte del coach (¿falta la columna agentCoachReport?):', error);
+    return null;
+  }
 }
 
 export async function updateSiteSettings(data: {
@@ -906,7 +928,9 @@ export async function updateSiteSettings(data: {
   // boolean real, se convierte acá en el borde.
   if (data.foundersPromoEnabled !== undefined) updateData.foundersPromoEnabled = data.foundersPromoEnabled ? 1 : 0;
   if (data.halloweenModeEnabled !== undefined) updateData.halloweenModeEnabled = data.halloweenModeEnabled ? 1 : 0;
-  const [row] = await db.select().from(siteSettings).limit(1);
+  // Solo el id: leer la fila entera volvería a depender de todas las
+  // columnas (ver el comentario de getSiteSettings).
+  const [row] = await db.select({ id: siteSettings.id }).from(siteSettings).limit(1);
   if (row) {
     await db.update(siteSettings).set(updateData).where(eq(siteSettings.id, row.id));
   } else {

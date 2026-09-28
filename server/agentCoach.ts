@@ -9,6 +9,7 @@ import {
   getWaMessages,
   listAgentHandoffLog,
   getAgentSalesSummary,
+  getAgentCoachReport,
 } from './db';
 import { sendEmail } from './email';
 import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
@@ -95,7 +96,7 @@ export async function runAgentCoach(opts: { now?: Date; trigger?: 'cron' | 'manu
 
   if (trigger === 'cron') {
     if (!config.coachWeeklyEnabled) return { ran: false, reason: 'apagado en Ajustes del agente' };
-    const last = normalizeAgentCoachReport((settings as any)?.agentCoachReport);
+    const last = normalizeAgentCoachReport(await getAgentCoachReport());
     if (last && now.getTime() - new Date(last.generatedAt).getTime() < 20 * 60 * 60 * 1000) {
       return { ran: false, reason: 'ya se generó hoy' };
     }
