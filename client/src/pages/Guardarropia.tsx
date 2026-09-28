@@ -104,7 +104,7 @@ function Login({ onDone }: { onDone: () => void }) {
             <button
               disabled={pin.length < 4 || login.isPending}
               onClick={() => login.mutate({ operatorId, pin })}
-              className="w-full h-14 mt-5 rounded-full bg-primary font-bold disabled:opacity-35"
+              className="btn-jelly w-full h-14 mt-5 rounded-full bg-primary font-bold disabled:opacity-35 interactive"
             >
               {login.isPending ? 'Entrando…' : 'Entrar'}
             </button>
