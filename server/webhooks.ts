@@ -8,10 +8,12 @@ import { attributeAmbassadorSale } from './ambassadorProgram';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { orders, orderItems, tickets, ticketTypes, events, referrals, users, customers, discountCodes } from '../drizzle/schema';
 import { isTopupProduct, topupCreditForLines, topupChargeForLines } from '../shared/prepaid';
-import { eq, and, sql, isNotNull, ne, inArray } from 'drizzle-orm';
+import { eq, and, sql, isNotNull, ne, inArray, desc } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { generateTicketQR } from './qr';
-import { sendEmail, buildOrderEmail, buildMissionTopupEmail, buildTierUpEmail, buildAlmostTierEmail, buildGiftEmail, buildBirthdayTierUnlockedEmail } from './email';
+import { sendEmail, buildOrderEmail, buildMissionTopupEmail, buildTierUpEmail, buildAlmostTierEmail, buildGiftEmail, buildBirthdayTierUnlockedEmail, buildTopupEmail } from './email';
+import { EMAIL_BASE_URL } from './emailLayout';
+import { applyPendingCardPin } from './playcardTopup';
 import { missionCutoff, missionCapPrice, personasForAccesoSlug, MISSION_300_GOAL } from '../shared/mission300';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
@@ -371,6 +373,67 @@ async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boo
   return result;
 }
 
+/** ¿La orden es solo una recarga de PlayCard (sin entrada ni extras)? Esas no
+ * llevan QR, así que el correo de compra no les corresponde. */
+async function isTopupOnlyOrder(orderId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+  if (items.length === 0) return false;
+  const tts = await db.select().from(ticketTypes).where(inArray(ticketTypes.id, Array.from(new Set(items.map((i) => i.ticketTypeId)))));
+  const byId = new Map(tts.map((tt) => [tt.id, tt]));
+  return items.every((i) => {
+    const tt = byId.get(i.ticketTypeId);
+    return !!tt && isTopupProduct(tt);
+  });
+}
+
+/** Correo "Recarga confirmada" con el saldo nuevo. El botón lleva a la
+ * tarjeta digital (ticket de acceso más reciente del cliente) o, si nunca
+ * tuvo uno, a /recargar. */
+async function sendTopupEmailForOrder(order: any): Promise<{ success: boolean }> {
+  const db = await getDb();
+  if (!db) return { success: false };
+
+  const items = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+  const tts = items.length
+    ? await db.select().from(ticketTypes).where(inArray(ticketTypes.id, Array.from(new Set(items.map((i) => i.ticketTypeId)))))
+    : [];
+  const byId = new Map(tts.map((tt) => [tt.id, tt]));
+  const amount = topupCreditForLines(
+    items
+      .map((item) => ({ item, tt: byId.get(item.ticketTypeId) }))
+      .filter((x): x is { item: typeof items[number]; tt: NonNullable<typeof x.tt> } => !!x.tt && isTopupProduct(x.tt))
+      .map((x) => ({ topupAmount: x.tt.topupAmount as number, unitPrice: Number(x.item.unitPrice), quantity: x.item.quantity })),
+  );
+
+  const email = order.buyerEmail.trim().toLowerCase();
+  const [customer] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+  const customerOrders = await db.select({ id: orders.id }).from(orders).where(sql`LOWER(${orders.buyerEmail}) = ${email}`);
+  const orderIds = customerOrders.map((o) => o.id);
+  const [accessTicket] = orderIds.length
+    ? await db.select({ code: tickets.ticketCode }).from(tickets)
+        .innerJoin(ticketTypes, eq(tickets.ticketTypeId, ticketTypes.id))
+        .where(and(inArray(tickets.orderId, orderIds), eq(ticketTypes.category, 'acceso')))
+        .orderBy(desc(tickets.id))
+        .limit(1)
+    : [];
+
+  const html = buildTopupEmail({
+    buyerName: order.buyerName,
+    orderNumber: order.orderNumber,
+    amount,
+    newBalance: customer?.prepaidBalance ?? amount,
+    pinSet: !!customer?.cardPinHash,
+    cardUrl: accessTicket ? `${EMAIL_BASE_URL}/verificar/${accessTicket.code}` : `${EMAIL_BASE_URL}/recargar`,
+  });
+  return sendEmail({
+    to: order.buyerEmail,
+    subject: `💳 Recarga confirmada: tu saldo ahora es $${(customer?.prepaidBalance ?? amount).toLocaleString('es-CL')}`,
+    html,
+  });
+}
+
 /** Reenvía manualmente el email de una orden ya aprobada — para el botón
  * "Reenviar email" del panel admin. Si la orden es un abono de Misión 300
  * que todavía no generó tickets (ver processApprovedOrder), reenvía el
@@ -390,6 +453,8 @@ export async function resendConfirmationEmail(orderNumber: string) {
 
   const result = isUnresolvedDeposit
     ? await sendMissionDepositEmail(order)
+    : (await isTopupOnlyOrder(order.id))
+    ? await sendTopupEmailForOrder(order)
     : await sendConfirmationEmailForOrder(order);
 
   if (!result.success) throw new Error('Resend rechazó el envío -- revisa la configuración de RESEND_API_KEY/RESEND_FROM_EMAIL en Vercel.');
@@ -537,6 +602,9 @@ async function processApprovedOrder(order: any) {
   const topupCredit = topupCreditForLines(topupLines);
   if (topupCredit > 0) {
     await creditPrepaid({ email: order.buyerEmail, amountClp: topupCredit, reason: 'topup_web', orderId: order.id });
+    // PIN elegido al recargar desde /recargar: recién acá, con el pago
+    // aprobado, pasa a ser el PIN de la tarjeta.
+    await applyPendingCardPin(order.id);
   }
   // Enlace estable ticket→cliente: orders.customerId no se poblaba en ningún
   // flujo de compra nuevo (solo tiene el backfill histórico de la migración
@@ -675,6 +743,24 @@ async function processApprovedOrder(order: any) {
     }
 
     await db.update(orders).set({ emailSent: 1 }).where(eq(orders.id, order.id));
+    return;
+  }
+
+  // Recarga de PlayCard (sin entrada): correo propio con el saldo nuevo.
+  const topupOnly = items.length > 0 && items.every((i: any) => {
+    const tt = ticketTypeById.get(i.ticketTypeId);
+    return !!tt && isTopupProduct(tt);
+  });
+  if (topupOnly) {
+    const topupResult = await sendTopupEmailForOrder(refreshedOrder ?? order);
+    if (topupResult.success) await db.update(orders).set({ emailSent: 1 }).where(eq(orders.id, order.id));
+    if (order.channel === 'web') {
+      await sendPushToAdmins('pushNewOrder', {
+        title: '💳 Recarga de PlayCard',
+        body: `${order.buyerName} — $${Number(order.total).toLocaleString('es-CL')}`,
+        url: '/admin',
+      });
+    }
     return;
   }
 

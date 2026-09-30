@@ -68,7 +68,9 @@ import { friendlySyncErrorMessage } from "./caja/ops";
 import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKitchenProductStock, toggleKitchenProductSoldOut } from "./kitchen";
 import { listLockerItems, updateLockerItem } from "./locker";
 import { voidTicketCode } from "./caja/void";
-import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail } from "./email";
+import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail, buildTopupCodeEmail } from "./email";
+import { currentLoginCode, verifyLoginCode, signTopupSession, verifyTopupSession, normalizeEmail } from "./topupAccess";
+import { identityFromTicketCode, identityFromEmail, getTopupOptions, createTopupOrder, type TopupIdentity } from "./playcardTopup";
 import { formatChileDate, formatChileTime } from "../shared/chileDate";
 import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emailTemplateConfig";
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
@@ -388,6 +390,22 @@ function adminIpKey(ctx: any): string {
 function clientIp(ctx: any): string {
   const forwardedFor = ctx.req.headers['x-forwarded-for'];
   return (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || 'unknown';
+}
+
+/** Quién recarga la PlayCard: el dueño de un ticket (link de la tarjeta
+ * digital) o el correo ya validado con el código (sesión firmada). */
+async function resolveTopupIdentity(input: { ticketCode?: string; sessionToken?: string }): Promise<TopupIdentity> {
+  let identity: TopupIdentity | null = null;
+  if (input.ticketCode) {
+    identity = await identityFromTicketCode(input.ticketCode);
+  } else if (input.sessionToken) {
+    const email = verifyTopupSession(input.sessionToken);
+    if (email) identity = await identityFromEmail(email);
+  }
+  if (!identity) {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Tu sesión venció -- pide tu código de nuevo.' });
+  }
+  return identity;
 }
 
 /** Vale de corta vida que acredita haber pasado el primer paso (la
@@ -3688,6 +3706,79 @@ export const appRouter = router({
       } catch (err) {
         await db.recordIpFailedAttempt(ipKey);
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo definir el PIN.' });
+      }
+    }),
+  }),
+
+  // Recargar la PlayCard DESPUÉS de comprar la entrada. Dos formas de
+  // identificarse: el ticketCode del link de la tarjeta digital (botón "Cargar
+  // saldo"), o un código de 6 dígitos que llega al correo (/recargar). El
+  // cobro es el Payment Brick de siempre sobre una orden de solo carga.
+  playcardTopup: router({
+    // Manda el código al correo. SIEMPRE responde lo mismo, exista o no el
+    // correo, para que nadie pueda averiguar quién es cliente.
+    requestCode: publicProcedure.input(z.object({ email: z.string().email().max(200) })).mutation(async ({ input, ctx }) => {
+      const email = normalizeEmail(input.email);
+      const ipKey = `topup-send-ip:${clientIp(ctx)}`;
+      const emailKey = `topup-send:${email}`;
+      if (!(await db.checkIpRateLimit(ipKey)) || !(await db.checkIpRateLimit(emailKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Pediste muchos códigos. Espera un rato e intenta de nuevo.' });
+      }
+      await db.recordIpAttempt(ipKey, 10, 60 * 60 * 1000);
+      await db.recordIpAttempt(emailKey, 5, 60 * 60 * 1000);
+
+      const identity = await identityFromEmail(email);
+      if (identity) {
+        const html = buildTopupCodeEmail({ code: currentLoginCode(email) });
+        await sendEmail({ to: email, subject: '🔐 Tu código para recargar la PlayCard', html });
+      }
+      return { ok: true as const };
+    }),
+
+    // Canjea el código por una sesión corta (30 min) para recargar.
+    verifyCode: publicProcedure.input(z.object({
+      email: z.string().email().max(200),
+      code: z.string().min(1).max(20),
+    })).mutation(async ({ input, ctx }) => {
+      const email = normalizeEmail(input.email);
+      const emailKey = `topup-verify:${email}`;
+      const ipKey = `topup-verify-ip:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(emailKey)) || !(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos y pide un código nuevo.' });
+      }
+      const identity = await identityFromEmail(email);
+      if (!identity || !verifyLoginCode(email, input.code)) {
+        await db.recordIpAttempt(emailKey, 5, 15 * 60 * 1000);
+        await db.recordIpAttempt(ipKey, 20, 15 * 60 * 1000);
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Código incorrecto o vencido.' });
+      }
+      return { sessionToken: signTopupSession(email) };
+    }),
+
+    getOptions: publicProcedure.input(z.object({
+      ticketCode: z.string().optional(),
+      sessionToken: z.string().optional(),
+    })).query(async ({ input }) => {
+      const identity = await resolveTopupIdentity(input);
+      return getTopupOptions(identity);
+    }),
+
+    create: publicProcedure.input(z.object({
+      ticketCode: z.string().optional(),
+      sessionToken: z.string().optional(),
+      ticketTypeId: z.number().int().positive(),
+      pin: z.string().regex(/^\d{4}$/, 'El PIN debe tener 4 dígitos').optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const ipKey = `topup-create:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera un rato e intenta de nuevo.' });
+      }
+      const identity = await resolveTopupIdentity(input);
+      await db.recordIpAttempt(ipKey, 15, 60 * 60 * 1000);
+      try {
+        return await createTopupOrder(identity, { ticketTypeId: input.ticketTypeId, pin: input.pin });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear la recarga.' });
       }
     }),
   }),

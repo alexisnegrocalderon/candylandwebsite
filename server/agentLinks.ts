@@ -30,6 +30,12 @@ const STANDALONE_SITE_PAGES: AgentSitePage[] = [
     buttonLabel: 'Ver la PlayCard',
   },
   {
+    topic: 'Recargar saldo de la PlayCard (después de comprar la entrada)',
+    path: '/recargar',
+    summary: 'Cargar saldo a la PlayCard cuando quieras, aunque ya tengan su entrada: ponen su correo, reciben un código de 6 dígitos y pagan. Mandarlo cuando pregunten cómo cargar o recargar saldo.',
+    buttonLabel: 'Recargar PlayCard',
+  },
+  {
     topic: 'Qué son las fiestas liberales',
     path: '/blog/que-son-las-fiestas-liberales',
     summary: 'Mitos y realidades de las fiestas liberales.',
