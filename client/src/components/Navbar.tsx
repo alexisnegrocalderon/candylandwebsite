@@ -12,6 +12,7 @@ const navLinks = [
   { href: '/eventos', label: 'Eventos' },
   { href: '/entradas', label: 'Entradas' },
   { href: '/blog/tarjeta-playcard', label: 'PlayCard' },
+  { href: '/recargar', label: 'Recargar PlayCard' },
   { href: '/playmatch', label: 'Playmatch' },
   { href: '/embajadores', label: 'Embajadores' },
 ];
@@ -27,6 +28,7 @@ const desktopEventosLinks = [
   { href: '/eventos', label: 'Eventos' },
   { href: '/entradas', label: 'Entradas' },
   { href: '/blog/tarjeta-playcard', label: 'PlayCard' },
+  { href: '/recargar', label: 'Recargar PlayCard' },
 ];
 const desktopComunidadLinks = [
   { href: '/playmatch', label: 'Playmatch' },

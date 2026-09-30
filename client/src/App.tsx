@@ -52,6 +52,7 @@ const QueSonLasFiestasLiberales = lazy(() => import("./pages/QueSonLasFiestasLib
 const PlayCardArticle = lazy(() => import("./pages/PlayCardArticle"));
 const DressCodeArticle = lazy(() => import("./pages/DressCodeArticle"));
 const CostumeOracle = lazy(() => import("./pages/CostumeOracle"));
+const Recargar = lazy(() => import("./pages/Recargar"));
 const Puerta = lazy(() => import("./pages/Puerta"));
 const Cocina = lazy(() => import("./pages/Cocina"));
 const Guardarropia = lazy(() => import("./pages/Guardarropia"));
@@ -110,6 +111,7 @@ function Router() {
           <Route path="/mis-referidos" component={MyReferrals} />
           <Route path="/mis-puntos" component={MisPuntos} />
           <Route path="/verificar/:ticketCode" component={Ticket} />
+          <Route path="/recargar" component={Recargar} />
           <Route path="/fiesta/:ticketCode" component={Party} />
           <Route path="/playmatch" component={Playmatch} />
           <Route path="/panoramas" component={Panoramas} />
@@ -173,7 +175,9 @@ function App() {
   // mismo criterio que /fiesta, es una pantalla propia y oscura, no una
   // página de marketing -- la navbar pública ("Comprar entradas") no aporta
   // nada ahí.
-  const isTicket = location.startsWith('/verificar');
+  // /recargar comparte esa misma pantalla oscura (es la tarjeta digital sin
+  // entrada en mano), por eso también esconde la navbar.
+  const isTicket = location.startsWith('/verificar') || location.startsWith('/recargar');
   const hideChrome = isCaja || isAdmin || isParty || isPuerta || isCocina || isGuardarropia || isGastos || isTicket;
   // Ni el cursor ni el scroll suave hacen nada en touch (ver isFinePointer),
   // así que en celular no se pide su chunk -- antes se importaban eager en

@@ -443,6 +443,74 @@ export function buildMissionTopupEmail(data: {
   });
 }
 
+/** Código de 6 dígitos para entrar a /recargar. Va en un bloque grande con
+ * `user-select:all` para que un toque lo seleccione entero y se pueda copiar. */
+export function buildTopupCodeEmail(data: { code: string }) {
+  const spaced = `${data.code.slice(0, 3)} ${data.code.slice(3)}`;
+  return emailShell({
+    preheader: `Tu código para recargar la PlayCard: ${spaced}`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'gold',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🔐💳',
+      title: 'Tu código para recargar',
+      subtitle: 'Escríbelo (o cópialo y pégalo) en la página de recarga de tu PlayCard.',
+    }),
+    body: `
+      ${card(`
+        <div style="text-align:center;">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Tu código</p>
+          <p style="color:${ACCENT.gold.text};font-size:44px;font-weight:800;letter-spacing:8px;margin:0 0 10px;font-family:'Courier New',monospace;user-select:all;-webkit-user-select:all;">${data.code}</p>
+          <p style="color:${MUTED};font-size:13px;margin:0;">Vale por 10 minutos. Si no lo pediste tú, ignora este correo: nadie puede recargar ni ver tu saldo sin este código.</p>
+        </div>
+      `, { glow: 'gold' })}
+    `,
+  });
+}
+
+/** "Recarga confirmada": monto cargado + SALDO NUEVO, para las recargas que se
+ * hacen después de comprar la entrada (orden de solo carga, sin ticket). */
+export function buildTopupEmail(data: {
+  buyerName: string;
+  orderNumber: string;
+  amount: number;
+  newBalance: number;
+  pinSet: boolean;
+  cardUrl: string;
+}) {
+  const clp = (n: number) => `$${n.toLocaleString('es-CL')}`;
+  return emailShell({
+    preheader: `Recarga confirmada: ${clp(data.amount)}. Tu saldo ahora es ${clp(data.newBalance)}.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'gold',
+      heroBg: DISCO_HERO_BG,
+      emoji: '💳✨',
+      title: '¡Recarga confirmada!',
+      subtitle: `${data.buyerName}, ya tienes saldo nuevo en tu PlayCard.`,
+    }),
+    body: `
+      ${sectionTitle('💰', 'Tu saldo')}
+      ${card(`
+        <div style="text-align:center;">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Saldo disponible</p>
+          <p style="color:${ACCENT.gold.text};font-size:38px;font-weight:800;margin:0 0 6px;text-shadow:0 0 24px rgba(${ACCENT.gold.glowRgb},0.5);">${clp(data.newBalance)}</p>
+          <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">Cargaste ${clp(data.amount)} · Recarga ${data.orderNumber}</p>
+          ${pastelButton(data.cardUrl, 'Ver mi PlayCard', 'gold')}
+        </div>
+      `, { glow: 'gold' })}
+
+      <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:24px 0 0;">
+        ${data.pinSet
+          ? 'Para gastar tu saldo en la barra, dile tu PIN de 4 dígitos al barman.'
+          : 'Todavía no tienes PIN: créalo en la página de recarga la próxima vez que cargues, lo necesitas para gastar tu saldo en la barra.'}
+        Tu saldo no vence y te acompaña de fiesta en fiesta.
+      </p>
+    `,
+  });
+}
+
 /** Se manda cuando el conteo de referidos de un embajador cruza EXACTO un
  * umbral de nivel (3/5/10) -- la igualdad exacta garantiza que se dispara
  * una sola vez, sin necesitar una columna de "ya avisado" (ver el llamado

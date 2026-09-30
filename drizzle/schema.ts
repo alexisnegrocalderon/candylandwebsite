@@ -264,6 +264,11 @@ export const orders = mysqlTable("orders", {
   utmMedium: varchar("utmMedium", { length: 100 }),
   utmCampaign: varchar("utmCampaign", { length: 100 }),
   utmContent: varchar("utmContent", { length: 100 }),
+  // PIN de la PlayCard elegido al recargar desde la web (/recargar). Va YA
+  // hasheado (scrypt, mismo formato que customers.cardPinHash) y se aplica
+  // recién cuando el pago se aprueba, solo si el cliente todavía no tenía PIN
+  // -- así un pago pendiente no pierde el PIN que la persona escribió.
+  pendingCardPinHash: varchar("pendingCardPinHash", { length: 255 }),
   // --- Módulo /caja (docs/ARQUITECTURA-CAJA.md §0.4, §4.3) ---
   // Canal de la venta: web = checkout normal, caja = venta presencial en el
   // evento, import = migración de la ticketera anterior (ya usado por

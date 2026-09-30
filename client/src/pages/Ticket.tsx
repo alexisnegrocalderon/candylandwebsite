@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRoute, Link } from 'wouter';
 import { motion } from 'framer-motion';
 import { CalendarPlus, MapPin, Calendar, ShieldCheck, TicketX, CheckCircle2 } from 'lucide-react';
@@ -8,6 +8,7 @@ import { useSeo } from '@/hooks/useSeo';
 import { canEnterParty } from '@shared/party';
 import { rememberTicketCode } from '@/lib/lastTicketCode';
 import { WalletCard } from '@/components/wallet/WalletCard';
+import { TopupPanel } from '@/components/wallet/TopupPanel';
 import './Ticket.wallet.css';
 
 /** Página pública "Mi entrada" / tarjeta digital — a donde apunta el QR de
@@ -27,6 +28,11 @@ export default function Ticket() {
   const { data: ticket, isLoading } = trpc.tickets.getByCode.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
   const { data: wallet } = trpc.wallet.getByTicketCode.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
   const { data: pendingExtras } = trpc.wallet.getPendingExtras.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
+
+  // /verificar/<código>?recargar=1 (lo que manda /recargar) abre el panel solo.
+  const [topupOpen, setTopupOpen] = useState(
+    () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('recargar') === '1',
+  );
 
   useEffect(() => {
     if (ticket?.ticketCode) rememberTicketCode(ticket.ticketCode);
@@ -91,6 +97,27 @@ export default function Ticket() {
 
         {ticket.qrImageUrl && (
           <p className="text-center text-xs opacity-60 mt-3">Presenta este código QR y tu carnet en la entrada</p>
+        )}
+
+        {ticket.status !== 'cancelled' && (
+          <div className="wcard-section">
+            <p className="wcard-section-label">Saldo de tu PlayCard</p>
+            {topupOpen ? (
+              <>
+                <TopupPanel access={{ ticketCode: ticket.ticketCode }} />
+                <div className="text-center mt-4">
+                  <button type="button" className="wcard-link" onClick={() => setTopupOpen(false)}>Cerrar</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm opacity-80 mb-3">Carga saldo cuando quieras y paga en la barra sin efectivo.</p>
+                <button type="button" className="wcard-btn wcard-btn-primary wcard-btn-block" onClick={() => setTopupOpen(true)}>
+                  💳 Cargar saldo
+                </button>
+              </>
+            )}
+          </div>
         )}
 
         <div className="wcard-section">

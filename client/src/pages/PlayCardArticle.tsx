@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { Link } from 'wouter';
-import { ArrowRight, Instagram, Wallet, Sparkles, ShieldCheck, ScanLine, RefreshCw } from 'lucide-react';
+import { ArrowRight, Instagram, Wallet, Sparkles, ShieldCheck, ScanLine, RefreshCw, Mail, KeyRound, CreditCard } from 'lucide-react';
 import { useSeo } from '@/hooks/useSeo';
 import { articleSchema, breadcrumbSchema } from '@shared/structuredData';
 import { CANDYLAND, EVENTO } from '@/config/candyland';
@@ -30,7 +30,7 @@ const PASOS = [
   {
     icon: Sparkles,
     titulo: 'Guarda saldo y Playcoins',
-    texto: 'Cargas saldo prepagado en plata (1 a 1, sin letra chica) cuando compras tu entrada o directamente en caja el día de la fiesta. Cada compra además te suma Playcoins, un sistema de puntos aparte que también vive en tu tarjeta.',
+    texto: 'Cargas saldo prepagado en plata (1 a 1, sin letra chica) al comprar tu entrada, o después, cuando quieras, desde tu tarjeta digital o en mansionplayroom.cl/recargar. Cada compra además te suma Playcoins, un sistema de puntos aparte que también vive en tu tarjeta.',
     badge: '🎁 Carga $40.000 o más y te regalamos saldo extra',
   },
   {
@@ -42,6 +42,24 @@ const PASOS = [
     icon: RefreshCw,
     titulo: 'Te sigue de fiesta en fiesta',
     texto: 'Tu saldo y tus Playcoins quedan ligados a tu cuenta, no a una entrada puntual -- si compras otra vez con el mismo correo, todo lo que no gastaste sigue ahí, esperándote en la próxima.',
+  },
+];
+
+const RECARGA_PASOS = [
+  {
+    icon: Mail,
+    titulo: 'Pon tu correo',
+    texto: 'El mismo con el que compraste tu entrada. No necesitas buscar ningún código de reserva.',
+  },
+  {
+    icon: KeyRound,
+    titulo: 'Escribe tu código',
+    texto: 'Te llega un código de 6 dígitos al correo. Lo escribes o lo copias y pegas, y listo.',
+  },
+  {
+    icon: CreditCard,
+    titulo: 'Elige el monto y paga',
+    texto: 'Si aún no tienes PIN, lo creas ahí mismo. Pagas con tarjeta y el saldo se suma al instante.',
   },
 ];
 
@@ -118,7 +136,13 @@ export default function PlayCardArticle() {
               ya tiene entrada propia y quiere ver SU saldo real, no el de
               ejemplo de arriba -- lleva a /mis-puntos (búsqueda por email,
               sin login, mismo criterio que el resto del sitio). */}
-          <div className="text-center mb-14">
+          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-14">
+            <Link
+              href="/recargar"
+              className="btn-jelly inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full bg-primary text-primary-foreground font-bold interactive"
+            >
+              <CreditCard className="w-4 h-4" /> Recargar mi PlayCard
+            </Link>
             <Link
               href="/mis-puntos"
               className="btn-jelly inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full border border-primary/40 font-semibold interactive"
@@ -158,6 +182,42 @@ export default function PlayCardArticle() {
             </div>
           </section>
 
+          {/* Recarga posterior a la compra: pedido del dueño -- que nadie
+              piense que el saldo solo se carga al comprar la entrada. */}
+          <section {...reveal} className="mb-14">
+            <p className="text-sm uppercase tracking-[0.3em] text-primary mb-3 text-center">¿Ya tienes tu entrada?</p>
+            <h2 className="font-heading font-bold text-2xl md:text-3xl text-center mb-2">
+              Recarga <span className="text-gradient-candy">cuando quieras</span>
+            </h2>
+            <p className="text-muted-foreground text-center mb-8 max-w-lg mx-auto">
+              No tienes que cargar todo al comprar. Puedes sumar saldo después, desde tu celular, en 3 pasos.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+              {RECARGA_PASOS.map((p, i) => (
+                <div key={p.titulo} className="glass-candy rounded-2xl p-5">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+                    <p.icon className="w-5 h-5 text-primary" />
+                  </div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">{i + 1}</p>
+                  <p className="font-heading font-bold text-lg mb-2">{p.titulo}</p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{p.texto}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-center text-sm text-muted-foreground mt-5">
+              En cuanto se aprueba el pago te llega un correo con tu <strong>saldo nuevo</strong>. Si abres tu tarjeta
+              digital (el link "Ver mi tarjeta" de tu correo), también tienes el botón <strong>Cargar saldo</strong> ahí mismo.
+            </p>
+            <div className="text-center mt-6">
+              <Link
+                href="/recargar"
+                className="btn-jelly inline-flex items-center justify-center gap-2 px-7 py-3.5 rounded-full bg-primary text-primary-foreground font-bold interactive"
+              >
+                Ir a recargar <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
+          </section>
+
           <section {...reveal} className="mb-14">
             <div className="glass-candy rounded-2xl p-6 md:p-8">
               <div className="flex items-center gap-2 mb-3">
@@ -166,7 +226,8 @@ export default function PlayCardArticle() {
               </div>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Ver tu saldo es libre, pero gastarlo siempre pide tu PIN de 4 dígitos -- nadie puede vaciar tu
-                tarjeta sin él, ni siquiera con tu QR a la vista. El saldo se gasta únicamente en las cajas
+                tarjeta sin él, ni siquiera con tu QR a la vista. Si todavía no tienes PIN, lo creas en tu primera
+                recarga. El saldo se gasta únicamente en las cajas
                 dentro de la fiesta; el estacionamiento se paga aparte, como extra en tu compra o directo en la
                 puerta con efectivo o tarjeta.
               </p>
