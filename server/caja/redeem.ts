@@ -1,12 +1,21 @@
 import { eq } from "drizzle-orm";
-import { tickets, partyGifts } from "../../drizzle/schema";
+import { tickets, partyGifts, events } from "../../drizzle/schema";
 import { applyOp } from "./ops";
 
 /** Canje de un código legible en caja -- las 6 validaciones pedidas en
  * docs/ARQUITECTURA-CAJA.md §9: existe, pertenece al evento, no usado, no
  * anulado. ("Pertenece al cliente" y "vigente" ya están implícitas: el
  * código solo se le muestra a un cliente puntual, y el evento activo es el
- * único que se puede canjear desde /caja.) */
+ * único que se puede canjear desde /caja.)
+ *
+ * Dos excepciones a "tiene que ser de este evento": un trago regalado
+ * (partyGifts, ya existía) y un extra sin canjear de una fiesta que YA
+ * TERMINÓ (`events.status === 'past'`) -- decisión del dueño: "los extras no
+ * usados quedan reservados para el próximo evento", para que alguien no
+ * pierda lo que compró solo por no haber alcanzado a canjearlo esa noche. Se
+ * exige que el evento de origen esté marcado 'past' (nunca un evento
+ * publicado/futuro distinto) para no mezclar por error el cupo de dos
+ * fiestas activas al mismo tiempo. */
 export async function redeemDisplayCode(
   db: any,
   params: { opId: string; displayCode: string; eventId: number; operatorId: number; registerId?: number | null; clientAt: Date }
@@ -30,13 +39,21 @@ export async function redeemDisplayCode(
       const [ticket] = await db.select().from(tickets).where(eq(tickets.displayCode, code)).limit(1);
       if (!ticket) return { result: "rejected" as const, conflictNote: "El código no existe" };
 
-      // Un trago que alguien invitó en la fiesta es la única excepción a
+      // Un trago que alguien invitó en la fiesta es la primera excepción a
       // "tiene que ser de este evento": el dueño decidió que un regalo no
-      // cobrado siga válido para la próxima fiesta. Para todo lo demás la
-      // validación queda igual de estricta.
+      // cobrado siga válido para la próxima fiesta.
       const [gift] = await db.select().from(partyGifts).where(eq(partyGifts.ticketId, ticket.id)).limit(1);
+      // Segunda excepción: un extra normal (sin regalo) de una fiesta que ya
+      // terminó, nunca canjeado -- queda "reservado" para la próxima, se
+      // arrastra al evento que lo redime (carriedFromEventId guarda el
+      // origen real, para reportes).
+      let carriedFromEventId: number | null = null;
       if (!gift && ticket.eventId !== params.eventId) {
-        return { result: "rejected" as const, conflictNote: "El código no corresponde a este evento" };
+        const [originEvent] = await db.select().from(events).where(eq(events.id, ticket.eventId)).limit(1);
+        if (originEvent?.status !== "past") {
+          return { result: "rejected" as const, conflictNote: "El código no corresponde a este evento" };
+        }
+        carriedFromEventId = ticket.carriedFromEventId ?? ticket.eventId;
       }
 
       if (ticket.status === "cancelled") return { result: "rejected" as const, conflictNote: "El código fue anulado" };
@@ -49,6 +66,7 @@ export async function redeemDisplayCode(
         usedAt: new Date(),
         usedByOperatorId: params.operatorId,
         usedAtRegisterId: params.registerId ?? null,
+        ...(carriedFromEventId !== null ? { eventId: params.eventId, carriedFromEventId } : {}),
       }).where(eq(tickets.id, ticket.id));
 
       // El regalo se marca cobrado en el mismo paso, para que deje de

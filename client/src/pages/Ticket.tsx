@@ -26,6 +26,7 @@ export default function Ticket() {
   });
   const { data: ticket, isLoading } = trpc.tickets.getByCode.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
   const { data: wallet } = trpc.wallet.getByTicketCode.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
+  const { data: pendingExtras } = trpc.wallet.getPendingExtras.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
 
   useEffect(() => {
     if (ticket?.ticketCode) rememberTicketCode(ticket.ticketCode);
@@ -109,6 +110,21 @@ export default function Ticket() {
               {ticket.extras.map((extra) => (
                 <p key={extra.name} className="wcard-extra-row">
                   <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> {extra.quantity > 1 ? `${extra.quantity}× ` : ''}{extra.name}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {/* Extras que compró en otra fiesta y nunca alcanzó a canjear --
+              quedan reservados: se pueden retirar en caja en la próxima
+              fiesta, una vez que el evento de origen ya haya terminado. */}
+          {pendingExtras && pendingExtras.length > 0 && (
+            <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--wcard-line)' }}>
+              <p className="wcard-section-label">Pendiente de otra fiesta</p>
+              {pendingExtras.map((extra) => (
+                <p key={`${extra.name}-${extra.eventTitle}`} className="wcard-extra-row">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" /> {extra.quantity > 1 ? `${extra.quantity}× ` : ''}{extra.name}
+                  {extra.eventTitle && <span className="opacity-60"> · {extra.eventTitle}</span>}
                 </p>
               ))}
             </div>

@@ -4582,6 +4582,59 @@ export async function getWalletForTicket(ticketCode: string) {
   };
 }
 
+/** Extras sin canjear de OTRAS órdenes del mismo comprador (por email, mismo
+ * camino que getWalletForTicket) -- para mostrar en /verificar/:ticketCode
+ * "esto te quedó pendiente de otra fiesta". No filtra por evento: cualquier
+ * extra `status='valid'` con `displayCode` que no sea de la orden de ESTE
+ * ticket cuenta (`getOrderExtras` ya cubre los de la orden actual, así que
+ * acá se excluyen a propósito para no duplicarlos en pantalla). Se puede
+ * redimir en caja siempre que el evento de origen ya haya terminado --
+ * mismo criterio de `redeemDisplayCode` (server/caja/redeem.ts) -- así que
+ * esta lista es fiel a lo que la cajera aceptará esa noche. */
+export async function getPendingExtrasForCustomer(ticketCode: string) {
+  const db = await getDb();
+  if (!db) return [];
+
+  const [ticket] = await db.select().from(tickets).where(eq(tickets.ticketCode, ticketCode)).limit(1);
+  if (!ticket) return [];
+  const [order] = await db.select().from(orders).where(eq(orders.id, ticket.orderId)).limit(1);
+  const email = order?.buyerEmail?.trim().toLowerCase();
+  if (!email) return [];
+
+  const customerOrders = await db.select({ id: orders.id }).from(orders).where(sql`LOWER(${orders.buyerEmail}) = ${email}`);
+  const orderIds = customerOrders.map((o) => o.id);
+  if (orderIds.length === 0) return [];
+
+  const pendingTickets = await db.select().from(tickets).where(and(
+    inArray(tickets.orderId, orderIds),
+    ne(tickets.orderId, ticket.orderId),
+    isNotNull(tickets.displayCode),
+    eq(tickets.status, 'valid'),
+  ));
+  if (pendingTickets.length === 0) return [];
+
+  const eventIds = Array.from(new Set(pendingTickets.map((t) => t.eventId)));
+  const ticketTypeIds = Array.from(new Set(pendingTickets.map((t) => t.ticketTypeId)));
+  const [eventRows, ticketTypeRows] = await Promise.all([
+    db.select().from(events).where(inArray(events.id, eventIds)),
+    db.select().from(ticketTypes).where(inArray(ticketTypes.id, ticketTypeIds)),
+  ]);
+  const eventById = new Map(eventRows.map((e) => [e.id, e]));
+  const ticketTypeById = new Map(ticketTypeRows.map((t) => [t.id, t]));
+
+  const grouped = new Map<string, { name: string; quantity: number; eventTitle: string }>();
+  for (const t of pendingTickets) {
+    const tt = ticketTypeById.get(t.ticketTypeId);
+    if (!tt) continue;
+    const key = `${t.ticketTypeId}-${t.eventId}`;
+    const entry = grouped.get(key) ?? { name: tt.name, quantity: 0, eventTitle: eventById.get(t.eventId)?.title ?? '' };
+    entry.quantity += 1;
+    grouped.set(key, entry);
+  }
+
+  return Array.from(grouped.values());
+}
+
 /** Ajuste manual desde /admin (migrar saldo de Shopify a mano, corregir). */
 export async function adjustPlaycoinsManually(customerId: number, delta: number, note: string) {
   const db = await getDb();
