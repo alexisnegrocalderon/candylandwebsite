@@ -1,5 +1,5 @@
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
-import { customers, orders, tickets } from '../drizzle/schema';
+import { customers, orders, rateLimits, tickets } from '../drizzle/schema';
 import { getDb, getEventById, getFeaturedEvent, getTicketTypesByEventId, createOrder } from './db';
 import { hashPin } from './caja/auth';
 import { isTopupProduct } from '../shared/prepaid';
@@ -122,6 +122,25 @@ export async function createTopupOrder(identity: TopupIdentity, input: { ticketT
     if (db) await db.update(orders).set({ pendingCardPinHash: hashPin(input.pin!) }).where(eq(orders.id, result.orderId));
   }
   return { orderNumber: result.orderNumber, total: result.total };
+}
+
+/** "Olvidé mi PIN": define un PIN nuevo SIN pedir el actual. El llamador ya
+ * comprobó que la persona controla el correo de la tarjeta (código de 6
+ * dígitos), que es la prueba de identidad en vez del PIN viejo. También borra
+ * el bloqueo por intentos fallidos de la barra: quien olvidó su PIN
+ * normalmente ya se equivocó varias veces y quedó bloqueado. */
+export async function resetCardPin(identity: TopupIdentity, pin: string) {
+  if (!/^\d{4}$/.test(pin)) throw new Error('El PIN debe tener 4 dígitos');
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible');
+  const [customer] = await db.select().from(customers).where(eq(customers.email, identity.email)).limit(1);
+  if (!customer) throw new Error('No encontramos tu tarjeta.');
+
+  await db.update(customers)
+    .set({ cardPinHash: hashPin(pin), cardPinSetAt: new Date() })
+    .where(eq(customers.id, customer.id));
+  await db.delete(rateLimits).where(eq(rateLimits.key, `cardpin:${customer.id}`));
+  return { success: true as const };
 }
 
 /** Al aprobarse el pago: si la orden traía un PIN pendiente y la tarjeta aún
