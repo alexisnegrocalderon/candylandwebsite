@@ -92,3 +92,62 @@
 .interactive:active {
   transform: scale(0.97);
 }
+
+/* Sistema de botón "premium" -- aplica a todo <Button> (components/ui/button.tsx),
+ * público y admin, vía `[data-slot="button"]`. Feedback (hover/press) en
+ * 100ms; opacidad (disabled) en 300ms. La profundidad (luz arriba + track
+ * hundido) solo va en las variantes con relleno de color (default/secondary/
+ * destructive); outline/ghost/link se quedan planas a propósito. */
+[data-slot="button"] {
+  transition: transform 100ms ease-out, box-shadow 100ms ease-out, filter 100ms ease-out, opacity 300ms ease-out, background-color 100ms ease-out;
+}
+[data-slot="button"][data-variant="default"],
+[data-slot="button"][data-variant="secondary"],
+[data-slot="button"][data-variant="destructive"] {
+  box-shadow:
+    inset 0 1px 0 0 oklch(1 0 0 / 0.35),
+    inset 0 -1px 1px 0 oklch(0 0 0 / 0.08),
+    0 1px 2px 0 oklch(0.3 0.05 335 / 0.14),
+    0 4px 10px -2px oklch(0.3 0.05 335 / 0.18);
+}
+[data-slot="button"][data-variant="default"]:hover:not(:disabled),
+[data-slot="button"][data-variant="secondary"]:hover:not(:disabled),
+[data-slot="button"][data-variant="destructive"]:hover:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 0 oklch(1 0 0 / 0.4),
+    inset 0 -1px 1px 0 oklch(0 0 0 / 0.08),
+    0 2px 4px 0 oklch(0.3 0.05 335 / 0.16),
+    0 8px 18px -4px oklch(0.3 0.05 335 / 0.22);
+}
+[data-slot="button"][data-variant="default"]:active:not(:disabled),
+[data-slot="button"][data-variant="secondary"]:active:not(:disabled),
+[data-slot="button"][data-variant="destructive"]:active:not(:disabled) {
+  box-shadow:
+    inset 0 1px 2px 0 oklch(0 0 0 / 0.18),
+    inset 0 -1px 0 0 oklch(1 0 0 / 0.15);
+}
+.dark [data-slot="button"][data-variant="default"],
+.dark [data-slot="button"][data-variant="secondary"],
+.dark [data-slot="button"][data-variant="destructive"] {
+  box-shadow:
+    inset 0 1px 0 0 oklch(1 0 0 / 0.12),
+    inset 0 -1px 1px 0 oklch(0 0 0 / 0.3),
+    0 1px 2px 0 oklch(0 0 0 / 0.35),
+    0 4px 12px -2px oklch(0 0 0 / 0.45);
+}
+.dark [data-slot="button"][data-variant="default"]:hover:not(:disabled),
+.dark [data-slot="button"][data-variant="secondary"]:hover:not(:disabled),
+.dark [data-slot="button"][data-variant="destructive"]:hover:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 0 oklch(1 0 0 / 0.18),
+    inset 0 -1px 1px 0 oklch(0 0 0 / 0.3),
+    0 2px 4px 0 oklch(0 0 0 / 0.4),
+    0 8px 20px -4px oklch(0 0 0 / 0.55);
+}
+.dark [data-slot="button"][data-variant="default"]:active:not(:disabled),
+.dark [data-slot="button"][data-variant="secondary"]:active:not(:disabled),
+.dark [data-slot="button"][data-variant="destructive"]:active:not(:disabled) {
+  box-shadow:
+    inset 0 1px 2px 0 oklch(0 0 0 / 0.4),
+    inset 0 -1px 0 0 oklch(1 0 0 / 0.06);
+}

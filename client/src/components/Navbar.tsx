@@ -236,7 +236,7 @@ export default function Navbar() {
                 <span aria-hidden className={`w-px h-6 ${lightChrome ? 'bg-border' : 'bg-white/25'}`} />
                 <Link
                   href={`/checkout/${CANDYLAND.slug}`}
-                  className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-semibold tracking-wide uppercase transition-transform duration-200 hover:scale-105 active:scale-95 interactive"
+                  className="btn-jelly px-6 py-2.5 bg-primary text-primary-foreground rounded-full text-sm font-semibold tracking-wide uppercase interactive"
                 >
                   Comprar Entradas
                 </Link>
@@ -347,7 +347,7 @@ export default function Navbar() {
                 <Link
                   href={`/checkout/${CANDYLAND.slug}`}
                   onClick={() => setMobileOpen(false)}
-                  className="mt-2 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center"
+                  className="btn-jelly mt-2 px-8 py-4 bg-primary text-primary-foreground rounded-full text-lg font-semibold text-center interactive"
                 >
                   Comprar Entradas
                 </Link>
