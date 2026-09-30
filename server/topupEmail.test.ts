@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildTopupCodeEmail, buildTopupEmail } from './email';
+import { buildTopupCodeEmail, buildTopupEmail, buildPinChangedEmail } from './email';
 
 describe('correos de recarga de PlayCard', () => {
   it('el correo del código muestra los 6 dígitos tal cual, seleccionables', () => {
@@ -27,5 +27,18 @@ describe('correos de recarga de PlayCard', () => {
       cardUrl: 'https://example.com/recargar',
     });
     expect(html).toContain('Todavía no tienes PIN');
+  });
+
+  it('el código para cambiar el PIN lo dice en el título', () => {
+    const html = buildTopupCodeEmail({ code: '111222', purpose: 'pin' });
+    expect(html).toContain('111222');
+    expect(html).toContain('cambiar el PIN');
+  });
+
+  it('el aviso de PIN cambiado explica qué hacer si no fue la persona', () => {
+    const html = buildPinChangedEmail({ buyerName: 'Camila', instagramUrl: 'https://instagram.com/x' });
+    expect(html).toContain('Tu PIN fue cambiado');
+    expect(html).toContain('¿No fuiste tú?');
+    expect(html).toContain('https://instagram.com/x');
   });
 });

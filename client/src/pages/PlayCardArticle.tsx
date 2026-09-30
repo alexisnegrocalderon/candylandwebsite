@@ -227,7 +227,8 @@ export default function PlayCardArticle() {
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Ver tu saldo es libre, pero gastarlo siempre pide tu PIN de 4 dígitos -- nadie puede vaciar tu
                 tarjeta sin él, ni siquiera con tu QR a la vista. Si todavía no tienes PIN, lo creas en tu primera
-                recarga. El saldo se gasta únicamente en las cajas
+                recarga; si lo olvidas, lo recuperas en la misma página de recarga con un código que te llega al correo
+                (tu saldo no se toca). El saldo se gasta únicamente en las cajas
                 dentro de la fiesta; el estacionamiento se paga aparte, como extra en tu compra o directo en la
                 puerta con efectivo o tarjeta.
               </p>

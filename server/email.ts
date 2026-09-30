@@ -445,26 +445,56 @@ export function buildMissionTopupEmail(data: {
 
 /** Código de 6 dígitos para entrar a /recargar. Va en un bloque grande con
  * `user-select:all` para que un toque lo seleccione entero y se pueda copiar. */
-export function buildTopupCodeEmail(data: { code: string }) {
+export function buildTopupCodeEmail(data: { code: string; purpose?: 'recargar' | 'pin' }) {
   const spaced = `${data.code.slice(0, 3)} ${data.code.slice(3)}`;
+  const forPin = data.purpose === 'pin';
   return emailShell({
-    preheader: `Tu código para recargar la PlayCard: ${spaced}`,
+    preheader: `${forPin ? 'Tu código para cambiar el PIN' : 'Tu código para recargar la PlayCard'}: ${spaced}`,
     pageBg: DISCO_BG,
     hero: emailHero({
       accent: 'gold',
       heroBg: DISCO_HERO_BG,
-      emoji: '🔐💳',
-      title: 'Tu código para recargar',
-      subtitle: 'Escríbelo (o cópialo y pégalo) en la página de recarga de tu PlayCard.',
+      emoji: forPin ? '🔐🔑' : '🔐💳',
+      title: forPin ? 'Tu código para cambiar el PIN' : 'Tu código para recargar',
+      subtitle: forPin
+        ? 'Escríbelo (o cópialo y pégalo) en la pantalla donde pediste recuperar tu PIN.'
+        : 'Escríbelo (o cópialo y pégalo) en la página de recarga de tu PlayCard.',
     }),
     body: `
       ${card(`
         <div style="text-align:center;">
           <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Tu código</p>
           <p style="color:${ACCENT.gold.text};font-size:44px;font-weight:800;letter-spacing:8px;margin:0 0 10px;font-family:'Courier New',monospace;user-select:all;-webkit-user-select:all;">${data.code}</p>
-          <p style="color:${MUTED};font-size:13px;margin:0;">Vale por 10 minutos. Si no lo pediste tú, ignora este correo: nadie puede recargar ni ver tu saldo sin este código.</p>
+          <p style="color:${MUTED};font-size:13px;margin:0;">Vale por 10 minutos. Si no lo pediste tú, ignora este correo: nadie puede recargar, cambiar tu PIN ni ver tu saldo sin este código.</p>
         </div>
       `, { glow: 'gold' })}
+    `,
+  });
+}
+
+/** Aviso de seguridad: el PIN de la PlayCard se cambió con "Olvidé mi PIN".
+ * Si no fue la persona, tiene que poder reaccionar -- por eso dice cómo. */
+export function buildPinChangedEmail(data: { buyerName: string; instagramUrl: string }) {
+  return emailShell({
+    preheader: 'Cambiaste el PIN de tu PlayCard.',
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'gold',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🔒✅',
+      title: 'Tu PIN fue cambiado',
+      subtitle: `${data.buyerName}, tu PlayCard ya usa el PIN nuevo.`,
+    }),
+    body: `
+      ${card(`
+        <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0;">
+          Acabas de cambiar el PIN de 4 dígitos de tu PlayCard. Desde ahora, ese es el PIN que debes decirle al barman para gastar tu saldo.
+        </p>
+      `)}
+      <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:24px 0 0;">
+        <strong style="color:${INK};">¿No fuiste tú?</strong> Escríbenos de inmediato por
+        <a href="${data.instagramUrl}" style="color:${ACCENT.gold.text};">Instagram</a> y lo resolvemos. Si fuiste tú, no tienes que hacer nada.
+      </p>
     `,
   });
 }

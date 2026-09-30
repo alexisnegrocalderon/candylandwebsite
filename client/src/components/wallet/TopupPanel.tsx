@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { PaymentBrick, type PaymentOutcome } from '@/components/PaymentBrick';
+import { ForgotPinPanel } from './ForgotPinPanel';
 
 /* Recarga de saldo de la PlayCard para quien YA compró su entrada. Se usa en
  * dos lugares con el mismo flujo: el botón "Cargar saldo" de la tarjeta
@@ -28,6 +29,7 @@ export function TopupPanel({ access, onPaid }: { access: TopupAccess; onPaid?: (
   const [formError, setFormError] = useState('');
   const [order, setOrder] = useState<{ orderNumber: string; total: number } | null>(null);
   const [payError, setPayError] = useState('');
+  const [forgotPin, setForgotPin] = useState(false);
 
   if (isLoading) {
     return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin" /></div>;
@@ -38,6 +40,8 @@ export function TopupPanel({ access, onPaid }: { access: TopupAccess; onPaid?: (
   if (!options.event || options.tiers.length === 0) {
     return <p className="wcard-hint">Por ahora no hay montos de recarga disponibles. Vuelve a intentar más cerca de la fiesta.</p>;
   }
+
+  if (forgotPin) return <ForgotPinPanel access={access} onBack={() => setForgotPin(false)} />;
 
   const needsPin = !options.cardPinSet;
 
@@ -158,7 +162,10 @@ export function TopupPanel({ access, onPaid }: { access: TopupAccess; onPaid?: (
           </div>
         </div>
       ) : (
-        <p className="wcard-hint mt-4">✓ Tu tarjeta ya tiene PIN, sigues usando el mismo.</p>
+        <p className="wcard-hint mt-4">
+          ✓ Tu tarjeta ya tiene PIN, sigues usando el mismo.{' '}
+          <button type="button" className="wcard-link" onClick={() => setForgotPin(true)}>¿Olvidaste tu PIN?</button>
+        </p>
       )}
 
       {formError && <p className="wcard-error">{formError}</p>}

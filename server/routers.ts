@@ -68,9 +68,10 @@ import { friendlySyncErrorMessage } from "./caja/ops";
 import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKitchenProductStock, toggleKitchenProductSoldOut } from "./kitchen";
 import { listLockerItems, updateLockerItem } from "./locker";
 import { voidTicketCode } from "./caja/void";
-import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail, buildTopupCodeEmail } from "./email";
+import { BRAND } from "../shared/eventBrand";
+import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail, buildTopupCodeEmail, buildPinChangedEmail } from "./email";
 import { currentLoginCode, verifyLoginCode, signTopupSession, verifyTopupSession, normalizeEmail } from "./topupAccess";
-import { identityFromTicketCode, identityFromEmail, getTopupOptions, createTopupOrder, type TopupIdentity } from "./playcardTopup";
+import { identityFromTicketCode, identityFromEmail, getTopupOptions, createTopupOrder, resetCardPin, maskEmail, type TopupIdentity } from "./playcardTopup";
 import { formatChileDate, formatChileTime } from "../shared/chileDate";
 import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emailTemplateConfig";
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
@@ -3753,6 +3754,57 @@ export const appRouter = router({
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Código incorrecto o vencido.' });
       }
       return { sessionToken: signTopupSession(email) };
+    }),
+
+    // "Olvidé mi PIN": manda el código de 6 dígitos al correo de la tarjeta
+    // (nunca a uno que escriba el cliente) y devuelve el correo enmascarado.
+    requestPinResetCode: publicProcedure.input(z.object({
+      ticketCode: z.string().optional(),
+      sessionToken: z.string().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const identity = await resolveTopupIdentity(input);
+      const ipKey = `topup-send-ip:${clientIp(ctx)}`;
+      const emailKey = `topup-send:${identity.email}`;
+      if (!(await db.checkIpRateLimit(ipKey)) || !(await db.checkIpRateLimit(emailKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Pediste muchos códigos. Espera un rato e intenta de nuevo.' });
+      }
+      await db.recordIpAttempt(ipKey, 10, 60 * 60 * 1000);
+      await db.recordIpAttempt(emailKey, 5, 60 * 60 * 1000);
+      const html = buildTopupCodeEmail({ code: currentLoginCode(identity.email), purpose: 'pin' });
+      await sendEmail({ to: identity.email, subject: '🔐 Tu código para cambiar el PIN de la PlayCard', html });
+      return { maskedEmail: maskEmail(identity.email) };
+    }),
+
+    // Cambia el PIN sin pedir el actual: la prueba de identidad es el código
+    // que llegó al correo. Mismo límite de intentos que verifyCode.
+    resetPin: publicProcedure.input(z.object({
+      ticketCode: z.string().optional(),
+      sessionToken: z.string().optional(),
+      code: z.string().min(1).max(20),
+      pin: z.string().regex(/^\d{4}$/, 'El PIN debe tener 4 dígitos'),
+    })).mutation(async ({ input, ctx }) => {
+      const identity = await resolveTopupIdentity(input);
+      const emailKey = `topup-verify:${identity.email}`;
+      const ipKey = `topup-verify-ip:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(emailKey)) || !(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos y pide un código nuevo.' });
+      }
+      if (!verifyLoginCode(identity.email, input.code)) {
+        await db.recordIpAttempt(emailKey, 5, 15 * 60 * 1000);
+        await db.recordIpAttempt(ipKey, 20, 15 * 60 * 1000);
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Código incorrecto o vencido.' });
+      }
+      try {
+        await resetCardPin(identity, input.pin);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo cambiar el PIN.' });
+      }
+      await sendEmail({
+        to: identity.email,
+        subject: '🔒 Cambiaste el PIN de tu PlayCard',
+        html: buildPinChangedEmail({ buyerName: identity.buyerName, instagramUrl: BRAND.instagram }),
+      });
+      return { success: true as const };
     }),
 
     getOptions: publicProcedure.input(z.object({
