@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { ops, partyGifts, tickets } from "../../drizzle/schema";
+import { ops, partyGifts, tickets, events } from "../../drizzle/schema";
 import { redeemDisplayCode } from "./redeem";
 
 /* Mismo doble de la cadena de drizzle que checkin.test.ts, más las
- * consultas a partyGifts que el canje agregó para poder aceptar un trago
- * regalado en una fiesta anterior. */
+ * consultas a partyGifts (trago regalado en fiesta anterior) y a events
+ * (extra normal arrastrado de una fiesta ya terminada). */
 function makeFakeDb(state: {
   existingOp?: { result: string; conflictNote?: string | null };
   ticket?: Record<string, unknown>;
   gift?: Record<string, unknown>;
+  originEvent?: Record<string, unknown>;
 }) {
   const calls = {
     ticketUpdate: null as Record<string, unknown> | null,
@@ -25,6 +26,7 @@ function makeFakeDb(state: {
           if (table === ops) return state.existingOp ? [state.existingOp] : [];
           if (table === tickets) return state.ticket ? [state.ticket] : [];
           if (table === partyGifts) return state.gift ? [state.gift] : [];
+          if (table === events) return state.originEvent ? [state.originEvent] : [];
           return [];
         },
       };
@@ -63,12 +65,38 @@ describe("redeemDisplayCode", () => {
     expect(calls.ticketUpdate).toMatchObject({ status: "used" });
   });
 
-  it("rechaza un extra normal de otro evento", async () => {
-    const { db, calls } = makeFakeDb({ ticket: { ...validExtra, eventId: 77 } });
+  it("rechaza un extra normal de otro evento todavía publicado (no terminado)", async () => {
+    const { db, calls } = makeFakeDb({
+      ticket: { ...validExtra, eventId: 77 },
+      originEvent: { id: 77, status: "published" },
+    });
     const res = await redeemDisplayCode(db, params);
     expect(res.result).toBe("rejected");
     expect(res.conflictNote).toContain("no corresponde a este evento");
     expect(calls.ticketUpdate).toBeNull();
+  });
+
+  // El caso nuevo: un extra normal (sin regalo) de una fiesta que YA
+  // TERMINÓ queda reservado para la próxima -- se arrastra al evento que lo
+  // redime, guardando el origen real en carriedFromEventId.
+  it("acepta un extra normal arrastrado de una fiesta que ya terminó, y lo marca del evento nuevo", async () => {
+    const { db, calls } = makeFakeDb({
+      ticket: { ...validExtra, id: 55, eventId: 77 },
+      originEvent: { id: 77, status: "past" },
+    });
+    const res = await redeemDisplayCode(db, params);
+    expect(res.result).toBe("applied");
+    expect(calls.ticketUpdate).toMatchObject({ status: "used", eventId: params.eventId, carriedFromEventId: 77 });
+  });
+
+  it("un extra ya arrastrado antes conserva el origen ORIGINAL, no el intermedio", async () => {
+    const { db, calls } = makeFakeDb({
+      ticket: { ...validExtra, id: 55, eventId: 77, carriedFromEventId: 10 },
+      originEvent: { id: 77, status: "past" },
+    });
+    const res = await redeemDisplayCode(db, params);
+    expect(res.result).toBe("applied");
+    expect(calls.ticketUpdate).toMatchObject({ carriedFromEventId: 10 });
   });
 
   it("SÍ acepta un trago regalado en una fiesta anterior, y lo marca retirado", async () => {

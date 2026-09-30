@@ -3699,6 +3699,12 @@ export const appRouter = router({
     getByTicketCode: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
       return db.getWalletForTicket(input.ticketCode);
     }),
+    // Extras sin canjear de OTRAS órdenes del mismo comprador (por email) --
+    // "esto te quedó pendiente de otra fiesta". Mismo criterio de acceso que
+    // getByTicketCode: el link/QR de la entrada ya es la prueba de posesión.
+    getPendingExtras: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      return db.getPendingExtrasForCustomer(input.ticketCode);
+    }),
   }),
 
   // Enrolamiento de dispositivos desde /admin (pedido explícito del usuario).
