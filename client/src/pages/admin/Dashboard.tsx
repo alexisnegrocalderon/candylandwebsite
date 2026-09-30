@@ -19,7 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
-import { isValidRut } from '@shared/rut';
+import { isValidRut, formatRutLive } from '@shared/rut';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
@@ -61,7 +61,7 @@ import {
   SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuBadge, SidebarInset, SidebarTrigger,
   SidebarGroup, SidebarSeparator, useSidebar,
 } from '@/components/ui/sidebar';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 /* Toda escritura del admin pasa por acá: sin esto, un error del servidor
  * (típicamente "Database not available" si falta DATABASE_URL) fallaba en
@@ -2180,6 +2180,116 @@ function ReminderDialog({ orders, open, onOpenChange, onSent }: {
   );
 }
 
+type AttendeeSlotRow = { slot: string; fullName: string; rut: string };
+
+/** Ventana "Editar nombres" de Ventas Web: la gente escribe mal su nombre (o
+ * sin apellido) y debe calzar con el carnet para entrar, así que el dueño les
+ * escribe por WhatsApp y corrige acá el nombre -- y el RUT, si vino mal -- del
+ * titular y de cada acompañante. */
+function EditAttendeesDialog({ order, onClose, onSaved }: { order: any | null; onClose: () => void; onSaved: () => void }) {
+  const [people, setPeople] = useState<AttendeeSlotRow[]>([]);
+  // Se arma solo al abrir otra orden: un refetch de la lista mientras se
+  // escribe no debe pisar lo que ya se tipeó.
+  useEffect(() => {
+    setPeople(order ? (order.attendeeSlots ?? []).map((p: AttendeeSlotRow) => ({ ...p })) : []);
+  }, [order?.id]);
+
+  const save = trpc.orders.updateAttendees.useMutation({
+    onSuccess: () => { toast.success('Nombres actualizados'); onSaved(); onClose(); },
+    onError: onMutationError,
+  });
+
+  const patch = (index: number, changes: Partial<AttendeeSlotRow>) =>
+    setPeople((prev) => prev.map((p, i) => (i === index ? { ...p, ...changes } : p)));
+
+  const nameTooShort = (p: AttendeeSlotRow) => p.fullName.trim().length < 3;
+  const rutInvalid = (p: AttendeeSlotRow) => p.rut.trim() !== '' && !isValidRut(p.rut);
+  const canSave = people.length > 0 && !people.some((p) => nameTooShort(p) || rutInvalid(p));
+
+  const firstName = (order?.buyerName ?? '').trim().split(/\s+/)[0] || '';
+  const whatsappText = `Hola${firstName ? ` ${firstName}` : ''}! Para que puedas ingresar al evento necesitamos tu nombre completo (nombre y apellido) tal como aparece en tu carnet de identidad. Si vienes con acompañantes, envíanos también el nombre completo y el RUT de cada uno. ¡Gracias!`;
+  const phoneDigits = String(order?.buyerPhone ?? '').replace(/[^0-9]/g, '');
+
+  let companionNumber = 0;
+  return (
+    <Dialog open={order !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Editar nombres · {order?.orderNumber}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            El nombre debe coincidir con el carnet de identidad de cada persona. Los cambios quedan en el historial.
+          </p>
+
+          {phoneDigits && (
+            <Button asChild variant="outline" size="sm" className="interactive">
+              <a href={`https://wa.me/${phoneDigits}?text=${encodeURIComponent(whatsappText)}`} target="_blank" rel="noopener noreferrer">
+                <MessageCircle className="w-4 h-4 mr-1" /> Pedir nombre completo por WhatsApp
+              </a>
+            </Button>
+          )}
+
+          <div className="space-y-3">
+            {people.map((p, i) => {
+              const isBuyer = p.slot === 'buyer_';
+              if (!isBuyer) companionNumber += 1;
+              const oneWord = p.fullName.trim() !== '' && p.fullName.trim().split(/\s+/).length < 2;
+              return (
+                <div key={p.slot} className="rounded-xl border border-border p-3 space-y-2">
+                  <p className="text-sm font-medium">{isBuyer ? 'Comprador' : `Acompañante ${companionNumber}`}</p>
+                  <div className="grid gap-2 sm:grid-cols-[1fr_11rem]">
+                    <div>
+                      <Label className="text-xs">Nombre completo</Label>
+                      <Input
+                        value={p.fullName}
+                        onChange={(e) => patch(i, { fullName: e.target.value })}
+                        placeholder="Nombre y apellido"
+                        autoComplete="off"
+                      />
+                      {oneWord && <p className="text-xs text-[var(--admin-warning-text)] mt-1">¿Falta el apellido?</p>}
+                    </div>
+                    <div>
+                      <Label className="text-xs">RUT</Label>
+                      <Input
+                        value={p.rut}
+                        onChange={(e) => patch(i, { rut: formatRutLive(e.target.value) })}
+                        placeholder="12.345.678-9"
+                        inputMode="text"
+                        autoComplete="off"
+                      />
+                      {rutInvalid(p) && <p className="text-xs text-destructive mt-1">RUT no válido</p>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            En Puerta el nombre nuevo se ve al sincronizar (sin internet, Puerta usa la lista descargada).
+          </p>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="outline" className="interactive" onClick={onClose}>Cancelar</Button>
+            <WriteButton
+              className="interactive"
+              disabled={!canSave || save.isPending}
+              onClick={() => order && save.mutate({
+                orderId: order.id,
+                people: people.map((p) => ({ slot: p.slot, fullName: p.fullName, rut: p.rut.trim() || undefined })),
+              })}
+            >
+              {save.isPending ? 'Guardando...' : 'Guardar'}
+            </WriteButton>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   // Antes la tabla completa (con Estado/Fecha/Contacto/Acciones) se elegía
   // por ancho de pantalla (`md:`), así que un iPad -- angosto en vertical y
@@ -2198,6 +2308,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const [dateTo, setDateTo] = useState('');
   const [search, setSearch] = useState('');
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
+  const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   // Antes esta vista no tenía filtro de evento: la lista y los totales
   // mezclaban TODAS las fiestas de la historia y se leían como si fueran de
   // una sola. Con dos eventos publicados a la vez eso deja de ser un detalle.
@@ -2235,8 +2346,10 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
     if (!q) return true;
     return (o.buyerName ?? '').toLowerCase().includes(q)
       || (o.buyerEmail ?? '').toLowerCase().includes(q)
-      || (o.orderNumber ?? '').toLowerCase().includes(q);
+      || (o.orderNumber ?? '').toLowerCase().includes(q)
+      || (o.attendeeSlots ?? []).some((p: AttendeeSlotRow) => p.fullName.toLowerCase().includes(q));
   });
+  const editingOrder = ordersList.find((o: any) => o.id === editingOrderId) ?? null;
   const pendingCount = ordersList.filter((o: any) => o.paymentStatus === 'pending').length;
 
   // Recordatorios: solo con el filtro "Sin pagar" puesto. La selección es
@@ -2338,6 +2451,12 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
           </Button>
         </div>
       )}
+
+      <EditAttendeesDialog
+        order={editingOrder}
+        onClose={() => setEditingOrderId(null)}
+        onSaved={() => refetchOrders()}
+      />
 
       <ReminderDialog
         orders={selectedOrders}
@@ -2470,6 +2589,12 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                           </td>
                           <td className="py-2.5 px-3">
                             <RowActions>
+                              <RowActionButton
+                                icon={Edit}
+                                label="Editar nombres"
+                                tone="success"
+                                onClick={() => setEditingOrderId(order.id)}
+                              />
                               {order.paymentStatus === 'approved' && (
                                 <>
                                   <RowActionButton
@@ -2616,6 +2741,12 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                         rel="noopener noreferrer"
                       />
                     )}
+                    <RowActionButton
+                      icon={Edit}
+                      label="Editar nombres"
+                      tone="success"
+                      onClick={() => setEditingOrderId(order.id)}
+                    />
                     {order.paymentStatus === 'approved' && (
                       <>
                         <RowActionButton
@@ -9623,12 +9754,12 @@ function AdminSidebarFooter({ onLogout }: { onLogout: () => void }) {
   );
 
   return (
-    <Tooltip>
+    <UiTooltip>
       <TooltipTrigger asChild>{button}</TooltipTrigger>
       <TooltipContent side="right" align="center" hidden={state !== 'collapsed' || isMobile}>
         Cerrar sesión
       </TooltipContent>
-    </Tooltip>
+    </UiTooltip>
   );
 }
 
