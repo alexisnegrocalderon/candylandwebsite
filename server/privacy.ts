@@ -77,6 +77,8 @@ export function maskPii<T>(value: T): T {
         if (PHONE_KEY.test(key)) { out[key] = maskPhone(val); continue; }
         if (RUT_KEY.test(key)) { out[key] = "**.***.***-*"; continue; }
         if (lower === "instagram") { out[key] = "@***"; continue; }
+        // JSON crudo del checkout con nombre y RUT de titular y acompañantes.
+        if (lower === "attendeedata") { out[key] = "{}"; continue; }
         if (PERSON_NAME_KEYS.has(lower)) { out[key] = maskName(val); continue; }
         if (lower === "name" && isPerson) { out[key] = maskName(val); continue; }
       }

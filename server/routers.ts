@@ -8,6 +8,7 @@ import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
 import * as db from "./db";
 import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail, approveMissionTopupWithoutPayment } from "./webhooks";
+import { isValidRut, formatRutLive } from "../shared/rut";
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
 import { redeemDisplayCode } from "./caja/redeem";
@@ -1033,6 +1034,41 @@ export const appRouter = router({
     }),
     resendConfirmation: adminProcedure.input(z.object({ orderNumber: z.string() })).mutation(async ({ input }) => {
       return resendConfirmationEmail(input.orderNumber);
+    }),
+    // Corregir nombre/RUT de titular y acompañantes (Ventas Web): la gente
+    // escribe mal su nombre y debe calzar con el carnet para entrar. Sin
+    // contraseña extra a propósito (uso diario, pedido del dueño) -- queda
+    // el antes/después en el historial de auditoría.
+    updateAttendees: adminProcedure.input(z.object({
+      orderId: z.number(),
+      people: z.array(z.object({
+        slot: z.string().min(1).max(80),
+        fullName: z.string(),
+        rut: z.string().optional(),
+      })).min(1).max(30),
+    })).mutation(async ({ input, ctx }) => {
+      const people = input.people.map((p) => {
+        const fullName = p.fullName.replace(/\s+/g, ' ').trim();
+        if (fullName.length < 3 || fullName.length > 120) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cada nombre debe tener entre 3 y 120 caracteres.' });
+        }
+        const rutRaw = (p.rut ?? '').trim();
+        if (rutRaw && !isValidRut(rutRaw)) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: `El RUT "${rutRaw}" no es válido.` });
+        }
+        return { slot: p.slot, fullName, rut: rutRaw ? formatRutLive(rutRaw) : undefined };
+      });
+      let result;
+      try {
+        result = await db.updateOrderAttendees(input.orderId, people);
+      } catch (error) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: error instanceof Error ? error.message : 'No se pudo guardar.' });
+      }
+      await db.recordAdminAudit({
+        action: 'orders.updateAttendees', targetType: 'order', targetId: input.orderId,
+        eventId: result.eventId ?? null, payload: { before: result.before, after: result.after }, ip: clientIp(ctx),
+      });
+      return { success: true, attendeeSlots: result.after };
     }),
     // "Aprobar sin pagar" (Ventas Web): para compradores con un beneficio que
     // los exime de pagar la diferencia de Misión 300 -- genera el ticket con

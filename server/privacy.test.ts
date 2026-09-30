@@ -49,6 +49,18 @@ describe("maskPii", () => {
     expect(out.orders[0].items[0].name).toBe("Pizza");
   });
 
+  it("no deja ver nombres ni RUT de titular y acompañantes (attendeeData / attendeeSlots)", () => {
+    const out = maskPii({
+      buyerEmail: "a@b.cl",
+      attendeeData: JSON.stringify({ campos: { buyer__nombre: "Juan Perez", buyer__rut: "12.345.678-5" } }),
+      attendeeSlots: [{ slot: "buyer_", fullName: "Juan Perez", rut: "12.345.678-5" }],
+    });
+    expect(out.attendeeData).toBe("{}");
+    expect(out.attendeeSlots[0].fullName).toBe("J. P.");
+    expect(out.attendeeSlots[0].rut).toBe("**.***.***-*");
+    expect(out.attendeeSlots[0].slot).toBe("buyer_");
+  });
+
   it("tolera null, undefined y strings vacíos sin romperse", () => {
     expect(maskPii(null)).toBeNull();
     expect(maskPii({ email: null, phone: "" })).toEqual({ email: null, phone: "" });

@@ -1030,6 +1030,111 @@ export function parseBuyerRut(attendeeDataJson: string | null | undefined): stri
   }
 }
 
+/** Slot del comprador dentro de `attendeeData.campos`: `buyer__nombre` y
+ * `buyer__rut` -- el regex de `parseAttendees` deja el primer guion bajo en el
+ * slot, de ahí el `buyer_`. */
+export const BUYER_ATTENDEE_SLOT = 'buyer_';
+
+export type AttendeeSlot = { slot: string; fullName: string; rut: string };
+
+/** Como `parseAttendees`, pero devuelve TAMBIÉN las personas con el nombre
+ * vacío (justo las que el dueño necesita corregir) y siempre incluye al
+ * comprador primero, aunque la orden no tenga `attendeeData` (compras viejas):
+ * en ese caso el nombre sale de `orders.buyerName`. */
+export function listAttendeeSlots(attendeeDataJson: string | null | undefined, buyerName?: string | null): AttendeeSlot[] {
+  let campos: Record<string, unknown> = {};
+  try {
+    if (attendeeDataJson) campos = JSON.parse(attendeeDataJson)?.campos ?? {};
+  } catch {
+    campos = {};
+  }
+  const bySlot = new Map<string, AttendeeSlot>();
+  for (const [key, value] of Object.entries(campos)) {
+    const m = key.match(/^(.*)_(nombre|rut)$/i);
+    if (!m) continue;
+    const [, slot, field] = m;
+    if (!bySlot.has(slot)) bySlot.set(slot, { slot, fullName: '', rut: '' });
+    const entry = bySlot.get(slot)!;
+    const text = typeof value === 'string' ? value.trim() : '';
+    if (field.toLowerCase() === 'nombre') entry.fullName = text; else entry.rut = text;
+  }
+  const buyer = bySlot.get(BUYER_ATTENDEE_SLOT) ?? { slot: BUYER_ATTENDEE_SLOT, fullName: '', rut: '' };
+  if (!buyer.fullName) buyer.fullName = (buyerName ?? '').trim();
+  bySlot.delete(BUYER_ATTENDEE_SLOT);
+  return [buyer, ...Array.from(bySlot.values())];
+}
+
+/** Corrige nombre/RUT de titular y acompañantes de una orden (Ventas Web: la
+ * gente escribe mal su nombre y debe calzar con el carnet para entrar).
+ *
+ * Reescribe SOLO las claves `<slot>_nombre`/`<slot>_rut` de `attendeeData` y
+ * arrastra el cambio del titular a las copias del nombre: `orders.buyerName`,
+ * `tickets.holderName` y `customers.fullName` -- pero cada copia solo si aún
+ * valía el nombre anterior, para no pisar el alias de un ticket de regalo ni
+ * un nombre que el dueño ya haya corregido a mano en la ficha del cliente.
+ * El QR no lleva el nombre (solo el código del ticket), así que sigue válido.
+ *
+ * Sin `db.transaction()` explícita, mismo criterio que `advanceTanda`: el peor
+ * caso de un corte a mitad es una copia del nombre sin actualizar, visible y
+ * reintentable desde la misma ventana. */
+export async function updateOrderAttendees(
+  orderId: number,
+  people: { slot: string; fullName: string; rut?: string }[],
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+  if (!order) throw new Error("Orden no encontrada");
+
+  const before = listAttendeeSlots(order.attendeeData, order.buyerName);
+  const allowed = new Set(before.map((p) => p.slot));
+  for (const person of people) {
+    if (!allowed.has(person.slot)) throw new Error(`Persona desconocida en la orden: ${person.slot}`);
+  }
+
+  let parsed: { campos?: Record<string, unknown>; [key: string]: unknown } = {};
+  if (order.attendeeData) {
+    try {
+      parsed = JSON.parse(order.attendeeData) ?? {};
+    } catch {
+      throw new Error("Los datos de asistentes de esta orden están dañados; no se pueden editar.");
+    }
+  }
+  const campos: Record<string, unknown> = { ...(parsed.campos ?? {}) };
+  for (const person of people) {
+    campos[`${person.slot}_nombre`] = person.fullName;
+    if (person.rut) campos[`${person.slot}_rut`] = person.rut;
+  }
+  parsed.campos = campos;
+
+  const after = listAttendeeSlots(JSON.stringify(parsed), null);
+  const oldBuyer = before.find((p) => p.slot === BUYER_ATTENDEE_SLOT)!;
+  const newBuyer = after.find((p) => p.slot === BUYER_ATTENDEE_SLOT)!;
+
+  const orderPatch: { attendeeData: string; buyerName?: string } = { attendeeData: JSON.stringify(parsed) };
+  if (newBuyer.fullName && newBuyer.fullName !== order.buyerName) orderPatch.buyerName = newBuyer.fullName;
+  await db.update(orders).set(orderPatch).where(eq(orders.id, orderId));
+
+  if (orderPatch.buyerName && order.buyerName) {
+    await db.update(tickets).set({ holderName: orderPatch.buyerName })
+      .where(and(eq(tickets.orderId, orderId), eq(tickets.holderName, order.buyerName)));
+  }
+  if (order.buyerEmail) {
+    const email = order.buyerEmail.trim().toLowerCase();
+    if (orderPatch.buyerName && order.buyerName) {
+      await db.update(customers).set({ fullName: orderPatch.buyerName })
+        .where(and(eq(customers.email, email), eq(customers.fullName, order.buyerName)));
+    }
+    if (newBuyer.rut && oldBuyer.rut && newBuyer.rut !== oldBuyer.rut) {
+      await db.update(customers).set({ rut: newBuyer.rut })
+        .where(and(eq(customers.email, email), eq(customers.rut, oldBuyer.rut)));
+    }
+  }
+
+  return { eventId: order.eventId, before, after };
+}
+
 // Orders
 export async function createOrder(input: {
   eventSlug: string;
@@ -1697,7 +1802,7 @@ export async function getAllOrders(page: number = 1, limit: number = 50, status?
   // Titular + acompañantes (nombre y RUT de cada uno) de accesos grupales --
   // ya vive en attendeeData desde el checkout, acá solo se parsea para que
   // Ventas Web pueda mostrarlos sin que el dueño tenga que abrir el ticket.
-  const ordersWithExtras = allOrders.map((o) => ({ ...o, extras: extrasByOrderId.get(o.id) ?? [], attendees: parseAttendees(o.attendeeData) }));
+  const ordersWithExtras = allOrders.map((o) => ({ ...o, extras: extrasByOrderId.get(o.id) ?? [], attendees: parseAttendees(o.attendeeData), attendeeSlots: listAttendeeSlots(o.attendeeData, o.buyerName) }));
   return { orders: ordersWithExtras, total: ordersWithExtras.length };
 }
 
