@@ -105,6 +105,42 @@ describe("buildMailingBlastEmail", () => {
     expect(html).toContain("41 entradas");
   });
 
+  it("renders one row per access with the general price struck through, in Halloween colors", () => {
+    const html = buildMailingBlastEmail({
+      buyerName: "Camila",
+      headline: "Título",
+      paragraphs: ["Párrafo."],
+      ctaUrl: "https://candylandwebsite.vercel.app",
+      priceList: [
+        { label: "Acceso Soltera", price: 12000, originalPrice: 25000 },
+        { label: "Acceso Dúo", price: 36000, originalPrice: 60000 },
+        { label: "Sin tachado", price: 5000 },
+      ],
+      remaining: 50,
+    });
+    expect(html).toContain("Cupos limitados a este precio");
+    for (const t of ["Acceso Soltera", "$12.000", "$25.000", "Acceso Dúo", "$36.000", "$60.000", "Sin tachado", "$5.000"]) {
+      expect(html).toContain(t);
+    }
+    expect(html).toContain("line-through");
+    expect(html).toContain("Quedan");
+    expect(html).toContain(">50<");
+    expect(html).toContain("#C4FF4D");
+    expect(html).toContain("#BA8CFF");
+  });
+
+  it("omits the price card and the remaining bubble when no priceList is passed", () => {
+    const html = buildMailingBlastEmail({
+      buyerName: "Camila",
+      headline: "Título",
+      paragraphs: ["Párrafo."],
+      ctaUrl: "https://candylandwebsite.vercel.app",
+      remaining: 50,
+    });
+    expect(html).not.toContain("Cupos limitados a este precio");
+    expect(html).not.toContain("Quedan");
+  });
+
   it("falls back to a generic greeting when there's no buyer name", () => {
     const html = buildMailingBlastEmail({
       buyerName: "",

@@ -20,11 +20,12 @@
  *
  * ⚠️ Nunca dice "Founders" -- es un nombre interno del admin.
  */
-import { eq, and } from 'drizzle-orm';
+import { eq, and, asc } from 'drizzle-orm';
 import {
   getDb, getFeaturedEvent, listCustomers, getSiteSettings, updateSiteSettings,
-  hasApprovedOrderForEvent, countTandaPromoEmailsSentToday,
+  hasApprovedOrderForEvent, countTandaPromoEmailsSentToday, getStockPoolRemaining,
 } from './db';
+import type { MailingPriceRow } from './email';
 import { ticketTypes } from '../drizzle/schema';
 import { sendMailingBatch, type MailingContent } from './mailing';
 import { EMAIL_BASE_URL } from './emailLayout';
@@ -42,39 +43,58 @@ export const TANDA2_PROMO_DAILY_TARGET = Number(process.env.TANDA2_PROMO_DAILY_C
 
 export type Tanda2PromoRunResult =
   | { ran: false; reason: 'disabled' | 'no-event' | 'wrong-phase' | 'phase-ended' | 'no-price' | 'audience-exhausted' | 'daily-cap-reached' }
-  | { ran: true; eventTitle: string; price: number; audienceSize: number; sent: number; failed: number; skipped: number };
+  | { ran: true; eventTitle: string; priceFrom: number; audienceSize: number; sent: number; failed: number; skipped: number };
 
 const formatClp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 
-/** Precio vigente de la entrada de acceso más barata activa del evento (el
- * "nuevo precio" de la tanda en curso), o null si no hay accesos activos. */
-async function resolveCurrentAccessPrice(eventId: number): Promise<number | null> {
+export type Tanda2Offer = { prices: MailingPriceRow[]; priceFrom: number; remaining: number | null };
+
+/** Lo que se ofrece HOY: el precio de CADA acceso activo (cada uno con su
+ * precio general tachado, igual que la tarjeta del sitio) y, si todos
+ * comparten un único cupo, cuántos quedan (mismo criterio que
+ * `foundersPromo.ts`). Null si no hay accesos activos con precio. */
+export async function resolveTanda2Offer(eventId: number): Promise<Tanda2Offer | null> {
   const db = await getDb();
   if (!db) return null;
   const activos = await db.select().from(ticketTypes).where(and(
     eq(ticketTypes.eventId, eventId),
     eq(ticketTypes.category, 'acceso'),
     eq(ticketTypes.status, 'active'),
-  ));
-  const prices = activos.map((a) => Number(a.price)).filter((p) => Number.isFinite(p) && p > 0);
-  return prices.length ? Math.min(...prices) : null;
+  )).orderBy(asc(ticketTypes.sortOrder));
+
+  const prices: MailingPriceRow[] = activos
+    .map((a) => ({
+      label: a.name,
+      price: Number(a.price),
+      originalPrice: a.originalPrice != null ? Number(a.originalPrice) : null,
+    }))
+    .filter((r) => Number.isFinite(r.price) && r.price > 0);
+  if (prices.length === 0) return null;
+
+  let remaining: number | null = null;
+  const poolIds = Array.from(new Set(activos.map((a) => a.stockPoolId).filter((id): id is number => id != null)));
+  if (poolIds.length === 1) {
+    const info = await getStockPoolRemaining(poolIds[0]);
+    if (info && info.remaining > 0) remaining = info.remaining;
+  }
+
+  return { prices, priceFrom: Math.min(...prices.map((r) => r.price)), remaining };
 }
 
 /** El copy es fijo (no se regenera con IA en cada corrida -- coherencia día a
- * día, solo cambia el precio). */
-export function buildTanda2PromoContent(price: number, event: { title: string; slug: string }): MailingContent {
+ * día). El precio de cada acceso va en la tarjeta de precios del mail, no en
+ * el texto. */
+export function buildTanda2PromoContent(priceFrom: number, event: { title: string; slug: string }): MailingContent {
   return {
-    subject: `Nuevo precio para ${event.title}: ${formatClp(price)}`,
-    preheader: `La primera etapa de venta ya cerró -- tu entrada hoy cuesta ${formatClp(price)}.`,
-    headline: `Ya está disponible la 2ª tanda 🍬`,
+    subject: `Nuevo precio para ${event.title}: entradas desde ${formatClp(priceFrom)}`,
+    preheader: `La primera etapa de venta ya cerró -- mira el precio de cada acceso en la 2ª tanda.`,
+    headline: `Ya está disponible la 2ª tanda 🎃`,
     paragraphs: [
       `Estás en nuestra lista para ${event.title} (${EVENT_BRAND.fechaTexto}) y vimos que todavía no compraste tu entrada.`,
-      `La primera etapa de venta ya cerró y abrimos la 2ª tanda con un nuevo precio. Es más conveniente que el de las etapas que vienen: cuando se acabe esta, el valor vuelve a subir.`,
+      `La primera etapa de venta ya cerró y abrimos la 2ª tanda con nuevos precios. Es más conveniente que las etapas que vienen: cuando se acabe esta, el valor vuelve a subir.`,
       `${EVENT_BRAND.dressCode}`,
     ],
     ctaText: 'Comprar mi entrada',
-    highlightLabel: 'Precio 2ª tanda',
-    highlightValue: formatClp(price),
   };
 }
 
@@ -95,8 +115,8 @@ export async function runTanda2PromoDaily(): Promise<Tanda2PromoRunResult> {
     return { ran: false, reason: 'phase-ended' };
   }
 
-  const price = await resolveCurrentAccessPrice(event.id);
-  if (price === null) return { ran: false, reason: 'no-price' };
+  const offer = await resolveTanda2Offer(event.id);
+  if (!offer) return { ran: false, reason: 'no-price' };
 
   // Tope diario compartido con la 1ª tanda (ver comentario del archivo).
   const sentToday = await countTandaPromoEmailsSentToday();
@@ -124,7 +144,7 @@ export async function runTanda2PromoDaily(): Promise<Tanda2PromoRunResult> {
     return { ran: false, reason: 'audience-exhausted' };
   }
 
-  const content = buildTanda2PromoContent(price, event);
+  const content = buildTanda2PromoContent(offer.priceFrom, event);
   const ctaUrl = `${EMAIL_BASE_URL}/checkout/${event.slug}`;
   const { results } = await sendMailingBatch(
     batch.map((c) => c.id),
@@ -134,12 +154,13 @@ export async function runTanda2PromoDaily(): Promise<Tanda2PromoRunResult> {
     null,
     undefined,
     'tanda2-promo',
+    { priceList: offer.prices, remaining: offer.remaining },
   );
 
   return {
     ran: true,
     eventTitle: event.title,
-    price,
+    priceFrom: offer.priceFrom,
     audienceSize: eligible.length,
     sent: results.filter((r) => r.success).length,
     failed: results.filter((r) => !r.success).length,
@@ -152,17 +173,20 @@ export async function getTanda2PromoStatus() {
   const settings = await getSiteSettings();
   const event = await getFeaturedEvent();
   const base = { enabled: !!settings.tanda2PromoEnabled, dailyTarget: TANDA2_PROMO_DAILY_TARGET };
-  if (!event) return { ...base, eventTitle: null, price: null, phaseIndex: null, audienceSize: 0, sentToday: 0 };
+  // `remaining` solo existe con evento; el caso sin evento lo devuelve null.
+  if (!event) return { ...base, eventTitle: null, priceFrom: null, prices: [] as MailingPriceRow[], remaining: null, phaseIndex: null, audienceSize: 0, sentToday: 0 };
 
-  const [price, eligible, sentToday] = await Promise.all([
-    resolveCurrentAccessPrice(event.id),
+  const [offer, eligible, sentToday] = await Promise.all([
+    resolveTanda2Offer(event.id),
     listCustomers({ notPurchasedEventId: event.id, excludeTags: [TANDA2_PROMO_TAG] }),
     countTandaPromoEmailsSentToday(),
   ]);
   return {
     ...base,
     eventTitle: event.title,
-    price,
+    priceFrom: offer?.priceFrom ?? null,
+    prices: offer?.prices ?? [],
+    remaining: offer?.remaining ?? null,
     phaseIndex: event.tandaPhaseIndex,
     audienceSize: eligible.length,
     sentToday,
