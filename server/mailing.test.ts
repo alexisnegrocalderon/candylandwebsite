@@ -129,6 +129,35 @@ describe("buildMailingBlastEmail", () => {
     expect(html).toContain("#BA8CFF");
   });
 
+  it("closes with the Oráculo de Disfraces section linking to /disfraces, with the 3 sample cards", () => {
+    const html = buildMailingBlastEmail({
+      buyerName: "Camila",
+      headline: "Título",
+      paragraphs: ["Párrafo."],
+      ctaUrl: "https://candylandwebsite.vercel.app",
+    });
+    expect(html).toContain("¿No sabes de qué disfrazarte?");
+    expect(html).toContain("Consultar al Oráculo");
+    expect(html).toContain("mansionplayroom.cl/disfraces");
+    for (const t of ["Con lo que tienes", "Con accesorios", "Full producción", "Gata Negra", "Vampira Victoriana"]) {
+      expect(html).toContain(t);
+    }
+    // Va debajo del botón de compra.
+    expect(html.indexOf("Ver más")).toBeLessThan(html.indexOf("Consultar al Oráculo"));
+  });
+
+  it("omits the Oráculo section when showOracle is false", () => {
+    const html = buildMailingBlastEmail({
+      buyerName: "Camila",
+      headline: "Título",
+      paragraphs: ["Párrafo."],
+      ctaUrl: "https://candylandwebsite.vercel.app",
+      showOracle: false,
+    });
+    expect(html).not.toContain("Consultar al Oráculo");
+    expect(html).not.toContain("/disfraces");
+  });
+
   it("omits the price card and the remaining bubble when no priceList is passed", () => {
     const html = buildMailingBlastEmail({
       buyerName: "Camila",

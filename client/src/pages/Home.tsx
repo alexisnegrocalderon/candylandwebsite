@@ -33,6 +33,9 @@ import {
 import { trpc } from '@/lib/trpc';
 import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
 import CandyIntro from '@/components/CandyIntro';
+import CrystalBall from '@/components/CrystalBall';
+import { ORACLE_TEASER_CARDS } from '@shared/costumeOracle';
+import { EVENT_BRAND } from '@shared/eventBrand';
 import ScrollStory from '@/components/home/ScrollStory';
 import FeaturedEventPanel from '@/components/home/FeaturedEventPanel';
 import { scrollToId, prefersReducedMotion, isFinePointer, isMobileViewport } from '@/lib/smoothScroll';
@@ -1575,29 +1578,76 @@ function HalloweenCountdownUnit({ value, label }: { value: number; label: string
   );
 }
 
-/** Preview llamativo del Disfraz Obligatorio del 2º aniversario, pedido
- * explícito del dueño para que se note como sección aparte del resto del
- * Home. Fondo oscuro (mismo gradiente radial que ya usa
- * `PlayCardBannerSection` más abajo -- un morado casi negro que de hecho ya
- * calza con la paleta Halloween, sin inventar tokens nuevos) en vez del
- * resto del sitio, claro/pastel -- es la ÚNICA excepción a la decisión de
- * no tematizar el Home en Halloween (ver comentario en `candyland.ts`): el
- * resto de la página sigue enfocada en el aniversario, sin Halloween.
- * El dorado (`#D4A537`/`#E0BE6B`/`#332A14`) es el mismo hex que ya usa
- * `costumeBadge()` en `server/emailLayout.ts` para el 2º aniversario -- no
- * hay token compartido cliente/correo para colores, así que se trae el
- * valor literal acá, acotado a esta sección. */
+/** Una carta de ejemplo del Oráculo: se voltea al pasar el mouse o al tocarla
+ * (en móvil) para revelar el disfraz. Solo transform/transition de CSS --
+ * con reduced-motion el giro es instantáneo. */
+function OracleTeaserCard({ card }: { card: (typeof ORACLE_TEASER_CARDS)[number] }) {
+  const [flipped, setFlipped] = useState(false);
+  const [reducedMotion] = useState(() => prefersReducedMotion());
+  const face: React.CSSProperties = { backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' };
+  return (
+    <button
+      type="button"
+      // Mouse: el hover/foco revela (el clic no debe des-voltearla). Táctil: toque alterna.
+      onClick={() => { if (!isFinePointer()) setFlipped((v) => !v); }}
+      onMouseEnter={() => isFinePointer() && setFlipped(true)}
+      onMouseLeave={() => isFinePointer() && setFlipped(false)}
+      onFocus={() => isFinePointer() && setFlipped(true)}
+      onBlur={() => isFinePointer() && setFlipped(false)}
+      aria-pressed={flipped}
+      aria-label={`${card.tierLabel}: ${flipped ? card.name : 'toca para revelar el disfraz'}`}
+      className="relative w-full h-52 md:h-60 text-left interactive"
+      style={{ perspective: 900 }}
+    >
+      <div
+        className="absolute inset-0"
+        style={{
+          transformStyle: 'preserve-3d',
+          transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)',
+          transition: reducedMotion ? 'none' : 'transform 0.6s cubic-bezier(.2,.8,.2,1)',
+        }}
+      >
+        <div
+          className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center gap-2 p-4 text-center border"
+          style={{ ...face, background: 'linear-gradient(160deg,#2b2140,#1a1a1a)', borderColor: 'rgba(186,140,255,0.55)' }}
+        >
+          <span className="text-4xl">{card.tierEmoji}</span>
+          <span className="text-[11px] uppercase tracking-[0.18em] font-bold" style={{ color: '#BA8CFF' }}>{card.tierLabel}</span>
+          <span className="text-5xl opacity-90 my-1">🔮</span>
+          <span className="text-xs text-white/60">Toca para revelar</span>
+        </div>
+        <div
+          className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center gap-2 p-4 text-center border"
+          style={{ ...face, transform: 'rotateY(180deg)', background: 'linear-gradient(160deg,#232323,#1a1a1a)', borderColor: '#C4FF4D' }}
+        >
+          <span className="text-4xl">{card.emoji}</span>
+          <span className="font-heading font-extrabold text-lg text-white leading-tight">{card.name}</span>
+          <span className="text-xs text-white/70 leading-snug">{card.pitch}</span>
+          <span className="text-sm font-bold mt-1" style={{ color: '#C4FF4D' }}>{card.costRange}</span>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+/** Sección del Oráculo de Disfraces (el Disfraz Obligatorio del 2º
+ * aniversario), pedido explícito del dueño: el Oráculo es el protagonista y
+ * la cuenta regresiva queda de apoyo. Fondo oscuro con la paleta Halloween
+ * oficial del sitio (lima #C4FF4D / violeta #BA8CFF, ver `.halloween` en
+ * index.css) -- es la excepción a la decisión de no tematizar el resto del
+ * Home en Halloween (ver comentario en `candyland.ts`). Los hex van literales
+ * porque esta sección vive fuera del contenedor `.halloween`. */
 function HalloweenTeaserSection() {
   const { dias, horas, minutos, segundos } = useCountdown(CANDYLAND.eventDate);
   if (!EVENTO.fechaConfirmada) return null;
 
   return (
     // `z-10` para quedar por encima de `ScrollCandies` (capa `fixed z-[5]`
-    // de caramelos que flota sobre TODA la página) -- sin esto, un caramelo
-    // rosado podía superponerse sobre el título en pleno fondo oscuro.
+    // de caramelos que flota sobre TODA la página).
     <section
-      className="py-16 md:py-24 relative z-10 overflow-hidden"
-      style={{ background: 'radial-gradient(120% 120% at 20% 0%, #241432, #0d0712 70%)' }}
+      id="oraculo-disfraces"
+      className="py-16 md:py-24 relative z-10 overflow-hidden scroll-mt-24"
+      style={{ background: 'radial-gradient(120% 120% at 20% 0%, #2a1a45, #141414 70%)' }}
     >
       {!prefersReducedMotion() && (
         <div aria-hidden className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -1615,42 +1665,56 @@ function HalloweenTeaserSection() {
         </div>
       )}
 
-      <div className="container max-w-3xl relative text-center">
+      <div className="container max-w-4xl relative text-center">
+        <CrystalBall />
         <span
-          className="inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide mb-4"
-          style={{ background: '#332A14', color: '#E0BE6B' }}
+          className="inline-block px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide mt-10 mb-4"
+          style={{ background: 'rgba(186,140,255,0.15)', color: '#BA8CFF', border: '1px solid rgba(186,140,255,0.4)' }}
         >
-          🎃 Preview
+          🎃 Disfraz obligatorio · {EVENT_BRAND.fechaTexto}
         </span>
         <h2 className="font-heading font-extrabold text-3xl md:text-5xl tracking-tight mb-4 leading-[1.1] text-white">
-          Se viene el <span style={{ color: '#D4A537' }}>Disfraz Obligatorio</span>
+          ¿No sabes de qué disfrazarte? <span style={{ color: '#C4FF4D' }}>Pregúntale al Oráculo</span>
         </h2>
-        <p className="text-white/70 text-lg leading-relaxed mb-8 max-w-xl mx-auto">
-          Nuestro 2º aniversario lo celebramos disfrazados -- no tiene que ser profesional, pero sí es obligatorio.
-          Descubre tu nivel de disfraz antes de que se acabe el tiempo.
+        <p className="text-white/70 text-lg leading-relaxed mb-10 max-w-xl mx-auto">
+          Contesta 5 preguntas y te revela 3 ideas hechas a tu medida: una con lo que ya tienes en casa,
+          una con accesorios y una full producción. Gratis y sin registrarte.
         </p>
 
-        <div className="flex items-center justify-center gap-3 md:gap-5 mb-10">
-          <HalloweenCountdownUnit value={dias} label="Días" />
-          <HalloweenCountdownUnit value={horas} label="Hrs" />
-          <HalloweenCountdownUnit value={minutos} label="Min" />
-          <HalloweenCountdownUnit value={segundos} label="Seg" />
+        {/* Móvil: carrusel con snap (3 cartas apiladas ocupaban media pantalla). */}
+        <div className="flex sm:grid sm:grid-cols-3 gap-4 md:gap-6 mb-10 max-w-3xl mx-auto overflow-x-auto sm:overflow-visible snap-x snap-mandatory -mx-4 px-4 sm:mx-auto sm:px-0 pb-2">
+          {ORACLE_TEASER_CARDS.map((c) => (
+            <div key={c.tier} className="min-w-[72%] sm:min-w-0 snap-center">
+              <OracleTeaserCard card={c} />
+            </div>
+          ))}
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-          <Link
-            href="/disfraces"
-            className="btn-jelly inline-flex items-center gap-2 px-7 py-3.5 rounded-full font-bold interactive"
-            style={{ background: '#D4A537', color: '#241432' }}
-          >
-            🔮 Pregúntale al Oráculo de Disfraces
-          </Link>
+        <Link
+          href="/disfraces"
+          className="btn-jelly inline-flex items-center gap-2 px-9 py-4 rounded-full text-base md:text-lg font-extrabold uppercase tracking-wide interactive"
+          style={{ background: '#C4FF4D', color: '#1A1A1A', boxShadow: '0 10px 30px rgba(196,255,77,0.25)' }}
+        >
+          🔮 Consultar al Oráculo
+        </Link>
+        <div className="mt-4">
           <Link
             href="/blog/dress-code-explicado"
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-full font-semibold text-sm border border-[#D4A537]/50 text-[#E0BE6B] hover:bg-[#D4A537]/10 interactive"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold hover:underline interactive"
+            style={{ color: '#BA8CFF' }}
           >
-            Descubre tu nivel de disfraz <ArrowRight className="w-4 h-4" />
+            Conoce el dress code completo <ArrowRight className="w-4 h-4" />
           </Link>
+        </div>
+
+        <div className="mt-12">
+          <p className="text-[11px] uppercase tracking-[0.25em] text-white/50 mb-3">Faltan para la fiesta</p>
+          <div className="flex items-center justify-center gap-3 md:gap-5">
+            <HalloweenCountdownUnit value={dias} label="Días" />
+            <HalloweenCountdownUnit value={horas} label="Hrs" />
+            <HalloweenCountdownUnit value={minutos} label="Min" />
+            <HalloweenCountdownUnit value={segundos} label="Seg" />
+          </div>
         </div>
       </div>
     </section>
