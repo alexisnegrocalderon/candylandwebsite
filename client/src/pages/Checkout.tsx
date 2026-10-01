@@ -15,6 +15,7 @@ import { isMissionActiveForEvent, missionDepositPrice, missionCutoff, missionCap
 import { isValidRut, isValidChileanPhone, formatRutLive } from '@shared/rut';
 import { isTopupProduct } from '@shared/prepaid';
 import { playcoinsEarnedForPurchase } from '@shared/playcoins';
+import { dropSupersededTickets } from '@shared/liveTickets';
 import { useSeo } from '@/hooks/useSeo';
 import { getStoredUtmParams } from '@/lib/utm';
 import { getStoredAmbassadorRef } from '@/lib/ambassadorRef';
@@ -264,7 +265,8 @@ export default function Checkout() {
   const { data: liveTicketsData } = trpc.events.getTicketTypes.useQuery({ slug: eventSlug }, { retry: false });
   const { data: siteSettings } = trpc.settings.get.useQuery();
   const serviceFeePercent = Number(siteSettings?.serviceFeePercent ?? 0);
-  const liveTickets = liveTicketsData ?? [];
+  // Sin las filas de tandas ya cerradas (ver shared/liveTickets.ts).
+  const liveTickets = useMemo(() => dropSupersededTickets(liveTicketsData ?? []), [liveTicketsData]);
   const useConfig = liveTickets.length === 0; // sin DB → modo demo con config
   // Los "extras" (category='extra': estacionamiento, covers, lo que sea que
   // el admin agregue) se ofrecen solos en el paso de extras — no hace falta

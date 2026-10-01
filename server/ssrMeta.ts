@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import * as db from "./db";
 import { eventSchema, breadcrumbSchema } from "../shared/structuredData";
 import { getIndexHtmlTemplate, injectMeta } from "./_core/htmlTemplate";
+import { dropSupersededTickets } from "../shared/liveTickets";
 
 /* Inyección de metaetiquetas del lado del servidor (pedido explícito del
  * dueño, 02-03/09) -- el fix real para que WhatsApp/Facebook/Twitter
@@ -93,7 +94,7 @@ export function registerSsrMetaRoutes(app: Express) {
       let priceFrom: number | null = null;
       try {
         const ticketTypes = await db.getTicketTypesByEventId(event.id);
-        const accesos = (ticketTypes as any[]).filter((t) => t.category === "acceso");
+        const accesos = dropSupersededTickets(ticketTypes as any[]).filter((t) => t.category === "acceso" && t.status !== "soldout");
         if (accesos.length > 0) priceFrom = Math.min(...accesos.map((t) => Number(t.price)));
       } catch {
         // El precio es un plus del JSON-LD, no crítico -- si falla, se

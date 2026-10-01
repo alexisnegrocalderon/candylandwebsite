@@ -3,6 +3,7 @@ import { useRoute, Link } from 'wouter';
 import { Calendar, MapPin, Clock, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
+import { dropSupersededTickets } from '@shared/liveTickets';
 import { useSeo } from '@/hooks/useSeo';
 import { breadcrumbSchema, eventSchema } from '@shared/structuredData';
 
@@ -19,7 +20,7 @@ export default function EventDetail() {
     { enabled: !!slug },
   );
   const precioDesde = (() => {
-    const accesos = (ticketTypes ?? []).filter((t: any) => t.category === 'acceso');
+    const accesos = dropSupersededTickets(ticketTypes ?? []).filter((t: any) => t.category === 'acceso');
     if (!accesos.length) return null;
     return Math.min(...accesos.map((t: any) => Number(t.price)));
   })();
