@@ -876,7 +876,7 @@ export async function deleteBlockedCustomer(id: number) {
 
 // Site settings (fila única — Instagram followers/posts para el footer, y el
 // recargo por servicio (%) que se suma a toda venta nueva)
-const SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0, halloweenModeEnabled: 0, emailTemplateConfig: null, instagramAgentConfig: null, whatsappAgentConfig: null };
+const SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, serviceFeePercent: "0", cardFeePercent: "3.50", parkingVenueFeeClp: 3000, kitchenVendorName: null, kitchenVendorEmail: null, ogImageUrl: null, foundersPromoEnabled: 0, tanda2PromoEnabled: 0, halloweenModeEnabled: 0, emailTemplateConfig: null, instagramAgentConfig: null, whatsappAgentConfig: null };
 
 /* La config del sitio se lee SIN `agentCoachReport` a propósito (28/09):
  * en producción esa columna (migración 0069) quedó sin aplicar, y como se
@@ -910,7 +910,7 @@ export async function getAgentCoachReport(): Promise<unknown> {
 
 export async function updateSiteSettings(data: {
   instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number; cardFeePercent?: number; parkingVenueFeeClp?: number;
-  kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null; foundersPromoEnabled?: boolean; halloweenModeEnabled?: boolean;
+  kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null; foundersPromoEnabled?: boolean; tanda2PromoEnabled?: boolean; halloweenModeEnabled?: boolean;
   emailTemplateConfig?: EmailTemplateConfig;
   adminAlertsConfig?: AdminAlertsConfig;
   instagramAgentConfig?: import('../shared/instagramAgentConfig').InstagramAgentConfig;
@@ -927,6 +927,7 @@ export async function updateSiteSettings(data: {
   // `missionForceClosed` en events) -- el resto del sistema lo maneja como
   // boolean real, se convierte acá en el borde.
   if (data.foundersPromoEnabled !== undefined) updateData.foundersPromoEnabled = data.foundersPromoEnabled ? 1 : 0;
+  if (data.tanda2PromoEnabled !== undefined) updateData.tanda2PromoEnabled = data.tanda2PromoEnabled ? 1 : 0;
   if (data.halloweenModeEnabled !== undefined) updateData.halloweenModeEnabled = data.halloweenModeEnabled ? 1 : 0;
   // Solo el id: leer la fila entera volvería a depender de todas las
   // columnas (ver el comentario de getSiteSettings).
@@ -4938,7 +4939,7 @@ export async function getMailingCampaignRecipients(campaignId: number) {
  * cuenta para ningún presupuesto ni lo procesa ningún cron. */
 export async function logMailingSend(input: {
   batchId: string;
-  source: 'founders-promo' | 'manual';
+  source: 'founders-promo' | 'tanda2-promo' | 'manual';
   label: string;
   customerId: number;
   email: string;
@@ -4958,6 +4959,23 @@ export async function logMailingSend(input: {
   });
 }
 
+/** Correos de los avisos diarios de tanda (1ª y 2ª) que ya salieron hoy
+ * (hora de Chile). Ambos mandan directo con sendMailingBatch, fuera del
+ * presupuesto de AUTOMATED_EMAIL_DAILY_CAP, así que su tope diario se cuenta
+ * acá, sobre mailingSendLog, y es COMPARTIDO entre los dos. */
+export async function countTandaPromoEmailsSentToday(now: Date = new Date()): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [row] = await db.select({ count: sql<number>`count(*)` })
+    .from(mailingSendLog)
+    .where(and(
+      inArray(mailingSendLog.source, ['founders-promo', 'tanda2-promo']),
+      eq(mailingSendLog.success, 1),
+      gte(mailingSendLog.sentAt, startOfChileDay(now)),
+    ));
+  return Number(row?.count ?? 0);
+}
+
 /** Últimas tandas de envíos inmediatos, agrupadas por `batchId` -- para la
  * sección "Envíos inmediatos" de Historial de Mailing. */
 export async function listRecentMailingSendBatches(limit = 10) {
@@ -4965,7 +4983,7 @@ export async function listRecentMailingSendBatches(limit = 10) {
   if (!db) return [];
   return db.select({
     batchId: mailingSendLog.batchId,
-    source: sql<'founders-promo' | 'manual'>`MIN(${mailingSendLog.source})`,
+    source: sql<'founders-promo' | 'tanda2-promo' | 'manual'>`MIN(${mailingSendLog.source})`,
     label: sql<string>`MIN(${mailingSendLog.label})`,
     startedAt: sql<Date>`MIN(${mailingSendLog.sentAt})`,
     total: sql<number>`COUNT(*)`,

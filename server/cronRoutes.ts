@@ -7,6 +7,7 @@ import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgra
 import { runAbandonedCartCron } from "./orderReminders";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { runFoundersPromoDaily } from "./foundersPromo";
+import { runTanda2PromoDaily } from "./tanda2Promo";
 import { runAdminDigest } from "./adminDigest";
 import { refreshInstagramToken } from "./instagramSend";
 import { runInstagramFollowUps } from "./instagramFollowUp";
@@ -217,6 +218,20 @@ export function registerCronRoutes(app: Express) {
       res.json({ success: true, ...result });
     } catch (err) {
       console.error('[Cron] Error en el aviso de primeros cupos:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  /* Aviso diario de la 2ª tanda (server/tanda2Promo.ts): hasta 50 correos/día
+   * a quienes no han comprado, con tope compartido con founders-promo.
+   * Interruptor propio (siteSettings.tanda2PromoEnabled), apagado por defecto. */
+  app.get("/api/cron/tanda2-promo", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const result = await runTanda2PromoDaily();
+      res.json({ success: true, ...result });
+    } catch (err) {
+      console.error('[Cron] Error en el aviso de la 2ª tanda:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
   });

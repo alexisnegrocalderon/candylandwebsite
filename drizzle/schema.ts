@@ -501,6 +501,11 @@ export const siteSettings = mysqlTable("siteSettings", {
   // -- desplegar el código no debe empezar a mandar correos solo, el dueño
   // lo prende desde el admin cuando esté listo.
   foundersPromoEnabled: int("foundersPromoEnabled").default(0).notNull(),
+  // Aviso automático diario de la 2ª tanda (nuevo precio) -- mismo criterio
+  // que foundersPromoEnabled: arranca apagado y el dueño lo prende a mano
+  // (ver server/tanda2Promo.ts). Excluyente con foundersPromoEnabled para no
+  // sumar 100 correos/día contra el límite de Resend.
+  tanda2PromoEnabled: int("tanda2PromoEnabled").default(0).notNull(),
   // Modo Halloween (pedido explícito del dueño): con esto en 1, la portada
   // "/" se muestra con la paleta Halloween (clase `.halloween` en <html>,
   // ver client/src/pages/HalloweenHome.tsx). Se prende y apaga a mano
@@ -1324,7 +1329,7 @@ export const mailingSendLog = mysqlTable("mailingSendLog", {
   id: int("id").autoincrement().primaryKey(),
   // nanoid: agrupa las filas de una misma corrida de sendMailingBatch().
   batchId: varchar("batchId", { length: 30 }).notNull(),
-  source: mysqlEnum("source", ["founders-promo", "manual"]).notNull(),
+  source: mysqlEnum("source", ["founders-promo", "tanda2-promo", "manual"]).notNull(),
   // content.subject de esa tanda -- para mostrar de qué se trató sin tener
   // que ir a buscar contenido a otro lado.
   label: varchar("label", { length: 255 }).notNull(),

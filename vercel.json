@@ -153,6 +153,10 @@
       "schedule": "0 14 * * *"
     },
     {
+      "path": "/api/cron/tanda2-promo",
+      "schedule": "0 15 * * *"
+    },
+    {
       "path": "/api/cron/admin-digest",
       "schedule": "0 11 * * *"
     },

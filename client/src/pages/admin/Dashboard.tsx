@@ -3512,6 +3512,102 @@ function FoundersPromoCard() {
   );
 }
 
+/** Aviso automático diario de la 2ª tanda (server/tanda2Promo.ts): hasta 50
+ * correos/día a quienes todavía no compraron, con el nuevo precio. Arranca
+ * apagado; prender este apaga el de primeros cupos (comparten el tope de 50). */
+function Tanda2PromoCard() {
+  const { data: settings, refetch: refetchSettings } = trpc.settings.get.useQuery();
+  const { data: status, refetch: refetchStatus } = trpc.mailing.tanda2PromoStatus.useQuery();
+  const [showPreview, setShowPreview] = useState(false);
+  const { data: preview } = trpc.mailing.tanda2PromoPreview.useQuery(undefined, { enabled: showPreview });
+
+  const toggle = trpc.settings.update.useMutation({
+    onSuccess: () => { refetchSettings(); refetchStatus(); },
+    onError: onMutationError,
+  });
+  const runNow = trpc.mailing.tanda2PromoRunNow.useMutation({
+    onSuccess: (result) => {
+      refetchStatus();
+      if (!result.ran) {
+        const reasons: Record<string, string> = {
+          disabled: 'Está apagado.',
+          'no-event': 'No hay ningún evento destacado ahora mismo.',
+          'wrong-phase': 'El evento todavía no está en la 2ª tanda -- no se manda nada hasta que se cierre la 1ª.',
+          'phase-ended': 'El evento ya pasó de la 2ª tanda -- se apagó solo.',
+          'no-price': 'No hay entradas de acceso activas con precio.',
+          'audience-exhausted': 'Ya no queda nadie a quién mandarle -- se apagó solo.',
+          'daily-cap-reached': 'Ya se llegó al tope diario de avisos de tanda (compartido con primeros cupos).',
+        };
+        toast.info(reasons[result.reason] ?? 'No se mandó nada esta vez.');
+        return;
+      }
+      toast.success(`Mandado: ${result.sent} correo(s) (${result.failed} fallidos, ${result.skipped} ya habían comprado).`);
+    },
+    onError: onMutationError,
+  });
+
+  const enabled = !!settings?.tanda2PromoEnabled;
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5 bg-gradient-to-br from-primary/5 to-transparent">
+      <CardContent className="pt-6 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="font-heading text-lg">🍬 Aviso automático de la 2ª tanda</h3>
+            <p className="text-sm text-muted-foreground max-w-xl">
+              Todos los días le manda hasta {status?.dailyTarget ?? 50} correos a clientes/leads que todavía no compraron
+              el evento destacado, avisando del nuevo precio. Siempre deja fuera a quien ya compró y nunca le repite el
+              correo a la misma persona. El tope de {status?.dailyTarget ?? 50} se comparte con el aviso de primeros
+              cupos (prender este apaga aquel) para dejar cupo a las confirmaciones de compra y demás correos.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-muted-foreground">{enabled ? 'Prendido' : 'Apagado'}</span>
+            <Switch checked={enabled} onCheckedChange={(v) => toggle.mutate({ tanda2PromoEnabled: v })} disabled={toggle.isPending} />
+          </div>
+        </div>
+
+        {status && (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-xl bg-white/50 dark:bg-black/20 p-3 text-center">
+              <p className="text-2xl font-bold">{status.price != null ? `$${status.price.toLocaleString('es-CL')}` : '—'}</p>
+              <p className="text-xs text-muted-foreground">precio actual</p>
+            </div>
+            <div className="rounded-xl bg-white/50 dark:bg-black/20 p-3 text-center">
+              <p className="text-2xl font-bold">{status.audienceSize}</p>
+              <p className="text-xs text-muted-foreground">todavía por avisar</p>
+            </div>
+            <div className="rounded-xl bg-white/50 dark:bg-black/20 p-3 text-center">
+              <p className="text-2xl font-bold">{status.sentToday} / {status.dailyTarget}</p>
+              <p className="text-xs text-muted-foreground">avisos de tanda hoy</p>
+            </div>
+          </div>
+        )}
+
+        {status && status.phaseIndex !== null && status.phaseIndex !== 1 && (
+          <p className="text-xs text-amber-600 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+            ⚠️ El evento destacado no está en la 2ª tanda ahora mismo
+            {status.phaseIndex < 1 ? ' (todavía en la 1ª): no se manda nada hasta que se cierre.' : ': al correr se apagará solo.'}
+          </p>
+        )}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <WriteButton onClick={() => setShowPreview((v) => !v)} className="bg-white/70 dark:bg-black/30 text-foreground border border-border/50 hover:bg-white">
+            {showPreview ? 'Ocultar preview' : 'Ver preview de hoy'}
+          </WriteButton>
+          <WriteButton onClick={() => runNow.mutate()} disabled={runNow.isPending}>
+            {runNow.isPending ? 'Mandando…' : 'Mandar la tanda de hoy ahora'}
+          </WriteButton>
+        </div>
+
+        {showPreview && preview?.html && (
+          <iframe title="Preview aviso 2ª tanda" srcDoc={preview.html} className="w-full h-96 rounded-xl border border-border/50 bg-white" />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 /** Contador diario de TODOS los correos que salen del sistema (server/db.ts
  * countEmailsSentToday) -- pedido explícito del dueño para cuidar el cupo de
  * ~100/día del plan de Resend. Cuenta confirmaciones de compra, tickets,
@@ -3684,6 +3780,7 @@ function MailingSection() {
 
       <DailyEmailUsageCard />
       <FoundersPromoCard />
+      <Tanda2PromoCard />
 
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardContent className="pt-6 space-y-4">
@@ -3924,7 +4021,7 @@ function ImmediateSendBatches() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold">
-                    {b.source === 'founders-promo' ? '🍬 Aviso de primeros cupos' : '✉️ Envío manual'}
+                    {b.source === 'founders-promo' ? '🍬 Aviso de primeros cupos' : b.source === 'tanda2-promo' ? '🍬 Aviso 2ª tanda' : '✉️ Envío manual'}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {b.label} · {new Date(b.startedAt).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}
