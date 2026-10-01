@@ -9,6 +9,7 @@ import {
   type WaButton,
 } from './whatsappSend';
 import { withAgentUtm } from './agentLinks';
+import { dropSupersededTickets } from '../shared/liveTickets';
 
 /* Mensajes interactivos de WhatsApp armados SOLO con datos de la base, sin
  * IA: menú de bienvenida, lista de próximas fechas, detalle de una fecha con
@@ -109,7 +110,7 @@ export async function eventDetailMessage(to: string, slug: string, now: Date = n
     lines.push('', 'Las entradas para esta fecha están AGOTADAS.');
   } else {
     const tickets = await db.getTicketTypesByEventId(event.id);
-    const accesos = tickets.filter((t) => t.category === 'acceso' && t.status !== 'hidden');
+    const accesos = dropSupersededTickets(tickets).filter((t) => t.category === 'acceso' && t.status !== 'hidden');
     if (accesos.length > 0) {
       lines.push('');
       for (const t of accesos) {

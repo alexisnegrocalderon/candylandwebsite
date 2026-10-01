@@ -10,6 +10,7 @@ import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/
 import type { IgMessage } from '../drizzle/schema';
 import { AGENT_SITE_PAGES, AGENT_PAGE_KEYS, stripUrlsFromReply } from './agentLinks';
 import { EVENT_BRAND } from '../shared/eventBrand';
+import { dropSupersededTickets } from '../shared/liveTickets';
 
 /* El cerebro del agente que contesta los mensajes directos del Instagram.
  *
@@ -109,7 +110,7 @@ export async function buildInstagramContext(now: Date = new Date()): Promise<str
     // Solo los accesos que la web muestra: la Carta de la fiesta (consumo,
     // locker, merch) se vende únicamente en /caja y no existe de cara al
     // público; los 'hidden' están ocultos por decisión del admin.
-    const accesos = tickets.filter((t) => t.category === 'acceso' && t.status !== 'hidden');
+    const accesos = dropSupersededTickets(tickets).filter((t) => t.category === 'acceso' && t.status !== 'hidden');
     if (accesos.length > 0) {
       // Misma escala que ya usa el admin para precargar el precio de la
       // siguiente tanda (ver AdvanceTandaDialog en Dashboard.tsx): así la IA

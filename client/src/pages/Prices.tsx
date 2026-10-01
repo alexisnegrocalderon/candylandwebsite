@@ -4,6 +4,7 @@ import { Ticket, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { CANDYLAND, EVENTO, formatCLP } from '@/config/candyland';
 import { isMissionActiveForEvent, missionDepositPrice } from '@shared/mission300';
+import { dropSupersededTickets } from '@shared/liveTickets';
 import { useSeo } from '@/hooks/useSeo';
 import { breadcrumbSchema } from '@shared/structuredData';
 
@@ -30,7 +31,7 @@ export default function Prices() {
   const { data: event } = trpc.events.getBySlug.useQuery({ slug: CANDYLAND.slug }, { retry: false });
   const { data: liveTickets } = trpc.events.getTicketTypes.useQuery({ slug: CANDYLAND.slug }, { retry: false });
 
-  const accesos = (liveTickets ?? []).filter((t: any) => t.category === 'acceso' && t.status !== 'hidden');
+  const accesos = dropSupersededTickets(liveTickets ?? []).filter((t: any) => t.category === 'acceso' && t.status !== 'hidden');
   const missionOpen = !!event?.eventDate && isMissionActiveForEvent(event);
   // Tanda vigente (fuera de la ventana de Misión 300, ver TandaUrgencyCard en
   // Home.tsx -- mismo dato, mismo criterio): si algún acceso tiene precio
