@@ -2,7 +2,7 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { formatChileDate, formatChileTime } from "../shared/chileDate";
 import { invokeLLM, extractContent } from "./_core/llm";
-import { sendEmail, buildMailingBlastEmail, type MailingEventInfo, type MailingEventSections } from "./email";
+import { sendEmail, buildMailingBlastEmail, type MailingEventInfo, type MailingEventSections, type MailingPriceRow } from "./email";
 import * as db from "./db";
 import { getMission300Status } from "./webhooks";
 import { isMissionActiveForEvent, MISSION_300_DEPOSIT_PER_PERSON } from "../shared/mission300";
@@ -136,7 +136,9 @@ export async function sendMailingBatch(
   // (ver mailingSendLog en drizzle/schema.ts), no cambia nada del envío en
   // sí. Los dos llamadores de hoy se identifican solos: el aviso automático
   // de primeros cupos y el botón manual "Enviar a N clientes".
-  source: 'founders-promo' | 'tanda2-promo' | 'manual' = 'manual'
+  source: 'founders-promo' | 'tanda2-promo' | 'manual' = 'manual',
+  // Tarjeta de precios por acceso de la tanda vigente (aviso de 2ª tanda).
+  extras?: { priceList?: MailingPriceRow[]; remaining?: number | null }
 ): Promise<{ batchId: string; results: MailingSendResult[] }> {
   const recipients = await db.listCustomersByIds(customerIds);
   const results: MailingSendResult[] = [];
@@ -157,6 +159,8 @@ export async function sendMailingBatch(
       highlightValue: content.highlightValue,
       eventInfo,
       eventSections,
+      priceList: extras?.priceList,
+      remaining: extras?.remaining,
     });
     const sent = await sendEmail({ to: customer.email, subject: content.subject, html });
     results.push({ customerId: customer.id, email: customer.email, success: sent.success, reason: sent.reason });

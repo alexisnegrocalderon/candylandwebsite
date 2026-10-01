@@ -10,6 +10,7 @@ vi.mock("./db", () => ({
   listCustomers: vi.fn(),
   getSiteSettings: vi.fn(),
   updateSiteSettings: vi.fn(),
+  getStockPoolRemaining: vi.fn(),
   hasApprovedOrderForEvent: vi.fn(),
   countTandaPromoEmailsSentToday: vi.fn(),
 }));
@@ -24,17 +25,23 @@ const getFeaturedEventMock = vi.mocked(db.getFeaturedEvent);
 const listCustomersMock = vi.mocked(db.listCustomers);
 const getSiteSettingsMock = vi.mocked(db.getSiteSettings);
 const updateSiteSettingsMock = vi.mocked(db.updateSiteSettings);
+const getStockPoolRemainingMock = vi.mocked(db.getStockPoolRemaining);
 const hasApprovedOrderMock = vi.mocked(db.hasApprovedOrderForEvent);
 const countSentTodayMock = vi.mocked(db.countTandaPromoEmailsSentToday);
 const sendMailingBatchMock = vi.mocked(sendMailingBatch);
 
 const event = { id: 5, title: '2º Aniversario', slug: '2do-aniversario-playroom', tandaPhaseIndex: 1 };
 
-function fakeDbWithAccesos(rows: { price: string }[]) {
+const accesos = [
+  { name: 'Acceso Soltera', price: '12000', originalPrice: '25000', stockPoolId: 1, sortOrder: 0 },
+  { name: 'Acceso Dúo', price: '36000', originalPrice: '60000', stockPoolId: 1, sortOrder: 1 },
+];
+
+function fakeDbWithAccesos(rows: Record<string, unknown>[]) {
   return {
     select: () => ({
       from: (table: unknown) => ({
-        where: async () => (table === ticketTypes ? rows : []),
+        where: () => ({ orderBy: async () => (table === ticketTypes ? rows : []) }),
       }),
     }),
   } as any;
@@ -42,13 +49,12 @@ function fakeDbWithAccesos(rows: { price: string }[]) {
 
 describe("buildTanda2PromoContent", () => {
   it("nunca menciona 'Founders'", () => {
-    expect(JSON.stringify(buildTanda2PromoContent(15000, event)).toLowerCase()).not.toContain('founders');
+    expect(JSON.stringify(buildTanda2PromoContent(12000, event)).toLowerCase()).not.toContain('founders');
   });
 
-  it("incluye el precio y el evento", () => {
-    const content = buildTanda2PromoContent(15000, event);
-    expect(content.subject).toContain('15.000');
-    expect(content.highlightValue).toContain('15.000');
+  it("incluye el precio más bajo en el asunto y el evento en los párrafos", () => {
+    const content = buildTanda2PromoContent(12000, event);
+    expect(content.subject).toContain('desde $12.000');
     expect(content.paragraphs.join(' ')).toContain(event.title);
   });
 });
@@ -58,7 +64,8 @@ describe("runTanda2PromoDaily", () => {
     vi.clearAllMocks();
     getSiteSettingsMock.mockResolvedValue({ tanda2PromoEnabled: 1 } as any);
     getFeaturedEventMock.mockResolvedValue(event as any);
-    getDbMock.mockResolvedValue(fakeDbWithAccesos([{ price: '20000' }, { price: '15000' }]));
+    getDbMock.mockResolvedValue(fakeDbWithAccesos(accesos));
+    getStockPoolRemainingMock.mockResolvedValue({ remaining: 50 } as any);
     countSentTodayMock.mockResolvedValue(0);
     hasApprovedOrderMock.mockResolvedValue(false);
     listCustomersMock.mockResolvedValue([{ id: 1, email: 'a@test.cl' }, { id: 2, email: 'b@test.cl' }] as any);
@@ -103,18 +110,36 @@ describe("runTanda2PromoDaily", () => {
     expect(updateSiteSettingsMock).toHaveBeenCalledWith({ tanda2PromoEnabled: false });
   });
 
-  it("manda con el precio vigente más bajo, a todos los no compradores, taggeando con TANDA2_PROMO_TAG", async () => {
+  it("manda la lista de precios de CADA acceso (con tachado) y los cupos que quedan", async () => {
+    await runTanda2PromoDaily();
+    const extras = sendMailingBatchMock.mock.calls[0][7];
+    expect(extras).toEqual({
+      priceList: [
+        { label: 'Acceso Soltera', price: 12000, originalPrice: 25000 },
+        { label: 'Acceso Dúo', price: 36000, originalPrice: 60000 },
+      ],
+      remaining: 50,
+    });
+  });
+
+  it("sin cupo compartido único no informa cupos", async () => {
+    getDbMock.mockResolvedValue(fakeDbWithAccesos([{ ...accesos[0], stockPoolId: 1 }, { ...accesos[1], stockPoolId: 2 }]));
+    await runTanda2PromoDaily();
+    expect(sendMailingBatchMock.mock.calls[0][7]?.remaining).toBeNull();
+  });
+
+  it("manda a todos los no compradores, taggeando con TANDA2_PROMO_TAG", async () => {
     const result = await runTanda2PromoDaily();
 
     // No excluye la etiqueta de la 1ª tanda: los recontacta con el nuevo precio.
     expect(listCustomersMock).toHaveBeenCalledWith({ notPurchasedEventId: event.id, excludeTags: [TANDA2_PROMO_TAG] });
     const [ids, content, ctaUrl, tag, , , source] = sendMailingBatchMock.mock.calls[0];
     expect(ids).toEqual([1, 2]);
-    expect(content.highlightValue).toContain('15.000');
+    expect(content.subject).toContain('12.000');
     expect(ctaUrl).toContain(event.slug);
     expect(tag).toBe(TANDA2_PROMO_TAG);
     expect(source).toBe('tanda2-promo');
-    expect(result).toEqual({ ran: true, eventTitle: event.title, price: 15000, audienceSize: 2, sent: 2, failed: 0, skipped: 0 });
+    expect(result).toEqual({ ran: true, eventTitle: event.title, priceFrom: 12000, audienceSize: 2, sent: 2, failed: 0, skipped: 0 });
     expect(updateSiteSettingsMock).not.toHaveBeenCalled();
   });
 

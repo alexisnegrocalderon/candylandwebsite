@@ -3672,15 +3672,17 @@ export const appRouter = router({
     }),
     tanda2PromoPreview: adminReadProcedure.query(async () => {
       const status = await getTanda2PromoStatus();
-      if (status.price === null || !status.eventTitle) return { html: null, status };
+      if (status.priceFrom === null || !status.eventTitle) return { html: null, status };
       const event = await db.getFeaturedEvent();
       if (!event) return { html: null, status };
       return {
         html: buildMailingBlastEmail({
-          ...buildTanda2PromoContent(status.price, event),
+          ...buildTanda2PromoContent(status.priceFrom, event),
           buyerName: 'Camila',
           ctaUrl: `${EMAIL_BASE_URL}/checkout/${event.slug}`,
           eventInfo: null,
+          priceList: status.prices,
+          remaining: status.remaining,
         }),
         status,
       };

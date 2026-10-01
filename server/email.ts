@@ -3,7 +3,7 @@ import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/amba
 import { BRAND, EVENT_BRAND } from '../shared/eventBrand';
 import { type OrderEmailConfig, DEFAULT_ORDER_EMAIL_CONFIG, fillPlaceholders } from '../shared/emailTemplateConfig';
 import {
-  ACCENT, INK, MUTED, FAINT, BORDER, CARD_BG, DISCO_BG, DISCO_HERO_BG, EMAIL_BASE_URL, LOGO_URL,
+  ACCENT, HALLOWEEN, INK, MUTED, FAINT, BORDER, CARD_BG, DISCO_BG, DISCO_HERO_BG, EMAIL_BASE_URL, LOGO_URL,
   REPORT_INK, REPORT_MUTED, REPORT_FAINT, REPORT_BORDER,
   card, sectionTitle, grid, costumeBadge, anniversaryBand, emailShell, emailHero,
   pastelButton, glassButton,
@@ -1363,6 +1363,49 @@ export type MailingEventSections = { banner: boolean; details: boolean; mission3
  * emails -- así la IA nunca controla estilos/HTML crudo, solo texto. La
  * tarjeta de evento (fecha/lugar/Misión 300/espacios) es igual de fija,
  * reusando los mismos bloques que ya usa buildOrderEmail. */
+/** Un acceso con su precio en la tarjeta de tanda del mailing -- mismo dato
+ * que muestra el sitio (`TandaUrgencyCard`): el tachado es el precio general
+ * y el otro lo que se paga en esta tanda. */
+export type MailingPriceRow = { label: string; price: number; originalPrice?: number | null };
+
+const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+
+/** Tarjeta "Cupos limitados a este precio" (réplica en HTML del sitio, en
+ * paleta Halloween). Todo con <table>/estilos en línea para que Gmail y Apple
+ * Mail la rendericen igual; la burbuja de cupos degrada a un bloque cuadrado
+ * en Outlook sin romperse. */
+function tandaPriceCard(rows: MailingPriceRow[], remaining?: number | null) {
+  const H = HALLOWEEN;
+  const hasStrike = rows.some((r) => r.originalPrice && r.originalPrice > r.price);
+  const bubble = remaining != null ? `
+    <div style="text-align:center;margin:0 0 20px;">
+      <span style="display:inline-block;background:#ffffff;color:${H.violet};font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;padding:4px 14px;border-radius:999px;margin-bottom:-12px;position:relative;">Quedan</span>
+      <div style="width:116px;height:116px;margin:0 auto;border-radius:58px;background-color:${H.lime};background-image:linear-gradient(135deg,${H.lime},${H.violet});text-align:center;">
+        <p style="margin:0;padding-top:30px;color:${H.bg};font-size:38px;font-weight:800;line-height:38px;">${remaining}</p>
+        <p style="margin:2px 0 0;color:${H.bg};font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;">cupos</p>
+      </div>
+    </div>` : '';
+  return `
+    <div style="background:${H.card};border:1px solid ${H.border};border-radius:24px;padding:28px 22px;margin-bottom:20px;">
+      ${bubble}
+      <h3 style="color:${H.lime};font-size:22px;font-weight:800;margin:0 0 6px;text-align:center;">Cupos limitados a este precio</h3>
+      ${hasStrike ? `<p style="color:${H.muted};font-size:12px;margin:0 0 16px;text-align:center;">El tachado es el precio general -- el otro es lo que pagas en esta tanda.</p>` : '<div style="height:10px;"></div>'}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
+        ${rows.map((r) => `
+        <tr>
+          <td style="padding:9px 0;border-top:1px solid ${H.border};color:${H.ink};font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.3px;">${r.label}</td>
+          <td align="right" style="padding:9px 0 9px 10px;border-top:1px solid ${H.border};white-space:nowrap;">
+            ${r.originalPrice && r.originalPrice > r.price ? `<span style="color:${H.muted};font-size:13px;text-decoration:line-through;margin-right:8px;">${clp(r.originalPrice)}</span>` : ''}
+            <span style="color:${H.lime};font-size:20px;font-weight:800;">${clp(r.price)}</span>
+          </td>
+        </tr>`).join('')}
+      </table>
+    </div>`;
+}
+
+/** Mailing masivo en paleta Halloween (pedido explícito del dueño, 01/10):
+ * mismos colores oficiales del sitio en modo Halloween. Es el único builder
+ * que usa `HALLOWEEN` -- el resto de los correos no cambia. */
 export function buildMailingBlastEmail(data: {
   buyerName: string;
   preheader?: string;
@@ -1377,16 +1420,26 @@ export function buildMailingBlastEmail(data: {
    * (pedido explícito del usuario) -- todos activos por defecto para no
    * romper llamadas existentes que no pasen este parámetro. */
   eventSections?: Partial<MailingEventSections>;
+  /** Precio de CADA acceso de la tanda vigente (tarjeta "Cupos limitados a
+   * este precio"). Sin esto, el bloque no aparece. */
+  priceList?: MailingPriceRow[];
+  /** Cupos que quedan en la tanda; solo se muestra junto a `priceList`. */
+  remaining?: number | null;
 }) {
+  const H = HALLOWEEN;
   const greeting = data.buyerName ? `¡Hola, ${data.buyerName}!` : '¡Hola!';
   const eventInfo = data.eventInfo;
   const showBanner = data.eventSections?.banner ?? true;
   const showDetails = data.eventSections?.details ?? true;
   const showMission300 = data.eventSections?.mission300 ?? true;
   const showVenueGrid = data.eventSections?.venueGrid ?? true;
+  const title = (emoji: string, text: string) => `<h3 style="color:${H.ink};font-size:19px;font-weight:800;margin:0 0 14px;">${emoji} ${text}</h3>`;
+  const hCard = (inner: string, bg: string = H.card) => card(inner, { bg, borderColor: H.border });
+  const hasHighlight = !!(data.highlightLabel && data.highlightValue);
 
   return emailShell({
     preheader: data.preheader,
+    pageBg: H.bg,
     beforeContainer: eventInfo?.imageUrl && showBanner
       ? `<img src="${eventInfo.imageUrl}" alt="${eventInfo.title}" style="display:block;width:100%;height:auto;" />`
       : undefined,
@@ -1394,56 +1447,60 @@ export function buildMailingBlastEmail(data: {
     // en el encabezado -- el CTA de la campaña va más abajo, después de los
     // párrafos) -- no usa `emailHero`, que asume ese otro orden.
     hero: `
-      ${anniversaryBand()}
-      <div style="background-color:${ACCENT.pink.bg};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;">
+      <div style="background-color:${H.violet};padding:11px 20px;text-align:center;">
+        <p style="color:${H.bg};font-size:11px;font-weight:800;letter-spacing:3px;margin:0;">${EVENT_BRAND.kicker}</p>
+      </div>
+      <div style="background-color:${H.card};padding:40px 24px;text-align:center;border-radius:0 0 32px 32px;border-bottom:1px solid ${H.border};">
         <img src="${LOGO_URL}" alt="${BRAND.nombre}" style="height:64px;width:auto;margin-bottom:24px;" />
-        <p style="font-size:52px;margin:0 0 12px;">🍬</p>
-        <p style="color:${MUTED};font-size:14px;margin:0 0 4px;">${greeting}</p>
-        <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 16px;">${data.headline}</h1>
-        ${costumeBadge()}
+        <p style="font-size:52px;margin:0 0 12px;">🎃</p>
+        <p style="color:${H.muted};font-size:14px;margin:0 0 4px;">${greeting}</p>
+        <h1 style="color:${H.lime};font-size:26px;font-weight:800;margin:0 0 16px;">${data.headline}</h1>
+        <span style="display:inline-block;background:${H.violet};color:${H.bg};font-size:12px;font-weight:800;letter-spacing:0.6px;padding:7px 16px;border-radius:999px;">${EVENT_BRAND.costumeBadge}</span>
       </div>
     `,
     body: `
       ${data.paragraphs.map((p) => `
-        <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 20px;">${p}</p>
+        <p style="color:${H.muted};font-size:15px;line-height:1.6;margin:0 0 20px;">${p}</p>
       `).join('')}
 
+      ${data.priceList && data.priceList.length > 0 ? tandaPriceCard(data.priceList, data.remaining) : ''}
+
       ${eventInfo && showDetails ? `
-      ${sectionTitle('📅', eventInfo.title)}
-      ${card(`
-        <p style="color:${INK};font-size:15px;margin:6px 0;">📅 ${eventInfo.dateText}</p>
-        <p style="color:${INK};font-size:15px;margin:6px 0;">📍 ${eventInfo.venue}${eventInfo.address ? ` — ${eventInfo.address}` : ''}</p>
-        ${eventInfo.mapsUrl ? `<a href="${eventInfo.mapsUrl}" style="display:inline-block;color:${ACCENT.pink.text};font-size:13px;font-weight:700;text-decoration:none;margin:4px 0 0;">📍 Ver en Google Maps →</a>` : ''}
+      ${title('📅', eventInfo.title)}
+      ${hCard(`
+        <p style="color:${H.ink};font-size:15px;margin:6px 0;">📅 ${eventInfo.dateText}</p>
+        <p style="color:${H.ink};font-size:15px;margin:6px 0;">📍 ${eventInfo.venue}${eventInfo.address ? ` — ${eventInfo.address}` : ''}</p>
+        ${eventInfo.mapsUrl ? `<a href="${eventInfo.mapsUrl}" style="display:inline-block;color:${H.violet};font-size:13px;font-weight:700;text-decoration:none;margin:4px 0 0;">📍 Ver en Google Maps →</a>` : ''}
       `)}
       ` : ''}
 
-      ${eventInfo?.mission300 && showMission300 ? card(`
+      ${eventInfo?.mission300 && showMission300 ? hCard(`
         <div style="text-align:center;">
-          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Misión 300</p>
-          <p style="color:${ACCENT.pink.text};font-size:28px;font-weight:800;margin:0 0 10px;">${eventInfo.mission300.confirmed}/${eventInfo.mission300.goal} ya confirmados</p>
-          <p style="color:${INK};font-size:15px;font-weight:700;margin:0;">🍬 Tu entrada sigue a $${eventInfo.mission300.depositPrice.toLocaleString('es-CL')} por persona mientras dure la Misión 300</p>
+          <p style="color:${H.muted};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Misión 300</p>
+          <p style="color:${H.lime};font-size:28px;font-weight:800;margin:0 0 10px;">${eventInfo.mission300.confirmed}/${eventInfo.mission300.goal} ya confirmados</p>
+          <p style="color:${H.ink};font-size:15px;font-weight:700;margin:0;">🎃 Tu entrada sigue a $${eventInfo.mission300.depositPrice.toLocaleString('es-CL')} por persona mientras dure la Misión 300</p>
         </div>
-      `, { bg: ACCENT.pink.bg, border: false }) : ''}
+      `) : ''}
 
       ${eventInfo && showVenueGrid ? `
-      ${sectionTitle('🛝', '¿Qué encontrarás?')}
+      ${title('🛝', '¿Qué encontrarás?')}
       ${grid(CONTENT.encontraras.map((x) => `
-        <div style="background:${ACCENT.lilac.bg};border-radius:16px;padding:14px;">
+        <div style="background:${H.card};border:1px solid ${H.border};border-radius:16px;padding:14px;">
           <p style="font-size:22px;margin:0 0 4px;">${x.emoji}</p>
-          <p style="color:${INK};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
+          <p style="color:${H.ink};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
         </div>
       `), 2)}
       ` : ''}
 
-      ${data.highlightLabel && data.highlightValue ? card(`
+      ${hasHighlight ? hCard(`
         <div style="text-align:center;">
-          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">${data.highlightLabel}</p>
-          <p style="color:${ACCENT.pink.text};font-size:32px;font-weight:800;margin:0;">${data.highlightValue}</p>
+          <p style="color:${H.muted};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">${data.highlightLabel}</p>
+          <p style="color:${H.lime};font-size:32px;font-weight:800;margin:0;">${data.highlightValue}</p>
         </div>
-      `, { bg: ACCENT.pink.bg, border: false }) : ''}
+      `) : ''}
 
-      <div style="text-align:center;padding:${data.highlightLabel && data.highlightValue ? '24px' : '8px'} 0 8px;">
-        <a href="${data.ctaUrl}" style="display:inline-block;background:${ACCENT.pink.solid};color:#fff;text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(236,95,163,0.35);">${data.ctaText || 'Ver más'}</a>
+      <div style="text-align:center;padding:${hasHighlight ? '24px' : '8px'} 0 8px;">
+        <a href="${data.ctaUrl}" style="display:inline-block;background:${H.lime};color:${H.bg};text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(196,255,77,0.25);">${data.ctaText || 'Ver más'}</a>
       </div>
     `,
   });

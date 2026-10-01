@@ -3570,8 +3570,8 @@ function Tanda2PromoCard() {
         {status && (
           <div className="grid grid-cols-3 gap-3">
             <div className="rounded-xl bg-white/50 dark:bg-black/20 p-3 text-center">
-              <p className="text-2xl font-bold">{status.price != null ? `$${status.price.toLocaleString('es-CL')}` : '—'}</p>
-              <p className="text-xs text-muted-foreground">precio actual</p>
+              <p className="text-2xl font-bold">{status.priceFrom != null ? `$${status.priceFrom.toLocaleString('es-CL')}` : '—'}</p>
+              <p className="text-xs text-muted-foreground">desde (precio más bajo)</p>
             </div>
             <div className="rounded-xl bg-white/50 dark:bg-black/20 p-3 text-center">
               <p className="text-2xl font-bold">{status.audienceSize}</p>

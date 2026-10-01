@@ -44,6 +44,21 @@ export const ACCENT = {
 
 export type AccentName = keyof typeof ACCENT;
 
+/** Paleta Halloween del sitio (client/src/index.css `.halloween`, colores
+ * oficiales del dueño: Noir Void, Cyber Lime, Vapor Violet, Grid Gray). La usa
+ * SOLO el mailing masivo (`buildMailingBlastEmail`) mientras dura la
+ * temporada -- el resto de los correos conserva su aspecto. Para volver al
+ * look normal basta con dejar de usar estas constantes en ese builder. */
+export const HALLOWEEN = {
+  bg: '#1A1A1A',
+  card: '#232323',
+  border: '#4D4D4D',
+  ink: '#F4F4EF',
+  muted: '#A6A6A6',
+  lime: '#C4FF4D',
+  violet: '#BA8CFF',
+} as const;
+
 /** Ciruela profundo: el color de la banda de aniversario y el chip de
  * disfraz -- ahora un poco más oscuro que el fondo general para que la
  * banda siga marcando su propio bloque en vez de fundirse con él. */
