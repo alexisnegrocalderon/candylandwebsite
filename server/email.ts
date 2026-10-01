@@ -9,6 +9,7 @@ import {
   pastelButton, glassButton,
 } from './emailLayout';
 import { logEmailSent } from './db';
+import { ORACLE_TEASER_CARDS } from '../shared/costumeOracle';
 
 interface SendEmailInput {
   to: string;
@@ -1403,6 +1404,35 @@ function tandaPriceCard(rows: MailingPriceRow[], remaining?: number | null) {
     </div>`;
 }
 
+/** Sección "Oráculo de Disfraces" al pie del mailing: invita a /disfraces
+ * mostrando 3 ejemplos de lo que devuelve (uno por nivel). Mismo enlace en
+ * texto y botón para que funcione aunque el cliente bloquee estilos. */
+function oracleCard() {
+  const H = HALLOWEEN;
+  const url = `${BRAND.web}/disfraces?utm_source=email&utm_medium=mailing&utm_campaign=oraculo`;
+  // Filas (no 3 columnas): en móvil 3 tarjetas angostas partían el texto.
+  const rows = ORACLE_TEASER_CARDS.map((c) => `
+    <tr>
+      <td width="44" valign="middle" style="padding:10px 0 10px 12px;font-size:28px;line-height:28px;">${c.emoji}</td>
+      <td valign="middle" style="padding:10px 8px;text-align:left;">
+        <p style="color:${H.violet};font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;margin:0 0 2px;">${c.tierEmoji} ${c.tierLabel}</p>
+        <p style="color:${H.ink};font-size:14px;font-weight:800;margin:0;">${c.name}</p>
+      </td>
+      <td valign="middle" align="right" style="padding:10px 12px 10px 0;color:${H.lime};font-size:12px;font-weight:700;white-space:nowrap;">${c.costRange.replace(' (arriendo)', '')}</td>
+    </tr>`).join('');
+  const examples = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:0 8px;margin:0 0 10px;">${rows.replace(/<tr>/g, `<tr style="background:${H.bg};">`)}</table>`;
+  return `
+    <div style="background:${H.card};border:1px solid ${H.violet};border-radius:24px;padding:28px 20px;margin:28px 0 8px;text-align:center;box-shadow:0 0 40px rgba(186,140,255,0.18);">
+      <p style="font-size:44px;margin:0 0 6px;">🔮</p>
+      <p style="color:${H.violet};font-size:11px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;margin:0 0 8px;">Disfraz obligatorio · ${EVENT_BRAND.fechaTexto}</p>
+      <h3 style="color:${H.lime};font-size:22px;font-weight:800;margin:0 0 10px;">¿No sabes de qué disfrazarte?</h3>
+      <p style="color:${H.muted};font-size:14px;line-height:1.6;margin:0 0 18px;">Contéstale 5 preguntas al <strong style="color:${H.ink};">Oráculo de Disfraces</strong> y te revela 3 ideas hechas a tu medida: una con lo que ya tienes, una con accesorios y una full producción.</p>
+      ${examples}
+      <a href="${url}" style="display:inline-block;background:${H.violet};color:${H.bg};text-decoration:none;padding:14px 30px;border-radius:999px;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(186,140,255,0.3);margin-top:6px;">🔮 Consultar al Oráculo</a>
+      <p style="color:${H.muted};font-size:11px;margin:12px 0 0;">Gratis, sin registro y en menos de un minuto.</p>
+    </div>`;
+}
+
 /** Mailing masivo en paleta Halloween (pedido explícito del dueño, 01/10):
  * mismos colores oficiales del sitio en modo Halloween. Es el único builder
  * que usa `HALLOWEEN` -- el resto de los correos no cambia. */
@@ -1425,6 +1455,8 @@ export function buildMailingBlastEmail(data: {
   priceList?: MailingPriceRow[];
   /** Cupos que quedan en la tanda; solo se muestra junto a `priceList`. */
   remaining?: number | null;
+  /** Sección "Oráculo de Disfraces" al pie (default: sí). */
+  showOracle?: boolean;
 }) {
   const H = HALLOWEEN;
   const greeting = data.buyerName ? `¡Hola, ${data.buyerName}!` : '¡Hola!';
@@ -1502,6 +1534,8 @@ export function buildMailingBlastEmail(data: {
       <div style="text-align:center;padding:${hasHighlight ? '24px' : '8px'} 0 8px;">
         <a href="${data.ctaUrl}" style="display:inline-block;background:${H.lime};color:${H.bg};text-decoration:none;padding:14px 32px;border-radius:999px;font-weight:800;font-size:14px;box-shadow:0 8px 20px rgba(196,255,77,0.25);">${data.ctaText || 'Ver más'}</a>
       </div>
+
+      ${data.showOracle ?? true ? oracleCard() : ''}
     `,
   });
 }

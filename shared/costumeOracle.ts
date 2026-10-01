@@ -97,3 +97,21 @@ export const COSTUME_ORACLE_SCHEMA = {
     additionalProperties: false,
   },
 } as const;
+
+/** Tres ejemplos fijos (uno por nivel) para mostrar en la portada y en el
+ * mailing qué devuelve el Oráculo, sin llamar a la IA. Mismos textos que el
+ * catálogo de respaldo de server/costumeOracle.ts (vibra "sexy"/"terror"
+ * mezcladas a propósito: ejemplos variados, no una recomendación). */
+export const ORACLE_TEASER_CARDS: {
+  tier: CostumeCard['tier'];
+  tierLabel: string;
+  tierEmoji: string;
+  name: string;
+  emoji: string;
+  pitch: string;
+  costRange: string;
+}[] = [
+  { tier: 'basico', tierLabel: 'Con lo que tienes', tierEmoji: '🧺', name: 'Gata Negra', emoji: '🐈\u200d⬛', pitch: 'Todo negro ajustado, orejas y actitud felina.', costRange: '$0 - $5.000' },
+  { tier: 'intermedio', tierLabel: 'Con accesorios', tierEmoji: '🛍️', name: 'Diablesa / Diablo', emoji: '😈', pitch: 'Rojo y negro con cachos, cola y mucha seguridad.', costRange: '$8.000 - $20.000' },
+  { tier: 'produccion', tierLabel: 'Full producción', tierEmoji: '🎬', name: 'Vampira Victoriana', emoji: '🦇', pitch: 'Corsé, capa larga y colmillos: elegancia oscura.', costRange: '$25.000 - $60.000 (arriendo)' },
+];
