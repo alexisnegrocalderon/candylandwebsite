@@ -2,6 +2,7 @@ import { eq, and } from 'drizzle-orm';
 import { getDb, advanceTanda, getStockPoolRemaining } from './db';
 import { events, ticketTypes } from '../drizzle/schema';
 import { normalizeTandaSchedule, computePhasePrice, nextPhase } from '../shared/tandaSchedule';
+import { UNLIMITED_STOCK } from '../shared/stock';
 
 /** Revisa si la tanda vigente de un evento debe pasar sola a la siguiente
  * fase -- por fecha (si la fase actual tiene `untilDate` y ya pasó) o por
@@ -65,7 +66,7 @@ export async function checkAndAdvanceTandaIfNeeded(eventId: number): Promise<{ a
     const rows = activos.map((tt) => ({
       oldTicketTypeId: tt.id,
       newPrice: tt.originalPrice ? computePhasePrice(Number(tt.originalPrice), next.phase.percent) : Number(tt.price),
-      newTotalStock: 999999,
+      newTotalStock: UNLIMITED_STOCK,
       newStockPoolId: null,
     }));
     await advanceTanda(eventId, rows);
