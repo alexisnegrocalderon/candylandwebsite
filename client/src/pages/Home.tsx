@@ -37,6 +37,7 @@ import ScrollStory from '@/components/home/ScrollStory';
 import FeaturedEventPanel from '@/components/home/FeaturedEventPanel';
 import { scrollToId, prefersReducedMotion, isFinePointer, isMobileViewport } from '@/lib/smoothScroll';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
+import { isUnlimitedStock } from '@shared/stock';
 import { useSeo } from '@/hooks/useSeo';
 import { eventSchema, faqSchema } from '@shared/structuredData';
 import { getArticle, articlePath, ALL_ARTICLES, STANDALONE_PAGES } from '@/content';
@@ -76,6 +77,9 @@ type TandaInfo = {
   totalStock: number;
   salesEnd: Date | null;
   soldOut: boolean;
+  /** Tanda sin cupo real (stock centinela 999999, ver shared/stock.ts): no hay
+   * remanente que mostrar, así que la tarjeta no imprime ningún número. */
+  unlimited: boolean;
   /** Precio de CADA acceso activo de la tanda, no solo el "destacado". */
   accesos: TandaAccesoPrecio[];
 } | null;
@@ -988,7 +992,7 @@ function UrgencySection({
   // llama (regla de Hooks), NO_SALES_END si no hay `salesEnd` configurado,
   // y el render decide si la muestra.
   const tandaCountdown = useCountdown(tanda?.salesEnd ?? NO_SALES_END);
-  const tandaDisplayRemaining = useCountUp(tanda?.remaining ?? 0);
+  const tandaDisplayRemaining = useCountUp(tanda && !tanda.unlimited ? tanda.remaining : 0);
 
   // Banda full-bleed detrás de esta sección: el único momento de la home
   // donde el pastel de marca aparece como un campo de color grande en vez
@@ -1331,7 +1335,7 @@ function TandaUrgencyCard({
    * salto brusco entre "nada" y la tarjeta real. */
   isLoading: boolean;
 }) {
-  const tandaPct = tanda
+  const tandaPct = tanda && !tanda.unlimited
     ? Math.min(100, Math.round(((tanda.totalStock - tanda.remaining) / Math.max(1, tanda.totalStock)) * 100))
     : 0;
 
@@ -1358,9 +1362,9 @@ function TandaUrgencyCard({
           <div aria-hidden className="absolute inset-0 rounded-full bg-cherry/25 blur-3xl candy-glow-pulse" />
           <div className="relative w-28 h-28 md:w-32 md:h-32 rounded-full bg-gradient-to-br from-cherry via-primary to-violet-electric shadow-[0_6px_22px_oklch(0.70_0.19_340_/_0.4)] flex flex-col items-center justify-center ring-2 ring-white/30">
             <span className="font-heading font-black text-3xl md:text-4xl text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)] tabular-nums leading-none" aria-live="polite">
-              {tanda ? displayRemaining : '—'}
+              {tanda ? (tanda.unlimited ? '🎟️' : displayRemaining) : '—'}
             </span>
-            <span className="text-[10px] md:text-xs uppercase tracking-[0.15em] text-white/90 font-bold">cupos</span>
+            <span className="text-[10px] md:text-xs uppercase tracking-[0.15em] text-white/90 font-bold">{tanda?.unlimited ? 'a la venta' : 'cupos'}</span>
           </div>
           {/* Sticker "Quedan" pegado encima del círculo, como una calcomanía
            * -- pedido explícito del dueño: no una etiqueta más adentro del
@@ -1368,7 +1372,7 @@ function TandaUrgencyCard({
            * propia para que se lea como un objeto aparte, no como parte del
            * degradé de abajo. */}
           <div aria-hidden className="absolute -top-3 left-1/2 -translate-x-1/2 -rotate-6 px-3 py-1 rounded-full bg-white text-cherry text-[10px] md:text-xs font-heading font-black uppercase tracking-wider shadow-[0_3px_10px_rgba(0,0,0,0.3)] ring-2 ring-cherry/15 z-10 whitespace-nowrap">
-            Quedan
+            {tanda?.unlimited ? 'Ahora' : 'Quedan'}
           </div>
         </div>
 
@@ -1378,7 +1382,7 @@ function TandaUrgencyCard({
            * explícito del dueño). El número grande ya está en el círculo de
            * arriba -- acá solo el copy. */}
           <h3 className="font-heading font-bold text-xl md:text-2xl text-gradient-candy mb-1">
-            {tanda ? 'Cupos limitados a este precio' : 'Entradas disponibles'}
+            {tanda ? (tanda.unlimited ? 'Precio vigente de esta tanda' : 'Cupos limitados a este precio') : 'Entradas disponibles'}
           </h3>
 
           {/* Precio de CADA acceso vigente (Soltera, Soltero, Dúo, Trío,
@@ -1428,6 +1432,7 @@ function TandaUrgencyCard({
             </div>
           )}
 
+          {!tanda?.unlimited && (
           <div className="h-3.5 rounded-full bg-muted overflow-hidden mt-4">
             <motion.div
               initial={{ width: 0 }}
@@ -1438,6 +1443,7 @@ function TandaUrgencyCard({
               <span className="absolute inset-0 candy-bar-shine" />
             </motion.div>
           </div>
+          )}
 
           {tanda?.soldOut ? (
             <div className="mt-5 w-full md:w-auto text-center px-6 py-3 rounded-full bg-muted text-muted-foreground text-sm font-bold uppercase tracking-wide" role="status">
@@ -2176,6 +2182,7 @@ export default function Home() {
     const remaining = usesPool
       ? Number((destacado as any).poolRemaining)
       : Math.max(0, totalStock - Number((destacado as any).soldCount ?? 0));
+    const unlimited = !usesPool && isUnlimitedStock(totalStock);
 
     // Precio de CADA acceso vigente de la tanda (Soltera, Soltero, Dúo,
     // Trío, Grupo...), no solo el destacado -- pedido explícito del dueño.
@@ -2197,6 +2204,7 @@ export default function Home() {
       totalStock,
       salesEnd: (destacado as any).salesEnd ? new Date((destacado as any).salesEnd) : null,
       soldOut: remaining <= 0 || (destacado as any).status === 'soldout',
+      unlimited,
       accesos,
     };
   }, [liveTickets]);
