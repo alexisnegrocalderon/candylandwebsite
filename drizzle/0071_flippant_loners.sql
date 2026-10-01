@@ -1,0 +1,2 @@
+ALTER TABLE `mailingSendLog` MODIFY COLUMN `source` enum('founders-promo','tanda2-promo','manual') NOT NULL;--> statement-breakpoint
+ALTER TABLE `siteSettings` ADD `tanda2PromoEnabled` int DEFAULT 0 NOT NULL;

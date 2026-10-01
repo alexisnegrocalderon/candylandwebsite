@@ -91,6 +91,7 @@ import { buildKitchenVendorPdf } from "./caja/kitchenVendorPdf";
 import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
 import { getFoundersPromoStatus, runFoundersPromoDaily, buildFoundersPromoContent } from "./foundersPromo";
+import { getTanda2PromoStatus, runTanda2PromoDaily, buildTanda2PromoContent } from "./tanda2Promo";
 import { EMAIL_BASE_URL } from "./emailLayout";
 import { sendPendingReminders, generateReminderCopy } from "./orderReminders";
 import { generateEventDescription } from "./eventDescriptions";
@@ -1824,8 +1825,13 @@ export const appRouter = router({
       kitchenVendorEmail: z.string().email().nullable().optional(),
       ogImageUrl: z.string().url().nullable().optional(),
       foundersPromoEnabled: z.boolean().optional(),
+      tanda2PromoEnabled: z.boolean().optional(),
       halloweenModeEnabled: z.boolean().optional(),
     })).mutation(async ({ input }) => {
+      // Los avisos de 1ª y 2ª tanda son excluyentes: juntos sumarían 100
+      // correos/día contra el límite de Resend (ver server/tanda2Promo.ts).
+      if (input.tanda2PromoEnabled) input.foundersPromoEnabled = false;
+      else if (input.foundersPromoEnabled) input.tanda2PromoEnabled = false;
       return db.updateSiteSettings(input);
     }),
     // Mismo número que llega en el correo de las 3am (server/cronRoutes.ts),
@@ -3657,6 +3663,30 @@ export const appRouter = router({
     // día si el cron no llegó a correr) -- misma función que usa el cron.
     foundersPromoRunNow: adminProcedure.mutation(async () => {
       return runFoundersPromoDaily();
+    }),
+
+    // Aviso diario de la 2ª tanda (server/tanda2Promo.ts) -- mismo esquema
+    // que el de primeros cupos: el on/off vive en settings.update.
+    tanda2PromoStatus: adminReadProcedure.query(async () => {
+      return getTanda2PromoStatus();
+    }),
+    tanda2PromoPreview: adminReadProcedure.query(async () => {
+      const status = await getTanda2PromoStatus();
+      if (status.price === null || !status.eventTitle) return { html: null, status };
+      const event = await db.getFeaturedEvent();
+      if (!event) return { html: null, status };
+      return {
+        html: buildMailingBlastEmail({
+          ...buildTanda2PromoContent(status.price, event),
+          buyerName: 'Camila',
+          ctaUrl: `${EMAIL_BASE_URL}/checkout/${event.slug}`,
+          eventInfo: null,
+        }),
+        status,
+      };
+    }),
+    tanda2PromoRunNow: adminProcedure.mutation(async () => {
+      return runTanda2PromoDaily();
     }),
   }),
 
