@@ -323,10 +323,15 @@ const WARM_SALES_RULES = [
 function buildSystemPrompt(
   config: InstagramAgentConfig,
   opts: { isFinalReplyOfDay?: boolean; channel?: AgentChannel; customerNotes?: string | null } = {},
-): string {
+): { stable: string; volatile: string } {
   const channel = opts.channel ?? 'instagram';
   const name = CHANNEL_NAME[channel];
-  return [
+  // Dos partes a propósito (prompt caching, server/_core/llm.ts): `stable`
+  // es idéntico entre conversaciones mientras no cambie la config, así que se
+  // cachea; lo que cambia por hilo o por día (la ficha de la persona, la
+  // última respuesta del día) va aparte en `volatile`, DESPUÉS del prefijo --
+  // si fuera en el medio, cada hilo distinto invalidaría el caché entero.
+  const stable = [
     `Eres quien contesta los mensajes ${channel === 'instagram' ? 'directos del Instagram' : 'del WhatsApp'} de Mansion Playroom. Le escribes a personas de afuera, en público: cada respuesta tuya se lee como si la hubiera escrito la productora.`,
     '',
     'CONTEXTO DE LA MARCA (lo escribió el dueño, respétalo):',
@@ -334,9 +339,6 @@ function buildSystemPrompt(
     '',
     ...(config.salesPlaybook.trim().length > 0
       ? ['GUÍA DE VENTAS DEL DUEÑO (tipos de cliente y objeciones -- úsala para leer a quién le hablas y cómo acompañarlo):', config.salesPlaybook, '']
-      : []),
-    ...(opts.customerNotes && opts.customerNotes.trim().length > 0
-      ? ['LO QUE YA SABES DE ESTA PERSONA (de conversaciones anteriores -- úsalo con naturalidad, nunca le repitas una pregunta que ya está respondida acá):', opts.customerNotes.trim(), '']
       : []),
     buildSiteLinksBlock(),
     '',
@@ -376,17 +378,25 @@ function buildSystemPrompt(
           config.styleExamples,
         ]
       : []),
+    ...(channel === 'whatsapp' ? ['', ...WHATSAPP_INTERACTIVE_RULES] : []),
+    ...(channel === 'instagram' ? ['', ...INSTAGRAM_BUTTON_RULES] : []),
+    '',
+    'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras), `isPersonal` (ver regla 0), `isThanks` (ver regla 9) y `customerNotes` (la ficha actualizada de la persona). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. Las excepciones son isPersonal=true (no se manda nada) e isThanks=true (se manda un mensaje fijo aparte, no el reply que generes) -- en esos dos casos `reply` puede quedar vacío.',
+  ].join('\n');
+
+  const volatile = [
+    ...(opts.customerNotes && opts.customerNotes.trim().length > 0
+      ? ['LO QUE YA SABES DE ESTA PERSONA (de conversaciones anteriores -- úsalo con naturalidad, nunca le repitas una pregunta que ya está respondida acá):', opts.customerNotes.trim()]
+      : []),
     ...(opts.isFinalReplyOfDay
       ? [
           '',
           'ÚLTIMA RESPUESTA DEL DÍA PARA ESTA PERSONA: este es el último mensaje automático que le vas a poder mandar hoy a este hilo (se llegó al tope diario de respuestas). No la dejes esperando ni la conversación cortada a medias: cierra este mensaje dándole lo que le falta para decidir -- si la conversación iba de interés en el evento, corresponde mandar el link de compra AUNQUE normalmente hubieras preguntado antes (esta regla pisa, solo por esta vez, la de "curiosidad vs. intención real" y la de "preguntar antes del link de contenido" de más arriba, justamente porque después de este mensaje el bot no vuelve a contestar hoy) -- usa el mecanismo de tu canal (botón/`action`) para mandarlo, igual que en cualquier otra intención real. Si ya le diste todo lo que pidió y no queda nada pendiente, despídete cálido nomás. Mantén el mismo tono cercano de siempre, no le digas que "se acabaron tus respuestas" ni nada que suene a límite técnico.',
         ]
       : []),
-    ...(channel === 'whatsapp' ? ['', ...WHATSAPP_INTERACTIVE_RULES] : []),
-    ...(channel === 'instagram' ? ['', ...INSTAGRAM_BUTTON_RULES] : []),
-    '',
-    'FORMATO DE SALIDA: un JSON con `reply` (lo que se le manda a la persona), `handoff` (true si tiene que seguirla alguien del equipo), `handoffReason` (por qué, en pocas palabras), `isPersonal` (ver regla 0), `isThanks` (ver regla 9) y `customerNotes` (la ficha actualizada de la persona). Cuando derives un mensaje de CLIENTE, tu `reply` igual tiene que ser una frase amable que cierre el mensaje -- la persona nunca debe quedarse sin respuesta. Las excepciones son isPersonal=true (no se manda nada) e isThanks=true (se manda un mensaje fijo aparte, no el reply que generes) -- en esos dos casos `reply` puede quedar vacío.',
-  ].join('\n');
+  ].join('\n').trim();
+
+  return { stable, volatile };
 }
 
 /** Convierte el historial guardado en turnos de conversación. Los mensajes
@@ -483,9 +493,11 @@ export async function runInstagramAgent(input: {
     const context = await buildInstagramContext(input.now ?? new Date());
     const history = toLlmMessages(input.history).slice(-config.historyLimit);
 
+    const systemPrompt = buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes });
     const result = await invokeLLM({
       messages: [
-        { role: 'system', content: buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes }) },
+        { role: 'system', content: systemPrompt.stable, cache: true },
+        ...(systemPrompt.volatile.length > 0 ? [{ role: 'system' as const, content: systemPrompt.volatile }] : []),
         ...history,
         {
           role: 'user',
