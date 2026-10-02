@@ -22,6 +22,7 @@ import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening, findPossibleDuplicateSales, cardTotals } from './caja/shiftMath';
 import { hashPin, verifyPin } from './caja/auth';
+import { normalizeEventDates } from './eventDates';
 import { isTopupProduct, topupChargeForLines } from '../shared/prepaid';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -224,10 +225,7 @@ export async function createEvent(data: any) {
 export async function updateEvent(id: number, data: any) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const updateData: any = { ...data };
-  if (data.eventDate) updateData.eventDate = new Date(data.eventDate);
-  if (data.doorsOpen) updateData.doorsOpen = new Date(data.doorsOpen);
-  if (data.eventEnd) updateData.eventEnd = new Date(data.eventEnd);
+  const updateData = normalizeEventDates(data);
   await db.update(events).set(updateData).where(eq(events.id, id));
   return { success: true };
 }
