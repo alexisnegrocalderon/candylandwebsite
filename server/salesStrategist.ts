@@ -1,4 +1,4 @@
-import { invokeLLM, extractContent } from './_core/llm';
+import { invokeLLM, extractContent, NO_THINKING } from './_core/llm';
 import { ENV } from './_core/env';
 import {
   getEventById,
@@ -225,8 +225,8 @@ export async function runSalesStrategist(opts: { now?: Date; trigger?: 'cron' | 
       { role: 'user', content: data.dataBlock },
     ],
     responseFormat: { type: 'json_schema', json_schema: STRATEGY_SCHEMA as any },
-    maxTokens: 2500,
-    ...(ENV.anthropicApiKey ? { model: STRATEGY_MODEL } : {}),
+    maxTokens: 4000,
+    ...(ENV.anthropicApiKey ? { model: STRATEGY_MODEL, thinking: NO_THINKING } : {}),
   });
 
   const parsed = JSON.parse(extractContent(result.choices[0]?.message ?? { content: '' })) as Record<string, unknown>;

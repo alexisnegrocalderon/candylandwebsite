@@ -1,4 +1,4 @@
-import { invokeLLM, extractContent } from './_core/llm';
+import { invokeLLM, extractContent, NO_THINKING } from './_core/llm';
 import { ENV } from './_core/env';
 import {
   getSiteSettings,
@@ -173,8 +173,8 @@ export async function runAgentCoach(opts: { now?: Date; trigger?: 'cron' | 'manu
       { role: 'user', content: userContent },
     ],
     responseFormat: { type: 'json_schema', json_schema: COACH_SCHEMA as any },
-    maxTokens: 3000,
-    ...(ENV.anthropicApiKey ? { model: COACH_MODEL } : {}),
+    maxTokens: 4500,
+    ...(ENV.anthropicApiKey ? { model: COACH_MODEL, thinking: NO_THINKING } : {}),
   });
 
   const parsed = JSON.parse(extractContent(result.choices[0]?.message ?? { content: '' })) as Record<string, unknown>;

@@ -3340,16 +3340,20 @@ export async function getWinbackData(now: Date = new Date()): Promise<{
   const db = await getDb();
   if (!db) return { participation: new Map(), pastEvents: [] };
 
-  const rows = await db.select({
-    email: sql<string>`LOWER(${orders.buyerEmail})`,
+  // DISTINCT sobre las columnas tal cual y a minúsculas en JS. La versión
+  // anterior agrupaba por LOWER(buyerEmail): drizzle imprime esa expresión
+  // distinta en el SELECT (sin tabla) y en el GROUP BY (con tabla), y TiDB, con
+  // ONLY_FULL_GROUP_BY, no las reconoce como la misma y rechaza la consulta
+  // ("Reactivar clientes" quedaba en "No se pudieron armar los grupos").
+  const rows = await db.selectDistinct({
+    email: orders.buyerEmail,
     eventId: orders.eventId,
   }).from(orders)
-    .where(and(eq(orders.paymentStatus, 'approved'), eq(orders.channel, 'web')))
-    .groupBy(sql`LOWER(${orders.buyerEmail})`, orders.eventId);
+    .where(and(eq(orders.paymentStatus, 'approved'), eq(orders.channel, 'web')));
 
   const participation = new Map<string, Set<number>>();
   for (const r of rows) {
-    const email = (r.email ?? '').trim();
+    const email = (r.email ?? '').trim().toLowerCase();
     if (!email || !email.includes('@') || PLACEHOLDER_BUYER_EMAILS.has(email)) continue;
     const set = participation.get(email) ?? new Set<number>();
     set.add(r.eventId);

@@ -1,4 +1,4 @@
-import { invokeLLM, extractContent } from './_core/llm';
+import { invokeLLM, extractContent, NO_THINKING } from './_core/llm';
 import { ENV } from './_core/env';
 import {
   getEventById,
@@ -196,8 +196,8 @@ export async function analyzeEventSurvey(eventId: number, now: Date = new Date()
       { role: 'user', content: lines.join('\n') },
     ],
     responseFormat: { type: 'json_schema', json_schema: ANALYSIS_SCHEMA as any },
-    maxTokens: 2000,
-    ...(ENV.anthropicApiKey ? { model: ANALYSIS_MODEL } : {}),
+    maxTokens: 3000,
+    ...(ENV.anthropicApiKey ? { model: ANALYSIS_MODEL, thinking: NO_THINKING } : {}),
   });
 
   const parsed = JSON.parse(extractContent(result.choices[0]?.message ?? { content: '' })) as Record<string, unknown>;
