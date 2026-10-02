@@ -37,6 +37,7 @@ import { InstagramInbox } from '@/components/admin/InstagramInbox';
 import { SalesStrategyView } from '@/components/admin/SalesStrategyView';
 import { EventSurveyView } from '@/components/admin/EventSurveyView';
 import { WinbackView } from '@/components/admin/WinbackView';
+import { ContentPlanView } from '@/components/admin/ContentPlanView';
 import { WhatsAppInbox } from '@/components/admin/WhatsAppInbox';
 import { StatusBadge } from '@/components/admin/StatusBadge';
 import { StatTile } from '@/components/admin/StatTile';
@@ -9549,6 +9550,7 @@ const ADMIN_SECTIONS = [
   { id: 'mailing', label: 'Mailing', group: 'Marketing', icon: Mail, render: () => <MailingSection /> },
   { id: 'mailing-history', label: 'Historial de Mailing', group: 'Marketing', icon: History, render: () => <MailingHistoryView /> },
   { id: 'winback', label: 'Reactivar clientes', group: 'Marketing', icon: Users, render: () => <WinbackView /> },
+  { id: 'content-plan', label: 'Plan de contenido', group: 'Marketing', icon: Calendar, render: () => <ContentPlanView /> },
   { id: 'email-templates', label: 'Plantillas de correo', group: 'Marketing', icon: Send, render: () => <EmailTemplatesManager /> },
   { id: 'referrals', label: 'Referidos', group: 'Marketing', icon: Trophy, render: () => <ReferralsView /> },
   { id: 'ambassadors', label: 'Embajadores VIP', group: 'Marketing', icon: Crown, render: () => <AmbassadorsView /> },
