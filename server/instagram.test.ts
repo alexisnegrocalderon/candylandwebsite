@@ -13,6 +13,10 @@ vi.mock('./_core/llm', async (importOriginal) => {
   return { ...actual, invokeLLM: vi.fn() };
 });
 const invokeLLMMock = vi.mocked(invokeLLM);
+// El system prompt viaja en dos mensajes (parte estable cacheada + parte
+// variable por hilo) -- para los asserts de contenido da igual cuál.
+const systemTextOf = (messages: Array<{ role: string; content: unknown }>) =>
+  messages.filter((m) => m.role === 'system').map((m) => String(m.content)).join('\n');
 
 vi.mock('./db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./db')>();
@@ -689,7 +693,7 @@ describe('runInstagramAgent', () => {
   it('el system prompt trae la venta cálida y la guía de ventas', async () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     await runInstagramAgent({ incomingText: 'hola', history: [], config });
-    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    const systemPrompt = systemTextOf(invokeLLMMock.mock.calls[0][0].messages);
     expect(systemPrompt).toContain('VENTA CÁLIDA');
     expect(systemPrompt).toContain('Nunca suenes desesperado');
     expect(systemPrompt).toContain('GUÍA DE VENTAS DEL DUEÑO');
@@ -699,7 +703,7 @@ describe('runInstagramAgent', () => {
   it('le pasa al modelo la ficha guardada de la persona y devuelve la actualizada', async () => {
     mockLlmJson({ reply: '¡Hola Cami! 💜', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'none', pageKey: '', customerNotes: 'Cami, viene en pareja, primera vez.' });
     const result = await runInstagramAgent({ incomingText: 'hola de nuevo', history: [], config, customerNotes: 'Cami, viene en pareja.' });
-    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    const systemPrompt = systemTextOf(invokeLLMMock.mock.calls[0][0].messages);
     expect(systemPrompt).toContain('LO QUE YA SABES DE ESTA PERSONA');
     expect(systemPrompt).toContain('Cami, viene en pareja.');
     expect(result.customerNotes).toBe('Cami, viene en pareja, primera vez.');
@@ -720,7 +724,7 @@ describe('runInstagramAgent', () => {
   it('el system prompt trae las páginas del sitio por su clave, sin URLs', async () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     await runInstagramAgent({ incomingText: 'qué es la tarjeta playcard?', history: [], config });
-    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    const systemPrompt = systemTextOf(invokeLLMMock.mock.calls[0][0].messages);
     expect(systemPrompt).toContain('pageKey "/blog/tarjeta-playcard"');
     expect(systemPrompt).toContain('pageKey "/disfraces"');
     expect(systemPrompt).not.toMatch(/https?:\/\//);
@@ -733,7 +737,7 @@ describe('runInstagramAgent', () => {
   it('el system prompt pide preguntar antes de mandar un link de contenido', async () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     await runInstagramAgent({ incomingText: 'qué es la tarjeta playcard?', history: [], config });
-    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    const systemPrompt = systemTextOf(invokeLLMMock.mock.calls[0][0].messages);
     expect(systemPrompt).toContain('¿te paso donde está todo el detalle?');
     expect(systemPrompt).toContain('action: "page_link"');
     expect(systemPrompt).toContain('NUNCA escribas una URL');
@@ -746,7 +750,7 @@ describe('runInstagramAgent', () => {
   it('el system prompt pide cerrar la conversación cuando es la última respuesta del día', async () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     await runInstagramAgent({ incomingText: 'cuéntame del próximo evento', history: [], config, isFinalReplyOfDay: true });
-    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    const systemPrompt = systemTextOf(invokeLLMMock.mock.calls[0][0].messages);
     expect(systemPrompt).toContain('ÚLTIMA RESPUESTA DEL DÍA');
     expect(systemPrompt).toContain('tope diario');
   });
@@ -754,7 +758,7 @@ describe('runInstagramAgent', () => {
   it('el system prompt NO trae la instrucción de cierre en una respuesta normal', async () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     await runInstagramAgent({ incomingText: 'hola', history: [], config });
-    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    const systemPrompt = systemTextOf(invokeLLMMock.mock.calls[0][0].messages);
     expect(systemPrompt).not.toContain('ÚLTIMA RESPUESTA DEL DÍA');
   });
 
@@ -766,7 +770,7 @@ describe('runInstagramAgent', () => {
   it('el system prompt distingue curiosidad general de intención real de compra', async () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     await runInstagramAgent({ incomingText: 'cuéntame del próximo evento', history: [], config });
-    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    const systemPrompt = systemTextOf(invokeLLMMock.mock.calls[0][0].messages);
     expect(systemPrompt).toContain('CURIOSIDAD o interés general');
     expect(systemPrompt).toContain('intención REAL de ir o comprar');
     expect(systemPrompt).toContain('¿te tinca venir?');
@@ -779,7 +783,7 @@ describe('runInstagramAgent', () => {
   it('el system prompt trae la excepción de saludo ambiguo (no marcarlo personal de entrada)', async () => {
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     await runInstagramAgent({ incomingText: 'hola', history: [], config });
-    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    const systemPrompt = systemTextOf(invokeLLMMock.mock.calls[0][0].messages);
     expect(systemPrompt).toContain('EXCEPCIÓN importante');
     expect(systemPrompt).toContain('NO marques isPersonal=true de entrada');
   });
@@ -804,7 +808,7 @@ describe('runInstagramAgent', () => {
       history: [],
       config: { ...config, styleExamples: 'hola! sí, el disfraz es obligatorio pero no tiene que ser producido jaja' },
     });
-    const systemPrompt = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    const systemPrompt = systemTextOf(invokeLLMMock.mock.calls[0][0].messages);
     expect(systemPrompt).toContain('EJEMPLOS DE CÓMO ESCRIBE EL DUEÑO');
     expect(systemPrompt).toContain('no tiene que ser producido jaja');
 
@@ -812,7 +816,7 @@ describe('runInstagramAgent', () => {
     getHomeEventsMock.mockResolvedValue([] as any);
     mockLlmJson({ reply: 'ok', handoff: false, handoffReason: '' });
     await runInstagramAgent({ incomingText: 'hola', history: [], config });
-    const systemPromptSinEjemplos = invokeLLMMock.mock.calls[0][0].messages[0].content;
+    const systemPromptSinEjemplos = systemTextOf(invokeLLMMock.mock.calls[0][0].messages);
     expect(systemPromptSinEjemplos).not.toContain('EJEMPLOS DE CÓMO ESCRIBE EL DUEÑO');
   });
 
@@ -907,5 +911,41 @@ describe('normalizeInstagramAgentConfig', () => {
   // El recordatorio viejo traía "mansionplayroom.cl/entradas" escrito.
   it('el recordatorio por defecto no trae ninguna URL', () => {
     expect(normalizeInstagramAgentConfig({}).followUpMessage).not.toMatch(/mansionplayroom|https?:/);
+  });
+});
+
+describe('runInstagramAgent -- prompt caching', () => {
+  const config = normalizeInstagramAgentConfig({ enabled: true });
+
+  beforeEach(() => {
+    invokeLLMMock.mockReset();
+    invokeLLMMock.mockResolvedValue({
+      id: 'x', created: 0, model: 'm',
+      choices: [{ index: 0, finish_reason: 'stop', message: { role: 'assistant', content: JSON.stringify({ reply: 'ok', handoff: false, handoffReason: '', isPersonal: false, isThanks: false, action: 'none', pageKey: '', customerNotes: '' }) } }],
+    } as any);
+  });
+
+  it('marca como cacheable solo el prefijo estable y deja la ficha de la persona fuera', async () => {
+    await runInstagramAgent({ incomingText: 'hola', history: [], config, customerNotes: 'Cami, en pareja.' });
+    const messages = invokeLLMMock.mock.calls[0][0].messages as Array<{ role: string; content: string; cache?: boolean }>;
+    expect(messages[0]).toMatchObject({ role: 'system', cache: true });
+    expect(messages[0].content).not.toContain('Cami, en pareja.');
+    expect(messages[1]).toMatchObject({ role: 'system' });
+    expect(messages[1].cache).toBeUndefined();
+    expect(messages[1].content).toContain('Cami, en pareja.');
+  });
+
+  it('el prefijo cacheable es idéntico entre dos personas distintas', async () => {
+    await runInstagramAgent({ incomingText: 'hola', history: [], config, customerNotes: 'Ana, sola.' });
+    await runInstagramAgent({ incomingText: 'hola', history: [], config, customerNotes: 'Beto, grupo de 5.', isFinalReplyOfDay: true });
+    const first = (invokeLLMMock.mock.calls[0][0].messages[0] as any).content;
+    const second = (invokeLLMMock.mock.calls[1][0].messages[0] as any).content;
+    expect(first).toBe(second);
+  });
+
+  it('sin ficha ni cierre del día no manda el segundo system', async () => {
+    await runInstagramAgent({ incomingText: 'hola', history: [], config });
+    const messages = invokeLLMMock.mock.calls[0][0].messages as Array<{ role: string }>;
+    expect(messages.filter((m) => m.role === 'system')).toHaveLength(1);
   });
 });

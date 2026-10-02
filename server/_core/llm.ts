@@ -31,6 +31,13 @@ export type Message = {
   content: MessageContent | MessageContent[];
   name?: string;
   tool_call_id?: string;
+  /** Solo rol "system" y solo con Anthropic: marca el FINAL de un prefijo
+   * estable que se puede cachear (prompt caching). Todo lo que va antes de
+   * este mensaje, y este mismo, tiene que ser idéntico entre llamadas para
+   * que el caché pegue -- lo que cambia por llamada (datos de la persona,
+   * del día) va en un system posterior sin esta marca. Proveedores que no
+   * son Anthropic la ignoran. */
+  cache?: boolean;
 };
 
 export type Tool = {
@@ -419,6 +426,26 @@ const toAnthropicContent = (
     .filter((block): block is Anthropic.TextBlockParam | Anthropic.ImageBlockParam => block !== null);
 };
 
+/** Arma el `system` de Anthropic. Sin ningún `cache` es un solo string (igual
+ * que siempre). Con alguno, va como bloques de texto y el bloque marcado
+ * lleva `cache_control` -- Anthropic cachea todo el prefijo hasta ahí, así
+ * que un prompt largo y estable (reglas, marca) se paga una vez y se relee
+ * barato en las llamadas siguientes (5 min de vida, se renueva con cada uso).
+ * Un prefijo por debajo del mínimo cacheable del modelo simplemente no se
+ * cachea, no da error. */
+export function buildAnthropicSystem(
+  systemMessages: Message[],
+): string | Anthropic.TextBlockParam[] {
+  if (!systemMessages.some((m) => m.cache)) {
+    return systemMessages.map(getMessageText).join("\n\n");
+  }
+  return systemMessages.map((m): Anthropic.TextBlockParam => ({
+    type: "text",
+    text: getMessageText(m),
+    ...(m.cache ? { cache_control: { type: "ephemeral" as const } } : {}),
+  }));
+}
+
 // Traduce una llamada de este módulo (forma OpenAI-shaped) a una llamada real
 // del SDK de Anthropic, y la respuesta de vuelta a InvokeResult -- así los 6
 // llamadores de invokeLLM (instagramAgent, adminQa, mailing, etc.) no
@@ -426,11 +453,11 @@ const toAnthropicContent = (
 async function invokeAnthropic(params: InvokeParams): Promise<InvokeResult> {
   const { messages, model, maxTokens, max_tokens, responseFormat, response_format, outputSchema, output_schema } = params;
 
-  const systemParts: string[] = [];
+  const systemMessages: Message[] = [];
   const anthropicMessages: Anthropic.MessageParam[] = [];
   for (const message of messages) {
     if (message.role === "system") {
-      systemParts.push(getMessageText(message));
+      systemMessages.push(message);
       continue;
     }
     const role = message.role === "assistant" ? "assistant" : "user";
@@ -457,7 +484,7 @@ async function invokeAnthropic(params: InvokeParams): Promise<InvokeResult> {
     response = await getAnthropicClient().messages.create({
       model: model ?? ANTHROPIC_DEFAULT_MODEL,
       max_tokens: max_tokens ?? maxTokens ?? ANTHROPIC_DEFAULT_MAX_TOKENS,
-      ...(systemParts.length > 0 ? { system: systemParts.join("\n\n") } : {}),
+      ...(systemMessages.length > 0 ? { system: buildAnthropicSystem(systemMessages) } : {}),
       messages: anthropicMessages,
       ...(outputConfig ? { output_config: outputConfig } : {}),
     });
