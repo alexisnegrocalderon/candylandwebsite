@@ -66,7 +66,7 @@ function SurveyPanel({ eventId, eventTitle }: { eventId: number; eventTitle: str
       toast.success(
         r.sent === 0 && r.failed === 0
           ? 'No había encuestas pendientes por mandar.'
-          : `Mandadas: ${r.sent}${r.failed > 0 ? ` · fallaron ${r.failed}` : ''}${r.pending > 0 ? ` · quedan ${r.pending} (vuelve a tocar el botón)` : ''}.`,
+          : `Mandadas: ${r.sent}${r.failed > 0 ? ` · fallaron ${r.failed}` : ''}${r.pending > 0 ? (r.capReached ? ` · quedan ${r.pending}: se alcanzó el cupo diario de correos, el resto sale mañana` : ` · quedan ${r.pending} (vuelve a tocar el botón)`) : ''}.`,
       );
     },
     onError,
@@ -110,7 +110,7 @@ function SurveyPanel({ eventId, eventTitle }: { eventId: number; eventTitle: str
             <div>
               <p className="font-medium">Enviar automáticamente a esta fiesta</p>
               <p className="text-sm text-muted-foreground">
-                Desde el mediodía del día siguiente, hasta 4 días después, entre 12:00 y 20:00. Solo a quienes asistieron y tienen correo real. Una sola vez por persona.
+                Desde el mediodía del día siguiente, hasta 6 días después, entre 12:00 y 20:00. Respeta el cupo diario de correos automáticos (el mismo del mailing): si una fiesta es grande, sale en varios días. Solo a quienes asistieron y tienen correo real. Una sola vez por persona.
               </p>
             </div>
             <Switch checked={d.autoSend} disabled={setAuto.isPending} onCheckedChange={(enabled) => setAuto.mutate({ eventId, enabled })} />

@@ -5266,8 +5266,8 @@ export async function getMailingSendLogForBatch(batchId: string) {
  * Por eso el presupuesto pasa a ser diario y compartido: la frecuencia alta
  * sirve para que un correo salga PRONTO, no para mandar más.
  *
- * Cuenta el mailing masivo y los recordatorios de carrito abandonado, que son
- * los dos automáticos. Los transaccionales quedan fuera a propósito: son la
+ * Cuenta el mailing masivo, los recordatorios de carrito abandonado y las
+ * encuestas post-fiesta, que son los automáticos. Los transaccionales quedan fuera a propósito: son la
  * reserva que este presupuesto protege, no algo que deba consumirlo. */
 export async function countAutomatedEmailsSentToday(now: Date = new Date()): Promise<number> {
   const db = await getDb();
@@ -5286,7 +5286,22 @@ export async function countAutomatedEmailsSentToday(now: Date = new Date()): Pro
     .from(orders)
     .where(gte(orders.reminderSentAt, dayStart));
 
-  return Number(mailing?.count ?? 0) + Number(reminders?.count ?? 0);
+  // Las encuestas post-fiesta también son automáticas y salen de la misma
+  // cuota de Resend: cuentan acá para que ni ellas dejen sin cupo a las
+  // confirmaciones de compra, ni el mailing se coma el de las encuestas. Si
+  // la tabla todavía no existe (migración 0073 sin correr) cuentan 0 -- esta
+  // función la usa el cron del mailing, y no puede romperse por eso.
+  let surveys = 0;
+  try {
+    const [row] = await db.select({ count: sql<number>`count(*)` })
+      .from(eventSurveys)
+      .where(gte(eventSurveys.sentAt, dayStart));
+    surveys = Number(row?.count ?? 0);
+  } catch (error) {
+    console.warn('[Database] No se pudieron contar las encuestas del día (¿falta la migración 0073?):', error);
+  }
+
+  return Number(mailing?.count ?? 0) + Number(reminders?.count ?? 0) + surveys;
 }
 
 export async function getPendingMailingRecipients(limit: number) {
