@@ -24,6 +24,7 @@ vi.mock('./db', async (importOriginal) => {
     getEventSurveySettings: vi.fn(),
     listAutoSurveyEventIds: vi.fn(),
     saveEventSurveyReport: vi.fn(),
+    countAutomatedEmailsSentToday: vi.fn(),
   };
 });
 vi.mock('./email', async (importOriginal) => {
@@ -49,6 +50,7 @@ beforeEach(() => {
   vi.mocked(db.getSurveyOverview).mockResolvedValue({ invited: 0, sent: 0, pending: 0, responses: [] });
   vi.mocked(db.getEventSurveySettings).mockResolvedValue({ autoSend: false, report: null });
   vi.mocked(db.listAutoSurveyEventIds).mockResolvedValue([]);
+  vi.mocked(db.countAutomatedEmailsSentToday).mockResolvedValue(0);
   sendEmailMock.mockResolvedValue({ success: true } as any);
 });
 
@@ -57,7 +59,7 @@ describe('sendEventSurveys', () => {
     vi.mocked(db.listPendingSurveys).mockResolvedValue([invite(1), invite(2, 'Beto')] as any);
     vi.mocked(db.getSurveyOverview).mockResolvedValue({ invited: 2, sent: 2, pending: 0, responses: [] });
     const r = await sendEventSurveys(7);
-    expect(r).toEqual({ invited: 1, sent: 2, failed: 0, pending: 0 });
+    expect(r).toEqual({ invited: 1, sent: 2, failed: 0, pending: 0, capReached: false });
     expect(db.createSurveyInvites).toHaveBeenCalledWith(7, [{ email: 'a@mail.com', name: 'A' }]);
     expect(sendEmailMock).toHaveBeenCalledTimes(2);
     const first = sendEmailMock.mock.calls[0][0];
@@ -85,6 +87,34 @@ describe('sendEventSurveys', () => {
     expect(db.listPendingSurveys).toHaveBeenCalledWith(7, 25, 3);
   });
 
+  // El plan de Resend tiene ~100 correos al día y las confirmaciones de compra
+  // con el QR no pueden quedarse sin cupo por una encuesta: las encuestas
+  // comparten el tope diario de correos automáticos con el mailing.
+  it('respeta el cupo diario compartido: manda solo lo que queda del día', async () => {
+    vi.mocked(db.countAutomatedEmailsSentToday).mockResolvedValue(50); // tope 60 -> quedan 10
+    vi.mocked(db.listPendingSurveys).mockResolvedValue([invite(1)] as any);
+    vi.mocked(db.getSurveyOverview).mockResolvedValue({ invited: 100, sent: 1, pending: 99, responses: [] });
+    const r = await sendEventSurveys(7, 40);
+    expect(db.listPendingSurveys).toHaveBeenCalledWith(7, 10, 3);
+    expect(r.capReached).toBe(true);
+  });
+
+  it('con el cupo agotado no manda ninguno, pero igual deja preparadas las invitaciones', async () => {
+    vi.mocked(db.countAutomatedEmailsSentToday).mockResolvedValue(60);
+    vi.mocked(db.getSurveyOverview).mockResolvedValue({ invited: 100, sent: 0, pending: 100, responses: [] });
+    const r = await sendEventSurveys(7, 40);
+    expect(db.createSurveyInvites).toHaveBeenCalled();
+    expect(db.listPendingSurveys).not.toHaveBeenCalled();
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ sent: 0, pending: 100, capReached: true });
+  });
+
+  it('un cupo que alcanza no marca capReached', async () => {
+    vi.mocked(db.countAutomatedEmailsSentToday).mockResolvedValue(10);
+    vi.mocked(db.getSurveyOverview).mockResolvedValue({ invited: 5, sent: 5, pending: 0, responses: [] });
+    expect((await sendEventSurveys(7, 40)).capReached).toBe(false);
+  });
+
   it('una fiesta que no existe da un error claro', async () => {
     vi.mocked(db.getEventById).mockResolvedValue(undefined as any);
     await expect(sendEventSurveys(99)).rejects.toThrow('No encontré esa fiesta');
@@ -110,6 +140,15 @@ describe('runSurveyDispatch', () => {
     expect(r.ran).toBe(true);
     expect(r.events.map((e) => e.eventId)).toEqual([7]);
     expect(sendEmailMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('el cron tampoco pasa del cupo diario: con el cupo agotado no manda nada', async () => {
+    vi.mocked(db.listAutoSurveyEventIds).mockResolvedValue([7]);
+    vi.mocked(db.countAutomatedEmailsSentToday).mockResolvedValue(60);
+    vi.mocked(db.getSurveyOverview).mockResolvedValue({ invited: 50, sent: 0, pending: 50, responses: [] });
+    const r = await runSurveyDispatch(SEND_TIME);
+    expect(r.ran).toBe(true);
+    expect(sendEmailMock).not.toHaveBeenCalled();
   });
 
   it('con el automático apagado en todas las fiestas no manda nada', async () => {

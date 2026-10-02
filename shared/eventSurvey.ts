@@ -11,11 +11,13 @@ const HOUR_MS = 60 * 60 * 1000;
 export const SURVEY_SEND_HOUR_FROM = 12;
 export const SURVEY_SEND_HOUR_UNTIL = 20;
 
-/** Un evento entra a la ronda de envío entre 12 horas y 4 días después de su
+/** Un evento entra a la ronda de envío entre 12 horas y 6 días después de su
  * hora de inicio: antes, la fiesta ni terminó; después, ya es tarde para que
- * la gente se acuerde. */
+ * la gente se acuerde. Son 6 y no 4 porque el cupo diario de correos
+ * automáticos (60 por defecto) es el que manda: una fiesta grande tarda
+ * varios días en terminar de salir. */
 export const SURVEY_WINDOW_MIN_HOURS = 12;
-export const SURVEY_WINDOW_MAX_HOURS = 96;
+export const SURVEY_WINDOW_MAX_HOURS = 144;
 
 /** Cuántos correos como máximo por corrida del cron. Resend responde en
  * ~100-300 ms cada uno: con 40 queda lejos de cualquier tope de tiempo, y lo

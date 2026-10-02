@@ -11,7 +11,9 @@ import {
   getEventSurveySettings,
   listAutoSurveyEventIds,
   saveEventSurveyReport,
+  countAutomatedEmailsSentToday,
 } from './db';
+import { AUTOMATED_EMAIL_DAILY_CAP } from './mailing';
 import { sendEmail, buildEventSurveyEmail } from './email';
 import { EMAIL_BASE_URL } from './emailLayout';
 import { ADMIN_NOTIFICATION_EMAIL } from '../shared/const';
@@ -41,7 +43,9 @@ export function surveyUrl(token: string): string {
   return `${EMAIL_BASE_URL}/encuesta/${token}`;
 }
 
-export type SurveySendResult = { invited: number; sent: number; failed: number; pending: number };
+/** `capReached`: el cupo diario de correos automáticos se agotó (o quedó
+ * corto) y por eso salieron menos de los pedidos -- lo pendiente sale mañana. */
+export type SurveySendResult = { invited: number; sent: number; failed: number; pending: number; capReached: boolean };
 
 /** Prepara las invitaciones de la fiesta (quien asistió y todavía no tiene) y
  * manda hasta `limit` de las pendientes. Se puede llamar las veces que haga
@@ -51,7 +55,15 @@ export async function sendEventSurveys(eventId: number, limit: number = SURVEY_B
   if (!event) throw new Error('No encontré esa fiesta.');
 
   const invited = await createSurveyInvites(eventId, await getSurveyAttendees(eventId));
-  const pending = await listPendingSurveys(eventId, limit, SURVEY_MAX_SEND_ATTEMPTS);
+
+  // Las encuestas comparten con el mailing y los recordatorios el cupo diario
+  // de correos automáticos (AUTOMATED_EMAIL_DAILY_CAP): el plan de Resend
+  // tiene ~100 al día y las confirmaciones de compra con el QR no pueden
+  // quedarse sin cupo por una encuesta. Preparar las invitaciones no gasta
+  // nada, solo el envío.
+  const budget = AUTOMATED_EMAIL_DAILY_CAP - (await countAutomatedEmailsSentToday());
+  const allowed = Math.max(0, Math.min(limit, budget));
+  const pending = allowed > 0 ? await listPendingSurveys(eventId, allowed, SURVEY_MAX_SEND_ATTEMPTS) : [];
 
   let sent = 0;
   let failed = 0;
@@ -71,7 +83,7 @@ export async function sendEventSurveys(eventId: number, limit: number = SURVEY_B
   }
 
   const stillPending = (await getSurveyOverview(eventId)).pending;
-  return { invited, sent, failed, pending: stillPending };
+  return { invited, sent, failed, pending: stillPending, capReached: allowed < limit && stillPending > 0 };
 }
 
 /** Un correo de ejemplo al dueño, con un link de muestra (no hay respuesta

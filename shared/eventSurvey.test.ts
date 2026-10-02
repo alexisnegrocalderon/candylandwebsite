@@ -21,11 +21,11 @@ describe('isSurveySendHour', () => {
 
 describe('isInSurveyWindow', () => {
   const event = new Date('2026-10-30T22:00:00Z');
-  it('abre 12 horas después de empezar la fiesta y cierra a los 4 días', () => {
+  it('abre 12 horas después de empezar la fiesta y cierra a los 6 días', () => {
     expect(isInSurveyWindow(event, new Date(event.getTime() + 11 * HOUR))).toBe(false);
     expect(isInSurveyWindow(event, new Date(event.getTime() + 12 * HOUR))).toBe(true);
-    expect(isInSurveyWindow(event, new Date(event.getTime() + 96 * HOUR))).toBe(true);
-    expect(isInSurveyWindow(event, new Date(event.getTime() + 97 * HOUR))).toBe(false);
+    expect(isInSurveyWindow(event, new Date(event.getTime() + 144 * HOUR))).toBe(true);
+    expect(isInSurveyWindow(event, new Date(event.getTime() + 145 * HOUR))).toBe(false);
   });
   it('no abre antes de la fiesta', () => {
     expect(isInSurveyWindow(event, new Date(event.getTime() - 5 * HOUR))).toBe(false);
