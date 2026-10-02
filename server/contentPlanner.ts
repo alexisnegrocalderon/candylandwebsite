@@ -1,4 +1,4 @@
-import { invokeLLM, extractContent } from './_core/llm';
+import { invokeLLM, extractContent, NO_THINKING } from './_core/llm';
 import { ENV } from './_core/env';
 import { getEventById, getFeaturedEvent, getSiteSettings, listActiveIgKeywordAutomations } from './db';
 import { buildEventFacts } from './winback';
@@ -122,8 +122,8 @@ export async function generateContentPlan(targetEventId: number | undefined, now
       { role: 'user', content: userContent },
     ],
     responseFormat: { type: 'json_schema', json_schema: PLAN_SCHEMA as any },
-    maxTokens: 8000,
-    ...(ENV.anthropicApiKey ? { model: PLAN_MODEL } : {}),
+    maxTokens: 12000,
+    ...(ENV.anthropicApiKey ? { model: PLAN_MODEL, thinking: NO_THINKING } : {}),
   });
 
   const parsed = JSON.parse(extractContent(result.choices[0]?.message ?? { content: '' })) as Record<string, unknown>;

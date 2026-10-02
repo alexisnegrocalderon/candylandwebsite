@@ -375,6 +375,14 @@ const fetchWithBackoff = async (
 };
 
 const ANTHROPIC_DEFAULT_MODEL = "claude-haiku-4-5";
+
+/** Para los análisis largos con salida estructurada (Director comercial, plan
+ * de contenido, análisis de encuestas, coach): sin razonamiento extendido. Ese
+ * razonamiento gasta `max_tokens` antes de escribir la respuesta, y cuando se
+ * acaba el presupuesto el JSON llega vacío o cortado a la mitad. Estas tareas
+ * ya traen los datos calculados y un esquema cerrado: no lo necesitan. Solo
+ * tiene efecto con Anthropic (el resto de los proveedores no lo reciben). */
+export const NO_THINKING = { type: "disabled" } as const;
 // Claude exige max_tokens siempre, a diferencia de Gemini/Forge -- casi
 // ningún llamador de invokeLLM lo pasa hoy (solo instagramAgent.ts), así que
 // hace falta un default razonable para el resto (Q&A, mailing, descripciones
@@ -451,7 +459,7 @@ export function buildAnthropicSystem(
 // llamadores de invokeLLM (instagramAgent, adminQa, mailing, etc.) no
 // necesitan saber qué proveedor está activo.
 async function invokeAnthropic(params: InvokeParams): Promise<InvokeResult> {
-  const { messages, model, maxTokens, max_tokens, responseFormat, response_format, outputSchema, output_schema } = params;
+  const { messages, model, maxTokens, max_tokens, responseFormat, response_format, outputSchema, output_schema, thinking } = params;
 
   const systemMessages: Message[] = [];
   const anthropicMessages: Anthropic.MessageParam[] = [];
@@ -487,6 +495,9 @@ async function invokeAnthropic(params: InvokeParams): Promise<InvokeResult> {
       ...(systemMessages.length > 0 ? { system: buildAnthropicSystem(systemMessages) } : {}),
       messages: anthropicMessages,
       ...(outputConfig ? { output_config: outputConfig } : {}),
+      // Solo se manda si el llamador lo pide (los demás proveedores no lo
+      // entienden). Ver `thinking: { type: 'disabled' }` en los análisis largos.
+      ...(thinking ? { thinking: thinking as unknown as Anthropic.ThinkingConfigParam } : {}),
     });
   } catch (err) {
     if (err instanceof Anthropic.APIError) {
@@ -498,6 +509,24 @@ async function invokeAnthropic(params: InvokeParams): Promise<InvokeResult> {
   const text = response.content
     .map(block => (block.type === "text" ? block.text : ""))
     .join("");
+
+  // Con salida estructurada (JSON), una respuesta cortada o vacía no sirve
+  // para nada: quien la parsea tira "Unexpected end of JSON input" o
+  // "Unterminated string in JSON", que no le dice nada a nadie. Pasó (02/10) en
+  // el Director comercial y el plan de contenido: si el modelo gasta el
+  // presupuesto de `max_tokens` pensando, el texto queda vacío o a medias --
+  // los bloques de razonamiento cuentan contra `max_tokens`, pero no son texto.
+  // Se corta acá con el motivo real.
+  if (outputConfig) {
+    if (response.stop_reason === "max_tokens") {
+      console.error(`[LLM] Respuesta estructurada cortada por max_tokens (modelo ${response.model}, salida ${response.usage.output_tokens} tokens, ${text.length} caracteres de texto)`);
+      throw new Error("La IA se quedó sin espacio para terminar la respuesta. Intenta de nuevo.");
+    }
+    if (text.trim().length === 0) {
+      console.error(`[LLM] Respuesta estructurada vacía (modelo ${response.model}, stop_reason ${response.stop_reason})`);
+      throw new Error(`La IA no devolvió ninguna respuesta${response.stop_reason ? ` (motivo: ${response.stop_reason})` : ""}. Intenta de nuevo.`);
+    }
+  }
 
   return {
     id: response.id,
