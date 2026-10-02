@@ -41,6 +41,7 @@ import FeaturedEventPanel from '@/components/home/FeaturedEventPanel';
 import { scrollToId, prefersReducedMotion, isFinePointer, isMobileViewport } from '@/lib/smoothScroll';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 import { isUnlimitedStock } from '@shared/stock';
+import { eventImage } from '@shared/eventImage';
 import { useSeo } from '@/hooks/useSeo';
 import { eventSchema, faqSchema } from '@shared/structuredData';
 import { getArticle, articlePath, ALL_ARTICLES, STANDALONE_PAGES } from '@/content';
@@ -841,7 +842,11 @@ function UpcomingEventsSection() {
       dateLabel: date.toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Santiago' }),
       venue: e.venue,
       shortDescription: e.shortDescription,
-      imageUrl: e.imageUrl || candylandHistorico.imageUrl,
+      // Si el flyer está en el almacén bloqueado y no hay copia local, se deja
+      // la URL original: la tarjeta muestra "Flyer no disponible" en vez de
+      // el flyer de OTRO evento (el respaldo de Candyland es solo para
+      // eventos que nunca tuvieron imagen).
+      imageUrl: eventImage(e.slug, e.imageUrl) ?? e.imageUrl ?? candylandHistorico.imageUrl,
       isPast: e.status === 'past' || date.getTime() < now,
       featured: !!e.featured,
       href: `/eventos/${e.slug}`,

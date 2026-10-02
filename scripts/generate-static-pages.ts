@@ -32,7 +32,7 @@ import { articleSchema, breadcrumbSchema } from '../shared/structuredData';
 import { getArticle, getPosts, getGuides, articlePath, type Article } from '../client/src/content';
 
 const SITE_URL = 'https://mansionplayroom.cl';
-const DEFAULT_OG_IMAGE = `${SITE_URL}/candyland/og-candyland.jpg`;
+const DEFAULT_OG_IMAGE = `${SITE_URL}/candyland/og-aniversario.jpg`;
 const OUT_DIR = join(import.meta.dirname, '..', 'dist', 'public');
 
 type RouteMeta = { path: string; file: string; meta: MetaOverrides };

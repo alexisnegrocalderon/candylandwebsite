@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import * as db from "./db";
 import { eventSchema, breadcrumbSchema } from "../shared/structuredData";
 import { getIndexHtmlTemplate, injectMeta } from "./_core/htmlTemplate";
+import { eventImage, absoluteImageUrl, isBlockedBlobUrl } from "../shared/eventImage";
 import { dropSupersededTickets } from "../shared/liveTickets";
 
 /* Inyección de metaetiquetas del lado del servidor (pedido explícito del
@@ -32,7 +33,10 @@ import { dropSupersededTickets } from "../shared/liveTickets";
  * Vite sirva sus propias rutas en dev) se comería esas requests primero. */
 
 const SITE_URL = "https://mansionplayroom.cl";
-const DEFAULT_OG_IMAGE = `${SITE_URL}/candyland/og-candyland.jpg`;
+// Imagen 1200x630 con el flyer del 2º Aniversario entero (fondo difuminado +
+// flyer al centro): es lo que se ve al compartir el link en WhatsApp/Instagram.
+// Cuando pase el evento, volver a `og-candyland.jpg` o subir otra desde el admin.
+const DEFAULT_OG_IMAGE = `${SITE_URL}/candyland/og-aniversario.jpg`;
 const DEFAULT_EVENT_DESCRIPTION =
   "Fiesta liberal en la Región de Valparaíso: fecha, horario, accesos y entradas para tu próxima noche con Mansion Playroom.";
 
@@ -46,7 +50,10 @@ let ogImageCache: { value: string; expiresAt: number } | null = null;
 async function resolveDefaultOgImage(): Promise<string> {
   if (ogImageCache && ogImageCache.expiresAt > Date.now()) return ogImageCache.value;
   const settings = await db.getSiteSettings();
-  const value = settings.ogImageUrl || DEFAULT_OG_IMAGE;
+  // Un ogImageUrl guardado en el almacén Blob bloqueado ya no sirve (los
+  // crawlers reciben 403 y la vista previa sale sin imagen): se ignora hasta
+  // que se suba una nueva al almacén vigente desde el admin.
+  const value = settings.ogImageUrl && !isBlockedBlobUrl(settings.ogImageUrl) ? settings.ogImageUrl : DEFAULT_OG_IMAGE;
   ogImageCache = { value, expiresAt: Date.now() + OG_IMAGE_CACHE_TTL_MS };
   return value;
 }
@@ -88,7 +95,8 @@ export function registerSsrMetaRoutes(app: Express) {
 
       const title = `${event.title} — Fiesta Liberal en Viña del Mar | +18`;
       const description = event.shortDescription || DEFAULT_EVENT_DESCRIPTION;
-      const image = event.imageUrl || (await resolveDefaultOgImage());
+      const flyer = absoluteImageUrl(eventImage(event.slug, event.imageUrl));
+      const image = flyer || (await resolveDefaultOgImage());
       const url = `${SITE_URL}/eventos/${event.slug}`;
 
       let priceFrom: number | null = null;
@@ -109,7 +117,7 @@ export function registerSsrMetaRoutes(app: Express) {
           startDate: new Date(event.eventDate).toISOString(),
           endDate: event.eventEnd ? new Date(event.eventEnd).toISOString() : null,
           slug: event.slug,
-          imageUrl: event.imageUrl,
+          imageUrl: flyer,
           priceFrom,
           venueName: event.venue ?? undefined,
         }),
