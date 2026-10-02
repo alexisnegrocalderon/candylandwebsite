@@ -25,6 +25,7 @@ vi.mock('./db', async (importOriginal) => {
     listAutoSurveyEventIds: vi.fn(),
     saveEventSurveyReport: vi.fn(),
     countAutomatedEmailsSentToday: vi.fn(),
+    countEmailsSentToday: vi.fn(),
   };
 });
 vi.mock('./email', async (importOriginal) => {
@@ -51,6 +52,7 @@ beforeEach(() => {
   vi.mocked(db.getEventSurveySettings).mockResolvedValue({ autoSend: false, report: null });
   vi.mocked(db.listAutoSurveyEventIds).mockResolvedValue([]);
   vi.mocked(db.countAutomatedEmailsSentToday).mockResolvedValue(0);
+  vi.mocked(db.countEmailsSentToday).mockResolvedValue(0);
   sendEmailMock.mockResolvedValue({ success: true } as any);
 });
 
@@ -97,6 +99,25 @@ describe('sendEventSurveys', () => {
     const r = await sendEventSurveys(7, 40);
     expect(db.listPendingSurveys).toHaveBeenCalledWith(7, 10, 3);
     expect(r.capReached).toBe(true);
+  });
+
+  it('también mira el total real del día y deja la reserva para las confirmaciones de compra', async () => {
+    // El cupo automático está casi vacío (5 de 60)... pero hoy ya salieron 65
+    // correos de todo tipo (avisos de tanda, confirmaciones): con tope 100 y
+    // reserva 30 quedan 100 - 30 - 65 = 5.
+    vi.mocked(db.countAutomatedEmailsSentToday).mockResolvedValue(5);
+    vi.mocked(db.countEmailsSentToday).mockResolvedValue(65);
+    vi.mocked(db.getSurveyOverview).mockResolvedValue({ invited: 100, sent: 0, pending: 100, responses: [] });
+    const r = await sendEventSurveys(7, 40);
+    expect(db.listPendingSurveys).toHaveBeenCalledWith(7, 5, 3);
+    expect(r.capReached).toBe(true);
+  });
+
+  it('con el total del día en la reserva no manda ninguna', async () => {
+    vi.mocked(db.countEmailsSentToday).mockResolvedValue(70);
+    vi.mocked(db.getSurveyOverview).mockResolvedValue({ invited: 100, sent: 0, pending: 100, responses: [] });
+    await sendEventSurveys(7, 40);
+    expect(sendEmailMock).not.toHaveBeenCalled();
   });
 
   it('con el cupo agotado no manda ninguno, pero igual deja preparadas las invitaciones', async () => {

@@ -12,6 +12,7 @@ import {
   listAutoSurveyEventIds,
   saveEventSurveyReport,
   countAutomatedEmailsSentToday,
+  countEmailsSentToday,
 } from './db';
 import { AUTOMATED_EMAIL_DAILY_CAP } from './mailing';
 import { sendEmail, buildEventSurveyEmail } from './email';
@@ -45,6 +46,25 @@ export function surveyUrl(token: string): string {
 
 /** `capReached`: el cupo diario de correos automáticos se agotó (o quedó
  * corto) y por eso salieron menos de los pedidos -- lo pendiente sale mañana. */
+/** Correos que se dejan SIEMPRE libres para los transaccionales (la
+ * confirmación de compra con el QR) en el total del día. */
+export const TRANSACTIONAL_EMAIL_RESERVE = 30;
+
+/** Cuántas encuestas se pueden mandar todavía hoy. Es el MENOR de dos
+ * topes:
+ *  - lo que queda del cupo de correos automáticos (AUTOMATED_EMAIL_DAILY_CAP,
+ *    compartido con el mailing y los recordatorios), y
+ *  - lo que queda del total real del día (RESEND_DAILY_EMAIL_CAP, 100 por
+ *    defecto) una vez descontada la reserva para los transaccionales.
+ * El segundo existe porque hay otros envíos automáticos con su propio tope que
+ * NO entran en el primero (los avisos de tanda, 50 al día): sumados podrían
+ * pasarse del plan, y lo primero que se rompería es la confirmación de compra. */
+export async function surveyEmailBudget(): Promise<number> {
+  const [automatedToday, totalToday] = await Promise.all([countAutomatedEmailsSentToday(), countEmailsSentToday()]);
+  const dailyCap = Number(process.env.RESEND_DAILY_EMAIL_CAP) || 100;
+  return Math.min(AUTOMATED_EMAIL_DAILY_CAP - automatedToday, dailyCap - TRANSACTIONAL_EMAIL_RESERVE - totalToday);
+}
+
 export type SurveySendResult = { invited: number; sent: number; failed: number; pending: number; capReached: boolean };
 
 /** Prepara las invitaciones de la fiesta (quien asistió y todavía no tiene) y
@@ -61,8 +81,7 @@ export async function sendEventSurveys(eventId: number, limit: number = SURVEY_B
   // tiene ~100 al día y las confirmaciones de compra con el QR no pueden
   // quedarse sin cupo por una encuesta. Preparar las invitaciones no gasta
   // nada, solo el envío.
-  const budget = AUTOMATED_EMAIL_DAILY_CAP - (await countAutomatedEmailsSentToday());
-  const allowed = Math.max(0, Math.min(limit, budget));
+  const allowed = Math.max(0, Math.min(limit, await surveyEmailBudget()));
   const pending = allowed > 0 ? await listPendingSurveys(eventId, allowed, SURVEY_MAX_SEND_ATTEMPTS) : [];
 
   let sent = 0;
