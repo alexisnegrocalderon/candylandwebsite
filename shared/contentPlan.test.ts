@@ -76,6 +76,33 @@ describe('cleanContentPieces', () => {
     expect(out).toHaveLength(2);
   });
 
+  it('un carrusel necesita al menos 3 láminas; si no, se descarta', () => {
+    const slides = ['Desafío: ¿sabes jugar?', 'Escenario 1', 'Escenario 2', '¿Elegiste bien? Comenta cuántas acertaste'];
+    const out = cleanContentPieces([
+      piece({ format: 'carrusel', slides, date: '2026-10-05' }),
+      piece({ format: 'carrusel', slides: ['solo una'], date: '2026-10-06' }),
+      piece({ format: 'carrusel', date: '2026-10-07' }), // sin slides
+    ], window);
+    expect(out.map((p) => p.date)).toEqual(['2026-10-05']);
+    expect(out[0].slides).toEqual(slides);
+  });
+
+  it('las láminas se limpian (vacías fuera, largas recortadas, máximo 10) y solo valen en carruseles', () => {
+    const many = Array.from({ length: 14 }, (_, i) => `Lámina ${i + 1}`);
+    const [c] = cleanContentPieces([piece({ format: 'carrusel', slides: ['  ', ...many, 'x'.repeat(900)] })], window);
+    expect(c.slides).toHaveLength(10);
+    expect(c.slides[0]).toBe('Lámina 1');
+    const [r] = cleanContentPieces([piece({ format: 'reel', slides: ['a', 'b', 'c'] })], window);
+    expect(r.slides).toEqual([]); // un reel no tiene láminas
+  });
+
+  it('guarda lo que se le pide a la gente, y el objetivo "interaccion" es válido', () => {
+    const [p] = cleanContentPieces([piece({ goal: 'interaccion', interaction: '  Comenta cuántas acertaste y etiqueta a alguien  ' })], window);
+    expect(p.goal).toBe('interaccion');
+    expect(p.interaction).toBe('Comenta cuántas acertaste y etiqueta a alguien');
+    expect(cleanContentPieces([piece()], window)[0].interaction).toBe('');
+  });
+
   it('no revienta con basura', () => {
     expect(cleanContentPieces(null, window)).toEqual([]);
     expect(cleanContentPieces([null, 5, 'x', {}], window)).toEqual([]);
@@ -86,6 +113,11 @@ describe('normalizeContentPlan', () => {
   const valid = { generatedAt: '2026-10-02T12:00:00Z', eventId: 7, eventTitle: 'Halloween', eventDate: '2026-10-30T22:00:00Z', from: '2026-10-03', to: '2026-10-23', summary: 'Idea', pieces: [{ date: '2026-10-05', time: '19:00', format: 'post', goal: 'confianza', hook: 'h', caption: 'c' }] };
   it('acepta un plan guardado válido', () => {
     expect(normalizeContentPlan(valid)?.pieces).toHaveLength(1);
+  });
+  it('un plan guardado antes de las láminas y la interacción se sigue leyendo, con valores vacíos', () => {
+    const [p] = normalizeContentPlan(valid)!.pieces;
+    expect(p.slides).toEqual([]);
+    expect(p.interaction).toBe('');
   });
   it('rechaza uno roto (por ejemplo, un localStorage viejo o editado)', () => {
     expect(normalizeContentPlan(null)).toBeNull();

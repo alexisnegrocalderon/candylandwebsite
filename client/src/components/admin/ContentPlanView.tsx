@@ -5,6 +5,7 @@ import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
@@ -20,11 +21,12 @@ const STORAGE_PREFIX = 'admin-content-plan-';
 const GOAL_LABEL: Record<ContentGoal, { label: string; className: string }> = {
   awareness: { label: 'Que nos conozcan', className: 'bg-sky-500/10 text-sky-600' },
   confianza: { label: 'Dar confianza', className: 'bg-violet-500/10 text-violet-600' },
+  interaccion: { label: 'Que participen', className: 'bg-pink-500/10 text-pink-600' },
   urgencia: { label: 'Urgencia real', className: 'bg-amber-500/10 text-amber-600' },
   conversion: { label: 'Empujar a comprar', className: 'bg-emerald-500/10 text-emerald-600' },
 };
 
-const FORMAT_LABEL = { post: 'Post', reel: 'Reel', historia: 'Historia' } as const;
+const FORMAT_LABEL = { post: 'Post', reel: 'Reel', historia: 'Historia', carrusel: 'Carrusel' } as const;
 
 function loadPlan(eventId: number): ContentPlan | null {
   try {
@@ -56,6 +58,7 @@ export function ContentPlanView() {
   const [selected, setSelected] = useState<number | null>(null);
   const eventId = selected ?? upcoming[0]?.id ?? null;
   const [plan, setPlan] = useState<ContentPlan | null>(null);
+  const [focus, setFocus] = useState('');
 
   useEffect(() => {
     setPlan(eventId != null ? loadPlan(eventId) : null);
@@ -105,8 +108,20 @@ export function ContentPlanView() {
             </div>
           )}
 
+          <div className="space-y-1.5">
+            <Label htmlFor="content-focus">¿Algo en particular para este plan? <span className="text-muted-foreground">(opcional)</span></Label>
+            <Textarea
+              id="content-focus"
+              rows={2}
+              maxLength={500}
+              value={focus}
+              onChange={(e) => setFocus(e.target.value)}
+              placeholder="Ej: 2 desafíos tipo quiz como el de '¿Sabes jugar en Playroom?', algo para los que ya vinieron, más contenido sobre primera vez…"
+            />
+          </div>
+
           <div className="flex flex-wrap items-center gap-3">
-            <WriteButton onClick={() => generate.mutate({ targetEventId: eventId ?? undefined })} disabled={generate.isPending || eventId == null}>
+            <WriteButton onClick={() => generate.mutate({ targetEventId: eventId ?? undefined, focus: focus.trim() || undefined })} disabled={generate.isPending || eventId == null}>
               {generate.isPending
                 ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Armando el plan (puede tardar un minuto)...</>
                 : <><Sparkles className="w-4 h-4 mr-2" /> {plan ? 'Generar de nuevo' : 'Generar el plan'}</>}
@@ -153,14 +168,31 @@ function PieceCard({ piece }: { piece: ContentPiece }) {
           {piece.keyword && <span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary">Palabra clave: {piece.keyword}</span>}
         </div>
         <p className="font-medium">{piece.hook}</p>
+        {piece.slides.length > 0 && (
+          <ol className="space-y-1.5 rounded-xl border p-3 text-sm">
+            {piece.slides.map((slide, i) => (
+              <li key={i} className="flex gap-2"><span className="w-12 shrink-0 text-xs font-medium text-muted-foreground">Lámina {i + 1}</span><span className="whitespace-pre-wrap">{slide}</span></li>
+            ))}
+          </ol>
+        )}
         <p className="whitespace-pre-wrap text-sm">{piece.caption}</p>
+        {piece.interaction && (
+          <p className="rounded-xl bg-pink-500/5 p-3 text-sm"><span className="font-medium">Qué le pides a la gente:</span> {piece.interaction}</p>
+        )}
         {piece.hashtags.length > 0 && <p className="text-sm text-muted-foreground">{piece.hashtags.join(' ')}</p>}
         {piece.visual && (
           <p className="rounded-xl bg-muted/40 p-3 text-sm"><span className="font-medium">Qué grabar:</span> {piece.visual}</p>
         )}
-        <Button variant="outline" size="sm" onClick={() => copyText(fullText, 'Texto')}>
-          <Copy className="mr-2 h-4 w-4" /> Copiar el texto
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => copyText(fullText, 'Texto')}>
+            <Copy className="mr-2 h-4 w-4" /> Copiar el texto
+          </Button>
+          {piece.slides.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => copyText(piece.slides.map((slide, i) => `Lámina ${i + 1}: ${slide}`).join('\n\n'), 'Las láminas')}>
+              <Copy className="mr-2 h-4 w-4" /> Copiar las láminas
+            </Button>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
