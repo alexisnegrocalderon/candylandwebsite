@@ -81,6 +81,8 @@ import { canReplyWithinWindow } from "./instagramSend";
 import { runInstagramAgent, buildInstagramContext } from "./instagramAgent";
 import { runAgentCoach } from "./agentCoach";
 import { runSalesStrategist, setSalesStrategyWeekly } from "./salesStrategist";
+import { sendEventSurveys, sendSurveyTestEmail, analyzeEventSurvey, getEventSurveyPanel } from "./eventSurvey";
+import { parseSurveyAnswer } from "../shared/eventSurvey";
 import { normalizeSalesStrategyState } from "../shared/salesStrategy";
 import { normalizeAgentCoachReport } from "../shared/agentCoach";
 import { normalizeWhatsAppAgentConfig, DEFAULT_WHATSAPP_AGENT_CONFIG, WA_MAX_REPLY_CHARS } from "../shared/whatsappAgentConfig";
@@ -1928,6 +1930,76 @@ export const appRouter = router({
    * las lecturas: acá viajan conversaciones privadas de personas que le
    * escribieron a la cuenta, y el invitado de demostración del panel no
    * tiene por qué leerlas ni siquiera enmascaradas. */
+  // Encuesta post-fiesta, lado PÚBLICO (server/eventSurvey.ts): la persona
+  // llega con el token secreto de su correo. El token es de 192 bits, así que
+  // no se adivina; igual se limita por IP el envío, como los demás
+  // formularios públicos. Nunca devuelve el correo de nadie.
+  survey: router({
+    get: publicProcedure.input(z.object({ token: z.string().min(8).max(64) })).query(async ({ input }) => {
+      const row = await db.getSurveyByToken(input.token);
+      if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'Este link de la encuesta no es válido.' });
+      return {
+        eventTitle: row.eventTitle,
+        eventDate: row.eventDate,
+        firstName: (row.buyerName ?? '').trim().split(' ')[0] || null,
+        answered: row.respondedAt != null,
+      };
+    }),
+    submit: publicProcedure.input(z.object({
+      token: z.string().min(8).max(64),
+      rating: z.number().int().min(1).max(5),
+      liked: z.string().max(2000).optional(),
+      improve: z.string().max(2000).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const ipKey = `survey-submit:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Prueba de nuevo en un rato.' });
+      }
+      await db.recordIpAttempt(ipKey, 20, 60 * 60 * 1000);
+      const row = await db.getSurveyByToken(input.token);
+      if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'Este link de la encuesta no es válido.' });
+      const answer = parseSurveyAnswer(input);
+      if (!answer) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Elige una nota de 1 a 5.' });
+      const saved = await db.saveSurveyResponse(input.token, answer);
+      return { saved, alreadyAnswered: !saved };
+    }),
+  }),
+
+  // Encuesta post-fiesta, lado ADMIN. adminProcedure en todo (no
+  // adminReadProcedure): mandar correos y llamar a la IA cuestan, y leer las
+  // respuestas es feedback de clientes -- mismo nivel en todas evita medias
+  // puertas.
+  eventSurvey: router({
+    panel: adminProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
+      return getEventSurveyPanel(input.eventId);
+    }),
+    sendNow: adminProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input }) => {
+      try {
+        return await sendEventSurveys(input.eventId);
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudieron mandar las encuestas.' });
+      }
+    }),
+    sendTest: adminProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input }) => {
+      try {
+        return await sendSurveyTestEmail(input.eventId);
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo mandar la prueba.' });
+      }
+    }),
+    setAuto: adminProcedure.input(z.object({ eventId: z.number(), enabled: z.boolean() })).mutation(async ({ input }) => {
+      await db.setEventSurveyAutoSend(input.eventId, input.enabled);
+      return { success: true };
+    }),
+    analyze: adminProcedure.input(z.object({ eventId: z.number() })).mutation(async ({ input }) => {
+      try {
+        return await analyzeEventSurvey(input.eventId);
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar el análisis.' });
+      }
+    }),
+  }),
+
   // Director comercial IA (server/salesStrategist.ts): estrategia de ventas
   // del próximo evento. adminProcedure en todo (no adminReadProcedure): leer
   // el reporte no cuesta, pero generarlo llama a la IA con costo, y mantener

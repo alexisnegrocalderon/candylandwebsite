@@ -41,6 +41,7 @@ const GastosApp = lazy(() => import("./pages/gastos"));
 const MyReferrals = lazy(() => import("./pages/MyReferrals"));
 const MisPuntos = lazy(() => import("./pages/MisPuntos"));
 const Ticket = lazy(() => import("./pages/Ticket"));
+const Survey = lazy(() => import("./pages/Survey"));
 const Party = lazy(() => import("./pages/Party"));
 const Playmatch = lazy(() => import("./pages/Playmatch"));
 const Ambassador = lazy(() => import("./pages/Ambassador"));
@@ -111,6 +112,7 @@ function Router() {
           <Route path="/mis-referidos" component={MyReferrals} />
           <Route path="/mis-puntos" component={MisPuntos} />
           <Route path="/verificar/:ticketCode" component={Ticket} />
+          <Route path="/encuesta/:token" component={Survey} />
           <Route path="/recargar" component={Recargar} />
           <Route path="/fiesta/:ticketCode" component={Party} />
           <Route path="/playmatch" component={Playmatch} />

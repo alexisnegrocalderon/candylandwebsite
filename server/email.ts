@@ -1647,3 +1647,43 @@ export function buildPendingReminderEmail(data: {
     `,
   });
 }
+
+/** Invitación a la encuesta post-fiesta (server/eventSurvey.ts). Se manda una
+ * sola vez, al día siguiente, solo a quien asistió (entrada escaneada). El
+ * link lleva un token secreto de ESA persona -- por eso el correo es
+ * individual y no se reenvía en masa con un link común. */
+export function buildEventSurveyEmail(data: {
+  buyerName: string;
+  eventTitle: string;
+  surveyUrl: string;
+}) {
+  const primerNombre = (data.buyerName ?? '').trim().split(' ')[0] || 'hola';
+  return emailShell({
+    preheader: `¿Cómo estuvo ${data.eventTitle}? Son 3 preguntas, 1 minuto.`,
+    footer: false,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'pink',
+      heroBg: DISCO_HERO_BG,
+      emoji: '💜🪩',
+      title: `${primerNombre}, ¿cómo estuvo?`,
+      subtitle: data.eventTitle,
+    }),
+    body: `
+      <p style="color:${INK};font-size:15px;line-height:1.6;margin:0 0 16px;">
+        Gracias por venir a ${data.eventTitle} 🍬 Nos ayudaría muchísimo saber cómo la pasaste: qué te gustó y qué mejorarías para la próxima.
+      </p>
+      <p style="color:${INK};font-size:15px;line-height:1.6;margin:0 0 16px;">
+        Son 3 preguntas y toma un minuto. Leemos todas las respuestas.
+      </p>
+
+      <div style="text-align:center;margin:28px 0 8px;">
+        ${pastelButton(data.surveyUrl, 'Contarnos cómo estuvo', 'pink')}
+      </div>
+
+      <p style="color:${FAINT};font-size:12px;text-align:center;margin:16px 0 0;line-height:1.5;">
+        Es una sola encuesta sobre esta fiesta; no te vamos a escribir de nuevo por esto. Las respuestas se leen sin nombre ni correo.
+      </p>
+    `,
+  });
+}
