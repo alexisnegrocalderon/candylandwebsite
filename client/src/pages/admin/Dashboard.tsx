@@ -34,6 +34,7 @@ import { CameraCaptureField } from '@/components/admin/CameraCaptureField';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { InstagramInbox } from '@/components/admin/InstagramInbox';
+import { SalesStrategyView } from '@/components/admin/SalesStrategyView';
 import { WhatsAppInbox } from '@/components/admin/WhatsAppInbox';
 import { StatusBadge } from '@/components/admin/StatusBadge';
 import { StatTile } from '@/components/admin/StatTile';
@@ -9527,6 +9528,7 @@ const ADMIN_SECTIONS = [
   { id: 'orders-web', label: 'Ventas Web', group: 'Ventas', icon: Ticket, render: () => <OrdersView channel="web" /> },
   { id: 'orders-caja', label: 'Ventas Caja', group: 'Ventas', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
   { id: 'sales-origin', label: 'Ventas por Origen', group: 'Ventas', icon: Compass, render: () => <SalesByOriginView /> },
+  { id: 'sales-strategy', label: 'Director comercial', group: 'Ventas', icon: Sparkles, render: () => <SalesStrategyView /> },
   { id: 'manual-access', label: 'Accesos Manuales', group: 'Ventas', icon: Gift, render: () => <ManualAccessSection /> },
   { id: 'parking', label: 'Estacionamiento', group: 'Ventas', icon: Car, render: () => <ParkingReportView /> },
 

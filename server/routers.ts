@@ -80,6 +80,8 @@ import { sendManualInstagramReply } from "./instagram";
 import { canReplyWithinWindow } from "./instagramSend";
 import { runInstagramAgent, buildInstagramContext } from "./instagramAgent";
 import { runAgentCoach } from "./agentCoach";
+import { runSalesStrategist, setSalesStrategyWeekly } from "./salesStrategist";
+import { normalizeSalesStrategyState } from "../shared/salesStrategy";
 import { normalizeAgentCoachReport } from "../shared/agentCoach";
 import { normalizeWhatsAppAgentConfig, DEFAULT_WHATSAPP_AGENT_CONFIG, WA_MAX_REPLY_CHARS } from "../shared/whatsappAgentConfig";
 import { sendManualWhatsAppReply } from "./whatsapp";
@@ -1926,6 +1928,27 @@ export const appRouter = router({
    * las lecturas: acá viajan conversaciones privadas de personas que le
    * escribieron a la cuenta, y el invitado de demostración del panel no
    * tiene por qué leerlas ni siquiera enmascaradas. */
+  // Director comercial IA (server/salesStrategist.ts): estrategia de ventas
+  // del próximo evento. adminProcedure en todo (no adminReadProcedure): leer
+  // el reporte no cuesta, pero generarlo llama a la IA con costo, y mantener
+  // el mismo nivel en las tres evita medias puertas.
+  salesStrategy: router({
+    get: adminProcedure.query(async () => {
+      return normalizeSalesStrategyState(await db.getSalesStrategyState());
+    }),
+    run: adminProcedure.input(z.object({ eventId: z.number().optional() }).optional()).mutation(async ({ input }) => {
+      try {
+        return await runSalesStrategist({ trigger: 'manual', eventId: input?.eventId, email: false });
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar el reporte.' });
+      }
+    }),
+    setWeekly: adminProcedure.input(z.object({ enabled: z.boolean() })).mutation(async ({ input }) => {
+      await setSalesStrategyWeekly(input.enabled);
+      return { success: true };
+    }),
+  }),
+
   instagram: router({
     getConfig: adminProcedure.query(async () => {
       const settings = await db.getSiteSettings();
