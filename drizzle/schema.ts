@@ -536,6 +536,9 @@ export const siteSettings = mysqlTable("siteSettings", {
   // Último reporte del coach semanal del agente (server/agentCoach.ts): qué
   // preguntan más, dónde se enfría la gente y qué agregarle al conocimiento.
   agentCoachReport: json("agentCoachReport"),
+  // Estado del Director comercial IA (server/salesStrategist.ts): el último
+  // reporte de estrategia de ventas y el interruptor del correo de los lunes.
+  salesStrategyState: json("salesStrategyState"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 

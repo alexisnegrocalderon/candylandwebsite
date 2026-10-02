@@ -14,6 +14,7 @@ import { runInstagramFollowUps } from "./instagramFollowUp";
 import { runWhatsAppFollowUps } from "./whatsappFollowUp";
 import { runAgentAutoResume } from "./agentAutoResume";
 import { runAgentCoach, shouldRunAgentCoachNow } from "./agentCoach";
+import { runSalesStrategist, shouldRunSalesStrategyNow } from "./salesStrategist";
 import { shouldSendWeeklyAmbassadorEmailNow } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 
@@ -289,16 +290,30 @@ export function registerCronRoutes(app: Express) {
   app.get("/api/cron/agent-coach", async (req: Request, res: Response) => {
     if (!requireCronSecret(req, res)) return;
     const now = new Date();
+    // El Director comercial (server/salesStrategist.ts) comparte este cron en
+    // vez de sumar otra entrada en vercel.json: corre cada hora igual y cada
+    // uno se auto-limita a su hora del lunes (Director 09:00, coach 10:00).
+    // Un fallo de uno no tapa al otro.
+    let strategist: { ran: boolean; reason?: string; emailed?: boolean } | { error: string } = { ran: false, reason: "no es lunes 09:00 en Chile" };
+    if (shouldRunSalesStrategyNow(now)) {
+      try {
+        const r = await runSalesStrategist({ now, trigger: "cron" });
+        strategist = { ran: r.ran, reason: r.reason, emailed: r.emailed };
+      } catch (err) {
+        console.error("[Cron] Error generando el Director comercial:", err);
+        strategist = { error: err instanceof Error ? err.message : "Error desconocido" };
+      }
+    }
     if (!shouldRunAgentCoachNow(now)) {
-      res.json({ success: true, ran: false, reason: "no es lunes 10:00 en Chile" });
+      res.json({ success: true, ran: false, reason: "no es lunes 10:00 en Chile", strategist });
       return;
     }
     try {
       const result = await runAgentCoach({ now, trigger: "cron" });
-      res.json({ success: true, ran: result.ran, reason: result.reason, emailed: result.emailed });
+      res.json({ success: true, ran: result.ran, reason: result.reason, emailed: result.emailed, strategist });
     } catch (err) {
       console.error("[Cron] Error generando el coach semanal del agente:", err);
-      res.status(500).json({ success: false, error: err instanceof Error ? err.message : "Error desconocido" });
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : "Error desconocido", strategist });
     }
   });
 

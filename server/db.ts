@@ -884,7 +884,13 @@ const SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, servi
  * recordatorios y todo lo que lee la config del sitio. El reporte del coach
  * no lo necesita nadie más que el coach, así que se lee aparte
  * (`getAgentCoachReport`), y el sitio no depende de que la columna exista. */
-const { agentCoachReport: _agentCoachReportColumn, ...SITE_SETTINGS_READ_COLUMNS } = getTableColumns(siteSettings);
+const {
+  agentCoachReport: _agentCoachReportColumn,
+  // Mismo criterio para el Director comercial (02/10): su estado se lee
+  // aparte, así el sitio no depende de que esa columna ya esté aplicada.
+  salesStrategyState: _salesStrategyStateColumn,
+  ...SITE_SETTINGS_READ_COLUMNS
+} = getTableColumns(siteSettings);
 
 export async function getSiteSettings() {
   const db = await getDb();
@@ -908,6 +914,21 @@ export async function getAgentCoachReport(): Promise<unknown> {
   }
 }
 
+/** Estado del Director comercial (último reporte + interruptor del correo de
+ * los lunes). Nunca tira: sin columna o sin base, devuelve el estado por
+ * defecto (ver `normalizeSalesStrategyState`). */
+export async function getSalesStrategyState(): Promise<unknown> {
+  const db = await getDb();
+  if (!db) return null;
+  try {
+    const [row] = await db.select({ state: siteSettings.salesStrategyState }).from(siteSettings).limit(1);
+    return row?.state ?? null;
+  } catch (error) {
+    console.warn('[Database] No se pudo leer el estado del Director comercial (¿falta la columna salesStrategyState?):', error);
+    return null;
+  }
+}
+
 export async function updateSiteSettings(data: {
   instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number; cardFeePercent?: number; parkingVenueFeeClp?: number;
   kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null; foundersPromoEnabled?: boolean; tanda2PromoEnabled?: boolean; halloweenModeEnabled?: boolean;
@@ -916,6 +937,7 @@ export async function updateSiteSettings(data: {
   instagramAgentConfig?: import('../shared/instagramAgentConfig').InstagramAgentConfig;
   whatsappAgentConfig?: import('../shared/whatsappAgentConfig').WhatsAppAgentConfig;
   agentCoachReport?: import('../shared/agentCoach').AgentCoachReport;
+  salesStrategyState?: import('../shared/salesStrategy').SalesStrategyState;
   flashPromoPresets?: import('../shared/flashPromoPresets').FlashPromoPreset[];
 }) {
   const db = await getDb();
@@ -3078,6 +3100,58 @@ export async function getKitchenVendorReport(eventId: number) {
  * filtro solo compara los seleccionados (selector de eventos del admin,
  * pedido explícito del usuario). Mismo criterio "opcional" que ya usa
  * `listShiftClosings`. */
+/** Entradas (category 'acceso') vendidas de un evento, una fila por ítem de
+ * orden aprobada: cuándo y cuántas. Web + caja, sin los importados -- es la
+ * base del ritmo de ventas del Director comercial. Solo lectura. */
+export async function getEventAccessSalesRows(eventId: number): Promise<{ at: Date; units: number; revenue: number }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    createdAt: orders.createdAt,
+    quantity: orderItems.quantity,
+    totalPrice: orderItems.totalPrice,
+  }).from(orderItems)
+    .innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .innerJoin(ticketTypes, eq(ticketTypes.id, orderItems.ticketTypeId))
+    .where(and(
+      eq(orders.eventId, eventId),
+      eq(orders.paymentStatus, 'approved'),
+      ne(orders.channel, 'import'),
+      eq(ticketTypes.category, 'acceso'),
+    ));
+  return rows.map((r) => ({ at: new Date(r.createdAt), units: Number(r.quantity), revenue: Number(r.totalPrice) }));
+}
+
+/** Eventos anteriores a una fecha, del más reciente al más antiguo, sin los
+ * borradores ni los cancelados -- candidatos a "el evento anterior" contra el
+ * que se compara el ritmo de ventas. */
+export async function getEventsBefore(date: Date, limit = 3) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(events)
+    .where(and(lt(events.eventDate, date), inArray(events.status, ['published', 'soldout', 'past'])))
+    .orderBy(desc(events.eventDate))
+    .limit(limit);
+}
+
+/** Accesos de un evento con precio y cupo, tal cual están en la base. A
+ * propósito NO usa getTicketTypesByEventId: esa crea los extras por defecto
+ * si faltan, y un reporte de solo lectura no debería escribir nada. */
+export async function getAccessTicketMix(eventId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    name: ticketTypes.name,
+    price: ticketTypes.price,
+    originalPrice: ticketTypes.originalPrice,
+    totalStock: ticketTypes.totalStock,
+    soldCount: ticketTypes.soldCount,
+    status: ticketTypes.status,
+  }).from(ticketTypes)
+    .where(and(eq(ticketTypes.eventId, eventId), eq(ticketTypes.category, 'acceso')))
+    .orderBy(ticketTypes.sortOrder);
+}
+
 export async function getEventComparison(eventIds?: number[]) {
   const db = await getDb();
   if (!db) return [];

@@ -505,6 +505,13 @@
       "when": 1790875440648,
       "tag": "0071_flippant_loners",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "5",
+      "when": 1790925791739,
+      "tag": "0072_new_smiling_tiger",
+      "breakpoints": true
     }
   ]
 }
