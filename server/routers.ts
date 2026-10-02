@@ -85,6 +85,7 @@ import { sendEventSurveys, sendSurveyTestEmail, analyzeEventSurvey, getEventSurv
 import { parseSurveyAnswer } from "../shared/eventSurvey";
 import { getWinbackOverview, draftWinbackEmail, createWinbackCampaign } from "./winback";
 import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
+import { generateContentPlan } from "./contentPlanner";
 import { normalizeSalesStrategyState } from "../shared/salesStrategy";
 import { normalizeAgentCoachReport } from "../shared/agentCoach";
 import { normalizeWhatsAppAgentConfig, DEFAULT_WHATSAPP_AGENT_CONFIG, WA_MAX_REPLY_CHARS } from "../shared/whatsappAgentConfig";
@@ -1998,6 +1999,19 @@ export const appRouter = router({
         return await analyzeEventSurvey(input.eventId);
       } catch (err) {
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar el análisis.' });
+      }
+    }),
+  }),
+
+  // Plan de contenido para Instagram (server/contentPlanner.ts): calendario de
+  // publicaciones hasta el próximo evento. adminProcedure: llama a la IA con
+  // costo. No guarda nada en el servidor; el panel recuerda el último plan.
+  contentPlan: router({
+    generate: adminProcedure.input(z.object({ targetEventId: z.number().optional() }).optional()).mutation(async ({ input }) => {
+      try {
+        return await generateContentPlan(input?.targetEventId);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo generar el plan.' });
       }
     }),
   }),
