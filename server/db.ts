@@ -1,6 +1,7 @@
 import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, isNull, isNotNull, ne, getTableColumns } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog } from "../drizzle/schema";
+import { randomBytes } from "crypto";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -3150,6 +3151,180 @@ export async function getAccessTicketMix(eventId: number) {
   }).from(ticketTypes)
     .where(and(eq(ticketTypes.eventId, eventId), eq(ticketTypes.category, 'acceso')))
     .orderBy(ticketTypes.sortOrder);
+}
+
+// ---------------------------------------------------------------------------
+// Encuesta post-fiesta (server/eventSurvey.ts, shared/eventSurvey.ts).
+// ---------------------------------------------------------------------------
+
+/** Compradores que ASISTIERON a la fiesta: tienen al menos una entrada de
+ * acceso escaneada en la puerta (`tickets.usedAt`), en una orden aprobada y con un
+ * correo real (los placeholder de caja/invitación los comparten varias
+ * personas y no llegan a nadie). Uno por correo, aunque hayan comprado
+ * varias veces. Solo lectura. */
+export async function getSurveyAttendees(eventId: number): Promise<{ email: string; name: string }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  // Solo entradas de ACCESO: `usedAt` también se marca al canjear extras
+  // (estacionamiento, tragos), y canjear un trago no es haber entrado.
+  const rows = await db.select({
+    email: orders.buyerEmail,
+    name: orders.buyerName,
+    orderId: orders.id,
+  }).from(tickets)
+    .innerJoin(orders, eq(orders.id, tickets.orderId))
+    .innerJoin(ticketTypes, eq(ticketTypes.id, tickets.ticketTypeId))
+    .where(and(
+      eq(tickets.eventId, eventId),
+      isNotNull(tickets.usedAt),
+      eq(ticketTypes.category, 'acceso'),
+      eq(orders.paymentStatus, 'approved'),
+    ))
+    .orderBy(orders.id);
+
+  const byEmail = new Map<string, { email: string; name: string }>();
+  for (const r of rows) {
+    const email = (r.email ?? '').trim().toLowerCase();
+    if (!email || !email.includes('@') || PLACEHOLDER_BUYER_EMAILS.has(email)) continue;
+    if (!byEmail.has(email)) byEmail.set(email, { email, name: r.name ?? '' });
+  }
+  return Array.from(byEmail.values());
+}
+
+/** Crea la invitación (con su token secreto) de quien todavía no la tiene.
+ * Idempotente: el índice único (evento, correo) hace que correrlo dos veces
+ * no duplique a nadie. Devuelve cuántas invitaciones nuevas se crearon. */
+export async function createSurveyInvites(eventId: number, attendees: { email: string; name: string }[]): Promise<number> {
+  const db = await getDb();
+  if (!db || attendees.length === 0) return 0;
+  const existing = await db.select({ email: eventSurveys.buyerEmail }).from(eventSurveys).where(eq(eventSurveys.eventId, eventId));
+  const have = new Set(existing.map((r) => r.email));
+  const fresh = attendees.filter((a) => !have.has(a.email));
+  if (fresh.length === 0) return 0;
+  await db.insert(eventSurveys)
+    .values(fresh.map((a) => ({
+      eventId,
+      token: randomBytes(24).toString('hex'),
+      buyerEmail: a.email,
+      buyerName: a.name.slice(0, 255) || null,
+    })))
+    .onDuplicateKeyUpdate({ set: { eventId: sql`${eventSurveys.eventId}` } });
+  return fresh.length;
+}
+
+/** Invitaciones todavía sin mandar (y que no se rindieron por fallar varias
+ * veces), las más antiguas primero. */
+export async function listPendingSurveys(eventId: number, limit: number, maxAttempts: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(eventSurveys)
+    .where(and(eq(eventSurveys.eventId, eventId), isNull(eventSurveys.sentAt), lt(eventSurveys.sendAttempts, maxAttempts)))
+    .orderBy(eventSurveys.id)
+    .limit(limit);
+}
+
+export async function markSurveySent(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(eventSurveys).set({ sentAt: new Date() }).where(eq(eventSurveys.id, id));
+}
+
+export async function recordSurveySendFailure(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(eventSurveys).set({ sendAttempts: sql`${eventSurveys.sendAttempts} + 1` }).where(eq(eventSurveys.id, id));
+}
+
+/** La invitación de un token, con el nombre y la fecha de la fiesta. Nunca
+ * devuelve el correo. `undefined` si el token no existe. */
+export async function getSurveyByToken(token: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [row] = await db.select({
+    id: eventSurveys.id,
+    eventId: eventSurveys.eventId,
+    buyerName: eventSurveys.buyerName,
+    respondedAt: eventSurveys.respondedAt,
+    rating: eventSurveys.rating,
+    eventTitle: events.title,
+    eventDate: events.eventDate,
+  }).from(eventSurveys)
+    .innerJoin(events, eq(events.id, eventSurveys.eventId))
+    .where(eq(eventSurveys.token, token))
+    .limit(1);
+  return row;
+}
+
+/** Guarda la respuesta una sola vez: si ya respondió, no pisa nada y
+ * devuelve false. */
+export async function saveSurveyResponse(token: string, answer: { rating: number; liked: string; improve: string }): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [result] = await db.update(eventSurveys)
+    .set({ respondedAt: new Date(), rating: answer.rating, liked: answer.liked || null, improve: answer.improve || null })
+    .where(and(eq(eventSurveys.token, token), isNull(eventSurveys.respondedAt)));
+  return Number((result as unknown as { affectedRows?: number }).affectedRows ?? 0) > 0;
+}
+
+/** Todo lo que ve el admin de la encuesta de una fiesta. Las respuestas salen
+ * SIN nombre ni correo: se pide feedback honesto, no identificar. */
+export async function getSurveyOverview(eventId: number) {
+  const db = await getDb();
+  if (!db) return { invited: 0, sent: 0, pending: 0, responses: [] as { rating: number; liked: string; improve: string; respondedAt: Date }[] };
+  const rows = await db.select({
+    sentAt: eventSurveys.sentAt,
+    respondedAt: eventSurveys.respondedAt,
+    rating: eventSurveys.rating,
+    liked: eventSurveys.liked,
+    improve: eventSurveys.improve,
+  }).from(eventSurveys).where(eq(eventSurveys.eventId, eventId));
+
+  const responses = rows
+    .filter((r) => r.respondedAt != null && r.rating != null)
+    .map((r) => ({ rating: Number(r.rating), liked: r.liked ?? '', improve: r.improve ?? '', respondedAt: new Date(r.respondedAt as Date) }))
+    .sort((a, b) => b.respondedAt.getTime() - a.respondedAt.getTime());
+  return {
+    invited: rows.length,
+    sent: rows.filter((r) => r.sentAt != null).length,
+    pending: rows.filter((r) => r.sentAt == null).length,
+    responses,
+  };
+}
+
+export async function getEventSurveySettings(eventId: number): Promise<{ autoSend: boolean; report: unknown }> {
+  const db = await getDb();
+  if (!db) return { autoSend: false, report: null };
+  const [row] = await db.select().from(eventSurveySettings).where(eq(eventSurveySettings.eventId, eventId)).limit(1);
+  return { autoSend: row?.autoSend === 1, report: row?.report ?? null };
+}
+
+export async function setEventSurveyAutoSend(eventId: number, enabled: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(eventSurveySettings).values({ eventId, autoSend: enabled ? 1 : 0 })
+    .onDuplicateKeyUpdate({ set: { autoSend: enabled ? 1 : 0 } });
+}
+
+export async function saveEventSurveyReport(eventId: number, report: import('../shared/eventSurvey').SurveyAnalysis) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(eventSurveySettings).values({ eventId, report, reportAt: new Date() })
+    .onDuplicateKeyUpdate({ set: { report, reportAt: new Date() } });
+}
+
+/** Fiestas con el envío automático de la encuesta prendido. */
+export async function listAutoSurveyEventIds(): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  try {
+    const rows = await db.select({ eventId: eventSurveySettings.eventId }).from(eventSurveySettings).where(eq(eventSurveySettings.autoSend, 1));
+    return rows.map((r) => r.eventId);
+  } catch (error) {
+    // Lo llama el cron cada hora: si la tabla todavía no existe (migración
+    // sin correr) no hay nada que enviar, y no vale un error por hora.
+    console.warn('[Database] No se pudo leer eventSurveySettings (¿falta correr la migración 0073?):', error);
+    return [];
+  }
 }
 
 export async function getEventComparison(eventIds?: number[]) {

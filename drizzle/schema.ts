@@ -1997,3 +1997,41 @@ export const emailLog = mysqlTable("emailLog", {
 }));
 
 export type EmailLogRow = typeof emailLog.$inferSelect;
+
+// Encuesta post-fiesta (server/eventSurvey.ts): una invitación por comprador
+// que asistió (entrada escaneada en la puerta), con el token secreto que va
+// en el link del correo. La fila nace al preparar los envíos (`sentAt` null =
+// pendiente) y se completa cuando la persona responde. La respuesta se ve en
+// el admin SIN nombre ni correo -- se pide feedback honesto, no identificar.
+export const eventSurveys = mysqlTable("eventSurveys", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  token: varchar("token", { length: 64 }).notNull().unique(),
+  buyerEmail: varchar("buyerEmail", { length: 320 }).notNull(),
+  buyerName: varchar("buyerName", { length: 255 }),
+  sentAt: timestamp("sentAt"),
+  // Intentos de envío fallidos: pasados 3, se deja de reintentar esa dirección
+  // en cada corrida del cron.
+  sendAttempts: int("sendAttempts").default(0).notNull(),
+  respondedAt: timestamp("respondedAt"),
+  rating: int("rating"), // 1 a 5
+  liked: text("liked"),
+  improve: text("improve"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  // Una sola invitación por persona y fiesta, aunque haya comprado varias veces.
+  uniqueIndex("eventSurveys_event_email_idx").on(t.eventId, t.buyerEmail),
+]);
+
+export type EventSurvey = typeof eventSurveys.$inferSelect;
+
+// Ajustes y análisis de la encuesta de UNA fiesta: si el envío automático
+// está prendido (apagado por defecto -- son correos a clientes reales, se
+// prende a conciencia) y el último análisis de la IA.
+export const eventSurveySettings = mysqlTable("eventSurveySettings", {
+  eventId: int("eventId").primaryKey(),
+  autoSend: int("autoSend").default(0).notNull(),
+  report: json("report"),
+  reportAt: timestamp("reportAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});

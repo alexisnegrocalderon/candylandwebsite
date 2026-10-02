@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
@@ -35,6 +35,7 @@ import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { InstagramInbox } from '@/components/admin/InstagramInbox';
 import { SalesStrategyView } from '@/components/admin/SalesStrategyView';
+import { EventSurveyView } from '@/components/admin/EventSurveyView';
 import { WhatsAppInbox } from '@/components/admin/WhatsAppInbox';
 import { StatusBadge } from '@/components/admin/StatusBadge';
 import { StatTile } from '@/components/admin/StatTile';
@@ -9534,6 +9535,7 @@ const ADMIN_SECTIONS = [
 
   { id: 'events', label: 'Eventos', group: 'Eventos', icon: Calendar, render: () => <EventsManager /> },
   { id: 'carta', label: 'Carta de la Fiesta', group: 'Eventos', icon: Martini, render: () => <CartaManager /> },
+  { id: 'event-survey', label: 'Encuestas', group: 'Eventos', icon: Star, render: () => <EventSurveyView /> },
   { id: 'discounts', label: 'Descuentos', group: 'Eventos', icon: Percent, render: () => <DiscountsManager /> },
   { id: 'community', label: 'Códigos Comunidad', group: 'Eventos', icon: Users, render: () => <CommunityCodesManager /> },
 

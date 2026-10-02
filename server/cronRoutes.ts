@@ -15,6 +15,7 @@ import { runWhatsAppFollowUps } from "./whatsappFollowUp";
 import { runAgentAutoResume } from "./agentAutoResume";
 import { runAgentCoach, shouldRunAgentCoachNow } from "./agentCoach";
 import { runSalesStrategist, shouldRunSalesStrategyNow } from "./salesStrategist";
+import { runSurveyDispatch } from "./eventSurvey";
 import { shouldSendWeeklyAmbassadorEmailNow } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 
@@ -304,16 +305,27 @@ export function registerCronRoutes(app: Express) {
         strategist = { error: err instanceof Error ? err.message : "Error desconocido" };
       }
     }
+    // Encuesta post-fiesta (server/eventSurvey.ts): mismo cron horario, se
+    // auto-limita a 12:00-20:00 de Chile y a las fiestas con el envío
+    // automático prendido. Si la tabla todavía no existe (migración sin
+    // correr), queda en el log y NO tumba el cron del coach.
+    let survey: Awaited<ReturnType<typeof runSurveyDispatch>> | { error: string };
+    try {
+      survey = await runSurveyDispatch(now);
+    } catch (err) {
+      console.error("[Cron] Error mandando las encuestas post-fiesta:", err);
+      survey = { error: err instanceof Error ? err.message : "Error desconocido" };
+    }
     if (!shouldRunAgentCoachNow(now)) {
-      res.json({ success: true, ran: false, reason: "no es lunes 10:00 en Chile", strategist });
+      res.json({ success: true, ran: false, reason: "no es lunes 10:00 en Chile", strategist, survey });
       return;
     }
     try {
       const result = await runAgentCoach({ now, trigger: "cron" });
-      res.json({ success: true, ran: result.ran, reason: result.reason, emailed: result.emailed, strategist });
+      res.json({ success: true, ran: result.ran, reason: result.reason, emailed: result.emailed, strategist, survey });
     } catch (err) {
       console.error("[Cron] Error generando el coach semanal del agente:", err);
-      res.status(500).json({ success: false, error: err instanceof Error ? err.message : "Error desconocido", strategist });
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : "Error desconocido", strategist, survey });
     }
   });
 
