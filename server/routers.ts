@@ -83,6 +83,8 @@ import { runAgentCoach } from "./agentCoach";
 import { runSalesStrategist, setSalesStrategyWeekly } from "./salesStrategist";
 import { sendEventSurveys, sendSurveyTestEmail, analyzeEventSurvey, getEventSurveyPanel } from "./eventSurvey";
 import { parseSurveyAnswer } from "../shared/eventSurvey";
+import { getWinbackOverview, draftWinbackEmail, createWinbackCampaign } from "./winback";
+import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { normalizeSalesStrategyState } from "../shared/salesStrategy";
 import { normalizeAgentCoachReport } from "../shared/agentCoach";
 import { normalizeWhatsAppAgentConfig, DEFAULT_WHATSAPP_AGENT_CONFIG, WA_MAX_REPLY_CHARS } from "../shared/whatsappAgentConfig";
@@ -1996,6 +1998,41 @@ export const appRouter = router({
         return await analyzeEventSurvey(input.eventId);
       } catch (err) {
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar el análisis.' });
+      }
+    }),
+  }),
+
+  // Reactivación de clientes (server/winback.ts): segmentos de quienes ya
+  // compraron, un correo redactado por la IA para cada uno y la campaña en la
+  // cola del mailing. adminProcedure en todo: redactar llama a la IA y crear
+  // la campaña manda correos a clientes reales.
+  winback: router({
+    overview: adminProcedure.input(z.object({ targetEventId: z.number().optional() }).optional()).query(async ({ input }) => {
+      try {
+        return await getWinbackOverview(input?.targetEventId);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron armar los grupos.' });
+      }
+    }),
+    draft: adminProcedure.input(z.object({
+      segmentKey: z.enum(WINBACK_SEGMENT_KEYS),
+      targetEventId: z.number().optional(),
+    })).mutation(async ({ input }) => {
+      try {
+        return await draftWinbackEmail(input.segmentKey, input.targetEventId);
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo redactar el correo.' });
+      }
+    }),
+    createCampaign: adminProcedure.input(z.object({
+      segmentKey: z.enum(WINBACK_SEGMENT_KEYS),
+      targetEventId: z.number().optional(),
+      content: MailingContentSchema,
+    })).mutation(async ({ input }) => {
+      try {
+        return await createWinbackCampaign(input);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear la campaña.' });
       }
     }),
   }),

@@ -3325,6 +3325,66 @@ export async function listAutoSurveyEventIds(): Promise<number[]> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Reactivación de clientes (server/winback.ts, shared/winback.ts).
+// ---------------------------------------------------------------------------
+
+/** Qué fiestas compró cada correo (orden web aprobada, correo real), más las
+ * fiestas pasadas con ventas. Solo lectura. Devuelve, por correo
+ * normalizado, el conjunto de fiestas distintas por las que compró -- incluido
+ * el evento objetivo, para que quien ya lo compró quede afuera. */
+export async function getWinbackData(now: Date = new Date()): Promise<{
+  participation: Map<string, Set<number>>;
+  pastEvents: { id: number; title: string; eventDate: Date }[];
+}> {
+  const db = await getDb();
+  if (!db) return { participation: new Map(), pastEvents: [] };
+
+  const rows = await db.select({
+    email: sql<string>`LOWER(${orders.buyerEmail})`,
+    eventId: orders.eventId,
+  }).from(orders)
+    .where(and(eq(orders.paymentStatus, 'approved'), eq(orders.channel, 'web')))
+    .groupBy(sql`LOWER(${orders.buyerEmail})`, orders.eventId);
+
+  const participation = new Map<string, Set<number>>();
+  for (const r of rows) {
+    const email = (r.email ?? '').trim();
+    if (!email || !email.includes('@') || PLACEHOLDER_BUYER_EMAILS.has(email)) continue;
+    const set = participation.get(email) ?? new Set<number>();
+    set.add(r.eventId);
+    participation.set(email, set);
+  }
+
+  const eventIdsWithSales = new Set<number>();
+  participation.forEach((set) => set.forEach((id) => eventIdsWithSales.add(id)));
+
+  const past = await db.select({ id: events.id, title: events.title, eventDate: events.eventDate }).from(events)
+    .where(and(lt(events.eventDate, now), inArray(events.status, ['published', 'soldout', 'past'])))
+    .orderBy(desc(events.eventDate));
+
+  return {
+    participation,
+    pastEvents: past.filter((e) => eventIdsWithSales.has(e.id)).map((e) => ({ id: e.id, title: e.title, eventDate: new Date(e.eventDate) })),
+  };
+}
+
+/** Ids de cliente (`customers`) para una lista de correos ya normalizados --
+ * en tandas, porque la lista puede tener miles. Los correos sin fila en
+ * `customers` simplemente no salen (el mailing trabaja con ids de cliente). */
+export async function getCustomerIdsByEmails(emails: string[]): Promise<number[]> {
+  const db = await getDb();
+  if (!db || emails.length === 0) return [];
+  const ids: number[] = [];
+  const CHUNK = 500;
+  for (let i = 0; i < emails.length; i += CHUNK) {
+    const rows = await db.select({ id: customers.id }).from(customers)
+      .where(inArray(sql`LOWER(${customers.email})`, emails.slice(i, i + CHUNK)));
+    for (const r of rows) ids.push(r.id);
+  }
+  return ids;
+}
+
 export async function getEventComparison(eventIds?: number[]) {
   const db = await getDb();
   if (!db) return [];
