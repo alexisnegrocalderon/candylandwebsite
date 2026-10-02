@@ -6,10 +6,10 @@
  * con una fecha inventada, fuera de la ventana o repetida de más se descarta
  * en vez de llegar al calendario del dueño. */
 
-export const CONTENT_FORMATS = ['post', 'reel', 'historia'] as const;
+export const CONTENT_FORMATS = ['post', 'reel', 'historia', 'carrusel'] as const;
 export type ContentFormat = (typeof CONTENT_FORMATS)[number];
 
-export const CONTENT_GOALS = ['awareness', 'confianza', 'urgencia', 'conversion'] as const;
+export const CONTENT_GOALS = ['awareness', 'confianza', 'interaccion', 'urgencia', 'conversion'] as const;
 export type ContentGoal = (typeof CONTENT_GOALS)[number];
 
 /** Cuántos días hacia adelante se planifica como máximo: más allá de eso la
@@ -18,6 +18,10 @@ export const CONTENT_PLAN_MAX_DAYS = 21;
 /** Tope de piezas por día (la última semana puede tener dos: cuenta regresiva). */
 export const CONTENT_PLAN_MAX_PER_DAY = 2;
 export const CONTENT_PLAN_MAX_PIECES = 24;
+/** Láminas por carrusel (Instagram permite hasta 20; con más de 10 nadie llega al final). */
+export const CONTENT_MAX_SLIDES = 10;
+/** Un carrusel con menos láminas no es un carrusel. */
+export const CONTENT_MIN_SLIDES = 3;
 
 export interface ContentPiece {
   /** Día (YYYY-MM-DD, hora de Chile). */
@@ -32,6 +36,12 @@ export interface ContentPiece {
   caption: string;
   /** Qué grabar o fotografiar. */
   visual: string;
+  /** Solo en carruseles: el texto de cada lámina, en orden. Vacío en el resto. */
+  slides: string[];
+  /** Lo que se le pide a la gente que haga (comentar cuántas acertó, etiquetar
+   * a alguien, votar en la encuesta, responder la historia...). Vacío si la
+   * pieza no pide nada. */
+  interaction: string;
   hashtags: string[];
   /** Palabra clave (de una automatización real) para que respondan a la
    * historia, o vacío. */
@@ -109,6 +119,12 @@ export function cleanContentPieces(raw: unknown, window: { from: string; to: str
     const hook = str(r.hook, 200);
     const caption = str(r.caption, 1200);
     if (!format || !goal || !hook || !caption) continue;
+    const slides = Array.isArray(r.slides)
+      ? r.slides.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim().slice(0, 400)).slice(0, CONTENT_MAX_SLIDES)
+      : [];
+    // Un carrusel sin láminas no sirve (no hay nada que diseñar); y las láminas
+    // en una pieza que no es carrusel son ruido.
+    if (format === 'carrusel' && slides.length < CONTENT_MIN_SLIDES) continue;
     pieces.push({
       date: r.date,
       time: cleanTime(r.time),
@@ -117,6 +133,8 @@ export function cleanContentPieces(raw: unknown, window: { from: string; to: str
       hook,
       caption,
       visual: str(r.visual, 600),
+      slides: format === 'carrusel' ? slides : [],
+      interaction: str(r.interaction, 300),
       hashtags: Array.isArray(r.hashtags)
         ? r.hashtags.filter((h): h is string => typeof h === 'string' && h.trim().length > 0).map((h) => (h.trim().startsWith('#') ? h.trim() : `#${h.trim()}`)).slice(0, 8)
         : [],

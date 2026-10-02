@@ -2007,9 +2007,14 @@ export const appRouter = router({
   // publicaciones hasta el próximo evento. adminProcedure: llama a la IA con
   // costo. No guarda nada en el servidor; el panel recuerda el último plan.
   contentPlan: router({
-    generate: adminProcedure.input(z.object({ targetEventId: z.number().optional() }).optional()).mutation(async ({ input }) => {
+    generate: adminProcedure.input(z.object({
+      targetEventId: z.number().optional(),
+      // Lo que el dueño quiere en ESTE plan ("2 desafíos tipo quiz", "algo para
+      // los que ya vinieron"). Texto libre y corto.
+      focus: z.string().max(500).optional(),
+    }).optional()).mutation(async ({ input }) => {
       try {
-        return await generateContentPlan(input?.targetEventId);
+        return await generateContentPlan(input?.targetEventId, new Date(), input?.focus);
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo generar el plan.' });
       }
