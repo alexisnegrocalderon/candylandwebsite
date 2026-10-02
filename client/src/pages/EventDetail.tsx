@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { dropSupersededTickets } from '@shared/liveTickets';
 import { useSeo } from '@/hooks/useSeo';
 import { breadcrumbSchema, eventSchema } from '@shared/structuredData';
+import { eventImage, absoluteImageUrl } from '@shared/eventImage';
 
 export default function EventDetail() {
   const [, params] = useRoute('/eventos/:slug');
@@ -26,12 +27,13 @@ export default function EventDetail() {
   })();
 
   const isPast = event ? new Date(event.eventDate).getTime() < Date.now() : false;
+  const flyer = event ? eventImage(event.slug, event.imageUrl) : null;
 
   useSeo({
     title: event ? `${event.title} — Fiesta Liberal en Viña del Mar | +18` : 'Cargando evento… | Mansion Playroom',
     description: event?.shortDescription || 'Fiesta liberal en la Región de Valparaíso: fecha, horario, accesos y entradas para tu próxima noche con Mansion Playroom.',
     path: `/eventos/${slug}`,
-    image: event?.imageUrl || undefined,
+    image: absoluteImageUrl(flyer) || undefined,
     jsonLd: event
       ? [
           eventSchema({
@@ -40,7 +42,7 @@ export default function EventDetail() {
             startDate: new Date(event.eventDate).toISOString(),
             endDate: event.eventEnd ? new Date(event.eventEnd).toISOString() : null,
             slug: event.slug,
-            imageUrl: event.imageUrl,
+            imageUrl: absoluteImageUrl(flyer),
             priceFrom: precioDesde,
             venueName: event.venue ?? undefined,
           }),
@@ -118,10 +120,10 @@ export default function EventDetail() {
              * (`lg:sticky`) al costado izquierdo, sin overlay de texto. */
             className="relative rounded-3xl overflow-hidden mb-12 lg:mb-0 aspect-[4/5] sm:aspect-[16/10] lg:aspect-[3/4] lg:sticky lg:top-24"
           >
-            {event.imageUrl ? (
+            {flyer ? (
               <>
                 <img
-                  src={event.imageUrl}
+                  src={flyer}
                   alt=""
                   aria-hidden
                   className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-60"
@@ -132,7 +134,7 @@ export default function EventDetail() {
                  * parte de abajo del diseño, que es justo donde el flyer
                  * trae la hora y el dress code. */}
                 <img
-                  src={event.imageUrl}
+                  src={flyer}
                   alt={event.title}
                   className="relative w-full h-full object-contain object-top pb-24 md:pb-28 lg:pb-0"
                 />

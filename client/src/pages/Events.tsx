@@ -4,6 +4,7 @@ import { Calendar, Clock, MapPin, Ticket, ArrowRight } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { breadcrumbSchema } from '@shared/structuredData';
+import { eventImage } from '@shared/eventImage';
 
 // Mismo objeto `reveal` que usa Home.tsx -- duplicado acá (no exportado
 // desde allá) para no crear un import cruzado entre páginas por 5 líneas.
@@ -111,6 +112,7 @@ export default function Events() {
  * superpuesto sobre la imagen. */
 function NextEventHero({ event }: { event: any }) {
   const href = `/eventos/${event.slug}`;
+  const flyer = eventImage(event.slug, event.imageUrl);
   return (
     <motion.div {...reveal} className="grid grid-cols-1 md:grid-cols-[minmax(0,320px)_1fr] gap-6 md:gap-10 items-center">
       {/* Ancho fijo (no 50/50 del grid): en pantallas anchas un flyer a la
@@ -120,8 +122,8 @@ function NextEventHero({ event }: { event: any }) {
           una tarjeta normal, ni más ni menos. */}
       <Link href={href} className="group block w-full">
         <div className="relative aspect-[3/4] rounded-2xl md:rounded-3xl overflow-hidden glass-candy interactive transition-all duration-500 border border-primary/40 shadow-[0_0_60px_-15px_oklch(0.70_0.19_340_/_0.4)] group-hover:border-primary/70 group-hover:scale-[1.01]">
-          {event.imageUrl ? (
-            <img src={event.imageUrl} alt={event.title} className="w-full h-full object-cover transition-all duration-500" />
+          {flyer ? (
+            <img src={flyer} alt={event.title} className="w-full h-full object-cover transition-all duration-500" />
           ) : (
             <div className="w-full h-full bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
               <Ticket className="w-20 h-20 text-primary/50" />
@@ -165,6 +167,7 @@ function NextEventHero({ event }: { event: any }) {
  * llega a haber más de un evento publicado a futuro a la vez, cada una
  * calcula su propio `isPast` en vez de asumirlo. */
 function EventCard({ event, isPast, index }: { event: any; isPast: boolean; index: number }) {
+  const flyer = eventImage(event.slug, event.imageUrl);
   return (
     <motion.div
       initial={{ opacity: 0, y: 40 }}
@@ -178,9 +181,9 @@ function EventCard({ event, isPast, index }: { event: any; isPast: boolean; inde
             isPast ? 'group-hover:border-white/25' : 'group-hover:border-primary/50'
           }`}
         >
-          {event.imageUrl ? (
+          {flyer ? (
             <img
-              src={event.imageUrl}
+              src={flyer}
               alt={event.title}
               className="w-full h-full object-cover transition-all duration-500"
             />
