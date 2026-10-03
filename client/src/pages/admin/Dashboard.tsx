@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
@@ -2294,6 +2294,229 @@ function EditAttendeesDialog({ order, onClose, onSaved }: { order: any | null; o
   );
 }
 
+const clp = (n: number) => `$${Number(n).toLocaleString('es-CL')}`;
+
+/** Ventana "Pasar a Trío" de Ventas Web: un comprador con acceso Dúo quiere
+ * sumar a una tercera persona y pagar la diferencia. El admin fija el monto
+ * (viene sugerido: Trío de hoy − lo que pagó), genera el link de Mercado Pago y
+ * se lo manda; cuando se paga -- o el admin marca "pagado" por transferencia o
+ * efectivo -- el acceso pasa a Trío con el MISMO QR. */
+function UpgradeDialog({ order, onClose, onChanged }: { order: any | null; onClose: () => void; onChanged: () => void }) {
+  const orderId: number | undefined = order?.id;
+  const { data: preview, isLoading, refetch } = trpc.orders.previewUpgrade.useQuery(
+    { orderId: orderId ?? 0 },
+    { enabled: orderId !== undefined },
+  );
+  const [amount, setAmount] = useState('');
+  const [thirdName, setThirdName] = useState('');
+  const [thirdRut, setThirdRut] = useState('');
+
+  useEffect(() => { setThirdName(''); setThirdRut(''); setAmount(''); }, [orderId]);
+  // Se rellena con el monto sugerido apenas llega la vista previa de ESTA orden.
+  useEffect(() => {
+    if (preview && !preview.pending) setAmount(String(preview.suggestedAmount));
+  }, [preview?.orderId, preview?.pending?.id, preview?.suggestedAmount]);
+
+  const changed = () => { refetch(); onChanged(); };
+  const request = trpc.orders.requestUpgrade.useMutation({
+    onSuccess: (r) => { toast.success(r.paymentUrl ? 'Link de pago creado' : 'Solicitud creada'); changed(); },
+    onError: onMutationError,
+  });
+  const sendEmail = trpc.orders.sendUpgradeEmail.useMutation({
+    onSuccess: (r) => (r.success ? toast.success('Correo enviado') : toast.error('No se pudo enviar el correo')),
+    onError: onMutationError,
+  });
+  const markPaid = trpc.orders.markUpgradePaid.useMutation({
+    onSuccess: (r) => {
+      toast.success(r.applied ? 'Listo: el acceso ahora es Trío' : 'Esta solicitud ya estaba pagada');
+      onChanged();
+      onClose();
+    },
+    onError: onMutationError,
+  });
+  const cancel = trpc.orders.cancelUpgrade.useMutation({
+    onSuccess: () => { toast.success('Solicitud cancelada'); changed(); },
+    onError: onMutationError,
+  });
+
+  const amountNumber = Number(amount.replace(/[^0-9]/g, ''));
+  const rutInvalid = thirdRut.trim() !== '' && !isValidRut(thirdRut);
+  const pending = preview?.pending ?? null;
+  const firstName = (order?.buyerName ?? '').trim().split(/\s+/)[0] || '';
+  const phoneDigits = String(order?.buyerPhone ?? '').replace(/[^0-9]/g, '');
+  const whatsappText = pending?.paymentUrl
+    ? `Hola${firstName ? ` ${firstName}` : ''}! Para sumar a una tercera persona a tu acceso (pasa de Dúo a Trío) solo falta pagar la diferencia de ${clp(pending.amount)}. Puedes pagar aquí: ${pending.paymentUrl} . Cuando se acredite el pago, tu acceso queda como Trío con el mismo código QR. Recuerda que el nombre de cada persona debe coincidir con su carnet de identidad. ¡Gracias!`
+    : '';
+
+  const copyLink = async () => {
+    if (!pending?.paymentUrl) return;
+    try {
+      await navigator.clipboard.writeText(pending.paymentUrl);
+      toast.success('Link copiado');
+    } catch {
+      toast.error('No se pudo copiar; selecciónalo y cópialo a mano');
+    }
+  };
+
+  return (
+    <Dialog open={order !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Pasar a Trío · {order?.orderNumber}</DialogTitle>
+        </DialogHeader>
+
+        {isLoading || !preview ? (
+          <p className="text-sm text-muted-foreground">Cargando…</p>
+        ) : (
+          <div className="space-y-4">
+            {preview.tableMissing && (
+              <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                Esta función todavía no está lista en la base de datos (falta aplicar una migración). Avísale a quien administra el sistema.
+              </div>
+            )}
+            {preview.blockedReason && (
+              <div className="rounded-xl bg-yellow-500/10 border border-yellow-500/30 p-3 text-sm text-yellow-700">
+                {preview.blockedReason}
+              </div>
+            )}
+
+            {preview.from && preview.to && (
+              <div className="rounded-xl border border-border p-3 text-sm space-y-1">
+                <p><span className="text-muted-foreground">Acceso actual:</span> {preview.from.name} · pagó {clp(preview.from.paidUnitPrice)}</p>
+                <p><span className="text-muted-foreground">Pasa a:</span> {preview.to.name} · hoy {clp(preview.to.price)}</p>
+              </div>
+            )}
+
+            {!pending && !preview.blockedReason && !preview.tableMissing && (
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-sm">Diferencia a cobrar (CLP)</Label>
+                  <Input
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
+                    inputMode="numeric"
+                    className="max-w-[12rem]"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Sugerido: {clp(preview.suggestedAmount)} (Trío de hoy − lo que pagó). Puedes cambiarlo.
+                  </p>
+                  {amountNumber < preview.minPayment && (
+                    <p className="text-xs text-[var(--admin-warning-text)] mt-1">
+                      Con menos de {clp(preview.minPayment)} no se puede crear un link de pago: solo quedará la solicitud para marcarla como pagada.
+                    </p>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-border p-3 space-y-2">
+                  <p className="text-sm font-medium">Tercera persona (opcional)</p>
+                  <p className="text-xs text-muted-foreground">Si todavía no tienes sus datos, déjalo vacío: después se completan con "Editar nombres".</p>
+                  <div className="grid gap-2 sm:grid-cols-[1fr_11rem]">
+                    <div>
+                      <Label className="text-xs">Nombre completo</Label>
+                      <Input value={thirdName} onChange={(e) => setThirdName(e.target.value)} placeholder="Nombre y apellido" autoComplete="off" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">RUT</Label>
+                      <Input value={thirdRut} onChange={(e) => setThirdRut(formatRutLive(e.target.value))} placeholder="12.345.678-9" autoComplete="off" />
+                      {rutInvalid && <p className="text-xs text-destructive mt-1">RUT no válido</p>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" className="interactive" onClick={onClose}>Cerrar</Button>
+                  <WriteButton
+                    className="interactive"
+                    disabled={request.isPending || rutInvalid || !Number.isFinite(amountNumber)}
+                    onClick={() => request.mutate({
+                      orderId: order.id,
+                      amount: amountNumber,
+                      thirdName: thirdName.trim() || undefined,
+                      thirdRut: thirdRut.trim() || undefined,
+                    })}
+                  >
+                    {request.isPending ? 'Creando…' : amountNumber >= preview.minPayment ? 'Crear link de pago' : 'Crear solicitud'}
+                  </WriteButton>
+                </div>
+              </div>
+            )}
+
+            {pending && (
+              <div className="space-y-3">
+                <div className="rounded-xl bg-primary/10 border border-primary/30 p-3 text-sm">
+                  <p className="font-medium">Pendiente de pago: {clp(pending.amount)}</p>
+                  {(pending.thirdName || pending.thirdRut) && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Tercera persona: {[pending.thirdName, pending.thirdRut].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
+                </div>
+
+                {pending.paymentUrl ? (
+                  <div className="space-y-2">
+                    <Label className="text-xs">Link de pago (Mercado Pago)</Label>
+                    <div className="flex gap-2">
+                      <Input readOnly value={pending.paymentUrl} onFocus={(e) => e.currentTarget.select()} />
+                      <Button type="button" variant="outline" className="interactive shrink-0" onClick={copyLink}>
+                        <Copy className="w-4 h-4 mr-1" /> Copiar
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {phoneDigits && (
+                        <Button asChild variant="outline" size="sm" className="interactive">
+                          <a href={`https://wa.me/${phoneDigits}?text=${encodeURIComponent(whatsappText)}`} target="_blank" rel="noopener noreferrer">
+                            <MessageCircle className="w-4 h-4 mr-1" /> Enviar por WhatsApp
+                          </a>
+                        </Button>
+                      )}
+                      <WriteButton
+                        variant="outline"
+                        size="sm"
+                        className="interactive"
+                        disabled={sendEmail.isPending}
+                        onClick={() => sendEmail.mutate({ upgradeId: pending.id })}
+                      >
+                        <Mail className="w-4 h-4 mr-1" /> {sendEmail.isPending ? 'Enviando…' : 'Enviar por correo'}
+                      </WriteButton>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Esta solicitud no tiene link de pago (el monto es menor al mínimo). Cuando te paguen, márcala como pagada.
+                  </p>
+                )}
+
+                <div className="flex flex-wrap justify-end gap-2 pt-1">
+                  <WriteButton variant="outline" className="interactive" disabled={cancel.isPending} onClick={() => cancel.mutate({ upgradeId: pending.id })}>
+                    {cancel.isPending ? 'Cancelando…' : 'Cancelar solicitud'}
+                  </WriteButton>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <WriteButton className="interactive" disabled={markPaid.isPending}>Marcar como pagado</WriteButton>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>¿Marcar como pagado y pasar a Trío?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Úsalo solo si ya recibiste los {clp(pending.amount)} por transferencia o efectivo. El acceso de {order?.buyerName} pasa a Trío ahora mismo (mismo QR), la diferencia se suma a la orden y se le reenvía la confirmación.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Volver</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => markPaid.mutate({ upgradeId: pending.id })}>Sí, ya pagó</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   // Antes la tabla completa (con Estado/Fecha/Contacto/Acciones) se elegía
   // por ancho de pantalla (`md:`), así que un iPad -- angosto en vertical y
@@ -2321,6 +2544,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   }, [searchInput]);
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
+  const [upgradeOrderId, setUpgradeOrderId] = useState<number | null>(null);
   // Antes esta vista no tenía filtro de evento: la lista y los totales
   // mezclaban TODAS las fiestas de la historia y se leían como si fueran de
   // una sola. Con dos eventos publicados a la vez eso deja de ser un detalle.
@@ -2362,6 +2586,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const totalMatching = ordersData?.total ?? ordersList.length;
   const hiddenByCap = Math.max(0, totalMatching - ordersList.length);
   const editingOrder = ordersList.find((o: any) => o.id === editingOrderId) ?? null;
+  const upgradeOrder = ordersList.find((o: any) => o.id === upgradeOrderId) ?? null;
   const pendingCount = ordersList.filter((o: any) => o.paymentStatus === 'pending').length;
 
   // Recordatorios: solo con el filtro "Sin pagar" puesto. La selección es
@@ -2464,6 +2689,12 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         </div>
       )}
 
+      <UpgradeDialog
+        order={upgradeOrder}
+        onClose={() => setUpgradeOrderId(null)}
+        onChanged={() => { refetchOrders(); refetchStats(); }}
+      />
+
       <EditAttendeesDialog
         order={editingOrder}
         onClose={() => setEditingOrderId(null)}
@@ -2564,7 +2795,18 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                             </td>
                           )}
                           <td className="py-2.5 px-3 font-mono text-sm">{order.orderNumber}</td>
-                          <td className="py-2.5 px-3">{order.buyerName}<br/><span className="text-[var(--admin-muted)] text-sm">{order.buyerEmail}</span></td>
+                          <td className="py-2.5 px-3">
+                            {order.buyerName}<br/><span className="text-[var(--admin-muted)] text-sm">{order.buyerEmail}</span>
+                            {order.pendingUpgrade && (
+                              <button
+                                type="button"
+                                onClick={() => setUpgradeOrderId(order.id)}
+                                className="mt-1 block rounded-full bg-yellow-500/15 px-2 py-0.5 text-xs font-semibold text-yellow-700 hover:bg-yellow-500/25"
+                              >
+                                Trío pendiente de pago · {clp(order.pendingUpgrade.amount)}
+                              </button>
+                            )}
+                          </td>
                           <td className="py-2.5 px-3 tabular-nums">${Number(order.total).toLocaleString('es-CL')}</td>
                           <td className="py-2.5 px-3">
                             {order.extras && order.extras.length > 0 ? (
@@ -2622,6 +2864,14 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                               />
                               {order.paymentStatus === 'approved' && (
                                 <>
+                                  {order.accesoSlug === 'duo' && (
+                                    <RowActionButton
+                                      icon={UserPlus}
+                                      label="Pasar a Trío"
+                                      tone="send"
+                                      onClick={() => setUpgradeOrderId(order.id)}
+                                    />
+                                  )}
                                   <RowActionButton
                                     icon={Ticket}
                                     label={expandedOrderId === order.id ? 'Ocultar tickets' : 'Ver tickets'}
@@ -2735,6 +2985,15 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                       <p className="font-mono text-sm text-[var(--admin-muted)]">{order.orderNumber}</p>
                       <p className="font-medium truncate">{order.buyerName}</p>
                       <p className="text-sm text-[var(--admin-muted)] truncate">{order.buyerEmail}</p>
+                      {order.pendingUpgrade && (
+                        <button
+                          type="button"
+                          onClick={() => setUpgradeOrderId(order.id)}
+                          className="mt-1 rounded-full bg-yellow-500/15 px-2 py-0.5 text-xs font-semibold text-yellow-700"
+                        >
+                          Trío pendiente de pago · {clp(order.pendingUpgrade.amount)}
+                        </button>
+                      )}
                     </div>
                     <StatusBadge status={order.paymentStatus} />
                   </div>
@@ -2774,6 +3033,14 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                     />
                     {order.paymentStatus === 'approved' && (
                       <>
+                        {order.accesoSlug === 'duo' && (
+                          <RowActionButton
+                            icon={UserPlus}
+                            label="Pasar a Trío"
+                            tone="send"
+                            onClick={() => setUpgradeOrderId(order.id)}
+                          />
+                        )}
                         <RowActionButton
                           icon={Ticket}
                           label={expandedOrderId === order.id ? 'Ocultar tickets' : 'Ver tickets'}
@@ -7841,6 +8108,7 @@ function AdminAuditPanel() {
   const LABELS: Record<string, string> = {
     'orders.delete': 'Eliminó una compra',
     'orders.updateAttendees': 'Corrigió los nombres de una compra',
+    'orders.upgradeToTrio': 'Pasó una compra de Dúo a Trío',
     'events.delete': 'Eliminó un evento',
     'events.deleteTicketType': 'Eliminó un tipo de entrada',
     'expenses.delete': 'Eliminó un gasto',

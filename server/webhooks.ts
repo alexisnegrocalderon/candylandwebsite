@@ -18,6 +18,8 @@ import { missionCutoff, missionCapPrice, personasForAccesoSlug, MISSION_300_GOAL
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 import { checkAndApplyBirthdayTier } from './birthdayProgram';
+import { getUpgradeById, settleUpgrade } from './orderUpgrade';
+import { parseUpgradeReference } from '../shared/upgrade';
 
 export const webhooksRouter = Router();
 
@@ -133,6 +135,53 @@ export async function approveMissionTopupWithoutPayment(orderId: number) {
   return { success: true };
 }
 
+/** Aplica el upgrade Dúo→Trío y, si se aplicó, reenvía la confirmación de la
+ * orden (el correo ya sale como Trío y con el MISMO QR). Un fallo del correo
+ * nunca deshace el upgrade. Lo usan el webhook de pago y "Marcar como pagado". */
+export async function settleUpgradeAndNotify(upgradeId: number, opts: {
+  method: 'mercadopago' | 'manual';
+  paymentId?: string | null;
+  allowFromCancelled?: boolean;
+  ip?: string | null;
+}) {
+  const result = await settleUpgrade(upgradeId, opts);
+  if (result.applied) {
+    try {
+      await resendConfirmationEmail(result.orderNumber);
+    } catch (error) {
+      console.error(`[OrderUpgrade] El upgrade ${upgradeId} se aplicó pero no se pudo reenviar la confirmación:`, error);
+    }
+  }
+  return result;
+}
+
+/** Pago de Mercado Pago de una solicitud de upgrade (`external_reference` =
+ * `UPG-<id>`). Solo un pago `approved` por al menos el monto pedido aplica el
+ * upgrade; rechazado o pendiente deja la solicitud como está. Idempotente (ver
+ * settleUpgrade). */
+export async function applyUpgradePayment(input: {
+  upgradeId: number;
+  paymentId: string;
+  status: 'approved' | 'rejected' | 'pending';
+  paidAmount: number;
+}): Promise<{ ok: boolean; reason?: string }> {
+  if (input.status !== 'approved') return { ok: true, reason: 'not-approved' };
+
+  const upgrade = await getUpgradeById(input.upgradeId);
+  if (!upgrade) return { ok: false, reason: 'Upgrade not found' };
+  if (input.paidAmount < Number(upgrade.amount)) {
+    console.error(`[OrderUpgrade] Pago ${input.paymentId} por $${input.paidAmount} es menor al monto del upgrade ${upgrade.id} ($${upgrade.amount}); no se aplica.`);
+    return { ok: false, reason: 'Amount mismatch' };
+  }
+
+  await settleUpgradeAndNotify(input.upgradeId, {
+    method: 'mercadopago',
+    paymentId: input.paymentId,
+    allowFromCancelled: true,
+  });
+  return { ok: true };
+}
+
 /** Cobra una orden ya creada (pending) directamente con el Payment Brick —
  * sin modal ni redirect de Mercado Pago. El monto SIEMPRE sale de la orden
  * guardada en nuestra base (nunca de lo que mande el cliente), así que aunque
@@ -212,6 +261,21 @@ webhooksRouter.post('/api/webhooks/mercadopago', async (req: Request, res: Respo
 
       const orderNumber = paymentInfo.external_reference;
       if (!orderNumber) {
+        res.status(200).json({ ok: true });
+        return;
+      }
+
+      // Pago de un "pasar de Dúo a Trío": su referencia es `UPG-<id>`, no un
+      // número de orden. Va por su propio camino a propósito -- applyPaymentResult
+      // pisaría orders.paymentId y volvería a sumar stock.
+      const upgradeId = parseUpgradeReference(orderNumber);
+      if (upgradeId !== null) {
+        await applyUpgradePayment({
+          upgradeId,
+          paymentId: String(paymentId),
+          status: mapPaymentStatus(paymentInfo.status),
+          paidAmount: Number(paymentInfo.transaction_amount ?? 0),
+        });
         res.status(200).json({ ok: true });
         return;
       }

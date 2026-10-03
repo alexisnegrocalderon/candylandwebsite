@@ -7,7 +7,8 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
 import * as db from "./db";
-import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail, approveMissionTopupWithoutPayment } from "./webhooks";
+import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail, approveMissionTopupWithoutPayment, settleUpgradeAndNotify } from "./webhooks";
+import { getPendingUpgradesByOrderIds, previewUpgrade, createUpgradeRequest, sendUpgradeRequestEmail, cancelUpgrade } from "./orderUpgrade";
 import { isValidRut, formatRutLive } from "../shared/rut";
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
@@ -399,6 +400,18 @@ function adminIpKey(ctx: any): string {
 function clientIp(ctx: any): string {
   const forwardedFor = ctx.req.headers['x-forwarded-for'];
   return (typeof forwardedFor === 'string' ? forwardedFor.split(',')[0].trim() : forwardedFor?.[0]) || ctx.req.socket.remoteAddress || 'unknown';
+}
+
+/** Los errores de "pasar a Trío" ya vienen redactados en español para el
+ * admin (orden bloqueada, falta cupo, falta la migración...): se devuelven
+ * tal cual como BAD_REQUEST en vez de un error interno genérico. */
+async function upgradeErrorsAsBadRequest<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (error instanceof TRPCError) throw error;
+    throw new TRPCError({ code: 'BAD_REQUEST', message: error instanceof Error ? error.message : 'No se pudo completar la operación.' });
+  }
 }
 
 /** Quién recarga la PlayCard: el dueño de un ticket (link de la tarjeta
@@ -1033,7 +1046,14 @@ export const appRouter = router({
       eventId: z.number().optional(),
       search: z.string().max(100).optional(),
     }).optional()).query(async ({ input }) => {
-      return db.getAllOrders(input ?? {});
+      const result = await db.getAllOrders(input ?? {});
+      // Solicitudes de "pasar a Trío" pendientes de pago, para la etiqueta de la
+      // fila. Sin el link de pago: la lista también la ve el rol demo.
+      const pending = await getPendingUpgradesByOrderIds(result.orders.map((o) => o.id));
+      return {
+        ...result,
+        orders: result.orders.map((o) => ({ ...o, pendingUpgrade: pending.get(o.id) ?? null })),
+      };
     }),
     getStats: adminReadProcedure.input(z.object({
       channel: z.enum(['web', 'caja']).optional(),
@@ -1103,6 +1123,44 @@ export const appRouter = router({
     // QR y manda el correo final sin pago real de por medio.
     approveMissionTopup: adminProcedure.input(z.object({ orderId: z.number() })).mutation(async ({ input }) => {
       return approveMissionTopupWithoutPayment(input.orderId);
+    }),
+
+    // Pasar un acceso Dúo a Trío cobrando la diferencia (server/orderUpgrade.ts).
+    // `previewUpgrade` es adminProcedure (no adminReadProcedure) a propósito:
+    // trae el link de pago, que el rol demo no debe ver.
+    previewUpgrade: adminProcedure.input(z.object({ orderId: z.number() })).query(async ({ input }) => {
+      return upgradeErrorsAsBadRequest(() => previewUpgrade(input.orderId));
+    }),
+    requestUpgrade: adminProcedure.input(z.object({
+      orderId: z.number(),
+      amount: z.number().int().min(0).max(5_000_000),
+      thirdName: z.string().max(120).optional(),
+      thirdRut: z.string().max(20).optional(),
+    })).mutation(async ({ input }) => {
+      const thirdRut = (input.thirdRut ?? '').trim();
+      if (thirdRut && !isValidRut(thirdRut)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: `El RUT "${thirdRut}" no es válido.` });
+      }
+      return upgradeErrorsAsBadRequest(async () => {
+        const { upgrade, created } = await createUpgradeRequest({
+          orderId: input.orderId,
+          amount: input.amount,
+          thirdName: (input.thirdName ?? '').replace(/\s+/g, ' ').trim() || null,
+          thirdRut: thirdRut ? formatRutLive(thirdRut) : null,
+        });
+        return { upgradeId: upgrade.id, created, amount: Number(upgrade.amount), paymentUrl: upgrade.paymentUrl };
+      });
+    }),
+    sendUpgradeEmail: adminProcedure.input(z.object({ upgradeId: z.number() })).mutation(async ({ input }) => {
+      return upgradeErrorsAsBadRequest(() => sendUpgradeRequestEmail(input.upgradeId));
+    }),
+    // "Marcar como pagado" (transferencia o efectivo): aplica el upgrade igual
+    // que un pago de Mercado Pago. Exactamente una vez, ver settleUpgrade.
+    markUpgradePaid: adminProcedure.input(z.object({ upgradeId: z.number() })).mutation(async ({ input, ctx }) => {
+      return upgradeErrorsAsBadRequest(() => settleUpgradeAndNotify(input.upgradeId, { method: 'manual', ip: clientIp(ctx) }));
+    }),
+    cancelUpgrade: adminProcedure.input(z.object({ upgradeId: z.number() })).mutation(async ({ input }) => {
+      return upgradeErrorsAsBadRequest(() => cancelUpgrade(input.upgradeId));
     }),
 
     // Recordatorio a quien dejó la compra a medio camino (server/orderReminders.ts).
