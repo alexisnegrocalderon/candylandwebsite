@@ -2310,7 +2310,15 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  // `searchInput` es lo que se teclea; `search` es lo que se manda al servidor,
+  // 300 ms después de la última tecla (la búsqueda revisa nombres, email,
+  // N° de orden y acompañantes en TODA la base, no solo en lo ya cargado).
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   // Antes esta vista no tenía filtro de evento: la lista y los totales
@@ -2320,7 +2328,12 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const { data: eventsList } = trpc.events.listAll.useQuery();
   const eventId = eventFilter === 'all' ? undefined : Number(eventFilter);
 
-  const { data: ordersData, isLoading: ordersLoading, refetch: refetchOrders } = trpc.orders.listAll.useQuery({ status: statusFilter === 'all' ? undefined : statusFilter, channel, eventId });
+  const { data: ordersData, isLoading: ordersLoading, refetch: refetchOrders } = trpc.orders.listAll.useQuery(
+    { status: statusFilter === 'all' ? undefined : statusFilter, channel, eventId, search: search || undefined },
+    // Mantiene la lista anterior en pantalla mientras llega la nueva, para que
+    // la tabla no parpadee con cada búsqueda.
+    { placeholderData: (prev) => prev },
+  );
   const { data: stats, refetch: refetchStats } = trpc.orders.getStats.useQuery({ channel, eventId });
   const { data: orderTickets, isFetching: loadingTickets } = trpc.orders.getTickets.useQuery(
     { orderId: expandedOrderId ?? 0 },
@@ -2345,14 +2358,9 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   });
 
   const ordersList = ordersData?.orders ?? [];
-  const visibleOrders = ordersList.filter((o: any) => {
-    const q = search.trim().toLowerCase();
-    if (!q) return true;
-    return (o.buyerName ?? '').toLowerCase().includes(q)
-      || (o.buyerEmail ?? '').toLowerCase().includes(q)
-      || (o.orderNumber ?? '').toLowerCase().includes(q)
-      || (o.attendeeSlots ?? []).some((p: AttendeeSlotRow) => p.fullName.toLowerCase().includes(q));
-  });
+  const visibleOrders = ordersList;
+  const totalMatching = ordersData?.total ?? ordersList.length;
+  const hiddenByCap = Math.max(0, totalMatching - ordersList.length);
   const editingOrder = ordersList.find((o: any) => o.id === editingOrderId) ?? null;
   const pendingCount = ordersList.filter((o: any) => o.paymentStatus === 'pending').length;
 
@@ -2397,7 +2405,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-heading text-2xl">{channel === 'caja' ? 'Ventas en Caja' : 'Ventas Web'}</h2>
         <div className="flex flex-wrap items-center gap-2">
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, email o N° de orden…" className="max-w-xs" />
+          <Input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Buscar por nombre, acompañante, email o N° de orden…" className="max-w-xs" />
           <Select value={eventFilter} onValueChange={setEventFilter}>
             <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -2481,6 +2489,19 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         </BentoTile>
       </BentoGrid>
 
+      {!ordersLoading && ordersList.length > 0 && (
+        <p className="text-sm text-[var(--admin-muted)]">
+          Mostrando {ordersList.length.toLocaleString('es-CL')} de {totalMatching.toLocaleString('es-CL')} órdenes
+          {search ? ` que coinciden con "${search}"` : ''}
+        </p>
+      )}
+      {hiddenByCap > 0 && (
+        <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          Hay {hiddenByCap.toLocaleString('es-CL')} órdenes más que no se muestran (la lista tiene un tope de {ordersList.length.toLocaleString('es-CL')}).
+          Filtra por evento o por estado, o usa el buscador, para verlas.
+        </div>
+      )}
+
       {ordersLoading ? (
         <div className="admin-clay p-6">
           <TableSkeleton rows={6} />
@@ -2488,8 +2509,8 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
       ) : visibleOrders.length === 0 ? (
         <EmptyState
           icon={Ticket}
-          title={search.trim() ? 'Sin resultados para esa búsqueda' : 'Todavía no hay ventas acá'}
-          description={search.trim() ? 'Prueba con otro nombre, email o N° de orden.' : 'Cuando entren ventas para este filtro, van a aparecer en esta lista.'}
+          title={search ? 'Sin resultados para esa búsqueda' : 'Todavía no hay ventas acá'}
+          description={search ? 'Prueba con otro nombre, acompañante, email o N° de orden.' : 'Cuando entren ventas para este filtro, van a aparecer en esta lista.'}
         />
       ) : (
         <>
@@ -7819,6 +7840,7 @@ function AdminAuditPanel() {
 
   const LABELS: Record<string, string> = {
     'orders.delete': 'Eliminó una compra',
+    'orders.updateAttendees': 'Corrigió los nombres de una compra',
     'events.delete': 'Eliminó un evento',
     'events.deleteTicketType': 'Eliminó un tipo de entrada',
     'expenses.delete': 'Eliminó un gasto',
