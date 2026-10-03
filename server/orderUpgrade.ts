@@ -1,36 +1,50 @@
-/** Pasar un acceso Dúo a Trío cobrando la diferencia (Ventas Web).
+/** Subir un acceso ya comprado a otro más caro, cobrando la diferencia (Ventas
+ * Web).
  *
- * Flujo: el admin crea una solicitud (`createUpgradeRequest`) con el monto a
- * cobrar y, si el monto alcanza para un link de Mercado Pago, se genera. Cuando
- * el pago llega (webhook) o el admin aprueba "Marcar como pagado",
- * `settleUpgrade` cambia la solicitud a `paid` y recién ahí `applyUpgrade`
- * convierte el acceso en Trío.
+ * Flujo: el admin elige el acceso nuevo y crea una solicitud
+ * (`createUpgradeRequest`) con el monto a cobrar y, si alcanza para un link de
+ * Mercado Pago, se genera. Cuando el pago llega (webhook) o el admin aprueba
+ * "Marcar como pagado", `settleUpgrade` cambia la solicitud a `paid` y recién ahí
+ * `applyUpgrade` convierte el acceso en el nuevo.
  *
  * Este archivo NO importa de ./webhooks (webhooks importa de acá): el correo de
  * confirmación posterior lo manda quien llama, ver `settleUpgradeAndNotify`. */
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
-import { events, orderItems, orders, orderUpgrades, ticketTypes, tickets, type OrderUpgrade } from '../drizzle/schema';
+import { customers, events, orderItems, orders, orderUpgrades, ticketTypes, tickets, type OrderUpgrade } from '../drizzle/schema';
 import { getDb, getStockPoolRemaining, recordAdminAudit } from './db';
 import { createUpgradePreference } from './mercadopago';
 import { buildUpgradeEmail, sendEmail } from './email';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { formatChileDate } from '../shared/chileDate';
+import { personasForAccesoSlug } from '../shared/mission300';
 import {
   MIN_UPGRADE_PAYMENT,
-  addThirdAttendee,
+  UPGRADE_BLOCKED_SOURCE_SLUGS,
+  applyAttendeePatch,
   buildUpgradeReference,
-  canUpgradeToTrio,
   computeUpgradeQuote,
+  isEligibleUpgradeTarget,
+  legacyThirdToPeople,
+  missingAttendeeSlots,
+  sanitizeUpgradePeople,
+  type MissingSlot,
+  type NewPerson,
+  type NewPersonInput,
 } from '../shared/upgrade';
 
-const MISSING_TABLE_MESSAGE =
-  'Falta aplicar la migración de la base de datos (tabla orderUpgrades). Avísale a quien administra el sistema.';
+type TicketTypeRow = typeof ticketTypes.$inferSelect;
 
-function isMissingTableError(error: unknown): boolean {
+const MISSING_SCHEMA_MESSAGE =
+  'Falta aplicar una migración de la base de datos (tabla orderUpgrades). Avísale a quien administra el sistema.';
+
+/** La tabla `orderUpgrades` (o su columna `extraData`) todavía no existe en la
+ * base: pasa si se despliega el código antes de aplicar la migración. */
+function isMissingSchemaError(error: unknown): boolean {
   const e = error as { code?: string; message?: string; cause?: { code?: string; message?: string } } | null;
-  return e?.code === 'ER_NO_SUCH_TABLE'
-    || e?.cause?.code === 'ER_NO_SUCH_TABLE'
-    || /doesn't exist/i.test(String(e?.cause?.message ?? e?.message ?? ''));
+  const code = e?.code ?? e?.cause?.code;
+  return code === 'ER_NO_SUCH_TABLE'
+    || code === 'ER_BAD_FIELD_ERROR'
+    || /doesn't exist|unknown column/i.test(String(e?.cause?.message ?? e?.message ?? ''));
 }
 
 async function requireDb() {
@@ -39,7 +53,35 @@ async function requireDb() {
   return db;
 }
 
-export type PendingUpgradeSummary = { id: number; amount: number; createdAt: Date };
+/** Una columna JSON llega como objeto con MySQL/TiDB, pero como texto en las
+ * bases que la guardan como LONGTEXT (MariaDB): se acepta cualquiera de las dos. */
+function jsonValue(value: unknown): unknown {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function camposOf(attendeeData: string | null | undefined): Record<string, unknown> {
+  try {
+    const campos = attendeeData ? JSON.parse(attendeeData)?.campos : null;
+    return campos && typeof campos === 'object' && !Array.isArray(campos) ? campos : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Personas nuevas de una solicitud: `extraData.people`, o -- en las solicitudes
+ * viejas de Dúo→Trío -- `thirdName`/`thirdRut`. */
+function peopleOf(upgrade: OrderUpgrade): NewPerson[] {
+  const extra = jsonValue(upgrade.extraData) as { people?: unknown } | null;
+  if (extra && Array.isArray(extra.people)) return extra.people as NewPerson[];
+  return legacyThirdToPeople(upgrade.thirdName, upgrade.thirdRut);
+}
+
+export type PendingUpgradeSummary = { id: number; amount: number; createdAt: Date; toName: string | null };
 
 /** Solicitudes pendientes de varias órdenes de una vez, para la lista de
  * Ventas Web. Nunca rompe la lista: si la tabla todavía no existe en
@@ -54,14 +96,18 @@ export async function getPendingUpgradesByOrderIds(orderIds: number[]): Promise<
       orderId: orderUpgrades.orderId,
       amount: orderUpgrades.amount,
       createdAt: orderUpgrades.createdAt,
+      toName: ticketTypes.name,
     }).from(orderUpgrades)
+      .leftJoin(ticketTypes, eq(orderUpgrades.toTicketTypeId, ticketTypes.id))
       .where(and(inArray(orderUpgrades.orderId, orderIds), eq(orderUpgrades.status, 'pending')))
       .orderBy(desc(orderUpgrades.id));
     for (const row of rows) {
-      if (!result.has(row.orderId)) result.set(row.orderId, { id: row.id, amount: Number(row.amount), createdAt: row.createdAt });
+      if (!result.has(row.orderId)) {
+        result.set(row.orderId, { id: row.id, amount: Number(row.amount), createdAt: row.createdAt, toName: row.toName ?? null });
+      }
     }
   } catch (error) {
-    if (!isMissingTableError(error)) console.error('[OrderUpgrade] No se pudo leer las solicitudes pendientes:', error);
+    if (!isMissingSchemaError(error)) console.error('[OrderUpgrade] No se pudo leer las solicitudes pendientes:', error);
   }
   return result;
 }
@@ -74,7 +120,7 @@ async function findPendingUpgrade(orderId: number): Promise<OrderUpgrade | null>
       .orderBy(desc(orderUpgrades.id)).limit(1);
     return row ?? null;
   } catch (error) {
-    if (isMissingTableError(error)) throw new Error(MISSING_TABLE_MESSAGE);
+    if (isMissingSchemaError(error)) throw new Error(MISSING_SCHEMA_MESSAGE);
     throw error;
   }
 }
@@ -85,62 +131,98 @@ export async function getUpgradeById(upgradeId: number): Promise<OrderUpgrade | 
     const [row] = await db.select().from(orderUpgrades).where(eq(orderUpgrades.id, upgradeId)).limit(1);
     return row ?? null;
   } catch (error) {
-    if (isMissingTableError(error)) throw new Error(MISSING_TABLE_MESSAGE);
+    if (isMissingSchemaError(error)) throw new Error(MISSING_SCHEMA_MESSAGE);
     throw error;
   }
 }
 
-/** Todo lo que hay que saber de una orden para decidir si se puede pasar a
- * Trío. `blocked` trae el motivo en español cuando NO se puede. */
+type UpgradeTarget = {
+  type: TicketTypeRow;
+  personas: number;
+  suggestedAmount: number;
+  missing: MissingSlot[];
+};
+
+/** Todo lo que hay que saber de una orden para decidir si se puede subir de
+ * acceso, y a cuáles. `blocked` trae el motivo en español cuando NO se puede. */
 async function loadUpgradeContext(orderId: number) {
   const db = await requireDb();
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
   if (!order) throw new Error('Orden no encontrada');
   const [event] = await db.select().from(events).where(eq(events.id, order.eventId)).limit(1);
-  const blockedWith = (blocked: string) => ({ order, event, blocked, item: null, fromType: null, toType: null, ticket: null } as const);
+  const blockedWith = (blocked: string) =>
+    ({ order, event, blocked, item: null, fromType: null, ticket: null, targets: [] as UpgradeTarget[] } as const);
 
   if (order.paymentStatus !== 'approved') return blockedWith('La orden todavía no está aprobada.');
-  if (order.missionDeposit === 1) return blockedWith('Esta compra viene de Misión 300 (abono): no se puede pasar a Trío desde acá.');
+  if (order.missionDeposit === 1) return blockedWith('Esta compra viene de Misión 300 (abono): no se puede subir de acceso desde acá.');
+  if (event && (event.status === 'past' || event.status === 'cancelled')) return blockedWith('El evento ya pasó o fue cancelado.');
 
   const rows = await db.select({ item: orderItems, type: ticketTypes }).from(orderItems)
     .innerJoin(ticketTypes, eq(orderItems.ticketTypeId, ticketTypes.id))
     .where(and(eq(orderItems.orderId, order.id), eq(ticketTypes.category, 'acceso')));
   if (rows.length === 0) return blockedWith('La orden no tiene un acceso.');
   if (rows.length > 1 || rows[0].item.quantity !== 1) {
-    return blockedWith('Esta orden tiene más de un acceso. Por ahora solo se puede pasar a Trío una orden con un único Dúo.');
+    return blockedWith('Esta orden tiene más de un acceso. Por ahora solo se puede subir de acceso una orden con un único acceso.');
   }
   const { item, type: fromType } = rows[0];
-  if (fromType.accesoSlug === 'trio') return blockedWith('Esta orden ya es Trío.');
-  if (!canUpgradeToTrio(fromType.accesoSlug)) return blockedWith('Solo se puede pasar de Dúo a Trío.');
+  const fromSlug = fromType.accesoSlug;
+  if (!fromSlug || UPGRADE_BLOCKED_SOURCE_SLUGS.includes(fromSlug)) {
+    return blockedWith('Este tipo de acceso no se puede cambiar por otro.');
+  }
 
   const [ticket] = await db.select().from(tickets).where(eq(tickets.orderItemId, item.id)).limit(1);
   if (!ticket) return blockedWith('La orden todavía no tiene ticket generado.');
   if (ticket.status !== 'valid') {
     return blockedWith(ticket.status === 'used' ? 'El ticket de esta orden ya fue usado en la puerta.' : 'El ticket de esta orden está anulado.');
   }
+  // Las invitaciones instantáneas llevan un `groupSize` fijo en vez de un
+  // acceso con personas definidas: cambiarles el tipo las dejaría descuadradas.
+  if (ticket.groupSize != null) return blockedWith('Esta entrada es una invitación especial: no se puede subir de acceso.');
 
-  // Cada tanda es una fila nueva con el mismo accesoSlug (advanceTanda): el Trío
-  // destino es el que está ACTIVO hoy en este evento.
-  const [toType] = await db.select().from(ticketTypes)
-    .where(and(
-      eq(ticketTypes.eventId, order.eventId),
-      eq(ticketTypes.accesoSlug, 'trio'),
-      eq(ticketTypes.category, 'acceso'),
-      eq(ticketTypes.status, 'active'),
-    ))
-    .orderBy(desc(ticketTypes.id)).limit(1);
-  if (!toType) return blockedWith('No hay un acceso Trío activo en este evento.');
+  // Cada tanda es una fila nueva con el mismo accesoSlug (advanceTanda): de cada
+  // tipo de acceso el destino es la fila ACTIVA de hoy en este evento.
+  const active = await db.select().from(ticketTypes)
+    .where(and(eq(ticketTypes.eventId, order.eventId), eq(ticketTypes.category, 'acceso'), eq(ticketTypes.status, 'active')))
+    .orderBy(desc(ticketTypes.id));
+  const newestBySlug = new Map<string, TicketTypeRow>();
+  for (const t of active) if (t.accesoSlug && !newestBySlug.has(t.accesoSlug)) newestBySlug.set(t.accesoSlug, t);
 
-  const noStock = 'No queda cupo de Trío.';
-  if (toType.totalStock - toType.soldCount < 1) return blockedWith(noStock);
-  // Si Dúo y Trío comparten cupo, el cambio es neutro para el pozo.
-  if (toType.stockPoolId && toType.stockPoolId !== fromType.stockPoolId) {
-    const pool = await getStockPoolRemaining(toType.stockPoolId);
-    if (pool && pool.remaining < 1) return blockedWith(noStock);
+  const campos = camposOf(order.attendeeData);
+  const poolRemaining = new Map<number, number>();
+  const targets: UpgradeTarget[] = [];
+  for (const t of Array.from(newestBySlug.values())) {
+    if (!isEligibleUpgradeTarget({ slug: fromSlug, paidUnitPrice: Number(item.unitPrice) }, { slug: t.accesoSlug, price: Number(t.price) })) continue;
+    if (t.totalStock - t.soldCount < 1) continue;
+    // Si origen y destino comparten cupo, el cambio es neutro para el pozo.
+    if (t.stockPoolId && t.stockPoolId !== fromType.stockPoolId) {
+      if (!poolRemaining.has(t.stockPoolId)) {
+        const pool = await getStockPoolRemaining(t.stockPoolId);
+        poolRemaining.set(t.stockPoolId, pool ? pool.remaining : Number.POSITIVE_INFINITY);
+      }
+      if ((poolRemaining.get(t.stockPoolId) ?? 0) < 1) continue;
+    }
+    targets.push({
+      type: t,
+      personas: personasForAccesoSlug(t.accesoSlug),
+      suggestedAmount: computeUpgradeQuote({ paidUnitPrice: Number(item.unitPrice), targetPrice: Number(t.price) }),
+      missing: missingAttendeeSlots(t.accesoSlug, campos),
+    });
   }
+  targets.sort((a, b) => Number(a.type.price) - Number(b.type.price));
+  if (targets.length === 0) return { ...blockedWith('No hay un acceso superior disponible para esta compra (más caro, con cupo y con igual o más personas).'), item, fromType, ticket };
 
-  return { order, event, blocked: null, item, fromType, toType, ticket } as const;
+  return { order, event, blocked: null, item, fromType, ticket, targets } as const;
 }
+
+export type UpgradeOption = {
+  ticketTypeId: number;
+  name: string;
+  slug: string;
+  price: number;
+  personas: number;
+  suggestedAmount: number;
+  missing: MissingSlot[];
+};
 
 export type UpgradePreview = {
   orderId: number;
@@ -149,16 +231,18 @@ export type UpgradePreview = {
   eventTitle: string;
   blockedReason: string | null;
   tableMissing: boolean;
-  from: { name: string; paidUnitPrice: number } | null;
-  to: { name: string; price: number } | null;
-  suggestedAmount: number;
+  from: { name: string; slug: string | null; personas: number; paidUnitPrice: number } | null;
+  options: UpgradeOption[];
   minPayment: number;
   pending: {
     id: number;
     amount: number;
     paymentUrl: string | null;
-    thirdName: string | null;
-    thirdRut: string | null;
+    fromName: string | null;
+    toName: string | null;
+    people: NewPerson[];
+    /** Datos de personas que seguirían faltando después del cambio. */
+    stillMissing: MissingSlot[];
     createdAt: Date;
   } | null;
 };
@@ -170,12 +254,32 @@ export async function previewUpgrade(orderId: number): Promise<UpgradePreview> {
   try {
     pending = await findPendingUpgrade(orderId);
   } catch (error) {
-    if (error instanceof Error && error.message === MISSING_TABLE_MESSAGE) tableMissing = true;
+    if (error instanceof Error && error.message === MISSING_SCHEMA_MESSAGE) tableMissing = true;
     else throw error;
   }
 
-  const from = ctx.fromType && ctx.item ? { name: ctx.fromType.name, paidUnitPrice: Number(ctx.item.unitPrice) } : null;
-  const to = ctx.toType ? { name: ctx.toType.name, price: Number(ctx.toType.price) } : null;
+  let pendingView: UpgradePreview['pending'] = null;
+  if (pending) {
+    const db = await requireDb();
+    const types = await db.select().from(ticketTypes).where(inArray(ticketTypes.id, [pending.fromTicketTypeId, pending.toTicketTypeId]));
+    const fromT = types.find((t) => t.id === pending!.fromTicketTypeId);
+    const toT = types.find((t) => t.id === pending!.toTicketTypeId);
+    const people = peopleOf(pending);
+    const patched = toT?.accesoSlug
+      ? camposOf(applyAttendeePatch(ctx.order.attendeeData, people, { name: toT.name, slug: toT.accesoSlug }))
+      : camposOf(ctx.order.attendeeData);
+    pendingView = {
+      id: pending.id,
+      amount: Number(pending.amount),
+      paymentUrl: pending.paymentUrl,
+      fromName: fromT?.name ?? null,
+      toName: toT?.name ?? null,
+      people,
+      stillMissing: missingAttendeeSlots(toT?.accesoSlug, patched),
+      createdAt: pending.createdAt,
+    };
+  }
+
   return {
     orderId,
     orderNumber: ctx.order.orderNumber,
@@ -183,48 +287,55 @@ export async function previewUpgrade(orderId: number): Promise<UpgradePreview> {
     eventTitle: ctx.event?.title ?? '',
     blockedReason: ctx.blocked,
     tableMissing,
-    from,
-    to,
-    suggestedAmount: from && to ? computeUpgradeQuote({ paidUnitPrice: from.paidUnitPrice, targetPrice: to.price }) : 0,
+    from: ctx.fromType && ctx.item
+      ? { name: ctx.fromType.name, slug: ctx.fromType.accesoSlug, personas: personasForAccesoSlug(ctx.fromType.accesoSlug), paidUnitPrice: Number(ctx.item.unitPrice) }
+      : null,
+    options: ctx.targets.map((t) => ({
+      ticketTypeId: t.type.id,
+      name: t.type.name,
+      slug: t.type.accesoSlug ?? '',
+      price: Number(t.type.price),
+      personas: t.personas,
+      suggestedAmount: t.suggestedAmount,
+      missing: t.missing,
+    })),
     minPayment: MIN_UPGRADE_PAYMENT,
-    pending: pending ? {
-      id: pending.id,
-      amount: Number(pending.amount),
-      paymentUrl: pending.paymentUrl,
-      thirdName: pending.thirdName,
-      thirdRut: pending.thirdRut,
-      createdAt: pending.createdAt,
-    } : null,
+    pending: pendingView,
   };
 }
 
-/** Crea la solicitud de upgrade (y el link de Mercado Pago si el monto lo
- * permite). Si la orden ya tiene una pendiente, devuelve esa en vez de crear
- * otra: para cambiar el monto hay que cancelarla primero. */
+/** Crea la solicitud de subir de acceso (y el link de Mercado Pago si el monto
+ * lo permite). Si la orden ya tiene una pendiente, devuelve esa en vez de crear
+ * otra: para cambiar el monto o el destino hay que cancelarla primero. Todo se
+ * valida acá: el destino debe estar entre los elegibles de esta orden. */
 export async function createUpgradeRequest(input: {
   orderId: number;
+  toTicketTypeId: number;
   amount: number;
-  thirdName?: string | null;
-  thirdRut?: string | null;
+  people?: NewPersonInput[];
 }): Promise<{ upgrade: OrderUpgrade; created: boolean }> {
   const amount = Math.round(Number(input.amount));
   if (!Number.isFinite(amount) || amount < 0) throw new Error('El monto no es válido.');
 
   const ctx = await loadUpgradeContext(input.orderId);
-  if (ctx.blocked || !ctx.fromType || !ctx.toType) throw new Error(ctx.blocked ?? 'No se puede pasar a Trío.');
+  if (ctx.blocked || !ctx.fromType) throw new Error(ctx.blocked ?? 'No se puede subir de acceso.');
+  const target = ctx.targets.find((t) => t.type.id === input.toTicketTypeId);
+  if (!target) throw new Error('Ese acceso no está disponible para esta compra.');
 
   const existing = await findPendingUpgrade(input.orderId);
   if (existing) return { upgrade: existing, created: false };
+
+  const { people, errors } = sanitizeUpgradePeople(input.people, target.missing);
+  if (errors.length > 0) throw new Error(errors.join(' '));
 
   const db = await requireDb();
   const [inserted] = await db.insert(orderUpgrades).values({
     orderId: input.orderId,
     fromTicketTypeId: ctx.fromType.id,
-    toTicketTypeId: ctx.toType.id,
+    toTicketTypeId: target.type.id,
     amount: String(amount),
     status: 'pending',
-    thirdName: input.thirdName?.trim() || null,
-    thirdRut: input.thirdRut?.trim() || null,
+    extraData: { people },
   });
   const upgradeId = (inserted as unknown as { insertId: number }).insertId;
 
@@ -233,6 +344,7 @@ export async function createUpgradeRequest(input: {
       const pref = await createUpgradePreference({
         reference: buildUpgradeReference(upgradeId),
         eventTitle: ctx.event?.title ?? '',
+        toName: target.type.name,
         amount,
         buyerEmail: ctx.order.buyerEmail,
         buyerName: ctx.order.buyerName,
@@ -271,6 +383,14 @@ export async function sendUpgradeRequestEmail(upgradeId: number): Promise<{ succ
   const [order] = await db.select().from(orders).where(eq(orders.id, upgrade.orderId)).limit(1);
   if (!order) throw new Error('Orden no encontrada');
   const [event] = await db.select().from(events).where(eq(events.id, order.eventId)).limit(1);
+  const types = await db.select().from(ticketTypes).where(inArray(ticketTypes.id, [upgrade.fromTicketTypeId, upgrade.toTicketTypeId]));
+  const fromT = types.find((t) => t.id === upgrade.fromTicketTypeId);
+  const toT = types.find((t) => t.id === upgrade.toTicketTypeId);
+
+  const patched = toT?.accesoSlug
+    ? camposOf(applyAttendeePatch(order.attendeeData, peopleOf(upgrade), { name: toT.name, slug: toT.accesoSlug }))
+    : camposOf(order.attendeeData);
+  const needsData = missingAttendeeSlots(toT?.accesoSlug, patched).length > 0;
 
   // Un link relativo (modo sin token de Mercado Pago) no sirve en un correo.
   const baseUrl = process.env.APP_URL || 'https://mansionplayroom.cl';
@@ -278,7 +398,7 @@ export async function sendUpgradeRequestEmail(upgradeId: number): Promise<{ succ
 
   const result = await sendEmail({
     to: order.buyerEmail,
-    subject: `Suma a una tercera persona a tu acceso - ${event?.title ?? ''}`,
+    subject: `Sube tu acceso a ${toT?.name ?? 'un acceso mayor'} - ${event?.title ?? ''}`,
     html: buildUpgradeEmail({
       buyerName: order.buyerName,
       eventTitle: event?.title ?? '',
@@ -286,25 +406,29 @@ export async function sendUpgradeRequestEmail(upgradeId: number): Promise<{ succ
       orderNumber: order.orderNumber,
       amount: Number(upgrade.amount),
       paymentUrl,
+      fromName: fromT?.name ?? 'tu acceso',
+      toName: toT?.name ?? 'un acceso mayor',
+      needsData,
     }),
   });
   return { success: !!result?.success };
 }
 
-/** Convierte el acceso en Trío. SOLO lo corre quien ganó el paso de la
+/** Convierte el acceso en el nuevo. SOLO lo corre quien ganó el paso de la
  * solicitud a `paid` (ver settleUpgrade), así nunca se aplica dos veces.
  *
  * Todo lo que toca plata, stock y tickets va en UNA transacción: o se aplica
  * entero o no se aplica nada. El QR no cambia (solo lleva el código del
  * ticket): se cambia el tipo del ticket y de su línea de la orden, no se
- * genera ninguno nuevo. Si al llegar el pago ya no queda cupo de Trío igual se
- * aplica -- ya está cobrado, y es mejor sobrevender uno que dejar a alguien
- * pagado sin su tercera entrada. */
+ * genera ninguno nuevo. Si al llegar el pago ya no queda cupo igual se aplica
+ * -- ya está cobrado, y es mejor sobrevender uno que dejar a alguien pagado
+ * sin su acceso. */
 async function applyUpgrade(upgradeId: number, ctx: { method: string; ip?: string | null }) {
   const db = await requireDb();
   const upgrade = await getUpgradeById(upgradeId);
   if (!upgrade) throw new Error('Solicitud no encontrada');
   const amount = Number(upgrade.amount);
+  const people = peopleOf(upgrade);
 
   const applied = await db.transaction(async (tx) => {
     const [order] = await tx.select().from(orders).where(eq(orders.id, upgrade.orderId)).limit(1);
@@ -316,27 +440,24 @@ async function applyUpgrade(upgradeId: number, ctx: { method: string; ip?: strin
       const [already] = await tx.select({ id: orderItems.id }).from(orderItems)
         .where(and(eq(orderItems.orderId, order.id), eq(orderItems.ticketTypeId, upgrade.toTicketTypeId))).limit(1);
       if (already) return { order, already: true as const };
-      throw new Error('No se encontró el acceso Dúo de esta orden.');
+      throw new Error('No se encontró el acceso original de esta orden.');
     }
 
     const [toType] = await tx.select().from(ticketTypes).where(eq(ticketTypes.id, upgrade.toTicketTypeId)).limit(1);
-    if (!toType) throw new Error('El acceso Trío de destino ya no existe.');
+    if (!toType) throw new Error('El acceso de destino ya no existe.');
+    const [fromType] = await tx.select().from(ticketTypes).where(eq(ticketTypes.id, upgrade.fromTicketTypeId)).limit(1);
     const [ticket] = await tx.select().from(tickets).where(eq(tickets.orderItemId, item.id)).limit(1);
     if (!ticket) throw new Error('No se encontró el ticket de esta orden.');
 
-    const newUnitPrice = Number(item.unitPrice) + amount;
     await tx.update(orderItems).set({
       ticketTypeId: toType.id,
-      unitPrice: String(newUnitPrice),
+      unitPrice: String(Number(item.unitPrice) + amount),
       totalPrice: String(Number(item.totalPrice) + amount),
       // La utilidad de la venta se calcula con el costo del producto vendido.
       ...(toType.costPrice != null ? { unitCost: toType.costPrice } : {}),
     }).where(eq(orderItems.id, item.id));
 
-    await tx.update(tickets).set({
-      ticketTypeId: toType.id,
-      ...(ticket.groupSize != null ? { groupSize: 3 } : {}),
-    }).where(eq(tickets.id, ticket.id));
+    await tx.update(tickets).set({ ticketTypeId: toType.id }).where(eq(tickets.id, ticket.id));
 
     await tx.update(ticketTypes).set({ soldCount: sql`GREATEST(soldCount - 1, 0)` }).where(eq(ticketTypes.id, upgrade.fromTicketTypeId));
     await tx.update(ticketTypes).set({ soldCount: sql`soldCount + 1` }).where(eq(ticketTypes.id, toType.id));
@@ -344,18 +465,25 @@ async function applyUpgrade(upgradeId: number, ctx: { method: string; ip?: strin
     await tx.update(orders).set({
       subtotal: String(Number(order.subtotal) + amount),
       total: String(Number(order.total) + amount),
-      attendeeData: addThirdAttendee(order.attendeeData, { name: upgrade.thirdName, rut: upgrade.thirdRut }),
+      attendeeData: applyAttendeePatch(order.attendeeData, people, { name: toType.name, slug: toType.accesoSlug ?? '' }),
     }).where(eq(orders.id, order.id));
 
     if (toType.totalStock - toType.soldCount < 1) {
-      console.warn(`[OrderUpgrade] Upgrade ${upgradeId} aplicado sin cupo de Trío (orden ${order.orderNumber}): ya estaba cobrado.`);
+      console.warn(`[OrderUpgrade] Upgrade ${upgradeId} aplicado sin cupo (orden ${order.orderNumber}): ya estaba cobrado.`);
     }
-    return { order, already: false as const, fromTicketTypeId: upgrade.fromTicketTypeId, toTicketTypeId: toType.id, ticketCode: ticket.ticketCode };
+    return {
+      order,
+      already: false as const,
+      fromName: fromType?.name ?? null,
+      toName: toType.name,
+      toSlug: toType.accesoSlug,
+      ticketCode: ticket.ticketCode,
+    };
   });
 
   if (!applied.already) {
     await recordAdminAudit({
-      action: 'orders.upgradeToTrio',
+      action: 'orders.upgradeAccess',
       targetType: 'order',
       targetId: upgrade.orderId,
       eventId: applied.order.eventId,
@@ -365,13 +493,33 @@ async function applyUpgrade(upgradeId: number, ctx: { method: string; ip?: strin
         amount,
         method: ctx.method,
         paymentId: upgrade.paymentId,
-        fromTicketTypeId: applied.fromTicketTypeId,
-        toTicketTypeId: applied.toTicketTypeId,
+        fromTicketTypeId: upgrade.fromTicketTypeId,
+        toTicketTypeId: upgrade.toTicketTypeId,
+        fromName: applied.fromName,
+        toName: applied.toName,
         ticketCode: applied.ticketCode,
       },
       ip: ctx.ip ?? null,
     });
-    // Puede ser justo el Trío que agota el cupo de la tanda vigente.
+
+    // La ficha del cliente guarda los tipos de acceso que ha tenido y cuánto ha
+    // gastado: se actualiza, pero un fallo acá nunca deshace el upgrade.
+    try {
+      const email = applied.order.buyerEmail.trim().toLowerCase();
+      const [customer] = await db.select().from(customers).where(eq(customers.email, email)).limit(1);
+      if (customer) {
+        const stored = jsonValue(customer.accessTypes);
+        const existing = Array.isArray(stored) ? (stored as string[]) : [];
+        await db.update(customers).set({
+          accessTypes: applied.toSlug ? Array.from(new Set([...existing, applied.toSlug])) : existing,
+          totalSpent: String(Number(customer.totalSpent) + amount),
+        }).where(eq(customers.id, customer.id));
+      }
+    } catch (error) {
+      console.error('[OrderUpgrade] No se pudo actualizar la ficha del cliente:', error);
+    }
+
+    // Puede ser justo el acceso que agota el cupo de la tanda vigente.
     await checkAndAdvanceTandaIfNeeded(applied.order.eventId);
   }
   return { orderNumber: applied.order.orderNumber, orderId: applied.order.id };
@@ -404,7 +552,7 @@ export async function settleUpgrade(upgradeId: number, opts: {
     }).where(and(eq(orderUpgrades.id, upgradeId), inArray(orderUpgrades.status, allowedFrom)));
     affected = Number((res as unknown as { affectedRows?: number }).affectedRows ?? 0);
   } catch (error) {
-    if (isMissingTableError(error)) throw new Error(MISSING_TABLE_MESSAGE);
+    if (isMissingSchemaError(error)) throw new Error(MISSING_SCHEMA_MESSAGE);
     throw error;
   }
   if (affected === 0) return { applied: false, reason: 'already-settled' };

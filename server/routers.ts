@@ -1131,22 +1131,26 @@ export const appRouter = router({
     previewUpgrade: adminProcedure.input(z.object({ orderId: z.number() })).query(async ({ input }) => {
       return upgradeErrorsAsBadRequest(() => previewUpgrade(input.orderId));
     }),
+    // El acceso de destino y las personas se validan en el servidor contra lo que
+    // esa orden realmente puede hacer (createUpgradeRequest): lo que mande el
+    // cliente nunca decide el precio ni a qué acceso se puede subir.
     requestUpgrade: adminProcedure.input(z.object({
       orderId: z.number(),
+      toTicketTypeId: z.number(),
       amount: z.number().int().min(0).max(5_000_000),
-      thirdName: z.string().max(120).optional(),
-      thirdRut: z.string().max(20).optional(),
+      people: z.array(z.object({
+        n: z.number().int().min(1).max(9),
+        name: z.string().max(120).optional(),
+        rut: z.string().max(20).optional(),
+        instagram: z.string().max(80).optional(),
+      })).max(9).optional(),
     })).mutation(async ({ input }) => {
-      const thirdRut = (input.thirdRut ?? '').trim();
-      if (thirdRut && !isValidRut(thirdRut)) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: `El RUT "${thirdRut}" no es válido.` });
-      }
       return upgradeErrorsAsBadRequest(async () => {
         const { upgrade, created } = await createUpgradeRequest({
           orderId: input.orderId,
+          toTicketTypeId: input.toTicketTypeId,
           amount: input.amount,
-          thirdName: (input.thirdName ?? '').replace(/\s+/g, ' ').trim() || null,
-          thirdRut: thirdRut ? formatRutLive(thirdRut) : null,
+          people: input.people,
         });
         return { upgradeId: upgrade.id, created, amount: Number(upgrade.amount), paymentUrl: upgrade.paymentUrl };
       });

@@ -1,0 +1,1 @@
+ALTER TABLE `orderUpgrades` ADD `extraData` json;

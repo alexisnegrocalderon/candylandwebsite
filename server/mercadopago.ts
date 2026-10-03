@@ -72,13 +72,15 @@ export async function createTopupPreference(input: {
   return { id: result.id, initPoint: result.init_point };
 }
 
-/** Preferencia para cobrar la diferencia de pasar un acceso Dúo a Trío
+/** Preferencia para cobrar la diferencia de subir un acceso a otro más caro
  * (server/orderUpgrade.ts). El `external_reference` es `UPG-<id>` y NO el
  * número de orden: así el webhook lo distingue del pago de la compra original
  * y no lo procesa como si fuera la orden. */
 export async function createUpgradePreference(input: {
   reference: string;
   eventTitle: string;
+  /** Nombre del acceso al que se sube, para el título del cobro. */
+  toName: string;
   amount: number;
   buyerEmail: string;
   buyerName: string;
@@ -97,7 +99,7 @@ export async function createUpgradePreference(input: {
     body: {
       items: [{
         id: input.reference,
-        title: `Pasar a Trío (diferencia) - ${input.eventTitle}`,
+        title: `Subir a ${input.toName} (diferencia) - ${input.eventTitle}`,
         quantity: 1,
         unit_price: input.amount,
         currency_id: 'CLP',

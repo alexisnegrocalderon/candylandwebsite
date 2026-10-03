@@ -2059,9 +2059,14 @@ export const orderUpgrades = mysqlTable("orderUpgrades", {
   // Link de Mercado Pago, para volver a mostrarlo/enviarlo sin crear otro.
   paymentUrl: text("paymentUrl"),
   paymentId: varchar("paymentId", { length: 255 }),
-  // Tercera persona, si el dueño ya la sabe al crear la solicitud.
+  // Solicitudes viejas de Dúo→Trío: la tercera persona. Las nuevas guardan
+  // todas las personas en `extraData`; estas dos columnas quedan solo para
+  // poder aplicar las solicitudes que ya estaban pendientes.
   thirdName: varchar("thirdName", { length: 255 }),
   thirdRut: varchar("thirdRut", { length: 20 }),
+  // Personas nuevas del acceso al que se sube: `{ people: [{ n, name, rut,
+  // instagram }] }` (ver shared/upgrade.ts).
+  extraData: json("extraData"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   paidAt: timestamp("paidAt"),
 }, (t) => [
