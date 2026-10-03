@@ -9,7 +9,7 @@ import { nanoid } from "nanoid";
 import * as db from "./db";
 import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail, approveMissionTopupWithoutPayment, settleUpgradeAndNotify, settleAddonAndNotify } from "./webhooks";
 import { getPendingUpgradesByOrderIds, previewUpgrade, createUpgradeRequest, sendUpgradeRequestEmail, cancelUpgrade } from "./orderUpgrade";
-import { getPendingAddonsByOrderIds, previewAddons, createAddonRequest, sendAddonRequestEmail, cancelAddon } from "./orderAddon";
+import { getPendingAddonsByOrderIds, previewAddons, createAddonRequest, sendAddonRequestEmail, cancelAddon, orderIdFromTicketCode, customerAddonView } from "./orderAddon";
 import { isValidRut, formatRutLive } from "../shared/rut";
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
@@ -4113,6 +4113,52 @@ export const appRouter = router({
         return await createTopupOrder(identity, { ticketTypeId: input.ticketTypeId, pin: input.pin });
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear la recarga.' });
+      }
+    }),
+
+    // Agregar estacionamiento u otros extras a la compra DESDE el ticket del
+    // cliente (server/orderAddon.ts). Se identifica con el ticketCode del link,
+    // igual que "Cargar saldo". La orden sale del ticket, NUNCA del cliente; el
+    // cliente solo elige extra y cantidad, y el servidor revalida todo y calcula el
+    // monto con el precio de la base de datos. Se paga con el link de Mercado Pago.
+    getAddonOptions: publicProcedure.input(z.object({
+      ticketCode: z.string().min(1).max(64),
+    })).query(async ({ input }) => {
+      const orderId = await orderIdFromTicketCode(input.ticketCode);
+      if (!orderId) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontramos esta entrada.' });
+      return customerAddonView(orderId);
+    }),
+
+    createAddon: publicProcedure.input(z.object({
+      ticketCode: z.string().min(1).max(64),
+      ticketTypeId: z.number().int().positive(),
+      quantity: z.number().int().min(1).max(10),
+    })).mutation(async ({ input, ctx }) => {
+      const ipKey = `addon-create:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera un rato e intenta de nuevo.' });
+      }
+      const orderId = await orderIdFromTicketCode(input.ticketCode);
+      if (!orderId) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontramos esta entrada.' });
+      await db.recordIpAttempt(ipKey, 15, 60 * 60 * 1000);
+      try {
+        const { addon } = await createAddonRequest({
+          orderId,
+          ticketTypeId: input.ticketTypeId,
+          quantity: input.quantity,
+          source: 'customer',
+          returnPath: `/verificar/${encodeURIComponent(input.ticketCode)}`,
+        });
+        if (!addon.paymentUrl) throw new Error('No se pudo crear el link de pago. Intenta de nuevo.');
+        return { addonId: addon.id, amount: Number(addon.amount), paymentUrl: addon.paymentUrl };
+      } catch (err) {
+        // Sin pistas internas para el cliente: el mensaje de "falta migración" está
+        // pensado para el admin.
+        const message = err instanceof Error ? err.message : '';
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: /migraci/i.test(message) || !message ? 'Esta opción no está disponible por ahora.' : message,
+        });
       }
     }),
   }),

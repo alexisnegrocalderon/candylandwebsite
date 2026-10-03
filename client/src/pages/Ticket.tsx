@@ -9,6 +9,7 @@ import { canEnterParty } from '@shared/party';
 import { rememberTicketCode } from '@/lib/lastTicketCode';
 import { WalletCard } from '@/components/wallet/WalletCard';
 import { TopupPanel } from '@/components/wallet/TopupPanel';
+import { AddonPanel } from '@/components/wallet/AddonPanel';
 import './Ticket.wallet.css';
 
 /** Página pública "Mi entrada" / tarjeta digital — a donde apunta el QR de
@@ -25,7 +26,22 @@ export default function Ticket() {
     path: `/verificar/${ticketCode}`,
     noindex: true,
   });
-  const { data: ticket, isLoading } = trpc.tickets.getByCode.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
+  // Al volver de pagar un extra en Mercado Pago (?extra=ok|pending|error) el
+  // pago se confirma por el webhook unos segundos después: se refresca la tarjeta
+  // cada 4 s, hasta 90 s, para que el extra aparezca solo en "Incluye".
+  const [extraStatus] = useState(() => (typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('extra')));
+  const [watching, setWatching] = useState(extraStatus === 'ok' || extraStatus === 'pending');
+  useEffect(() => {
+    if (!watching) return;
+    const t = setTimeout(() => setWatching(false), 90_000);
+    return () => clearTimeout(t);
+  }, [watching]);
+  const { data: ticket, isLoading } = trpc.tickets.getByCode.useQuery(
+    { ticketCode },
+    { enabled: !!ticketCode, retry: false, refetchInterval: watching ? 4000 : false },
+  );
+  const { data: addonView } = trpc.playcardTopup.getAddonOptions.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
+  const [addonOpen, setAddonOpen] = useState(false);
   const { data: wallet } = trpc.wallet.getByTicketCode.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
   const { data: pendingExtras } = trpc.wallet.getPendingExtras.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
 
@@ -84,6 +100,15 @@ export default function Ticket() {
           </span>
         </div>
 
+        {(extraStatus === 'ok' || extraStatus === 'pending') && (
+          <p className="wcard-hint text-center mb-4" style={{ marginTop: 0 }}>
+            🎉 Recibimos tu pago. En unos segundos tu extra aparece en "Incluye" y te llega la confirmación por correo.
+          </p>
+        )}
+        {extraStatus === 'error' && (
+          <p className="wcard-error text-center mb-4">No se completó el pago. Puedes intentarlo de nuevo cuando quieras.</p>
+        )}
+
         <WalletCard
           eventTitle={ticket.eventTitle}
           eventDateShort={eventDateShort}
@@ -114,6 +139,27 @@ export default function Ticket() {
                 <p className="text-sm opacity-80 mb-3">Carga saldo cuando quieras y paga en la barra sin efectivo.</p>
                 <button type="button" className="wcard-btn wcard-btn-primary wcard-btn-block" onClick={() => setTopupOpen(true)}>
                   💳 Cargar saldo
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {ticket.status !== 'cancelled' && addonView?.available && (
+          <div className="wcard-section">
+            <p className="wcard-section-label">Estacionamiento y extras</p>
+            {addonOpen ? (
+              <>
+                <AddonPanel ticketCode={ticket.ticketCode} />
+                <div className="text-center mt-4">
+                  <button type="button" className="wcard-link" onClick={() => setAddonOpen(false)}>Cerrar</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm opacity-80 mb-3">¿Se te olvidó el estacionamiento u otro extra? Agrégalo a tu compra y paga online.</p>
+                <button type="button" className="wcard-btn wcard-btn-primary wcard-btn-block" onClick={() => setAddonOpen(true)}>
+                  🚗 Agregar estacionamiento o extras
                 </button>
               </>
             )}
