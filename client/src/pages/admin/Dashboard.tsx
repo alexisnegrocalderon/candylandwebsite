@@ -1345,6 +1345,7 @@ function DiscountsManager() {
   const { data: discountsData, refetch } = trpc.discounts.listAll.useQuery();
   const createDiscount = trpc.discounts.create.useMutation({ onSuccess: () => { refetch(); toast.success('Código de descuento creado'); }, onError: onMutationError });
   const deleteDiscount = trpc.discounts.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
+  const { data: eventsData } = trpc.events.listAll.useQuery();
 
   const [newDiscount, setNewDiscount] = useState({
     code: '', description: '', discountType: 'percentage' as 'percentage' | 'fixed', discountValue: 0, maxUses: 0, validUntil: '',
@@ -1352,6 +1353,26 @@ function DiscountsManager() {
   const [showForm, setShowForm] = useState(false);
 
   const discounts = discountsData ?? [];
+
+  // Evento al que corresponde el código: el suyo si tiene uno; si vale para
+  // cualquier evento, el destacado (o el primero publicado) para que el mensaje
+  // nunca quede sin evento.
+  const eventTitleFor = (d: any): string => {
+    const events: any[] = (eventsData as any[]) ?? [];
+    if (d.eventId) return events.find((e) => e.id === d.eventId)?.title ?? 'Candyland';
+    const live = events.filter((e) => e.status === 'published');
+    return (live.find((e) => e.featured) ?? live[0])?.title ?? 'Candyland';
+  };
+  const shareText = (d: any) =>
+    `Usa mi código ${d.code} para comprar tu entrada a ${eventTitleFor(d)} en Mansion Playroom 🍭 ${window.location.origin}`;
+  const copyShareText = async (d: any) => {
+    try {
+      await navigator.clipboard.writeText(shareText(d));
+      toast.success('Mensaje copiado');
+    } catch {
+      toast.error('No se pudo copiar. Copia el mensaje manualmente.');
+    }
+  };
 
   const handleCreate = async () => {
     if (!newDiscount.code || !newDiscount.discountValue) return;
@@ -1414,14 +1435,18 @@ function DiscountsManager() {
                   {d.discountType === 'percentage' ? `${d.discountValue}%` : `$${Number(d.discountValue).toLocaleString('es-CL')}`}
                 </span>
                 <span className="text-muted-foreground text-sm ml-3">Usos: {d.usedCount}/{d.maxUses || '∞'}</span>
+                <span className="text-muted-foreground text-sm ml-3">{d.eventId ? `Evento: ${eventTitleFor(d)}` : 'Todos los eventos'}</span>
               </div>
               <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="text-primary" title="Copiar mensaje" aria-label="Copiar mensaje" onClick={() => copyShareText(d)}>
+                  <Copy className="w-3 h-3" />
+                </Button>
                 <a
-                  href={`https://wa.me/?text=${encodeURIComponent(`Usa mi código ${d.code} para comprar tu entrada a Candyland en Mansion Playroom 🍭 ${window.location.origin}`)}`}
+                  href={`https://wa.me/?text=${encodeURIComponent(shareText(d))}`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <Button variant="outline" size="sm" className="text-primary">
+                  <Button variant="outline" size="sm" className="text-primary" title="Enviar por WhatsApp" aria-label="Enviar por WhatsApp">
                     <MessageCircle className="w-3 h-3" />
                   </Button>
                 </a>
