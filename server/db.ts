@@ -19,6 +19,7 @@ import type { EmailTemplateConfig } from '../shared/emailTemplateConfig';
 import type { AdminAlertsConfig } from '../shared/adminAlertsConfig';
 import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { normalizeRut } from '../shared/rut';
+import { escapeLikePattern } from '../shared/sqlLike';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening, findPossibleDuplicateSales, cardTotals } from './caja/shiftMath';
@@ -1778,13 +1779,31 @@ export async function listManualOrders() {
     .orderBy(desc(orders.createdAt));
 }
 
+/** Tope de seguridad de `getAllOrders`: con más órdenes que esto el panel
+ * muestra un aviso en vez de cargar una lista inmanejable. */
+export const ORDERS_LIST_HARD_CAP = 2000;
+
 /** `channel`: 'web' = ventas del sitio (incluye 'import', la migración de la
  * ticketera anterior -- nunca fueron ventas de caja); 'caja' = solo ventas
  * presenciales. Nunca se mezclan en pantalla (pedido explícito del usuario). */
-export async function getAllOrders(page: number = 1, limit: number = 50, status?: string, channel?: 'web' | 'caja', eventId?: number) {
+export async function getAllOrders(opts: {
+  page?: number;
+  limit?: number;
+  status?: string;
+  channel?: 'web' | 'caja';
+  eventId?: number;
+  search?: string;
+} = {}) {
   const db = await getDb();
   if (!db) return { orders: [], total: 0 };
 
+  const { page = 1, status, channel, eventId } = opts;
+  // Antes el tope por defecto era 50 y la pantalla nunca pedía más: una orden
+  // aprobada se "caía" de la lista con cada compra nueva (las abandonadas
+  // cuentan igual) y el buscador solo miraba esas 50 filas. Ahora se trae todo
+  // hasta un tope de seguridad, y `total` es el conteo REAL -- si el tope
+  // llegara a recortar algo, la pantalla lo avisa en vez de ocultarlo.
+  const limit = Math.min(opts.limit ?? ORDERS_LIST_HARD_CAP, ORDERS_LIST_HARD_CAP);
   const offset = (page - 1) * limit;
   const conditions = [];
   if (status) conditions.push(eq(orders.paymentStatus, status as any));
@@ -1793,11 +1812,25 @@ export async function getAllOrders(page: number = 1, limit: number = 50, status?
   // Sin este filtro, Ventas Web y Ventas Caja mezclaban las órdenes de todas
   // las fiestas en una sola lista.
   if (eventId) conditions.push(eq(orders.eventId, eventId));
-  const query = db.select().from(orders)
-    .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(orders.createdAt)).limit(limit).offset(offset);
+  // Búsqueda en el servidor: comprador, email, número de orden y attendeeData
+  // (el JSON donde viven los nombres y RUT de los acompañantes). Una sola
+  // letra traería casi todo, así que se pide al menos 2.
+  const term = opts.search?.trim();
+  if (term && term.length >= 2) {
+    const pattern = `%${escapeLikePattern(term)}%`;
+    conditions.push(or(
+      like(orders.buyerName, pattern),
+      like(orders.buyerEmail, pattern),
+      like(orders.orderNumber, pattern),
+      like(orders.attendeeData, pattern),
+    )!);
+  }
+  const where = conditions.length ? and(...conditions) : undefined;
 
-  const allOrders = await query;
+  const [allOrders, [{ count }]] = await Promise.all([
+    db.select().from(orders).where(where).orderBy(desc(orders.createdAt)).limit(limit).offset(offset),
+    db.select({ count: sql<number>`COUNT(*)` }).from(orders).where(where),
+  ]);
 
   // Resumen de extras (estacionamiento, cover, etc.) por orden, para
   // mostrarlos de un vistazo en la tabla del admin sin tener que abrir
@@ -1825,7 +1858,7 @@ export async function getAllOrders(page: number = 1, limit: number = 50, status?
   // ya vive en attendeeData desde el checkout, acá solo se parsea para que
   // Ventas Web pueda mostrarlos sin que el dueño tenga que abrir el ticket.
   const ordersWithExtras = allOrders.map((o) => ({ ...o, extras: extrasByOrderId.get(o.id) ?? [], attendees: parseAttendees(o.attendeeData), attendeeSlots: listAttendeeSlots(o.attendeeData, o.buyerName) }));
-  return { orders: ordersWithExtras, total: ordersWithExtras.length };
+  return { orders: ordersWithExtras, total: Number(count) };
 }
 
 /** Todos los tickets (entrada principal + extras) de una orden, para el

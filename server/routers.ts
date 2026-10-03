@@ -1031,8 +1031,9 @@ export const appRouter = router({
       status: z.string().optional(),
       channel: z.enum(['web', 'caja']).optional(),
       eventId: z.number().optional(),
+      search: z.string().max(100).optional(),
     }).optional()).query(async ({ input }) => {
-      return db.getAllOrders(input?.page ?? 1, input?.limit ?? 50, input?.status, input?.channel, input?.eventId);
+      return db.getAllOrders(input ?? {});
     }),
     getStats: adminReadProcedure.input(z.object({
       channel: z.enum(['web', 'caja']).optional(),
