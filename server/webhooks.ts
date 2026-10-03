@@ -20,6 +20,8 @@ import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 import { checkAndApplyBirthdayTier } from './birthdayProgram';
 import { getUpgradeById, settleUpgrade } from './orderUpgrade';
 import { parseUpgradeReference } from '../shared/upgrade';
+import { getAddonById, settleAddon } from './orderAddon';
+import { parseAddonReference } from '../shared/addon';
 
 export const webhooksRouter = Router();
 
@@ -182,6 +184,53 @@ export async function applyUpgradePayment(input: {
   return { ok: true };
 }
 
+/** Agrega el extra a la orden y, si se aplicó, reenvía la confirmación (el correo
+ * ya sale con el extra, su QR y su código de canje). Un fallo del correo nunca
+ * deshace el extra. Lo usan el webhook de pago y "Marcar como pagado". */
+export async function settleAddonAndNotify(addonId: number, opts: {
+  method: 'mercadopago' | 'manual';
+  paymentId?: string | null;
+  allowFromCancelled?: boolean;
+  ip?: string | null;
+}) {
+  const result = await settleAddon(addonId, opts);
+  if (result.applied) {
+    try {
+      await resendConfirmationEmail(result.orderNumber);
+    } catch (error) {
+      console.error(`[OrderAddon] El extra ${addonId} se agregó pero no se pudo reenviar la confirmación:`, error);
+    }
+  }
+  return result;
+}
+
+/** Pago de Mercado Pago de una solicitud de extra (`external_reference` =
+ * `ADD-<id>`). Solo un pago `approved` por al menos el monto pedido agrega el
+ * extra; rechazado o pendiente deja la solicitud como está. Idempotente (ver
+ * settleAddon). */
+export async function applyAddonPayment(input: {
+  addonId: number;
+  paymentId: string;
+  status: 'approved' | 'rejected' | 'pending';
+  paidAmount: number;
+}): Promise<{ ok: boolean; reason?: string }> {
+  if (input.status !== 'approved') return { ok: true, reason: 'not-approved' };
+
+  const addon = await getAddonById(input.addonId);
+  if (!addon) return { ok: false, reason: 'Addon not found' };
+  if (input.paidAmount < Number(addon.amount)) {
+    console.error(`[OrderAddon] Pago ${input.paymentId} por $${input.paidAmount} es menor al monto del extra ${addon.id} ($${addon.amount}); no se aplica.`);
+    return { ok: false, reason: 'Amount mismatch' };
+  }
+
+  await settleAddonAndNotify(input.addonId, {
+    method: 'mercadopago',
+    paymentId: input.paymentId,
+    allowFromCancelled: true,
+  });
+  return { ok: true };
+}
+
 /** Cobra una orden ya creada (pending) directamente con el Payment Brick —
  * sin modal ni redirect de Mercado Pago. El monto SIEMPRE sale de la orden
  * guardada en nuestra base (nunca de lo que mande el cliente), así que aunque
@@ -272,6 +321,21 @@ webhooksRouter.post('/api/webhooks/mercadopago', async (req: Request, res: Respo
       if (upgradeId !== null) {
         await applyUpgradePayment({
           upgradeId,
+          paymentId: String(paymentId),
+          status: mapPaymentStatus(paymentInfo.status),
+          paidAmount: Number(paymentInfo.transaction_amount ?? 0),
+        });
+        res.status(200).json({ ok: true });
+        return;
+      }
+
+      // Pago de un extra agregado a una compra ya hecha: referencia `ADD-<id>`.
+      // Mismo motivo que el de upgrades: va por su propio camino para no pisar
+      // orders.paymentId ni volver a sumar el stock de la compra original.
+      const addonId = parseAddonReference(orderNumber);
+      if (addonId !== null) {
+        await applyAddonPayment({
+          addonId,
           paymentId: String(paymentId),
           status: mapPaymentStatus(paymentInfo.status),
           paidAmount: Number(paymentInfo.transaction_amount ?? 0),

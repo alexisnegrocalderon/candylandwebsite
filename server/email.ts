@@ -499,6 +499,53 @@ export function buildUpgradeEmail(data: {
   });
 }
 
+/** Pide pagar un extra (estacionamiento, piscolas...) que se agrega a una
+ * compra ya hecha. Mismo estilo que el correo de subir de acceso. */
+export function buildAddonEmail(data: {
+  buyerName: string;
+  eventTitle: string;
+  eventDate: string;
+  orderNumber: string;
+  itemName: string;
+  quantity: number;
+  amount: number;
+  paymentUrl: string;
+}) {
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+  const buyerName = esc(data.buyerName);
+  const eventTitle = esc(data.eventTitle);
+  const itemName = esc(data.itemName);
+  const what = `${itemName}${data.quantity > 1 ? ` x${data.quantity}` : ''}`;
+  return emailShell({
+    preheader: `Agrega ${what} a tu compra de ${eventTitle}.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'yellow',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🍭🪩',
+      title: `¡Listo, ${buyerName}!`,
+      subtitle: `Agregamos ${what} a tu compra de ${eventTitle}.`,
+    }),
+    body: `
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Para sumar <strong style="color:${INK};">${what}</strong> a tu compra de <strong style="color:${INK};">${eventTitle}</strong> (${esc(data.eventDate)})
+        solo falta pagarlo. Apenas se acredite el pago te enviamos la confirmación con su código para canjearlo.
+      </p>
+
+      ${sectionTitle('🧾', 'Total a pagar')}
+      ${card(`
+        <div style="text-align:center;">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Orden ${esc(data.orderNumber)}</p>
+          <p style="color:${ACCENT.gold.text};font-size:32px;font-weight:800;margin:0 0 6px;text-shadow:0 0 24px rgba(${ACCENT.gold.glowRgb},0.5);">$${data.amount.toLocaleString('es-CL')}</p>
+          <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">${what}</p>
+          ${pastelButton(data.paymentUrl, 'Pagar ahora', 'gold')}
+          <p style="color:${FAINT};font-size:12px;margin:16px 0 0;">Si ya pagaste, ignora este mensaje: te llegará la confirmación.</p>
+        </div>
+      `, { glow: 'gold' })}
+    `,
+  });
+}
+
 /** Código de 6 dígitos para entrar a /recargar. Va en un bloque grande con
  * `user-select:all` para que un toque lo seleccione entero y se pueda copiar. */
 export function buildTopupCodeEmail(data: { code: string; purpose?: 'recargar' | 'pin' }) {

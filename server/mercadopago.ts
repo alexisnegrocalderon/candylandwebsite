@@ -120,6 +120,55 @@ export async function createUpgradePreference(input: {
   return { id: result.id, initPoint: result.init_point };
 }
 
+/** Preferencia para cobrar un extra (estacionamiento, piscolas...) agregado a
+ * una compra ya hecha (server/orderAddon.ts). El `external_reference` es
+ * `ADD-<id>` y NO el número de orden: así el webhook lo distingue del pago de
+ * la compra original. El monto lo calcula el servidor con el precio de la base
+ * de datos, nunca el cliente. */
+export async function createAddonPreference(input: {
+  reference: string;
+  eventTitle: string;
+  itemName: string;
+  quantity: number;
+  amount: number;
+  buyerEmail: string;
+  buyerName: string;
+  orderNumber: string;
+}) {
+  const client = getClient();
+  if (!client) {
+    console.warn('[MercadoPago] Using mock addon URL (no access token)');
+    return { id: 'mock-preference-addon-' + input.reference, initPoint: `/pago/exito?order=${input.orderNumber}&mock=true` };
+  }
+
+  const preference = new Preference(client);
+  const baseUrl = process.env.APP_URL || 'https://mansionplayroom.cl';
+
+  const result = await preference.create({
+    body: {
+      items: [{
+        id: input.reference,
+        title: `${input.itemName}${input.quantity > 1 ? ` x${input.quantity}` : ''} - ${input.eventTitle}`,
+        quantity: 1,
+        unit_price: input.amount,
+        currency_id: 'CLP',
+      }],
+      payer: { email: input.buyerEmail, name: input.buyerName },
+      back_urls: {
+        success: `${baseUrl}/pago/exito?order=${input.orderNumber}`,
+        failure: `${baseUrl}/pago/error?order=${input.orderNumber}`,
+        pending: `${baseUrl}/pago/exito?order=${input.orderNumber}&pending=true`,
+      },
+      auto_return: 'approved',
+      external_reference: input.reference,
+      notification_url: `${baseUrl}/api/webhooks/mercadopago`,
+      statement_descriptor: 'MANSION PLAYROOM',
+    },
+  });
+
+  return { id: result.id, initPoint: result.init_point };
+}
+
 /** Cobra directamente con el token de tarjeta que entrega el Payment Brick
  * (checkout embebido, sin modal ni redirect de Mercado Pago). El monto
  * SIEMPRE viene de nuestro cálculo de servidor (`amount`), nunca de lo que
