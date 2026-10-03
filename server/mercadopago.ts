@@ -72,6 +72,52 @@ export async function createTopupPreference(input: {
   return { id: result.id, initPoint: result.init_point };
 }
 
+/** Preferencia para cobrar la diferencia de pasar un acceso Dúo a Trío
+ * (server/orderUpgrade.ts). El `external_reference` es `UPG-<id>` y NO el
+ * número de orden: así el webhook lo distingue del pago de la compra original
+ * y no lo procesa como si fuera la orden. */
+export async function createUpgradePreference(input: {
+  reference: string;
+  eventTitle: string;
+  amount: number;
+  buyerEmail: string;
+  buyerName: string;
+  orderNumber: string;
+}) {
+  const client = getClient();
+  if (!client) {
+    console.warn('[MercadoPago] Using mock upgrade URL (no access token)');
+    return { id: 'mock-preference-upgrade-' + input.reference, initPoint: `/pago/exito?order=${input.orderNumber}&mock=true` };
+  }
+
+  const preference = new Preference(client);
+  const baseUrl = process.env.APP_URL || 'https://mansionplayroom.cl';
+
+  const result = await preference.create({
+    body: {
+      items: [{
+        id: input.reference,
+        title: `Pasar a Trío (diferencia) - ${input.eventTitle}`,
+        quantity: 1,
+        unit_price: input.amount,
+        currency_id: 'CLP',
+      }],
+      payer: { email: input.buyerEmail, name: input.buyerName },
+      back_urls: {
+        success: `${baseUrl}/pago/exito?order=${input.orderNumber}`,
+        failure: `${baseUrl}/pago/error?order=${input.orderNumber}`,
+        pending: `${baseUrl}/pago/exito?order=${input.orderNumber}&pending=true`,
+      },
+      auto_return: 'approved',
+      external_reference: input.reference,
+      notification_url: `${baseUrl}/api/webhooks/mercadopago`,
+      statement_descriptor: 'MANSION PLAYROOM',
+    },
+  });
+
+  return { id: result.id, initPoint: result.init_point };
+}
+
 /** Cobra directamente con el token de tarjeta que entrega el Payment Brick
  * (checkout embebido, sin modal ni redirect de Mercado Pago). El monto
  * SIEMPRE viene de nuestro cálculo de servidor (`amount`), nunca de lo que

@@ -1854,10 +1854,35 @@ export async function getAllOrders(opts: {
     }
   }
 
+  // Tipo de acceso de cada orden (Dúo, Trío...), para mostrarlo en la lista y
+  // decidir si corresponde el botón "Pasar a Trío". Mismo criterio: un solo
+  // query con IN(...).
+  const accesoByOrderId = new Map<number, { slug: string | null; name: string }>();
+  if (orderIds.length > 0) {
+    const accessItems = await db.select({
+      orderId: orderItems.orderId,
+      slug: ticketTypes.accesoSlug,
+      name: ticketTypes.name,
+    })
+      .from(orderItems)
+      .innerJoin(ticketTypes, eq(orderItems.ticketTypeId, ticketTypes.id))
+      .where(and(inArray(orderItems.orderId, orderIds), eq(ticketTypes.category, 'acceso')));
+    for (const a of accessItems) {
+      if (!accesoByOrderId.has(a.orderId)) accesoByOrderId.set(a.orderId, { slug: a.slug, name: a.name });
+    }
+  }
+
   // Titular + acompañantes (nombre y RUT de cada uno) de accesos grupales --
   // ya vive en attendeeData desde el checkout, acá solo se parsea para que
   // Ventas Web pueda mostrarlos sin que el dueño tenga que abrir el ticket.
-  const ordersWithExtras = allOrders.map((o) => ({ ...o, extras: extrasByOrderId.get(o.id) ?? [], attendees: parseAttendees(o.attendeeData), attendeeSlots: listAttendeeSlots(o.attendeeData, o.buyerName) }));
+  const ordersWithExtras = allOrders.map((o) => ({
+    ...o,
+    extras: extrasByOrderId.get(o.id) ?? [],
+    attendees: parseAttendees(o.attendeeData),
+    attendeeSlots: listAttendeeSlots(o.attendeeData, o.buyerName),
+    accesoSlug: accesoByOrderId.get(o.id)?.slug ?? null,
+    accesoName: accesoByOrderId.get(o.id)?.name ?? null,
+  }));
   return { orders: ordersWithExtras, total: Number(count) };
 }
 

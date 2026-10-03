@@ -2035,3 +2035,37 @@ export const eventSurveySettings = mysqlTable("eventSurveySettings", {
   reportAt: timestamp("reportAt"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+/** Pasar un acceso Dúo a Trío cobrando la diferencia (Ventas Web). Una fila
+ * por solicitud. Tabla aparte a propósito, sin columnas nuevas en `orders`:
+ * casi todo el código hace `select()` de TODAS las columnas de `orders`, así
+ * que una columna que aún no existe en producción tumba las compras -- una
+ * tabla nueva solo afecta a esta función.
+ *
+ * El pago usa `external_reference = "UPG-<id>"` (shared/upgrade.ts) para que
+ * el webhook de Mercado Pago lo distinga del pago de la compra original. */
+export const orderUpgrades = mysqlTable("orderUpgrades", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  fromTicketTypeId: int("fromTicketTypeId").notNull(),
+  toTicketTypeId: int("toTicketTypeId").notNull(),
+  // Diferencia a cobrar, en CLP.
+  amount: decimal("amount", { precision: 10, scale: 0 }).notNull(),
+  status: mysqlEnum("status", ["pending", "paid", "cancelled"]).default("pending").notNull(),
+  // Cómo se pagó: link de Mercado Pago o "Marcar como pagado" del admin
+  // (transferencia/efectivo). Queda en NULL mientras está pendiente.
+  method: mysqlEnum("method", ["mercadopago", "manual"]),
+  preferenceId: varchar("preferenceId", { length: 255 }),
+  // Link de Mercado Pago, para volver a mostrarlo/enviarlo sin crear otro.
+  paymentUrl: text("paymentUrl"),
+  paymentId: varchar("paymentId", { length: 255 }),
+  // Tercera persona, si el dueño ya la sabe al crear la solicitud.
+  thirdName: varchar("thirdName", { length: 255 }),
+  thirdRut: varchar("thirdRut", { length: 20 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  paidAt: timestamp("paidAt"),
+}, (t) => [
+  index("orderUpgrades_order_idx").on(t.orderId),
+]);
+
+export type OrderUpgrade = typeof orderUpgrades.$inferSelect;

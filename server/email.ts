@@ -444,6 +444,49 @@ export function buildMissionTopupEmail(data: {
   });
 }
 
+/** Pide pagar la diferencia para sumar una tercera persona al acceso Dúo
+ * (pasa a Trío). Mismo estilo que el correo de la diferencia de Misión 300. */
+export function buildUpgradeEmail(data: {
+  buyerName: string;
+  eventTitle: string;
+  eventDate: string;
+  orderNumber: string;
+  amount: number;
+  paymentUrl: string;
+}) {
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+  const buyerName = esc(data.buyerName);
+  const eventTitle = esc(data.eventTitle);
+  return emailShell({
+    preheader: `Suma a una tercera persona a tu acceso para ${data.eventTitle}.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'yellow',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🍭🪩',
+      title: `¡Listo, ${buyerName}!`,
+      subtitle: `Tu acceso Dúo pasa a Trío para ${eventTitle}.`,
+    }),
+    body: `
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Para sumar a una tercera persona a tu acceso de <strong style="color:${INK};">${eventTitle}</strong> (${esc(data.eventDate)})
+        solo falta pagar la diferencia. Tu código QR sigue siendo el mismo: al confirmarse el pago tu acceso queda como Trío.
+      </p>
+
+      ${sectionTitle('🧾', 'Diferencia a pagar')}
+      ${card(`
+        <div style="text-align:center;">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">Orden ${esc(data.orderNumber)}</p>
+          <p style="color:${ACCENT.gold.text};font-size:32px;font-weight:800;margin:0 0 6px;text-shadow:0 0 24px rgba(${ACCENT.gold.glowRgb},0.5);">$${data.amount.toLocaleString('es-CL')}</p>
+          <p style="color:${MUTED};font-size:13px;margin:0 0 20px;">De Dúo a Trío (3 personas).</p>
+          ${pastelButton(data.paymentUrl, 'Pagar diferencia', 'gold')}
+          <p style="color:${FAINT};font-size:12px;margin:16px 0 0;">Te enviaremos la confirmación apenas se acredite el pago. Recuerda que el nombre de cada persona debe coincidir con su carnet de identidad.</p>
+        </div>
+      `, { glow: 'gold' })}
+    `,
+  });
+}
+
 /** Código de 6 dígitos para entrar a /recargar. Va en un bloque grande con
  * `user-select:all` para que un toque lo seleccione entero y se pueda copiar. */
 export function buildTopupCodeEmail(data: { code: string; purpose?: 'recargar' | 'pin' }) {
