@@ -7,8 +7,9 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
 import * as db from "./db";
-import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail, approveMissionTopupWithoutPayment, settleUpgradeAndNotify } from "./webhooks";
+import { getMission300Status, evaluateMission300, processCardPaymentForOrder, confirmFreeOrder, resendConfirmationEmail, approveMissionTopupWithoutPayment, settleUpgradeAndNotify, settleAddonAndNotify } from "./webhooks";
 import { getPendingUpgradesByOrderIds, previewUpgrade, createUpgradeRequest, sendUpgradeRequestEmail, cancelUpgrade } from "./orderUpgrade";
+import { getPendingAddonsByOrderIds, previewAddons, createAddonRequest, sendAddonRequestEmail, cancelAddon } from "./orderAddon";
 import { isValidRut, formatRutLive } from "../shared/rut";
 import { hashPin, verifyPin, signOperatorSession } from "./caja/auth";
 import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceToken, signDeviceSession, DEVICE_SESSION_MS } from "./caja/deviceAuth";
@@ -1049,10 +1050,16 @@ export const appRouter = router({
       const result = await db.getAllOrders(input ?? {});
       // Solicitudes de "pasar a Trío" pendientes de pago, para la etiqueta de la
       // fila. Sin el link de pago: la lista también la ve el rol demo.
-      const pending = await getPendingUpgradesByOrderIds(result.orders.map((o) => o.id));
+      const ids = result.orders.map((o) => o.id);
+      const pending = await getPendingUpgradesByOrderIds(ids);
+      const pendingAddons = await getPendingAddonsByOrderIds(ids);
       return {
         ...result,
-        orders: result.orders.map((o) => ({ ...o, pendingUpgrade: pending.get(o.id) ?? null })),
+        orders: result.orders.map((o) => ({
+          ...o,
+          pendingUpgrade: pending.get(o.id) ?? null,
+          pendingAddons: pendingAddons.get(o.id) ?? null,
+        })),
       };
     }),
     getStats: adminReadProcedure.input(z.object({
@@ -1165,6 +1172,35 @@ export const appRouter = router({
     }),
     cancelUpgrade: adminProcedure.input(z.object({ upgradeId: z.number() })).mutation(async ({ input }) => {
       return upgradeErrorsAsBadRequest(() => cancelUpgrade(input.upgradeId));
+    }),
+
+    // Agregar un extra (estacionamiento, piscolas...) a una compra ya hecha, con su
+    // propio link de pago (server/orderAddon.ts). Mismos motivos que arriba:
+    // `previewAddons` trae el link de pago, así que es adminProcedure; el extra y
+    // la cantidad se validan en el servidor y el monto sale de la base de datos.
+    previewAddons: adminProcedure.input(z.object({ orderId: z.number() })).query(async ({ input }) => {
+      return upgradeErrorsAsBadRequest(() => previewAddons(input.orderId));
+    }),
+    requestAddon: adminProcedure.input(z.object({
+      orderId: z.number(),
+      ticketTypeId: z.number(),
+      quantity: z.number().int().min(1).max(10),
+    })).mutation(async ({ input }) => {
+      return upgradeErrorsAsBadRequest(async () => {
+        const { addon, created } = await createAddonRequest({ ...input, source: 'admin' });
+        return { addonId: addon.id, created, amount: Number(addon.amount), paymentUrl: addon.paymentUrl };
+      });
+    }),
+    sendAddonEmail: adminProcedure.input(z.object({ addonId: z.number() })).mutation(async ({ input }) => {
+      return upgradeErrorsAsBadRequest(() => sendAddonRequestEmail(input.addonId));
+    }),
+    // "Marcar como pagado" (transferencia o efectivo): agrega el extra igual que un
+    // pago de Mercado Pago. Exactamente una vez, ver settleAddon.
+    markAddonPaid: adminProcedure.input(z.object({ addonId: z.number() })).mutation(async ({ input, ctx }) => {
+      return upgradeErrorsAsBadRequest(() => settleAddonAndNotify(input.addonId, { method: 'manual', ip: clientIp(ctx) }));
+    }),
+    cancelAddon: adminProcedure.input(z.object({ addonId: z.number() })).mutation(async ({ input }) => {
+      return upgradeErrorsAsBadRequest(() => cancelAddon(input.addonId));
     }),
 
     // Recordatorio a quien dejó la compra a medio camino (server/orderReminders.ts).

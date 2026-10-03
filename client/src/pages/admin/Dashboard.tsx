@@ -2588,6 +2588,212 @@ function UpgradeDialog({ order, onClose, onChanged }: { order: any | null; onClo
   );
 }
 
+/** Ventana "Agregar extra" de Ventas Web: un comprador quiere sumar un extra
+ * (estacionamiento, piscolas...) a una compra ya hecha. El admin elige el extra y
+ * la cantidad -- el precio sale de la base de datos, no se escribe a mano --,
+ * genera el link de Mercado Pago y se lo manda. Cuando se paga -- o el admin marca
+ * "pagado" por transferencia o efectivo -- el extra queda en la misma orden con su
+ * QR y su código para canjearlo. */
+function AddonDialog({ order, onClose, onChanged }: { order: any | null; onClose: () => void; onChanged: () => void }) {
+  const orderId: number | undefined = order?.id;
+  const { data: preview, isLoading, refetch } = trpc.orders.previewAddons.useQuery(
+    { orderId: orderId ?? 0 },
+    { enabled: orderId !== undefined },
+  );
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [quantity, setQuantity] = useState(1);
+  useEffect(() => { setSelectedId(null); setQuantity(1); }, [orderId]);
+
+  const changed = () => { refetch(); onChanged(); };
+  const request = trpc.orders.requestAddon.useMutation({
+    onSuccess: (r) => {
+      toast.success(r.paymentUrl ? 'Link de pago creado' : 'Solicitud creada');
+      setSelectedId(null);
+      setQuantity(1);
+      changed();
+    },
+    onError: onMutationError,
+  });
+  const sendEmail = trpc.orders.sendAddonEmail.useMutation({
+    onSuccess: (r) => (r.success ? toast.success('Correo enviado') : toast.error('No se pudo enviar el correo')),
+    onError: onMutationError,
+  });
+  const markPaid = trpc.orders.markAddonPaid.useMutation({
+    onSuccess: (r) => {
+      toast.success(r.applied ? 'Listo: el extra quedó en la compra' : 'Esta solicitud ya estaba pagada');
+      changed();
+    },
+    onError: onMutationError,
+  });
+  const cancel = trpc.orders.cancelAddon.useMutation({
+    onSuccess: () => { toast.success('Solicitud cancelada'); changed(); },
+    onError: onMutationError,
+  });
+
+  const selected = preview?.options.find((o) => o.ticketTypeId === selectedId) ?? null;
+  const total = selected ? selected.price * quantity : 0;
+  const firstName = (order?.buyerName ?? '').trim().split(/\s+/)[0] || '';
+  const phoneDigits = String(order?.buyerPhone ?? '').replace(/[^0-9]/g, '');
+
+  const copyLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Link copiado');
+    } catch {
+      toast.error('No se pudo copiar; selecciónalo y cópialo a mano');
+    }
+  };
+  const whatsappFor = (a: { name: string; quantity: number; amount: number; paymentUrl: string }) =>
+    `Hola${firstName ? ` ${firstName}` : ''}! Para agregar ${a.name}${a.quantity > 1 ? ` x${a.quantity}` : ''} a tu compra solo falta pagar ${clp(a.amount)}. Puedes pagar aquí: ${a.paymentUrl} . Cuando se acredite el pago te enviamos la confirmación con tu código para canjearlo. ¡Gracias!`;
+
+  return (
+    <Dialog open={order !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Agregar extra · {order?.orderNumber}</DialogTitle>
+        </DialogHeader>
+
+        {isLoading || !preview ? (
+          <p className="text-sm text-muted-foreground">Cargando…</p>
+        ) : (
+          <div className="space-y-4">
+            {preview.tableMissing && (
+              <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                Esta función todavía no está lista en la base de datos (falta aplicar una migración). Avísale a quien administra el sistema.
+              </div>
+            )}
+            {preview.blockedReason && (
+              <div className="rounded-xl bg-yellow-500/10 border border-yellow-500/30 p-3 text-sm text-yellow-700">
+                {preview.blockedReason}
+              </div>
+            )}
+
+            {preview.pending.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-sm font-medium">Pendientes de pago</p>
+                {preview.pending.map((a) => (
+                  <div key={a.id} className="rounded-xl bg-primary/10 border border-primary/30 p-3 space-y-2">
+                    <p className="text-sm font-medium">
+                      {a.name}{a.quantity > 1 ? ` x${a.quantity}` : ''} · {clp(a.amount)}
+                    </p>
+                    {a.paymentUrl ? (
+                      <div className="space-y-2">
+                        <div className="flex gap-2">
+                          <Input readOnly value={a.paymentUrl} onFocus={(e) => e.currentTarget.select()} />
+                          <Button type="button" variant="outline" className="interactive shrink-0" onClick={() => copyLink(a.paymentUrl!)}>
+                            <Copy className="w-4 h-4 mr-1" /> Copiar
+                          </Button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {phoneDigits && (
+                            <Button asChild variant="outline" size="sm" className="interactive">
+                              <a href={`https://wa.me/${phoneDigits}?text=${encodeURIComponent(whatsappFor({ name: a.name, quantity: a.quantity, amount: a.amount, paymentUrl: a.paymentUrl }))}`} target="_blank" rel="noopener noreferrer">
+                                <MessageCircle className="w-4 h-4 mr-1" /> Enviar por WhatsApp
+                              </a>
+                            </Button>
+                          )}
+                          <WriteButton variant="outline" size="sm" className="interactive" disabled={sendEmail.isPending} onClick={() => sendEmail.mutate({ addonId: a.id })}>
+                            <Mail className="w-4 h-4 mr-1" /> {sendEmail.isPending ? 'Enviando…' : 'Enviar por correo'}
+                          </WriteButton>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Sin link de pago (monto menor al mínimo). Cuando te paguen, márcala como pagada.</p>
+                    )}
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <WriteButton variant="outline" size="sm" className="interactive" disabled={cancel.isPending} onClick={() => cancel.mutate({ addonId: a.id })}>
+                        Cancelar solicitud
+                      </WriteButton>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <WriteButton size="sm" className="interactive" disabled={markPaid.isPending}>Marcar como pagado</WriteButton>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>¿Marcar como pagado y agregar el extra?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Úsalo solo si ya recibiste los {clp(a.amount)} por transferencia o efectivo. {a.name}{a.quantity > 1 ? ` x${a.quantity}` : ''} se agrega ahora mismo a la compra de {order?.buyerName} con su código para canjearlo, el total de la orden sube y se le reenvía la confirmación.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Volver</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => markPaid.mutate({ addonId: a.id })}>Sí, ya pagó</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!preview.tableMissing && preview.options.length > 0 && (
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label className="text-sm">Agregar</Label>
+                  {preview.options.map((o) => (
+                    <button
+                      key={o.ticketTypeId}
+                      type="button"
+                      disabled={!!o.disabledReason}
+                      onClick={() => { setSelectedId(o.ticketTypeId); setQuantity(1); }}
+                      className={`w-full rounded-xl border p-3 text-left text-sm transition-colors ${o.disabledReason ? 'opacity-50' : selectedId === o.ticketTypeId ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted/50'}`}
+                    >
+                      <span className="font-medium">{o.name}</span>
+                      <span className="text-muted-foreground"> · {clp(o.price)}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {o.disabledReason ?? `Quedan ${o.remaining}`}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                {selected && (
+                  <div className="space-y-2">
+                    {selected.maxQuantity > 1 && (
+                      <div>
+                        <Label className="text-sm">Cantidad</Label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={selected.maxQuantity}
+                          value={quantity}
+                          onChange={(e) => setQuantity(Math.min(selected.maxQuantity, Math.max(1, Math.floor(Number(e.target.value)) || 1)))}
+                          className="max-w-[8rem]"
+                        />
+                      </div>
+                    )}
+                    <p className="text-sm">
+                      Total a cobrar: <span className="font-semibold">{clp(total)}</span>
+                      <span className="text-xs text-muted-foreground"> (precio del extra × cantidad)</span>
+                    </p>
+                    {total < preview.minPayment && (
+                      <p className="text-xs text-[var(--admin-warning-text)]">
+                        Con menos de {clp(preview.minPayment)} no se puede crear un link de pago: solo quedará la solicitud para marcarla como pagada.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" className="interactive" onClick={onClose}>Cerrar</Button>
+                  <WriteButton
+                    className="interactive"
+                    disabled={!selected || request.isPending}
+                    onClick={() => order && selected && request.mutate({ orderId: order.id, ticketTypeId: selected.ticketTypeId, quantity })}
+                  >
+                    {request.isPending ? 'Creando…' : total >= preview.minPayment ? 'Crear link de pago' : 'Crear solicitud'}
+                  </WriteButton>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   // Antes la tabla completa (con Estado/Fecha/Contacto/Acciones) se elegía
   // por ancho de pantalla (`md:`), así que un iPad -- angosto en vertical y
@@ -2616,6 +2822,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [upgradeOrderId, setUpgradeOrderId] = useState<number | null>(null);
+  const [addonOrderId, setAddonOrderId] = useState<number | null>(null);
   // Antes esta vista no tenía filtro de evento: la lista y los totales
   // mezclaban TODAS las fiestas de la historia y se leían como si fueran de
   // una sola. Con dos eventos publicados a la vez eso deja de ser un detalle.
@@ -2658,6 +2865,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const hiddenByCap = Math.max(0, totalMatching - ordersList.length);
   const editingOrder = ordersList.find((o: any) => o.id === editingOrderId) ?? null;
   const upgradeOrder = ordersList.find((o: any) => o.id === upgradeOrderId) ?? null;
+  const addonOrder = ordersList.find((o: any) => o.id === addonOrderId) ?? null;
   const pendingCount = ordersList.filter((o: any) => o.paymentStatus === 'pending').length;
 
   // Recordatorios: solo con el filtro "Sin pagar" puesto. La selección es
@@ -2759,6 +2967,12 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
           </Button>
         </div>
       )}
+
+      <AddonDialog
+        order={addonOrder}
+        onClose={() => setAddonOrderId(null)}
+        onChanged={() => { refetchOrders(); refetchStats(); }}
+      />
 
       <UpgradeDialog
         order={upgradeOrder}
@@ -2868,6 +3082,15 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                           <td className="py-2.5 px-3 font-mono text-sm">{order.orderNumber}</td>
                           <td className="py-2.5 px-3">
                             {order.buyerName}<br/><span className="text-[var(--admin-muted)] text-sm">{order.buyerEmail}</span>
+                            {order.pendingAddons && (
+                              <button
+                                type="button"
+                                onClick={() => setAddonOrderId(order.id)}
+                                className="mt-1 block rounded-full bg-yellow-500/15 px-2 py-0.5 text-xs font-semibold text-yellow-700 hover:bg-yellow-500/25"
+                              >
+                                Extra pendiente: {order.pendingAddons.names.join(', ') || 'extra'} · {clp(order.pendingAddons.amount)}
+                              </button>
+                            )}
                             {order.pendingUpgrade && (
                               <button
                                 type="button"
@@ -2941,6 +3164,14 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                                       label="Subir de acceso"
                                       tone="send"
                                       onClick={() => setUpgradeOrderId(order.id)}
+                                    />
+                                  )}
+                                  {channel === 'web' && (
+                                    <RowActionButton
+                                      icon={ShoppingBag}
+                                      label="Agregar extra (estacionamiento, etc.)"
+                                      tone="send"
+                                      onClick={() => setAddonOrderId(order.id)}
                                     />
                                   )}
                                   <RowActionButton
@@ -3056,6 +3287,15 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                       <p className="font-mono text-sm text-[var(--admin-muted)]">{order.orderNumber}</p>
                       <p className="font-medium truncate">{order.buyerName}</p>
                       <p className="text-sm text-[var(--admin-muted)] truncate">{order.buyerEmail}</p>
+                      {order.pendingAddons && (
+                        <button
+                          type="button"
+                          onClick={() => setAddonOrderId(order.id)}
+                          className="mt-1 rounded-full bg-yellow-500/15 px-2 py-0.5 text-xs font-semibold text-yellow-700"
+                        >
+                          Extra pendiente: {order.pendingAddons.names.join(', ') || 'extra'} · {clp(order.pendingAddons.amount)}
+                        </button>
+                      )}
                       {order.pendingUpgrade && (
                         <button
                           type="button"
@@ -3110,6 +3350,14 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                             label="Subir de acceso"
                             tone="send"
                             onClick={() => setUpgradeOrderId(order.id)}
+                          />
+                        )}
+                        {channel === 'web' && (
+                          <RowActionButton
+                            icon={ShoppingBag}
+                            label="Agregar extra (estacionamiento, etc.)"
+                            tone="send"
+                            onClick={() => setAddonOrderId(order.id)}
                           />
                         )}
                         <RowActionButton
@@ -8181,6 +8429,7 @@ function AdminAuditPanel() {
     'orders.updateAttendees': 'Corrigió los nombres de una compra',
     'orders.upgradeToTrio': 'Pasó una compra de Dúo a Trío',
     'orders.upgradeAccess': 'Subió una compra a un acceso mayor',
+    'orders.addAddon': 'Agregó un extra a una compra',
     'events.delete': 'Eliminó un evento',
     'events.deleteTicketType': 'Eliminó un tipo de entrada',
     'expenses.delete': 'Eliminó un gasto',

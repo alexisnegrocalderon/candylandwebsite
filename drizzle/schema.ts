@@ -2074,3 +2074,36 @@ export const orderUpgrades = mysqlTable("orderUpgrades", {
 ]);
 
 export type OrderUpgrade = typeof orderUpgrades.$inferSelect;
+
+/** Un extra (estacionamiento, piscolas...) agregado a una compra YA hecha, con
+ * su propio link de pago (Ventas Web). Una fila por solicitud. Tabla aparte, sin
+ * columnas nuevas en `orders`, por el mismo motivo que `orderUpgrades`: casi todo
+ * el código hace `select()` de TODAS las columnas de `orders`.
+ *
+ * El pago usa `external_reference = "ADD-<id>"` (shared/addon.ts). El monto
+ * (`amount`) se calcula SIEMPRE en el servidor con el precio de la base de datos
+ * por la cantidad: nunca viene del cliente. */
+export const orderAddons = mysqlTable("orderAddons", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull(),
+  ticketTypeId: int("ticketTypeId").notNull(),
+  quantity: int("quantity").default(1).notNull(),
+  // Total a cobrar (precio por cantidad), en CLP.
+  amount: decimal("amount", { precision: 10, scale: 0 }).notNull(),
+  status: mysqlEnum("status", ["pending", "paid", "cancelled"]).default("pending").notNull(),
+  // Cómo se pagó: link de Mercado Pago o "Marcar como pagado" del admin. Queda
+  // en NULL mientras está pendiente.
+  method: mysqlEnum("method", ["mercadopago", "manual"]),
+  // Quién la pidió: el admin desde Ventas Web o el propio cliente desde su ticket.
+  source: mysqlEnum("source", ["admin", "customer"]).default("admin").notNull(),
+  preferenceId: varchar("preferenceId", { length: 255 }),
+  // Link de Mercado Pago, para volver a mostrarlo/enviarlo sin crear otro.
+  paymentUrl: text("paymentUrl"),
+  paymentId: varchar("paymentId", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  paidAt: timestamp("paidAt"),
+}, (t) => [
+  index("orderAddons_order_idx").on(t.orderId),
+]);
+
+export type OrderAddon = typeof orderAddons.$inferSelect;

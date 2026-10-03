@@ -533,6 +533,13 @@
       "when": 1791050867616,
       "tag": "0075_illegal_wild_pack",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "5",
+      "when": 1791051779008,
+      "tag": "0076_windy_pyro",
+      "breakpoints": true
     }
   ]
 }
