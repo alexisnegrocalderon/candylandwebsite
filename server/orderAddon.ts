@@ -227,6 +227,44 @@ export async function previewAddons(orderId: number): Promise<AddonPreview> {
   };
 }
 
+/** Autoservicio: de qué orden es un ticket. El código del ticket (el del link
+ * del QR) ya es la prueba de posesión, igual que en la recarga de la PlayCard.
+ * Un ticket anulado no sirve; que la orden esté aprobada lo revisa
+ * `loadAddonContext`. */
+export async function orderIdFromTicketCode(ticketCode: string): Promise<number | null> {
+  const db = await requireDb();
+  const [ticket] = await db.select({ orderId: tickets.orderId, status: tickets.status }).from(tickets)
+    .where(eq(tickets.ticketCode, ticketCode)).limit(1);
+  if (!ticket || ticket.status === 'cancelled') return null;
+  return ticket.orderId;
+}
+
+export type CustomerAddonView = {
+  available: boolean;
+  eventTitle: string;
+  options: { ticketTypeId: number; name: string; price: number; maxQuantity: number; disabledReason: string | null }[];
+  pending: { id: number; name: string; quantity: number; amount: number; paymentUrl: string }[];
+};
+
+/** Lo que ve el cliente en su ticket: los extras que puede agregar y sus pagos
+ * pendientes (para retomarlos). Nunca expone cuánto stock queda, y si por
+ * cualquier motivo no se puede (evento pasado, compra de caja, migración sin
+ * aplicar...) responde `available: false` sin dar el motivo interno. */
+export async function customerAddonView(orderId: number): Promise<CustomerAddonView> {
+  const p = await previewAddons(orderId);
+  if (p.tableMissing || p.blockedReason) return { available: false, eventTitle: p.eventTitle, options: [], pending: [] };
+  return {
+    available: true,
+    eventTitle: p.eventTitle,
+    options: p.options.map((o) => ({
+      ticketTypeId: o.ticketTypeId, name: o.name, price: o.price, maxQuantity: o.maxQuantity, disabledReason: o.disabledReason,
+    })),
+    pending: p.pending
+      .filter((a): a is typeof a & { paymentUrl: string } => !!a.paymentUrl)
+      .map((a) => ({ id: a.id, name: a.name, quantity: a.quantity, amount: a.amount, paymentUrl: a.paymentUrl })),
+  };
+}
+
 /** Crea la solicitud de agregar un extra (y el link de Mercado Pago si el monto
  * lo permite). El extra y la cantidad se validan contra lo que esa orden
  * realmente puede pedir, y el monto es SIEMPRE precio de la base de datos por
@@ -238,6 +276,8 @@ export async function createAddonRequest(input: {
   ticketTypeId: number;
   quantity: number;
   source?: 'admin' | 'customer';
+  /** Ruta a la que vuelve el cliente tras pagar (solo autoservicio). */
+  returnPath?: string;
 }): Promise<{ addon: OrderAddon; created: boolean }> {
   const quantity = Math.floor(Number(input.quantity));
   if (!Number.isFinite(quantity) || quantity < 1) throw new Error('La cantidad no es válida.');
@@ -251,11 +291,22 @@ export async function createAddonRequest(input: {
     throw new Error(option.maxQuantity === 1 ? 'Solo se puede pedir una unidad de este extra.' : `Máximo ${option.maxQuantity} unidades de este extra.`);
   }
 
-  const existing = await findPendingAddon(input.orderId, option.ticketTypeId);
-  if (existing) return { addon: existing, created: false };
-
   const amount = addonAmount(option.price, quantity);
   if (amount <= 0) throw new Error('Este extra no tiene precio.');
+  // El cliente solo puede pagar con link: sin él la solicitud no sirve de nada.
+  if (input.source === 'customer' && amount < MIN_ADDON_PAYMENT) {
+    throw new Error('Este extra no se puede pagar por acá. Escríbenos por WhatsApp o Instagram y te ayudamos.');
+  }
+
+  // Ya hay una solicitud pendiente del mismo extra: si pide lo mismo se devuelve
+  // esa (evita el doble cobro); si cambió la cantidad, la nueva reemplaza a la
+  // vieja -- la vieja queda cancelada, y si igual se paga con su link, el pago se
+  // aplica (la plata entró).
+  const existing = await findPendingAddon(input.orderId, option.ticketTypeId);
+  if (existing) {
+    if (existing.quantity === quantity) return { addon: existing, created: false };
+    await cancelAddon(existing.id);
+  }
 
   const db = await requireDb();
   const [inserted] = await db.insert(orderAddons).values({
@@ -279,6 +330,7 @@ export async function createAddonRequest(input: {
         buyerEmail: ctx.order.buyerEmail,
         buyerName: ctx.order.buyerName,
         orderNumber: ctx.order.orderNumber,
+        returnPath: input.returnPath,
       });
       await db.update(orderAddons)
         .set({ preferenceId: pref.id ? String(pref.id) : null, paymentUrl: pref.initPoint ?? null })

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_ADDON_QUANTITY,
   addonAmount,
+  addonBackUrls,
   buildAddonReference,
   isSellableAddon,
   maxAddonQuantity,
@@ -82,5 +83,30 @@ describe("addonAmount", () => {
     expect(addonAmount(NaN, 2)).toBe(0);
     expect(addonAmount(8000, 0)).toBe(0);
     expect(addonAmount(-5, 2)).toBe(0);
+  });
+});
+
+describe("addonBackUrls", () => {
+  const base = "https://mansionplayroom.cl";
+
+  it("autoservicio: vuelve a la página del propio ticket con el resultado", () => {
+    expect(addonBackUrls(base, "T-1", "/verificar/MP-ABC123")).toEqual({
+      success: "https://mansionplayroom.cl/verificar/MP-ABC123?extra=ok",
+      failure: "https://mansionplayroom.cl/verificar/MP-ABC123?extra=error",
+      pending: "https://mansionplayroom.cl/verificar/MP-ABC123?extra=pending",
+    });
+  });
+
+  it("link del admin (sin ruta): la página de pago de siempre", () => {
+    const urls = addonBackUrls(base, "T-1");
+    expect(urls.success).toBe("https://mansionplayroom.cl/pago/exito?order=T-1");
+    expect(urls.failure).toBe("https://mansionplayroom.cl/pago/error?order=T-1");
+    expect(urls.pending).toContain("pending=true");
+  });
+
+  it("una ruta que no es la de un ticket se ignora (nunca redirige a otro lado)", () => {
+    for (const bad of ["https://evil.com/x", "//evil.com", "/admin", "/verificar/", "/verificar/a/b", "/verificar/x?y=1", "/verificar/x#z"]) {
+      expect(addonBackUrls(base, "T-1", bad).success).toBe("https://mansionplayroom.cl/pago/exito?order=T-1");
+    }
   });
 });

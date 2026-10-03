@@ -1,5 +1,6 @@
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import { ENV } from './_core/env';
+import { addonBackUrls } from '../shared/addon';
 
 let mpClient: MercadoPagoConfig | null = null;
 
@@ -134,6 +135,9 @@ export async function createAddonPreference(input: {
   buyerEmail: string;
   buyerName: string;
   orderNumber: string;
+  /** Ruta del sitio a la que vuelve el cliente tras pagar (autoservicio: su
+   * página de ticket). Siempre la arma el servidor, nunca viene del cliente. */
+  returnPath?: string;
 }) {
   const client = getClient();
   if (!client) {
@@ -154,11 +158,7 @@ export async function createAddonPreference(input: {
         currency_id: 'CLP',
       }],
       payer: { email: input.buyerEmail, name: input.buyerName },
-      back_urls: {
-        success: `${baseUrl}/pago/exito?order=${input.orderNumber}`,
-        failure: `${baseUrl}/pago/error?order=${input.orderNumber}`,
-        pending: `${baseUrl}/pago/exito?order=${input.orderNumber}&pending=true`,
-      },
+      back_urls: addonBackUrls(baseUrl, input.orderNumber, input.returnPath),
       auto_return: 'approved',
       external_reference: input.reference,
       notification_url: `${baseUrl}/api/webhooks/mercadopago`,

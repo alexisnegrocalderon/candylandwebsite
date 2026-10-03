@@ -62,3 +62,27 @@ export function addonAmount(unitPrice: number, quantity: number): number {
   if (!Number.isFinite(price) || !Number.isFinite(qty) || price < 0 || qty < 1) return 0;
   return Math.round(price) * qty;
 }
+
+/** Rutas de retorno permitidas tras pagar un extra desde la tarjeta digital:
+ * solo la página del propio ticket. Defensa extra por si alguna vez la ruta
+ * llegara armada con algo que no es un código de ticket. */
+const TICKET_RETURN_PATH = /^\/verificar\/[A-Za-z0-9%_-]{1,80}$/;
+
+/** URLs a las que Mercado Pago devuelve al cliente después de pagar un extra.
+ * Con `returnPath` (autoservicio) vuelve a su ticket con `?extra=ok|pending|error`
+ * para mostrarle el resultado; sin él (link que manda el admin) va a la página de
+ * pago de siempre. */
+export function addonBackUrls(baseUrl: string, orderNumber: string, returnPath?: string) {
+  if (returnPath && TICKET_RETURN_PATH.test(returnPath)) {
+    return {
+      success: `${baseUrl}${returnPath}?extra=ok`,
+      failure: `${baseUrl}${returnPath}?extra=error`,
+      pending: `${baseUrl}${returnPath}?extra=pending`,
+    };
+  }
+  return {
+    success: `${baseUrl}/pago/exito?order=${orderNumber}`,
+    failure: `${baseUrl}/pago/error?order=${orderNumber}`,
+    pending: `${baseUrl}/pago/exito?order=${orderNumber}&pending=true`,
+  };
+}
