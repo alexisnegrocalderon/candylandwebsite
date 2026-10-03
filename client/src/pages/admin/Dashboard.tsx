@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
@@ -2296,26 +2296,33 @@ function EditAttendeesDialog({ order, onClose, onSaved }: { order: any | null; o
 
 const clp = (n: number) => `$${Number(n).toLocaleString('es-CL')}`;
 
-/** Ventana "Pasar a Trío" de Ventas Web: un comprador con acceso Dúo quiere
- * sumar a una tercera persona y pagar la diferencia. El admin fija el monto
- * (viene sugerido: Trío de hoy − lo que pagó), genera el link de Mercado Pago y
- * se lo manda; cuando se paga -- o el admin marca "pagado" por transferencia o
- * efectivo -- el acceso pasa a Trío con el MISMO QR. */
+/** Ventana "Subir de acceso" de Ventas Web: un comprador quiere pasar su acceso
+ * a otro más caro (Soltera→Dúo, Dúo→Trío, Dúo→Grupo...). El admin elige el
+ * acceso nuevo -- solo aparecen los que esa orden realmente puede tener --,
+ * fija el monto (viene sugerido: precio de hoy − lo que pagó), carga los datos
+ * que faltan de las personas nuevas (opcional) y genera el link de Mercado
+ * Pago. Cuando se paga -- o el admin marca "pagado" por transferencia o
+ * efectivo -- el acceso cambia con el MISMO QR. */
+type UpgradeDraft = { name: string; rut: string; instagram: string };
+
 function UpgradeDialog({ order, onClose, onChanged }: { order: any | null; onClose: () => void; onChanged: () => void }) {
   const orderId: number | undefined = order?.id;
   const { data: preview, isLoading, refetch } = trpc.orders.previewUpgrade.useQuery(
     { orderId: orderId ?? 0 },
     { enabled: orderId !== undefined },
   );
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [amount, setAmount] = useState('');
-  const [thirdName, setThirdName] = useState('');
-  const [thirdRut, setThirdRut] = useState('');
+  const [drafts, setDrafts] = useState<Record<number, UpgradeDraft>>({});
 
-  useEffect(() => { setThirdName(''); setThirdRut(''); setAmount(''); }, [orderId]);
-  // Se rellena con el monto sugerido apenas llega la vista previa de ESTA orden.
+  type Option = NonNullable<typeof preview>['options'][number];
+  const pick = (o: Option) => { setSelectedId(o.ticketTypeId); setAmount(String(o.suggestedAmount)); setDrafts({}); };
+
+  useEffect(() => { setSelectedId(null); setAmount(''); setDrafts({}); }, [orderId]);
+  // Con una sola opción posible no hay nada que elegir.
   useEffect(() => {
-    if (preview && !preview.pending) setAmount(String(preview.suggestedAmount));
-  }, [preview?.orderId, preview?.pending?.id, preview?.suggestedAmount]);
+    if (preview && !preview.pending && selectedId === null && preview.options.length === 1) pick(preview.options[0]);
+  }, [preview?.orderId, preview?.options.length, preview?.pending?.id]);
 
   const changed = () => { refetch(); onChanged(); };
   const request = trpc.orders.requestUpgrade.useMutation({
@@ -2328,7 +2335,7 @@ function UpgradeDialog({ order, onClose, onChanged }: { order: any | null; onClo
   });
   const markPaid = trpc.orders.markUpgradePaid.useMutation({
     onSuccess: (r) => {
-      toast.success(r.applied ? 'Listo: el acceso ahora es Trío' : 'Esta solicitud ya estaba pagada');
+      toast.success(r.applied ? 'Listo: el acceso fue actualizado' : 'Esta solicitud ya estaba pagada');
       onChanged();
       onClose();
     },
@@ -2339,13 +2346,19 @@ function UpgradeDialog({ order, onClose, onChanged }: { order: any | null; onClo
     onError: onMutationError,
   });
 
+  const selected = preview?.options.find((o) => o.ticketTypeId === selectedId) ?? null;
+  const draftOf = (n: number): UpgradeDraft => drafts[n] ?? { name: '', rut: '', instagram: '' };
+  const patchDraft = (n: number, changes: Partial<UpgradeDraft>) =>
+    setDrafts((prev) => ({ ...prev, [n]: { ...draftOf(n), ...changes } }));
+  const rutInvalid = (n: number) => draftOf(n).rut.trim() !== '' && !isValidRut(draftOf(n).rut);
+  const anyRutInvalid = !!selected && selected.missing.some((m) => m.needsRut && rutInvalid(m.n));
+
   const amountNumber = Number(amount.replace(/[^0-9]/g, ''));
-  const rutInvalid = thirdRut.trim() !== '' && !isValidRut(thirdRut);
   const pending = preview?.pending ?? null;
   const firstName = (order?.buyerName ?? '').trim().split(/\s+/)[0] || '';
   const phoneDigits = String(order?.buyerPhone ?? '').replace(/[^0-9]/g, '');
   const whatsappText = pending?.paymentUrl
-    ? `Hola${firstName ? ` ${firstName}` : ''}! Para sumar a una tercera persona a tu acceso (pasa de Dúo a Trío) solo falta pagar la diferencia de ${clp(pending.amount)}. Puedes pagar aquí: ${pending.paymentUrl} . Cuando se acredite el pago, tu acceso queda como Trío con el mismo código QR. Recuerda que el nombre de cada persona debe coincidir con su carnet de identidad. ¡Gracias!`
+    ? `Hola${firstName ? ` ${firstName}` : ''}! Para subir tu acceso${pending.fromName && pending.toName ? ` de ${pending.fromName} a ${pending.toName}` : ''} solo falta pagar la diferencia de ${clp(pending.amount)}. Puedes pagar aquí: ${pending.paymentUrl} . Cuando se acredite el pago, tu acceso queda actualizado con el mismo código QR. ${pending.stillMissing.length > 0 ? 'Para dejar todo listo, envíanos el nombre completo y el RUT de las personas nuevas, tal como aparecen en su carnet de identidad.' : 'Recuerda que el nombre de cada persona debe coincidir con su carnet de identidad.'} ¡Gracias!`
     : '';
 
   const copyLink = async () => {
@@ -2358,11 +2371,26 @@ function UpgradeDialog({ order, onClose, onChanged }: { order: any | null; onClo
     }
   };
 
+  const submit = () => {
+    if (!order || !selected) return;
+    request.mutate({
+      orderId: order.id,
+      toTicketTypeId: selected.ticketTypeId,
+      amount: amountNumber,
+      people: selected.missing.map((m) => ({
+        n: m.n,
+        name: draftOf(m.n).name.trim() || undefined,
+        rut: draftOf(m.n).rut.trim() || undefined,
+        instagram: draftOf(m.n).instagram.trim() || undefined,
+      })),
+    });
+  };
+
   return (
     <Dialog open={order !== null} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Pasar a Trío · {order?.orderNumber}</DialogTitle>
+          <DialogTitle>Subir de acceso · {order?.orderNumber}</DialogTitle>
         </DialogHeader>
 
         {isLoading || !preview ? (
@@ -2380,60 +2408,96 @@ function UpgradeDialog({ order, onClose, onChanged }: { order: any | null; onClo
               </div>
             )}
 
-            {preview.from && preview.to && (
-              <div className="rounded-xl border border-border p-3 text-sm space-y-1">
-                <p><span className="text-muted-foreground">Acceso actual:</span> {preview.from.name} · pagó {clp(preview.from.paidUnitPrice)}</p>
-                <p><span className="text-muted-foreground">Pasa a:</span> {preview.to.name} · hoy {clp(preview.to.price)}</p>
+            {preview.from && (
+              <div className="rounded-xl border border-border p-3 text-sm">
+                <span className="text-muted-foreground">Acceso actual:</span> {preview.from.name} · {preview.from.personas} persona{preview.from.personas === 1 ? '' : 's'} · pagó {clp(preview.from.paidUnitPrice)}
               </div>
             )}
 
-            {!pending && !preview.blockedReason && !preview.tableMissing && (
+            {!pending && !preview.tableMissing && preview.options.length > 0 && (
               <div className="space-y-3">
-                <div>
-                  <Label className="text-sm">Diferencia a cobrar (CLP)</Label>
-                  <Input
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
-                    inputMode="numeric"
-                    className="max-w-[12rem]"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Sugerido: {clp(preview.suggestedAmount)} (Trío de hoy − lo que pagó). Puedes cambiarlo.
-                  </p>
-                  {amountNumber < preview.minPayment && (
-                    <p className="text-xs text-[var(--admin-warning-text)] mt-1">
-                      Con menos de {clp(preview.minPayment)} no se puede crear un link de pago: solo quedará la solicitud para marcarla como pagada.
-                    </p>
-                  )}
+                <div className="space-y-2">
+                  <Label className="text-sm">Subir a</Label>
+                  {preview.options.map((o) => (
+                    <button
+                      key={o.ticketTypeId}
+                      type="button"
+                      onClick={() => pick(o)}
+                      className={`w-full rounded-xl border p-3 text-left text-sm transition-colors ${selectedId === o.ticketTypeId ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted/50'}`}
+                    >
+                      <span className="font-medium">{o.name}</span>
+                      <span className="text-muted-foreground"> · {o.personas} persona{o.personas === 1 ? '' : 's'} · hoy {clp(o.price)}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Diferencia sugerida {clp(o.suggestedAmount)}
+                        {o.missing.length > 0 ? ` · faltan datos de ${o.missing.length} persona${o.missing.length === 1 ? '' : 's'}` : ' · no faltan datos'}
+                      </span>
+                    </button>
+                  ))}
                 </div>
 
-                <div className="rounded-xl border border-border p-3 space-y-2">
-                  <p className="text-sm font-medium">Tercera persona (opcional)</p>
-                  <p className="text-xs text-muted-foreground">Si todavía no tienes sus datos, déjalo vacío: después se completan con "Editar nombres".</p>
-                  <div className="grid gap-2 sm:grid-cols-[1fr_11rem]">
+                {selected && (
+                  <>
                     <div>
-                      <Label className="text-xs">Nombre completo</Label>
-                      <Input value={thirdName} onChange={(e) => setThirdName(e.target.value)} placeholder="Nombre y apellido" autoComplete="off" />
+                      <Label className="text-sm">Diferencia a cobrar (CLP)</Label>
+                      <Input
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
+                        inputMode="numeric"
+                        className="max-w-[12rem]"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Sugerido: {clp(selected.suggestedAmount)} ({selected.name} de hoy − lo que pagó). Puedes cambiarlo.
+                      </p>
+                      {amountNumber < preview.minPayment && (
+                        <p className="text-xs text-[var(--admin-warning-text)] mt-1">
+                          Con menos de {clp(preview.minPayment)} no se puede crear un link de pago: solo quedará la solicitud para marcarla como pagada.
+                        </p>
+                      )}
                     </div>
-                    <div>
-                      <Label className="text-xs">RUT</Label>
-                      <Input value={thirdRut} onChange={(e) => setThirdRut(formatRutLive(e.target.value))} placeholder="12.345.678-9" autoComplete="off" />
-                      {rutInvalid && <p className="text-xs text-destructive mt-1">RUT no válido</p>}
-                    </div>
-                  </div>
-                </div>
+
+                    {selected.missing.length > 0 && (
+                      <div className="rounded-xl border border-border p-3 space-y-3">
+                        <div>
+                          <p className="text-sm font-medium">Datos de las personas nuevas (opcional)</p>
+                          <p className="text-xs text-muted-foreground">
+                            Si todavía no los tienes, déjalos vacíos: el mensaje al cliente ya los pide y después se completan con "Editar nombres".
+                          </p>
+                        </div>
+                        {selected.missing.map((m) => (
+                          <div key={m.n} className="space-y-2">
+                            <p className="text-xs font-medium text-muted-foreground">Persona {m.n + 1}</p>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              {m.needsName && (
+                                <div>
+                                  <Label className="text-xs">Nombre completo</Label>
+                                  <Input value={draftOf(m.n).name} onChange={(e) => patchDraft(m.n, { name: e.target.value })} placeholder="Nombre y apellido" autoComplete="off" />
+                                </div>
+                              )}
+                              {m.needsRut && (
+                                <div>
+                                  <Label className="text-xs">RUT</Label>
+                                  <Input value={draftOf(m.n).rut} onChange={(e) => patchDraft(m.n, { rut: formatRutLive(e.target.value) })} placeholder="12.345.678-9" autoComplete="off" />
+                                  {rutInvalid(m.n) && <p className="text-xs text-destructive mt-1">RUT no válido</p>}
+                                </div>
+                              )}
+                              <div>
+                                <Label className="text-xs">Instagram (opcional)</Label>
+                                <Input value={draftOf(m.n).instagram} onChange={(e) => patchDraft(m.n, { instagram: e.target.value })} placeholder="@usuario" autoComplete="off" />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
 
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" className="interactive" onClick={onClose}>Cerrar</Button>
                   <WriteButton
                     className="interactive"
-                    disabled={request.isPending || rutInvalid || !Number.isFinite(amountNumber)}
-                    onClick={() => request.mutate({
-                      orderId: order.id,
-                      amount: amountNumber,
-                      thirdName: thirdName.trim() || undefined,
-                      thirdRut: thirdRut.trim() || undefined,
-                    })}
+                    disabled={!selected || request.isPending || anyRutInvalid || !Number.isFinite(amountNumber)}
+                    onClick={submit}
                   >
                     {request.isPending ? 'Creando…' : amountNumber >= preview.minPayment ? 'Crear link de pago' : 'Crear solicitud'}
                   </WriteButton>
@@ -2443,11 +2507,18 @@ function UpgradeDialog({ order, onClose, onChanged }: { order: any | null; onClo
 
             {pending && (
               <div className="space-y-3">
-                <div className="rounded-xl bg-primary/10 border border-primary/30 p-3 text-sm">
-                  <p className="font-medium">Pendiente de pago: {clp(pending.amount)}</p>
-                  {(pending.thirdName || pending.thirdRut) && (
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Tercera persona: {[pending.thirdName, pending.thirdRut].filter(Boolean).join(' · ')}
+                <div className="rounded-xl bg-primary/10 border border-primary/30 p-3 text-sm space-y-1">
+                  <p className="font-medium">
+                    {pending.fromName && pending.toName ? `${pending.fromName} → ${pending.toName} · ` : ''}Pendiente de pago: {clp(pending.amount)}
+                  </p>
+                  {pending.people.map((p) => (
+                    <p key={p.n} className="text-xs text-muted-foreground">
+                      Persona {p.n + 1}: {[p.name, p.rut, p.instagram ? `@${p.instagram}` : ''].filter(Boolean).join(' · ')}
+                    </p>
+                  ))}
+                  {pending.stillMissing.length > 0 && (
+                    <p className="text-xs text-[var(--admin-warning-text)]">
+                      Faltan datos de {pending.stillMissing.length} persona{pending.stillMissing.length === 1 ? '' : 's'}: pídelos al cliente y complétalos después con "Editar nombres".
                     </p>
                   )}
                 </div>
@@ -2496,9 +2567,9 @@ function UpgradeDialog({ order, onClose, onChanged }: { order: any | null; onClo
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>¿Marcar como pagado y pasar a Trío?</AlertDialogTitle>
+                        <AlertDialogTitle>¿Marcar como pagado y subir de acceso?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          Úsalo solo si ya recibiste los {clp(pending.amount)} por transferencia o efectivo. El acceso de {order?.buyerName} pasa a Trío ahora mismo (mismo QR), la diferencia se suma a la orden y se le reenvía la confirmación.
+                          Úsalo solo si ya recibiste los {clp(pending.amount)} por transferencia o efectivo. El acceso de {order?.buyerName} pasa a {pending.toName ?? 'el acceso nuevo'} ahora mismo (mismo QR), la diferencia se suma a la orden y se le reenvía la confirmación.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
@@ -2803,7 +2874,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                                 onClick={() => setUpgradeOrderId(order.id)}
                                 className="mt-1 block rounded-full bg-yellow-500/15 px-2 py-0.5 text-xs font-semibold text-yellow-700 hover:bg-yellow-500/25"
                               >
-                                Trío pendiente de pago · {clp(order.pendingUpgrade.amount)}
+                                {order.pendingUpgrade.toName ? `Subir a ${order.pendingUpgrade.toName}` : 'Cambio de acceso'} pendiente · {clp(order.pendingUpgrade.amount)}
                               </button>
                             )}
                           </td>
@@ -2864,10 +2935,10 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                               />
                               {order.paymentStatus === 'approved' && (
                                 <>
-                                  {order.accesoSlug === 'duo' && (
+                                  {order.accesoSlug && order.accesoSlug !== 'cumpleaneros' && (
                                     <RowActionButton
-                                      icon={UserPlus}
-                                      label="Pasar a Trío"
+                                      icon={ArrowUpCircle}
+                                      label="Subir de acceso"
                                       tone="send"
                                       onClick={() => setUpgradeOrderId(order.id)}
                                     />
@@ -2991,7 +3062,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                           onClick={() => setUpgradeOrderId(order.id)}
                           className="mt-1 rounded-full bg-yellow-500/15 px-2 py-0.5 text-xs font-semibold text-yellow-700"
                         >
-                          Trío pendiente de pago · {clp(order.pendingUpgrade.amount)}
+                          {order.pendingUpgrade.toName ? `Subir a ${order.pendingUpgrade.toName}` : 'Cambio de acceso'} pendiente · {clp(order.pendingUpgrade.amount)}
                         </button>
                       )}
                     </div>
@@ -3033,10 +3104,10 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                     />
                     {order.paymentStatus === 'approved' && (
                       <>
-                        {order.accesoSlug === 'duo' && (
+                        {order.accesoSlug && order.accesoSlug !== 'cumpleaneros' && (
                           <RowActionButton
-                            icon={UserPlus}
-                            label="Pasar a Trío"
+                            icon={ArrowUpCircle}
+                            label="Subir de acceso"
                             tone="send"
                             onClick={() => setUpgradeOrderId(order.id)}
                           />
@@ -8109,6 +8180,7 @@ function AdminAuditPanel() {
     'orders.delete': 'Eliminó una compra',
     'orders.updateAttendees': 'Corrigió los nombres de una compra',
     'orders.upgradeToTrio': 'Pasó una compra de Dúo a Trío',
+    'orders.upgradeAccess': 'Subió una compra a un acceso mayor',
     'events.delete': 'Eliminó un evento',
     'events.deleteTicketType': 'Eliminó un tipo de entrada',
     'expenses.delete': 'Eliminó un gasto',
