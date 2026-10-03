@@ -1364,7 +1364,7 @@ function DiscountsManager() {
     return (live.find((e) => e.featured) ?? live[0])?.title ?? 'Candyland';
   };
   const shareText = (d: any) =>
-    `Usa mi código ${d.code} para comprar tu entrada a ${eventTitleFor(d)} en Mansion Playroom 🍭 ${window.location.origin}`;
+    `Usa tu código ${d.code} para comprar tu entrada a ${eventTitleFor(d)} en Mansion Playroom 🍭 ${window.location.origin}`;
   const copyShareText = async (d: any) => {
     try {
       await navigator.clipboard.writeText(shareText(d));
