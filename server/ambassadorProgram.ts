@@ -605,10 +605,17 @@ export async function getWeeklyMaterial() {
 
 export type WeeklyMaterialLink = { label: string; url: string };
 
+/** Máximo de imágenes del Drive que viajan en el correo. */
+export const WEEKLY_MATERIAL_MAX_IMAGES = 6;
+
+export type WeeklyMaterialImage = { id: string; name: string; mimeType: string };
+
 export async function saveWeeklyMaterial(data: {
   title?: string; storiesText?: string; reelText?: string;
   postText?: string; countdownText?: string;
   links?: WeeklyMaterialLink[];
+  driveFolderUrl?: string;
+  images?: WeeklyMaterialImage[];
 }) {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
@@ -622,6 +629,8 @@ export async function saveWeeklyMaterial(data: {
     postText: data.postText,
     countdownText: data.countdownText,
     links: (data.links ?? []).filter((l) => l.url.trim()),
+    driveFolderUrl: data.driveFolderUrl?.trim() || null,
+    images: (data.images ?? []).slice(0, WEEKLY_MATERIAL_MAX_IMAGES),
     active: 1,
   });
   return { success: true };
@@ -700,7 +709,7 @@ export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
         panelUrl: `${PANEL_BASE_URL}/embajador/${a.code}`,
         referralUrl: buildAmbassadorReferralUrl(featured, a.code),
         material: (material || countdownText || materialLinks.length > 0)
-          ? { ...material, countdownText, links: materialLinks }
+          ? { ...material, countdownText, links: materialLinks, images: Array.isArray(material?.images) ? (material!.images as WeeklyMaterialImage[]) : [] }
           : null,
       });
 
@@ -731,11 +740,12 @@ export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
  * trabajo distinto y el prompt lo explica. */
 
 export const WeeklyMaterialContentSchema = z.object({
-  title: z.string().min(4).max(80),
-  storiesText: z.string().min(20).max(600),
-  reelText: z.string().min(20).max(600),
-  postText: z.string().min(20).max(800),
-  countdownText: z.string().min(4).max(200),
+  title: z.string().min(4).max(40),
+  storiesText: z.string().min(10).max(160),
+  reelText: z.string().min(10).max(160),
+  postText: z.string().min(10).max(220),
+  countdownText: z.string().min(4).max(80),
+  imageIds: z.array(z.string()).max(4).default([]),
 });
 export type WeeklyMaterialContent = z.infer<typeof WeeklyMaterialContentSchema>;
 
@@ -745,36 +755,42 @@ const WEEKLY_MATERIAL_JSON_SCHEMA = {
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['title', 'storiesText', 'reelText', 'postText', 'countdownText'],
+    required: ['title', 'storiesText', 'reelText', 'postText', 'countdownText', 'imageIds'],
     properties: {
-      title: { type: 'string', description: 'Cómo se llama la semana. Corto y con energía, ej: "Semana 2 — cuenta regresiva".' },
-      storiesText: { type: 'string', description: 'Qué subir en historias esta semana. Accionable y concreto: qué mostrar, qué decir, qué stickers usar.' },
-      reelText: { type: 'string', description: 'La idea del reel: el gancho de los primeros 3 segundos, qué se ve y cómo cierra.' },
-      postText: { type: 'string', description: 'Texto sugerido para la publicación del feed, listo para copiar y pegar. Incluye hashtags si aportan.' },
-      countdownText: { type: 'string', description: 'Frase de cuenta regresiva al evento, corta y con urgencia genuina.' },
+      title: { type: 'string', description: 'Nombre de la semana, máximo 40 caracteres. Ej: "Semana 2 — ya viene la fiesta".' },
+      storiesText: { type: 'string', description: 'PASO 1. Qué subir en historias, en 1-2 frases cortas (máx. 160 caracteres).' },
+      reelText: { type: 'string', description: 'PASO 2. Qué subir como reel o foto, en 1-2 frases cortas (máx. 160 caracteres).' },
+      postText: { type: 'string', description: 'PASO 3. Texto de la publicación en primera persona, listo para copiar y pegar (máx. 220 caracteres).' },
+      countdownText: { type: 'string', description: 'Frase corta de cuenta regresiva (máx. 80 caracteres).' },
+      imageIds: { type: 'array', items: { type: 'string' }, description: 'Ids (exactos) de hasta 4 archivos de la lista de Drive que mejor calzan con esta semana. Vacío si no hay lista.' },
     },
   },
 } as const;
 
-const WEEKLY_MATERIAL_SYSTEM_PROMPT = `Preparas el material semanal que Mansion Playroom (productora de fiestas en Viña del Mar y Valparaíso, Chile) le envía a sus embajadores.
+const WEEKLY_MATERIAL_SYSTEM_PROMPT = `Preparas el mensaje semanal que Mansion Playroom (productora de fiestas en Viña del Mar y Valparaíso, Chile) le manda a sus embajadores.
 
-QUIÉN LO LEE: no es el público. Lo lee un embajador o embajadora que tiene que crear contenido esta semana para promocionar el evento con su código personal. Tu trabajo es que abra el correo y sepa exactamente qué hacer, sin tener que pensarlo.
+QUIÉN LO LEE: personas comunes, NO creadores de contenido. Lo leen rápido en el celular. Tiene que ser tan simple que lo entiendan en 10 segundos y lo hagan sin pensar.
 
-Por eso el material es una INSTRUCCIÓN CLARA, no un texto bonito. Nada de "comparte con entusiasmo": di qué grabar, qué mostrar y qué decir.
+FORMATO: "Esta semana haz solo 3 cosas".
+- "storiesText" = PASO 1, la historia. Qué foto/video subir y qué texto ponerle. 1 o 2 frases.
+- "reelText" = PASO 2, el reel o la foto. Qué subir y con qué frase. 1 o 2 frases.
+- "postText" = PASO 3, la publicación. Escríbela en primera persona, lista para copiar y pegar, como si la publicara el embajador.
+- "countdownText" = una frase corta de cuenta regresiva.
+- "title" = nombre corto de la semana.
 
-Cada campo cumple una función distinta y NO se repiten entre sí:
-- "title": cómo se llama la semana. Corto, da el tema.
-- "storiesText": qué subir en historias. Concreto y accionable — qué mostrar, qué texto poner, qué sticker usar. Es lo que más se usa, hazlo fácil.
-- "reelText": la idea del reel. Parte por el gancho de los primeros 3 segundos, después qué se ve, y cómo cierra con llamado a la acción.
-- "postText": el texto de la publicación del feed, LISTO PARA COPIAR Y PEGAR. Escríbelo en primera persona como si lo publicara el embajador, no en tercera. Puedes cerrar con hashtags si aportan.
-- "countdownText": una frase de cuenta regresiva, corta.
+REGLAS DE SIMPLICIDAD (obligatorias):
+- Frases cortas y directas. Un verbo claro: "Sube", "Publica", "Pega".
+- PROHIBIDO: guiones por segundos ("primeros 3 segundos…"), listas de stickers, términos técnicos (CTA, hook, engagement, formato), instrucciones de edición, más de dos emojis por campo.
+- Si hay fotos o videos disponibles en el Drive, dile que use esas ("Usa la foto de la decoración") en vez de pedirle que grabe algo nuevo.
+- Recuérdale usar su código o link personal UNA sola vez, en el paso 3.
 
-Tono: chileno neutro, tuteo, cercano y con energía de fiesta. Emojis con moderación (🍬✨🔥), nunca más de dos por campo.
+CONTENIDO:
+- Tono chileno cercano, tuteo, con energía de fiesta. Nada corporativo.
+- El evento es +18, pero lo que se publica debe cumplir las normas de Instagram y TikTok: sugerente está bien, explícito NO.
+- No inventes datos: nada de precios, direcciones, artistas ni horarios que no estén en el contexto.
+- El evento tiene Disfraz obligatorio; puedes mencionarlo si el contexto lo trae.
 
-REGLAS DURAS:
-- El evento es estrictamente +18, pero el contenido que se publica en redes debe ser apto para las normas de Instagram y TikTok: sugerente está bien, explícito NO. Si el material hace que le bajen el post al embajador, no sirve.
-- No inventes datos que no te dieron: nada de precios, direcciones, artistas ni horarios que no aparezcan en el contexto.
-- Recuérdale usar su código personal, pero sin repetirlo en los cinco campos.
+IMÁGENES: si te pasan una lista de archivos de Drive (id y nombre), devuelve en "imageIds" hasta 4 ids EXACTOS de la lista que mejor calcen con la semana (elige por el nombre del archivo). Nunca inventes ids. Si no hay lista, devuelve [].
 
 Responde ÚNICAMENTE con el JSON pedido, sin explicaciones.`;
 
@@ -788,7 +804,10 @@ function extractWeeklyContent(message: { content: string | Array<{ type: string;
  * El contexto (evento, fecha, días que faltan, tareas del programa) se arma
  * acá desde datos reales para que la IA no invente y para que el material
  * siempre pida lo que el embajador se comprometió a hacer. */
-export async function generateWeeklyMaterial(idea: string): Promise<WeeklyMaterialContent> {
+export async function generateWeeklyMaterial(
+  idea: string,
+  driveFiles: { id: string; name: string }[] = [],
+): Promise<WeeklyMaterialContent> {
   const evento = await getFeaturedEvent();
 
   const partesContexto: string[] = [];
@@ -803,6 +822,9 @@ export async function generateWeeklyMaterial(idea: string): Promise<WeeklyMateri
     if (evento.shortDescription) partesContexto.push(`Sobre el evento: ${evento.shortDescription}`);
   }
   partesContexto.push(`Tareas a las que se comprometieron los embajadores: ${AMBASSADOR_TASKS.join('; ')}`);
+  if (driveFiles.length > 0) {
+    partesContexto.push(`Archivos disponibles en el Drive (id | nombre):\n${driveFiles.map((f) => `${f.id} | ${f.name}`).join('\n')}`);
+  }
 
   const result = await invokeLLM({
     messages: [
@@ -824,5 +846,8 @@ export async function generateWeeklyMaterial(idea: string): Promise<WeeklyMateri
   if (!validated.success) {
     throw new Error(`El material generado no tiene el formato esperado: ${validated.error.issues[0]?.message ?? 'error desconocido'}.`);
   }
-  return validated.data;
+  // Solo ids que de verdad existen en la lista que se le pasó: la IA no puede
+  // inventar archivos.
+  const validIds = new Set(driveFiles.map((f) => f.id));
+  return { ...validated.data, imageIds: validated.data.imageIds.filter((id) => validIds.has(id)) };
 }

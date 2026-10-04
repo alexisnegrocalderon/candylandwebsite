@@ -1073,12 +1073,17 @@ export function buildAmbassadorWeeklyEmail(data: {
     postText?: string | null;
     countdownText?: string | null;
     links?: { label: string; url: string }[] | null;
+    // Carpeta de Drive y las fotos/videos elegidos para esta semana (ver
+    // server/googleDrive.ts) -- se muestran como galería descargable.
+    driveFolderUrl?: string | null;
+    images?: { id: string; name: string; mimeType: string }[] | null;
   } | null;
 }) {
   const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
   const m = data.material;
   const links = (m?.links ?? []).filter((l) => l.url);
-  const tieneMaterial = !!m && !!(m.storiesText || m.reelText || m.postText || m.countdownText || links.length > 0);
+  const images = Array.isArray(m?.images) ? (m!.images as { id: string; name: string; mimeType: string }[]) : [];
+  const tieneMaterial = !!m && !!(m.storiesText || m.reelText || m.postText || m.countdownText || links.length > 0 || images.length > 0);
 
   const progreso = data.nextTarget
     ? Math.min(100, Math.round((data.monthlySales / data.nextTarget.target) * 100))
@@ -1174,10 +1179,24 @@ export function buildAmbassadorWeeklyEmail(data: {
       ${tieneMaterial ? `
       ${sectionTitle('📱', m?.title || 'Material de la semana')}
       ${card(`
-        ${materialRow('Historias', m?.storiesText)}
-        ${materialRow('Reel', m?.reelText)}
-        ${materialRow('Publicación', m?.postText)}
+        ${materialRow('1 · Historia', m?.storiesText)}
+        ${materialRow('2 · Reel o foto', m?.reelText)}
+        ${materialRow('3 · Publicación', m?.postText)}
         ${materialRow('Cuenta regresiva', m?.countdownText)}
+        ${images.length > 0 ? `
+        <div style="padding:14px 0 0;">
+          <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 8px;">📸 Material para compartir</p>
+          ${grid(images.map((img) => {
+            const thumb = `https://drive.google.com/thumbnail?id=${encodeURIComponent(img.id)}&sz=w600`;
+            const download = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(img.id)}`;
+            const isVideo = (img.mimeType ?? '').startsWith('video/');
+            return `<div style="background:${CARD_BG};border:1px solid ${BORDER};border-radius:14px;overflow:hidden;text-align:center;">
+              <a href="${download}"><img src="${thumb}" alt="${img.name}" width="100%" style="display:block;width:100%;height:auto;" /></a>
+              <a href="${download}" style="display:block;padding:10px 8px;color:${ACCENT.pink.text};font-size:12px;font-weight:800;text-decoration:none;">${isVideo ? '🎬 Descargar video' : '⬇️ Descargar foto'}</a>
+            </div>`;
+          }), 2)}
+          ${m?.driveFolderUrl ? `<p style="margin:6px 0 0;text-align:center;"><a href="${m.driveFolderUrl}" style="color:${ACCENT.pink.text};font-size:13px;font-weight:700;">📂 Ver todas en Drive →</a></p>` : ''}
+        </div>` : ''}
         ${links.length > 0 ? `
         <div style="padding:8px 0 0;">
           ${links.map((l) => `<p style="margin:6px 0;"><a href="${l.url}" style="color:${ACCENT.pink.text};font-size:13px;font-weight:700;">${l.label} →</a></p>`).join('')}

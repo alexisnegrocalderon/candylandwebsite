@@ -66,6 +66,16 @@ describe('WeeklyMaterialContentSchema', () => {
   });
 
   it('rechaza un texto que se pasa del largo máximo', () => {
-    expect(WeeklyMaterialContentSchema.safeParse({ ...valido, postText: 'a'.repeat(801) }).success).toBe(false);
+    expect(WeeklyMaterialContentSchema.safeParse({ ...valido, postText: 'a'.repeat(221) }).success).toBe(false);
+  });
+
+  it('mantiene los pasos cortos: rechaza una historia de más de 160 caracteres', () => {
+    expect(WeeklyMaterialContentSchema.safeParse({ ...valido, storiesText: 'a'.repeat(161) }).success).toBe(false);
+  });
+
+  it('imageIds es opcional (sin Drive) y acepta hasta 4', () => {
+    expect(WeeklyMaterialContentSchema.parse(valido).imageIds).toEqual([]);
+    expect(WeeklyMaterialContentSchema.safeParse({ ...valido, imageIds: ['a', 'b', 'c', 'd'] }).success).toBe(true);
+    expect(WeeklyMaterialContentSchema.safeParse({ ...valido, imageIds: ['a', 'b', 'c', 'd', 'e'] }).success).toBe(false);
   });
 });
