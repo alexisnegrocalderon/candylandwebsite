@@ -719,6 +719,11 @@ export const ambassadorWeeklyMaterial = mysqlTable("ambassadorWeeklyMaterial", {
   // { label: string; url: string }[] -- cuantos links haga falta cada
   // semana, cada uno con su propio texto (ej. "📂 Carpeta de Drive").
   links: json("links"),
+  // Carpeta de Google Drive con las fotos/videos de la semana y las que se
+  // eligieron para el correo ({ id, name, mimeType }[]) -- ver
+  // server/googleDrive.ts.
+  driveFolderUrl: varchar("driveFolderUrl", { length: 500 }),
+  images: json("images"),
   active: int("active").default(1).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

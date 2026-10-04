@@ -100,6 +100,7 @@ import { buildKitchenVendorPdf } from "./caja/kitchenVendorPdf";
 import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
 import { getFoundersPromoStatus, runFoundersPromoDaily, buildFoundersPromoContent } from "./foundersPromo";
+import { listDriveMedia } from "./googleDrive";
 import { getTanda2PromoStatus, runTanda2PromoDaily, buildTanda2PromoContent } from "./tanda2Promo";
 import { EMAIL_BASE_URL } from "./emailLayout";
 import { sendPendingReminders, generateReminderCopy } from "./orderReminders";
@@ -2961,6 +2962,8 @@ export const appRouter = router({
       postText: z.string().optional(),
       countdownText: z.string().optional(),
       links: z.array(z.object({ label: z.string(), url: z.string() })).optional(),
+      driveFolderUrl: z.string().max(500).optional(),
+      images: z.array(z.object({ id: z.string(), name: z.string(), mimeType: z.string() })).max(6).optional(),
     })).mutation(async ({ input }) => {
       return ambassadorProgram.saveWeeklyMaterial(input);
     }),
@@ -2968,11 +2971,25 @@ export const appRouter = router({
      * dueño revisa y edita antes de apretar "Guardar", igual que en mailing. */
     generateWeeklyMaterial: adminProcedure.input(z.object({
       idea: z.string().min(5).max(1000),
+      // Si viene, la IA también elige qué fotos/videos de esa carpeta usar.
+      driveFolderUrl: z.string().max(500).optional(),
     })).mutation(async ({ input }) => {
       try {
-        return await ambassadorProgram.generateWeeklyMaterial(input.idea);
+        const files = input.driveFolderUrl?.trim() ? await listDriveMedia(input.driveFolderUrl) : [];
+        return await ambassadorProgram.generateWeeklyMaterial(input.idea, files);
       } catch (err) {
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar el material.' });
+      }
+    }),
+    /** Fotos y videos de la carpeta de Drive del material (miniaturas y links
+     * de descarga) -- para elegirlos en el admin antes de guardar. */
+    listDriveMedia: adminReadProcedure.input(z.object({
+      url: z.string().min(1).max(500),
+    })).query(async ({ input }) => {
+      try {
+        return await listDriveMedia(input.url);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo leer la carpeta de Drive.' });
       }
     }),
 

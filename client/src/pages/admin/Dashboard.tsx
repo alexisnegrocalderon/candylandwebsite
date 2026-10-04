@@ -5951,10 +5951,36 @@ function WeeklyMaterialTab() {
 
   const [form, setForm] = useState({ title: '', storiesText: '', reelText: '', postText: '', countdownText: '' });
   const [links, setLinks] = useState<{ label: string; url: string }[]>([]);
+  // Carpeta de Drive del material y las fotos/videos elegidos para el correo.
+  const [driveUrl, setDriveUrl] = useState('');
+  const [images, setImages] = useState<{ id: string; name: string; mimeType: string }[]>([]);
+  const [driveFiles, setDriveFiles] = useState<{ id: string; name: string; mimeType: string; thumbUrl: string }[]>([]);
+  const utils = trpc.useUtils();
+  const [loadingDrive, setLoadingDrive] = useState(false);
+  const cargarDrive = async (): Promise<typeof driveFiles> => {
+    if (!driveUrl.trim()) { toast.error('Pega primero el link de la carpeta de Drive'); return []; }
+    setLoadingDrive(true);
+    try {
+      const files = await utils.ambassadors.listDriveMedia.fetch({ url: driveUrl.trim() });
+      setDriveFiles(files);
+      return files;
+    } catch (err) {
+      onMutationError(err as any);
+      return [];
+    } finally {
+      setLoadingDrive(false);
+    }
+  };
+  const toggleImage = (f: { id: string; name: string; mimeType: string }) =>
+    setImages((prev) => prev.some((x) => x.id === f.id)
+      ? prev.filter((x) => x.id !== f.id)
+      : prev.length >= 6 ? prev : [...prev, { id: f.id, name: f.name, mimeType: f.mimeType }]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (!data || loaded) return;
+    setDriveUrl((data as any).driveFolderUrl ?? '');
+    setImages(Array.isArray((data as any).images) ? (data as any).images : []);
     setForm({
       title: data.title ?? '',
       storiesText: data.storiesText ?? '',
@@ -5993,6 +6019,13 @@ function WeeklyMaterialTab() {
         postText: c.postText,
         countdownText: c.countdownText,
       }));
+      // La IA eligió fotos de la carpeta: quedan pre-marcadas (se pueden cambiar).
+      if (c.imageIds?.length) {
+        setImages(c.imageIds
+          .map((id: string) => driveFiles.find((f) => f.id === id))
+          .filter((f): f is NonNullable<typeof f> => !!f)
+          .map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType })));
+      }
       setLoaded(true); // que la carga del material guardado no pise lo generado
       toast.success('Material generado — revísalo y edita lo que quieras antes de guardar');
     },
@@ -6023,21 +6056,59 @@ function WeeklyMaterialTab() {
                 variant="outline"
                 className="interactive shrink-0"
                 disabled={idea.trim().length < 5 || generar.isPending}
-                onClick={() => generar.mutate({ idea: idea.trim() })}
+                onClick={async () => {
+                  // Si hay carpeta, se lee antes para que la IA elija entre sus archivos.
+                  if (driveUrl.trim() && driveFiles.length === 0) await cargarDrive();
+                  generar.mutate({ idea: idea.trim(), driveFolderUrl: driveUrl.trim() || undefined });
+                }}
               >
                 {generar.isPending ? 'Generando…' : 'Generar con IA'}
               </WriteButton>
             </div>
             <p className="text-xs text-muted-foreground">
-              Rellena los campos de abajo con la fecha del evento y las tareas del programa. No guarda nada:
-              revisa el texto y aprieta "Guardar material".
+              Genera 3 pasos cortos y simples (historia, reel o foto, publicación) y, si pegaste una carpeta de Drive,
+              elige las fotos. No guarda nada: revisa el texto y aprieta "Guardar material".
             </p>
           </div>
           <div><Label>Título (opcional)</Label><Input value={form.title} onChange={set('title')} className="mt-1" placeholder="Ej: Semana 1 — lanzamiento de Candyland" /></div>
-          <div><Label>Historias</Label><Textarea value={form.storiesText} onChange={set('storiesText')} className="mt-1" rows={2} placeholder="Qué subir en historias esta semana" /></div>
+          <div><Label>Historias</Label><Textarea value={form.storiesText} onChange={set('storiesText')} className="mt-1" rows={2} placeholder="Paso 1: qué subir en historias" /></div>
           <div><Label>Reel</Label><Textarea value={form.reelText} onChange={set('reelText')} className="mt-1" rows={2} placeholder="Idea del reel" /></div>
           <div><Label>Publicación</Label><Textarea value={form.postText} onChange={set('postText')} className="mt-1" rows={2} placeholder="Texto sugerido para el post" /></div>
           <div><Label>Cuenta regresiva</Label><Input value={form.countdownText} onChange={set('countdownText')} className="mt-1" placeholder="Se arma sola si lo dejas vacío" /></div>
+          <div className="space-y-2">
+            <Label>📸 Fotos y videos del Drive (opcional)</Label>
+            <p className="text-xs text-muted-foreground">
+              Pega el link de la carpeta (compartida como "Cualquier persona con el enlace"). Elige hasta 6: el correo
+              las muestra con un botón de descarga para cada embajador.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input value={driveUrl} onChange={(e) => setDriveUrl(e.target.value)} placeholder="https://drive.google.com/drive/folders/..." className="flex-1" />
+              <WriteButton type="button" variant="outline" className="interactive shrink-0" onClick={cargarDrive} disabled={loadingDrive || !driveUrl.trim()}>
+                {loadingDrive ? 'Cargando…' : 'Cargar imágenes'}
+              </WriteButton>
+            </div>
+            {driveFiles.length > 0 && (
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                {driveFiles.map((f) => {
+                  const selected = images.some((x) => x.id === f.id);
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => toggleImage(f)}
+                      aria-pressed={selected}
+                      title={f.name}
+                      className={`relative aspect-square rounded-xl overflow-hidden border-2 ${selected ? 'border-primary' : 'border-transparent opacity-70 hover:opacity-100'}`}
+                    >
+                      <img src={f.thumbUrl} alt={f.name} className="w-full h-full object-cover" loading="lazy" />
+                      {selected && <span className="absolute top-1 right-1 bg-primary text-primary-foreground text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {images.length > 0 && <p className="text-xs text-muted-foreground">{images.length} seleccionada{images.length === 1 ? '' : 's'} de 6.</p>}
+          </div>
           <div className="space-y-2">
             <Label>Links (opcional)</Label>
             <p className="text-xs text-muted-foreground">
@@ -6068,7 +6139,7 @@ function WeeklyMaterialTab() {
           </div>
           <div className="flex flex-wrap gap-2">
             <WriteButton
-              onClick={() => save.mutate({ ...form, links: links.filter((l) => l.url.trim()) })}
+              onClick={() => save.mutate({ ...form, links: links.filter((l) => l.url.trim()), driveFolderUrl: driveUrl.trim() || undefined, images })}
               disabled={save.isPending}
               className="interactive"
             >
