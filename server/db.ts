@@ -736,6 +736,25 @@ export async function createDiscountCode(data: any) {
   return { success: true };
 }
 
+/** Edita un código existente (nunca `code` ni `usedCount`). `false` si no existe. */
+export async function updateDiscountCode(id: number, data: {
+  description: string | null;
+  discountType: 'percentage' | 'fixed';
+  discountValue: number;
+  maxUses: number | null;
+  eventId: number | null;
+  giftTicketTypeId: number | null;
+  validUntil: Date | null;
+  isActive: number;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [row] = await db.select({ id: discountCodes.id }).from(discountCodes).where(eq(discountCodes.id, id)).limit(1);
+  if (!row) return false;
+  await db.update(discountCodes).set({ ...data, discountValue: String(data.discountValue) }).where(eq(discountCodes.id, id));
+  return true;
+}
+
 export async function deleteDiscountCode(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

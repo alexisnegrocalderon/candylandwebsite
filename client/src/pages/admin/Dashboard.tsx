@@ -1344,8 +1344,12 @@ function EventsManager() {
 function DiscountsManager() {
   const { data: discountsData, refetch } = trpc.discounts.listAll.useQuery();
   const createDiscount = trpc.discounts.create.useMutation({ onSuccess: () => { refetch(); toast.success('Código de descuento creado'); }, onError: onMutationError });
+  const updateDiscount = trpc.discounts.update.useMutation({ onSuccess: () => { refetch(); toast.success('Código actualizado'); }, onError: onMutationError });
   const deleteDiscount = trpc.discounts.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
   const { data: eventsData } = trpc.events.listAll.useQuery();
+  // id del código que se está editando (null = el formulario crea uno nuevo).
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editActive, setEditActive] = useState(true);
 
   const [newDiscount, setNewDiscount] = useState({
     code: '', description: '', discountType: 'percentage' as 'percentage' | 'fixed', discountValue: 0, maxUses: 0, validUntil: '',
@@ -1387,6 +1391,53 @@ function DiscountsManager() {
     }
   };
 
+  const resetForm = () => {
+    setNewDiscount({ code: '', description: '', discountType: 'percentage', discountValue: 0, maxUses: 0, validUntil: '' });
+    setNewEventId('');
+    setNewGiftId('');
+    setEditingId(null);
+    setEditActive(true);
+    setShowForm(false);
+  };
+
+  const startEdit = (d: any) => {
+    setEditingId(d.id);
+    setNewDiscount({
+      code: d.code,
+      description: d.description ?? '',
+      discountType: d.discountType,
+      discountValue: Number(d.discountValue),
+      maxUses: d.maxUses ?? 0,
+      validUntil: toChileInputValue(d.validUntil),
+    });
+    setNewEventId(d.eventId ? String(d.eventId) : '');
+    setNewGiftId(d.giftTicketTypeId ? String(d.giftTicketTypeId) : '');
+    setEditActive(!!d.isActive);
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSave = async () => {
+    if (editingId == null) return handleCreate();
+    if (!newGiftId && !newDiscount.discountValue) return;
+    try {
+      await updateDiscount.mutateAsync({
+        id: editingId,
+        description: newDiscount.description || null,
+        discountType: newDiscount.discountType,
+        discountValue: newDiscount.discountValue,
+        maxUses: newDiscount.maxUses || null,
+        eventId: newEventId ? Number(newEventId) : null,
+        giftTicketTypeId: newGiftId ? Number(newGiftId) : null,
+        validUntil: newDiscount.validUntil ? fromChileInputValue(newDiscount.validUntil) : null,
+        isActive: editActive,
+      });
+      resetForm();
+    } catch {
+      // el toast de error ya lo muestra onMutationError
+    }
+  };
+
   const handleCreate = async () => {
     if (!newDiscount.code || (!newGiftId && !newDiscount.discountValue)) return;
     try {
@@ -1397,10 +1448,7 @@ function DiscountsManager() {
         maxUses: newDiscount.maxUses || undefined,
         validUntil: newDiscount.validUntil ? fromChileInputValue(newDiscount.validUntil) : undefined,
       });
-      setNewDiscount({ code: '', description: '', discountType: 'percentage', discountValue: 0, maxUses: 0, validUntil: '' });
-      setNewEventId('');
-      setNewGiftId('');
-      setShowForm(false);
+      resetForm();
     } catch {
       // el toast de error ya lo muestra onMutationError; dejamos el formulario abierto para reintentar
     }
@@ -1410,14 +1458,14 @@ function DiscountsManager() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="font-heading text-2xl">Códigos de Descuento</h2>
-        <Button onClick={() => setShowForm(!showForm)} className="interactive"><Plus className="w-4 h-4 mr-2" /> Nuevo Código</Button>
+        <Button onClick={() => { if (showForm) resetForm(); else setShowForm(true); }} className="interactive"><Plus className="w-4 h-4 mr-2" /> Nuevo Código</Button>
       </div>
 
       {showForm && (
         <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
           <CardContent className="pt-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div><Label>Código</Label><Input value={newDiscount.code} onChange={(e) => setNewDiscount({ ...newDiscount, code: e.target.value.toUpperCase() })} className="mt-1" /></div>
+              <div><Label>Código</Label><Input value={newDiscount.code} disabled={editingId != null} onChange={(e) => setNewDiscount({ ...newDiscount, code: e.target.value.toUpperCase() })} className="mt-1" />{editingId != null && <p className="text-xs text-muted-foreground mt-1">El código no se puede cambiar (ya está repartido).</p>}</div>
               <div>
                 <Label>Tipo</Label>
                 <Select value={newDiscount.discountType} onValueChange={(v) => setNewDiscount({ ...newDiscount, discountType: v as any })}>
@@ -1459,9 +1507,12 @@ function DiscountsManager() {
               <div><Label>Usos máximos</Label><Input type="number" value={newDiscount.maxUses} onChange={(e) => setNewDiscount({ ...newDiscount, maxUses: Number(e.target.value) })} className="mt-1" /></div>
               <div><Label>Válido hasta</Label><Input type="datetime-local" value={newDiscount.validUntil} onChange={(e) => setNewDiscount({ ...newDiscount, validUntil: e.target.value })} className="mt-1" /></div>
             </div>
+            {editingId != null && (
+              <label className="flex items-center gap-2 text-sm"><Switch checked={editActive} onCheckedChange={setEditActive} /> Código activo</label>
+            )}
             <div className="flex gap-2">
-              <WriteButton onClick={handleCreate}>Crear Código</WriteButton>
-              <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
+              <WriteButton onClick={handleSave}>{editingId != null ? 'Guardar cambios' : 'Crear Código'}</WriteButton>
+              <Button variant="outline" onClick={resetForm}>Cancelar</Button>
             </div>
           </CardContent>
         </Card>
@@ -1473,13 +1524,17 @@ function DiscountsManager() {
             <CardContent className="pt-4 flex justify-between items-center">
               <div>
                 <span className="font-mono font-bold text-primary">{d.code}</span>
+                {!d.isActive && <span className="text-xs ml-2 px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Inactivo</span>}
                 <span className="text-muted-foreground text-sm ml-3">
-                  {d.discountType === 'percentage' ? `${d.discountValue}%` : `$${Number(d.discountValue).toLocaleString('es-CL')}`}
+                  {d.giftTicketTypeId ? '🎁 Regalo' : d.discountType === 'percentage' ? `${d.discountValue}%` : `$${Number(d.discountValue).toLocaleString('es-CL')}`}
                 </span>
                 <span className="text-muted-foreground text-sm ml-3">Usos: {d.usedCount}/{d.maxUses || '∞'}</span>
                 <span className="text-muted-foreground text-sm ml-3">{d.eventId ? `Evento: ${eventTitleFor(d)}` : 'Todos los eventos'}</span>
               </div>
               <div className="flex gap-2">
+                <Button variant="outline" size="sm" title="Editar" aria-label="Editar" onClick={() => startEdit(d)}>
+                  <Edit className="w-3 h-3" />
+                </Button>
                 <Button variant="outline" size="sm" className="text-primary" title="Copiar mensaje" aria-label="Copiar mensaje" onClick={() => copyShareText(d)}>
                   <Copy className="w-3 h-3" />
                 </Button>
@@ -8573,6 +8628,7 @@ function AdminAuditPanel() {
     'expenses.delete': 'Eliminó un gasto',
     'expenses.update': 'Editó un gasto',
     'blockedCustomers.delete': 'Sacó un RUT de la lista de bloqueo',
+    'discounts.update': 'Editó un código de descuento',
     'discounts.delete': 'Eliminó un código de descuento',
     'communityCodes.delete': 'Eliminó un código de comunidad',
     'leads.delete': 'Eliminó un lead',
