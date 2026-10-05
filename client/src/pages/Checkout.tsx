@@ -1237,7 +1237,7 @@ export default function Checkout() {
                             : <><Tag className="w-4 h-4 mr-2" /> Aplicar</>}
                       </Button>
                     </div>
-                    {codeResult?.type === 'discount' && <p className="text-sm text-green-400 mt-1">Descuento aplicado ✓</p>}
+                    {codeResult?.type === 'discount' && <p className="text-sm text-green-400 mt-1">{codeResult.discount.giftTicketTypeId ? '¡Regalo incluido en tu compra! 🎁' : 'Descuento aplicado ✓'}</p>}
                     {codeResult?.type === 'ambassador' && (
                       <p className="text-sm text-green-400 mt-1">Le vamos a acreditar la venta a {codeResult.name} ✓</p>
                     )}

@@ -1832,9 +1832,19 @@ export const appRouter = router({
       minPurchase: z.number().optional(),
       maxUses: z.number().optional(),
       eventId: z.number().optional(),
+      // Producto de regalo (ej. un FIREROOM): se agrega solo, a $0, a la orden
+      // que use el código (ver processApprovedOrder en server/webhooks.ts).
+      giftTicketTypeId: z.number().optional(),
       validFrom: z.string().optional(),
       validUntil: z.string().optional(),
     })).mutation(async ({ input }) => {
+      if (input.giftTicketTypeId) {
+        if (!input.eventId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Para regalar un producto elige el evento del código.' });
+        const gift = await db.getTicketTypeById(input.giftTicketTypeId);
+        if (!gift || gift.eventId !== input.eventId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Ese producto no pertenece al evento elegido.' });
+        // Un código de regalo no descuenta plata: lo que da es el producto.
+        return db.createDiscountCode({ ...input, discountType: 'fixed', discountValue: 0 });
+      }
       return db.createDiscountCode(input);
     }),
     delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
