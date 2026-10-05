@@ -967,7 +967,7 @@ export const ops = mysqlTable("ops", {
   //   2ª vez: faltaba 'parking_paid' -- rompía TODO cobro de estacionamiento en
   //           la puerta (server/caja/parkingPaid.ts).
   // Si agregas un valor a OpType, agrégalo acá EN EL MISMO commit.
-  type: mysqlEnum("type", ["redeem", "checkin", "sale", "void_code", "note", "shift_open", "shift_close", "manual_adjust", "locker_return", "kitchen_update", "parking_paid"]).notNull(),
+  type: mysqlEnum("type", ["redeem", "checkin", "sale", "void_code", "note", "shift_open", "shift_close", "manual_adjust", "locker_return", "kitchen_update", "parking_paid", "void_sale"]).notNull(),
   eventId: int("eventId").notNull(),
   operatorId: int("operatorId").notNull(),
   registerId: int("registerId"),
@@ -985,6 +985,26 @@ export const ops = mysqlTable("ops", {
   eventServerAtIdx: index("ops_event_server_at_idx").on(table.eventId, table.serverAt),
   operatorIdx: index("ops_operator_idx").on(table.operatorId),
 }));
+
+// Alertas del vigilante de caja (server/caja/alerts.ts): historial de todo lo
+// que se le avisó al dueño durante el evento, y a la vez la deduplicación --
+// `dedupeKey` único hace que el cron de cada 5 min no repita la misma alerta
+// (ej. "stock bajo de Piscola") en cada pasada.
+export const cajaAlerts = mysqlTable("cajaAlerts", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  kind: varchar("kind", { length: 40 }).notNull(),
+  severity: mysqlEnum("severity", ["info", "warning", "critical"]).default("warning").notNull(),
+  title: varchar("title", { length: 200 }).notNull(),
+  body: text("body").notNull(),
+  dedupeKey: varchar("dedupeKey", { length: 191 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("cajaAlerts_dedupe_unique").on(t.dedupeKey),
+  index("cajaAlerts_event_created_idx").on(t.eventId, t.createdAt),
+]);
+
+export type CajaAlert = typeof cajaAlerts.$inferSelect;
 
 // Rate limiting genérico por clave arbitraria (hoy: login por PIN, keyed por
 // IP -- docs/ARQUITECTURA-CAJA.md §13 riesgo 7). El límite por operador ya
@@ -1122,7 +1142,9 @@ export const lockerItems = mysqlTable("lockerItems", {
   // 'guardado'/'retirado' las veces que la misma persona entre y saque
   // -- el número (`tagNumber`) es siempre el mismo, nunca se genera uno
   // nuevo para un reingreso.
-  status: mysqlEnum("status", ["pendiente", "guardado", "retirado"]).default("pendiente").notNull(),
+  // 'anulado' = la venta de caja que la cobró se anuló con clave admin
+  // (server/caja/voidSale.ts) -- la fila nunca se borra.
+  status: mysqlEnum("status", ["pendiente", "guardado", "retirado", "anulado"]).default("pendiente").notNull(),
   chargedAt: timestamp("chargedAt").defaultNow().notNull(),
   // Se pisan en cada ciclo -- siempre reflejan el último "Recibido"/
   // "Entregado", no un historial completo (igual que kitchenTickets con
@@ -1156,7 +1178,9 @@ export const kitchenTickets = mysqlTable("kitchenTickets", {
   opId: varchar("opId", { length: 64 }).notNull(),
   registerId: int("registerId"),
   ticketNumber: varchar("ticketNumber", { length: 12 }).notNull(),
-  status: mysqlEnum("status", ["pendiente", "aprobado", "entregado"]).default("pendiente").notNull(),
+  // 'anulado' = la venta se anuló con clave admin (server/caja/voidSale.ts):
+  // sale de la cola de cocina sin borrar la comanda.
+  status: mysqlEnum("status", ["pendiente", "aprobado", "entregado", "anulado"]).default("pendiente").notNull(),
   items: json("items").notNull(), // [{ name, quantity }]
   note: varchar("note", { length: 200 }),
   // Nombre que la cajera le pide al cliente al cobrar un producto toKitchen

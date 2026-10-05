@@ -20,6 +20,18 @@ export interface AdminAlertsConfig {
   pushWhatsAppHandoff: boolean;
   /** Correo diario a ADMIN_NOTIFICATION_EMAIL con el resumen de novedades. */
   dailyDigestEmail: boolean;
+  /** Vigilante de caja (server/caja/alerts.ts): push inmediato por ventas
+   * anuladas, clave admin incorrecta en una caja, stock bajo/agotado, ventas
+   * o descuentos fuera de lo normal, descuadres al cerrar turno y cajas sin
+   * actividad durante la fiesta. */
+  pushCajaAlerts: boolean;
+  /** Resumen escrito por IA cada hora durante la fiesta (push) y correo al
+   * cierre de la noche con todo lo que pasó en caja. */
+  cajaAiSummary: boolean;
+  /** Avisa cuando a un producto le quedan esta cantidad de unidades o menos. */
+  cajaLowStockUnits: number;
+  /** Avisa de cualquier venta de caja por sobre este monto (CLP). */
+  cajaHighSaleClp: number;
 }
 
 export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
@@ -29,7 +41,15 @@ export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
   pushInstagramHandoff: false,
   pushWhatsAppHandoff: false,
   dailyDigestEmail: false,
+  pushCajaAlerts: false,
+  cajaAiSummary: false,
+  cajaLowStockUnits: 10,
+  cajaHighSaleClp: 100000,
 };
+
+function nonNegativeNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
 
 /** Completa con los valores por defecto (todo apagado) cualquier campo
  * faltante -- una config vieja/parcial nunca deja un interruptor en
@@ -43,5 +63,9 @@ export function normalizeAdminAlertsConfig(raw: unknown): AdminAlertsConfig {
     pushInstagramHandoff: partial.pushInstagramHandoff ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushInstagramHandoff,
     pushWhatsAppHandoff: partial.pushWhatsAppHandoff ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushWhatsAppHandoff,
     dailyDigestEmail: partial.dailyDigestEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.dailyDigestEmail,
+    pushCajaAlerts: partial.pushCajaAlerts ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushCajaAlerts,
+    cajaAiSummary: partial.cajaAiSummary ?? DEFAULT_ADMIN_ALERTS_CONFIG.cajaAiSummary,
+    cajaLowStockUnits: nonNegativeNumber(partial.cajaLowStockUnits, DEFAULT_ADMIN_ALERTS_CONFIG.cajaLowStockUnits),
+    cajaHighSaleClp: nonNegativeNumber(partial.cajaHighSaleClp, DEFAULT_ADMIN_ALERTS_CONFIG.cajaHighSaleClp),
   };
 }

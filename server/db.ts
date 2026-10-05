@@ -2899,6 +2899,129 @@ export async function getUnresolvedDepositPersonas(eventId: number): Promise<num
   return personas;
 }
 
+/** Historial de ventas de caja de un evento, paginado por id descendente
+ * (pedido explícito del dueño: poder buscar cualquier venta de la noche).
+ * `search` matchea n° de orden, nombre/email del cliente, nombre de
+ * producto o nombre de la cajera. Trae anuladas y aprobadas salvo que se
+ * filtre por `status`. */
+export async function getCajaSalesHistory(params: {
+  eventId: number; search?: string; paymentMethod?: string; status?: 'approved' | 'refunded'; cursor?: number; limit: number;
+}) {
+  const db = await getDb();
+  if (!db) return { sales: [], nextCursor: null as number | null };
+
+  const conditions: any[] = [
+    eq(orders.eventId, params.eventId),
+    eq(orders.channel, 'caja'),
+    params.status ? eq(orders.paymentStatus, params.status) : inArray(orders.paymentStatus, ['approved', 'refunded']),
+  ];
+  if (params.paymentMethod) conditions.push(eq(orders.paymentMethod, params.paymentMethod));
+  if (params.cursor) conditions.push(lt(orders.id, params.cursor));
+
+  const needle = params.search?.trim();
+  if (needle) {
+    const pattern = `%${escapeLikePattern(needle)}%`;
+    const productIds = (await db.select({ id: ticketTypes.id }).from(ticketTypes)
+      .where(and(eq(ticketTypes.eventId, params.eventId), like(ticketTypes.name, pattern)))).map((r: any) => r.id);
+    const orderIdsByProduct = productIds.length
+      ? (await db.select({ orderId: orderItems.orderId }).from(orderItems).innerJoin(orders, eq(orders.id, orderItems.orderId))
+          .where(and(eq(orders.eventId, params.eventId), eq(orders.channel, 'caja'), inArray(orderItems.ticketTypeId, productIds)))).map((r: any) => r.orderId)
+      : [];
+    const operatorIds = (await db.select({ id: operators.id }).from(operators).where(like(operators.name, pattern))).map((r: any) => r.id);
+    conditions.push(or(
+      like(orders.orderNumber, pattern), like(orders.buyerName, pattern), like(orders.buyerEmail, pattern),
+      ...(orderIdsByProduct.length ? [inArray(orders.id, orderIdsByProduct)] : []),
+      ...(operatorIds.length ? [inArray(orders.operatorId, operatorIds)] : []),
+    ));
+  }
+
+  const rows = await db.select().from(orders).where(and(...conditions)).orderBy(desc(orders.id)).limit(params.limit + 1);
+  const page = rows.slice(0, params.limit);
+  const nextCursor = rows.length > params.limit ? page[page.length - 1].id : null;
+  if (page.length === 0) return { sales: [], nextCursor };
+
+  const orderIds = page.map((o: any) => o.id);
+  const items = await db.select({ orderId: orderItems.orderId, quantity: orderItems.quantity, name: ticketTypes.name })
+    .from(orderItems).innerJoin(ticketTypes, eq(ticketTypes.id, orderItems.ticketTypeId))
+    .where(inArray(orderItems.orderId, orderIds));
+  const itemsByOrder = new Map<number, string[]>();
+  for (const i of items as any[]) {
+    const list = itemsByOrder.get(i.orderId) ?? [];
+    list.push(`${i.quantity}× ${i.name}`);
+    itemsByOrder.set(i.orderId, list);
+  }
+  const opIds = Array.from(new Set(page.map((o: any) => o.operatorId).filter(Boolean))) as number[];
+  const regIds = Array.from(new Set(page.map((o: any) => o.registerId).filter(Boolean))) as number[];
+  const opNames = opIds.length ? await db.select({ id: operators.id, name: operators.name }).from(operators).where(inArray(operators.id, opIds)) : [];
+  const regNames = regIds.length ? await db.select({ id: registers.id, name: registers.name }).from(registers).where(inArray(registers.id, regIds)) : [];
+  const opById = new Map<number, string>((opNames as any[]).map((r) => [r.id, r.name]));
+  const regById = new Map<number, string>((regNames as any[]).map((r) => [r.id, r.name]));
+
+  return {
+    sales: page.map((o: any) => ({
+      id: o.id as number,
+      orderNumber: o.orderNumber as string,
+      buyerName: o.buyerName as string,
+      buyerEmail: o.buyerEmail === 'caja@mansionplayroom.cl' ? null : (o.buyerEmail as string),
+      operatorName: o.operatorId ? (opById.get(o.operatorId) ?? `#${o.operatorId}`) : '—',
+      registerName: o.registerId ? (regById.get(o.registerId) ?? `Caja ${o.registerId}`) : null,
+      paymentMethod: o.paymentMethod as string | null,
+      total: Number(o.total),
+      status: o.paymentStatus as 'approved' | 'refunded',
+      createdAt: o.createdAt as Date,
+      items: itemsByOrder.get(o.id) ?? [],
+    })),
+    nextCursor,
+  };
+}
+
+/** Detalle completo de una venta de caja: productos, descuentos, quién cobró,
+ * y -- si se anuló -- quién, cuándo y por qué (del ledger `ops`). */
+export async function getCajaSaleDetail(eventId: number, orderNumber: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const [order] = await db.select().from(orders)
+    .where(and(eq(orders.orderNumber, orderNumber.trim().toUpperCase()), eq(orders.eventId, eventId), eq(orders.channel, 'caja'))).limit(1);
+  if (!order) return null;
+
+  const items = await db.select({ quantity: orderItems.quantity, unitPrice: orderItems.unitPrice, totalPrice: orderItems.totalPrice, name: ticketTypes.name })
+    .from(orderItems).innerJoin(ticketTypes, eq(ticketTypes.id, orderItems.ticketTypeId)).where(eq(orderItems.orderId, order.id));
+  const [operator] = order.operatorId ? await db.select({ name: operators.name }).from(operators).where(eq(operators.id, order.operatorId)).limit(1) : [];
+  const [register] = order.registerId ? await db.select({ name: registers.name }).from(registers).where(eq(registers.id, order.registerId)).limit(1) : [];
+
+  const saleOpId = order.paymentId?.startsWith('CAJA-') ? order.paymentId.slice(5) : null;
+  const [saleOp] = saleOpId ? await db.select().from(ops).where(eq(ops.id, saleOpId)).limit(1) : [];
+  const [voidOp] = await db.select().from(ops)
+    .where(and(eq(ops.eventId, eventId), eq(ops.type, 'void_sale'), eq(ops.targetId, order.orderNumber), eq(ops.result, 'applied'))).limit(1);
+  const [voidedBy] = voidOp ? await db.select({ name: operators.name }).from(operators).where(eq(operators.id, voidOp.operatorId)).limit(1) : [];
+  const salePayload = (saleOp?.payload ?? {}) as any;
+
+  return {
+    orderNumber: order.orderNumber as string,
+    buyerName: order.buyerName as string,
+    buyerEmail: order.buyerEmail === 'caja@mansionplayroom.cl' ? null : order.buyerEmail,
+    operatorName: operator?.name ?? '—',
+    registerName: register?.name ?? null,
+    paymentMethod: order.paymentMethod as string | null,
+    subtotal: Number(order.subtotal),
+    discount: Number(order.discount),
+    total: Number(order.total),
+    status: order.paymentStatus as string,
+    createdAt: order.createdAt as Date,
+    clientAt: saleOp?.clientAt ?? null,
+    discountCode: salePayload.discountCode ?? null,
+    stockWarnings: salePayload.stockWarnings ?? [],
+    kitchenTicketNumber: salePayload.kitchenTicketNumber ?? null,
+    lockerTag: salePayload.lockerTag ?? null,
+    items: (items as any[]).map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: Number(i.unitPrice), totalPrice: Number(i.totalPrice) })),
+    void: voidOp ? {
+      at: voidOp.serverAt as Date,
+      byOperatorName: voidedBy?.name ?? '—',
+      reason: (voidOp.payload as any)?.reason ?? '',
+    } : null,
+  };
+}
+
 /** Dashboard de caja (§10.2.5): ventas del día, top productos, últimas ventas, canjes. */
 export async function getCajaDashboard(eventId: number) {
   const db = await getDb();
@@ -4420,6 +4543,22 @@ export async function closeShift(params: {
   }
   const shiftProducts = Array.from(byShiftProduct.values()).sort((a, b) => b.revenue - a.revenue);
 
+  // Anulaciones hechas durante el turno en ESTA caja (ledger `ops`): ya no
+  // suman al esperado porque la orden quedó `refunded`, pero el informe las
+  // lista para que se vea cada reversa/devolución que debió ocurrir.
+  const voidOps = await db.select({ payload: ops.payload }).from(ops).where(and(
+    eq(ops.eventId, shift.eventId), eq(ops.type, 'void_sale'), eq(ops.result, 'applied'),
+    gte(ops.serverAt, shift.openedAt), lte(ops.serverAt, closedAt),
+    shift.registerId ? eq(ops.registerId, shift.registerId) : isNull(ops.registerId),
+  ));
+  const voids = (voidOps as { payload: any }[]).map(({ payload }) => ({
+    orderNumber: String(payload?.orderNumber ?? ''),
+    total: Number(payload?.total ?? 0),
+    paymentMethod: payload?.paymentMethod ?? null,
+    reason: String(payload?.reason ?? ''),
+    buyerName: payload?.buyerName ?? null,
+  }));
+
   await db.update(shifts).set({
     closedAt,
     closedByOperatorId: params.closedByOperatorId,
@@ -4473,6 +4612,7 @@ export async function closeShift(params: {
     topCustomers,
     topProducts,
     shiftProducts,
+    voids,
   };
 }
 
@@ -4995,6 +5135,30 @@ async function reversePrepaidForDeletedOrder(customerId: number, delta: number, 
     return;
   }
   await db.update(customers).set({ prepaidBalance: balanceAfter }).where(eq(customers.id, customerId));
+}
+
+/** Devuelve el saldo gastado en una venta de caja que se anuló
+ * (server/caja/voidSale.ts). Ledger primero, saldo después -- igual que
+ * creditPrepaid: la fila `refund` con el opId de la anulación choca contra
+ * `prepaid_ledger_op_reason_unique` si se reintenta, y ahí se corta sin
+ * volver a sumar. La suma al saldo es un UPDATE atómico, no leer-y-escribir. */
+export async function refundPrepaidForVoidedSale(params: { customerId: number; amountClp: number; voidOpId: string; note: string }) {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible');
+  if (!Number.isFinite(params.amountClp) || params.amountClp <= 0) return;
+  const [customer] = await db.select().from(customers).where(eq(customers.id, params.customerId)).limit(1);
+  if (!customer) return;
+  try {
+    await db.insert(prepaidLedger).values({
+      customerId: params.customerId, delta: params.amountClp, reason: 'refund',
+      opId: params.voidOpId, balanceAfter: customer.prepaidBalance + params.amountClp, note: params.note,
+    });
+  } catch (err: any) {
+    const isDuplicate = err?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(String(err?.message ?? ''));
+    if (!isDuplicate) throw err;
+    return;
+  }
+  await db.update(customers).set({ prepaidBalance: sql`prepaidBalance + ${params.amountClp}` }).where(eq(customers.id, params.customerId));
 }
 
 export async function getPlaycoinsBalance(email: string) {

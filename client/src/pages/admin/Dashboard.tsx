@@ -9050,6 +9050,73 @@ function urlBase64ToUint8Array(base64String: string): BufferSource {
   return array;
 }
 
+/** Vigilante de caja (server/caja/alerts.ts): interruptores, umbrales y el
+ * historial de todo lo que avisó durante el evento. */
+function CajaWatchSettings({ config, saving, onSave }: {
+  config: { pushCajaAlerts: boolean; cajaAiSummary: boolean; cajaLowStockUnits: number; cajaHighSaleClp: number } | undefined;
+  saving: boolean;
+  onSave: (patch: Partial<{ pushCajaAlerts: boolean; cajaAiSummary: boolean; cajaLowStockUnits: number; cajaHighSaleClp: number }>) => void;
+}) {
+  const { data: alerts } = trpc.cajaReports.alerts.useQuery(undefined, { refetchInterval: 60_000 });
+  const [lowStock, setLowStock] = useState('');
+  const [highSale, setHighSale] = useState('');
+  useEffect(() => {
+    if (!config) return;
+    setLowStock(String(config.cajaLowStockUnits));
+    setHighSale(String(config.cajaHighSaleClp));
+  }, [config?.cajaLowStockUnits, config?.cajaHighSaleClp]);
+
+  const saveNumber = (key: 'cajaLowStockUnits' | 'cajaHighSaleClp', raw: string) => {
+    const n = Math.round(Number(raw.replace(/\D/g, '')));
+    if (!Number.isFinite(n) || !config || n === config[key]) return;
+    onSave({ [key]: n });
+  };
+
+  return (
+    <div className="space-y-3 rounded-xl border border-border/50 p-3">
+      <Label>🧾 Vigilante de caja</Label>
+      <div className="flex items-center justify-between gap-3 py-1.5">
+        <div>
+          <p className="text-sm">Alertas de caja en vivo</p>
+          <p className="text-xs text-muted-foreground">Push por ventas anuladas, clave admin incorrecta, stock bajo/agotado, ventas o descuentos fuera de lo normal, descuadres al cerrar turno, cajas sin movimiento y turnos que quedan abiertos.</p>
+        </div>
+        <Switch checked={!!config?.pushCajaAlerts} disabled={saving || !config} onCheckedChange={(v) => onSave({ pushCajaAlerts: v })} />
+      </div>
+      <div className="flex items-center justify-between gap-3 py-1.5">
+        <div>
+          <p className="text-sm">Resumen IA de la noche</p>
+          <p className="text-xs text-muted-foreground">Cada hora durante la fiesta un resumen corto por push, y al cerrar todas las cajas un correo con el resumen y todas las alertas.</p>
+        </div>
+        <Switch checked={!!config?.cajaAiSummary} disabled={saving || !config} onCheckedChange={(v) => onSave({ cajaAiSummary: v })} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs">Avisar stock bajo con (unidades)</Label>
+          <Input inputMode="numeric" value={lowStock} onChange={(e) => setLowStock(e.target.value)} onBlur={() => saveNumber('cajaLowStockUnits', lowStock)} />
+        </div>
+        <div>
+          <Label className="text-xs">Avisar ventas desde ($)</Label>
+          <Input inputMode="numeric" value={highSale} onChange={(e) => setHighSale(e.target.value)} onBlur={() => saveNumber('cajaHighSaleClp', highSale)} />
+        </div>
+      </div>
+      {alerts && alerts.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-muted-foreground">Últimas alertas de caja</p>
+          <div className="max-h-72 overflow-y-auto space-y-1.5">
+            {alerts.map((a) => (
+              <div key={a.id} className={`text-sm p-2 rounded-lg border ${a.severity === 'critical' ? 'border-destructive/40 bg-destructive/5' : 'border-border/50'}`}>
+                <p className="font-medium">{a.title}</p>
+                <p className="text-xs text-muted-foreground whitespace-pre-line">{a.body}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">{formatChileDateTime(a.createdAt)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Push al iPad instalado + correo resumen diario. Interruptores todos
  * apagados por defecto (shared/adminAlertsConfig.ts) -- desplegar esto no
  * debe empezar a notificar solo. */
@@ -9138,7 +9205,7 @@ function AlertasCard() {
   const allOn = !!config && ALERT_TOGGLES.every((t) => config[t.key]) && config.dailyDigestEmail;
   const setAll = (value: boolean) => {
     if (!config) return;
-    saveConfig.mutate({ pushNewOrder: value, pushAmbassadorApplication: value, pushPartyReport: value, pushInstagramHandoff: value, pushWhatsAppHandoff: value, dailyDigestEmail: value });
+    saveConfig.mutate({ ...config, pushNewOrder: value, pushAmbassadorApplication: value, pushPartyReport: value, pushInstagramHandoff: value, pushWhatsAppHandoff: value, dailyDigestEmail: value });
   };
 
   return (
@@ -9219,6 +9286,8 @@ function AlertasCard() {
             </Button>
           )}
         </div>
+
+        <CajaWatchSettings config={config} saving={saveConfig.isPending} onSave={(patch) => config && saveConfig.mutate({ ...config, ...patch })} />
 
         {subscriptions && subscriptions.length > 0 && (
           <div className="space-y-2">

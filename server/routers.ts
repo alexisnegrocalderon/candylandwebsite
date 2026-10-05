@@ -70,6 +70,8 @@ import { friendlySyncErrorMessage } from "./caja/ops";
 import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKitchenProductStock, toggleKitchenProductSoldOut } from "./kitchen";
 import { listLockerItems, updateLockerItem } from "./locker";
 import { voidTicketCode } from "./caja/void";
+import { voidCajaSale } from "./caja/voidSale";
+import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftClosed, listCajaAlerts } from "./caja/alerts";
 import { BRAND } from "../shared/eventBrand";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail, buildTopupCodeEmail, buildPinChangedEmail } from "./email";
 import { currentLoginCode, verifyLoginCode, signTopupSession, verifyTopupSession, normalizeEmail } from "./topupAccess";
@@ -220,20 +222,31 @@ const adminPasswordInput = z.object({
   adminPassword: z.string().min(1, 'Ingresa tu clave de admin'),
 });
 
+/** Verifica la clave de admin (ADMIN_PASSWORD) con límite de intentos por
+ * IP. La usan las acciones destructivas del panel y, desde /caja, la
+ * anulación de ventas -- con un `keyPrefix` propio para que los intentos en
+ * la tablet no bloqueen al panel ni al revés. Devuelve `false` en vez de
+ * tirar cuando la clave es incorrecta, para que el llamador pueda avisar. */
+async function checkAdminPassword(ctx: any, password: string | undefined, keyPrefix: string): Promise<boolean> {
+  const ipKey = `${keyPrefix}:${clientIp(ctx)}`;
+  if (!(await db.checkIpRateLimit(ipKey))) {
+    throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+  }
+  const adminPassword = process.env.ADMIN_PASSWORD;
+  // `safeCompare` y no `!==`: tiempo constante, mismo criterio que ya usa
+  // el login de admin.
+  if (!adminPassword || !password || !safeCompare(password, adminPassword)) {
+    await db.recordIpFailedAttempt(ipKey);
+    return false;
+  }
+  return true;
+}
+
 const adminPasswordProcedure = adminProcedure
   .input(adminPasswordInput)
   .use(async (opts) => {
-    const ipKey = `admin-reauth:${clientIp(opts.ctx)}`;
-    if (!(await db.checkIpRateLimit(ipKey))) {
-      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
-    }
-
     const parsed = adminPasswordInput.safeParse(await opts.getRawInput());
-    const adminPassword = process.env.ADMIN_PASSWORD;
-    // `safeCompare` y no `!==`: tiempo constante, mismo criterio que ya usa
-    // el login de admin.
-    if (!adminPassword || !parsed.success || !safeCompare(parsed.data.adminPassword, adminPassword)) {
-      await db.recordIpFailedAttempt(ipKey);
+    if (!(await checkAdminPassword(opts.ctx, parsed.success ? parsed.data.adminPassword : undefined, 'admin-reauth'))) {
       throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Clave de admin incorrecta' });
     }
 
@@ -2035,6 +2048,10 @@ export const appRouter = router({
       // Opcional para no romper un panel abierto con la versión anterior.
       pushWhatsAppHandoff: z.boolean().optional(),
       dailyDigestEmail: z.boolean(),
+      pushCajaAlerts: z.boolean().optional(),
+      cajaAiSummary: z.boolean().optional(),
+      cajaLowStockUnits: z.number().int().min(0).max(10000).optional(),
+      cajaHighSaleClp: z.number().int().min(0).optional(),
     })).mutation(async ({ input }) => {
       return db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig(input) });
     }),
@@ -3509,6 +3526,9 @@ export const appRouter = router({
               discountCode: op.discountCode, lockerTag: op.lockerTag, lockerCustomerName: op.lockerCustomerName,
               kitchenTicketNumber: op.kitchenTicketNumber, customerName: op.customerName,
             });
+            if (results[op.opId].result === 'applied') {
+              await checkSaleAlerts({ eventId: input.eventId, opId: op.opId, operatorName: ctx.operator.name });
+            }
           }
         } catch (err) {
           results[op.opId] = { result: 'rejected', conflictNote: friendlySyncErrorMessage(err, op.opId) };
@@ -3624,6 +3644,8 @@ export const appRouter = router({
         console.error('[shiftClose] Error al enviar el correo de cierre:', err);
       }
 
+      await alertShiftClosed(input.eventId, report);
+
       return { ...report, emailSent };
     }),
 
@@ -3665,6 +3687,57 @@ export const appRouter = router({
         opId: input.opId, eventId: input.eventId, operatorId: ctx.operator.operatorId,
         conflictOpId: input.conflictOpId, note: input.note, clientAt: new Date(input.clientAt),
       });
+    }),
+    // Historial completo de ventas de la noche (pedido explícito del dueño):
+    // con scroll, buscable por cliente/orden/email/producto/cajera, para
+    // ubicar rápido cualquier venta ante un reclamo o un error de cobro.
+    // Incluye las anuladas (marcadas), nunca las esconde.
+    salesHistory: operatorProcedure.input(z.object({
+      eventId: z.number(),
+      search: z.string().max(100).optional(),
+      paymentMethod: z.enum(['efectivo', 'debito', 'credito', 'qr', 'saldo']).optional(),
+      status: z.enum(['approved', 'refunded']).optional(),
+      cursor: z.number().optional(), // id de la última venta de la página anterior
+      limit: z.number().min(1).max(100).default(30),
+    })).query(async ({ input }) => {
+      return db.getCajaSalesHistory(input);
+    }),
+    saleDetail: operatorProcedure.input(z.object({ eventId: z.number(), orderNumber: z.string().min(1) })).query(async ({ input }) => {
+      const detail = await db.getCajaSaleDetail(input.eventId, input.orderNumber);
+      if (!detail) throw new TRPCError({ code: 'NOT_FOUND', message: 'Venta no encontrada' });
+      return detail;
+    }),
+    // Anular una venta completa -- SOLO con la clave de admin del dueño
+    // (ADMIN_PASSWORD), la sepa o no la persona logueada en la caja. El
+    // límite de intentos es por IP y con clave propia (no bloquea el panel).
+    // Cada intento con clave mala y cada anulación avisan al dueño por push.
+    voidSale: operatorProcedure.input(z.object({
+      opId: z.string(),
+      eventId: z.number(),
+      orderNumber: z.string().min(1),
+      reason: z.string().trim().min(5, 'Escribe el motivo de la anulación (mínimo 5 letras)').max(300),
+      adminPassword: z.string().min(1, 'Ingresa la clave de admin'),
+      registerId: z.number().optional(),
+      clientAt: z.string(),
+    })).mutation(async ({ input, ctx }) => {
+      const rawDb = await db.getDb();
+      if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
+      if (!(await checkAdminPassword(ctx, input.adminPassword, 'caja-void'))) {
+        await alertWrongAdminPassword({ eventId: input.eventId, operatorName: ctx.operator.name, orderNumber: input.orderNumber });
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Clave de admin incorrecta' });
+      }
+      const res = await voidCajaSale(rawDb, {
+        opId: input.opId, orderNumber: input.orderNumber, eventId: input.eventId,
+        operatorId: ctx.operator.operatorId, registerId: input.registerId,
+        reason: input.reason, ip: clientIp(ctx), clientAt: new Date(input.clientAt),
+      });
+      if (res.result === 'applied' && res.order) {
+        await alertSaleVoided({
+          eventId: input.eventId, orderNumber: res.order.orderNumber, total: res.order.total,
+          paymentMethod: res.order.paymentMethod, buyerName: res.order.buyerName, reason: input.reason, operatorName: ctx.operator.name,
+        });
+      }
+      return res;
     }),
     redeem: operatorProcedure.input(z.object({
       opId: z.string(),
@@ -3732,7 +3805,7 @@ export const appRouter = router({
       const rawDb = await db.getDb();
       if (!rawDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Base de datos no disponible' });
       try {
-        return await createCajaSale(rawDb, {
+        const saleResult = await createCajaSale(rawDb, {
           opId: input.opId,
           eventId: input.eventId,
           operatorId: ctx.operator.operatorId,
@@ -3749,6 +3822,10 @@ export const appRouter = router({
           customerName: input.customerName,
           clientAt: new Date(input.clientAt),
         });
+        if (saleResult.result === 'applied') {
+          await checkSaleAlerts({ eventId: input.eventId, opId: input.opId, operatorName: ctx.operator.name });
+        }
+        return saleResult;
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo registrar la venta' });
       }
@@ -4296,6 +4373,20 @@ export const appRouter = router({
 
   // Reportes y auditoría de /caja desde /admin (docs/ARQUITECTURA-CAJA.md §11, Fase 4).
   cajaReports: router({
+    // Historial del vigilante de caja (server/caja/alerts.ts).
+    alerts: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
+      return listCajaAlerts(input?.eventId);
+    }),
+    salesHistory: adminReadProcedure.input(z.object({
+      eventId: z.number(),
+      search: z.string().max(100).optional(),
+      paymentMethod: z.enum(['efectivo', 'debito', 'credito', 'qr', 'saldo']).optional(),
+      status: z.enum(['approved', 'refunded']).optional(),
+      cursor: z.number().optional(),
+      limit: z.number().min(1).max(100).default(30),
+    })).query(async ({ input }) => {
+      return db.getCajaSalesHistory(input);
+    }),
     profit: adminReadProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
       return db.getProfitReport(input.eventId);
     }),

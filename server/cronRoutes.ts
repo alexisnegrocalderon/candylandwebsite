@@ -9,6 +9,7 @@ import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { runFoundersPromoDaily } from "./foundersPromo";
 import { runTanda2PromoDaily } from "./tanda2Promo";
 import { runAdminDigest } from "./adminDigest";
+import { runCajaWatch } from "./caja/alerts";
 import { refreshInstagramToken } from "./instagramSend";
 import { runInstagramFollowUps } from "./instagramFollowUp";
 import { runWhatsAppFollowUps } from "./whatsappFollowUp";
@@ -244,6 +245,21 @@ export function registerCronRoutes(app: Express) {
    * del cron de check-in de las 3am, éste corre siempre (no depende de que
    * haya evento hoy): las novedades de ventas/leads/postulaciones ocurren
    * todos los días, con o sin fiesta. */
+  /* Vigilante de caja (server/caja/alerts.ts): cada 5 minutos revisa cajas
+   * sin movimiento, anulaciones repetidas, canjes dobles y turnos que
+   * quedaron abiertos, más el resumen IA horario y el correo de cierre. Fuera
+   * del horario de fiesta de algún evento no hace nada. Interruptores en
+   * Ajustes → Alertas (pushCajaAlerts / cajaAiSummary), apagados por defecto. */
+  app.get("/api/cron/caja-watch", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      res.json(await runCajaWatch());
+    } catch (err) {
+      console.error('[Cron] Error en el vigilante de caja:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
   app.get("/api/cron/admin-digest", async (req: Request, res: Response) => {
     if (!requireCronSecret(req, res)) return;
     try {
