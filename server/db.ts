@@ -6561,6 +6561,12 @@ export async function touchAdminWebauthnCredential(id: number, counter: number) 
   await db.update(adminWebauthnCredentials).set({ counter, lastUsedAt: new Date() }).where(eq(adminWebauthnCredentials.id, id));
 }
 
+export async function deleteAllAdminWebauthnCredentials() {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(adminWebauthnCredentials);
+}
+
 export async function deleteAdminWebauthnCredential(id: number) {
   const db = await getDb();
   if (!db) return;

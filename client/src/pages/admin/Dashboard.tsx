@@ -3,6 +3,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { startRegistration } from '@simplewebauthn/browser';
+import { signalAcceptedCredentials } from '@/lib/passkeySignals';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { NOT_ADMIN_ERR_MSG } from '@shared/const';
 import { canOpenAdmin, useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
@@ -8733,7 +8734,16 @@ function DeleteShiftClosingButton({ shiftId, label, onDeleted }: { shiftId: numb
  * acá y no en AdminLoginForm. */
 function WebauthnSecurityCard() {
   const { data: credentials, refetch } = trpc.auth.webauthnCredentialsList.useQuery();
+  const { data: userInfo } = trpc.auth.webauthnUserInfo.useQuery();
   const [registering, setRegistering] = useState(false);
+
+  // Le dice al llavero del teléfono cuáles llaves siguen vigentes, para que
+  // quite solo las viejas (mejor esfuerzo: ignorado si el navegador no soporta
+  // la Signal API). Corre al abrir la tarjeta y cada vez que cambia la lista.
+  useEffect(() => {
+    if (!credentials || !userInfo) return;
+    signalAcceptedCredentials({ ...userInfo, credentialIds: credentials.map((c) => c.credentialId) });
+  }, [credentials, userInfo]);
   const [addingDevice, setAddingDevice] = useState(false);
   const [deviceLabel, setDeviceLabel] = useState('');
 
@@ -8744,6 +8754,10 @@ function WebauthnSecurityCard() {
   });
   const deleteCredential = trpc.auth.webauthnCredentialDelete.useMutation({
     onSuccess: () => { refetch(); toast.success('Dispositivo eliminado'); },
+    onError: onMutationError,
+  });
+  const deleteAllCredentials = trpc.auth.webauthnCredentialDeleteAll.useMutation({
+    onSuccess: () => { refetch(); toast.success('Listo: sin dispositivos registrados. Registra de nuevo este iPhone/iPad.'); },
     onError: onMutationError,
   });
 
@@ -8782,6 +8796,11 @@ function WebauthnSecurityCard() {
           la contraseña ni el código de la app de autenticación. Es un camino adicional -- el login
           de siempre sigue funcionando igual.
         </p>
+        <p className="text-muted-foreground text-xs">
+          Registra cada dispositivo UNA sola vez. Si el llavero del teléfono muestra llaves viejas
+          &quot;admin&quot;, toca &quot;Borrar todos y empezar de cero&quot; y registra de nuevo; el teléfono las
+          quita solo, o bórralas a mano en Ajustes del iPhone → Contraseñas → mansionplayroom.cl.
+        </p>
         {credentials && credentials.length > 0 && (
           <div className="space-y-2">
             {credentials.map((c) => (
@@ -8805,6 +8824,17 @@ function WebauthnSecurityCard() {
               </div>
             ))}
           </div>
+        )}
+        {credentials && credentials.length > 0 && !addingDevice && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={deleteAllCredentials.isPending}
+            onClick={() => { if (window.confirm('¿Borrar TODOS los dispositivos registrados? Después tendrás que registrar de nuevo cada iPhone/iPad.')) deleteAllCredentials.mutate(); }}
+            className="interactive text-destructive"
+          >
+            Borrar todos y empezar de cero
+          </Button>
         )}
         {addingDevice ? (
           <div className="flex flex-col sm:flex-row gap-2">
