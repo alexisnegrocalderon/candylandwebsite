@@ -1351,20 +1351,33 @@ function DiscountsManager() {
     code: '', description: '', discountType: 'percentage' as 'percentage' | 'fixed', discountValue: 0, maxUses: 0, validUntil: '',
   });
   const [showForm, setShowForm] = useState(false);
+  // Evento y producto de regalo opcionales ('' = sin evento / sin regalo).
+  const [newEventId, setNewEventId] = useState('');
+  const [newGiftId, setNewGiftId] = useState('');
+  const { data: formTicketTypes } = trpc.events.listTicketTypes.useQuery(
+    { eventId: Number(newEventId) },
+    { enabled: !!newEventId },
+  );
+  const giftOptions = ((formTicketTypes as any[]) ?? []).filter((t) => t.status === 'active' && t.category !== 'acceso');
 
   const discounts = discountsData ?? [];
 
   // Evento al que corresponde el código: el suyo si tiene uno; si vale para
   // cualquier evento, el destacado (o el primero publicado) para que el mensaje
   // nunca quede sin evento.
-  const eventTitleFor = (d: any): string => {
+  const eventFor = (d: any): any => {
     const events: any[] = (eventsData as any[]) ?? [];
-    if (d.eventId) return events.find((e) => e.id === d.eventId)?.title ?? 'Candyland';
+    if (d.eventId) return events.find((e) => e.id === d.eventId);
     const live = events.filter((e) => e.status === 'published');
-    return (live.find((e) => e.featured) ?? live[0])?.title ?? 'Candyland';
+    return live.find((e) => e.featured) ?? live[0];
   };
-  const shareText = (d: any) =>
-    `Usa tu código ${d.code} para comprar tu entrada a ${eventTitleFor(d)} en Mansion Playroom 🍭 ${window.location.origin}`;
+  const eventTitleFor = (d: any): string => eventFor(d)?.title ?? 'Candyland';
+  // Link directo al evento con el código puesto: se aplica solo al entrar.
+  const shareText = (d: any) => {
+    const ev = eventFor(d);
+    const link = ev?.slug ? `${window.location.origin}/eventos/${ev.slug}?code=${encodeURIComponent(d.code)}` : window.location.origin;
+    return `Usa tu código ${d.code} para comprar tu entrada a ${eventTitleFor(d)} en Mansion Playroom 🍭 ${link}`;
+  };
   const copyShareText = async (d: any) => {
     try {
       await navigator.clipboard.writeText(shareText(d));
@@ -1375,14 +1388,18 @@ function DiscountsManager() {
   };
 
   const handleCreate = async () => {
-    if (!newDiscount.code || !newDiscount.discountValue) return;
+    if (!newDiscount.code || (!newGiftId && !newDiscount.discountValue)) return;
     try {
       await createDiscount.mutateAsync({
         ...newDiscount,
+        eventId: newEventId ? Number(newEventId) : undefined,
+        giftTicketTypeId: newGiftId ? Number(newGiftId) : undefined,
         maxUses: newDiscount.maxUses || undefined,
         validUntil: newDiscount.validUntil ? fromChileInputValue(newDiscount.validUntil) : undefined,
       });
       setNewDiscount({ code: '', description: '', discountType: 'percentage', discountValue: 0, maxUses: 0, validUntil: '' });
+      setNewEventId('');
+      setNewGiftId('');
       setShowForm(false);
     } catch {
       // el toast de error ya lo muestra onMutationError; dejamos el formulario abierto para reintentar
@@ -1411,7 +1428,32 @@ function DiscountsManager() {
                   </SelectContent>
                 </Select>
               </div>
-              <div><Label>Valor</Label><Input type="number" value={newDiscount.discountValue} onChange={(e) => setNewDiscount({ ...newDiscount, discountValue: Number(e.target.value) })} className="mt-1" /></div>
+              <div><Label>Valor</Label><Input type="number" value={newDiscount.discountValue} disabled={!!newGiftId} onChange={(e) => setNewDiscount({ ...newDiscount, discountValue: Number(e.target.value) })} className="mt-1" /></div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Evento (opcional)</Label>
+                <Select value={newEventId || 'none'} onValueChange={(v) => { setNewEventId(v === 'none' ? '' : v); setNewGiftId(''); }}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Todos los eventos</SelectItem>
+                    {((eventsData as any[]) ?? []).filter((e) => e.status !== 'past' && e.status !== 'cancelled').map((e) => (
+                      <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Producto de regalo (opcional)</Label>
+                <Select value={newGiftId || 'none'} onValueChange={(v) => setNewGiftId(v === 'none' ? '' : v)} disabled={!newEventId}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin regalo</SelectItem>
+                    {giftOptions.map((t) => (<SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>))}
+                  </SelectContent>
+                </Select>
+                {!newEventId && <p className="text-xs text-muted-foreground mt-1">Elige un evento para regalar un producto.</p>}
+              </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div><Label>Usos máximos</Label><Input type="number" value={newDiscount.maxUses} onChange={(e) => setNewDiscount({ ...newDiscount, maxUses: Number(e.target.value) })} className="mt-1" /></div>
