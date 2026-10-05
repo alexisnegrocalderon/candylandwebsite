@@ -107,7 +107,10 @@ export async function sendPushToEventGuests(eventId: number, payload: PushPayloa
 /** Manda `payload` a TODOS los dispositivos suscritos, solo si `alertKey`
  * está prendido en la config guardada. Nunca lanza -- un fallo de push no
  * puede tumbar el flujo real (aprobar una orden, crear una postulación). */
-export async function sendPushToAdmins(alertKey: keyof AdminAlertsConfig, payload: PushPayload): Promise<void> {
+/** Solo los interruptores (no los umbrales numéricos de la config). */
+type AdminAlertToggle = { [K in keyof AdminAlertsConfig]: AdminAlertsConfig[K] extends boolean ? K : never }[keyof AdminAlertsConfig];
+
+export async function sendPushToAdmins(alertKey: AdminAlertToggle, payload: PushPayload): Promise<void> {
   try {
     if (!ensureConfigured()) return;
     const settings = await getSiteSettings();

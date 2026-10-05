@@ -29,6 +29,10 @@ export type ShiftCloseReport = {
   salesCount: number;
   redeemsCount: number;
   shiftProducts: { name: string; quantity: number; revenue: number }[];
+  /** Ventas anuladas con clave admin durante el turno -- ya NO suman al
+   * esperado; se listan para que la cajera sepa qué reversas debe tener en
+   * la máquina o qué efectivo devolvió. */
+  voids?: { orderNumber: string; total: number; paymentMethod: string | null; reason: string; buyerName: string | null }[];
 };
 
 type PaymentRow = { label: string; counted: number; expected: number; diff: number };
@@ -126,6 +130,21 @@ export function buildShiftClosePdf(report: ShiftCloseReport): Promise<Buffer> {
         doc,
         [{ label: "Producto", width: 280 }, { label: "Unidades", width: 100 }, { label: "Ingresos", width: 110 }],
         report.shiftProducts.map((p) => [p.name, String(p.quantity), money(p.revenue)]),
+        doc.y,
+      );
+    }
+
+    const voids = report.voids ?? [];
+    if (voids.length > 0) {
+      doc.y = doc.y + 20;
+      const voidedTotal = voids.reduce((sum, v) => sum + v.total, 0);
+      doc.fontSize(13).fillColor(RED).text(`Ventas anuladas (${voids.length} · ${money(voidedTotal)})`);
+      doc.fontSize(9).fillColor(MUTED).text("No suman al esperado. Cada una debe tener su reversa en la máquina o la devolución en efectivo.");
+      doc.moveDown(0.5);
+      drawTable(
+        doc,
+        [{ label: "Orden", width: 110 }, { label: "Cliente", width: 110 }, { label: "Método", width: 70 }, { label: "Monto", width: 80 }, { label: "Motivo", width: 145 }],
+        voids.map((v) => [v.orderNumber, v.buyerName ?? "—", v.paymentMethod ?? "—", money(v.total), v.reason]),
         doc.y,
       );
     }

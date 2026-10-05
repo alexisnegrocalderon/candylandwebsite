@@ -1,5 +1,5 @@
-import { eq, sql, inArray, and } from "drizzle-orm";
-import { orders, orderItems, ticketTypes, discountCodes, lockerItems, kitchenTickets } from "../../drizzle/schema";
+import { eq, sql, inArray, and, ne, desc } from "drizzle-orm";
+import { orders, orderItems, ticketTypes, discountCodes, lockerItems, kitchenTickets, customers } from "../../drizzle/schema";
 import { applyOp } from "./ops";
 import { awardPlaycoins, redeemPlaycoinsAuthoritative, validateDiscountCode, verifyCardPin, spendPrepaidAuthoritative } from "../db";
 import { isTopupProduct } from "../../shared/prepaid";
@@ -13,6 +13,41 @@ import { isTopupProduct } from "../../shared/prepaid";
  * ventas web, ver processApprovedOrder en webhooks.ts). Se reutiliza
  * `orders`/`orderItems` en vez de una tabla `sales` aparte para que el
  * reporting/CSV/stats del admin ya existentes la vean sola. */
+/** Placeholder histórico: antes TODAS las ventas de caja se guardaban con
+ * este nombre, y la lista de ventas recientes no servía para encontrar nada. */
+export const CAJA_FALLBACK_BUYER_NAME = "Venta en caja";
+
+/** Nombre a guardar en `orders.buyerName` para una venta de caja (pedido
+ * explícito del dueño: poder ubicar una venta por la persona). Prioridad: el
+ * nombre registrado del cliente asociado por email/Playcoins → el nombre que
+ * la cajera pidió para cocina → el de guardarropía → el placeholder. */
+export function resolveCajaBuyerName(names: { knownName?: string | null; customerName?: string | null; lockerCustomerName?: string | null }): string {
+  for (const candidate of [names.knownName, names.customerName, names.lockerCustomerName]) {
+    const trimmed = candidate?.trim();
+    if (trimmed && trimmed !== CAJA_FALLBACK_BUYER_NAME) return trimmed.slice(0, 255);
+  }
+  return CAJA_FALLBACK_BUYER_NAME;
+}
+
+/** Nombre conocido de un comprador por su email: primero la ficha de
+ * `customers`, si no la última compra aprobada con un nombre real. Nunca
+ * tira -- un nombre faltante no puede frenar un cobro. */
+async function lookupKnownBuyerName(db: any, email: string | undefined): Promise<string | null> {
+  const normalized = email?.trim().toLowerCase();
+  if (!normalized) return null;
+  try {
+    const [customer] = await db.select({ fullName: customers.fullName }).from(customers).where(eq(customers.email, normalized)).limit(1);
+    if (customer?.fullName?.trim()) return customer.fullName.trim();
+    const [order] = await db.select({ buyerName: orders.buyerName }).from(orders)
+      .where(and(eq(orders.buyerEmail, normalized), eq(orders.paymentStatus, "approved"), ne(orders.buyerName, CAJA_FALLBACK_BUYER_NAME)))
+      .orderBy(desc(orders.createdAt)).limit(1);
+    return order?.buyerName?.trim() || null;
+  } catch (err) {
+    console.error("[caja.sale] No se pudo resolver el nombre del comprador:", err);
+    return null;
+  }
+}
+
 export async function createCajaSale(
   db: any,
   params: {
@@ -225,10 +260,15 @@ export async function createCajaSale(
       }
 
       const finalTotal = totalAfterDiscount - redeemedAmount;
+      const buyerName = resolveCajaBuyerName({
+        knownName: await lookupKnownBuyerName(db, params.buyerEmail),
+        customerName: params.customerName,
+        lockerCustomerName: params.lockerCustomerName,
+      });
       const orderNumber = `CAJA-${Date.now().toString(36).toUpperCase()}`;
       const [orderResult] = await db.insert(orders).values({
         orderNumber,
-        buyerName: "Venta en caja",
+        buyerName,
         buyerEmail: params.buyerEmail?.trim().toLowerCase() || "caja@mansionplayroom.cl",
         eventId: params.eventId,
         subtotal: String(total),

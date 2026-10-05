@@ -1,7 +1,7 @@
 import '@/admin.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Camera, X, ShoppingCart, Search, LayoutDashboard, AlertTriangle, LogOut } from 'lucide-react';
+import { Camera, X, ShoppingCart, Search, LayoutDashboard, AlertTriangle, LogOut, Receipt } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import {
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { formatChileDateTime } from '@shared/chileDate';
 import { getFavoriteIds, toggleFavorite } from './favorites';
+import { SalesHistory } from './SalesHistory';
 
 /* Módulo /caja (docs/ARQUITECTURA-CAJA.md Fase 3) -- offline-first: la
  * búsqueda, la ficha y el catálogo se leen siempre de IndexedDB (Dexie), no
@@ -31,7 +32,7 @@ function newOpId() {
   return crypto.randomUUID();
 }
 
-type View = 'menu' | 'sheet' | 'sale' | 'dashboard' | 'conflicts';
+type View = 'menu' | 'sheet' | 'sale' | 'history' | 'dashboard' | 'conflicts';
 
 export default function CajaApp() {
   // Fuera del indice de Google: robots.txt solo lo pide, noindex lo asegura.
@@ -883,6 +884,12 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
           />
         )}
 
+        {view === 'history' && (
+          <div className="max-w-4xl mx-auto h-full">
+            <SalesHistory eventId={localEvent.id} registerId={registerId} isOnline={isOnline} />
+          </div>
+        )}
+
         {view === 'dashboard' && (
           <div className="max-w-lg mx-auto">
             <CajaDashboard eventId={localEvent.id} />
@@ -937,6 +944,7 @@ function CajaSidebar({ view, setView, setSelectedOrderId, isSupervisor, onCerrar
   const items: { view: View; label: string; icon: typeof ShoppingCart }[] = [
     { view: 'sale', label: 'Nueva venta', icon: ShoppingCart },
     { view: 'menu', label: 'Buscar', icon: Search },
+    { view: 'history', label: 'Ventas', icon: Receipt },
     { view: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     ...(isSupervisor ? [{ view: 'conflicts' as View, label: 'Conflictos', icon: AlertTriangle }] : []),
   ];
@@ -1089,13 +1097,6 @@ const CATEGORY_META: Record<string, { label: string; emoji: string; color: strin
   extra: { label: 'Extras', emoji: '🎫', color: '#34d399' },
 };
 
-const PAYMENT_METHOD_META: Record<'efectivo' | 'debito' | 'credito' | 'qr', { label: string; badgeClass: string }> = {
-  efectivo: { label: 'Efectivo', badgeClass: 'bg-emerald-500/15 text-emerald-300' },
-  debito: { label: 'Débito', badgeClass: 'bg-sky-500/15 text-sky-300' },
-  credito: { label: 'Crédito', badgeClass: 'bg-sky-500/15 text-sky-300' },
-  qr: { label: 'QR', badgeClass: 'bg-violet-500/15 text-violet-300' },
-};
-
 function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   eventId: number;
   registerId: number | null;
@@ -1204,10 +1205,6 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   const [customerSearchResults, setCustomerSearchResults] = useState<CajaAttendee[]>([]);
   const utils = trpc.useUtils();
 
-  // "Ventas recientes" de la tabla de abajo -- mismo endpoint que ya usa el
-  // Dashboard de caja (react-query lo cachea por `eventId`, así que no es
-  // una llamada nueva al servidor si ya se pidió antes en este turno).
-  const { data: dashboardData } = trpc.caja.dashboard.useQuery({ eventId });
 
   useEffect(() => {
     if (!customerSearch.trim()) { setCustomerSearchResults([]); return; }
@@ -1554,39 +1551,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
               )}
             </div>
 
-            {/* Ventas recientes de la noche -- mismos datos que el Dashboard, para confirmar rápido sin salir de la venta. Alto acotado con scroll propio: nunca empuja el resto de la pantalla ni queda cortada. */}
-            {dashboardData && dashboardData.recentSales.length > 0 && (
-              <div className="shrink-0 max-h-56 flex flex-col bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden">
-                <p className="shrink-0 px-4 pt-3 pb-2 text-xs uppercase tracking-wide text-white/50">Ventas recientes</p>
-                <div className="overflow-auto overscroll-contain">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-white/40 text-xs">
-                        <th className="px-4 py-1.5 font-medium">Cliente</th>
-                        <th className="px-4 py-1.5 font-medium">N° orden</th>
-                        <th className="px-4 py-1.5 font-medium">Método</th>
-                        <th className="px-4 py-1.5 font-medium text-right">Monto</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {dashboardData.recentSales.map((s: any, i: number) => {
-                        const pm = PAYMENT_METHOD_META[s.paymentMethod as keyof typeof PAYMENT_METHOD_META];
-                        return (
-                          <tr key={i} className="border-t border-white/5">
-                            <td className="px-4 py-2 truncate max-w-[160px]">{s.buyerName || '—'}</td>
-                            <td className="px-4 py-2 font-mono text-white/60">{s.orderNumber}</td>
-                            <td className="px-4 py-2">
-                              <span className={`text-xs px-2 py-0.5 rounded-full ${pm?.badgeClass ?? 'bg-white/10 text-white/60'}`}>{pm?.label ?? s.paymentMethod}</span>
-                            </td>
-                            <td className="px-4 py-2 text-right font-semibold">${s.total.toLocaleString('es-CL')}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            {/* Ventas de la noche (pedido explícito del dueño): con nombre del cliente, quién cobró, buscador y scroll propio; tocar una fila abre el detalle y la anulación con clave admin. Alto acotado: nunca empuja el resto de la pantalla. */}
+            <SalesHistory compact eventId={eventId} registerId={registerId} isOnline={isOnline} />
           </div>
 
           {/* Panel de carrito persistente al costado -- antes era una barra pegada abajo, ahora siempre visible mientras se arma la venta. */}

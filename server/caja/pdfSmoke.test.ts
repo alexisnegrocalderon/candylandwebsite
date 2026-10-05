@@ -134,3 +134,20 @@ describe("PDF de ventas", () => {
     expect(esPdf(pdf)).toBe(true);
   });
 });
+
+describe("buildShiftClosePdf con anulaciones", async () => {
+  const { buildShiftClosePdf } = await import("./shiftReportPdf");
+  it("genera el PDF listando las ventas anuladas del turno", async () => {
+    const pdf = await buildShiftClosePdf({
+      eventTitle: "Test", registerName: "Caja 1", operatorName: "Ana",
+      openedAt: new Date(), closedAt: new Date(), openingCash: 50000,
+      countedCash: 60000, countedDebit: 0, countedCredit: 0, countedQr: 0,
+      expectedCash: 10000, expectedDebit: 0, expectedCredit: 0, expectedQr: 0,
+      cashDiff: 0, debitDiff: 0, creditDiff: 0, qrDiff: 0,
+      salesCount: 2, redeemsCount: 0,
+      shiftProducts: [{ name: "Piscola", quantity: 2, revenue: 10000 }],
+      voids: [{ orderNumber: "CAJA-XYZ", total: 4000, paymentMethod: "debito", reason: "Cobro duplicado", buyerName: "Camila" }],
+    });
+    expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
+  });
+});

@@ -17,7 +17,7 @@ vi.mock("../db", () => ({
   spendPrepaidAuthoritative: (...args: [{ customerId: number; amountClp: number; reason: string; opId: string }]) => spendPrepaidAuthoritative(...args),
 }));
 
-const { createCajaSale } = await import("./sale");
+const { createCajaSale, resolveCajaBuyerName } = await import("./sale");
 
 /* Doble de la cadena de drizzle. El orden de consultas de `createCajaSale`
  * es fijo: tipos de producto -> ledger de ops -> [si hay percha: lockerItems]
@@ -46,6 +46,7 @@ function makeFakeDb(state: {
       let table: unknown;
       const builder: any = {
         from: (t: unknown) => { table = t; return builder; },
+        orderBy: () => builder,
         where: () => {
           // La consulta de productos no lleva .limit(), así que el await cae
           // directo sobre el builder: se resuelve como thenable.
@@ -398,5 +399,19 @@ describe("createCajaSale", () => {
       expect(spendPrepaidAuthoritative).not.toHaveBeenCalled();
       expect(calls.order).toBeNull();
     });
+  });
+});
+
+describe("resolveCajaBuyerName", () => {
+  it("prefiere el nombre registrado del cliente asociado", () => {
+    expect(resolveCajaBuyerName({ knownName: "Camila Rojas", customerName: "Cami", lockerCustomerName: "C" })).toBe("Camila Rojas");
+  });
+  it("usa el nombre de cocina y luego el de guardarropía", () => {
+    expect(resolveCajaBuyerName({ knownName: null, customerName: " Pedro ", lockerCustomerName: "Juan" })).toBe("Pedro");
+    expect(resolveCajaBuyerName({ lockerCustomerName: "Juan" })).toBe("Juan");
+  });
+  it("cae al placeholder solo si no hay ningún nombre", () => {
+    expect(resolveCajaBuyerName({ knownName: "  ", customerName: "" })).toBe("Venta en caja");
+    expect(resolveCajaBuyerName({ knownName: "Venta en caja" })).toBe("Venta en caja");
   });
 });

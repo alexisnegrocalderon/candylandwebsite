@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { getDb } from "./db";
 import { lockerItems } from "../drizzle/schema";
 import { applyOp } from "./caja/ops";
@@ -12,7 +12,9 @@ import { canTransitionLockerItem, type LockerItemStatus } from "../shared/locker
 export async function listLockerItems(eventId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(lockerItems).where(eq(lockerItems.eventId, eventId));
+  // Las perchas de ventas anuladas (server/caja/voidSale.ts) no se muestran:
+  // esa prenda nunca debería estar en el mostrador.
+  return db.select().from(lockerItems).where(and(eq(lockerItems.eventId, eventId), ne(lockerItems.status, "anulado")));
 }
 
 /** Cambia el estado de una prenda (Recibido / Entregado). Se busca por
