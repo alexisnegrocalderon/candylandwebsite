@@ -112,7 +112,7 @@ import { answerSalesQuestion } from "./adminQa";
 import { parseCsv, extractEmailColumn } from "./csv";
 import QRCode from "qrcode";
 import { consumeBackupCode, createTotpSecret, generateBackupCodes, parseBackupCodes, safeCompare, totpUri, verifyTotp } from "./adminSecurity";
-import { buildAuthenticationOptions, buildRegistrationOptions, getRpIdAndOrigin, verifyAuthentication, verifyRegistration } from "./webauthn";
+import { ADMIN_WEBAUTHN_USER_ID_B64URL, ADMIN_WEBAUTHN_USER_NAME, ADMIN_WEBAUTHN_USER_DISPLAY_NAME, buildAuthenticationOptions, buildRegistrationOptions, getRpIdAndOrigin, verifyAuthentication, verifyRegistration } from "./webauthn";
 
 const SHIFT_CLOSE_REPORT_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 const APPLICATIONS_EMAIL = ADMIN_NOTIFICATION_EMAIL;
@@ -703,26 +703,41 @@ export const appRouter = router({
       }
       const challenge = await requireWebauthnTicket('auth', input.ticket);
 
-      const credentialRow = await db.getAdminWebauthnCredentialById(input.response?.id);
+      const credentialId: string | undefined = typeof input.response?.id === 'string' ? input.response.id : undefined;
+      const credentialRow = credentialId ? await db.getAdminWebauthnCredentialById(credentialId) : null;
+      const { rpID, origin } = getRpIdAndOrigin(ctx.req);
       if (!credentialRow) {
-        await db.recordIpFailedAttempt(ipKey);
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Dispositivo no reconocido.' });
+        // No cuenta como intento fallido: con el Face ID automático, una llave
+        // vieja del llavero no debe dejar al dueño sin poder usar la contraseña.
+        console.warn('[webauthn] login fallido: llave no registrada', { credentialId: credentialId?.slice(0, 12), origin, rpID });
+        // `UNKNOWN_CREDENTIAL:<id>` le permite al cliente avisarle al
+        // llavero que esa llave ya no sirve (Signal API) y que iOS la quite.
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: `UNKNOWN_CREDENTIAL:${credentialId ?? ''}` });
       }
 
-      const { rpID, origin } = getRpIdAndOrigin(ctx.req);
-      const verification = await verifyAuthentication({
-        response: input.response,
-        expectedChallenge: challenge,
-        expectedOrigin: origin,
-        expectedRPID: rpID,
-        credential: {
-          id: credentialRow.credentialId,
-          publicKey: new Uint8Array(Buffer.from(credentialRow.publicKey, 'base64url')),
-          counter: credentialRow.counter,
-          transports: (credentialRow.transports as any) ?? undefined,
-        },
-      });
+      let verification;
+      try {
+        verification = await verifyAuthentication({
+          response: input.response,
+          expectedChallenge: challenge,
+          expectedOrigin: origin,
+          expectedRPID: rpID,
+          credential: {
+            id: credentialRow.credentialId,
+            publicKey: new Uint8Array(Buffer.from(credentialRow.publicKey, 'base64url')),
+            counter: credentialRow.counter,
+            transports: (credentialRow.transports as any) ?? undefined,
+          },
+        });
+      } catch (err) {
+        console.warn('[webauthn] login fallido: verificación rechazada', {
+          credentialId: credentialId?.slice(0, 12), origin, rpID, reason: err instanceof Error ? err.message : String(err),
+        });
+        await db.recordIpFailedAttempt(ipKey);
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No se pudo verificar tu identidad. Intenta de nuevo o entra con contraseña.' });
+      }
       if (!verification.verified) {
+        console.warn('[webauthn] login fallido: firma no verificada', { credentialId: credentialId?.slice(0, 12), origin, rpID });
         await db.recordIpFailedAttempt(ipKey);
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No se pudo verificar tu identidad.' });
       }
@@ -735,7 +750,16 @@ export const appRouter = router({
 
     webauthnCredentialsList: adminProcedure.query(async () => {
       const rows = await db.getAdminWebauthnCredentials();
-      return rows.map((r) => ({ id: r.id, deviceLabel: r.deviceLabel, createdAt: r.createdAt, lastUsedAt: r.lastUsedAt }));
+      return rows.map((r) => ({ id: r.id, credentialId: r.credentialId, deviceLabel: r.deviceLabel, createdAt: r.createdAt, lastUsedAt: r.lastUsedAt }));
+    }),
+    // Identidad que el llavero usa para agrupar las llaves del dueño: el
+    // cliente la necesita para la Signal API (no es un secreto).
+    webauthnUserInfo: adminProcedure.query(() => ({
+      userId: ADMIN_WEBAUTHN_USER_ID_B64URL, name: ADMIN_WEBAUTHN_USER_NAME, displayName: ADMIN_WEBAUTHN_USER_DISPLAY_NAME,
+    })),
+    webauthnCredentialDeleteAll: adminProcedure.mutation(async () => {
+      await db.deleteAllAdminWebauthnCredentials();
+      return { success: true } as const;
     }),
 
     webauthnCredentialDelete: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
