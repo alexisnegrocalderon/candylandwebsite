@@ -1847,6 +1847,45 @@ export const appRouter = router({
       }
       return db.createDiscountCode(input);
     }),
+    // Editar un código existente. El texto del código NO se cambia (ya está
+    // repartido en links y mensajes); sí tipo, valor, evento, regalo, usos,
+    // vencimiento y si está activo. `usedCount` nunca se toca.
+    update: adminProcedure.input(z.object({
+      id: z.number(),
+      description: z.string().nullable().optional(),
+      discountType: z.enum(['percentage', 'fixed']),
+      discountValue: z.number().min(0),
+      maxUses: z.number().int().positive().nullable(),
+      eventId: z.number().nullable(),
+      giftTicketTypeId: z.number().nullable(),
+      validUntil: z.string().nullable(),
+      isActive: z.boolean(),
+    })).mutation(async ({ input, ctx }) => {
+      if (input.giftTicketTypeId) {
+        if (!input.eventId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Para regalar un producto elige el evento del código.' });
+        const gift = await db.getTicketTypeById(input.giftTicketTypeId);
+        if (!gift || gift.eventId !== input.eventId) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Ese producto no pertenece al evento elegido.' });
+      } else if (input.discountValue <= 0) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Ingresa el valor del descuento.' });
+      }
+      if (input.discountType === 'percentage' && input.discountValue > 100) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Un porcentaje no puede pasar de 100.' });
+      }
+      const ok = await db.updateDiscountCode(input.id, {
+        description: input.description ?? null,
+        // Un código de regalo no descuenta plata: lo que da es el producto.
+        discountType: input.giftTicketTypeId ? 'fixed' : input.discountType,
+        discountValue: input.giftTicketTypeId ? 0 : input.discountValue,
+        maxUses: input.maxUses,
+        eventId: input.eventId,
+        giftTicketTypeId: input.giftTicketTypeId,
+        validUntil: input.validUntil ? new Date(input.validUntil) : null,
+        isActive: input.isActive ? 1 : 0,
+      });
+      if (!ok) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontramos ese código.' });
+      await db.recordAdminAudit({ action: 'discounts.update', targetType: 'discountCode', targetId: input.id, ip: clientIp(ctx) });
+      return { success: true };
+    }),
     delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const result = await db.deleteDiscountCode(input.id);
       await db.recordAdminAudit({ action: 'discounts.delete', targetType: 'discountCode', targetId: input.id, ip: clientIp(ctx) });
