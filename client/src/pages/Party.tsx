@@ -100,7 +100,7 @@ export default function Party() {
       />
       )}
 
-      <nav className="fixed bottom-0 inset-x-0 z-30 bg-[#120a11]/95 backdrop-blur border-t border-white/10">
+      <nav className="fixed bottom-0 inset-x-0 z-30 bg-[#120a11]/95 backdrop-blur border-t border-white/10" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <div className="max-w-md mx-auto grid grid-cols-2">
           {([['mansion', '🍬 Mansión'], ['swipe', '💘 Swipe']] as const).map(([id, label]) => (
             <button

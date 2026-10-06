@@ -3,7 +3,7 @@ import { AnimatePresence, motion, useMotionValue, useTransform } from 'framer-mo
 import { toast } from 'sonner';
 import { Flag, Heart, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { ProtectedPhoto } from '@/components/party/ProtectedPhoto';
+import { ProtectedPhoto, preloadPhoto } from '@/components/party/ProtectedPhoto';
 import { SWIPE_REPORT_REASONS, ZONE_LABELS, type PartyGender, type PartyZone } from '@shared/party';
 
 const GENDER_LABELS: Record<PartyGender, string> = { hombre: 'Hombre', mujer: 'Mujer', pareja: 'Pareja' };
@@ -33,8 +33,16 @@ export function SwipeView({ ticketCode, alias, participating, onOpenPhoto, onOpe
   const deck: Card[] = (deckQuery.data?.deck ?? []).filter((c) => !done.has(c.id));
   const top = deck[0];
 
-  // Cada vez que el servidor devuelve un mazo, lo ya resuelto deja de importar.
-  useEffect(() => { setDone(new Set()); }, [deckQuery.dataUpdatedAt]);
+  // `done` no se reinicia al refrescar el mazo: un refresco que llega antes de
+  // que el servidor registre el último swipe devolvería la misma tarjeta de
+  // nuevo. Los ids no se repiten, así que dejarlo crecer es inofensivo.
+
+  // La foto de las dos tarjetas siguientes se pide mientras miras la actual.
+  const nextIds = deck.slice(1, 3).map((c) => c.id).join(',');
+  useEffect(() => {
+    if (!nextIds) return;
+    nextIds.split(',').forEach((id) => preloadPhoto(ticketCode, Number(id)));
+  }, [nextIds, ticketCode]);
 
   const decide = (card: Card, liked: boolean) => {
     setDone((prev) => new Set(prev).add(card.id));

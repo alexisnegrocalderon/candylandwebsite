@@ -1,5 +1,30 @@
 import { useEffect, useRef, useState } from 'react';
 
+/* Caché solo en memoria (se pierde al cerrar la pestaña, nunca va a disco): deja
+ * pedir la foto de la siguiente tarjeta mientras se mira la actual, para que el
+ * swipe no espere la red en cada tarjeta. Vence a los 60s por si la persona
+ * cambió o borró su foto. */
+const PHOTO_CACHE_TTL_MS = 60_000;
+const photoCache = new Map<string, { at: number; blob: Promise<Blob> }>();
+
+function fetchPhotoBlob(ticketCode: string, profileId: number): Promise<Blob> {
+  const key = `${ticketCode}:${profileId}`;
+  const hit = photoCache.get(key);
+  if (hit && Date.now() - hit.at < PHOTO_CACHE_TTL_MS) return hit.blob;
+
+  const blob = fetch(`/api/party/photo/${profileId}`, { headers: { 'x-ticket-code': ticketCode }, cache: 'no-store' })
+    .then((res) => { if (!res.ok) throw new Error('sin foto'); return res.blob(); });
+  blob.catch(() => photoCache.delete(key));
+  if (photoCache.size > 40) photoCache.delete(photoCache.keys().next().value as string);
+  photoCache.set(key, { at: Date.now(), blob });
+  return blob;
+}
+
+/** Pide la foto por adelantado (no dibuja nada). */
+export function preloadPhoto(ticketCode: string, profileId: number) {
+  fetchPhotoBlob(ticketCode, profileId).catch(() => {});
+}
+
 /* Foto de Playmatch con disuasivos contra las capturas. En una web NO se
  * puede impedir una captura de pantalla (ni en iOS ni en Android); lo que sí
  * se puede es que no sirva de nada y que quede a quién culpar:
@@ -24,12 +49,7 @@ export function ProtectedPhoto({ ticketCode, profileId, viewerAlias, className =
     setState('loading');
     (async () => {
       try {
-        const res = await fetch(`/api/party/photo/${profileId}`, {
-          headers: { 'x-ticket-code': ticketCode },
-          cache: 'no-store',
-        });
-        if (!res.ok) throw new Error('sin foto');
-        const bitmap = await createImageBitmap(await res.blob());
+        const bitmap = await createImageBitmap(await fetchPhotoBlob(ticketCode, profileId));
         if (cancelled) return;
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext('2d');
