@@ -7,6 +7,7 @@ import { csvEscape, toCsv, parseCsv } from "./csv";
 import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
 import { buildPnlReportPdf } from "./caja/pnlPdf";
 import { buildMovementsPdf } from "./caja/movementsPdf";
+import { comparisonCsv, comparisonPdf, loadSims, singleCsv, singlePdf, slug } from "./budgetReport";
 
 /** Exportada para que otras rutas Express crudas (fuera de tRPC) reusen el
  * mismo chequeo -- ver server/blobUpload.ts. */
@@ -25,6 +26,39 @@ export async function requireAdmin(req: Request, res: Response): Promise<boolean
 }
 
 export function registerAdminRoutes(app: Express) {
+  // Informes del simulador de evento: PDF y CSV, de una simulación o de una comparación.
+  const parseIds = (raw: unknown): number[] =>
+    String(raw ?? "").split(",").map((x) => Number(x)).filter((n) => Number.isInteger(n) && n > 0).slice(0, 4);
+  const today = () => new Date().toISOString().slice(0, 10);
+  const simReport = (kind: "pdf" | "csv", compare: boolean) => async (req: Request, res: Response) => {
+    if (!(await requireAdmin(req, res))) return;
+    try {
+      const ids = compare ? parseIds(req.query.ids) : parseIds(req.query.id).slice(0, 1);
+      if (compare ? ids.length < 2 : ids.length < 1) { res.status(400).json({ error: compare ? "Elige al menos 2 simulaciones" : "Falta la simulación" }); return; }
+      const sims = await loadSims(ids);
+      const base = compare ? "comparacion-simulaciones" : `simulacion-${slug(sims[0].name)}`;
+      if (kind === "csv") {
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="${base}-${today()}.csv"`);
+        res.send(compare ? comparisonCsv(sims) : singleCsv(sims[0]));
+        return;
+      }
+      const v = String(req.query.version ?? "completa");
+      let pdf: Buffer;
+      if (compare) pdf = await comparisonPdf(sims, v === "resumen" ? "resumen" : "completa");
+      else pdf = await singlePdf(sims[0], v === "resumen" || v === "externa" ? v : "completa");
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${base}${v === "completa" ? "" : `-${v}`}-${today()}.pdf"`);
+      res.send(pdf);
+    } catch (e) {
+      console.error("[simReport]", e);
+      res.status(500).json({ error: "No se pudo generar el informe" });
+    }
+  };
+  app.get("/api/admin/simulaciones/informe.pdf", simReport("pdf", false));
+  app.get("/api/admin/simulaciones/comparar.pdf", simReport("pdf", true));
+  app.get("/api/admin/simulaciones/datos.csv", simReport("csv", false));
+  app.get("/api/admin/simulaciones/comparar.csv", simReport("csv", true));
   // Export de órdenes a CSV, filtrable por evento / rango de fechas / estado de pago.
   app.get("/api/admin/orders/export.csv", async (req: Request, res: Response) => {
     if (!(await requireAdmin(req, res))) return;

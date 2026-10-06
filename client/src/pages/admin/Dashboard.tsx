@@ -30,6 +30,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
+import { BudgetReportActions } from '@/components/admin/BudgetReportActions';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { CameraCaptureField } from '@/components/admin/CameraCaptureField';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
@@ -7992,7 +7993,8 @@ function BudgetSimulatorTab({ events }: { events: any[] }) {
                   <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
                     <Checkbox checked={compareIds.includes(s.id)} onCheckedChange={() => toggleCompare(s.id)} /> Comparar
                   </label>
-                  <div className="ml-auto flex gap-2">
+                  <div className="ml-auto flex flex-wrap justify-end gap-2">
+                    <BudgetReportActions ids={[s.id]} />
                     <Button size="sm" variant="outline" onClick={() => { setCreating(false); setEditingId(s.id); }}>Editar</Button>
                     <ConfirmDeleteButton description={`Vas a eliminar la simulación "${s.name}".`} onConfirm={(adminPassword) => deleteSim.mutateAsync({ id: s.id, adminPassword })} />
                   </div>
@@ -8015,7 +8017,10 @@ function BudgetCompareTable({ sims }: { sims: any[] }) {
   const rows = sims.map((s: any) => ({ ...s, result: computeBudgetResult(simFormFromRow(s)) }));
   return (
     <Card className="admin-clay border-0">
-      <CardHeader><CardTitle>Comparar simulaciones</CardTitle></CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+        <CardTitle>Comparar simulaciones</CardTitle>
+        <BudgetReportActions ids={sims.slice(0, 4).map((s: any) => s.id)} />
+      </CardHeader>
       <CardContent className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -8394,6 +8399,7 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
             </Button>
           )}
           <div className="ml-auto flex gap-2">
+            {simId != null && <BudgetReportActions ids={[simId]} size="default" />}
             <Button variant="outline" onClick={onCancel}>Cancelar</Button>
             <WriteButton onClick={handleSave} disabled={create.isPending || update.isPending}>Guardar simulación</WriteButton>
           </div>
@@ -8402,6 +8408,7 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
           "Rellenar con ventas reales" trae las tandas de acceso YA cargadas en ese evento con su precio y cuántas
           entradas se han vendido hasta ahora -- reemplaza las tandas de arriba una vez, después las editas libre.
           "Vincular a este evento" además guarda la conexión para comparar presupuestado vs. real en su P&L.
+          {simId != null && ' El informe usa lo último que guardaste: guarda antes de descargarlo si cambiaste algo.'}
         </p>
       </CardContent>
     </Card>

@@ -75,6 +75,9 @@ import { deleteCustomerProfile, getCustomerProfile, updateCustomerProfile } from
 import { computeCustomerLevel } from "../shared/customerInsights";
 import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftClosed, listCajaAlerts } from "./caja/alerts";
 import { BRAND } from "../shared/eventBrand";
+import { comparisonPdf as budgetComparisonPdf, singlePdf as budgetSinglePdf, loadSims as loadBudgetSims, slug as budgetSlug } from "./budgetReport";
+import { compareSimulations, formatPercent } from "../shared/budgetInsights";
+import { computeBudgetResult } from "../shared/eventBudget";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail, buildTopupCodeEmail, buildPinChangedEmail } from "./email";
 import { currentLoginCode, verifyLoginCode, signTopupSession, verifyTopupSession, normalizeEmail } from "./topupAccess";
 import { identityFromTicketCode, identityFromEmail, getTopupOptions, createTopupOrder, resetCardPin, maskEmail, type TopupIdentity } from "./playcardTopup";
@@ -2859,6 +2862,48 @@ export const appRouter = router({
   // cliente para que la barra de estado sea instantánea; estos endpoints
   // solo guardan/leen lo que el admin cargó.
   budgetSimulations: router({
+    // Envía el informe (PDF) por correo. El admin siempre recibe copia. La versión
+    // "externa" no muestra costos ni márgenes, ni en el PDF ni en el cuerpo del correo.
+    emailReport: adminProcedure.input(z.object({
+      ids: z.array(z.number().int().positive()).min(1).max(4),
+      version: z.enum(['completa', 'resumen', 'externa']).default('completa'),
+      recipients: z.array(z.string().email()).min(1).max(10),
+      message: z.string().max(1000).optional(),
+    })).mutation(async ({ input }) => {
+      const compare = input.ids.length > 1;
+      if (compare && input.version === 'externa') throw new TRPCError({ code: 'BAD_REQUEST', message: 'La versión sin márgenes no aplica a una comparación' });
+      const sims = await loadBudgetSims(input.ids);
+      const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const pdf = compare
+        ? await budgetComparisonPdf(sims, input.version === 'resumen' ? 'resumen' : 'completa')
+        : await budgetSinglePdf(sims[0], input.version);
+      const money = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+      let title: string; let lines: { label: string; value: string }[];
+      if (compare) {
+        const cmp = compareSimulations(sims.map(({ id, name, input: i }) => ({ id, name, input: i })));
+        const w = cmp.sims[cmp.winnerIndex];
+        title = `Comparación de ${sims.length} simulaciones`;
+        lines = [
+          { label: 'Opción recomendada', value: esc(w.name) },
+          { label: 'Utilidad estimada', value: money(w.result.pnl.netProfit) },
+          { label: 'Margen', value: formatPercent(w.result.pnl.marginPercent) },
+        ];
+      } else {
+        const r = computeBudgetResult(sims[0].input);
+        title = `Simulación: ${sims[0].name}`;
+        lines = input.version === 'externa'
+          ? [{ label: 'Aforo estimado', value: `${r.attendance.toLocaleString('es-CL')} personas` }, { label: 'Ingreso proyectado', value: money(r.grossIncome) }]
+          : [{ label: 'Ingreso proyectado', value: money(r.grossIncome) }, { label: 'Utilidad estimada', value: money(r.pnl.netProfit) }, { label: 'Margen', value: formatPercent(r.pnl.marginPercent) }];
+      }
+      const note = input.message?.trim();
+      const html = buildSimpleReportEmail({ title: esc(title), subtitle: note ? esc(note) : 'Informe de simulación de evento', lines });
+      const subject = `[Mansion Playroom] ${compare ? 'Comparación de simulaciones' : `Simulación ${sims[0].name}`}`;
+      const filename = `${compare ? 'comparacion-simulaciones' : `simulacion-${budgetSlug(sims[0].name)}`}${input.version === 'completa' ? '' : `-${input.version}`}.pdf`;
+      const recipients = Array.from(new Set([ADMIN_NOTIFICATION_EMAIL, ...input.recipients.map((e) => e.toLowerCase())]));
+      const results = await Promise.all(recipients.map((to) => sendEmail({ to, subject, html, attachments: [{ filename, content: pdf }] })));
+      return { success: true, emailSent: results.every((r) => r.success), sentTo: recipients.length };
+    }),
+
     listAll: adminReadProcedure.input(z.object({
       eventId: z.number().optional(),
     }).optional()).query(async ({ input }) => {
