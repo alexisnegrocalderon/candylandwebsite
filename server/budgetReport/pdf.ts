@@ -11,11 +11,10 @@ import {
 } from "../../shared/budgetInsights";
 import { expenseLineAmounts, type BudgetResult, type BudgetSimulationInput } from "../../shared/eventBudget";
 import { LOGO_PNG_BASE64 } from "./logo";
-import { ANTON_TTF_BASE64, MARKER_TTF_BASE64 } from "./fonts";
+import { ANTON_TTF_BASE64 } from "./fonts";
 import type { Narrative } from "./narrative";
 import {
-  C, H, PALETTE, W, barChart, brandTape, card, clp, compact, donut, doodle, fitText, gauge, hbar, legend, lineChart, pctText, pill, rrect, safe, scribble, slantedTape, stamp, sticker, text, textHeight,
-  type Doodle,
+  C, H, PALETTE, W, barChart, block, card, clp, compact, cross, donut, fitText, gauge, hbar, legend, lineChart, pctText, pill, rrect, rule, safe, text, textHeight,
 } from "./draw";
 
 type Doc = PDFKit.PDFDocument;
@@ -58,7 +57,6 @@ export type ComparisonReportData = {
 function createDoc(title: string): { doc: Doc; done: Promise<Buffer> } {
   const doc = new PDFDocument({ size: [W, H], margin: 0, autoFirstPage: false, bufferPages: true, info: { Title: safe(title), Author: "Mansion Playroom", Creator: "Mansion Playroom" } });
   doc.registerFont("Anton", Buffer.from(ANTON_TTF_BASE64, "base64"));
-  doc.registerFont("Marker", Buffer.from(MARKER_TTF_BASE64, "base64"));
   pageCount = 0;
   const chunks: Buffer[] = [];
   doc.on("data", (c) => chunks.push(c));
@@ -71,8 +69,6 @@ function createDoc(title: string): { doc: Doc; done: Promise<Buffer> } {
 
 type Theme = "dark" | "light";
 
-/** Fondos de las páginas de datos: crema, celeste suave y rosado suave, alternados. */
-const PAGE_BGS = [C.bgLight, C.skySoft, C.pinkSoft];
 let pageCount = 0;
 
 function newPage(doc: Doc, theme: Theme): void {
@@ -80,31 +76,29 @@ function newPage(doc: Doc, theme: Theme): void {
   // Sin margen inferior: el texto nunca salta solo a otra página; si algo se
   // pasa de largo se ve en la revisión visual en vez de duplicar páginas.
   doc.page.margins.bottom = -5000;
-  if (theme === "dark") {
-    doc.rect(0, 0, W, H).fill(C.bgDark);
-  } else {
-    doc.rect(0, 0, W, H).fill(PAGE_BGS[pageCount % PAGE_BGS.length]);
-    // Franja de marca arriba: celeste y rosado planos.
-    doc.rect(0, 0, W / 2, 6).fill(C.violet);
-    doc.rect(W / 2, 0, W / 2, 6).fill(C.pink);
-  }
+  doc.rect(0, 0, W, H).fill(C.bgLight);
   pageCount++;
+  void theme;
 }
 
-const DOODLE_CYCLE: { kind: Doodle; fill: () => string; rotate: number }[] = [
-  { kind: "heart", fill: () => C.pink, rotate: -12 },
-  { kind: "star", fill: () => C.violet, rotate: 10 },
-  { kind: "bubble", fill: () => C.bgDark2, rotate: -6 },
-  { kind: "arrow", fill: () => C.violet, rotate: 0 },
+/** Combinaciones de bloques semitransparentes que se cruzan detrás del encabezado. */
+const HEADER_BLOCKS: { a: [number, number, number, number, string]; b: [number, number, number, number, string] }[] = [
+  { a: [W - 300, 0, 300, 112, C.bgDark], b: [W - 200, 38, 120, 84, C.bgDark2] },
+  { a: [W - 300, 0, 300, 112, C.bgDark2], b: [W - 200, 38, 120, 84, C.bgDark] },
+  { a: [W - 340, 0, 340, 100, C.bgDark], b: [W - 150, 30, 90, 90, C.bgDark2] },
 ];
 
-/** Encabezado: etiqueta de sección tipo sticker, título en Anton y un sticker decorativo a la derecha. */
+/** Encabezado editorial: regla fina con la sección, titular en Anton y bloques de color cruzados con el número de página. */
 function header(doc: Doc, kicker: string, title: string, subtitle?: string): void {
-  sticker(doc, kicker, MX, 26, { fill: pageCount % 2 === 0 ? C.pink : C.violet, size: 10, rotate: -1.5 });
-  fitText(doc, title.toUpperCase(), MX, 56, { width: CONTENT_W - 110, height: 34, maxSize: 30, minSize: 18, font: "display", color: C.ink, spacing: 0.5 });
-  if (subtitle) text(doc, subtitle, MX, 92, { size: 12, color: C.muted, width: CONTENT_W - 110, height: 16 });
-  const dd = DOODLE_CYCLE[pageCount % DOODLE_CYCLE.length];
-  doodle(doc, dd.kind, W - MX - 54, 22, 50, dd.fill(), dd.rotate);
+  const v = HEADER_BLOCKS[pageCount % HEADER_BLOCKS.length];
+  block(doc, ...v.a, 0.85);
+  block(doc, ...v.b, 0.7);
+  text(doc, String(pageCount).padStart(2, "0"), W - MX - 110, 30, { font: "display", size: 56, color: C.ink, width: 110, align: "right", height: 64 });
+  rule(doc, MX, 24, 590, 24);
+  cross(doc, MX + 4, 14, 8, C.pink);
+  text(doc, kicker.toUpperCase(), MX + 16, 10, { size: 8.5, bold: true, color: C.ink, spacing: 2, width: 420, height: 12 });
+  fitText(doc, title.toUpperCase(), MX, 40, { width: CONTENT_W - 200, height: 40, maxSize: 34, minSize: 18, font: "display", color: C.ink, spacing: 0.3 });
+  if (subtitle) text(doc, subtitle, MX, 88, { size: 11.5, color: C.muted, width: CONTENT_W - 200, height: 16 });
 }
 
 function footers(doc: Doc, label: string, o: { skipFirst?: boolean; skipLast?: boolean } = {}): void {
@@ -114,8 +108,9 @@ function footers(doc: Doc, label: string, o: { skipFirst?: boolean; skipLast?: b
     if (o.skipLast && i === range.count - 1) continue;
     doc.switchToPage(range.start + i);
     doc.page.margins.bottom = -5000;
-    text(doc, `Mansion Playroom  ·  ${label}`, MX, 512, { size: 8.5, color: C.muted, width: 600, height: 12 });
-    text(doc, `${i + 1} / ${range.count}`, W - MX - 120, 512, { size: 8.5, color: C.muted, width: 120, align: "right" });
+    rule(doc, MX, 506, W - MX, 506, { width: 0.5 });
+    text(doc, `MANSION PLAYROOM  ·  ${label}`.toUpperCase(), MX, 512, { size: 7.5, color: C.muted, width: 640, height: 12, spacing: 1 });
+    text(doc, `${i + 1} / ${range.count}`, W - MX - 120, 512, { size: 8, color: C.muted, width: 120, align: "right" });
   }
 }
 
@@ -124,16 +119,9 @@ const emittedText = (d: Date) =>
 
 function kpi(doc: Doc, x: number, y: number, w: number, h: number, label: string, value: string, caption?: string, color: string = C.ink) {
   card(doc, x, y, w, h);
-  text(doc, label.toUpperCase(), x + 16, y + 14, { size: 8.5, bold: true, color: C.muted, spacing: 1, width: w - 32, height: 12 });
+  text(doc, label.toUpperCase(), x + 16, y + 14, { size: 8, bold: true, color: C.muted, spacing: 1.2, width: w - 32, height: 12 });
   fitText(doc, value, x + 16, y + 28, { width: w - 32, height: 36, maxSize: 30, minSize: 18, font: "display", color, spacing: 0.4 });
   if (caption) text(doc, caption, x + 16, y + h - 27, { size: 9.5, color: C.muted, width: w - 32, height: 24 });
-}
-
-function coverKpi(doc: Doc, x: number, y: number, w: number, h: number, label: string, value: string, caption?: string, color: string = C.ink) {
-  card(doc, x, y, w, h);
-  text(doc, label.toUpperCase(), x + 18, y + 14, { size: 9, bold: true, color: C.muted, spacing: 1.2, width: w - 36, height: 12 });
-  fitText(doc, value, x + 18, y + 32, { width: w - 36, height: 46, maxSize: 40, minSize: 20, font: "display", color, spacing: 0.5 });
-  if (caption) text(doc, caption, x + 18, y + h - 26, { size: 10, color: C.muted, width: w - 36, height: 14 });
 }
 
 const QUALITY_LABEL: Record<Recommendation["quality"], string> = { ninguno: "Sin riesgo para la calidad", bajo: "Riesgo bajo para la calidad", medio: "Con cuidado: negociar, no recortar" };
@@ -146,52 +134,55 @@ function cover(doc: Doc, o: {
   kpis: { label: string; value: string; caption?: string; color?: string }[]; chips?: string[];
 }) {
   newPage(doc, "dark");
-  // Bloque rosado donde apoyan las cifras + círculos de color de fondo.
-  doc.save(); doc.circle(860, 90, 190).fill(C.bgDark2); doc.restore();
-  doc.save(); doc.circle(40, 300, 90).fill("#8FD0EC"); doc.restore();
-  doc.rect(0, 336, W, 164).fill(C.bgDark2);
-  doc.moveTo(0, 336).lineTo(W, 336).lineWidth(1.8).stroke(C.ink);
+  // Bloques de color que se cruzan, como en la referencia editorial.
+  block(doc, 500, 0, 460, 346, C.bgDark, 0.9);
+  block(doc, 650, 120, 310, 250, C.bgDark2, 0.78);
+  doc.rect(MX - 26, 150, 10, 128).fill(C.ink);
 
-  doc.image(logoBuffer, MX, 30, { height: 62 });
-  text(doc, "MANSION PLAYROOM", MX + 54, 52, { font: "display", size: 20, color: C.ink, spacing: 3 });
+  doc.image(logoBuffer, MX, 28, { height: 50 });
+  text(doc, "MANSION PLAYROOM", MX + 44, 46, { size: 10, bold: true, color: C.ink, spacing: 3 });
+  rule(doc, MX, 100, 470, 100);
+  cross(doc, MX + 4, 116, 9, C.pink);
+  text(doc, o.kicker.toUpperCase(), MX + 18, 111, { size: 9.5, bold: true, color: C.ink, spacing: 2.5, width: 420, height: 14 });
 
-  sticker(doc, o.kicker, MX, 118, { fill: C.pink, size: 13, rotate: -2 });
-  fitText(doc, o.title.toUpperCase(), MX, 156, { width: 640, height: 120, maxSize: 70, minSize: 28, font: "display", color: C.ink, lineGap: 2, spacing: 1 });
-  text(doc, o.subtitle, MX, 288, { size: 13, color: C.ink, width: 640, height: 18 });
-  if (o.verdict) pill(doc, o.verdict.label, MX, 306, { bg: VERDICT_COLOR[o.verdict.key], color: o.verdict.key === "warning" ? C.ink : C.white, size: 11, padX: 14, h: 24 });
+  fitText(doc, o.title.toUpperCase(), MX, 144, { width: 540, height: 150, maxSize: 84, minSize: 28, font: "display", color: C.ink, lineGap: 0 });
+  text(doc, o.subtitle, MX, 302, { size: 12.5, color: C.ink, width: 520, height: 18 });
+  if (o.verdict) pill(doc, o.verdict.label, MX, 326, { bg: VERDICT_COLOR[o.verdict.key], color: o.verdict.key === "warning" ? C.ink : C.white, size: 10.5, padX: 12, h: 22 });
   if (o.chips?.length) {
     let cx = MX;
-    for (const chip of o.chips.slice(0, 4)) cx += pill(doc, chip, cx, 306, { bg: C.white, color: C.ink, size: 11, padX: 14, h: 24 }) + 8;
+    for (const chip of o.chips.slice(0, 4)) cx += pill(doc, chip, cx, 326, { bg: C.skySoft, color: C.ink, size: 10.5, padX: 12, h: 22 }) + 8;
   }
 
-  stamp(doc, 842, 150, 68, "EVENTOS PLAYROOM · PROYECCIÓN · ", logoBuffer, { fill: C.white });
-  doodle(doc, "heart", 745, 238, 44, C.pink, -14);
-  doodle(doc, "star", 888, 262, 36, C.violet, 12);
-  scribble(doc, "#playroom", 706, 292, { size: 17, color: C.pink, rotate: -6 });
-
   const n = o.kpis.length;
-  const gap = 20;
-  const w = (CONTENT_W - gap * (n - 1)) / n;
-  o.kpis.forEach((k, i) => coverKpi(doc, MX + i * (w + gap), 356, w, 104, k.label, k.value, k.caption, k.color));
-  text(doc, `Informe generado el ${emittedText(o.emittedAt)} (hora de Chile). Cifras proyectadas: no incluyen ventas reales.`, MX, 476, { size: 9, color: C.ink, width: CONTENT_W, height: 12 });
-  brandTape(doc, 500, logoBuffer, { h: 28 });
+  const colW = CONTENT_W / n;
+  rule(doc, MX, 386, W - MX, 386, { width: 1.2 });
+  o.kpis.forEach((k, i) => {
+    const x = MX + i * colW;
+    if (i > 0) rule(doc, x - 10, 398, x - 10, 470, { width: 0.6 });
+    text(doc, k.label.toUpperCase(), x, 398, { size: 8.5, bold: true, color: C.muted, spacing: 1.4, width: colW - 24, height: 12 });
+    fitText(doc, k.value, x, 414, { width: colW - 24, height: 50, maxSize: 50, minSize: 22, font: "display", color: k.color ?? C.ink, spacing: 0.5 });
+    if (k.caption) text(doc, k.caption, x, 470, { size: 10, color: C.muted, width: colW - 24, height: 14 });
+  });
+  text(doc, `Informe generado el ${emittedText(o.emittedAt)} (hora de Chile). Cifras proyectadas: no incluyen ventas reales.`, MX, 508, { size: 8, color: C.muted, width: CONTENT_W, height: 12 });
 }
 
 /** Página final: cierre de marca con el contacto. */
 function closingPage(doc: Doc) {
   newPage(doc, "dark");
-  doc.rect(0, 300, W, 200).fill(C.bgDark2);
-  doc.moveTo(0, 300).lineTo(W, 300).lineWidth(1.8).stroke(C.ink);
-  doc.image(logoBuffer, MX, 36, { height: 62 });
-  text(doc, "MANSION PLAYROOM", MX + 54, 58, { font: "display", size: 20, color: C.ink, spacing: 3 });
-  text(doc, "¿DUDAS? ¡CONVERSEMOS!", MX, 130, { font: "display", size: 60, color: C.ink, width: 760, spacing: 1 });
-  text(doc, "Esta proyección es una simulación: sirve para decidir con números antes de producir la fiesta.", MX, 226, { size: 14, color: C.ink, width: 560, height: 40 });
-  sticker(doc, "contacto@mansionplayroom.cl", MX, 330, { fill: C.violet, color: C.white, size: 18, rotate: -1.5 });
-  scribble(doc, "#playroom  #margen  #sinriesgo", MX, 400, { size: 22, color: C.pink, rotate: -2 });
-  stamp(doc, 800, 190, 84, "EVENTOS PLAYROOM · GRACIAS · ", logoBuffer, { fill: C.white });
-  doodle(doc, "heart", 640, 238, 46, C.pink, -12);
-  slantedTape(doc, "mansion playroom", 760, 420, { w: 420, rotate: -7, fill: C.ink, color: C.bgDark });
-  brandTape(doc, 500, logoBuffer, { h: 28 });
+  block(doc, 0, 300, 520, 240, C.bgDark, 0.9);
+  block(doc, 330, 220, 330, 200, C.bgDark2, 0.78);
+  doc.rect(MX - 26, 120, 10, 150).fill(C.ink);
+  doc.image(logoBuffer, MX, 28, { height: 50 });
+  text(doc, "MANSION PLAYROOM", MX + 44, 46, { size: 10, bold: true, color: C.ink, spacing: 3 });
+  rule(doc, MX, 100, 470, 100);
+  cross(doc, MX + 4, 116, 9, C.pink);
+  text(doc, "GRACIAS", MX + 18, 111, { size: 9.5, bold: true, color: C.ink, spacing: 2.5, width: 420, height: 14 });
+  text(doc, "¿DUDAS?", MX, 122, { font: "display", size: 84, color: C.ink, width: 700, spacing: 1 });
+  text(doc, "CONVERSEMOS.", MX, 218, { font: "display", size: 84, color: C.ink, width: 800, spacing: 1 });
+  text(doc, "Esta proyección es una simulación: sirve para decidir con números antes de producir la fiesta.", 700, 330, { size: 11.5, color: C.ink, width: 212, height: 70 });
+  rule(doc, 700, 322, W - MX, 322, { width: 1.2 });
+  text(doc, "contacto@mansionplayroom.cl", 700, 412, { size: 12, bold: true, color: C.ink, width: 230 });
+  text(doc, "mansionplayroom.cl", 700, 430, { size: 11, color: C.ink, width: 230 });
 }
 
 /* ─── Páginas de una simulación ─────────────────────────────── */
@@ -302,7 +293,7 @@ function pageMoneyOut(doc: Doc, d: SingleReportData) {
     else { top = Math.max(s.amount, 0); bottom = Math.min(s.amount, 0); color = s.amount >= 0 ? C.green : C.red; label = compact(s.amount); }
     const py = (v: number) => y0 + (1 - v / maxV) * h;
     const yTop = py(top), yBot = py(bottom);
-    rrect(doc, bx, yTop, bw, Math.max(yBot - yTop, 2), 4, color, { stroke: C.ink, strokeWidth: 1.2 });
+    rrect(doc, bx, yTop, bw, Math.max(yBot - yTop, 2), 4, color);
     text(doc, label, bx - 18, yTop - 15, { size: 9.5, bold: true, color: C.ink, width: bw + 36, align: "center" });
     text(doc, s.label, x0 + i * slot, y0 + h + 12, { size: 8.8, color: C.muted, width: slot, align: "center", height: 26 });
     if (i < n - 1) {
@@ -338,8 +329,8 @@ function pageCeiling(doc: Doc, d: SingleReportData) {
   const bx = MX + 22, bw = 376;
   const room = ceiling - fixed;
   const color = VERDICT_COLOR[r.status === "ok" ? "ok" : r.status === "warning" ? "warning" : "danger"];
-  rrect(doc, bx, 166, bw, 30, 15, C.faint, { stroke: C.ink, strokeWidth: 1.2 });
-  rrect(doc, bx, 166, Math.max(30, Math.min(1, fixed / scale) * bw), 30, 15, color, { stroke: C.ink, strokeWidth: 1.2 });
+  rrect(doc, bx, 166, bw, 30, 15, C.faint);
+  rrect(doc, bx, 166, Math.max(30, Math.min(1, fixed / scale) * bw), 30, 15, color);
   const cx = bx + Math.max(0, Math.min(1, ceiling / scale)) * bw;
   doc.save(); doc.moveTo(cx, 156).lineTo(cx, 206).lineWidth(2.5).stroke(C.ink); doc.restore();
   text(doc, `Gastos fijos: ${clp(fixed)}`, bx, 212, { size: 10.5, bold: true, color: C.ink, width: 190 });
@@ -458,9 +449,9 @@ function pageRecommendations(doc: Doc, d: SingleReportData) {
     header(doc, "Cómo subir el margen", p === 0 ? "Ideas que no tocan la calidad del evento" : "Más ideas para subir el margen", p === 0 ? "Ordenadas por cuánto suman en relación al esfuerzo; lo que el invitado nota solo se negocia, nunca se recorta" : undefined);
     let startY = p === 0 ? 116 : 108;
     if (p === 0 && set.topThree) {
-      card(doc, MX, 110, CONTENT_W, 56, { fill: C.pink });
-      text(doc, "SI APLICAS LAS 3 MEJORES JUNTAS", MX + 22, 121, { size: 8.5, bold: true, color: C.white, spacing: 1.2 });
-      text(doc, `+${compact(set.topThree.profitGain)} de utilidad  ·  margen ${pctText(set.topThree.marginBefore)} > ${pctText(set.topThree.marginAfter)}`, MX + 22, 134, { font: "display", size: 21, color: C.white, width: CONTENT_W - 44, spacing: 0.5 });
+      card(doc, MX, 110, CONTENT_W, 56, { fill: C.bgDark2 });
+      text(doc, "SI APLICAS LAS 3 MEJORES JUNTAS", MX + 22, 121, { size: 8.5, bold: true, color: C.ink, spacing: 1.2 });
+      text(doc, `+${compact(set.topThree.profitGain)} de utilidad  ·  margen ${pctText(set.topThree.marginBefore)} > ${pctText(set.topThree.marginAfter)}`, MX + 22, 134, { font: "display", size: 21, color: C.ink, width: CONTENT_W - 44, spacing: 0.5 });
       startY = 182;
     }
     const from = p === 0 ? 0 : firstPer + (p - 1) * perPage;
@@ -543,8 +534,8 @@ function pageExecutive(doc: Doc, d: SingleReportData) {
   const picks = set.topThree ? set.topThree.ids.map((id) => [...set.recommended, ...set.withCare].find((x) => x.id === id)!).filter(Boolean) : set.recommended.slice(0, 3);
   picks.forEach((rec, i) => recCard(doc, rec, d.narrative.recNotes[rec.id] ?? rec.how, rx, 132 + i * 106, rw, 98));
   if (set.topThree) {
-    card(doc, rx, 132 + picks.length * 106, rw, 50, { fill: C.pink });
-    text(doc, `Las 3 juntas: +${compact(set.topThree.profitGain)}  ·  margen ${pctText(set.topThree.marginBefore)} > ${pctText(set.topThree.marginAfter)}`, rx + 16, 132 + picks.length * 106 + 15, { font: "display", size: 17, color: C.white, width: rw - 32, spacing: 0.4 });
+    card(doc, rx, 132 + picks.length * 106, rw, 50, { fill: C.bgDark2 });
+    text(doc, `Las 3 juntas: +${compact(set.topThree.profitGain)}  ·  margen ${pctText(set.topThree.marginBefore)} > ${pctText(set.topThree.marginAfter)}`, rx + 16, 132 + picks.length * 106 + 15, { font: "display", size: 17, color: C.ink, width: rw - 32, spacing: 0.4 });
   }
 }
 
