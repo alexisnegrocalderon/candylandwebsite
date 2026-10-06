@@ -6927,12 +6927,27 @@ export async function purgeOldIgThreads(now: Date = new Date()): Promise<{ threa
 // Automatizaciones de Instagram por palabra clave (server/instagramAutomations.ts).
 // ---------------------------------------------------------------------------
 
+/** Lee automatizaciones tolerando que la migración de los botones
+ * (buttonKind/buttonTarget/buttonTitle) todavía no esté corrida: `select()`
+ * pide todas las columnas del schema y, si faltan, rompería también el
+ * webhook. En ese caso se leen sin esas columnas y el botón queda en "ninguno". */
+async function selectIgAutomations(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, where?: ReturnType<typeof eq>): Promise<IgKeywordAutomation[]> {
+  try {
+    return await db.select().from(igKeywordAutomations).where(where);
+  } catch (err) {
+    console.error('[ig-automations] lectura con botones falló, uso las columnas base', err);
+    const { buttonKind: _k, buttonTarget: _t, buttonTitle: _n, ...base } = getTableColumns(igKeywordAutomations);
+    const rows = await db.select(base).from(igKeywordAutomations).where(where);
+    return rows.map((r) => ({ ...r, buttonKind: 'none', buttonTarget: null, buttonTitle: null }));
+  }
+}
+
 /** Automatizaciones activas, para que el webhook busque un calce en cada
  * comentario/respuesta a historia sin traerse las inactivas de arriba. */
 export async function listActiveIgKeywordAutomations(): Promise<IgKeywordAutomation[]> {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(igKeywordAutomations).where(eq(igKeywordAutomations.active, 1));
+  return selectIgAutomations(db, eq(igKeywordAutomations.active, 1));
 }
 
 /** Todas (activas e inactivas), con cuántas personas ya recibieron el
@@ -6940,7 +6955,7 @@ export async function listActiveIgKeywordAutomations(): Promise<IgKeywordAutomat
 export async function listIgKeywordAutomationsWithStats() {
   const db = await getDb();
   if (!db) return [];
-  const rows = await db.select().from(igKeywordAutomations).orderBy(desc(igKeywordAutomations.createdAt));
+  const rows = (await selectIgAutomations(db)).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   const counts = await db.select({
     automationId: igKeywordRedemptions.automationId,
     count: sql<number>`count(*)`,
@@ -6949,20 +6964,34 @@ export async function listIgKeywordAutomationsWithStats() {
   return rows.map((r) => ({ ...r, redemptions: countByAutomation.get(r.id) ?? 0 }));
 }
 
+export type IgAutomationButtonInput = { buttonKind: 'none' | 'event' | 'page' | 'custom'; buttonTarget: string | null; buttonTitle: string | null };
+
+const BUTTON_MIGRATION_HINT = 'Falta correr la migración de los botones (0083) en la base de datos.';
+
 export async function createIgKeywordAutomation(input: {
   keyword: string;
   triggerSource: 'comment' | 'story_reply' | 'both';
   replyMessage: string;
   discountCode?: string | null;
+  button?: IgAutomationButtonInput;
 }): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
-  await db.insert(igKeywordAutomations).values({
-    keyword: input.keyword,
-    triggerSource: input.triggerSource,
-    replyMessage: input.replyMessage,
-    discountCode: input.discountCode ?? null,
-  });
+  // Con "ninguno" no se tocan las columnas nuevas: crear sigue funcionando
+  // aunque la migración todavía no esté corrida.
+  const withButton = input.button && input.button.buttonKind !== 'none' ? input.button : {};
+  try {
+    await db.insert(igKeywordAutomations).values({
+      keyword: input.keyword,
+      triggerSource: input.triggerSource,
+      replyMessage: input.replyMessage,
+      discountCode: input.discountCode ?? null,
+      ...withButton,
+    });
+  } catch (err) {
+    if (Object.keys(withButton).length > 0) throw new Error(BUTTON_MIGRATION_HINT);
+    throw err;
+  }
 }
 
 export async function updateIgKeywordAutomation(id: number, input: {
@@ -6977,6 +7006,17 @@ export async function updateIgKeywordAutomation(id: number, input: {
     triggerSource: input.triggerSource,
     replyMessage: input.replyMessage,
   }).where(eq(igKeywordAutomations.id, id));
+}
+
+export async function setIgKeywordAutomationButton(id: number, button: IgAutomationButtonInput): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  try {
+    await db.update(igKeywordAutomations).set(button).where(eq(igKeywordAutomations.id, id));
+  } catch (err) {
+    console.error('[ig-automations] no se pudo guardar el botón', err);
+    throw new Error(BUTTON_MIGRATION_HINT);
+  }
 }
 
 export async function setIgKeywordAutomationActive(id: number, active: boolean): Promise<void> {

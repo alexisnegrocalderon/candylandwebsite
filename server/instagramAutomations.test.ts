@@ -90,3 +90,30 @@ describe('splitAutomationLink', () => {
     expect(result.buttonUrl).toBe('https://mansionplayroom.cl/eventos/aniversario');
   });
 });
+
+import { resolveAutomationButton } from './instagramAutomations';
+describe('resolveAutomationButton', () => {
+  const base = { discountCode: null, buttonKind: 'none', buttonTarget: null, buttonTitle: null };
+  it('sin botón elegido no devuelve nada (queda el {{link}} de siempre)', () => {
+    expect(resolveAutomationButton(base, { link: 'https://mansionplayroom.cl/eventos/x' })).toBeNull();
+  });
+  it('evento: link con el código y título por defecto según haya regalo', () => {
+    const b = resolveAutomationButton({ ...base, buttonKind: 'event', discountCode: 'AUTO1' }, { link: 'https://mansionplayroom.cl/eventos/x?code=AUTO1' });
+    expect(b?.title).toBe('Comprar con código');
+    expect(new URL(b!.url).searchParams.get('code')).toBe('AUTO1');
+    expect(resolveAutomationButton({ ...base, buttonKind: 'event' }, { link: 'https://mansionplayroom.cl/eventos/x' })?.title).toBe('Comprar entrada');
+    expect(resolveAutomationButton({ ...base, buttonKind: 'event' }, {})).toBeNull();
+  });
+  it('título propio, cortado a 20 caracteres', () => {
+    const b = resolveAutomationButton({ ...base, buttonKind: 'event', buttonTitle: 'Quiero mi regalo ahora mismo!!' }, { link: 'https://mansionplayroom.cl/eventos/x' });
+    expect(b?.title.length).toBe(20);
+  });
+  it('link propio: solo https del sitio', () => {
+    expect(resolveAutomationButton({ ...base, buttonKind: 'custom', buttonTarget: 'https://mansionplayroom.cl/entradas' }, {})?.url).toContain('https://mansionplayroom.cl/entradas');
+    expect(resolveAutomationButton({ ...base, buttonKind: 'custom', buttonTarget: 'https://otro-sitio.com/x' }, {})).toBeNull();
+    expect(resolveAutomationButton({ ...base, buttonKind: 'custom', buttonTarget: 'http://mansionplayroom.cl/x' }, {})).toBeNull();
+  });
+  it('página: solo las de la lista del agente', () => {
+    expect(resolveAutomationButton({ ...base, buttonKind: 'page', buttonTarget: '/no-existe' }, {})).toBeNull();
+  });
+});

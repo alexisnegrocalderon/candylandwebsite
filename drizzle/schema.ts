@@ -2010,6 +2010,13 @@ export const igKeywordAutomations = mysqlTable("igKeywordAutomations", {
   // referencia para poder armar el mensaje y mostrarlo en el panel.
   discountCode: varchar("discountCode", { length: 40 }),
   active: int("active").default(1).notNull(),
+  // Botón de compra/link que viaja debajo del mensaje (shared/automationButton.ts):
+  // 'none' | 'event' (entrada del evento destacado, con el código pegado) |
+  // 'page' (página del sitio, `buttonTarget` = su ruta) | 'custom' (URL propia
+  // del sitio). `buttonTitle` = texto del botón (máx. 20, límite de Meta).
+  buttonKind: varchar("buttonKind", { length: 12 }).default("none").notNull(),
+  buttonTarget: varchar("buttonTarget", { length: 300 }),
+  buttonTitle: varchar("buttonTitle", { length: 20 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   keywordIdx: index("ig_keyword_automations_keyword_idx").on(table.keyword),

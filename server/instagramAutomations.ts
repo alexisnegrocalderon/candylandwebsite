@@ -1,4 +1,8 @@
 import type { IgKeywordAutomation } from '../drizzle/schema';
+import { AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from '../shared/automationButton';
+import { resolvePageLink, withAgentUtm } from './agentLinks';
+
+const SITE_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
 
 /* Automatizaciones por palabra clave del Instagram: comentar o responder a
  * una historia con la palabra justa dispara un DM automático -- un link, un
@@ -66,4 +70,38 @@ function normalizeForMatch(text: string): string {
  * encanta el disfraz!" calza con la palabra clave "disfraz". */
 export function matchesKeyword(text: string, keyword: string): boolean {
   return normalizeForMatch(text).includes(normalizeForMatch(keyword));
+}
+
+
+/** El botón que viaja debajo del mensaje, según lo elegido en el panel, o
+ * `null` si no corresponde (el llamador cae al comportamiento de `{{link}}`).
+ * - `event`: la entrada del evento destacado (`extras.link`, que ya lleva el
+ *   `?code=` del regalo), con la marca de origen para "Ventas por Origen".
+ * - `page`: solo páginas de la lista cerrada del agente.
+ * - `custom`: solo https del dominio del sitio. */
+export function resolveAutomationButton(
+  automation: Pick<IgKeywordAutomation, 'discountCode' | 'buttonKind' | 'buttonTarget' | 'buttonTitle'>,
+  extras: { link?: string | null },
+): { title: string; url: string } | null {
+  const custom = automation.buttonTitle?.trim().slice(0, AUTOMATION_BUTTON_TITLE_MAX);
+  switch (automation.buttonKind) {
+    case 'event': {
+      if (!extras.link) return null;
+      return {
+        title: custom || (automation.discountCode ? 'Comprar con código' : 'Comprar entrada'),
+        url: withAgentUtm(extras.link, 'instagram', 'automatizacion'),
+      };
+    }
+    case 'page': {
+      const page = resolvePageLink(automation.buttonTarget, 'instagram');
+      return page ? { title: custom || page.title, url: page.url } : null;
+    }
+    case 'custom': {
+      const target = automation.buttonTarget?.trim();
+      if (!target || !isAllowedCustomButtonUrl(target, new URL(SITE_URL).hostname)) return null;
+      return { title: custom || 'Ver más', url: withAgentUtm(target, 'instagram', 'automatizacion') };
+    }
+    default:
+      return null;
+  }
 }
