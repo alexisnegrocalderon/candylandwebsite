@@ -3812,6 +3812,7 @@ function CustomersView() {
         customerId={openCustomerId}
         onClose={() => setOpenCustomerId(null)}
         onChanged={() => refetch()}
+        onDeleted={() => setOpenCustomerId(null)}
         onPrev={openIdx > 0 ? () => setOpenCustomerId(customersList[openIdx - 1].id) : undefined}
         onNext={openIdx >= 0 && openIdx < customersList.length - 1 ? () => setOpenCustomerId(customersList[openIdx + 1].id) : undefined}
       />

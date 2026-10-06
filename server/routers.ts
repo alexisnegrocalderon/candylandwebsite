@@ -71,7 +71,7 @@ import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKit
 import { listLockerItems, updateLockerItem } from "./locker";
 import { voidTicketCode } from "./caja/void";
 import { voidCajaSale } from "./caja/voidSale";
-import { getCustomerProfile, updateCustomerProfile } from "./customerProfile";
+import { deleteCustomerProfile, getCustomerProfile, updateCustomerProfile } from "./customerProfile";
 import { computeCustomerLevel } from "../shared/customerInsights";
 import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftClosed, listCajaAlerts } from "./caja/alerts";
 import { BRAND } from "../shared/eventBrand";
@@ -3986,6 +3986,17 @@ export const appRouter = router({
         return { success: true, changedFields: Object.keys(changed) } as const;
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar la ficha.' });
+      }
+    }),
+    // Borrar la ficha de un cliente (irreversible). Pide la clave de admin en
+    // cada llamada, igual que borrar una compra. No toca compras ni ledgers.
+    delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      try {
+        const { snapshot, skippedMailings } = await deleteCustomerProfile(input.id);
+        await db.recordAdminAudit({ action: 'customers.delete', targetType: 'customer', targetId: input.id, payload: { ...snapshot, skippedMailings }, ip: clientIp(ctx) });
+        return { success: true } as const;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo borrar al cliente.' });
       }
     }),
     // Etiquetas existentes con su conteo -- alimenta los selectores de
