@@ -5,6 +5,7 @@ import { Route, Switch, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { SoundProvider } from '@/lib/sound/SoundContext';
 import Navbar from "./components/Navbar";
 import { isFinePointer, resetScrollPosition } from "./lib/smoothScroll";
 
@@ -198,6 +199,9 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
+          {/* Sonido del sitio: solo suena en las páginas públicas (`active`);
+              en caja/admin/etc. queda en silencio aunque esté encendido. */}
+          <SoundProvider active={!hideChrome}>
           {showDesktopExtras && (
             <Suspense fallback={null}>
               <SmoothScroll />
@@ -210,6 +214,7 @@ function App() {
               superpuesto con ese botón -- se veía como texto roto/mezclado. */}
           <Toaster position="top-center" />
           <Router />
+          </SoundProvider>
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>

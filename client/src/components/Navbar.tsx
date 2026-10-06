@@ -6,6 +6,7 @@ import { CANDYLAND, EVENTO } from '@/config/candyland';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { getGuides, getPosts, articlePath, STANDALONE_PAGES } from '@/content';
+import SoundToggle from '@/components/SoundToggle';
 
 const navLinks = [
   { href: '/', label: 'Inicio' },
@@ -219,6 +220,8 @@ export default function Navbar() {
              * CTA (pedido explícito del dueño): antes flotaba suelto justo
              * al lado del botón "Comprar Entradas" y el ojo iba directo al
              * botón grande -- ahora se lee como un grupo aparte. */}
+            <SoundToggle light={lightChrome} hint={location === '/'} />
+
             <a
               href={CANDYLAND.redes.instagram}
               target="_blank"
@@ -260,6 +263,7 @@ export default function Navbar() {
            * para que se vean iguales en las dos versiones. El botón de menú
            * suma el mismo círculo, para que ambos combinen entre sí. */}
           <div className="flex items-center gap-2.5 md:hidden">
+            <SoundToggle light={lightChrome || mobileOpen} hint={location === '/'} size={17} />
             <a
               href={CANDYLAND.redes.instagram}
               target="_blank"

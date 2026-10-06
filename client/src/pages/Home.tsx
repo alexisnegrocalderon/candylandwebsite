@@ -21,6 +21,7 @@ import {
   Sparkles,
   Ticket,
   VenetianMask,
+  Volume2,
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { WalletCard } from '@/components/wallet/WalletCard';
@@ -42,6 +43,8 @@ import { scrollToId, prefersReducedMotion, isFinePointer, isMobileViewport } fro
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 import { isUnlimitedStock } from '@shared/stock';
 import { eventImage } from '@shared/eventImage';
+import { useSound, useSoundZones } from '@/lib/sound/SoundContext';
+import { EQ_BARS, type PistaId } from '@/lib/sound/config';
 import { useSeo } from '@/hooks/useSeo';
 import { eventSchema, faqSchema } from '@shared/structuredData';
 import { getArticle, articlePath, ALL_ARTICLES, STANDALONE_PAGES } from '@/content';
@@ -390,7 +393,7 @@ function Hero() {
   }, [videoReady, videoPlaying]);
 
   return (
-    <section ref={sectionRef} className="relative min-h-[92svh] flex items-center justify-center overflow-hidden">
+    <section ref={sectionRef} data-sound-zone="0" className="relative min-h-[92svh] flex items-center justify-center overflow-hidden">
       {/* Fondo: el video candy define la paleta del sitio, con un velo claro
           suficiente para que el texto se lea sin taparle el color. */}
       <motion.div className="absolute inset-0" style={pointerFine ? { y: bgY } : undefined}>
@@ -881,7 +884,7 @@ function UpcomingEventsSection() {
   if (!panelEvent) return null;
 
   return (
-    <section id="proximos-eventos" className="relative scroll-mt-24 py-20 md:py-28">
+    <section id="proximos-eventos" data-sound-zone="0.4" className="relative scroll-mt-24 py-20 md:py-28">
       <div className="container">
         <motion.div {...reveal} className="max-w-2xl mb-10 md:mb-12">
           <p className="text-sm uppercase tracking-[0.3em] text-primary mb-4">Calendario</p>
@@ -1017,7 +1020,7 @@ function UrgencySection({
 
   if (!EVENTO.fechaConfirmada) {
     return (
-      <section id="proxima-fecha" className="relative scroll-mt-24 py-10 md:py-14 overflow-hidden">
+      <section id="proxima-fecha" data-sound-zone="0.25" className="relative scroll-mt-24 py-10 md:py-14 overflow-hidden">
         {fullBleedBand}
         <div aria-hidden className="absolute -top-16 left-[10%] w-72 h-72 rounded-full bg-primary/15 blur-[100px] candy-float-slow" />
         <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/15 blur-[110px] candy-float" />
@@ -1029,7 +1032,7 @@ function UrgencySection({
   }
 
   return (
-    <section id="proxima-fecha" className="relative scroll-mt-24 py-10 md:py-14 overflow-hidden">
+    <section id="proxima-fecha" data-sound-zone="0.25" className="relative scroll-mt-24 py-10 md:py-14 overflow-hidden">
       {fullBleedBand}
       <div aria-hidden className="absolute -top-16 left-[10%] w-72 h-72 rounded-full bg-primary/15 blur-[100px] candy-float-slow" />
       <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/15 blur-[110px] candy-float" />
@@ -1477,7 +1480,7 @@ function ExperienceSection() {
   const [pointerFine] = useState(() => isFinePointer());
 
   return (
-    <section id="experiencia" className="py-24 md:py-32 relative overflow-hidden">
+    <section id="experiencia" data-sound-zone="0.65" className="py-24 md:py-32 relative overflow-hidden">
       {/* Brillos de club difuminados -- mismo patrón que Hero/UrgencySection,
        * ausente acá hasta ahora, lo que hacía que esta sección se sintiera
        * más plana que las de al lado. */}
@@ -1734,38 +1737,106 @@ const PISTA_SKINS: Record<string, { grad: string; bar: string; emoji: string }> 
   TECH: { grad: 'from-candy-blue/35 via-violet-electric/20 to-transparent', bar: 'bg-candy-blue', emoji: '🤖' },
 };
 
-function LineupSection() {
-  const hayLineup = CANDYLAND.lineup.length > 0;
-  const [activa, setActiva] = useState<string | null>(null);
-  const [pointerFine] = useState(() => isFinePointer());
-  const [reducedMotion] = useState(() => prefersReducedMotion());
+/** Barras del ecualizador de una pista. Con sonido real (`live`) siguen el
+ * audio vía AnalyserNode -- se actualizan por `transform` en un
+ * requestAnimationFrame a ~30 fps, sin pasar por React ni provocar layout, y
+ * solo mientras la tarjeta se ve en pantalla y la pestaña está visible. Sin
+ * sonido, la pista activa conserva el "latido" aleatorio de siempre. */
+function EqBars({ barClass, active, live, reducedMotion }: { barClass: string; active: boolean; live: boolean; reducedMotion: boolean }) {
+  const { getBars } = useSound();
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const barRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const [randomHeights, setRandomHeights] = useState<number[]>([]);
 
-  // Ecualizador "vivo": mientras hay una pista activa, sus barras se
-  // re-randomizan cada ~500ms en vez de quedarse en la altura fija que ya
-  // calcula la fórmula de abajo -- la pista inactiva mantiene esa fórmula
-  // estática (más calma a propósito, ver `eq-bar-idle`). Se apaga entero con
-  // reduced-motion: sin esto, `eq-bar`'s CSS ya para su propia animación,
-  // pero este setInterval seguiría reescribiendo `height` igual.
-  const [activeBarHeights, setActiveBarHeights] = useState<number[]>([]);
   useEffect(() => {
-    if (!activa || reducedMotion) {
-      setActiveBarHeights([]);
+    if (!active || live || reducedMotion) {
+      setRandomHeights([]);
       return;
     }
-    const randomize = () => setActiveBarHeights(Array.from({ length: 9 }, () => 18 + Math.random() * 55));
+    const randomize = () => setRandomHeights(Array.from({ length: EQ_BARS }, () => 18 + Math.random() * 55));
     randomize();
     const id = setInterval(randomize, 450 + Math.random() * 150);
     return () => clearInterval(id);
-  }, [activa, reducedMotion]);
+  }, [active, live, reducedMotion]);
+
+  useEffect(() => {
+    if (!live || reducedMotion) return;
+    let raf = 0;
+    let last = 0;
+    let visible = true;
+    const io = typeof IntersectionObserver !== 'undefined'
+      ? new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; })
+      : null;
+    if (wrapRef.current) io?.observe(wrapRef.current);
+    const loop = (ts: number) => {
+      raf = requestAnimationFrame(loop);
+      if (!visible || document.hidden || ts - last < 33) return;
+      last = ts;
+      const bars = getBars(EQ_BARS);
+      if (!bars) return;
+      for (let i = 0; i < EQ_BARS; i++) {
+        const el = barRefs.current[i];
+        if (el) el.style.transform = `scaleY(${(0.1 + bars[i] * 0.9).toFixed(3)})`;
+      }
+    };
+    raf = requestAnimationFrame(loop);
+    return () => {
+      cancelAnimationFrame(raf);
+      io?.disconnect();
+      barRefs.current.forEach((el) => { if (el) el.style.transform = ''; });
+    };
+  }, [live, reducedMotion, getBars]);
+
+  const driven = live && !reducedMotion;
+  return (
+    <div ref={wrapRef} aria-hidden className={`absolute inset-x-0 bottom-0 flex items-end justify-center gap-1 md:gap-1.5 h-1/2 px-4 transition-opacity duration-500 ${driven ? 'opacity-70' : 'opacity-50'}`}>
+      {Array.from({ length: EQ_BARS }).map((_, i) => (
+        <span
+          key={i}
+          ref={(el) => { barRefs.current[i] = el; }}
+          className={`eq-bar w-1.5 md:w-2 rounded-t-full ${barClass} ${active ? '' : 'eq-bar-idle'}`}
+          style={
+            driven
+              ? { height: '100%', animation: 'none', transform: 'scaleY(0.1)' }
+              : {
+                  animationDelay: `${i * 0.12}s`,
+                  height: `${active && randomHeights[i] !== undefined ? randomHeights[i] : 18 + ((i * 37) % 55)}%`,
+                  transition: active ? 'height 0.4s ease' : undefined,
+                }
+          }
+        />
+      ))}
+    </div>
+  );
+}
+
+function LineupSection() {
+  const hayLineup = CANDYLAND.lineup.length > 0;
+  const sound = useSound();
+  // El hover (solo con mouse) es puramente visual. El sonido se activa con el
+  // toque/click/teclado, que es lo que elige la pista: en celular el
+  // navegador dispara pointerenter + click + pointerleave juntos, y atar el
+  // sonido al hover lo habría encendido y apagado al mismo tiempo.
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [pointerFine] = useState(() => isFinePointer());
+  const [reducedMotion] = useState(() => prefersReducedMotion());
+  const selected = sound.pista as string | null;
+  const activa = hovered ?? selected;
+
+  const choose = (genero: string) => sound.selectPista(selected === genero ? null : (genero as PistaId));
+  // Al salir de la portada la pista vuelve al ambiente.
+  const { selectPista } = sound;
+  useEffect(() => () => selectPista(null), [selectPista]);
 
   return (
-    <section className="py-14 md:py-20 bg-gradient-to-b from-transparent via-violet-electric/5 to-transparent">
+    <section data-sound-zone="0.8" className="py-14 md:py-20 bg-gradient-to-b from-transparent via-violet-electric/5 to-transparent">
       <div className="container">
         <motion.div {...reveal} className="mb-6 md:mb-8">
           <p className="text-sm uppercase tracking-[0.3em] text-primary mb-2">Line-up</p>
           <h2 className="font-heading font-bold text-2xl md:text-4xl tracking-tight">
             Elige tu <span className="text-gradient-candy">energía</span>
           </h2>
+          <p className="text-xs md:text-sm text-muted-foreground mt-2">Toca una pista y escucha cómo suena.</p>
         </motion.div>
 
         {/* Split de energía: la pista activa se expande, la otra respira */}
@@ -1773,6 +1844,7 @@ function LineupSection() {
           {CANDYLAND.pistas.map((pista) => {
             const skin = PISTA_SKINS[pista.genero] ?? PISTA_SKINS.PERREO;
             const isActive = activa === pista.genero;
+            const isSelected = selected === pista.genero;
             const isDimmed = activa !== null && !isActive;
             return (
               <div
@@ -1782,37 +1854,58 @@ function LineupSection() {
                 }`}
               >
                 <div
-                  onPointerEnter={() => setActiva(pista.genero)}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
+                  aria-label={`${pista.nombre}, ${pista.genero}: ${isSelected ? 'detener' : 'escuchar'}`}
+                  onPointerEnter={(e) => { if (e.pointerType === 'mouse') setHovered(pista.genero); }}
                   onPointerLeave={(e) => {
-                    setActiva(null);
+                    setHovered(null);
                     if (pointerFine) resetCandyTilt(e);
                   }}
                   onPointerMove={pointerFine ? handleCandyTilt : undefined}
-                  onClick={() => setActiva(isActive ? null : pista.genero)}
-                  className="candy-pass relative h-full rounded-2xl overflow-hidden glass-candy cursor-pointer"
+                  onClick={() => choose(pista.genero)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      choose(pista.genero);
+                    }
+                  }}
+                  className="candy-pass relative h-full rounded-2xl overflow-hidden glass-candy cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   {/* Fondo de energía */}
                   <div className={`absolute inset-0 bg-gradient-to-t ${skin.grad}`} />
 
-                  {/* Ecualizador animado -- barras vivas mientras está activa */}
-                  <div aria-hidden className="absolute inset-x-0 bottom-0 flex items-end justify-center gap-1 md:gap-1.5 h-1/2 px-4 opacity-50">
-                    {Array.from({ length: 9 }).map((_, i) => (
-                      <span
-                        key={i}
-                        className={`eq-bar w-1.5 md:w-2 rounded-t-full ${skin.bar} ${isActive ? '' : 'eq-bar-idle'}`}
-                        style={{
-                          animationDelay: `${i * 0.12}s`,
-                          height: `${isActive && activeBarHeights[i] !== undefined ? activeBarHeights[i] : 18 + ((i * 37) % 55)}%`,
-                          transition: isActive ? 'height 0.4s ease' : undefined,
-                        }}
-                      />
-                    ))}
-                  </div>
+                  {/* Ecualizador -- sigue el audio real mientras suena */}
+                  <EqBars
+                    barClass={skin.bar}
+                    active={isActive}
+                    live={isSelected && sound.playing}
+                    reducedMotion={reducedMotion}
+                  />
 
                   {/* Brillo + banda holográfica que siguen el puntero (ver
                    * .candy-sheen/.candy-holo en index.css) */}
                   <div aria-hidden className="candy-sheen" />
                   <div aria-hidden className="candy-holo" />
+
+                  {/* Estado de sonido de la tarjeta */}
+                  <span aria-hidden className="pointer-events-none absolute top-3 right-3 z-[1] inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/35 backdrop-blur-sm px-2.5 py-1 text-[10px] md:text-xs font-semibold uppercase tracking-wider text-white/90">
+                    {isSelected && sound.playing ? (
+                      <>
+                        <span className="flex items-end gap-[2px] h-2.5">
+                          {[0, 1, 2].map((n) => (
+                            <span key={n} className="eq-bar block w-[2px] h-full rounded-full bg-white" style={{ animationDelay: `${n * 0.15}s` }} />
+                          ))}
+                        </span>
+                        Sonando
+                      </>
+                    ) : (
+                      <>
+                        <Volume2 className="w-3 h-3" /> Escuchar
+                      </>
+                    )}
+                  </span>
 
                   {/* Contenido */}
                   <div className="relative h-full flex flex-col justify-end p-4 md:p-6">
@@ -1864,7 +1957,7 @@ function LineupSection() {
 
 function InfoSection() {
   return (
-    <section className="relative overflow-hidden py-24 md:py-32 bg-gradient-to-b from-transparent via-primary/5 to-transparent">
+    <section data-sound-zone="0.9" className="relative overflow-hidden py-24 md:py-32 bg-gradient-to-b from-transparent via-primary/5 to-transparent">
       {/* Misma capa de brillos difuminados que Experience/Urgency -- acá antes
        * no había nada, así que la sección se veía chata al lado de las otras. */}
       <div aria-hidden className="absolute top-10 -right-16 w-72 h-72 rounded-full bg-violet-electric/12 blur-2xl md:blur-[120px] candy-float" />
@@ -1920,7 +2013,7 @@ function InfoSection() {
 
 function FinalCTASection() {
   return (
-    <section className="relative py-28 md:py-40 overflow-hidden">
+    <section data-sound-zone="1" className="relative py-28 md:py-40 overflow-hidden">
       <img
         src="/candyland/poster-hero-bg.webp"
         alt=""
@@ -2148,6 +2241,9 @@ export default function Home() {
   // en touch con el mismo criterio que ya usan ScrollCandies, los caramelos
   // arrastrables y el parallax del hero.
   const [showNoise] = useState(() => isFinePointer());
+
+  // La puerta de la Mansión se va abriendo (sonido) según la sección visible.
+  useSoundZones();
 
   // El home es la única página que conserva "fiesta liberal" en el título
   // (junto con la del evento): antes /eventos, /entradas y /eventos/:slug
