@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { ENV } from "./_core/env";
 import { processMailingCronBatch } from "./mailing";
-import { purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, purgeOldIgThreads, purgeOldWaThreads, getEventHappeningToday, getCajaDashboard, getHomeEvents } from "./db";
+import { purgeClosedPartyPhotos, purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, purgeOldIgThreads, purgeOldWaThreads, getEventHappeningToday, getCajaDashboard, getHomeEvents } from "./db";
 import { sendEmail, buildCheckinSummaryEmail } from "./email";
 import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
 import { runAbandonedCartCron } from "./orderReminders";
@@ -123,6 +123,7 @@ export function registerCronRoutes(app: Express) {
     let partyProfilesPurged = 0;
     let giftInvitationsExpired = 0;
     try {
+      await purgeClosedPartyPhotos();
       partyMessagesPurgedFor = (await purgeOldPartyMessages()).deletedFor;
       partyProfilesPurged = (await purgeOldPartyProfiles()).profilesDeleted;
       // Nunca toca un regalo ya pagado: ese sigue válido para la próxima fiesta.

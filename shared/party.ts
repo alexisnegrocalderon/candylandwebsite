@@ -258,3 +258,32 @@ export function sanitizeGiftMessage(raw: string): { ok: true; body: string } | {
   if (body.length > MAX_GIFT_MESSAGE_LENGTH) return { ok: false, reason: `Máximo ${MAX_GIFT_MESSAGE_LENGTH} caracteres` };
   return { ok: true, body };
 }
+
+// --- Foto de perfil (swipe) ----------------------------------------------
+//
+// La foto se toma con la cámara dentro de la fiesta, se recorta cuadrada y se
+// comprime en el celular. El servidor igual la valida: el cliente no es una
+// frontera de confianza.
+
+export const PHOTO_MAX_BYTES = 200 * 1024;
+export const PHOTO_SIZE_PX = 480;
+
+/** Solo JPEG: es lo que `canvas.toBlob('image/jpeg')` entrega en todos los
+ * navegadores (WebP falla en Safari viejo). Se revisa la firma real del
+ * archivo, no el tipo declarado por el cliente. */
+export function isJpeg(bytes: Uint8Array): boolean {
+  return bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+}
+
+export function validatePhotoBytes(bytes: Uint8Array): { ok: true } | { ok: false; reason: string } {
+  if (bytes.length === 0) return { ok: false, reason: 'La foto está vacía' };
+  if (bytes.length > PHOTO_MAX_BYTES) return { ok: false, reason: 'La foto pesa demasiado, toma otra' };
+  if (!isJpeg(bytes)) return { ok: false, reason: 'Formato de foto no válido' };
+  return { ok: true };
+}
+
+/** Para ver fotos de otros hay que poner la propia: sin esto el swipe sería
+ * un lugar donde mirar sin exponerse. */
+export function canSeePhotos(viewer: { swipeEnabled: number | boolean; banned?: number | boolean }, viewerHasPhoto: boolean): boolean {
+  return !!viewer.swipeEnabled && !viewer.banned && viewerHasPhoto;
+}

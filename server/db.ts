@@ -2,11 +2,11 @@ import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, isNull, isNotN
 import { drizzle } from "drizzle-orm/mysql2";
 import { randomBytes } from "crypto";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
-import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
+import { MAX_TOUCHES_PER_EVENT, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { chileHourOf, startOfChileDay } from '../shared/chileDate';
@@ -6165,8 +6165,10 @@ export async function setPartyProfileBanned(profileId: number, banned: boolean) 
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(partyProfiles)
-    .set({ banned: banned ? 1 : 0, active: banned ? 0 : 1 })
+    .set({ banned: banned ? 1 : 0, active: banned ? 0 : 1, ...(banned ? { swipeEnabled: 0 } : {}) })
     .where(eq(partyProfiles.id, profileId));
+  // Quien es expulsado pierde también la foto: no debe seguir circulando.
+  if (banned) await db.delete(partyPhotos).where(eq(partyPhotos.profileId, profileId));
   return { success: true };
 }
 
@@ -6180,6 +6182,90 @@ export async function setPartyReportResolved(id: number, resolved: boolean) {
     .set({ resolvedAt: resolved ? new Date() : null })
     .where(eq(partyReports.id, id));
   return { success: true };
+}
+
+/* --- Fotos del swipe ------------------------------------------------------ */
+
+/** Guarda (o reemplaza) la foto del perfil y lo suma al swipe. */
+export async function savePartyPhoto(profileId: number, eventId: number, data: Buffer) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(partyPhotos).where(eq(partyPhotos.profileId, profileId));
+  await db.insert(partyPhotos).values({ profileId, eventId, data });
+  await db.update(partyProfiles).set({ swipeEnabled: 1 }).where(eq(partyProfiles.id, profileId));
+}
+
+/** Borra la foto y saca al perfil del swipe, al instante. */
+export async function deletePartyPhoto(profileId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(partyPhotos).where(eq(partyPhotos.profileId, profileId));
+  await db.update(partyProfiles).set({ swipeEnabled: 0 }).where(eq(partyProfiles.id, profileId));
+}
+
+/** Pausar o reanudar la participación sin perder la foto. */
+export async function setPartySwipeEnabled(profileId: number, enabled: boolean) {
+  const db = await getDb();
+  if (!db) return { ok: false as const };
+  if (enabled && !(await partyProfileHasPhoto(profileId))) return { ok: false as const };
+  await db.update(partyProfiles).set({ swipeEnabled: enabled ? 1 : 0 }).where(eq(partyProfiles.id, profileId));
+  return { ok: true as const };
+}
+
+export async function partyProfileHasPhoto(profileId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const [row] = await db.select({ id: partyPhotos.id }).from(partyPhotos).where(eq(partyPhotos.profileId, profileId)).limit(1);
+  return !!row;
+}
+
+/** La foto de `targetProfileId` tal como la puede ver `viewer`, o null si no
+ * puede (y no se distingue el motivo a propósito: una foto bloqueada, de otro
+ * evento o inexistente se ven igual desde afuera).
+ *
+ * Cada persona siempre puede ver la suya. Para ver la de otra: misma fiesta,
+ * el otro participa del swipe, no hay bloqueo entre ambos, y el que mira
+ * también puso foto (`canSeePhotos`). */
+export async function getPartyPhotoForViewer(
+  viewer: { id: number; eventId: number; swipeEnabled: number; banned: number },
+  targetProfileId: number,
+): Promise<Buffer | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [row] = await db.select({ data: partyPhotos.data, eventId: partyPhotos.eventId })
+    .from(partyPhotos).where(eq(partyPhotos.profileId, targetProfileId)).limit(1);
+  if (!row) return null;
+  if (viewer.id === targetProfileId) return row.data;
+
+  if (row.eventId !== viewer.eventId) return null;
+  if (!canSeePhotos(viewer, await partyProfileHasPhoto(viewer.id))) return null;
+
+  const [target] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, targetProfileId)).limit(1);
+  if (!target || target.active !== 1 || target.banned || !target.swipeEnabled) return null;
+
+  const hidden = await getPartyHiddenIds(db, viewer.id);
+  if (hidden.has(targetProfileId)) return null;
+  return row.data;
+}
+
+/** Borra las fotos y saca del swipe a todos los perfiles de eventos cuya
+ * ventana ya cerró (mismo respaldo de 12h que `partyWindow` cuando no hay
+ * `eventEnd`). El endpoint igual deja de servirlas al cerrar la ventana; esto
+ * es el borrado real. */
+export async function purgeClosedPartyPhotos(now: Date = new Date()) {
+  const db = await getDb();
+  if (!db) return { photosDeleted: 0 };
+  const closed = await db.select({ id: events.id }).from(events)
+    .where(sql`COALESCE(${events.eventEnd}, DATE_ADD(${events.eventDate}, INTERVAL 12 HOUR)) <= ${now}`);
+  if (closed.length === 0) return { photosDeleted: 0 };
+  const ids = closed.map((e: any) => e.id);
+  const photos = await db.select({ id: partyPhotos.id }).from(partyPhotos).where(inArray(partyPhotos.eventId, ids));
+  if (photos.length > 0) {
+    await db.delete(partyPhotos).where(inArray(partyPhotos.eventId, ids));
+    await db.update(partyProfiles).set({ swipeEnabled: 0 }).where(inArray(partyProfiles.eventId, ids));
+  }
+  return { photosDeleted: photos.length };
 }
 
 /** Borra lo que la gente escribió, 24h después de terminada la fiesta. Los

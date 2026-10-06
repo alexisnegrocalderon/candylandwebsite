@@ -16,7 +16,7 @@ import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceTo
 import { redeemDisplayCode } from "./caja/redeem";
 import { checkInTicket } from "./caja/checkin";
 import { sellParkingAtDoor } from "./caja/parkingPaid";
-import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen } from "../shared/party";
+import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
@@ -1691,7 +1691,7 @@ export const appRouter = router({
           eventEnd: actor.event.eventEnd,
         },
         profile: actor.profile
-          ? { id: actor.profile.id, alias: actor.profile.alias, gender: actor.profile.gender, avatarId: actor.profile.avatarId, zone: actor.profile.zone }
+          ? { id: actor.profile.id, alias: actor.profile.alias, gender: actor.profile.gender, avatarId: actor.profile.avatarId, zone: actor.profile.zone, swipeEnabled: !!actor.profile.swipeEnabled, hasPhoto: await db.partyProfileHasPhoto(actor.profile.id) }
           : null,
       };
     }),
@@ -1780,6 +1780,31 @@ export const appRouter = router({
         }
         return { ok: true };
       }),
+
+    // --- Foto del swipe (la imagen se sirve por /api/party/photo, no por tRPC) ---
+    uploadPhoto: publicProcedure.input(z.object({
+      ticketCode: z.string(),
+      // JPEG en base64: ~200KB como mucho, validado de nuevo acá.
+      photoBase64: z.string().max(400_000),
+    })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const bytes = Buffer.from(input.photoBase64, 'base64');
+      const check = validatePhotoBytes(bytes);
+      if (!check.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: check.reason });
+      await db.savePartyPhoto(actor.profile.id, actor.event.id, bytes);
+      return { ok: true };
+    }),
+    deletePhoto: publicProcedure.input(z.object({ ticketCode: z.string() })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      await db.deletePartyPhoto(actor.profile.id);
+      return { ok: true };
+    }),
+    setSwipeEnabled: publicProcedure.input(z.object({ ticketCode: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      const res = await db.setPartySwipeEnabled(actor.profile.id, input.enabled);
+      if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Primero sube tu foto' });
+      return { ok: true };
+    }),
 
     block: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number() }))
       .mutation(async ({ input }) => {

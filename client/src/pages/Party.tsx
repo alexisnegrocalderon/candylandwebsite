@@ -9,6 +9,7 @@ import { useSeo } from '@/hooks/useSeo';
 import { PartyAvatar } from '@/components/party/Avatar';
 import { Mansion, type MansionPerson } from '@/components/party/Mansion';
 import { DrinkPicker, GiftInbox } from '@/components/party/Gifts';
+import { MyPhotoPanel } from '@/components/party/MyPhotoPanel';
 import {
   AVATARS_PER_GENDER, MAX_ALIAS_LENGTH, MAX_MESSAGE_LENGTH, PARTY_GENDERS, PARTY_ZONES,
   ZONE_LABELS, sanitizeAlias, type PartyGender, type PartyZone,
@@ -54,6 +55,7 @@ export default function Party() {
   const [gifting, setGifting] = useState<{ profileId: number; alias: string } | null>(null);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [photoOpen, setPhotoOpen] = useState(false);
 
   if (session.isLoading) {
     return (
@@ -81,6 +83,7 @@ export default function Party() {
         onGift={(profileId, alias) => { setSelected(null); setGifting({ profileId, alias }); }}
         onOpenInbox={() => setInboxOpen(true)}
         onOpenNotifications={() => setNotifOpen(true)}
+        onOpenPhoto={() => setPhotoOpen(true)}
         selected={selected}
         onCloseCard={() => setSelected(null)}
       />
@@ -96,6 +99,17 @@ export default function Party() {
           />
         )}
         {inboxOpen && <GiftInbox ticketCode={ticketCode} onClose={() => setInboxOpen(false)} />}
+        {photoOpen && (
+          <MyPhotoPanel
+            ticketCode={ticketCode}
+            profileId={session.data.profile.id}
+            alias={session.data.profile.alias}
+            hasPhoto={session.data.profile.hasPhoto}
+            swipeEnabled={session.data.profile.swipeEnabled}
+            onChanged={() => session.refetch()}
+            onClose={() => setPhotoOpen(false)}
+          />
+        )}
         {notifOpen && <NotificationsPanel ticketCode={ticketCode} onClose={() => setNotifOpen(false)} />}
         {openChat && (
           <Chat
@@ -268,7 +282,7 @@ function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreate
 
 /* --- La mansión ---------------------------------------------------------- */
 
-function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, onGift, onOpenInbox, onOpenNotifications, selected, onCloseCard }: {
+function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, onGift, onOpenInbox, onOpenNotifications, onOpenPhoto, selected, onCloseCard }: {
   ticketCode: string;
   myZone: PartyZone;
   onPick: (p: MansionPerson) => void;
@@ -277,6 +291,7 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, on
   onGift: (profileId: number, alias: string) => void;
   onOpenInbox: () => void;
   onOpenNotifications: () => void;
+  onOpenPhoto: () => void;
   selected: MansionPerson | null;
   onCloseCard: () => void;
 }) {
@@ -308,6 +323,13 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, on
           <p className="text-xs text-white/40">
             {mansion.data ? `${mansion.data.touchesLeft} toques` : ''}
           </p>
+          <button
+            onClick={onOpenPhoto}
+            className="h-9 px-3 rounded-full border border-white/15 text-sm"
+            aria-label="Mi foto"
+          >
+            📸
+          </button>
           <button
             onClick={onOpenNotifications}
             className="h-9 px-3 rounded-full border border-white/15 text-sm"

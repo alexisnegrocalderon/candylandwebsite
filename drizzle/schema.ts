@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex, customType } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
 
 /**
@@ -1427,6 +1427,9 @@ export const partyProfiles = mysqlTable("partyProfiles", {
   // Expulsado por el equipo del local. Distinto de `active`: nada lo revierte
   // por su cuenta.
   banned: int("banned").default(0).notNull(),
+  // Participa del swipe: exige tener foto (ver partyPhotos). Se apaga solo al
+  // borrar la foto o al expulsar al perfil.
+  swipeEnabled: int("swipeEnabled").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   // El patrón de consulta real: "todos los perfiles activos de este evento".
@@ -1435,6 +1438,27 @@ export const partyProfiles = mysqlTable("partyProfiles", {
 
 export type PartyProfile = typeof partyProfiles.$inferSelect;
 export type InsertPartyProfile = typeof partyProfiles.$inferInsert;
+
+// MEDIUMBLOB (hasta 16MB) para la foto ya comprimida: la foto NO va a Vercel
+// Blob porque esas URLs son públicas, y esta tiene que verse solo adentro de
+// la fiesta (se sirve por /api/party/photo, que revalida la entrada).
+const mediumblob = customType<{ data: Buffer }>({
+  dataType() { return "mediumblob"; },
+});
+
+// Una foto por perfil, tomada con la cámara dentro de la fiesta. Se borra al
+// cerrar la ventana del evento, al borrarla la persona o al expulsarla.
+export const partyPhotos = mysqlTable("partyPhotos", {
+  id: int("id").autoincrement().primaryKey(),
+  profileId: int("profileId").notNull().unique(),
+  eventId: int("eventId").notNull(),
+  data: mediumblob("data").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  eventIdx: index("party_photos_event_idx").on(table.eventId),
+}));
+
+export type PartyPhoto = typeof partyPhotos.$inferSelect;
 
 // Un toque 👋 y su respuesta. El par se guarda SIEMPRE normalizado
 // (profileLowId < profileHighId, ver orderedPair en shared/party.ts): con
