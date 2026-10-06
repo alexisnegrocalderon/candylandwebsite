@@ -2017,6 +2017,11 @@ export const igKeywordAutomations = mysqlTable("igKeywordAutomations", {
   buttonKind: varchar("buttonKind", { length: 12 }).default("none").notNull(),
   buttonTarget: varchar("buttonTarget", { length: 300 }),
   buttonTitle: varchar("buttonTitle", { length: 20 }),
+  // Solo para regalos de producto: 1 = se regala UNA unidad por persona que
+  // entra (Dúo = 2, Trío = 3, Grupo = 4), 0 = una sola por compra. Vive acá y
+  // no en discountCodes a propósito: el checkout lee discountCodes en cada
+  // compra y no debe depender de una columna nueva.
+  giftPerPerson: int("giftPerPerson").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   keywordIdx: index("ig_keyword_automations_keyword_idx").on(table.keyword),

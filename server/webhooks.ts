@@ -1,7 +1,7 @@
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { Router, Request, Response } from 'express';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
-import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid, matchLeadForOrder, getSiteSettings, creditPrepaid } from './db';
+import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid, matchLeadForOrder, getSiteSettings, creditPrepaid, isGiftPerPersonForCode } from './db';
 import { normalizeOrderEmailConfig } from '../shared/emailTemplateConfig';
 import { sendPushToAdmins } from './push';
 import { attributeAmbassadorSale } from './ambassadorProgram';
@@ -14,6 +14,7 @@ import { generateTicketQR } from './qr';
 import { sendEmail, buildOrderEmail, buildMissionTopupEmail, buildTierUpEmail, buildAlmostTierEmail, buildGiftEmail, buildBirthdayTierUnlockedEmail, buildTopupEmail } from './email';
 import { EMAIL_BASE_URL } from './emailLayout';
 import { applyPendingCardPin } from './playcardTopup';
+import { giftQuantityForOrder } from '../shared/giftQuantity';
 import { missionCutoff, missionCapPrice, personasForAccesoSlug, MISSION_300_GOAL } from '../shared/mission300';
 import { AMBASSADOR_TIERS, tierForCount, nextTierForCount } from '../shared/ambassadorTiers';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
@@ -608,10 +609,22 @@ async function processApprovedOrder(order: any) {
         const [giftProduct] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, discount.giftTicketTypeId)).limit(1);
         if (giftProduct) {
           giftTicketTypeId = giftProduct.id;
+          // "Por persona" (se elige en la automatización): una unidad por cada
+          // persona que entra -- Dúo 2, Trío 3, Grupo 4. Por defecto, una por compra.
+          const perPerson = discount.code ? await isGiftPerPersonForCode(discount.code) : false;
+          let giftQuantity = 1;
+          if (perPerson) {
+            const paid = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+            const paidTypes = paid.length
+              ? await db.select().from(ticketTypes).where(inArray(ticketTypes.id, paid.map((i) => i.ticketTypeId)))
+              : [];
+            const typeById = new Map(paidTypes.map((t) => [t.id, t]));
+            giftQuantity = giftQuantityForOrder(true, paid.map((i) => ({ category: typeById.get(i.ticketTypeId)?.category, accesoSlug: typeById.get(i.ticketTypeId)?.accesoSlug, quantity: i.quantity })));
+          }
           await db.insert(orderItems).values({
             orderId: order.id,
             ticketTypeId: giftProduct.id,
-            quantity: 1,
+            quantity: giftQuantity,
             unitPrice: '0',
             totalPrice: '0',
             unitCost: giftProduct.costPrice ?? undefined,
@@ -619,7 +632,7 @@ async function processApprovedOrder(order: any) {
           // Aunque sea gratis, cuenta como vendido para el inventario real
           // (pedido explícito del dueño) -- mismo contador que incrementa
           // cualquier venta normal.
-          await db.update(ticketTypes).set({ soldCount: sql`soldCount + 1` }).where(eq(ticketTypes.id, giftProduct.id));
+          await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${giftQuantity}` }).where(eq(ticketTypes.id, giftProduct.id));
         }
       }
     } catch (err) {

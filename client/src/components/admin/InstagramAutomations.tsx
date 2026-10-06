@@ -96,6 +96,94 @@ function AutomationButtonPicker({ value, onChange, hasReward }: { value: ButtonV
   );
 }
 
+/** Cuántas unidades del regalo recibe cada compra. */
+function GiftQuantitySelect({ perPerson, onChange }: { perPerson: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div>
+      <Label>¿Cuántos regala por compra?</Label>
+      <Select value={perPerson ? 'person' : 'order'} onValueChange={(v) => onChange(v === 'person')}>
+        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="person">1 por persona (Dúo = 2, Trío = 3, Grupo de 4 = 4)</SelectItem>
+          <SelectItem value="order">1 por compra, sin importar el acceso</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+/** Cantidad del regalo de una automatización ya creada: se ve y se puede cambiar. */
+function AutomationGiftEditor({ automation }: { automation: { id: number; giftPerPerson: number } }) {
+  const utils = trpc.useUtils();
+  const save = trpc.instagramAutomations.setGiftPerPerson.useMutation({
+    onSuccess: () => { utils.instagramAutomations.list.invalidate(); toast.success('Cantidad del regalo guardada.'); },
+    onError,
+  });
+  return (
+    <div className="mt-1 max-w-sm">
+      <GiftQuantitySelect perPerson={automation.giftPerPerson === 1} onChange={(v) => save.mutate({ id: automation.id, perPerson: v })} />
+    </div>
+  );
+}
+
+/** Editar palabra clave, dónde aplica y el mensaje de una automatización ya
+ * creada. El regalo/código no se toca: ya está creado y vinculado. */
+function AutomationTextEditor({ automation }: { automation: { id: number; keyword: string; triggerSource: 'comment' | 'story_reply' | 'both'; replyMessage: string } }) {
+  const utils = trpc.useUtils();
+  const [editing, setEditing] = useState(false);
+  const [keyword, setKeyword] = useState(automation.keyword);
+  const [triggerSource, setTriggerSource] = useState(automation.triggerSource);
+  const [replyMessage, setReplyMessage] = useState(automation.replyMessage);
+  const save = trpc.instagramAutomations.save.useMutation({
+    onSuccess: () => { utils.instagramAutomations.list.invalidate(); setEditing(false); toast.success('Automatización actualizada.'); },
+    onError,
+  });
+  if (!editing) {
+    return (
+      <button
+        className="text-xs underline text-primary mt-1"
+        onClick={() => { setKeyword(automation.keyword); setTriggerSource(automation.triggerSource); setReplyMessage(automation.replyMessage); setEditing(true); }}
+      >
+        Editar mensaje
+      </button>
+    );
+  }
+  return (
+    <div className="mt-2 space-y-2 rounded-xl bg-muted/30 p-3">
+      <div>
+        <Label>Palabra clave</Label>
+        <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} className="mt-1" />
+      </div>
+      <div>
+        <Label>¿Dónde aplica?</Label>
+        <Select value={triggerSource} onValueChange={(v) => setTriggerSource(v as typeof triggerSource)}>
+          <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="story_reply">Respuesta a historia</SelectItem>
+            <SelectItem value="comment">Comentario (⏳ pendiente de permiso de Meta)</SelectItem>
+            <SelectItem value="both">Las dos</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <Label>Mensaje que le llega</Label>
+        <Textarea rows={6} value={replyMessage} onChange={(e) => setReplyMessage(e.target.value)} className="mt-1" />
+        <p className="text-xs text-muted-foreground mt-1">Puedes usar {'{{codigo}}'}, {'{{producto}}'} y {'{{link}}'}. El cambio vale desde el próximo mensaje que llegue.</p>
+      </div>
+      <div className="flex gap-2">
+        <WriteButton
+          size="sm"
+          disabled={save.isPending || !keyword.trim() || !replyMessage.trim()}
+          onClick={() => save.mutate({ id: automation.id, keyword: keyword.trim(), triggerSource, replyMessage: replyMessage.trim() })}
+        >
+          {save.isPending ? 'Guardando...' : 'Guardar cambios'}
+        </WriteButton>
+        <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancelar</Button>
+      </div>
+    </div>
+  );
+}
+
 /** Botón de una automatización ya creada: se ve cuál tiene y se puede cambiar. */
 function AutomationButtonEditor({ automation }: { automation: { id: number; discountCode: string | null; buttonKind: string; buttonTarget: string | null; buttonTitle: string | null } }) {
   const utils = trpc.useUtils();
@@ -144,6 +232,7 @@ export function InstagramAutomations() {
   const [validUntil, setValidUntil] = useState('');
   const [aiIdea, setAiIdea] = useState('');
   const [button, setButton] = useState<ButtonValue>(NO_BUTTON);
+  const [perPerson, setPerPerson] = useState(false);
 
   // Productos del evento activo, para elegir cuál regalar -- mismo par de
   // queries que ya usa FlashPromoCard, sin filtrar por categoría acá: a
@@ -171,6 +260,7 @@ export function InstagramAutomations() {
     setValidUntil('');
     setAiIdea('');
     setButton(NO_BUTTON);
+    setPerPerson(false);
     setShowForm(false);
   };
 
@@ -209,6 +299,7 @@ export function InstagramAutomations() {
       } : rewardMode === 'gift' ? {
         kind: 'gift',
         giftTicketTypeId: Number(giftTicketTypeId),
+        perPerson,
         maxUses: maxUses ? Number(maxUses) : undefined,
         validUntil: validUntil || undefined,
       } : undefined,
@@ -234,6 +325,8 @@ export function InstagramAutomations() {
               <p className="text-muted-foreground text-xs">{TRIGGER_LABEL[a.triggerSource]}</p>
               <p className="text-muted-foreground text-xs mt-1 whitespace-pre-wrap break-words">{a.replyMessage}</p>
               {a.discountCode && <p className="text-xs mt-1">Código: <span className="font-mono">{a.discountCode}</span></p>}
+              <AutomationTextEditor automation={a} />
+              {a.isGift && <AutomationGiftEditor automation={a} />}
               <AutomationButtonEditor automation={a} />
               <p className="text-muted-foreground text-xs mt-1">{a.redemptions} persona{a.redemptions === 1 ? '' : 's'} ya lo recibió</p>
             </div>
@@ -371,6 +464,7 @@ export function InstagramAutomations() {
                     </Select>
                   )}
                 </div>
+                <GiftQuantitySelect perPerson={perPerson} onChange={setPerPerson} />
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label>Cupos (opcional)</Label>
@@ -384,7 +478,7 @@ export function InstagramAutomations() {
                 <p className="text-xs text-muted-foreground">
                   El regalo se activa al comprar una entrada con el código: aparece de entrada junto al QR/PlayCard de la
                   persona, listo para canjear en caja como cualquier extra. Cuenta como vendido para el inventario real,
-                  aunque no genere ingreso -- pon un tope de cupos acorde al stock que tienes.
+                  aunque no genere ingreso. Ojo: los cupos cuentan COMPRAS, no unidades; con "1 por persona" un Grupo de 4 se lleva 4 unidades de un solo cupo -- calcula el tope según tu stock.
                 </p>
               </div>
             )}

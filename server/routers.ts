@@ -2601,6 +2601,10 @@ export const appRouter = router({
     list: adminProcedure.query(() => db.listIgKeywordAutomationsWithStats()),
     /* Páginas que se pueden elegir como botón (la misma lista cerrada del agente). */
     buttonPages: adminProcedure.query(() => AGENT_SITE_PAGES.map((p) => ({ path: p.path, topic: p.topic }))),
+    setGiftPerPerson: adminProcedure.input(z.object({ id: z.number(), perPerson: z.boolean() })).mutation(async ({ input }) => {
+      await db.setIgKeywordAutomationGiftPerPerson(input.id, input.perPerson);
+      return { success: true };
+    }),
     setButton: adminProcedure.input(z.object({ id: z.number(), button: automationButtonSchema })).mutation(async ({ input }) => {
       await db.setIgKeywordAutomationButton(input.id, input.button);
       return { success: true };
@@ -2651,6 +2655,7 @@ export const appRouter = router({
         z.object({
           kind: z.literal('gift'),
           giftTicketTypeId: z.number(),
+          perPerson: z.boolean().optional(),
           maxUses: z.number().int().positive().optional(),
           validUntil: z.string().optional(),
         }),
@@ -2692,6 +2697,7 @@ export const appRouter = router({
         replyMessage: input.replyMessage,
         discountCode,
         button: input.button,
+        giftPerPerson: input.reward?.kind === 'gift' ? input.reward.perPerson : undefined,
       });
       return { success: true };
     }),
