@@ -1422,6 +1422,11 @@ export const partyProfiles = mysqlTable("partyProfiles", {
   // Se refresca solo, cada vez que la persona mira la mansión.
   lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
   active: int("active").default(1).notNull(),
+  // Cuándo aceptó las reglas de la casa (sin datos personales, sin capturas).
+  rulesAcceptedAt: timestamp("rulesAcceptedAt"),
+  // Expulsado por el equipo del local. Distinto de `active`: nada lo revierte
+  // por su cuenta.
+  banned: int("banned").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   // El patrón de consulta real: "todos los perfiles activos de este evento".

@@ -169,10 +169,21 @@ export function sanitizeAlias(raw: string): AliasCheck {
   return { ok: true, alias };
 }
 
+// Mismo criterio que el alias, aplicado al chat: acá la gente se conoce
+// adentro, no se intercambian redes ni teléfonos. Esto es una barrera
+// razonable, no infalible (siempre habrá quien escriba "uno dos tres...").
+const MESSAGE_FORBIDDEN = [
+  ...ALIAS_FORBIDDEN,
+  { re: /\b(?:insta(?:gram)?|ig|whats?app|wsp|wasap|wapp|telegram|snap(?:chat)?|tiktok|fono|tel[eé]fono|n[uú]mero)\b/i, reason: 'Nada de redes sociales ni teléfonos: aquí se conversa dentro de la fiesta' },
+];
+
 export function sanitizeMessage(raw: string): { ok: true; body: string } | { ok: false; reason: string } {
   const body = raw.replace(/\s+/g, ' ').trim();
   if (!body) return { ok: false, reason: 'El mensaje está vacío' };
   if (body.length > MAX_MESSAGE_LENGTH) return { ok: false, reason: `Máximo ${MAX_MESSAGE_LENGTH} caracteres` };
+  for (const { re, reason } of MESSAGE_FORBIDDEN) {
+    if (re.test(body)) return { ok: false, reason };
+  }
   return { ok: true, body };
 }
 

@@ -63,6 +63,7 @@ async function requirePartyActor(ticketCode: string) {
 async function requirePartyProfile(ticketCode: string) {
   const actor = await requirePartyActor(ticketCode);
   if (!actor.profile) throw new TRPCError({ code: 'FORBIDDEN', message: 'Todavía no creaste tu perfil' });
+  if (actor.profile.banned) throw new TRPCError({ code: 'FORBIDDEN', message: 'El equipo del local te sacó de Playmatch por esta noche' });
   return { ...actor, profile: actor.profile };
 }
 import { createCajaSale } from "./caja/sale";
@@ -1701,6 +1702,7 @@ export const appRouter = router({
       gender: z.enum(PARTY_GENDERS),
       avatarId: z.number().int().min(1).max(AVATARS_PER_GENDER),
       zone: z.enum(PARTY_ZONES),
+      acceptedRules: z.literal(true, { message: 'Para entrar tienes que aceptar las reglas de la casa' }),
     })).mutation(async ({ input }) => {
       const actor = await requirePartyActor(input.ticketCode);
       if (actor.profile) return { id: actor.profile.id };
@@ -1892,6 +1894,13 @@ export const appRouter = router({
     // hasta ahora se guardaban en la base sin ninguna pantalla donde verlas.
     listAllReports: adminReadProcedure.query(async () => {
       return db.listAllPartyReports();
+    }),
+    // Expulsar (o reincorporar) a la persona denunciada, solo por esa noche.
+    setProfileBanned: adminProcedure.input(z.object({
+      profileId: z.number(),
+      banned: z.boolean(),
+    })).mutation(async ({ input }) => {
+      return db.setPartyProfileBanned(input.profileId, input.banned);
     }),
     setReportResolved: adminProcedure.input(z.object({
       id: z.number(),

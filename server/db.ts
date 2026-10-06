@@ -5916,6 +5916,7 @@ export async function createPartyProfile(params: {
     avatarId: params.avatarId,
     zone: params.zone,
     lastSeenAt: new Date(),
+    rulesAcceptedAt: new Date(),
   });
 
   const [profile] = await db.select().from(partyProfiles).where(eq(partyProfiles.ticketId, params.ticketId)).limit(1);
@@ -6146,6 +6147,8 @@ export async function listAllPartyReports(limit = 200) {
     reporterAlias: sql<string>`reporter.alias`,
     reportedAlias: sql<string>`reported.alias`,
     reportedZone: sql<string>`reported.zone`,
+    reportedProfileId: partyReports.reportedProfileId,
+    reportedBanned: sql<number>`reported.banned`,
   })
     .from(partyReports)
     .leftJoin(events, eq(events.id, partyReports.eventId))
@@ -6153,6 +6156,18 @@ export async function listAllPartyReports(limit = 200) {
     .leftJoin(sql`${partyProfiles} as reported`, sql`reported.id = ${partyReports.reportedProfileId}`)
     .orderBy(sql`${partyReports.resolvedAt} is not null`, desc(partyReports.createdAt))
     .limit(limit);
+}
+
+/** Expulsa a un perfil de Playmatch por esa noche (o lo reincorpora). Queda
+ * `active=0` para que desaparezca de la mansión y no pueda recibir toques,
+ * y `banned=1` para que `requirePartyProfile` le cierre la puerta. */
+export async function setPartyProfileBanned(profileId: number, banned: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(partyProfiles)
+    .set({ banned: banned ? 1 : 0, active: banned ? 0 : 1 })
+    .where(eq(partyProfiles.id, profileId));
+  return { success: true };
 }
 
 /** Marca una denuncia como resuelta (o la reabre). Es lo que limpia su

@@ -160,6 +160,7 @@ function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreate
   const [gender, setGender] = useState<PartyGender>('mujer');
   const [avatarId, setAvatarId] = useState(1);
   const [zone, setZone] = useState<PartyZone>('living');
+  const [rules, setRules] = useState(false);
 
   const create = trpc.party.createProfile.useMutation({
     onSuccess: onCreated,
@@ -236,9 +237,22 @@ function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreate
           ))}
         </div>
 
+        <label className="flex items-start gap-3 mb-5 text-xs text-white/60 leading-relaxed cursor-pointer">
+          <input
+            type="checkbox"
+            checked={rules}
+            onChange={(e) => setRules(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+          />
+          <span>
+            Acepto las reglas de la casa: no comparto datos personales (redes, teléfono), no saco capturas ni fotos de
+            otras personas, y lo que pasa en Playmatch se queda en la fiesta.
+          </span>
+        </label>
+
         <button
-          disabled={!check.ok || create.isPending}
-          onClick={() => check.ok && create.mutate({ ticketCode, alias: check.alias, gender, avatarId, zone })}
+          disabled={!check.ok || !rules || create.isPending}
+          onClick={() => check.ok && rules && create.mutate({ ticketCode, alias: check.alias, gender, avatarId, zone, acceptedRules: true })}
           className="w-full h-14 rounded-full bg-primary text-white font-bold text-base disabled:opacity-35 transition-opacity"
         >
           {create.isPending ? 'Entrando…' : 'Entrar a Playmatch'}

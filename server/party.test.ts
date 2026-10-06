@@ -180,4 +180,17 @@ describe("sanitizeMessage", () => {
     expect(sanitizeMessage("   ").ok).toBe(false);
     expect(sanitizeMessage("x".repeat(501)).ok).toBe(false);
   });
+
+  it("bloquea redes, links y teléfonos", () => {
+    expect(sanitizeMessage("mi insta es rosa").ok).toBe(false);
+    expect(sanitizeMessage("hablemos por whatsapp").ok).toBe(false);
+    expect(sanitizeMessage("sígueme @rosa").ok).toBe(false);
+    expect(sanitizeMessage("mira www.algo.com").ok).toBe(false);
+    expect(sanitizeMessage("+56 9 1234 5678").ok).toBe(false);
+  });
+
+  it("no bloquea conversación normal", () => {
+    expect(sanitizeMessage("¿bailamos en la piscina? 😏").ok).toBe(true);
+    expect(sanitizeMessage("Me encantó tu vestido, soy Digna").ok).toBe(true);
+  });
 });
