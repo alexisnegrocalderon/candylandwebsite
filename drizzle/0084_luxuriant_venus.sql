@@ -1,0 +1,1 @@
+ALTER TABLE `igKeywordAutomations` ADD `giftPerPerson` int DEFAULT 0 NOT NULL;

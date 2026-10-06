@@ -6936,9 +6936,9 @@ async function selectIgAutomations(db: NonNullable<Awaited<ReturnType<typeof get
     return await db.select().from(igKeywordAutomations).where(where);
   } catch (err) {
     console.error('[ig-automations] lectura con botones falló, uso las columnas base', err);
-    const { buttonKind: _k, buttonTarget: _t, buttonTitle: _n, ...base } = getTableColumns(igKeywordAutomations);
+    const { buttonKind: _k, buttonTarget: _t, buttonTitle: _n, giftPerPerson: _g, ...base } = getTableColumns(igKeywordAutomations);
     const rows = await db.select(base).from(igKeywordAutomations).where(where);
-    return rows.map((r) => ({ ...r, buttonKind: 'none', buttonTarget: null, buttonTitle: null }));
+    return rows.map((r) => ({ ...r, buttonKind: 'none', buttonTarget: null, buttonTitle: null, giftPerPerson: 0 }));
   }
 }
 
@@ -6961,7 +6961,15 @@ export async function listIgKeywordAutomationsWithStats() {
     count: sql<number>`count(*)`,
   }).from(igKeywordRedemptions).groupBy(igKeywordRedemptions.automationId);
   const countByAutomation = new Map(counts.map((c: any) => [c.automationId, Number(c.count)]));
-  return rows.map((r) => ({ ...r, redemptions: countByAutomation.get(r.id) ?? 0 }));
+  // Cuáles regalan un producto (vs. descuento en dinero): el panel solo ofrece
+  // "por persona" para esas.
+  const codes = rows.map((r) => r.discountCode).filter((c): c is string => Boolean(c));
+  const giftCodes = new Set<string>();
+  if (codes.length > 0) {
+    const found = await db.select({ code: discountCodes.code, gift: discountCodes.giftTicketTypeId }).from(discountCodes).where(inArray(discountCodes.code, codes));
+    for (const f of found) if (f.gift) giftCodes.add(f.code);
+  }
+  return rows.map((r) => ({ ...r, redemptions: countByAutomation.get(r.id) ?? 0, isGift: r.discountCode ? giftCodes.has(r.discountCode) : false }));
 }
 
 export type IgAutomationButtonInput = { buttonKind: 'none' | 'event' | 'page' | 'custom'; buttonTarget: string | null; buttonTitle: string | null };
@@ -6974,12 +6982,16 @@ export async function createIgKeywordAutomation(input: {
   replyMessage: string;
   discountCode?: string | null;
   button?: IgAutomationButtonInput;
+  giftPerPerson?: boolean;
 }): Promise<void> {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
   // Con "ninguno" no se tocan las columnas nuevas: crear sigue funcionando
   // aunque la migración todavía no esté corrida.
-  const withButton = input.button && input.button.buttonKind !== 'none' ? input.button : {};
+  const withButton = {
+    ...(input.button && input.button.buttonKind !== 'none' ? input.button : {}),
+    ...(input.giftPerPerson ? { giftPerPerson: 1 } : {}),
+  };
   try {
     await db.insert(igKeywordAutomations).values({
       keyword: input.keyword,
@@ -7006,6 +7018,30 @@ export async function updateIgKeywordAutomation(id: number, input: {
     triggerSource: input.triggerSource,
     replyMessage: input.replyMessage,
   }).where(eq(igKeywordAutomations.id, id));
+}
+
+export async function setIgKeywordAutomationGiftPerPerson(id: number, perPerson: boolean): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  try {
+    await db.update(igKeywordAutomations).set({ giftPerPerson: perPerson ? 1 : 0 }).where(eq(igKeywordAutomations.id, id));
+  } catch (err) {
+    console.error('[ig-automations] no se pudo guardar el regalo por persona', err);
+    throw new Error('Falta correr la migración del regalo por persona (0084) en la base de datos.');
+  }
+}
+
+/** ¿El regalo de este código se da por persona? Nunca lanza: si la columna
+ * aún no existe (o no hay automatización con ese código) es "una por compra". */
+export async function isGiftPerPersonForCode(code: string): Promise<boolean> {
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    const [row] = await db.select({ perPerson: igKeywordAutomations.giftPerPerson }).from(igKeywordAutomations).where(eq(igKeywordAutomations.discountCode, code)).limit(1);
+    return row?.perPerson === 1;
+  } catch {
+    return false;
+  }
 }
 
 export async function setIgKeywordAutomationButton(id: number, button: IgAutomationButtonInput): Promise<void> {
