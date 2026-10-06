@@ -1908,6 +1908,25 @@ export async function getAllOrders(opts: {
   return { orders: ordersWithExtras, total: Number(count) };
 }
 
+/** Órdenes que coinciden con una búsqueda en CUALQUIER evento, canal y estado.
+ * Ventas Web filtra por evento/estado/canal; si lo que se busca existe pero
+ * está fuera de esos filtros (otro evento, venta de caja, pendiente...), esto
+ * permite avisarlo en vez de mostrar "sin resultados". */
+export async function findOrdersMatching(term: string, limit = 20) {
+  const db = await getDb();
+  const needle = term.trim();
+  if (!db || needle.length < 2) return [];
+  const pattern = `%${escapeLikePattern(needle)}%`;
+  const rows = await db.select({
+    id: orders.id, orderNumber: orders.orderNumber, buyerName: orders.buyerName, buyerEmail: orders.buyerEmail,
+    eventId: orders.eventId, channel: orders.channel, paymentStatus: orders.paymentStatus, total: orders.total, createdAt: orders.createdAt,
+    eventTitle: events.title,
+  }).from(orders).leftJoin(events, eq(orders.eventId, events.id))
+    .where(or(like(orders.buyerName, pattern), like(orders.buyerEmail, pattern), like(orders.orderNumber, pattern), like(orders.attendeeData, pattern))!)
+    .orderBy(desc(orders.createdAt)).limit(limit);
+  return rows.map((r) => ({ ...r, total: Number(r.total) }));
+}
+
 /** Todos los tickets (entrada principal + extras) de una orden, para el
  * panel admin — poder ver/reenviar los códigos generados sin tener que
  * buscar en la base a mano. */

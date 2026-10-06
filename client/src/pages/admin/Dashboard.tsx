@@ -21,6 +21,7 @@ import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Pe
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
+import { ordersOutsideFilter } from '@shared/ordersOutsideFilter';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
@@ -2962,6 +2963,12 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
     // la tabla no parpadee con cada búsqueda.
     { placeholderData: (prev) => prev },
   );
+  // Coincidencias de la búsqueda en TODOS los eventos/canales/estados: si los
+  // filtros de arriba esconden alguna, se avisa en vez de dejar creer que no existe.
+  const { data: matchingOrders } = trpc.orders.findMatching.useQuery({ search }, { enabled: search.length >= 2 });
+  const hiddenMatches = search.length >= 2
+    ? ordersOutsideFilter(matchingOrders ?? [], { channel, eventId, status: statusFilter === 'all' ? undefined : statusFilter })
+    : [];
   const { data: stats, refetch: refetchStats } = trpc.orders.getStats.useQuery({ channel, eventId });
   const { data: orderTickets, isFetching: loadingTickets } = trpc.orders.getTickets.useQuery(
     { orderId: expandedOrderId ?? 0 },
@@ -3141,6 +3148,28 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           Hay {hiddenByCap.toLocaleString('es-CL')} órdenes más que no se muestran (la lista tiene un tope de {ordersList.length.toLocaleString('es-CL')}).
           Filtra por evento o por estado, o usa el buscador, para verlas.
+        </div>
+      )}
+
+      {hiddenMatches.length > 0 && (
+        <div role="status" className="rounded-xl border border-amber-400/50 bg-amber-500/10 p-3 text-sm space-y-2">
+          <p className="font-medium">
+            {hiddenMatches.length === 1 ? 'Hay 1 compra' : `Hay ${hiddenMatches.length} compras`} con esa búsqueda que los filtros de arriba no muestran:
+          </p>
+          {hiddenMatches.slice(0, 6).map((m) => {
+            const sameView = channel === 'caja' ? m.channel === 'caja' : m.channel !== 'caja';
+            return (
+              <div key={m.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  <span className="font-mono">{m.orderNumber}</span> · {m.buyerName} · {m.eventTitle ?? `Evento #${m.eventId}`} · ${m.total.toLocaleString('es-CL')} · {m.paymentStatus === 'approved' ? 'aprobada' : m.paymentStatus === 'pending' ? 'sin pagar' : m.paymentStatus}
+                  {!sameView && <> · <strong>está en {m.channel === 'caja' ? 'Ventas en Caja' : 'Ventas Web'}</strong></>}
+                </span>
+                {sameView && (
+                  <Button size="sm" variant="outline" onClick={() => { setEventFilter(String(m.eventId)); setStatusFilter('all'); }}>Ver</Button>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

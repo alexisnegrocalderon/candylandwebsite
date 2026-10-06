@@ -1146,6 +1146,11 @@ export const appRouter = router({
         })),
       };
     }),
+    /* Coincidencias de una búsqueda en todos los eventos/canales/estados (para
+     * avisar cuando Ventas Web no las muestra por los filtros puestos). */
+    findMatching: adminReadProcedure.input(z.object({ search: z.string().trim().min(2).max(100) })).query(async ({ input }) => {
+      return db.findOrdersMatching(input.search);
+    }),
     getStats: adminReadProcedure.input(z.object({
       channel: z.enum(['web', 'caja']).optional(),
       eventId: z.number().optional(),
