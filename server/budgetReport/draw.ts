@@ -8,17 +8,21 @@
 export const W = 960;
 export const H = 540;
 
+// Identidad Playroom: celeste y rosado pastel mate, tinta casi negra para texto y bordes.
+// `violet` y `sky` conservan su nombre por compatibilidad: hoy son celestes.
 export const C = {
-  bgDark: "#16091d",
-  bgDark2: "#2a1138",
-  bgLight: "#faf6fb",
+  bgDark: "#A9DDF2", // celeste mate (portada)
+  bgDark2: "#F3BFD2", // rosado pastel mate
+  bgLight: "#FFFFFF", // blanco editorial
+  skySoft: "#EAF6FC",
+  pinkSoft: "#FCEEF3",
   card: "#ffffff",
-  ink: "#1d1224",
-  muted: "#6b5d78",
-  faint: "#e9e1ee",
-  pink: "#e056b0",
-  violet: "#8b5cf6",
-  sky: "#38bdf8",
+  ink: "#16121A",
+  muted: "#5E5566",
+  faint: "#E6DCE2",
+  pink: "#D94F8C", // rosa fuerte (acentos)
+  violet: "#2AA7DC", // celeste vivo (acentos)
+  sky: "#7CC6E8",
   green: "#22b07d",
   greenSoft: "#d9f5ea",
   amber: "#f5a524",
@@ -29,7 +33,7 @@ export const C = {
   white: "#ffffff",
 } as const;
 
-export const PALETTE = [C.pink, C.violet, C.sky, C.green, C.amber, C.orange, "#a78bfa", "#f472b6", "#2dd4bf", "#94a3b8"];
+export const PALETTE = [C.pink, C.violet, "#F2A7C3", C.green, C.amber, "#7CC6E8", C.orange, "#B07CC6", "#2dd4bf", "#94a3b8"];
 
 type Doc = PDFKit.PDFDocument;
 
@@ -62,7 +66,13 @@ export const pctText = (n: number | null | undefined) => (n == null ? "-" : `${n
 
 /* ─── Texto ─────────────────────────────────────────────────── */
 
+/** `display` = Anton (titulares y cifras grandes, condensada gruesa tipo editorial). */
+export type FontKind = "display";
+export const fontName = (o: { bold?: boolean; font?: FontKind }) =>
+  o.font === "display" ? "Anton" : o.bold ? "Helvetica-Bold" : "Helvetica";
+
 export type TextOpts = {
+  font?: FontKind;
   size?: number;
   color?: string;
   bold?: boolean;
@@ -76,7 +86,7 @@ export type TextOpts = {
 
 export function text(doc: Doc, str: string | number, x: number, y: number, o: TextOpts = {}): number {
   doc.save();
-  doc.font(o.bold ? "Helvetica-Bold" : "Helvetica").fontSize(o.size ?? 12).fillColor(o.color ?? C.ink);
+  doc.font(fontName(o)).fontSize(o.size ?? 12).fillColor(o.color ?? C.ink);
   if (o.opacity != null) doc.fillOpacity(o.opacity);
   const opts: PDFKit.Mixins.TextOptions = { width: o.width, align: o.align ?? "left", lineGap: o.lineGap ?? 2, ellipsis: o.height != null, height: o.height, characterSpacing: o.spacing };
   const s = safe(str);
@@ -91,7 +101,7 @@ export function fitText(doc: Doc, str: string, x: number, y: number, o: TextOpts
   const s = safe(str);
   let size = o.maxSize;
   const min = o.minSize ?? 8;
-  doc.font(o.bold ? "Helvetica-Bold" : "Helvetica");
+  doc.font(fontName(o));
   while (size > min) {
     doc.fontSize(size);
     if (doc.heightOfString(s, { width: o.width, lineGap: o.lineGap ?? 2 }) <= o.height) break;
@@ -100,8 +110,8 @@ export function fitText(doc: Doc, str: string, x: number, y: number, o: TextOpts
   return text(doc, s, x, y, { ...o, size, height: o.height });
 }
 
-export function textHeight(doc: Doc, str: string, width: number, size: number, bold = false, lineGap = 2): number {
-  doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(size);
+export function textHeight(doc: Doc, str: string, width: number, size: number, bold = false, lineGap = 2, font?: FontKind): number {
+  doc.font(fontName({ bold, font })).fontSize(size);
   return doc.heightOfString(safe(str), { width, lineGap });
 }
 
@@ -119,11 +129,16 @@ export function rrect(doc: Doc, x: number, y: number, w: number, h: number, r: n
   }
 }
 
-/** Tarjeta blanca con borde suave y una sombra falsa (rect desplazado). */
-export function card(doc: Doc, x: number, y: number, w: number, h: number, o: { fill?: string; accent?: string } = {}) {
-  rrect(doc, x + 1, y + 3, w, h, 14, "#2a1138", { opacity: 0.06 });
-  rrect(doc, x, y, w, h, 14, o.fill ?? C.card, { stroke: C.faint });
-  if (o.accent) rrect(doc, x, y + 14, 4, h - 28, 2, o.accent);
+/** Panel editorial: fondo blanco, borde de tinta fino y esquinas casi rectas. */
+export function card(doc: Doc, x: number, y: number, w: number, h: number, o: { fill?: string; accent?: string; shadow?: string } = {}) {
+  rrect(doc, x, y, w, h, 2, o.fill ?? C.card, { stroke: C.ink, strokeWidth: 0.8 });
+  if (o.accent) rect2(doc, x, y, 5, h, o.accent);
+}
+
+function rect2(doc: Doc, x: number, y: number, w: number, h: number, fill: string) {
+  doc.save();
+  doc.rect(x, y, w, h).fill(fill);
+  doc.restore();
 }
 
 export function pill(doc: Doc, label: string, x: number, y: number, o: { bg: string; color: string; size?: number; padX?: number; h?: number }): number {
@@ -132,7 +147,7 @@ export function pill(doc: Doc, label: string, x: number, y: number, o: { bg: str
   const h = o.h ?? size + 10;
   doc.font("Helvetica-Bold").fontSize(size);
   const w = doc.widthOfString(safe(label)) + padX * 2;
-  rrect(doc, x, y, w, h, h / 2, o.bg);
+  rrect(doc, x, y, w, h, 3, o.bg);
   text(doc, label, x + padX, y + (h - size) / 2 - 0.5, { size, bold: true, color: o.color, width: w - padX, align: "left" });
   return w;
 }
@@ -204,9 +219,9 @@ export function gauge(doc: Doc, cx: number, cy: number, r: number, thickness: nu
 }
 
 export function hbar(doc: Doc, x: number, y: number, w: number, h: number, frac: number, color: string, bg: string = C.faint) {
-  rrect(doc, x, y, w, h, h / 2, bg);
+  rrect(doc, x, y, w, h, 1.5, bg);
   const fw = Math.max(0, Math.min(1, frac)) * w;
-  if (fw > 0) rrect(doc, x, y, Math.max(fw, h), h, h / 2, color);
+  if (fw > 0) rrect(doc, x, y, Math.max(fw, h), h, 1.5, color);
 }
 
 export type BarGroup = { label: string; values: { value: number; color: string }[]; caption?: string };
@@ -234,7 +249,7 @@ export function barChart(doc: Doc, x: number, y: number, w: number, h: number, g
       const bh = (Math.abs(v.value) / range) * plotH;
       const bx = startX + vi * (barW + 8);
       const by = v.value >= 0 ? zeroY - bh : zeroY;
-      rrect(doc, bx, by, barW, Math.max(bh, 1.5), 4, v.color);
+      rrect(doc, bx, by, barW, Math.max(bh, 1.5), 1.5, v.color);
       const ly = v.value >= 0 ? by - 14 : by + bh + 3;
       text(doc, fmt(v.value), bx - 14, ly, { size: o.valueSize ?? 9, bold: true, color: C.ink, width: barW + 28, align: "center" });
     });
@@ -311,4 +326,29 @@ export function legend(doc: Doc, items: { label: string; color: string }[], x: n
     cx += 14 + w + 18;
   }
   return cx - x;
+}
+
+/* ─── Elementos editoriales ─────────────────────────────────── */
+
+/** Bloque de color semitransparente: las superposiciones dejan ver lo de abajo. */
+export function block(doc: Doc, x: number, y: number, w: number, h: number, color: string, opacity = 0.8) {
+  doc.save();
+  doc.fillOpacity(opacity).rect(x, y, w, h).fill(color);
+  doc.restore();
+}
+
+/** Línea fina (horizontal o vertical). */
+export function rule(doc: Doc, x1: number, y1: number, x2: number, y2: number, o: { color?: string; width?: number } = {}) {
+  doc.save();
+  doc.moveTo(x1, y1).lineTo(x2, y2).lineWidth(o.width ?? 0.8).stroke(o.color ?? C.ink);
+  doc.restore();
+}
+
+/** Cruz pequeña de acento (como las del Mooral). */
+export function cross(doc: Doc, cx: number, cy: number, size: number, color: string = C.pink) {
+  doc.save();
+  doc.lineWidth(size / 3.2).lineCap("butt");
+  doc.moveTo(cx - size / 2, cy - size / 2).lineTo(cx + size / 2, cy + size / 2).stroke(color);
+  doc.moveTo(cx + size / 2, cy - size / 2).lineTo(cx - size / 2, cy + size / 2).stroke(color);
+  doc.restore();
 }
