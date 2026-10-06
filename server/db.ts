@@ -1,6 +1,7 @@
 import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, isNull, isNotNull, ne, getTableColumns } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { randomBytes } from "crypto";
+import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
@@ -7396,4 +7397,85 @@ export async function purgeOldWaThreads(now: Date = new Date()): Promise<{ threa
   await db.delete(waMessages).where(inArray(waMessages.threadId, ids));
   await db.delete(waThreads).where(inArray(waThreads.id, ids));
   return { threadsDeleted: ids.length };
+}
+
+/* ── Vincular conversaciones de Instagram con clientes ───────────────────── */
+
+/** Clientes cuyo @ de Instagram guardado coincide con `handle` (ya normalizado).
+ * El campo es texto libre ("@foo", "foo", un link): se filtra grueso en SQL y
+ * se compara normalizado en JS. */
+export async function findCustomersByInstagram(handle: string) {
+  const db = await getDb();
+  if (!db || !handle) return [];
+  const rows = await db.select({ id: customers.id, email: customers.email, fullName: customers.fullName, instagram: customers.instagram })
+    .from(customers).where(like(customers.instagram, `%${handle}%`)).limit(50);
+  return rows.filter((r) => normalizeIgHandle(r.instagram) === handle);
+}
+
+/** @ de Instagram guardados en clientes, ya normalizados (para marcar en la
+ * lista qué conversaciones ya están vinculadas). */
+export async function listLinkedInstagramHandles(): Promise<Set<string>> {
+  const db = await getDb();
+  const set = new Set<string>();
+  if (!db) return set;
+  const rows = await db.select({ instagram: customers.instagram }).from(customers).where(isNotNull(customers.instagram));
+  for (const r of rows) {
+    const h = normalizeIgHandle(r.instagram);
+    if (h) set.add(h);
+  }
+  return set;
+}
+
+/** Compradores con orden aprobada de un evento (uno por cliente), con lo que
+ * compraron: de acá salen las sugerencias para vincular. */
+export async function getEventBuyerCandidates(eventId: number): Promise<BuyerCandidate[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    orderId: orders.id, orderNumber: orders.orderNumber, buyerEmail: orders.buyerEmail, buyerName: orders.buyerName,
+  }).from(orders).where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved')));
+  if (rows.length === 0) return [];
+  const items = await db.select({ orderId: orderItems.orderId, quantity: orderItems.quantity, name: ticketTypes.name })
+    .from(orderItems).innerJoin(ticketTypes, eq(orderItems.ticketTypeId, ticketTypes.id))
+    .where(inArray(orderItems.orderId, rows.map((r) => r.orderId)));
+  const itemsByOrder = new Map<number, string[]>();
+  for (const it of items) itemsByOrder.set(it.orderId, [...(itemsByOrder.get(it.orderId) ?? []), `${it.quantity} × ${it.name}`]);
+  const emails = Array.from(new Set(rows.map((r) => r.buyerEmail.trim().toLowerCase())));
+  const custs = await db.select({ id: customers.id, email: customers.email, fullName: customers.fullName, instagram: customers.instagram })
+    .from(customers).where(inArray(customers.email, emails));
+  const byEmail = new Map(custs.map((c) => [c.email.toLowerCase(), c]));
+  const out = new Map<number, BuyerCandidate>();
+  for (const r of rows) {
+    const c = byEmail.get(r.buyerEmail.trim().toLowerCase());
+    if (!c || out.has(c.id)) continue;
+    out.set(c.id, {
+      customerId: c.id, email: c.email, fullName: c.fullName ?? r.buyerName, instagram: c.instagram,
+      orderNumber: r.orderNumber, tickets: (itemsByOrder.get(r.orderId) ?? []).join(', '),
+    });
+  }
+  return Array.from(out.values());
+}
+
+export async function setCustomerInstagram(customerId: number, handle: string): Promise<{ previous: string | null } | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [c] = await db.select({ instagram: customers.instagram }).from(customers).where(eq(customers.id, customerId)).limit(1);
+  if (!c) return null;
+  await db.update(customers).set({ instagram: `@${handle}` }).where(eq(customers.id, customerId));
+  return { previous: c.instagram };
+}
+
+/** Hilos (de los `threadIds` dados) donde la persona escribió algo que suena a
+ * "ya compré". Prefiltro grueso en SQL (mensajes entrantes con "ya " de los
+ * últimos 21 días), la decisión final es `saysAlreadyBought`. */
+export async function getIgThreadsSayingBought(threadIds: number[]): Promise<Set<number>> {
+  const db = await getDb();
+  const hit = new Set<number>();
+  if (!db || threadIds.length === 0) return hit;
+  const since = new Date(Date.now() - 21 * 24 * 60 * 60 * 1000);
+  const rows = await db.select({ threadId: igMessages.threadId, text: igMessages.text }).from(igMessages)
+    .where(and(inArray(igMessages.threadId, threadIds), eq(igMessages.direction, 'in'), gte(igMessages.createdAt, since),
+      or(like(igMessages.text, '%ya %'), like(igMessages.text, '%ompr%'), like(igMessages.text, '%isto%'))));
+  for (const r of rows) if (saysAlreadyBought([r.text])) hit.add(r.threadId);
+  return hit;
 }
