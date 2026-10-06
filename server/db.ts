@@ -27,6 +27,7 @@ import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening, findPossibleDuplicateSales, cardTotals } from './caja/shiftMath';
 import { hashPin, verifyPin } from './caja/auth';
 import { normalizeEventDates } from './eventDates';
+import { PLAYMATCH_TEST_SLUG, PLAYMATCH_TEST_TITLE, clampTestGuestCount, isTestTicketCode, testEventWindow, testTicketCode } from '../shared/playmatchTest';
 import { isTopupProduct, topupChargeForLines } from '../shared/prepaid';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -6182,6 +6183,118 @@ export async function setPartyReportResolved(id: number, resolved: boolean) {
     .set({ resolvedAt: resolved ? new Date() : null })
     .where(eq(partyReports.id, id));
   return { success: true };
+}
+
+/* --- Datos de prueba de Playmatch ----------------------------------------- */
+
+/** Borra TODO lo del evento de prueba (slug fijo). Jamás toca otro evento. */
+export async function deletePlaymatchTestData() {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [ev] = await db.select({ id: events.id }).from(events).where(eq(events.slug, PLAYMATCH_TEST_SLUG)).limit(1);
+  if (!ev) return { deleted: false };
+
+  const conns = await db.select({ id: partyConnections.id }).from(partyConnections).where(eq(partyConnections.eventId, ev.id));
+  if (conns.length > 0) await db.delete(partyMessages).where(inArray(partyMessages.connectionId, conns.map((c: any) => c.id)));
+  await db.delete(partyConnections).where(eq(partyConnections.eventId, ev.id));
+  await db.delete(partyPhotos).where(eq(partyPhotos.eventId, ev.id));
+  await db.delete(partySwipes).where(eq(partySwipes.eventId, ev.id));
+  await db.delete(partyBlocks).where(eq(partyBlocks.eventId, ev.id));
+  await db.delete(partyReports).where(eq(partyReports.eventId, ev.id));
+  await db.delete(partyGifts).where(eq(partyGifts.eventId, ev.id));
+  await db.delete(partyPushSubscriptions).where(eq(partyPushSubscriptions.eventId, ev.id));
+  await db.delete(partyProfiles).where(eq(partyProfiles.eventId, ev.id));
+  await db.delete(tickets).where(eq(tickets.eventId, ev.id));
+  const ords = await db.select({ id: orders.id }).from(orders).where(eq(orders.eventId, ev.id));
+  if (ords.length > 0) await db.delete(orderItems).where(inArray(orderItems.orderId, ords.map((o: any) => o.id)));
+  await db.delete(orders).where(eq(orders.eventId, ev.id));
+  await db.delete(ticketTypes).where(eq(ticketTypes.eventId, ev.id));
+  await db.delete(events).where(eq(events.id, ev.id));
+  return { deleted: true };
+}
+
+/** (Re)crea el evento de prueba OCULTO ('draft': no sale en el sitio, ni en la
+ * caja/puerta, ni en el correo de las 3 am) con N invitados. `inside` = ya
+ * pasaron la puerta; si no, quedan 'valid' para probar el check-in en vivo. */
+export async function createPlaymatchTestGuests(input: { count: number; inside: boolean }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const count = clampTestGuestCount(input.count);
+  await deletePlaymatchTestData();
+
+  const w = testEventWindow();
+  const [evRes] = await db.insert(events).values({
+    title: PLAYMATCH_TEST_TITLE, slug: PLAYMATCH_TEST_SLUG, status: 'draft',
+    eventDate: w.eventDate, doorsOpen: w.doorsOpen, eventEnd: w.eventEnd,
+  });
+  const eventId = Number((evRes as any).insertId);
+
+  const [ttRes] = await db.insert(ticketTypes).values({ eventId, name: 'Acceso de prueba', price: '0', totalStock: 100 });
+  const ticketTypeId = Number((ttRes as any).insertId);
+
+  const [ordRes] = await db.insert(orders).values({
+    orderNumber: 'MP-TEST-ORDEN-1', buyerName: 'Prueba Playmatch', buyerEmail: 'prueba@playmatch.invalid',
+    eventId, subtotal: '0', total: '0', paymentStatus: 'approved', paymentId: 'TEST-ORDEN-1', paymentMethod: 'Prueba',
+  });
+  const orderId = Number((ordRes as any).insertId);
+
+  const [itemRes] = await db.insert(orderItems).values({ orderId, ticketTypeId, quantity: count, unitPrice: '0', totalPrice: '0' });
+  const orderItemId = Number((itemRes as any).insertId);
+
+  await db.insert(tickets).values(Array.from({ length: count }, (_, i) => ({
+    ticketCode: testTicketCode(i + 1), orderId, orderItemId, eventId, ticketTypeId,
+    holderName: `Invitado de prueba ${i + 1}`,
+    status: input.inside ? 'used' as const : 'valid' as const,
+    usedAt: input.inside ? new Date() : null,
+  })));
+  return { eventId, count };
+}
+
+/** Los invitados de prueba con lo que hicieron en Playmatch hasta ahora. */
+export async function listPlaymatchTest() {
+  const db = await getDb();
+  if (!db) return { exists: false as const, guests: [] };
+  const [ev] = await db.select().from(events).where(eq(events.slug, PLAYMATCH_TEST_SLUG)).limit(1);
+  if (!ev) return { exists: false as const, guests: [] };
+
+  const rows = await db.select({
+    ticketCode: tickets.ticketCode, status: tickets.status,
+    alias: partyProfiles.alias, profileId: partyProfiles.id, swipeEnabled: partyProfiles.swipeEnabled, banned: partyProfiles.banned,
+  }).from(tickets)
+    .leftJoin(partyProfiles, eq(partyProfiles.ticketId, tickets.id))
+    .where(eq(tickets.eventId, ev.id))
+    .orderBy(tickets.ticketCode);
+  const photos = await db.select({ profileId: partyPhotos.profileId }).from(partyPhotos).where(eq(partyPhotos.eventId, ev.id));
+  const withPhoto = new Set<number>(photos.map((p: any) => p.profileId));
+
+  return {
+    exists: true as const,
+    eventEnd: ev.eventEnd,
+    guests: rows.map((r: any) => ({
+      ticketCode: r.ticketCode as string,
+      status: r.status as string,
+      alias: (r.alias ?? null) as string | null,
+      hasPhoto: r.profileId ? withPhoto.has(r.profileId) : false,
+      banned: !!r.banned,
+    })),
+  };
+}
+
+/** Simula el escaneo en la puerta de un invitado de prueba. Solo acepta
+ * códigos MP-TEST-NNNN del evento de prueba. */
+export async function markPlaymatchTestGuestEntered(ticketCode: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const code = ticketCode.trim().toUpperCase();
+  if (!isTestTicketCode(code)) return { ok: false as const, reason: 'No es un invitado de prueba' };
+
+  const [ev] = await db.select({ id: events.id }).from(events).where(eq(events.slug, PLAYMATCH_TEST_SLUG)).limit(1);
+  if (!ev) return { ok: false as const, reason: 'No hay evento de prueba' };
+  const [t] = await db.select({ id: tickets.id }).from(tickets).where(and(eq(tickets.ticketCode, code), eq(tickets.eventId, ev.id))).limit(1);
+  if (!t) return { ok: false as const, reason: 'Ese invitado no existe' };
+
+  await db.update(tickets).set({ status: 'used', usedAt: new Date() }).where(eq(tickets.id, t.id));
+  return { ok: true as const };
 }
 
 /* --- Fotos del swipe ------------------------------------------------------ */

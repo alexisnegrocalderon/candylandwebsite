@@ -16,6 +16,7 @@ import { generateEnrollCode, enrollCodeExpiry, generateDeviceToken, hashDeviceTo
 import { redeemDisplayCode } from "./caja/redeem";
 import { checkInTicket } from "./caja/checkin";
 import { sellParkingAtDoor } from "./caja/parkingPaid";
+import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
@@ -1941,6 +1942,18 @@ export const appRouter = router({
     }),
     // Denuncias de todos los eventos, para la sección "Denuncias" del admin:
     // hasta ahora se guardaban en la base sin ninguna pantalla donde verlas.
+    // --- Herramienta "Probar Playmatch": invitados de prueba en un evento OCULTO ---
+    testStatus: adminReadProcedure.query(async () => db.listPlaymatchTest()),
+    testCreate: adminProcedure.input(z.object({
+      count: z.number().int().min(MIN_TEST_GUESTS).max(MAX_TEST_GUESTS),
+      inside: z.boolean(),
+    })).mutation(async ({ input }) => db.createPlaymatchTestGuests(input)),
+    testEnter: adminProcedure.input(z.object({ ticketCode: z.string() })).mutation(async ({ input }) => {
+      const res = await db.markPlaymatchTestGuestEntered(input.ticketCode);
+      if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+      return res;
+    }),
+    testDelete: adminProcedure.mutation(async () => db.deletePlaymatchTestData()),
     listAllReports: adminReadProcedure.query(async () => {
       return db.listAllPartyReports();
     }),
