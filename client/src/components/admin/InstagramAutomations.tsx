@@ -174,7 +174,7 @@ export function InstagramAutomations() {
   const [validUntil, setValidUntil] = useState('');
   const [aiIdea, setAiIdea] = useState('');
   const [button, setButton] = useState<ButtonValue>(NO_BUTTON);
-  const [perPerson, setPerPerson] = useState(true);
+  const [perPerson, setPerPerson] = useState(false);
 
   // Productos del evento activo, para elegir cuál regalar -- mismo par de
   // queries que ya usa FlashPromoCard, sin filtrar por categoría acá: a
@@ -202,7 +202,7 @@ export function InstagramAutomations() {
     setValidUntil('');
     setAiIdea('');
     setButton(NO_BUTTON);
-    setPerPerson(true);
+    setPerPerson(false);
     setShowForm(false);
   };
 
