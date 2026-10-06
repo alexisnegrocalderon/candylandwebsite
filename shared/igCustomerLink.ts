@@ -92,3 +92,16 @@ export function rankCustomerSuggestions(
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, limit);
 }
+
+/** Frase fija (siempre la misma, para poder reconocer que ya se mandó). */
+export const ALREADY_BOUGHT_MARKER = 'te estaremos esperando';
+
+/** Respuesta alegre para quien avisa que YA tiene su entrada. Va fija y sin IA
+ * porque se manda también en hilos que el dueño tomó a mano, donde el agente
+ * no habla: no puede preguntar nada ni mandar links. La fecha sale del evento
+ * real (hora de Chile); si no hay evento, no se inventa ninguna. */
+export function buildAlreadyBoughtReply(eventDate: Date | null): string {
+  if (!eventDate) return `¡Qué buena noticia! 🎉🔥 Entonces ya estás lista/o, ¡te estaremos esperando con todo! 💜`;
+  const day = new Intl.DateTimeFormat('es-CL', { timeZone: 'America/Santiago', weekday: 'long', day: 'numeric', month: 'long' }).format(eventDate);
+  return `¡Qué buena noticia! 🎉🔥 Entonces nos vemos el ${day}, ¡${ALREADY_BOUGHT_MARKER} con todo! 💜`;
+}
