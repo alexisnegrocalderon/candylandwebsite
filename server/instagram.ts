@@ -24,7 +24,8 @@ import { resolveInstagramBuyLink, resolveEventCardImage } from './instagramInter
 import { resolvePageLink, splitIntoBubbles } from './agentLinks';
 import { sendPushToAdmins } from './push';
 import { normalizeInstagramAgentConfig, PERSONAL_HANDOFF_REASON } from '../shared/instagramAgentConfig';
-import { splitAutomationLink } from './instagramAutomations';
+import type { IgKeywordAutomation } from '../drizzle/schema';
+import { resolveAutomationButton, splitAutomationLink } from './instagramAutomations';
 import { ALREADY_BOUGHT_MARKER, buildAlreadyBoughtReply, saysAlreadyBought } from '../shared/igCustomerLink';
 
 const OWNER_REPLIED_REASON = 'El dueño contestó directo desde Instagram';
@@ -475,14 +476,18 @@ export async function tryHandleKeywordTrigger(input: {
  * (DM normal vs. Private Reply de comentario), que ya difiere entre
  * `tryHandleKeywordTrigger` y `handleCommentChange`. */
 async function sendAutomationReply(
-  automation: { replyMessage: string; discountCode: string | null },
+  automation: Pick<IgKeywordAutomation, 'replyMessage' | 'discountCode' | 'buttonKind' | 'buttonTarget' | 'buttonTitle'>,
   extras: { productName?: string; link?: string; imageUrl?: string },
   sendText: (text: string) => Promise<{ mid: string | null }>,
   sendButton: (caption: string, button: { title: string; url: string }) => Promise<{ mid: string | null }>,
   sendImage: (imageUrl: string) => Promise<{ mid: string | null }>,
 ): Promise<{ text: string; mid?: string | null; imageMid?: string | null; buttonMid?: string | null; buttonTitle?: string }> {
   const { text, buttonUrl } = splitAutomationLink(automation, extras);
-  if (!buttonUrl) {
+  // El botón elegido en el panel manda; si no hay, vale el `{{link}}` escrito
+  // en el mensaje (como siempre).
+  const button = resolveAutomationButton(automation, extras)
+    ?? (buttonUrl ? { title: automation.discountCode ? 'Comprar con código' : 'Ver más', url: buttonUrl } : null);
+  if (!button) {
     const { mid } = await sendText(text);
     return { text, mid };
   }
@@ -502,8 +507,8 @@ async function sendAutomationReply(
   // devolver si sí mandó el texto).
   const mid = text.trim().length > 0 ? (await sendText(text)).mid : undefined;
 
-  const buttonTitle = automation.discountCode ? 'Comprar con código' : 'Ver más';
-  const { mid: buttonMid } = await sendButton(BUTTON_CARD_CAPTION, { title: buttonTitle, url: buttonUrl });
+  const buttonTitle = button.title;
+  const { mid: buttonMid } = await sendButton(BUTTON_CARD_CAPTION, { title: buttonTitle, url: button.url });
   return { text, mid, imageMid, buttonMid, buttonTitle };
 }
 

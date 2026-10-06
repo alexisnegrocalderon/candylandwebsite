@@ -329,6 +329,32 @@ describe('tryHandleKeywordTrigger', () => {
     expect(appendIgMessageMock).toHaveBeenNthCalledWith(3, { threadId: 7, mid: 'mid-btn-1', direction: 'out', source: 'bot', text: '[botón] Comprar con código' });
   });
 
+  // Caso real (FIRE, 06/10): la automatización regala un producto pero su
+  // mensaje no trae {{link}}. Con el botón elegido en el panel ("Comprar
+  // entrada del próximo evento") igual tiene que salir el botón, con el
+  // código pegado y la marca de origen.
+  it('manda el botón de compra elegido en el panel aunque el mensaje no tenga {{link}}', async () => {
+    findMatchingIgKeywordAutomationMock.mockResolvedValueOnce({
+      id: 8, keyword: 'fire', triggerSource: 'story_reply', replyMessage: 'Tu regalo te espera 🔥', discountCode: 'AUTONUAM', active: 1, createdAt: new Date(),
+      buttonKind: 'event', buttonTarget: null, buttonTitle: null,
+    } as any);
+    hasRedeemedIgKeywordAutomationMock.mockResolvedValueOnce(false);
+    getFeaturedEventMock.mockResolvedValueOnce({ slug: 'aniversario', imageUrl: null } as any);
+    getDiscountCodeByCodeMock.mockResolvedValueOnce({ giftTicketTypeId: null } as any);
+    sendInstagramMessageMock.mockResolvedValueOnce({ mid: 'mid-out-9' } as any);
+    sendButtonMessageMock.mockResolvedValueOnce({ mid: 'mid-btn-9' } as any);
+
+    await tryHandleKeywordTrigger({ threadId: 7, igUserId: 'ig-user-1', text: 'FIRE', source: 'story_reply' });
+
+    expect(sendInstagramMessageMock).toHaveBeenCalledWith({ recipientId: 'ig-user-1', text: 'Tu regalo te espera 🔥' });
+    const [, , button] = sendButtonMessageMock.mock.calls[0] as any;
+    expect(button.title).toBe('Comprar con código');
+    const url = new URL(button.url);
+    expect(url.pathname).toBe('/eventos/aniversario');
+    expect(url.searchParams.get('code')).toBe('AUTONUAM');
+    expect(url.searchParams.get('utm_campaign')).toBe('automatizacion');
+  });
+
   // Si Meta rechaza la imagen (o cualquier otro error), el regalo real
   // (código/link) tiene que mandarse igual -- la imagen es un extra, nunca
   // debe bloquear el mensaje que la persona sí está esperando.

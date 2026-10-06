@@ -89,6 +89,8 @@ import { sendManualInstagramReply } from "./instagram";
 import { canReplyWithinWindow } from "./instagramSend";
 import { runInstagramAgent, buildInstagramContext } from "./instagramAgent";
 import { getIgCustomerLinkState } from "./igCustomerLink";
+import { AGENT_SITE_PAGES } from "./agentLinks";
+import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
 import { runAgentCoach } from "./agentCoach";
 import { runSalesStrategist, setSalesStrategyWeekly } from "./salesStrategist";
@@ -526,6 +528,27 @@ async function issueAdminSession(ctx: any) {
   const cookieOptions = getSessionCookieOptions(ctx.req);
   ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ADMIN_SESSION_MS });
 }
+
+/* Botón debajo del mensaje de una automatización: valida que lo elegido sea
+ * usable (página de la lista cerrada, link https del propio sitio). */
+const automationButtonSchema = z.object({
+  buttonKind: z.enum(AUTOMATION_BUTTON_KINDS),
+  buttonTarget: z.string().max(300).nullable().optional(),
+  buttonTitle: z.string().trim().max(AUTOMATION_BUTTON_TITLE_MAX).nullable().optional(),
+}).transform((b, ctx) => {
+  const target = b.buttonTarget?.trim() || null;
+  if (b.buttonKind === 'page' && !AGENT_SITE_PAGES.some((p) => p.path === target)) {
+    ctx.addIssue({ code: 'custom', message: 'Elige una página de la lista.' });
+  }
+  if (b.buttonKind === 'custom' && !(target && isAllowedCustomButtonUrl(target, new URL(process.env.APP_URL || 'https://mansionplayroom.cl').hostname))) {
+    ctx.addIssue({ code: 'custom', message: 'El link propio tiene que ser https y de mansionplayroom.cl.' });
+  }
+  return {
+    buttonKind: b.buttonKind,
+    buttonTarget: b.buttonKind === 'page' || b.buttonKind === 'custom' ? target : null,
+    buttonTitle: b.buttonKind === 'none' ? null : (b.buttonTitle?.trim() || null),
+  };
+});
 
 export const appRouter = router({
   system: systemRouter,
@@ -2576,6 +2599,12 @@ export const appRouter = router({
   // Advanced Access) que hoy no está aprobado -- ver docs/INSTAGRAM-AGENT.md.
   instagramAutomations: router({
     list: adminProcedure.query(() => db.listIgKeywordAutomationsWithStats()),
+    /* Páginas que se pueden elegir como botón (la misma lista cerrada del agente). */
+    buttonPages: adminProcedure.query(() => AGENT_SITE_PAGES.map((p) => ({ path: p.path, topic: p.topic }))),
+    setButton: adminProcedure.input(z.object({ id: z.number(), button: automationButtonSchema })).mutation(async ({ input }) => {
+      await db.setIgKeywordAutomationButton(input.id, input.button);
+      return { success: true };
+    }),
     // IA: arma el mensaje del DM a partir de lo que ya está configurado en
     // el formulario (palabra clave, dónde aplica, recompensa) + una idea
     // libre y opcional (no se guarda, ver server/instagramAutomationDraft.ts).
@@ -2607,6 +2636,7 @@ export const appRouter = router({
       keyword: z.string().min(1).max(120),
       triggerSource: z.enum(['comment', 'story_reply', 'both']),
       replyMessage: z.string().min(1).max(1000),
+      button: automationButtonSchema.optional(),
       // Una automatización regala UNA cosa a la vez -- descuento en dinero
       // O un producto de la Carta, nunca los dos juntos (si más adelante
       // hace falta combinarlos, es una vuelta aparte).
@@ -2661,6 +2691,7 @@ export const appRouter = router({
         triggerSource: input.triggerSource,
         replyMessage: input.replyMessage,
         discountCode,
+        button: input.button,
       });
       return { success: true };
     }),

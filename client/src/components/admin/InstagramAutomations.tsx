@@ -35,6 +35,99 @@ const TRIGGER_LABEL: Record<string, string> = {
 
 type RewardMode = 'none' | 'discount' | 'gift';
 
+type ButtonKind = 'none' | 'event' | 'page' | 'custom';
+type ButtonValue = { kind: ButtonKind; target: string; title: string };
+const NO_BUTTON: ButtonValue = { kind: 'none', target: '', title: '' };
+
+const BUTTON_KIND_LABEL: Record<ButtonKind, string> = {
+  none: 'Sin botón',
+  event: 'Comprar entrada del próximo evento',
+  page: 'Una página del sitio',
+  custom: 'Link propio (mansionplayroom.cl)',
+};
+
+const toButtonInput = (b: ButtonValue) => ({
+  buttonKind: b.kind,
+  buttonTarget: b.kind === 'page' || b.kind === 'custom' ? b.target : null,
+  buttonTitle: b.title.trim() || null,
+});
+
+/** Qué botón viaja debajo del mensaje. "Comprar entrada" lleva el link del
+ * evento destacado con el código de regalo ya pegado: la persona toca y
+ * compra con el regalo aplicado. */
+function AutomationButtonPicker({ value, onChange, hasReward }: { value: ButtonValue; onChange: (v: ButtonValue) => void; hasReward: boolean }) {
+  const { data: pages } = trpc.instagramAutomations.buttonPages.useQuery(undefined, { enabled: value.kind === 'page' });
+  const defaultTitle = value.kind === 'event' ? (hasReward ? 'Comprar con código' : 'Comprar entrada') : value.kind === 'custom' ? 'Ver más' : 'Leer más';
+  return (
+    <div className="space-y-3">
+      <div>
+        <Label>Botón debajo del mensaje</Label>
+        <Select value={value.kind} onValueChange={(v) => onChange({ ...value, kind: v as ButtonKind })}>
+          <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {(Object.keys(BUTTON_KIND_LABEL) as ButtonKind[]).map((k) => <SelectItem key={k} value={k}>{BUTTON_KIND_LABEL[k]}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      {value.kind === 'page' && (
+        <Select value={value.target} onValueChange={(v) => onChange({ ...value, target: v })}>
+          <SelectTrigger><SelectValue placeholder="Elige la página" /></SelectTrigger>
+          <SelectContent>
+            {(pages ?? []).map((p) => <SelectItem key={p.path} value={p.path}>{p.topic}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+      {value.kind === 'custom' && (
+        <Input value={value.target} onChange={(e) => onChange({ ...value, target: e.target.value })} placeholder="https://mansionplayroom.cl/..." />
+      )}
+      {value.kind !== 'none' && (
+        <div>
+          <Label>Texto del botón (máx. 20)</Label>
+          <Input value={value.title} maxLength={20} onChange={(e) => onChange({ ...value, title: e.target.value })} placeholder={defaultTitle} className="mt-1" />
+          <p className="text-xs text-muted-foreground mt-1">
+            {value.kind === 'event' && 'Abre la compra del próximo evento' + (hasReward ? ' con el código del regalo ya aplicado.' : '.')}
+            {value.kind === 'page' && 'Abre esa página del sitio.'}
+            {value.kind === 'custom' && 'Solo links https de mansionplayroom.cl.'}
+            {' '}Llega como un botón aparte, debajo del mensaje.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Botón de una automatización ya creada: se ve cuál tiene y se puede cambiar. */
+function AutomationButtonEditor({ automation }: { automation: { id: number; discountCode: string | null; buttonKind: string; buttonTarget: string | null; buttonTitle: string | null } }) {
+  const utils = trpc.useUtils();
+  const current: ButtonValue = { kind: (automation.buttonKind as ButtonKind) ?? 'none', target: automation.buttonTarget ?? '', title: automation.buttonTitle ?? '' };
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<ButtonValue>(current);
+  const save = trpc.instagramAutomations.setButton.useMutation({
+    onSuccess: () => { utils.instagramAutomations.list.invalidate(); setEditing(false); toast.success('Botón guardado.'); },
+    onError,
+  });
+  if (!editing) {
+    return (
+      <p className="text-xs mt-1">
+        Botón: <span className="font-medium">{BUTTON_KIND_LABEL[current.kind] ?? 'Sin botón'}</span>
+        {current.title && <> ("{current.title}")</>}{' '}
+        <button className="underline text-primary" onClick={() => { setDraft(current.kind === 'none' && automation.discountCode ? { ...NO_BUTTON, kind: 'event' } : current); setEditing(true); }}>cambiar</button>
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2 space-y-2 rounded-xl bg-muted/30 p-3">
+      <AutomationButtonPicker value={draft} onChange={setDraft} hasReward={Boolean(automation.discountCode)} />
+      <div className="flex gap-2">
+        <WriteButton size="sm" disabled={save.isPending} onClick={() => save.mutate({ id: automation.id, button: toButtonInput(draft) })}>
+          {save.isPending ? 'Guardando...' : 'Guardar botón'}
+        </WriteButton>
+        <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancelar</Button>
+      </div>
+    </div>
+  );
+}
+
 export function InstagramAutomations() {
   const utils = trpc.useUtils();
   const { data: automations } = trpc.instagramAutomations.list.useQuery();
@@ -50,6 +143,7 @@ export function InstagramAutomations() {
   const [maxUses, setMaxUses] = useState('');
   const [validUntil, setValidUntil] = useState('');
   const [aiIdea, setAiIdea] = useState('');
+  const [button, setButton] = useState<ButtonValue>(NO_BUTTON);
 
   // Productos del evento activo, para elegir cuál regalar -- mismo par de
   // queries que ya usa FlashPromoCard, sin filtrar por categoría acá: a
@@ -76,6 +170,7 @@ export function InstagramAutomations() {
     setMaxUses('');
     setValidUntil('');
     setAiIdea('');
+    setButton(NO_BUTTON);
     setShowForm(false);
   };
 
@@ -104,6 +199,7 @@ export function InstagramAutomations() {
       keyword: keyword.trim(),
       triggerSource,
       replyMessage: replyMessage.trim(),
+      button: toButtonInput(button),
       reward: rewardMode === 'discount' ? {
         kind: 'discount',
         discountType,
@@ -138,6 +234,7 @@ export function InstagramAutomations() {
               <p className="text-muted-foreground text-xs">{TRIGGER_LABEL[a.triggerSource]}</p>
               <p className="text-muted-foreground text-xs mt-1 whitespace-pre-wrap break-words">{a.replyMessage}</p>
               {a.discountCode && <p className="text-xs mt-1">Código: <span className="font-mono">{a.discountCode}</span></p>}
+              <AutomationButtonEditor automation={a} />
               <p className="text-muted-foreground text-xs mt-1">{a.redemptions} persona{a.redemptions === 1 ? '' : 's'} ya lo recibió</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -214,7 +311,11 @@ export function InstagramAutomations() {
 
             <div>
               <Label>¿Qué le regala esta automatización?</Label>
-              <Select value={rewardMode} onValueChange={(v) => setRewardMode(v as RewardMode)}>
+              <Select value={rewardMode} onValueChange={(v) => {
+                setRewardMode(v as RewardMode);
+                // Con regalo, lo natural es que el botón lleve a comprar con el código.
+                if (v !== 'none' && button.kind === 'none') setButton({ ...NO_BUTTON, kind: 'event' });
+              }}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">Nada -- solo el mensaje (link, artículo, texto)</SelectItem>
@@ -287,6 +388,8 @@ export function InstagramAutomations() {
                 </p>
               </div>
             )}
+
+            <AutomationButtonPicker value={button} onChange={setButton} hasReward={rewardMode !== 'none'} />
 
             <div className="flex gap-2">
               <WriteButton
