@@ -4,6 +4,7 @@ import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, 
 import { trpc } from '@/lib/trpc';
 import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
 import { CustomerNotesCard } from '@/components/admin/CustomerNotesCard';
+import { IgCustomerLinkCard } from '@/components/admin/IgCustomerLinkCard';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
 import { Switch } from '@/components/ui/switch';
@@ -684,8 +685,14 @@ function ThreadList({ onOpen }: { onOpen: (id: number) => void }) {
     );
   }
 
+  const toLink = threads.filter((t) => t.needsCustomerLink).length;
   return (
     <div className="space-y-3">
+      {toLink > 0 && (
+        <p className="text-sm rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-300/60 p-3">
+          {toLink === 1 ? '1 conversación dice' : `${toLink} conversaciones dicen`} que ya compraron y no están vinculadas a una ficha de cliente. Ábrelas para vincularlas.
+        </p>
+      )}
       {threads.map((t) => (
         <button
           key={t.id}
@@ -699,6 +706,7 @@ function ThreadList({ onOpen }: { onOpen: (id: number) => void }) {
                 {t.unreadCount > 0 && <span className="ml-2 text-xs rounded-full bg-primary text-primary-foreground px-2 py-0.5">{t.unreadCount}</span>}
               </p>
               <p className="text-sm text-muted-foreground truncate mt-1">{t.lastMessagePreview ?? ''}</p>
+              {t.needsCustomerLink && <p className="text-xs text-amber-700 mt-1">Dice que ya compró · falta vincular a su ficha</p>}
             </div>
             <div className="text-right shrink-0">
               <p className="text-xs text-muted-foreground">{t.lastMessageAt ? formatChileDateTime(t.lastMessageAt) : ''}</p>
@@ -767,6 +775,7 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
       </CardHeader>
       <CardContent className="space-y-4">
         <CustomerNotesCard channel="instagram" threadId={threadId} notes={thread.customerNotes} />
+        <IgCustomerLinkCard threadId={threadId} />
         <div className="flex items-center justify-between gap-4 rounded-2xl border p-3">
           <div className="text-sm">
             <p className="font-medium">Respuesta automática en esta conversación</p>

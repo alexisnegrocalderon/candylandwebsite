@@ -88,6 +88,8 @@ import { normalizeInstagramAgentConfig, DEFAULT_INSTAGRAM_AGENT_CONFIG, IG_MAX_R
 import { sendManualInstagramReply } from "./instagram";
 import { canReplyWithinWindow } from "./instagramSend";
 import { runInstagramAgent, buildInstagramContext } from "./instagramAgent";
+import { getIgCustomerLinkState } from "./igCustomerLink";
+import { normalizeIgHandle } from "../shared/igCustomerLink";
 import { runAgentCoach } from "./agentCoach";
 import { runSalesStrategist, setSalesStrategyWeekly } from "./salesStrategist";
 import { sendEventSurveys, sendSurveyTestEmail, analyzeEventSurvey, getEventSurveyPanel } from "./eventSurvey";
@@ -2338,12 +2340,44 @@ export const appRouter = router({
     })),
     listThreads: adminProcedure.query(async () => {
       const threads = await db.listIgThreads(100);
+      // Conversaciones donde dicen "ya compré" y su @ aún no está en ninguna
+      // ficha de cliente: se marcan para que el dueño las vincule.
+      let toLink = new Set<number>();
+      try {
+        const [saying, linkedHandles] = await Promise.all([db.getIgThreadsSayingBought(threads.map((t) => t.id)), db.listLinkedInstagramHandles()]);
+        toLink = new Set(Array.from(saying).filter((id) => {
+          const t = threads.find((x) => x.id === id);
+          return t && !linkedHandles.has(normalizeIgHandle(t.username));
+        }));
+      } catch (err) {
+        console.error('[instagram] no se pudo calcular "por vincular"', err);
+      }
       return threads.map((t) => ({
         ...t,
         // La ventana de 24 horas de Meta se calcula acá y no en el cliente
         // para que el botón de responder no dependa del reloj del navegador.
         canReply: canReplyWithinWindow(t.lastInboundAt),
+        needsCustomerLink: toLink.has(t.id),
       }));
+    }),
+    customerLink: adminProcedure.input(z.object({ threadId: z.number() })).query(async ({ input }) => {
+      const state = await getIgCustomerLinkState(input.threadId);
+      if (!state) throw new TRPCError({ code: 'NOT_FOUND', message: 'Conversación no encontrada' });
+      return state;
+    }),
+    searchCustomersToLink: adminProcedure.input(z.object({ search: z.string().trim().min(2).max(80) })).query(async ({ input }) => {
+      const rows = await db.listCustomers({ search: input.search });
+      return rows.slice(0, 8).map((c: any) => ({ customerId: c.id as number, fullName: (c.fullName ?? null) as string | null, email: c.email as string, instagram: (c.instagram ?? null) as string | null }));
+    }),
+    linkCustomer: adminProcedure.input(z.object({ threadId: z.number(), customerId: z.number() })).mutation(async ({ input, ctx }) => {
+      const thread = await db.getIgThreadById(input.threadId);
+      if (!thread) throw new TRPCError({ code: 'NOT_FOUND', message: 'Conversación no encontrada' });
+      const handle = normalizeIgHandle(thread.username);
+      if (!handle) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Esta conversación no tiene @ de Instagram, no se puede vincular.' });
+      const result = await db.setCustomerInstagram(input.customerId, handle);
+      if (!result) throw new TRPCError({ code: 'NOT_FOUND', message: 'Cliente no encontrado' });
+      await db.recordAdminAudit({ action: 'instagram.linkCustomer', targetType: 'customer', targetId: input.customerId, ip: clientIp(ctx), payload: { threadId: input.threadId, handle, previous: result.previous } });
+      return { success: true };
     }),
     getThread: adminProcedure.input(z.object({ threadId: z.number() })).query(async ({ input }) => {
       const thread = await db.getIgThreadById(input.threadId);
