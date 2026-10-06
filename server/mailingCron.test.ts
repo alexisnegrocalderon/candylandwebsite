@@ -140,7 +140,7 @@ describe("processMailingCronBatch — saltar a quien ya compró", () => {
 
     expect(isCustomerEmailOptedOutMock).toHaveBeenCalledWith(baseRecipient.customerId);
     expect(sendEmailMock).not.toHaveBeenCalled();
-    expect(markMailingRecipientSkippedMock).toHaveBeenCalledWith(baseRecipient.id, baseRecipient.campaignId);
+    expect(markMailingRecipientSkippedMock).toHaveBeenCalledWith(baseRecipient.id, baseRecipient.campaignId, 'Pidió no recibir correos');
     expect(markMailingRecipientResultMock).not.toHaveBeenCalled();
     expect(result).toMatchObject({ sent: 0, failed: 0, skipped: 1 });
   });

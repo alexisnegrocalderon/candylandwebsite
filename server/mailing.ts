@@ -323,7 +323,7 @@ export async function processMailingCronBatch(): Promise<MailingCronResult> {
     // Misma regla que en sendMailingBatch: una baja pedida mientras esperaba
     // en la cola se respeta, sin gastar cupo ni contar como fallo.
     if (await db.isCustomerEmailOptedOut(recipient.customerId)) {
-      await db.markMailingRecipientSkipped(recipient.id, recipient.campaignId);
+      await db.markMailingRecipientSkipped(recipient.id, recipient.campaignId, 'Pidió no recibir correos');
       campaignsTouched.add(recipient.campaignId);
       skipped++;
       continue;

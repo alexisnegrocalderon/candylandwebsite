@@ -7,10 +7,10 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   birthdayApplications, customers, events, orderItems, orders, partyProfiles, playcoinsLedger, ticketTypes, tickets,
 } from "../drizzle/schema";
-import { getDb } from "./db";
+import { getDb, skipPendingMailingForCustomer } from "./db";
 import { isValidRut, normalizeRut } from "../shared/rut";
 import {
-  ageFromBirthDate, computeCustomerLevel, daysBetween, daysUntilBirthday, GENDER_OPTIONS, LOCKABLE_FIELDS, normalizeInstagram, normalizePhone,
+  ageFromBirthDate, computeCustomerLevel, customerDeleteBlocker, daysBetween, daysUntilBirthday, GENDER_OPTIONS, LOCKABLE_FIELDS, normalizeInstagram, normalizePhone,
   parseBirthDateInput, parseLockedFields, recencyTone, SOURCE_OPTIONS, suggestNextAction, type CustomerGender, type LockableField,
 } from "../shared/customerInsights";
 
@@ -309,4 +309,26 @@ export async function getCustomerProfile(customerId: number, now: Date = new Dat
     suggestions,
     nextAction,
   };
+}
+
+/* ─── Borrado ──────────────────────────────────────────────── */
+
+/** Borra la ficha de un cliente. Las COMPRAS, entradas y los ledgers de
+ * Playcoins/saldo no se tocan (son historial y plata: ver comentarios del
+ * schema); solo desaparece la ficha, y si el cliente vuelve a comprar se crea
+ * una ficha nueva desde cero. Los envíos pendientes de la cola de mailing se
+ * marcan como saltados. Devuelve una foto de lo borrado para la bitácora. */
+export async function deleteCustomerProfile(customerId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible');
+  const [c] = await db.select().from(customers).where(eq(customers.id, customerId)).limit(1);
+  if (!c) throw new Error('No encontré a ese cliente (quizás ya lo borraste).');
+  const blocker = customerDeleteBlocker(c);
+  if (blocker) throw new Error(blocker);
+
+  const skippedMailings = await skipPendingMailingForCustomer(customerId, 'Cliente eliminado');
+  await db.delete(customers).where(eq(customers.id, customerId));
+
+  const { cardPinHash: _hash, ...snapshot } = c as any;
+  return { snapshot, skippedMailings };
 }

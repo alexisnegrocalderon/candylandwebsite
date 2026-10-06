@@ -289,3 +289,22 @@ export function suggestNextAction(i: NextActionInput): NextAction | null {
 
   return null;
 }
+
+/* ─── Borrar un cliente ────────────────────────────────────── */
+
+/** Por qué NO se puede borrar este cliente, o null si se puede.
+ *
+ * - Saldo prepagado: es plata que el cliente cargó; borrar la ficha la haría
+ *   desaparecer de la vista aunque el ledger la conserve.
+ * - Baja de contacto: borrar la ficha borraría la baja, y la próxima compra
+ *   crearía una ficha nueva SIN ella -- volvería a recibir correos que pidió
+ *   no recibir. */
+export function customerDeleteBlocker(c: { prepaidBalance: number; emailOptOut: number | boolean; whatsappOptOut: number | boolean }): string | null {
+  if (c.prepaidBalance > 0) {
+    return `Tiene $${Math.round(c.prepaidBalance).toLocaleString('es-CL')} de saldo prepagado: es plata del cliente y no se puede borrar su ficha con saldo.`;
+  }
+  if (c.emailOptOut || c.whatsappOptOut) {
+    return 'Pidió no ser contactado: si se borra su ficha, la baja se pierde y volvería a recibir correos si compra otra vez. Déjalo en la lista.';
+  }
+  return null;
+}

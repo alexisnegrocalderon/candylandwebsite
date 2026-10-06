@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeCustomerLevel, recencyTone, normalizeInstagram, normalizePhone, whatsappUrl, parseBirthDateInput, formatBirthDate,
   daysUntilBirthday, hasBirthdayInMonth, ageFromBirthDate, parseLockedFields, mergeFromOrder, suggestNextAction,
-  VIP_SPENT_THRESHOLD_CLP, type NextActionInput,
+  VIP_SPENT_THRESHOLD_CLP, customerDeleteBlocker, type NextActionInput,
 } from "./customerInsights";
 
 const now = new Date("2026-10-06T12:00:00Z");
@@ -149,5 +149,19 @@ describe("suggestNextAction", () => {
   });
   it("no inventa nada cuando todo está bien", () => {
     expect(suggestNextAction({ ...base, birthDate: "1990-03-01" })).toBeNull();
+  });
+});
+
+describe("customerDeleteBlocker", () => {
+  const free = { prepaidBalance: 0, emailOptOut: 0, whatsappOptOut: 0 };
+  it("deja borrar a un cliente sin saldo ni bajas", () => {
+    expect(customerDeleteBlocker(free)).toBeNull();
+  });
+  it("no deja borrar con saldo prepagado: es plata del cliente", () => {
+    expect(customerDeleteBlocker({ ...free, prepaidBalance: 12500 })).toContain("$12.500");
+  });
+  it("no deja borrar a quien pidió la baja, para no perderla", () => {
+    expect(customerDeleteBlocker({ ...free, emailOptOut: 1 })).toContain("baja");
+    expect(customerDeleteBlocker({ ...free, whatsappOptOut: true })).toContain("baja");
   });
 });

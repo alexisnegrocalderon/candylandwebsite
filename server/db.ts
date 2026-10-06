@@ -5434,6 +5434,17 @@ export function tallyTags(tagLists: unknown[]): { tag: string; count: number }[]
 }
 
 /** Resuelve destinatarios de un lote de mailing masivo por id (server/mailing.ts). */
+/** Pendientes de la cola de mailing de un cliente que se va a borrar: se marcan
+ * como saltados (con su contador y cierre de campaña) en vez de quedar colgados. */
+export async function skipPendingMailingForCustomer(customerId: number, reason: string) {
+  const db = await getDb();
+  if (!db) return 0;
+  const pending = await db.select({ id: mailingRecipients.id, campaignId: mailingRecipients.campaignId }).from(mailingRecipients)
+    .where(and(eq(mailingRecipients.customerId, customerId), eq(mailingRecipients.status, 'pending')));
+  for (const r of pending) await markMailingRecipientSkipped(r.id, r.campaignId, reason);
+  return pending.length;
+}
+
 export async function isCustomerEmailOptedOut(customerId: number): Promise<boolean> {
   const db = await getDb();
   if (!db) return false;
@@ -7140,13 +7151,13 @@ export async function hasApprovedOrderForEvent(email: string, eventId: number): 
  * `markMailingRecipientResult` (ver el comentario ahí sobre por qué no es
  * una transacción): actualiza la fila, suma el contador de la campaña, y si
  * ya no queda ningún pendiente, cierra la campaña como 'done'. */
-export async function markMailingRecipientSkipped(recipientId: number, campaignId: number) {
+export async function markMailingRecipientSkipped(recipientId: number, campaignId: number, reason: string = 'Ya había comprado esta entrada') {
   const db = await getDb();
   if (!db) return;
 
   await db.update(mailingRecipients).set({
     status: 'skipped',
-    reason: 'Ya había comprado esta entrada',
+    reason,
   }).where(eq(mailingRecipients.id, recipientId));
 
   await db.update(mailingCampaigns).set({

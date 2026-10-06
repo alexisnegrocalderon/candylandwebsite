@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Copy, Lock, MessageCircle, Instagram, Mail, ChevronLeft, ChevronRight, Sparkles, X, BellOff } from 'lucide-react';
+import { Copy, Lock, MessageCircle, Instagram, Mail, ChevronLeft, ChevronRight, Sparkles, X, BellOff, Trash2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,9 +11,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { WriteButton } from '@/components/admin/WriteButton';
+import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
 import {
-  CUSTOMER_LEVEL_META, GENDER_OPTIONS, SOURCE_OPTIONS, formatBirthDate, whatsappUrl,
+  CUSTOMER_LEVEL_META, GENDER_OPTIONS, SOURCE_OPTIONS, customerDeleteBlocker, formatBirthDate, whatsappUrl,
 } from '@shared/customerInsights';
 
 /* Ficha de cliente (Admin → Clientes): panel lateral con pestañas. Lo editable
@@ -42,13 +43,15 @@ function formFromCustomer(c: any): FormState {
 const initials = (name: string | null | undefined, email: string) =>
   ((name || email).trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('')) || '?';
 
-export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged }: {
+export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged, onDeleted }: {
   customerId: number | null;
   onClose: () => void;
   onPrev?: () => void;
   onNext?: () => void;
   /** Para que la lista de atrás se refresque después de guardar. */
   onChanged: () => void;
+  /** Después de borrar al cliente: cierra el panel sin preguntar por cambios. */
+  onDeleted: () => void;
 }) {
   const open = customerId != null;
   const utils = trpc.useUtils();
@@ -75,6 +78,10 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged 
   };
   const update = trpc.customers.update.useMutation({
     onSuccess: () => { toast.success('Ficha guardada'); refresh(); },
+    onError: (e) => toast.error(e.message),
+  });
+  const deleteCustomer = trpc.customers.delete.useMutation({
+    onSuccess: () => { toast.success('Cliente borrado'); onChanged(); onDeleted(); },
     onError: (e) => toast.error(e.message),
   });
   const addTag = trpc.customers.addTag.useMutation({ onSuccess: refresh, onError: (e) => toast.error(e.message) });
@@ -290,6 +297,30 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged 
                     </div>
                   </Section>
                   <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Lock className="w-3 h-3" /> Lo que edites a mano (nombre, teléfono, RUT, Instagram) no se vuelve a sobrescribir con compras nuevas.</p>
+
+                  <div className="rounded-2xl border border-destructive/30 p-4 space-y-2">
+                    <p className="text-xs uppercase tracking-wide text-destructive font-semibold">Borrar cliente</p>
+                    {(() => {
+                      const blocker = customerDeleteBlocker(c);
+                      return blocker ? (
+                        <p className="text-sm text-muted-foreground">{blocker}</p>
+                      ) : (
+                        <>
+                          <p className="text-sm text-muted-foreground">
+                            Borra solo la ficha. Sus compras y entradas quedan registradas; si vuelve a comprar, se crea una ficha nueva desde cero.
+                            {c.playcoins > 0 ? ` Perdería sus ${c.playcoins} Playcoins.` : ''}
+                          </p>
+                          <ConfirmDeleteButton
+                            className="inline-flex items-center gap-1.5 text-sm text-destructive border border-destructive/40 rounded-md px-3 py-1.5"
+                            description={`Vas a borrar la ficha de ${c.fullName || c.email} (${c.email}).${c.totalOrders > 0 ? ` Tiene ${c.totalOrders} compra${c.totalOrders === 1 ? '' : 's'} registrada${c.totalOrders === 1 ? '' : 's'}: quedan, pero sin ficha.` : ''}`}
+                            onConfirm={(adminPassword) => deleteCustomer.mutateAsync({ id: c.id, adminPassword })}
+                          >
+                            <Trash2 className="w-4 h-4" /> Borrar este cliente
+                          </ConfirmDeleteButton>
+                        </>
+                      );
+                    })()}
+                  </div>
                 </TabsContent>
 
                 {/* HISTORIAL */}
