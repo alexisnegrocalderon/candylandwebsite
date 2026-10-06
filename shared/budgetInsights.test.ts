@@ -136,3 +136,18 @@ describe("comparación", () => {
     expect(c.reasons.join(" ")).toMatch(/costos/);
   });
 });
+
+describe('entradas y compras online sin IVA', () => {
+  it('solo la barra genera débito fiscal y el equilibrio baja', async () => {
+    const { computeBudgetResult } = await import('./eventBudget');
+    const base = computeBudgetResult({ ...sample, ivaApplies: true });
+    const online = computeBudgetResult({ ...sample, ivaApplies: true, onlineSalesNoIva: true });
+    const bar = online.otherRevenue;
+    expect(online.pnl.iva.debitoFiscal).toBe(Math.round(bar * 19 / 119));
+    expect(online.pnl.netProfit).toBeGreaterThan(base.pnl.netProfit);
+    expect(online.breakevenTickets!).toBeLessThanOrEqual(base.breakevenTickets!);
+    // sin "aplica IVA" la opción no hace nada
+    const off = computeBudgetResult({ ...sample, ivaApplies: false, onlineSalesNoIva: true });
+    expect(off.pnl.iva.debitoFiscal).toBe(0);
+  });
+});

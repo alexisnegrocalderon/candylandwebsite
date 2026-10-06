@@ -324,6 +324,8 @@ const budgetSimulationInputSchema = z.object({
   name: z.string().min(1).max(255),
   eventId: z.number().nullable().optional(),
   ivaApplies: z.boolean(),
+  // Opcional para no romper un panel abierto con la versión anterior.
+  onlineSalesNoIva: z.boolean().default(false),
   marginTargetPercent: z.number(),
   cardFeePercent: z.number().min(0).max(100),
   commissionPercent: z.number().min(0).max(100),

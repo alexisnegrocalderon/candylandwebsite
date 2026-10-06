@@ -7876,6 +7876,7 @@ function emptySimForm(cardFeeDefault: number): SimForm {
   return {
     name: '',
     ivaApplies: false,
+    onlineSalesNoIva: false,
     marginTargetPercent: 30,
     cardFeePercent: cardFeeDefault,
     commissionPercent: 0,
@@ -7892,6 +7893,7 @@ function simFormFromRow(row: any): SimForm {
   return {
     name: row.name,
     ivaApplies: !!row.ivaApplies,
+    onlineSalesNoIva: !!row.onlineSalesNoIva,
     marginTargetPercent: Number(row.marginTargetPercent),
     cardFeePercent: Number(row.cardFeePercent),
     commissionPercent: Number(row.commissionPercent),
@@ -8188,6 +8190,15 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
             <Checkbox id="sim-iva" checked={form.ivaApplies} onCheckedChange={(v) => setForm({ ...form, ivaApplies: v === true })} />
             <label htmlFor="sim-iva" className="text-sm cursor-pointer">Este evento aplica IVA</label>
           </div>
+          {form.ivaApplies && (
+            <div className="md:col-span-3 flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+              <Checkbox id="sim-online-noiva" className="mt-0.5" checked={!!form.onlineSalesNoIva} onCheckedChange={(v) => setForm({ ...form, onlineSalesNoIva: v === true })} />
+              <label htmlFor="sim-online-noiva" className="text-sm cursor-pointer">
+                Entradas y compras online (estacionamiento) no declaran IVA
+                <span className="block text-xs text-muted-foreground">Solo se les descuenta la comisión de la pasarela de pago. La barra sigue declarando IVA y los gastos con factura siguen recuperando su crédito.</span>
+              </label>
+            </div>
+          )}
         </div>
 
         <div>

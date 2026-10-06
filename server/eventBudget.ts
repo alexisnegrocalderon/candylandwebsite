@@ -11,6 +11,7 @@ export type SimulationInput = {
   name: string;
   eventId?: number | null;
   ivaApplies: boolean;
+  onlineSalesNoIva?: boolean;
   marginTargetPercent: number;
   cardFeePercent: number;
   commissionPercent: number;
@@ -45,6 +46,7 @@ export async function createSimulation(data: SimulationInput, createdByUserId?: 
     name: data.name,
     eventId: data.eventId ?? null,
     ivaApplies: data.ivaApplies ? 1 : 0,
+    onlineSalesNoIva: data.ivaApplies && data.onlineSalesNoIva ? 1 : 0,
     marginTargetPercent: String(data.marginTargetPercent),
     cardFeePercent: String(data.cardFeePercent),
     commissionPercent: String(data.commissionPercent),
@@ -67,6 +69,7 @@ export async function updateSimulation(id: number, data: SimulationInput) {
   await db.update(budgetSimulations).set({
     name: data.name,
     ivaApplies: data.ivaApplies ? 1 : 0,
+    onlineSalesNoIva: data.ivaApplies && data.onlineSalesNoIva ? 1 : 0,
     marginTargetPercent: String(data.marginTargetPercent),
     cardFeePercent: String(data.cardFeePercent),
     commissionPercent: String(data.commissionPercent),

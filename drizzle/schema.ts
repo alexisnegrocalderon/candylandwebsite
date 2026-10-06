@@ -1711,6 +1711,9 @@ export const budgetSimulations = mysqlTable("budgetSimulations", {
   // evento).
   eventId: int("eventId"),
   ivaApplies: int("ivaApplies").default(0).notNull(),
+  // Con ivaApplies: las entradas y los ingresos adicionales se venden online y no se
+  // declaran al SII (solo la barra genera IVA). Solo se descuenta la comisión de la pasarela.
+  onlineSalesNoIva: int("onlineSalesNoIva").default(0).notNull(),
   // % de margen neto mínimo que el dueño quiere cuidar -- de acá sale el
   // techo de gasto (maxDirectExpenses) que pinta la barra verde/amarilla/roja.
   marginTargetPercent: decimal("marginTargetPercent", { precision: 5, scale: 2 }).notNull(),

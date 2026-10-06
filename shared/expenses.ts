@@ -186,6 +186,9 @@ export type PnlExpense = {
 
 export type PnlInput = {
   ivaApplies: boolean;
+  /** Parte de `grossIncome` que NO se declara al SII (ej. ventas online de entradas en el simulador).
+   * Ausente = 0: todo el ingreso genera débito fiscal. */
+  ivaExemptIncome?: number;
   /** Plata efectivamente recaudada, IVA incluido. */
   grossIncome: number;
   /** Costo de la mercadería vendida, desde orderItems.unitCost. */
@@ -268,7 +271,7 @@ export function computePnl(input: PnlInput): PnlResult {
   let debitoFiscal = 0;
   let creditoFiscal = 0;
   if (ivaApplies) {
-    debitoFiscal = debitoFiscalFromIncome(grossIncome);
+    debitoFiscal = debitoFiscalFromIncome(Math.max(0, grossIncome - (input.ivaExemptIncome ?? 0)));
     const creditoDirecto = input.directExpenses
       .filter((e) => givesCreditoFiscal(e))
       .reduce((s, e) => s + e.ivaAmount, 0);

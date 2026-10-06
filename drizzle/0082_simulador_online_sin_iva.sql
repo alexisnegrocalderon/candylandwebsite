@@ -1,0 +1,1 @@
+ALTER TABLE `budgetSimulations` ADD `onlineSalesNoIva` int DEFAULT 0 NOT NULL;

@@ -441,7 +441,7 @@ function pageAssumptions(doc: Doc, d: { input: BudgetSimulationInput; result: Bu
   const i = d.input;
   const bullets = [
     "Es una simulación: usa los precios y cantidades que se cargaron, no ventas reales.",
-    `Los precios de las entradas ${i.ivaApplies ? "incluyen IVA y el evento declara IVA: el 19% de las ventas se descuenta como impuesto." : "incluyen IVA, pero el evento no declara IVA: todo el ingreso cuenta completo."}`,
+    `Los precios de las entradas ${i.ivaApplies && i.onlineSalesNoIva ? "se venden online y no declaran IVA (solo se descuenta la comisión de la pasarela); el 19% se descuenta solo de la barra." : i.ivaApplies ? "incluyen IVA y el evento declara IVA: el 19% de las ventas se descuenta como impuesto." : "incluyen IVA, pero el evento no declara IVA: todo el ingreso cuenta completo."}`,
     ...(opts.external ? [] : [
       `Comisión de tarjeta: ${i.cardFeePercent}% del ingreso. Comisión de embajadores: ${i.commissionPercent}% sobre entradas y barra.`,
       ...(i.venueBarSharePercent ? [`El local se lleva ${i.venueBarSharePercent}% de la venta bruta de barra, aparte del arriendo.`] : []),
