@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, json, index, uniqueIndex, customType } from "drizzle-orm/mysql-core";
 import { sql } from "drizzle-orm";
 
 /**
@@ -1422,6 +1422,14 @@ export const partyProfiles = mysqlTable("partyProfiles", {
   // Se refresca solo, cada vez que la persona mira la mansión.
   lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
   active: int("active").default(1).notNull(),
+  // Cuándo aceptó las reglas de la casa (sin datos personales, sin capturas).
+  rulesAcceptedAt: timestamp("rulesAcceptedAt"),
+  // Expulsado por el equipo del local. Distinto de `active`: nada lo revierte
+  // por su cuenta.
+  banned: int("banned").default(0).notNull(),
+  // Participa del swipe: exige tener foto (ver partyPhotos). Se apaga solo al
+  // borrar la foto o al expulsar al perfil.
+  swipeEnabled: int("swipeEnabled").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   // El patrón de consulta real: "todos los perfiles activos de este evento".
@@ -1430,6 +1438,43 @@ export const partyProfiles = mysqlTable("partyProfiles", {
 
 export type PartyProfile = typeof partyProfiles.$inferSelect;
 export type InsertPartyProfile = typeof partyProfiles.$inferInsert;
+
+// MEDIUMBLOB (hasta 16MB) para la foto ya comprimida: la foto NO va a Vercel
+// Blob porque esas URLs son públicas, y esta tiene que verse solo adentro de
+// la fiesta (se sirve por /api/party/photo, que revalida la entrada).
+const mediumblob = customType<{ data: Buffer }>({
+  dataType() { return "mediumblob"; },
+});
+
+// Una foto por perfil, tomada con la cámara dentro de la fiesta. Se borra al
+// cerrar la ventana del evento, al borrarla la persona o al expulsarla.
+export const partyPhotos = mysqlTable("partyPhotos", {
+  id: int("id").autoincrement().primaryKey(),
+  profileId: int("profileId").notNull().unique(),
+  eventId: int("eventId").notNull(),
+  data: mediumblob("data").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  eventIdx: index("party_photos_event_idx").on(table.eventId),
+}));
+
+export type PartyPhoto = typeof partyPhotos.$inferSelect;
+
+// Cada ❤️ / ✖️ del swipe. Son ciegos: quien recibe un ❤️ no se entera salvo que
+// haya match (el otro también dio ❤️). Se borran al cerrar la fiesta.
+export const partySwipes = mysqlTable("partySwipes", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  fromProfileId: int("fromProfileId").notNull(),
+  toProfileId: int("toProfileId").notNull(),
+  liked: int("liked").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  pairIdx: uniqueIndex("party_swipes_pair_idx").on(table.fromProfileId, table.toProfileId),
+  eventIdx: index("party_swipes_event_idx").on(table.eventId),
+}));
+
+export type PartySwipe = typeof partySwipes.$inferSelect;
 
 // Un toque 👋 y su respuesta. El par se guarda SIEMPRE normalizado
 // (profileLowId < profileHighId, ver orderedPair en shared/party.ts): con
@@ -1445,6 +1490,8 @@ export const partyConnections = mysqlTable("partyConnections", {
   status: mysqlEnum("status", ["pending", "accepted", "declined"]).default("pending").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   respondedAt: timestamp("respondedAt"),
+  // Nació de un match del swipe: no gasta uno de los 15 toques de la noche.
+  viaSwipe: int("viaSwipe").default(0).notNull(),
 }, (table) => ({
   pairIdx: uniqueIndex("party_connections_pair_idx").on(table.profileLowId, table.profileHighId),
   // "mis conexiones" se consulta por cada lado del par.

@@ -2,11 +2,11 @@ import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, isNull, isNotN
 import { drizzle } from "drizzle-orm/mysql2";
 import { randomBytes } from "crypto";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
-import { MAX_TOUCHES_PER_EVENT, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
+import { MAX_TOUCHES_PER_EVENT, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { chileHourOf, startOfChileDay } from '../shared/chileDate';
@@ -5916,6 +5916,7 @@ export async function createPartyProfile(params: {
     avatarId: params.avatarId,
     zone: params.zone,
     lastSeenAt: new Date(),
+    rulesAcceptedAt: new Date(),
   });
 
   const [profile] = await db.select().from(partyProfiles).where(eq(partyProfiles.ticketId, params.ticketId)).limit(1);
@@ -5991,7 +5992,7 @@ export async function listPartyMansion(profileId: number, eventId: number) {
       };
     });
 
-  const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId).length;
+  const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId && !c.viaSwipe).length;
 
   return { people, touchesUsed, touchesLeft: Math.max(0, MAX_TOUCHES_PER_EVENT - touchesUsed) };
 }
@@ -6038,7 +6039,7 @@ export async function touchPartyProfile(profileId: number, targetProfileId: numb
   }
 
   const connections = await getPartyConnectionsFor(db, profileId);
-  const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId).length;
+  const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId && !c.viaSwipe).length;
   if (touchesUsed >= MAX_TOUCHES_PER_EVENT) {
     return { ok: false, reason: `Llegaste al máximo de ${MAX_TOUCHES_PER_EVENT} toques por noche` };
   }
@@ -6146,6 +6147,8 @@ export async function listAllPartyReports(limit = 200) {
     reporterAlias: sql<string>`reporter.alias`,
     reportedAlias: sql<string>`reported.alias`,
     reportedZone: sql<string>`reported.zone`,
+    reportedProfileId: partyReports.reportedProfileId,
+    reportedBanned: sql<number>`reported.banned`,
   })
     .from(partyReports)
     .leftJoin(events, eq(events.id, partyReports.eventId))
@@ -6153,6 +6156,20 @@ export async function listAllPartyReports(limit = 200) {
     .leftJoin(sql`${partyProfiles} as reported`, sql`reported.id = ${partyReports.reportedProfileId}`)
     .orderBy(sql`${partyReports.resolvedAt} is not null`, desc(partyReports.createdAt))
     .limit(limit);
+}
+
+/** Expulsa a un perfil de Playmatch por esa noche (o lo reincorpora). Queda
+ * `active=0` para que desaparezca de la mansión y no pueda recibir toques,
+ * y `banned=1` para que `requirePartyProfile` le cierre la puerta. */
+export async function setPartyProfileBanned(profileId: number, banned: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(partyProfiles)
+    .set({ banned: banned ? 1 : 0, active: banned ? 0 : 1, ...(banned ? { swipeEnabled: 0 } : {}) })
+    .where(eq(partyProfiles.id, profileId));
+  // Quien es expulsado pierde también la foto: no debe seguir circulando.
+  if (banned) await db.delete(partyPhotos).where(eq(partyPhotos.profileId, profileId));
+  return { success: true };
 }
 
 /** Marca una denuncia como resuelta (o la reabre). Es lo que limpia su
@@ -6165,6 +6182,195 @@ export async function setPartyReportResolved(id: number, resolved: boolean) {
     .set({ resolvedAt: resolved ? new Date() : null })
     .where(eq(partyReports.id, id));
   return { success: true };
+}
+
+/* --- Fotos del swipe ------------------------------------------------------ */
+
+/** Guarda (o reemplaza) la foto del perfil y lo suma al swipe. */
+export async function savePartyPhoto(profileId: number, eventId: number, data: Buffer) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(partyPhotos).where(eq(partyPhotos.profileId, profileId));
+  await db.insert(partyPhotos).values({ profileId, eventId, data });
+  await db.update(partyProfiles).set({ swipeEnabled: 1 }).where(eq(partyProfiles.id, profileId));
+}
+
+/** Borra la foto y saca al perfil del swipe, al instante. */
+export async function deletePartyPhoto(profileId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(partyPhotos).where(eq(partyPhotos.profileId, profileId));
+  await db.update(partyProfiles).set({ swipeEnabled: 0 }).where(eq(partyProfiles.id, profileId));
+}
+
+/** Pausar o reanudar la participación sin perder la foto. */
+export async function setPartySwipeEnabled(profileId: number, enabled: boolean) {
+  const db = await getDb();
+  if (!db) return { ok: false as const };
+  if (enabled && !(await partyProfileHasPhoto(profileId))) return { ok: false as const };
+  await db.update(partyProfiles).set({ swipeEnabled: enabled ? 1 : 0 }).where(eq(partyProfiles.id, profileId));
+  return { ok: true as const };
+}
+
+export async function partyProfileHasPhoto(profileId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const [row] = await db.select({ id: partyPhotos.id }).from(partyPhotos).where(eq(partyPhotos.profileId, profileId)).limit(1);
+  return !!row;
+}
+
+/** La foto de `targetProfileId` tal como la puede ver `viewer`, o null si no
+ * puede (y no se distingue el motivo a propósito: una foto bloqueada, de otro
+ * evento o inexistente se ven igual desde afuera).
+ *
+ * Cada persona siempre puede ver la suya. Para ver la de otra: misma fiesta,
+ * el otro participa del swipe, no hay bloqueo entre ambos, y el que mira
+ * también puso foto (`canSeePhotos`). */
+export async function getPartyPhotoForViewer(
+  viewer: { id: number; eventId: number; swipeEnabled: number; banned: number },
+  targetProfileId: number,
+): Promise<Buffer | null> {
+  const db = await getDb();
+  if (!db) return null;
+
+  const [row] = await db.select({ data: partyPhotos.data, eventId: partyPhotos.eventId })
+    .from(partyPhotos).where(eq(partyPhotos.profileId, targetProfileId)).limit(1);
+  if (!row) return null;
+  if (viewer.id === targetProfileId) return row.data;
+
+  if (row.eventId !== viewer.eventId) return null;
+  if (!canSeePhotos(viewer, await partyProfileHasPhoto(viewer.id))) return null;
+
+  const [target] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, targetProfileId)).limit(1);
+  if (!target || target.active !== 1 || target.banned || !target.swipeEnabled) return null;
+
+  const hidden = await getPartyHiddenIds(db, viewer.id);
+  if (hidden.has(targetProfileId)) return null;
+  return row.data;
+}
+
+/** Borra las fotos y saca del swipe a todos los perfiles de eventos cuya
+ * ventana ya cerró (mismo respaldo de 12h que `partyWindow` cuando no hay
+ * `eventEnd`). El endpoint igual deja de servirlas al cerrar la ventana; esto
+ * es el borrado real. */
+export async function purgeClosedPartyPhotos(now: Date = new Date()) {
+  const db = await getDb();
+  if (!db) return { photosDeleted: 0 };
+  const closed = await db.select({ id: events.id }).from(events)
+    .where(sql`COALESCE(${events.eventEnd}, DATE_ADD(${events.eventDate}, INTERVAL 12 HOUR)) <= ${now}`);
+  if (closed.length === 0) return { photosDeleted: 0 };
+  const ids = closed.map((e: any) => e.id);
+  const photos = await db.select({ id: partyPhotos.id }).from(partyPhotos).where(inArray(partyPhotos.eventId, ids));
+  // Los swipes se borran siempre, haya o no fotos.
+  await db.delete(partySwipes).where(inArray(partySwipes.eventId, ids));
+  if (photos.length > 0) {
+    await db.delete(partyPhotos).where(inArray(partyPhotos.eventId, ids));
+    await db.update(partyProfiles).set({ swipeEnabled: 0 }).where(inArray(partyProfiles.eventId, ids));
+  }
+  return { photosDeleted: photos.length };
+}
+
+/* --- Swipe ---------------------------------------------------------------- */
+
+/** Perfil que puede aparecer en el mazo / recibir un swipe: mismo evento,
+ * activo, no expulsado, participando y con foto. */
+async function isSwipeCandidate(db: any, viewerId: number, eventId: number, targetId: number) {
+  if (viewerId === targetId) return null;
+  const [t] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, targetId)).limit(1);
+  if (!t || t.eventId !== eventId || t.active !== 1 || t.banned || !t.swipeEnabled) return null;
+  if (!(await partyProfileHasPhoto(targetId))) return null;
+  const hidden = await getPartyHiddenIds(db, viewerId);
+  if (hidden.has(targetId)) return null;
+  return t;
+}
+
+/** Las próximas tarjetas: gente conectada ahora, del mismo evento, que
+ * participa del swipe, no bloqueada en ningún sentido, a la que todavía no
+ * le di ❤️/✖️ y con la que todavía no hay conexión. Solo la ve quien también
+ * puso foto (`canSeePhotos`). Refresca mi presencia, igual que la mansión. */
+export async function getPartySwipeDeck(viewer: { id: number; eventId: number; swipeEnabled: number; banned: number }) {
+  const db = await getDb();
+  if (!db) return null;
+  if (!canSeePhotos(viewer, await partyProfileHasPhoto(viewer.id))) return null;
+
+  await db.update(partyProfiles).set({ lastSeenAt: new Date() }).where(eq(partyProfiles.id, viewer.id));
+
+  const [hidden, connections, swiped, profiles, withPhoto] = await Promise.all([
+    getPartyHiddenIds(db, viewer.id),
+    getPartyConnectionsFor(db, viewer.id),
+    db.select({ toProfileId: partySwipes.toProfileId }).from(partySwipes).where(eq(partySwipes.fromProfileId, viewer.id)),
+    db.select().from(partyProfiles).where(and(
+      eq(partyProfiles.eventId, viewer.eventId), eq(partyProfiles.active, 1),
+      eq(partyProfiles.banned, 0), eq(partyProfiles.swipeEnabled, 1),
+      gte(partyProfiles.lastSeenAt, new Date(Date.now() - PRESENCE_WINDOW_MS)),
+    )),
+    db.select({ profileId: partyPhotos.profileId }).from(partyPhotos).where(eq(partyPhotos.eventId, viewer.eventId)),
+  ]);
+
+  const skip = new Set<number>([viewer.id, ...Array.from(hidden), ...swiped.map((s: any) => s.toProfileId)]);
+  for (const c of connections) skip.add(c.profileLowId === viewer.id ? c.profileHighId : c.profileLowId);
+  const photoIds = new Set<number>(withPhoto.map((p: any) => p.profileId));
+
+  return profiles
+    .filter((p: any) => !skip.has(p.id) && photoIds.has(p.id))
+    .sort((a: any, b: any) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime())
+    .slice(0, SWIPE_DECK_SIZE)
+    .map((p: any) => ({ id: p.id, alias: p.alias, gender: p.gender as PartyGender, zone: p.zone as PartyZone }));
+}
+
+export type PartySwipeResult =
+  | { ok: true; match: false }
+  | { ok: true; match: true; connectionId: number; otherId: number; otherAlias: string }
+  | { ok: false; reason: string };
+
+/** Registra un ❤️ o ✖️. Si los dos se dieron ❤️ hay match: se abre la misma
+ * conexión aceptada de siempre (el chat y los tragos no cambian) y NO gasta
+ * toques. */
+export async function swipePartyProfile(
+  viewer: { id: number; eventId: number; swipeEnabled: number; banned: number },
+  targetProfileId: number,
+  liked: boolean,
+): Promise<PartySwipeResult> {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: 'Base de datos no disponible' };
+  if (!canSeePhotos(viewer, await partyProfileHasPhoto(viewer.id))) return { ok: false, reason: 'Primero pon tu foto' };
+
+  const target = await isSwipeCandidate(db, viewer.id, viewer.eventId, targetProfileId);
+  if (!target) return { ok: false, reason: 'Esa persona ya no está disponible' };
+
+  await db.insert(partySwipes)
+    .values({ eventId: viewer.eventId, fromProfileId: viewer.id, toProfileId: targetProfileId, liked: liked ? 1 : 0 })
+    .onDuplicateKeyUpdate({ set: { liked: liked ? 1 : 0 } });
+  if (!liked) return { ok: true, match: false };
+
+  const [back] = await db.select().from(partySwipes).where(and(
+    eq(partySwipes.fromProfileId, targetProfileId), eq(partySwipes.toProfileId, viewer.id), eq(partySwipes.liked, 1),
+  )).limit(1);
+  if (!back) return { ok: true, match: false };
+
+  const { low, high } = orderedPair(viewer.id, targetProfileId);
+  const findPair = () => db.select().from(partyConnections)
+    .where(and(eq(partyConnections.profileLowId, low), eq(partyConnections.profileHighId, high))).limit(1);
+
+  let [conn] = await findPair();
+  if (!conn) {
+    try {
+      await db.insert(partyConnections).values({
+        eventId: viewer.eventId, profileLowId: low, profileHighId: high,
+        initiatedById: viewer.id, status: 'accepted', respondedAt: new Date(), viaSwipe: 1,
+      });
+    } catch {
+      // Los dos dieron ❤️ al mismo tiempo y el otro lado ganó la carrera.
+    }
+    [conn] = await findPair();
+  } else if (conn.status !== 'accepted') {
+    // Un toque pendiente o rechazado: el ❤️ mutuo es un consentimiento más
+    // claro que cualquiera de los dos, se abre igual.
+    await db.update(partyConnections).set({ status: 'accepted', respondedAt: new Date() })
+      .where(eq(partyConnections.id, conn.id));
+  }
+  if (!conn) return { ok: false, reason: 'No se pudo abrir la conversación' };
+  return { ok: true, match: true, connectionId: conn.id, otherId: targetProfileId, otherAlias: target.alias };
 }
 
 /** Borra lo que la gente escribió, 24h después de terminada la fiesta. Los

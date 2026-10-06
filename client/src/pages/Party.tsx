@@ -9,6 +9,8 @@ import { useSeo } from '@/hooks/useSeo';
 import { PartyAvatar } from '@/components/party/Avatar';
 import { Mansion, type MansionPerson } from '@/components/party/Mansion';
 import { DrinkPicker, GiftInbox } from '@/components/party/Gifts';
+import { MyPhotoPanel } from '@/components/party/MyPhotoPanel';
+import { SwipeView } from '@/components/party/Swipe';
 import {
   AVATARS_PER_GENDER, MAX_ALIAS_LENGTH, MAX_MESSAGE_LENGTH, PARTY_GENDERS, PARTY_ZONES,
   ZONE_LABELS, sanitizeAlias, type PartyGender, type PartyZone,
@@ -54,6 +56,8 @@ export default function Party() {
   const [gifting, setGifting] = useState<{ profileId: number; alias: string } | null>(null);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [photoOpen, setPhotoOpen] = useState(false);
+  const [tab, setTab] = useState<'mansion' | 'swipe'>('mansion');
 
   if (session.isLoading) {
     return (
@@ -72,6 +76,15 @@ export default function Party() {
 
   return (
     <div className="min-h-dvh bg-[#120a11] text-white">
+      {tab === 'swipe' ? (
+        <SwipeView
+          ticketCode={ticketCode}
+          alias={session.data.profile.alias}
+          participating={session.data.profile.hasPhoto && session.data.profile.swipeEnabled}
+          onOpenPhoto={() => setPhotoOpen(true)}
+          onOpenChat={(connectionId, alias) => setOpenChat({ connectionId, alias })}
+        />
+      ) : (
       <MansionView
         ticketCode={ticketCode}
         myZone={session.data.profile.zone as PartyZone}
@@ -81,9 +94,25 @@ export default function Party() {
         onGift={(profileId, alias) => { setSelected(null); setGifting({ profileId, alias }); }}
         onOpenInbox={() => setInboxOpen(true)}
         onOpenNotifications={() => setNotifOpen(true)}
+        onOpenPhoto={() => setPhotoOpen(true)}
         selected={selected}
         onCloseCard={() => setSelected(null)}
       />
+      )}
+
+      <nav className="fixed bottom-0 inset-x-0 z-30 bg-[#120a11]/95 backdrop-blur border-t border-white/10" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        <div className="max-w-md mx-auto grid grid-cols-2">
+          {([['mansion', '🍬 Mansión'], ['swipe', '💘 Swipe']] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`h-14 text-sm font-bold transition-colors ${tab === id ? 'text-white' : 'text-white/40'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </nav>
 
       <AnimatePresence>
         {gifting && (
@@ -96,6 +125,17 @@ export default function Party() {
           />
         )}
         {inboxOpen && <GiftInbox ticketCode={ticketCode} onClose={() => setInboxOpen(false)} />}
+        {photoOpen && (
+          <MyPhotoPanel
+            ticketCode={ticketCode}
+            profileId={session.data.profile.id}
+            alias={session.data.profile.alias}
+            hasPhoto={session.data.profile.hasPhoto}
+            swipeEnabled={session.data.profile.swipeEnabled}
+            onChanged={() => session.refetch()}
+            onClose={() => setPhotoOpen(false)}
+          />
+        )}
         {notifOpen && <NotificationsPanel ticketCode={ticketCode} onClose={() => setNotifOpen(false)} />}
         {openChat && (
           <Chat
@@ -160,6 +200,7 @@ function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreate
   const [gender, setGender] = useState<PartyGender>('mujer');
   const [avatarId, setAvatarId] = useState(1);
   const [zone, setZone] = useState<PartyZone>('living');
+  const [rules, setRules] = useState(false);
 
   const create = trpc.party.createProfile.useMutation({
     onSuccess: onCreated,
@@ -236,9 +277,22 @@ function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreate
           ))}
         </div>
 
+        <label className="flex items-start gap-3 mb-5 text-xs text-white/60 leading-relaxed cursor-pointer">
+          <input
+            type="checkbox"
+            checked={rules}
+            onChange={(e) => setRules(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+          />
+          <span>
+            Acepto las reglas de la casa: no comparto datos personales (redes, teléfono), no saco capturas ni fotos de
+            otras personas, y lo que pasa en Playmatch se queda en la fiesta.
+          </span>
+        </label>
+
         <button
-          disabled={!check.ok || create.isPending}
-          onClick={() => check.ok && create.mutate({ ticketCode, alias: check.alias, gender, avatarId, zone })}
+          disabled={!check.ok || !rules || create.isPending}
+          onClick={() => check.ok && rules && create.mutate({ ticketCode, alias: check.alias, gender, avatarId, zone, acceptedRules: true })}
           className="w-full h-14 rounded-full bg-primary text-white font-bold text-base disabled:opacity-35 transition-opacity"
         >
           {create.isPending ? 'Entrando…' : 'Entrar a Playmatch'}
@@ -254,7 +308,7 @@ function CreateProfile({ ticketCode, onCreated }: { ticketCode: string; onCreate
 
 /* --- La mansión ---------------------------------------------------------- */
 
-function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, onGift, onOpenInbox, onOpenNotifications, selected, onCloseCard }: {
+function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, onGift, onOpenInbox, onOpenNotifications, onOpenPhoto, selected, onCloseCard }: {
   ticketCode: string;
   myZone: PartyZone;
   onPick: (p: MansionPerson) => void;
@@ -263,6 +317,7 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, on
   onGift: (profileId: number, alias: string) => void;
   onOpenInbox: () => void;
   onOpenNotifications: () => void;
+  onOpenPhoto: () => void;
   selected: MansionPerson | null;
   onCloseCard: () => void;
 }) {
@@ -294,6 +349,13 @@ function MansionView({ ticketCode, myZone, onPick, onZoneChanged, onOpenChat, on
           <p className="text-xs text-white/40">
             {mansion.data ? `${mansion.data.touchesLeft} toques` : ''}
           </p>
+          <button
+            onClick={onOpenPhoto}
+            className="h-9 px-3 rounded-full border border-white/15 text-sm"
+            aria-label="Mi foto"
+          >
+            📸
+          </button>
           <button
             onClick={onOpenNotifications}
             className="h-9 px-3 rounded-full border border-white/15 text-sm"

@@ -10650,6 +10650,11 @@ function DenunciasView() {
     onError: onMutationError,
   });
 
+  const setBanned = trpc.party.setProfileBanned.useMutation({
+    onSuccess: () => { refetch(); },
+    onError: onMutationError,
+  });
+
   const pendientes = reports?.filter((r) => !r.resolvedAt) ?? [];
   const resueltas = reports?.filter((r) => r.resolvedAt) ?? [];
 
@@ -10669,15 +10674,28 @@ function DenunciasView() {
             {' · '}{formatChileDateTime(r.createdAt)}
           </p>
         </div>
+        <div className="flex flex-col gap-2 shrink-0">
+        {r.reportedProfileId && (
+          <WriteButton
+            variant={r.reportedBanned ? 'outline' : 'destructive'}
+            size="sm"
+            className="interactive"
+            disabled={setBanned.isPending}
+            onClick={() => setBanned.mutate({ profileId: r.reportedProfileId, banned: !r.reportedBanned })}
+          >
+            {r.reportedBanned ? 'Reincorporar' : 'Expulsar de Playmatch'}
+          </WriteButton>
+        )}
         <WriteButton
           variant={r.resolvedAt ? 'outline' : 'default'}
           size="sm"
-          className="shrink-0 interactive"
+          className="interactive"
           disabled={setResolved.isPending}
           onClick={() => setResolved.mutate({ id: r.id, resolved: !r.resolvedAt })}
         >
           {r.resolvedAt ? 'Reabrir' : 'Marcar resuelta'}
         </WriteButton>
+        </div>
       </div>
     </div>
   );

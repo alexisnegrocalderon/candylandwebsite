@@ -12,6 +12,9 @@ import {
   placeInZone,
   sanitizeAlias,
   sanitizeMessage,
+  validatePhotoBytes,
+  canSeePhotos,
+  PHOTO_MAX_BYTES,
 } from "../shared/party";
 
 const eventDate = new Date("2026-08-01T23:00:00Z");
@@ -179,5 +182,42 @@ describe("sanitizeMessage", () => {
   it("rechaza vacío y demasiado largo", () => {
     expect(sanitizeMessage("   ").ok).toBe(false);
     expect(sanitizeMessage("x".repeat(501)).ok).toBe(false);
+  });
+
+  it("bloquea redes, links y teléfonos", () => {
+    expect(sanitizeMessage("mi insta es rosa").ok).toBe(false);
+    expect(sanitizeMessage("hablemos por whatsapp").ok).toBe(false);
+    expect(sanitizeMessage("sígueme @rosa").ok).toBe(false);
+    expect(sanitizeMessage("mira www.algo.com").ok).toBe(false);
+    expect(sanitizeMessage("+56 9 1234 5678").ok).toBe(false);
+  });
+
+  it("no bloquea conversación normal", () => {
+    expect(sanitizeMessage("¿bailamos en la piscina? 😏").ok).toBe(true);
+    expect(sanitizeMessage("Me encantó tu vestido, soy Digna").ok).toBe(true);
+  });
+});
+
+describe("validatePhotoBytes", () => {
+  const jpeg = (n: number) => { const b = new Uint8Array(n); b.set([0xff, 0xd8, 0xff, 0xe0]); return b; };
+
+  it("acepta un JPEG dentro del tope", () => {
+    expect(validatePhotoBytes(jpeg(50_000)).ok).toBe(true);
+  });
+
+  it("rechaza vacío, demasiado grande y otros formatos", () => {
+    expect(validatePhotoBytes(new Uint8Array(0)).ok).toBe(false);
+    expect(validatePhotoBytes(jpeg(PHOTO_MAX_BYTES + 1)).ok).toBe(false);
+    const png = new Uint8Array(100); png.set([0x89, 0x50, 0x4e, 0x47]);
+    expect(validatePhotoBytes(png).ok).toBe(false);
+  });
+});
+
+describe("canSeePhotos", () => {
+  it("solo ve fotos quien participa del swipe y tiene la suya", () => {
+    expect(canSeePhotos({ swipeEnabled: 1 }, true)).toBe(true);
+    expect(canSeePhotos({ swipeEnabled: 1 }, false)).toBe(false);
+    expect(canSeePhotos({ swipeEnabled: 0 }, true)).toBe(false);
+    expect(canSeePhotos({ swipeEnabled: 1, banned: 1 }, true)).toBe(false);
   });
 });

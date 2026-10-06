@@ -5,6 +5,7 @@ import { registerAdminRoutes } from "../adminRoutes";
 import { registerCronRoutes } from "../cronRoutes";
 import { registerTicketAssetRoutes } from "../calendar";
 import { registerBlobUploadRoutes } from "../blobUpload";
+import { registerPartyPhotoRoutes } from "../partyPhoto";
 import { registerSitemapRoute } from "../sitemap";
 import { appRouter } from "../routers";
 import { webhooksRouter } from "../webhooks";
@@ -55,6 +56,7 @@ export function createApp(): Express {
   registerCronRoutes(app);
   registerTicketAssetRoutes(app);
   registerBlobUploadRoutes(app);
+  registerPartyPhotoRoutes(app);
   registerSitemapRoute(app);
   // Webhooks antes de tRPC para evitar conflictos de middleware.
   app.use(webhooksRouter);

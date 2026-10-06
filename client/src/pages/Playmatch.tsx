@@ -6,6 +6,7 @@ import { useSeo } from '@/hooks/useSeo';
 import { parseTicketCodeFromQr } from '@shared/qr';
 import { trpc } from '@/lib/trpc';
 import { LAST_TICKET_CODE_KEY } from '@/lib/lastTicketCode';
+import { QrScanner } from '@/components/QrScanner';
 
 /* Punto de entrada público a Playmatch (la capa social de la fiesta): antes
  * la única forma de llegar a `/fiesta/:ticketCode` era el botón condicional
@@ -42,8 +43,10 @@ export default function Playmatch() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const entrar = async () => {
-    const parsed = parseTicketCodeFromQr(code) ?? code.trim().toUpperCase();
+  const [scanning, setScanning] = useState(false);
+
+  const entrar = async (raw: string = code) => {
+    const parsed = parseTicketCodeFromQr(raw) ?? raw.trim().toUpperCase();
     if (!parsed) { toast.error('Escribe el código de tu entrada.'); return; }
     setResolving(true);
     try {
@@ -79,6 +82,13 @@ export default function Playmatch() {
             evento, y solo mientras dura la fiesta.
           </p>
 
+          <button
+            onClick={() => setScanning(true)}
+            className="btn-jelly w-full sm:w-auto h-14 px-8 mb-6 rounded-full bg-primary text-white font-bold interactive"
+          >
+            📷 Escanear el QR de mi entrada
+          </button>
+
           <div className="bg-card border border-border/50 rounded-2xl p-6 md:p-8 text-left">
             <label className="text-sm font-semibold mb-2 block">Código de tu entrada</label>
             <p className="text-muted-foreground text-sm mb-4">
@@ -93,7 +103,7 @@ export default function Playmatch() {
                 className="flex-1 h-14 px-5 rounded-full bg-background border border-border/60 text-base font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/60"
               />
               <button
-                onClick={entrar}
+                onClick={() => entrar()}
                 disabled={resolving}
                 className="btn-jelly h-14 px-8 rounded-full bg-primary text-white font-bold interactive shrink-0 disabled:opacity-60"
               >
@@ -107,6 +117,27 @@ export default function Playmatch() {
           </p>
         </motion.div>
       </div>
+
+      {scanning && (
+        <div className="fixed inset-0 z-[100] bg-black flex flex-col">
+          <QrScanner
+            className="flex-1"
+            onDecode={(raw) => {
+              if (!parseTicketCodeFromQr(raw)) return;
+              setScanning(false);
+              entrar(raw);
+            }}
+            onError={(message) => { toast.error(message); setScanning(false); }}
+          >
+            <p className="absolute top-6 inset-x-0 text-center text-white text-sm font-semibold drop-shadow">
+              Apunta al QR de tu entrada
+            </p>
+          </QrScanner>
+          <button onClick={() => setScanning(false)} className="h-16 text-white font-bold bg-black/80">
+            Cancelar
+          </button>
+        </div>
+      )}
     </div>
   );
 }

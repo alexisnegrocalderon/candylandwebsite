@@ -45,6 +45,7 @@ const Ticket = lazy(() => import("./pages/Ticket"));
 const Survey = lazy(() => import("./pages/Survey"));
 const Party = lazy(() => import("./pages/Party"));
 const Playmatch = lazy(() => import("./pages/Playmatch"));
+const PlaymatchPoster = lazy(() => import("./pages/PlaymatchPoster"));
 const Ambassador = lazy(() => import("./pages/Ambassador"));
 const Embajadores = lazy(() => import("./pages/Embajadores"));
 const BeneficiosCumpleaneros = lazy(() => import("./pages/BeneficiosCumpleaneros"));
@@ -117,6 +118,7 @@ function Router() {
           <Route path="/recargar" component={Recargar} />
           <Route path="/fiesta/:ticketCode" component={Party} />
           <Route path="/playmatch" component={Playmatch} />
+          <Route path="/playmatch/afiche" component={PlaymatchPoster} />
           <Route path="/panoramas" component={Panoramas} />
           <Route path="/panoramas/:slug" component={Panoramas} />
           <Route path="/blog" component={Blog} />
@@ -181,7 +183,8 @@ function App() {
   // /recargar comparte esa misma pantalla oscura (es la tarjeta digital sin
   // entrada en mano), por eso también esconde la navbar.
   const isTicket = location.startsWith('/verificar') || location.startsWith('/recargar');
-  const hideChrome = isCaja || isAdmin || isParty || isPuerta || isCocina || isGuardarropia || isGastos || isTicket;
+  const isPoster = location === '/playmatch/afiche';
+  const hideChrome = isPoster || isCaja || isAdmin || isParty || isPuerta || isCocina || isGuardarropia || isGastos || isTicket;
   // Ni el cursor ni el scroll suave hacen nada en touch (ver isFinePointer),
   // así que en celular no se pide su chunk -- antes se importaban eager en
   // App.tsx y Lenis viajaba igual aunque nunca fuera a correr.

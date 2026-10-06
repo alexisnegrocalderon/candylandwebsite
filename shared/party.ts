@@ -169,10 +169,21 @@ export function sanitizeAlias(raw: string): AliasCheck {
   return { ok: true, alias };
 }
 
+// Mismo criterio que el alias, aplicado al chat: acá la gente se conoce
+// adentro, no se intercambian redes ni teléfonos. Esto es una barrera
+// razonable, no infalible (siempre habrá quien escriba "uno dos tres...").
+const MESSAGE_FORBIDDEN = [
+  ...ALIAS_FORBIDDEN,
+  { re: /\b(?:insta(?:gram)?|ig|whats?app|wsp|wasap|wapp|telegram|snap(?:chat)?|tiktok|fono|tel[eé]fono|n[uú]mero)\b/i, reason: 'Nada de redes sociales ni teléfonos: aquí se conversa dentro de la fiesta' },
+];
+
 export function sanitizeMessage(raw: string): { ok: true; body: string } | { ok: false; reason: string } {
   const body = raw.replace(/\s+/g, ' ').trim();
   if (!body) return { ok: false, reason: 'El mensaje está vacío' };
   if (body.length > MAX_MESSAGE_LENGTH) return { ok: false, reason: `Máximo ${MAX_MESSAGE_LENGTH} caracteres` };
+  for (const { re, reason } of MESSAGE_FORBIDDEN) {
+    if (re.test(body)) return { ok: false, reason };
+  }
   return { ok: true, body };
 }
 
@@ -247,3 +258,43 @@ export function sanitizeGiftMessage(raw: string): { ok: true; body: string } | {
   if (body.length > MAX_GIFT_MESSAGE_LENGTH) return { ok: false, reason: `Máximo ${MAX_GIFT_MESSAGE_LENGTH} caracteres` };
   return { ok: true, body };
 }
+
+// --- Foto de perfil (swipe) ----------------------------------------------
+//
+// La foto se toma con la cámara dentro de la fiesta, se recorta cuadrada y se
+// comprime en el celular. El servidor igual la valida: el cliente no es una
+// frontera de confianza.
+
+export const PHOTO_MAX_BYTES = 200 * 1024;
+export const PHOTO_SIZE_PX = 480;
+
+/** Solo JPEG: es lo que `canvas.toBlob('image/jpeg')` entrega en todos los
+ * navegadores (WebP falla en Safari viejo). Se revisa la firma real del
+ * archivo, no el tipo declarado por el cliente. */
+export function isJpeg(bytes: Uint8Array): boolean {
+  return bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+}
+
+export function validatePhotoBytes(bytes: Uint8Array): { ok: true } | { ok: false; reason: string } {
+  if (bytes.length === 0) return { ok: false, reason: 'La foto está vacía' };
+  if (bytes.length > PHOTO_MAX_BYTES) return { ok: false, reason: 'La foto pesa demasiado, toma otra' };
+  if (!isJpeg(bytes)) return { ok: false, reason: 'Formato de foto no válido' };
+  return { ok: true };
+}
+
+/** Para ver fotos de otros hay que poner la propia: sin esto el swipe sería
+ * un lugar donde mirar sin exponerse. */
+export function canSeePhotos(viewer: { swipeEnabled: number | boolean; banned?: number | boolean }, viewerHasPhoto: boolean): boolean {
+  return !!viewer.swipeEnabled && !viewer.banned && viewerHasPhoto;
+}
+
+// --- Swipe ----------------------------------------------------------------
+
+/** Cuántas tarjetas se piden por vez. */
+export const SWIPE_DECK_SIZE = 12;
+
+export const SWIPE_REPORT_REASONS = [
+  'Datos personales en la foto o el alias',
+  'Foto inapropiada',
+  'Me hizo sentir incómodo/a',
+] as const;
