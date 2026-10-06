@@ -1705,6 +1705,9 @@ export const budgetSimulations = mysqlTable("budgetSimulations", {
   // Opcional: venta de barra/consumo estimada por persona, para no dejar
   // afuera ese ingreso si el dueño quiere incluirlo en la proyección.
   otherRevenuePerPerson: decimal("otherRevenuePerPerson", { precision: 10, scale: 0 }).default("0").notNull(),
+  // % de la venta BRUTA de barra que se lleva el local (ej. Hipódromo): costo
+  // aparte, sin IVA encima, que se suma al arriendo fijo.
+  venueBarSharePercent: decimal("venueBarSharePercent", { precision: 5, scale: 2 }).default("0").notNull(),
   // [{ label, price, expectedQty, personasPorEntrada }] -- una fila por tanda
   // (Founders/General/etc), igual que se arman los precios reales en Eventos.
   revenueTiers: json("revenueTiers").notNull(),

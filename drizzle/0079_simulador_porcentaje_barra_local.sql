@@ -1,0 +1,1 @@
+ALTER TABLE `budgetSimulations` ADD `venueBarSharePercent` decimal(5,2) DEFAULT '0' NOT NULL;

@@ -324,6 +324,8 @@ const budgetSimulationInputSchema = z.object({
   commissionPercent: z.number().min(0).max(100),
   variableCostPerPerson: z.number().nonnegative(),
   otherRevenuePerPerson: z.number().nonnegative(),
+  // Opcional para no romper un panel abierto con la versión anterior.
+  venueBarSharePercent: z.number().min(0).max(100).default(0),
   revenueTiers: z.array(z.object({
     label: z.string().min(1),
     price: z.number().nonnegative(),
@@ -334,6 +336,8 @@ const budgetSimulationInputSchema = z.object({
     category: z.string(),
     label: z.string().min(1),
     amount: z.number().nonnegative(),
+    // Sin esto zod descarta el campo y todo "+ IVA" se guardaría como incluido.
+    ivaMode: z.enum(['incluido', 'mas_iva']).optional(),
   })),
   notes: z.string().optional(),
 });

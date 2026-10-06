@@ -57,7 +57,7 @@ import {
   type ExpenseCategory, type ExpenseDocumentType, type ExpensePaymentMethod,
 } from '@shared/expenses';
 import {
-  computeBudgetResult, type BudgetSimulationInput, type RevenueTier, type BudgetExpenseLine, type BudgetResult,
+  computeBudgetResult, expenseLineAmounts, type BudgetSimulationInput, type RevenueTier, type BudgetExpenseLine, type BudgetResult, type ExpenseIvaMode,
 } from '@shared/eventBudget';
 import { monthKeyFor } from '@shared/ambassadorProgram';
 import { formatChileDateTime, formatChileShortDate, formatChileTime } from '@shared/chileDate';
@@ -7823,7 +7823,7 @@ function EventBudgetSimulatorView() {
 /* ─── Simulador de presupuesto pre-evento ──────────────────── */
 
 const emptyRevenueTier = (): RevenueTier => ({ label: '', price: 0, expectedQty: 0, personasPorEntrada: 1 });
-const emptyExpenseLine = (): BudgetExpenseLine => ({ category: 'produccion', label: '', amount: 0 });
+const emptyExpenseLine = (): BudgetExpenseLine => ({ category: 'produccion', label: '', amount: 0, ivaMode: 'incluido' });
 
 type SimForm = BudgetSimulationInput & { name: string };
 
@@ -7836,6 +7836,7 @@ function emptySimForm(cardFeeDefault: number): SimForm {
     commissionPercent: 0,
     variableCostPerPerson: 0,
     otherRevenuePerPerson: 0,
+    venueBarSharePercent: 0,
     revenueTiers: [emptyRevenueTier()],
     expenseLines: [emptyExpenseLine()],
   };
@@ -7850,6 +7851,7 @@ function simFormFromRow(row: any): SimForm {
     commissionPercent: Number(row.commissionPercent),
     variableCostPerPerson: Number(row.variableCostPerPerson),
     otherRevenuePerPerson: Number(row.otherRevenuePerPerson),
+    venueBarSharePercent: Number(row.venueBarSharePercent ?? 0),
     revenueTiers: Array.isArray(row.revenueTiers) ? row.revenueTiers : [],
     expenseLines: Array.isArray(row.expenseLines) ? row.expenseLines : [],
   };
@@ -7984,6 +7986,10 @@ function BudgetCompareTable({ sims }: { sims: any[] }) {
             <tr className="border-b border-border/50">
               <td className="py-2 px-3 text-muted-foreground">Ingreso proyectado</td>
               {rows.map((r) => <td key={r.id} className="py-2 px-3 tabular-nums">${r.result.grossIncome.toLocaleString('es-CL')}</td>)}
+            </tr>
+            <tr className="border-b border-border/50">
+              <td className="py-2 px-3 text-muted-foreground">Parte del local (barra)</td>
+              {rows.map((r) => <td key={r.id} className="py-2 px-3 tabular-nums">${r.result.venueBarShare.toLocaleString('es-CL')}</td>)}
             </tr>
             <tr className="border-b border-border/50">
               <td className="py-2 px-3 text-muted-foreground">Gastos fijos</td>
@@ -8166,6 +8172,21 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
             <Label>Venta de barra estimada por persona (opcional, $)</Label>
             <Input type="number" value={form.otherRevenuePerPerson} onChange={(e) => setForm({ ...form, otherRevenuePerPerson: Number(e.target.value) })} className="mt-1" />
           </div>
+          <div>
+            <Label>% de la barra que se lleva el local</Label>
+            <Input
+              type="number" min={0} max={100} step="0.5"
+              value={form.venueBarSharePercent ?? 0}
+              onChange={(e) => setForm({ ...form, venueBarSharePercent: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })}
+              className="mt-1"
+              disabled={form.otherRevenuePerPerson <= 0}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              {form.otherRevenuePerPerson <= 0
+                ? 'Primero carga la venta de barra estimada por persona.'
+                : `Se calcula sobre la venta bruta de barra y se suma al arriendo fijo: = $${result.venueBarShare.toLocaleString('es-CL')} de $${result.otherRevenue.toLocaleString('es-CL')} de barra.`}
+            </p>
+          </div>
         </div>
 
         <div>
@@ -8173,26 +8194,45 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
           <p className="text-xs text-muted-foreground mt-1">
             Todo lo que vas a pagar sí o sí para hacer la fiesta (arriendo, DJ, seguridad, sonido, staff, etc.).
           </p>
-          <div className="hidden sm:grid sm:grid-cols-[160px_1fr_130px_36px] gap-2 mt-3 mb-1 px-0.5">
+          <div className="hidden sm:grid sm:grid-cols-[160px_1fr_130px_130px_36px] gap-2 mt-3 mb-1 px-0.5">
             <span className="text-xs font-semibold text-muted-foreground">Categoría</span>
             <span className="text-xs font-semibold text-muted-foreground">Descripción</span>
             <span className="text-xs font-semibold text-muted-foreground">Monto ($)</span>
+            <span className="text-xs font-semibold text-muted-foreground">IVA</span>
             <span />
           </div>
           <div className="space-y-2">
-            {form.expenseLines.map((l, i) => (
-              <div key={i} className="grid grid-cols-1 sm:grid-cols-[160px_1fr_130px_36px] gap-2 items-center">
-                <Select value={l.category} onValueChange={(v) => updateLine(i, { category: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {EXPENSE_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Input value={l.label} onChange={(e) => updateLine(i, { label: e.target.value })} placeholder="Ej: Arriendo del local" />
-                <Input type="number" value={l.amount} onChange={(e) => updateLine(i, { amount: Number(e.target.value) })} placeholder="Monto" />
-                <Button variant="outline" size="sm" onClick={() => removeLine(i)}><X className="w-3.5 h-3.5" /></Button>
-              </div>
-            ))}
+            {form.expenseLines.map((l, i) => {
+              const amounts = expenseLineAmounts(l);
+              return (
+                <div key={i}>
+                  <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr_130px_130px_36px] gap-2 items-center">
+                    <Select value={l.category} onValueChange={(v) => updateLine(i, { category: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {EXPENSE_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    <Input value={l.label} onChange={(e) => updateLine(i, { label: e.target.value })} placeholder="Ej: Arriendo del local" />
+                    <Input type="number" value={l.amount} onChange={(e) => updateLine(i, { amount: Number(e.target.value) })} placeholder="Monto" />
+                    <Select value={l.ivaMode ?? 'incluido'} onValueChange={(v) => updateLine(i, { ivaMode: v as ExpenseIvaMode })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="incluido">IVA incluido</SelectItem>
+                        <SelectItem value="mas_iva">+ IVA (factura)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button variant="outline" size="sm" onClick={() => removeLine(i)}><X className="w-3.5 h-3.5" /></Button>
+                  </div>
+                  {l.ivaMode === 'mas_iva' && l.amount > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1 sm:pl-[168px]">
+                      Neto ${amounts.net.toLocaleString('es-CL')} + IVA ${amounts.iva.toLocaleString('es-CL')} = ${amounts.total.toLocaleString('es-CL')} con IVA
+                      {form.ivaApplies ? ' · el IVA se recupera como crédito fiscal.' : ' · el evento no aplica IVA, así que todo es costo.'}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <Button variant="outline" size="sm" className="mt-2" onClick={addLine}><Plus className="w-3.5 h-3.5 mr-1" /> Agregar gasto</Button>
         </div>
@@ -8208,9 +8248,11 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
           <p className="text-xs text-muted-foreground">
             Gastos fijos cargados: ${result.pnl.directExpensesTotal.toLocaleString('es-CL')} de ${result.maxDirectExpenses.toLocaleString('es-CL')} disponibles para cumplir la meta de margen.
           </p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm pt-1">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm pt-1">
             <div><p className="text-muted-foreground text-xs">Aforo estimado</p><p className="font-semibold tabular-nums">{result.attendance}</p></div>
             <div><p className="text-muted-foreground text-xs">Ingreso proyectado</p><p className="font-semibold tabular-nums">${result.grossIncome.toLocaleString('es-CL')}</p></div>
+            <div><p className="text-muted-foreground text-xs">Parte del local (barra)</p><p className="font-semibold tabular-nums">${result.venueBarShare.toLocaleString('es-CL')}</p></div>
+            <div><p className="text-muted-foreground text-xs">Gastos fijos con IVA</p><p className="font-semibold tabular-nums">${result.fixedExpensesGross.toLocaleString('es-CL')}</p></div>
             <div><p className="text-muted-foreground text-xs">Margen resultante</p><p className="font-semibold tabular-nums">{result.pnl.marginPercent != null ? `${result.pnl.marginPercent}%` : '—'}</p></div>
             <div><p className="text-muted-foreground text-xs">Punto de equilibrio</p><p className="font-semibold tabular-nums">{result.breakevenTickets != null ? `${result.breakevenTickets} entradas` : '—'}</p></div>
           </div>
