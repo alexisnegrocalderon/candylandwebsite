@@ -25,6 +25,9 @@ import { resolvePageLink, splitIntoBubbles } from './agentLinks';
 import { sendPushToAdmins } from './push';
 import { normalizeInstagramAgentConfig, PERSONAL_HANDOFF_REASON } from '../shared/instagramAgentConfig';
 import { splitAutomationLink } from './instagramAutomations';
+import { ALREADY_BOUGHT_MARKER, buildAlreadyBoughtReply, saysAlreadyBought } from '../shared/igCustomerLink';
+
+const OWNER_REPLIED_REASON = 'El dueño contestó directo desde Instagram';
 
 /* Entrada de los mensajes directos de Instagram (Messenger Platform, campo
  * `messages`). Ver docs/INSTAGRAM-AGENT.md para el alta en el panel de Meta.
@@ -279,6 +282,21 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     // tiene sentido que le llegue un push por cada mensaje nuevo del
     // cliente. El mensaje igual queda guardado arriba y sube el contador de
     // no leídos de la bandeja -- no es que desaparezca, solo no interrumpe.
+    //
+    // Única excepción (pedido del dueño, 06/10): si el hilo está pausado solo
+    // porque el dueño contestó a mano y la persona avisa que YA tiene su
+    // entrada, se le manda una felicitación fija (sin preguntas ni links) y
+    // el hilo sigue pausado. No aplica a hilos derivados por la IA (reclamos,
+    // dudas) ni a los personales.
+    if (thread.handoffReason === OWNER_REPLIED_REASON && saysAlreadyBought([text])) {
+      const recent = await getIgMessages(thread.id, 6);
+      const alreadySent = recent.some((m) => m.direction === 'out' && m.source === 'bot' && m.text?.includes(ALREADY_BOUGHT_MARKER));
+      if (!alreadySent) {
+        const event = await getFeaturedEvent();
+        await sleep(humanReplyDelayMs());
+        await deliver(thread.id, senderId, buildAlreadyBoughtReply(event ? new Date(event.eventDate) : null), 'bot');
+      }
+    }
     return;
   }
   // Solo texto: un adjunto suelto (reel, meme, foto, audio) no se puede leer
@@ -594,7 +612,7 @@ export async function handleOwnerEcho(event: MetaMessaging, message: NonNullable
   });
   if (!saved) return; // Ya lo teníamos guardado -- lo mandamos nosotros mismos por la API.
 
-  await setIgThreadBotPaused(thread.id, true, 'El dueño contestó directo desde Instagram');
+  await setIgThreadBotPaused(thread.id, true, OWNER_REPLIED_REASON);
 }
 
 /** Manda la respuesta y la guarda en el hilo. Si Meta la rechaza (token

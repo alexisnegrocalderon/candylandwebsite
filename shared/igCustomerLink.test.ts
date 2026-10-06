@@ -38,3 +38,16 @@ describe('rankCustomerSuggestions', () => {
     expect(rankCustomerSuggestions({ username: 'zzz', name: 'Maria Perez', notes: null }, withIg)[0].customerId).toBe(4);
   });
 });
+
+import { ALREADY_BOUGHT_MARKER, buildAlreadyBoughtReply } from './igCustomerLink';
+describe('buildAlreadyBoughtReply', () => {
+  it('usa la fecha real del evento en hora de Chile y no pregunta nada', () => {
+    const r = buildAlreadyBoughtReply(new Date('2026-10-31T01:00:00Z')); // 30 oct 22:00 en Chile
+    expect(r).toContain('30 de octubre');
+    expect(r).toContain(ALREADY_BOUGHT_MARKER);
+    expect(r).not.toContain('?');
+  });
+  it('sin evento no inventa fecha', () => {
+    expect(buildAlreadyBoughtReply(null)).not.toMatch(/\d/);
+  });
+});
