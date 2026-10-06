@@ -220,7 +220,7 @@ export default function Navbar() {
              * CTA (pedido explícito del dueño): antes flotaba suelto justo
              * al lado del botón "Comprar Entradas" y el ojo iba directo al
              * botón grande -- ahora se lee como un grupo aparte. */}
-            <SoundToggle light={lightChrome} hint={location === '/'} />
+            <SoundToggle light={lightChrome} />
 
             <a
               href={CANDYLAND.redes.instagram}
@@ -263,7 +263,7 @@ export default function Navbar() {
            * para que se vean iguales en las dos versiones. El botón de menú
            * suma el mismo círculo, para que ambos combinen entre sí. */}
           <div className="flex items-center gap-2.5 md:hidden">
-            <SoundToggle light={lightChrome || mobileOpen} hint={location === '/'} size={17} />
+            <SoundToggle light={lightChrome || mobileOpen} size={17} />
             <a
               href={CANDYLAND.redes.instagram}
               target="_blank"

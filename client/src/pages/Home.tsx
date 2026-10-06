@@ -43,7 +43,7 @@ import { scrollToId, prefersReducedMotion, isFinePointer, isMobileViewport } fro
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 import { isUnlimitedStock } from '@shared/stock';
 import { eventImage } from '@shared/eventImage';
-import { useSound, useSoundZones } from '@/lib/sound/SoundContext';
+import { useSound } from '@/lib/sound/SoundContext';
 import { EQ_BARS, type PistaId } from '@/lib/sound/config';
 import { useSeo } from '@/hooks/useSeo';
 import { eventSchema, faqSchema } from '@shared/structuredData';
@@ -393,7 +393,7 @@ function Hero() {
   }, [videoReady, videoPlaying]);
 
   return (
-    <section ref={sectionRef} data-sound-zone="0" className="relative min-h-[92svh] flex items-center justify-center overflow-hidden">
+    <section ref={sectionRef} className="relative min-h-[92svh] flex items-center justify-center overflow-hidden">
       {/* Fondo: el video candy define la paleta del sitio, con un velo claro
           suficiente para que el texto se lea sin taparle el color. */}
       <motion.div className="absolute inset-0" style={pointerFine ? { y: bgY } : undefined}>
@@ -884,7 +884,7 @@ function UpcomingEventsSection() {
   if (!panelEvent) return null;
 
   return (
-    <section id="proximos-eventos" data-sound-zone="0.4" className="relative scroll-mt-24 py-20 md:py-28">
+    <section id="proximos-eventos" className="relative scroll-mt-24 py-20 md:py-28">
       <div className="container">
         <motion.div {...reveal} className="max-w-2xl mb-10 md:mb-12">
           <p className="text-sm uppercase tracking-[0.3em] text-primary mb-4">Calendario</p>
@@ -1020,7 +1020,7 @@ function UrgencySection({
 
   if (!EVENTO.fechaConfirmada) {
     return (
-      <section id="proxima-fecha" data-sound-zone="0.25" className="relative scroll-mt-24 py-10 md:py-14 overflow-hidden">
+      <section id="proxima-fecha" className="relative scroll-mt-24 py-10 md:py-14 overflow-hidden">
         {fullBleedBand}
         <div aria-hidden className="absolute -top-16 left-[10%] w-72 h-72 rounded-full bg-primary/15 blur-[100px] candy-float-slow" />
         <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/15 blur-[110px] candy-float" />
@@ -1032,7 +1032,7 @@ function UrgencySection({
   }
 
   return (
-    <section id="proxima-fecha" data-sound-zone="0.25" className="relative scroll-mt-24 py-10 md:py-14 overflow-hidden">
+    <section id="proxima-fecha" className="relative scroll-mt-24 py-10 md:py-14 overflow-hidden">
       {fullBleedBand}
       <div aria-hidden className="absolute -top-16 left-[10%] w-72 h-72 rounded-full bg-primary/15 blur-[100px] candy-float-slow" />
       <div aria-hidden className="absolute -bottom-20 right-[8%] w-80 h-80 rounded-full bg-cherry/15 blur-[110px] candy-float" />
@@ -1480,7 +1480,7 @@ function ExperienceSection() {
   const [pointerFine] = useState(() => isFinePointer());
 
   return (
-    <section id="experiencia" data-sound-zone="0.65" className="py-24 md:py-32 relative overflow-hidden">
+    <section id="experiencia" className="py-24 md:py-32 relative overflow-hidden">
       {/* Brillos de club difuminados -- mismo patrón que Hero/UrgencySection,
        * ausente acá hasta ahora, lo que hacía que esta sección se sintiera
        * más plana que las de al lado. */}
@@ -1829,7 +1829,7 @@ function LineupSection() {
   useEffect(() => () => selectPista(null), [selectPista]);
 
   return (
-    <section data-sound-zone="0.8" className="py-14 md:py-20 bg-gradient-to-b from-transparent via-violet-electric/5 to-transparent">
+    <section className="py-14 md:py-20 bg-gradient-to-b from-transparent via-violet-electric/5 to-transparent">
       <div className="container">
         <motion.div {...reveal} className="mb-6 md:mb-8">
           <p className="text-sm uppercase tracking-[0.3em] text-primary mb-2">Line-up</p>
@@ -1957,7 +1957,7 @@ function LineupSection() {
 
 function InfoSection() {
   return (
-    <section data-sound-zone="0.9" className="relative overflow-hidden py-24 md:py-32 bg-gradient-to-b from-transparent via-primary/5 to-transparent">
+    <section className="relative overflow-hidden py-24 md:py-32 bg-gradient-to-b from-transparent via-primary/5 to-transparent">
       {/* Misma capa de brillos difuminados que Experience/Urgency -- acá antes
        * no había nada, así que la sección se veía chata al lado de las otras. */}
       <div aria-hidden className="absolute top-10 -right-16 w-72 h-72 rounded-full bg-violet-electric/12 blur-2xl md:blur-[120px] candy-float" />
@@ -2013,7 +2013,7 @@ function InfoSection() {
 
 function FinalCTASection() {
   return (
-    <section data-sound-zone="1" className="relative py-28 md:py-40 overflow-hidden">
+    <section className="relative py-28 md:py-40 overflow-hidden">
       <img
         src="/candyland/poster-hero-bg.webp"
         alt=""
@@ -2242,8 +2242,6 @@ export default function Home() {
   // arrastrables y el parallax del hero.
   const [showNoise] = useState(() => isFinePointer());
 
-  // La puerta de la Mansión se va abriendo (sonido) según la sección visible.
-  useSoundZones();
 
   // El home es la única página que conserva "fiesta liberal" en el título
   // (junto con la del evento): antes /eventos, /entradas y /eventos/:slug

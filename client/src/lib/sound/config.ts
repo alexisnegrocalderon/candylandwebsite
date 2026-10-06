@@ -1,40 +1,31 @@
-/* Sonido inmersivo del sitio -- TODO lo que se afina de oído vive acá (BPM,
- * volúmenes, filtros, notas, patrones), separado del motor (engine.ts) para
+/* Sonido de las pistas -- TODO lo que se afina de oído vive acá (BPM,
+ * volúmenes, filtro, notas, patrones), separado del motor (engine.ts) para
  * poder ajustar el sonido sin tocar la lógica y para poder probar los
  * patrones sin audio (config.test.ts).
  *
- * Idea: "la fiesta se acerca". Afuera de la Mansión se oye la fiesta a través
- * de la pared (filtro cerrado); al bajar por la página la puerta se va
- * abriendo; al tocar una pista se abre de verdad y entra su loop. */
+ * El sitio está en silencio hasta que alguien toca Pista Tech o Pista Perreo:
+ * ahí se abre la puerta (barrido de filtro + golpe) y entra el loop de esa
+ * pista. Sin música de fondo ni sonido atado a la sección que se ve. */
 
 export const SOUND_PREF_KEY = 'mp_sound';
 
 export type PistaId = 'TECH' | 'PERREO';
-export type SceneId = 'AMBIENT' | PistaId;
 
 /** Volumen general (0-1). Bajo a propósito: es un sitio web, no un club.
- * Medido en el navegador (salida final): ambiente ≈ -22 dBFS, pistas ≈ -18 dBFS
- * (RMS) -- Tech y Perreo quedan parejas. */
+ * Medido en el navegador (salida final): pistas ≈ -18 dBFS (RMS), Tech y
+ * Perreo parejas. */
 export const MASTER_LEVEL = 0.24;
 export const MASTER_FADE_IN_S = 0.8;
 export const MASTER_FADE_OUT_S = 0.4;
-/** Duración del cruce entre escenas (ambiente ⇄ pista ⇄ pista), tipo DJ. */
+/** Duración del cruce entre pistas (o del fundido al soltar una), tipo DJ. */
 export const CROSSFADE_S = 1.2;
 
-/** Filtro pasa-bajos maestro: cuánto "se oye a través de la pared". */
-export const CUTOFF_CLOSED_HZ = 420;
-export const CUTOFF_NEAR_HZ = 2600;
+/** Filtro pasa-bajos maestro: al abrir una pista desde el silencio arranca
+ * "tras la puerta" (`DOOR`) y se abre del todo (`OPEN`) en medio segundo. */
+export const CUTOFF_DOOR_HZ = 500;
 export const CUTOFF_OPEN_HZ = 19000;
 
-/** Nivel de "apertura de la puerta" (0 = hero, 1 = final de la página) → Hz.
- * Escala exponencial: el oído percibe frecuencia en octavas, no en Hz. */
-export function zoneCutoff(level: number): number {
-  const t = Math.min(1, Math.max(0, level));
-  return CUTOFF_CLOSED_HZ * Math.pow(CUTOFF_NEAR_HZ / CUTOFF_CLOSED_HZ, t);
-}
-
-export const SCENES: Record<SceneId, { bpm: number; level: number }> = {
-  AMBIENT: { bpm: 122, level: 0.6 },
+export const SCENES: Record<PistaId, { bpm: number; level: number }> = {
   TECH: { bpm: 126, level: 0.9 },
   PERREO: { bpm: 96, level: 0.8 },
 };
@@ -44,7 +35,7 @@ export function stepSeconds(bpm: number): number {
   return 60 / bpm / 4;
 }
 
-export type HitKind = 'kick' | 'hat' | 'openHat' | 'clap' | 'snare' | 'bass' | 'sub' | 'pluck' | 'rumble';
+export type HitKind = 'kick' | 'hat' | 'openHat' | 'clap' | 'snare' | 'bass' | 'sub' | 'pluck';
 export interface StepHit {
   kind: HitKind;
   /** Intensidad 0-1. */
@@ -67,17 +58,10 @@ const PERREO_SUB: Array<[number, number]> = [[0, A1], [6, A1], [8, C2], [14, G1]
 
 /** Qué suena en el paso `step` (0 en adelante, contado sin parar) de cada
  * escena. 16 pasos = un compás. Puro: no toca audio. */
-export function stepsFor(scene: SceneId, step: number): StepHit[] {
+export function stepsFor(scene: PistaId, step: number): StepHit[] {
   const s = step % 16;
   const bar = Math.floor(step / 16);
   const hits: StepHit[] = [];
-
-  if (scene === 'AMBIENT') {
-    // La fiesta detrás de la pared: bombo suave en negras + un golpe grave.
-    if (s % 4 === 0) hits.push({ kind: 'kick', vel: s === 0 ? 0.8 : 0.6 });
-    if (s === 0 || s === 8) hits.push({ kind: 'rumble', vel: 0.7 });
-    return hits;
-  }
 
   if (scene === 'TECH') {
     // 4x4: bombo en cada negra, hi-hat abierto al contratiempo, clap en 2 y 4.
