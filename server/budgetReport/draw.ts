@@ -8,17 +8,21 @@
 export const W = 960;
 export const H = 540;
 
+// Identidad Playroom: celeste y rosado pastel mate, tinta casi negra para texto y bordes.
+// `violet` y `sky` conservan su nombre por compatibilidad: hoy son celestes.
 export const C = {
-  bgDark: "#16091d",
-  bgDark2: "#2a1138",
-  bgLight: "#faf6fb",
+  bgDark: "#A9DDF2", // celeste mate (portada)
+  bgDark2: "#F3BFD2", // rosado pastel mate
+  bgLight: "#FBF6EF", // crema
+  skySoft: "#E1F2FA",
+  pinkSoft: "#FCE7EF",
   card: "#ffffff",
-  ink: "#1d1224",
-  muted: "#6b5d78",
-  faint: "#e9e1ee",
-  pink: "#e056b0",
-  violet: "#8b5cf6",
-  sky: "#38bdf8",
+  ink: "#16121A",
+  muted: "#5E5566",
+  faint: "#E6DCE2",
+  pink: "#D94F8C", // rosa fuerte (acentos)
+  violet: "#2AA7DC", // celeste vivo (acentos)
+  sky: "#7CC6E8",
   green: "#22b07d",
   greenSoft: "#d9f5ea",
   amber: "#f5a524",
@@ -29,7 +33,7 @@ export const C = {
   white: "#ffffff",
 } as const;
 
-export const PALETTE = [C.pink, C.violet, C.sky, C.green, C.amber, C.orange, "#a78bfa", "#f472b6", "#2dd4bf", "#94a3b8"];
+export const PALETTE = [C.pink, C.violet, "#F2A7C3", C.green, C.amber, "#7CC6E8", C.orange, "#B07CC6", "#2dd4bf", "#94a3b8"];
 
 type Doc = PDFKit.PDFDocument;
 
@@ -62,7 +66,13 @@ export const pctText = (n: number | null | undefined) => (n == null ? "-" : `${n
 
 /* ─── Texto ─────────────────────────────────────────────────── */
 
+/** `display` = Anton (titulares y cifras grandes), `marker` = Permanent Marker (acentos a mano). */
+export type FontKind = "display" | "marker";
+export const fontName = (o: { bold?: boolean; font?: FontKind }) =>
+  o.font === "display" ? "Anton" : o.font === "marker" ? "Marker" : o.bold ? "Helvetica-Bold" : "Helvetica";
+
 export type TextOpts = {
+  font?: FontKind;
   size?: number;
   color?: string;
   bold?: boolean;
@@ -76,7 +86,7 @@ export type TextOpts = {
 
 export function text(doc: Doc, str: string | number, x: number, y: number, o: TextOpts = {}): number {
   doc.save();
-  doc.font(o.bold ? "Helvetica-Bold" : "Helvetica").fontSize(o.size ?? 12).fillColor(o.color ?? C.ink);
+  doc.font(fontName(o)).fontSize(o.size ?? 12).fillColor(o.color ?? C.ink);
   if (o.opacity != null) doc.fillOpacity(o.opacity);
   const opts: PDFKit.Mixins.TextOptions = { width: o.width, align: o.align ?? "left", lineGap: o.lineGap ?? 2, ellipsis: o.height != null, height: o.height, characterSpacing: o.spacing };
   const s = safe(str);
@@ -91,7 +101,7 @@ export function fitText(doc: Doc, str: string, x: number, y: number, o: TextOpts
   const s = safe(str);
   let size = o.maxSize;
   const min = o.minSize ?? 8;
-  doc.font(o.bold ? "Helvetica-Bold" : "Helvetica");
+  doc.font(fontName(o));
   while (size > min) {
     doc.fontSize(size);
     if (doc.heightOfString(s, { width: o.width, lineGap: o.lineGap ?? 2 }) <= o.height) break;
@@ -100,8 +110,8 @@ export function fitText(doc: Doc, str: string, x: number, y: number, o: TextOpts
   return text(doc, s, x, y, { ...o, size, height: o.height });
 }
 
-export function textHeight(doc: Doc, str: string, width: number, size: number, bold = false, lineGap = 2): number {
-  doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(size);
+export function textHeight(doc: Doc, str: string, width: number, size: number, bold = false, lineGap = 2, font?: FontKind): number {
+  doc.font(fontName({ bold, font })).fontSize(size);
   return doc.heightOfString(safe(str), { width, lineGap });
 }
 
@@ -119,11 +129,11 @@ export function rrect(doc: Doc, x: number, y: number, w: number, h: number, r: n
   }
 }
 
-/** Tarjeta blanca con borde suave y una sombra falsa (rect desplazado). */
-export function card(doc: Doc, x: number, y: number, w: number, h: number, o: { fill?: string; accent?: string } = {}) {
-  rrect(doc, x + 1, y + 3, w, h, 14, "#2a1138", { opacity: 0.06 });
-  rrect(doc, x, y, w, h, 14, o.fill ?? C.card, { stroke: C.faint });
-  if (o.accent) rrect(doc, x, y + 14, 4, h - 28, 2, o.accent);
+/** Tarjeta con borde de tinta y sombra dura desplazada (look sticker). */
+export function card(doc: Doc, x: number, y: number, w: number, h: number, o: { fill?: string; accent?: string; shadow?: string } = {}) {
+  rrect(doc, x + 4, y + 4, w, h, 10, o.shadow ?? C.ink);
+  rrect(doc, x, y, w, h, 10, o.fill ?? C.card, { stroke: C.ink, strokeWidth: 1.6 });
+  if (o.accent) rrect(doc, x + 10, y + 12, 5, h - 24, 2.5, o.accent);
 }
 
 export function pill(doc: Doc, label: string, x: number, y: number, o: { bg: string; color: string; size?: number; padX?: number; h?: number }): number {
@@ -132,7 +142,7 @@ export function pill(doc: Doc, label: string, x: number, y: number, o: { bg: str
   const h = o.h ?? size + 10;
   doc.font("Helvetica-Bold").fontSize(size);
   const w = doc.widthOfString(safe(label)) + padX * 2;
-  rrect(doc, x, y, w, h, h / 2, o.bg);
+  rrect(doc, x, y, w, h, h / 2, o.bg, { stroke: C.ink, strokeWidth: 1 });
   text(doc, label, x + padX, y + (h - size) / 2 - 0.5, { size, bold: true, color: o.color, width: w - padX, align: "left" });
   return w;
 }
@@ -234,7 +244,7 @@ export function barChart(doc: Doc, x: number, y: number, w: number, h: number, g
       const bh = (Math.abs(v.value) / range) * plotH;
       const bx = startX + vi * (barW + 8);
       const by = v.value >= 0 ? zeroY - bh : zeroY;
-      rrect(doc, bx, by, barW, Math.max(bh, 1.5), 4, v.color);
+      rrect(doc, bx, by, barW, Math.max(bh, 1.5), 4, v.color, { stroke: C.ink, strokeWidth: 1.2 });
       const ly = v.value >= 0 ? by - 14 : by + bh + 3;
       text(doc, fmt(v.value), bx - 14, ly, { size: o.valueSize ?? 9, bold: true, color: C.ink, width: barW + 28, align: "center" });
     });
@@ -311,4 +321,123 @@ export function legend(doc: Doc, items: { label: string; color: string }[], x: n
     cx += 14 + w + 18;
   }
   return cx - x;
+}
+
+/* ─── Elementos de marca (stickers, cintas, sello) ──────────── */
+
+/** Dibuja un path en caja unitaria (0..1) escalado a `s`, con sombra dura opcional. */
+function unitShape(doc: Doc, d: string, x: number, y: number, s: number, o: { fill: string; rotate?: number; shadow?: boolean }) {
+  const draw = (dx: number, dy: number, fill: string, stroke: boolean) => {
+    doc.save();
+    if (o.rotate) doc.rotate(o.rotate, { origin: [x + s / 2, y + s / 2] });
+    doc.translate(x + dx, y + dy).scale(s);
+    doc.path(d);
+    if (stroke) doc.lineWidth(2 / s).lineJoin("round").fillAndStroke(fill, C.ink);
+    else doc.fill(fill);
+    doc.restore();
+  };
+  if (o.shadow !== false) draw(s * 0.07, s * 0.07, C.ink, false);
+  draw(0, 0, o.fill, true);
+}
+
+export type Doodle = "heart" | "arrow" | "bubble" | "star";
+const DOODLE_PATH: Record<Doodle, string> = {
+  heart: "M 0.5 0.95 C 0.08 0.62 0 0.42 0 0.26 C 0 0.1 0.12 0 0.27 0 C 0.38 0 0.46 0.06 0.5 0.16 C 0.54 0.06 0.62 0 0.73 0 C 0.88 0 1 0.1 1 0.26 C 1 0.42 0.92 0.62 0.5 0.95 Z",
+  arrow: "M 0.05 0.05 L 0.7 0.12 L 0.52 0.3 L 0.95 0.73 L 0.73 0.95 L 0.3 0.52 L 0.12 0.7 Z",
+  bubble: "M 0.5 0.05 C 0.8 0.05 0.97 0.25 0.97 0.45 C 0.97 0.65 0.8 0.82 0.55 0.84 L 0.3 0.98 L 0.34 0.8 C 0.15 0.74 0.03 0.6 0.03 0.45 C 0.03 0.25 0.2 0.05 0.5 0.05 Z",
+  star: "M 0.5 0 L 0.62 0.36 L 1 0.38 L 0.7 0.61 L 0.8 1 L 0.5 0.78 L 0.2 1 L 0.3 0.61 L 0 0.38 L 0.38 0.36 Z",
+};
+
+/** Figura decorativa tipo sticker (sin emojis: la fuente estándar no los dibuja). */
+export function doodle(doc: Doc, kind: Doodle, x: number, y: number, size: number, fill: string, rotate = 0) {
+  unitShape(doc, DOODLE_PATH[kind], x, y, size, { fill, rotate });
+}
+
+/** Etiqueta tipo sticker: borde de tinta, sombra dura y leve inclinación. Devuelve su ancho. */
+export function sticker(doc: Doc, label: string, x: number, y: number, o: { fill?: string; color?: string; size?: number; rotate?: number; font?: FontKind } = {}): number {
+  const size = o.size ?? 13;
+  const padX = 11;
+  const h = size + 14;
+  doc.font(fontName({ font: o.font ?? "display" })).fontSize(size);
+  const str = safe(label).toUpperCase();
+  const w = doc.widthOfString(str) + padX * 2 + str.length * 0.6;
+  doc.save();
+  if (o.rotate) doc.rotate(o.rotate, { origin: [x + w / 2, y + h / 2] });
+  rrect(doc, x + 3.5, y + 3.5, w, h, 5, C.ink);
+  rrect(doc, x, y, w, h, 5, o.fill ?? C.pink, { stroke: C.ink, strokeWidth: 1.8 });
+  text(doc, str, x + padX, y + (h - size) / 2 - 1, { size, font: o.font ?? "display", color: o.color ?? C.white, width: w, spacing: 0.6 });
+  doc.restore();
+  return w;
+}
+
+/** Texto a mano (hashtag, nota) con leve inclinación. */
+export function scribble(doc: Doc, str: string, x: number, y: number, o: { size?: number; color?: string; rotate?: number } = {}) {
+  const size = o.size ?? 16;
+  doc.save();
+  if (o.rotate) doc.rotate(o.rotate, { origin: [x, y] });
+  text(doc, str, x, y, { font: "marker", size, color: o.color ?? C.pink, width: 400 });
+  doc.restore();
+}
+
+/** Franja de marca a todo el ancho con el nombre repetido y el logo. */
+export function brandTape(doc: Doc, y: number, logo: Buffer, o: { fill?: string; color?: string; h?: number } = {}) {
+  const h = o.h ?? 30;
+  doc.save();
+  doc.rect(0, y, W, h).fill(o.fill ?? C.violet);
+  doc.moveTo(0, y).lineTo(W, y).lineWidth(1.8).stroke(C.ink);
+  doc.moveTo(0, y + h).lineTo(W, y + h).lineWidth(1.8).stroke(C.ink);
+  doc.restore();
+  const label = "MANSION PLAYROOM";
+  doc.font("Anton").fontSize(15);
+  const tw = doc.widthOfString(label) + 4 * label.length * 0.1;
+  const step = tw + 70;
+  for (let cx = 28; cx < W; cx += step) {
+    text(doc, label, cx, y + (h - 15) / 2 - 1, { font: "display", size: 15, color: o.color ?? C.ink, width: tw + 20, spacing: 1.5 });
+    doc.image(logo, cx + tw + 22, y + 5, { height: h - 10 });
+  }
+}
+
+/** Cinta inclinada con texto repetido (cruza una esquina de la página). */
+export function slantedTape(doc: Doc, str: string, cx: number, cy: number, o: { w?: number; rotate?: number; fill?: string; color?: string } = {}) {
+  const w = o.w ?? 460;
+  const h = 24;
+  doc.save();
+  doc.rotate(o.rotate ?? -8, { origin: [cx, cy] });
+  doc.rect(cx - w / 2, cy - h / 2, w, h).fill(o.fill ?? C.ink);
+  doc.restore();
+  doc.save();
+  doc.rotate(o.rotate ?? -8, { origin: [cx, cy] });
+  doc.font("Anton").fontSize(12);
+  const unit = `${safe(str).toUpperCase()}   *   `;
+  const uw = doc.widthOfString(unit) + unit.length * 1;
+  let t = "";
+  while (doc.widthOfString(t) + t.length * 1 < w) t += unit;
+  text(doc, t, cx - w / 2 + 6, cy - 7, { font: "display", size: 12, color: o.color ?? C.bgDark, width: w * 3, spacing: 1, height: 16 });
+  void uw;
+  doc.restore();
+}
+
+/** Sello circular con texto alrededor y el logo al centro. */
+export function stamp(doc: Doc, cx: number, cy: number, r: number, str: string, logo: Buffer, o: { fill?: string; color?: string } = {}) {
+  doc.save();
+  doc.circle(cx + 3.5, cy + 3.5, r).fill(C.ink);
+  doc.circle(cx, cy, r).lineWidth(1.8).fillAndStroke(o.fill ?? C.bgDark2, C.ink);
+  doc.restore();
+  const label = safe(str).toUpperCase();
+  const size = Math.max(7.5, r * 0.19);
+  doc.font("Marker").fontSize(size);
+  const radius = r - size * 1.15;
+  const total = label.length;
+  const span = Math.PI * 2 * 0.94;
+  for (let i = 0; i < total; i++) {
+    const a = -Math.PI / 2 + (span * i) / total;
+    const px = cx + radius * Math.cos(a);
+    const py = cy + radius * Math.sin(a);
+    doc.save();
+    doc.rotate((a * 180) / Math.PI + 90, { origin: [px, py] });
+    doc.fillColor(o.color ?? C.ink).fontSize(size).text(label[i], px - size / 2, py - size / 2, { width: size, align: "center", lineBreak: false });
+    doc.restore();
+  }
+  const lh = r * 0.9;
+  doc.image(logo, cx - (lh * 174) / 240 / 2, cy - lh / 2, { height: lh });
 }

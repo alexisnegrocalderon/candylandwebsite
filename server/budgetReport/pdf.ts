@@ -11,9 +11,11 @@ import {
 } from "../../shared/budgetInsights";
 import { expenseLineAmounts, type BudgetResult, type BudgetSimulationInput } from "../../shared/eventBudget";
 import { LOGO_PNG_BASE64 } from "./logo";
+import { ANTON_TTF_BASE64, MARKER_TTF_BASE64 } from "./fonts";
 import type { Narrative } from "./narrative";
 import {
-  C, H, PALETTE, W, barChart, card, clp, compact, donut, fitText, gauge, gradient, glow, hbar, legend, lineChart, pctText, pill, rrect, safe, text, textHeight,
+  C, H, PALETTE, W, barChart, brandTape, card, clp, compact, donut, doodle, fitText, gauge, hbar, legend, lineChart, pctText, pill, rrect, safe, scribble, slantedTape, stamp, sticker, text, textHeight,
+  type Doodle,
 } from "./draw";
 
 type Doc = PDFKit.PDFDocument;
@@ -55,6 +57,9 @@ export type ComparisonReportData = {
 
 function createDoc(title: string): { doc: Doc; done: Promise<Buffer> } {
   const doc = new PDFDocument({ size: [W, H], margin: 0, autoFirstPage: false, bufferPages: true, info: { Title: safe(title), Author: "Mansion Playroom", Creator: "Mansion Playroom" } });
+  doc.registerFont("Anton", Buffer.from(ANTON_TTF_BASE64, "base64"));
+  doc.registerFont("Marker", Buffer.from(MARKER_TTF_BASE64, "base64"));
+  pageCount = 0;
   const chunks: Buffer[] = [];
   doc.on("data", (c) => chunks.push(c));
   const done = new Promise<Buffer>((resolve, reject) => {
@@ -66,30 +71,47 @@ function createDoc(title: string): { doc: Doc; done: Promise<Buffer> } {
 
 type Theme = "dark" | "light";
 
+/** Fondos de las páginas de datos: crema, celeste suave y rosado suave, alternados. */
+const PAGE_BGS = [C.bgLight, C.skySoft, C.pinkSoft];
+let pageCount = 0;
+
 function newPage(doc: Doc, theme: Theme): void {
   doc.addPage({ size: [W, H], margin: 0 });
   // Sin margen inferior: el texto nunca salta solo a otra página; si algo se
   // pasa de largo se ve en la revisión visual en vez de duplicar páginas.
   doc.page.margins.bottom = -5000;
   if (theme === "dark") {
-    gradient(doc, 0, 0, W, H, C.bgDark, C.bgDark2, "d");
+    doc.rect(0, 0, W, H).fill(C.bgDark);
   } else {
-    doc.rect(0, 0, W, H).fill(C.bgLight);
-    // Cinta de color arriba: identifica la marca sin pesar.
-    gradient(doc, 0, 0, W, 5, C.pink, C.violet, "h");
+    doc.rect(0, 0, W, H).fill(PAGE_BGS[pageCount % PAGE_BGS.length]);
+    // Franja de marca arriba: celeste y rosado planos.
+    doc.rect(0, 0, W / 2, 6).fill(C.violet);
+    doc.rect(W / 2, 0, W / 2, 6).fill(C.pink);
   }
+  pageCount++;
 }
 
+const DOODLE_CYCLE: { kind: Doodle; fill: () => string; rotate: number }[] = [
+  { kind: "heart", fill: () => C.pink, rotate: -12 },
+  { kind: "star", fill: () => C.violet, rotate: 10 },
+  { kind: "bubble", fill: () => C.bgDark2, rotate: -6 },
+  { kind: "arrow", fill: () => C.violet, rotate: 0 },
+];
+
+/** Encabezado: etiqueta de sección tipo sticker, título en Anton y un sticker decorativo a la derecha. */
 function header(doc: Doc, kicker: string, title: string, subtitle?: string): void {
-  text(doc, kicker.toUpperCase(), MX, 30, { size: 10, bold: true, color: C.pink, spacing: 2 });
-  fitText(doc, title, MX, 46, { width: CONTENT_W, height: 40, maxSize: 27, minSize: 18, bold: true, color: C.ink });
-  if (subtitle) text(doc, subtitle, MX, 82, { size: 12.5, color: C.muted, width: CONTENT_W, height: 18 });
+  sticker(doc, kicker, MX, 26, { fill: pageCount % 2 === 0 ? C.pink : C.violet, size: 10, rotate: -1.5 });
+  fitText(doc, title.toUpperCase(), MX, 56, { width: CONTENT_W - 110, height: 34, maxSize: 30, minSize: 18, font: "display", color: C.ink, spacing: 0.5 });
+  if (subtitle) text(doc, subtitle, MX, 92, { size: 12, color: C.muted, width: CONTENT_W - 110, height: 16 });
+  const dd = DOODLE_CYCLE[pageCount % DOODLE_CYCLE.length];
+  doodle(doc, dd.kind, W - MX - 54, 22, 50, dd.fill(), dd.rotate);
 }
 
-function footers(doc: Doc, label: string, skipFirst = true): void {
+function footers(doc: Doc, label: string, o: { skipFirst?: boolean; skipLast?: boolean } = {}): void {
   const range = doc.bufferedPageRange();
   for (let i = 0; i < range.count; i++) {
-    if (skipFirst && i === 0) continue;
+    if ((o.skipFirst ?? true) && i === 0) continue;
+    if (o.skipLast && i === range.count - 1) continue;
     doc.switchToPage(range.start + i);
     doc.page.margins.bottom = -5000;
     text(doc, `Mansion Playroom  ·  ${label}`, MX, 512, { size: 8.5, color: C.muted, width: 600, height: 12 });
@@ -103,15 +125,15 @@ const emittedText = (d: Date) =>
 function kpi(doc: Doc, x: number, y: number, w: number, h: number, label: string, value: string, caption?: string, color: string = C.ink) {
   card(doc, x, y, w, h);
   text(doc, label.toUpperCase(), x + 16, y + 14, { size: 8.5, bold: true, color: C.muted, spacing: 1, width: w - 32, height: 12 });
-  fitText(doc, value, x + 16, y + 30, { width: w - 32, height: 38, maxSize: 28, minSize: 16, bold: true, color });
-  if (caption) text(doc, caption, x + 16, y + h - 30, { size: 9.5, color: C.muted, width: w - 32, height: 26 });
+  fitText(doc, value, x + 16, y + 28, { width: w - 32, height: 36, maxSize: 30, minSize: 18, font: "display", color, spacing: 0.4 });
+  if (caption) text(doc, caption, x + 16, y + h - 27, { size: 9.5, color: C.muted, width: w - 32, height: 24 });
 }
 
-function coverKpi(doc: Doc, x: number, y: number, w: number, h: number, label: string, value: string, caption?: string, color: string = C.white) {
-  rrect(doc, x, y, w, h, 16, C.white, { opacity: 0.08, stroke: "#ffffff" });
-  text(doc, label.toUpperCase(), x + 20, y + 16, { size: 9, bold: true, color: "#d8c4e6", spacing: 1.2, width: w - 40, height: 12 });
-  fitText(doc, value, x + 20, y + 36, { width: w - 40, height: 46, maxSize: 34, minSize: 18, bold: true, color });
-  if (caption) text(doc, caption, x + 20, y + h - 28, { size: 10, color: "#d8c4e6", width: w - 40, height: 14 });
+function coverKpi(doc: Doc, x: number, y: number, w: number, h: number, label: string, value: string, caption?: string, color: string = C.ink) {
+  card(doc, x, y, w, h);
+  text(doc, label.toUpperCase(), x + 18, y + 14, { size: 9, bold: true, color: C.muted, spacing: 1.2, width: w - 36, height: 12 });
+  fitText(doc, value, x + 18, y + 32, { width: w - 36, height: 46, maxSize: 40, minSize: 20, font: "display", color, spacing: 0.5 });
+  if (caption) text(doc, caption, x + 18, y + h - 26, { size: 10, color: C.muted, width: w - 36, height: 14 });
 }
 
 const QUALITY_LABEL: Record<Recommendation["quality"], string> = { ninguno: "Sin riesgo para la calidad", bajo: "Riesgo bajo para la calidad", medio: "Con cuidado: negociar, no recortar" };
@@ -124,25 +146,52 @@ function cover(doc: Doc, o: {
   kpis: { label: string; value: string; caption?: string; color?: string }[]; chips?: string[];
 }) {
   newPage(doc, "dark");
-  glow(doc, 830, 110, 280, C.pink, 0.55);
-  glow(doc, 90, 500, 260, C.violet, 0.5);
-  doc.image(logoBuffer, MX, 36, { height: 58 });
-  text(doc, "MANSION PLAYROOM", MX + 52, 56, { size: 11, bold: true, color: C.white, spacing: 3 });
+  // Bloque rosado donde apoyan las cifras + círculos de color de fondo.
+  doc.save(); doc.circle(860, 90, 190).fill(C.bgDark2); doc.restore();
+  doc.save(); doc.circle(40, 300, 90).fill("#8FD0EC"); doc.restore();
+  doc.rect(0, 336, W, 164).fill(C.bgDark2);
+  doc.moveTo(0, 336).lineTo(W, 336).lineWidth(1.8).stroke(C.ink);
 
-  text(doc, o.kicker.toUpperCase(), MX, 138, { size: 12, bold: true, color: C.pink, spacing: 3.5 });
-  fitText(doc, o.title, MX, 160, { width: 700, height: 112, maxSize: 48, minSize: 24, bold: true, color: C.white, lineGap: 4 });
-  text(doc, o.subtitle, MX, 282, { size: 13, color: "#d8c4e6", width: 700, height: 36 });
-  if (o.verdict) pill(doc, o.verdict.label, MX, 322, { bg: VERDICT_COLOR[o.verdict.key], color: o.verdict.key === "warning" ? C.ink : C.white, size: 12, padX: 16, h: 30 });
+  doc.image(logoBuffer, MX, 30, { height: 62 });
+  text(doc, "MANSION PLAYROOM", MX + 54, 52, { font: "display", size: 20, color: C.ink, spacing: 3 });
+
+  sticker(doc, o.kicker, MX, 118, { fill: C.pink, size: 13, rotate: -2 });
+  fitText(doc, o.title.toUpperCase(), MX, 156, { width: 640, height: 120, maxSize: 70, minSize: 28, font: "display", color: C.ink, lineGap: 2, spacing: 1 });
+  text(doc, o.subtitle, MX, 288, { size: 13, color: C.ink, width: 640, height: 18 });
+  if (o.verdict) pill(doc, o.verdict.label, MX, 306, { bg: VERDICT_COLOR[o.verdict.key], color: o.verdict.key === "warning" ? C.ink : C.white, size: 11, padX: 14, h: 24 });
   if (o.chips?.length) {
     let cx = MX;
-    for (const chip of o.chips.slice(0, 4)) cx += pill(doc, chip, cx, 322, { bg: "#46295f", color: C.white, size: 11, padX: 14, h: 28 }) + 8;
+    for (const chip of o.chips.slice(0, 4)) cx += pill(doc, chip, cx, 306, { bg: C.white, color: C.ink, size: 11, padX: 14, h: 24 }) + 8;
   }
 
+  stamp(doc, 842, 150, 68, "EVENTOS PLAYROOM · PROYECCIÓN · ", logoBuffer, { fill: C.white });
+  doodle(doc, "heart", 745, 238, 44, C.pink, -14);
+  doodle(doc, "star", 888, 262, 36, C.violet, 12);
+  scribble(doc, "#playroom", 706, 292, { size: 17, color: C.pink, rotate: -6 });
+
   const n = o.kpis.length;
-  const gap = 18;
+  const gap = 20;
   const w = (CONTENT_W - gap * (n - 1)) / n;
-  o.kpis.forEach((k, i) => coverKpi(doc, MX + i * (w + gap), 372, w, 112, k.label, k.value, k.caption, k.color));
-  text(doc, `Informe generado el ${emittedText(o.emittedAt)} (hora de Chile). Cifras proyectadas: no incluyen ventas reales.`, MX, 504, { size: 9, color: "#b9a3c9", width: CONTENT_W, height: 12 });
+  o.kpis.forEach((k, i) => coverKpi(doc, MX + i * (w + gap), 356, w, 104, k.label, k.value, k.caption, k.color));
+  text(doc, `Informe generado el ${emittedText(o.emittedAt)} (hora de Chile). Cifras proyectadas: no incluyen ventas reales.`, MX, 476, { size: 9, color: C.ink, width: CONTENT_W, height: 12 });
+  brandTape(doc, 500, logoBuffer, { h: 28 });
+}
+
+/** Página final: cierre de marca con el contacto. */
+function closingPage(doc: Doc) {
+  newPage(doc, "dark");
+  doc.rect(0, 300, W, 200).fill(C.bgDark2);
+  doc.moveTo(0, 300).lineTo(W, 300).lineWidth(1.8).stroke(C.ink);
+  doc.image(logoBuffer, MX, 36, { height: 62 });
+  text(doc, "MANSION PLAYROOM", MX + 54, 58, { font: "display", size: 20, color: C.ink, spacing: 3 });
+  text(doc, "¿DUDAS? ¡CONVERSEMOS!", MX, 130, { font: "display", size: 60, color: C.ink, width: 760, spacing: 1 });
+  text(doc, "Esta proyección es una simulación: sirve para decidir con números antes de producir la fiesta.", MX, 226, { size: 14, color: C.ink, width: 560, height: 40 });
+  sticker(doc, "contacto@mansionplayroom.cl", MX, 330, { fill: C.violet, color: C.white, size: 18, rotate: -1.5 });
+  scribble(doc, "#playroom  #margen  #sinriesgo", MX, 400, { size: 22, color: C.pink, rotate: -2 });
+  stamp(doc, 800, 190, 84, "EVENTOS PLAYROOM · GRACIAS · ", logoBuffer, { fill: C.white });
+  doodle(doc, "heart", 640, 238, 46, C.pink, -12);
+  slantedTape(doc, "mansion playroom", 760, 420, { w: 420, rotate: -7, fill: C.ink, color: C.bgDark });
+  brandTape(doc, 500, logoBuffer, { h: 28 });
 }
 
 /* ─── Páginas de una simulación ─────────────────────────────── */
@@ -253,7 +302,7 @@ function pageMoneyOut(doc: Doc, d: SingleReportData) {
     else { top = Math.max(s.amount, 0); bottom = Math.min(s.amount, 0); color = s.amount >= 0 ? C.green : C.red; label = compact(s.amount); }
     const py = (v: number) => y0 + (1 - v / maxV) * h;
     const yTop = py(top), yBot = py(bottom);
-    rrect(doc, bx, yTop, bw, Math.max(yBot - yTop, 2), 4, color);
+    rrect(doc, bx, yTop, bw, Math.max(yBot - yTop, 2), 4, color, { stroke: C.ink, strokeWidth: 1.2 });
     text(doc, label, bx - 18, yTop - 15, { size: 9.5, bold: true, color: C.ink, width: bw + 36, align: "center" });
     text(doc, s.label, x0 + i * slot, y0 + h + 12, { size: 8.8, color: C.muted, width: slot, align: "center", height: 26 });
     if (i < n - 1) {
@@ -289,8 +338,8 @@ function pageCeiling(doc: Doc, d: SingleReportData) {
   const bx = MX + 22, bw = 376;
   const room = ceiling - fixed;
   const color = VERDICT_COLOR[r.status === "ok" ? "ok" : r.status === "warning" ? "warning" : "danger"];
-  rrect(doc, bx, 166, bw, 30, 15, C.faint);
-  rrect(doc, bx, 166, Math.max(30, Math.min(1, fixed / scale) * bw), 30, 15, color);
+  rrect(doc, bx, 166, bw, 30, 15, C.faint, { stroke: C.ink, strokeWidth: 1.2 });
+  rrect(doc, bx, 166, Math.max(30, Math.min(1, fixed / scale) * bw), 30, 15, color, { stroke: C.ink, strokeWidth: 1.2 });
   const cx = bx + Math.max(0, Math.min(1, ceiling / scale)) * bw;
   doc.save(); doc.moveTo(cx, 156).lineTo(cx, 206).lineWidth(2.5).stroke(C.ink); doc.restore();
   text(doc, `Gastos fijos: ${clp(fixed)}`, bx, 212, { size: 10.5, bold: true, color: C.ink, width: 190 });
@@ -386,12 +435,12 @@ function recCard(doc: Doc, rec: Recommendation, note: string, x: number, y: numb
   const careful = rec.quality === "medio";
   const accent = careful ? C.amber : AREA_COLOR[rec.area];
   card(doc, x, y, w, h, { accent });
-  text(doc, (careful ? "CON CUIDADO  ·  " : "") + AREA_LABEL[rec.area].toUpperCase(), x + 18, y + 12, { size: 8, bold: true, color: accent === C.amber ? "#b7791f" : accent, spacing: 1, width: w - 150, height: 11 });
-  fitText(doc, rec.title, x + 18, y + 26, { width: w - 160, height: 34, maxSize: 12.5, minSize: 9.5, bold: true, color: C.ink });
-  text(doc, `+${compact(rec.gainClp)}`, x + w - 126, y + 12, { size: 17, bold: true, color: C.green, width: 110, align: "right" });
-  text(doc, `${rec.marginPtsGain > 0 ? "+" : ""}${rec.marginPtsGain.toLocaleString("es-CL")} pts de margen`, x + w - 136, y + 33, { size: 8.5, color: C.muted, width: 120, align: "right" });
-  fitText(doc, note, x + 18, y + 62, { width: w - 36, height: h - 92, maxSize: 9.5, minSize: 8, color: C.muted, lineGap: 2 });
-  let px = x + 18;
+  text(doc, (careful ? "CON CUIDADO  ·  " : "") + AREA_LABEL[rec.area].toUpperCase(), x + 26, y + 12, { size: 8, bold: true, color: accent === C.amber ? "#b7791f" : accent, spacing: 1, width: w - 160, height: 11 });
+  fitText(doc, rec.title, x + 26, y + 26, { width: w - 172, height: 34, maxSize: 12.5, minSize: 9.5, bold: true, color: C.ink });
+  text(doc, `+${compact(rec.gainClp)}`, x + w - 126, y + 9, { font: "display", size: 20, color: "#13795B", width: 110, align: "right" });
+  text(doc, `${rec.marginPtsGain > 0 ? "+" : ""}${rec.marginPtsGain.toLocaleString("es-CL")} pts de margen`, x + w - 136, y + 38, { size: 8.5, color: C.muted, width: 120, align: "right" });
+  fitText(doc, note, x + 26, y + 62, { width: w - 46, height: h - 92, maxSize: 9.5, minSize: 8, color: C.muted, lineGap: 2 });
+  let px = x + 26;
   px += pill(doc, QUALITY_LABEL[rec.quality], px, y + h - 22, { bg: careful ? C.amberSoft : C.greenSoft, color: careful ? "#8a5a00" : "#13795b", size: 7.5, padX: 7, h: 15 }) + 6;
   pill(doc, `Esfuerzo ${rec.effort}`, px, y + h - 22, { bg: "#efe7f4", color: C.muted, size: 7.5, padX: 7, h: 15 });
 }
@@ -409,10 +458,9 @@ function pageRecommendations(doc: Doc, d: SingleReportData) {
     header(doc, "Cómo subir el margen", p === 0 ? "Ideas que no tocan la calidad del evento" : "Más ideas para subir el margen", p === 0 ? "Ordenadas por cuánto suman en relación al esfuerzo; lo que el invitado nota solo se negocia, nunca se recorta" : undefined);
     let startY = p === 0 ? 116 : 108;
     if (p === 0 && set.topThree) {
-      rrect(doc, MX, 110, CONTENT_W, 56, 14, C.pink);
-      gradient(doc, MX, 110, CONTENT_W, 56, C.pink, C.violet, "h");
-      text(doc, "SI APLICAS LAS 3 MEJORES JUNTAS", MX + 22, 122, { size: 8.5, bold: true, color: "#e6d3f0", spacing: 1.2 });
-      text(doc, `+${compact(set.topThree.profitGain)} de utilidad  ·  margen ${pctText(set.topThree.marginBefore)} > ${pctText(set.topThree.marginAfter)}`, MX + 22, 136, { size: 17, bold: true, color: C.white, width: CONTENT_W - 44 });
+      card(doc, MX, 110, CONTENT_W, 56, { fill: C.pink });
+      text(doc, "SI APLICAS LAS 3 MEJORES JUNTAS", MX + 22, 121, { size: 8.5, bold: true, color: C.white, spacing: 1.2 });
+      text(doc, `+${compact(set.topThree.profitGain)} de utilidad  ·  margen ${pctText(set.topThree.marginBefore)} > ${pctText(set.topThree.marginAfter)}`, MX + 22, 134, { font: "display", size: 21, color: C.white, width: CONTENT_W - 44, spacing: 0.5 });
       startY = 182;
     }
     const from = p === 0 ? 0 : firstPer + (p - 1) * perPage;
@@ -495,9 +543,8 @@ function pageExecutive(doc: Doc, d: SingleReportData) {
   const picks = set.topThree ? set.topThree.ids.map((id) => [...set.recommended, ...set.withCare].find((x) => x.id === id)!).filter(Boolean) : set.recommended.slice(0, 3);
   picks.forEach((rec, i) => recCard(doc, rec, d.narrative.recNotes[rec.id] ?? rec.how, rx, 132 + i * 106, rw, 98));
   if (set.topThree) {
-    rrect(doc, rx, 132 + picks.length * 106, rw, 52, 12, C.pink);
-    gradient(doc, rx, 132 + picks.length * 106, rw, 52, C.pink, C.violet, "h");
-    text(doc, `Las 3 juntas: +${compact(set.topThree.profitGain)}  ·  margen ${pctText(set.topThree.marginBefore)} > ${pctText(set.topThree.marginAfter)}`, rx + 16, 132 + picks.length * 106 + 18, { size: 12.5, bold: true, color: C.white, width: rw - 32 });
+    card(doc, rx, 132 + picks.length * 106, rw, 50, { fill: C.pink });
+    text(doc, `Las 3 juntas: +${compact(set.topThree.profitGain)}  ·  margen ${pctText(set.topThree.marginBefore)} > ${pctText(set.topThree.marginAfter)}`, rx + 16, 132 + picks.length * 106 + 15, { font: "display", size: 17, color: C.white, width: rw - 32, spacing: 0.4 });
   }
 }
 
@@ -520,7 +567,8 @@ export async function buildSingleReportPdf(d: SingleReportData, version: ReportV
     pageIncome(doc, d, { kicker: "Ingresos", title: "De dónde viene el ingreso proyectado" });
     pageScenarios(doc, d, true);
     pageAssumptions(doc, { input: d.input, result: r }, { glossary: false, external: true });
-    footers(doc, label);
+    closingPage(doc);
+    footers(doc, label, { skipLast: true });
     doc.end();
     return done;
   }
@@ -530,7 +578,7 @@ export async function buildSingleReportPdf(d: SingleReportData, version: ReportV
     kicker: "Informe de simulación", title: d.name, subtitle: d.eventTitle ? `Vinculada al evento: ${d.eventTitle}` : "Simulación previa al evento: cuánto puedes gastar y cuánta gente necesitas", verdict: d.verdict, emittedAt: d.emittedAt,
     kpis: [
       { label: "Ingreso proyectado", value: compact(r.grossIncome), caption: `${r.attendance.toLocaleString("es-CL")} personas` },
-      { label: "Utilidad estimada", value: compact(r.pnl.netProfit), caption: "después de todos los costos", color: r.pnl.netProfit >= 0 ? "#7ee2b8" : "#ff9b9e" },
+      { label: "Utilidad estimada", value: compact(r.pnl.netProfit), caption: "después de todos los costos", color: r.pnl.netProfit >= 0 ? "#13795B" : "#C23B40" },
       { label: "Margen", value: pctText(margin), caption: `meta ${d.input.marginTargetPercent}%` },
     ],
   });
@@ -550,7 +598,8 @@ export async function buildSingleReportPdf(d: SingleReportData, version: ReportV
   if (d.sensitivity.length > 0) pageSensitivity(doc, d);
   pageRecommendations(doc, d);
   pageAssumptions(doc, { input: d.input, result: r }, { glossary: true });
-  footers(doc, label);
+  closingPage(doc);
+  footers(doc, label, { skipLast: true });
   doc.end();
   return done;
 }
@@ -707,7 +756,7 @@ export async function buildComparisonPdf(d: ComparisonReportData, version: Exclu
     kicker: "Comparación de simulaciones", title: names, subtitle: `Recomendada: ${winner.name}`, verdict: winner.verdict, emittedAt: d.emittedAt,
     kpis: [
       { label: "Opciones comparadas", value: String(d.sims.length), caption: "simulaciones" },
-      { label: "Mejor utilidad", value: compact(Math.max(...d.sims.map((s) => s.result.pnl.netProfit))), caption: d.sims[d.best.netProfit].name, color: "#7ee2b8" },
+      { label: "Mejor utilidad", value: compact(Math.max(...d.sims.map((s) => s.result.pnl.netProfit))), caption: d.sims[d.best.netProfit].name, color: "#13795B" },
       { label: "Mejor margen", value: pctText(Math.max(...d.sims.map((s) => s.result.pnl.marginPercent ?? -Infinity))), caption: d.sims[d.best.marginPercent].name },
     ],
   });
@@ -728,7 +777,8 @@ export async function buildComparisonPdf(d: ComparisonReportData, version: Exclu
   } else {
     pageAssumptions(doc, { input: winner.input, result: winner.result }, { glossary: false });
   }
-  footers(doc, label);
+  if (version === "completa") closingPage(doc);
+  footers(doc, label, { skipLast: version === "completa" });
   doc.end();
   return done;
 }
