@@ -119,7 +119,7 @@ describe("runFoundersPromoDaily", () => {
   it("manda al cupo diario con el remanente vigente y taguea con FOUNDERS_PROMO_TAG", async () => {
     const result = await runFoundersPromoDaily();
 
-    expect(listCustomersMock).toHaveBeenCalledWith({ notPurchasedEventId: event.id, excludeTags: [FOUNDERS_PROMO_TAG] });
+    expect(listCustomersMock).toHaveBeenCalledWith({ forMailing: true, notPurchasedEventId: event.id, excludeTags: [FOUNDERS_PROMO_TAG] });
     expect(sendMailingBatchMock).toHaveBeenCalledTimes(1);
     const [ids, content, ctaUrl, tag] = sendMailingBatchMock.mock.calls[0];
     expect(ids).toEqual([1, 2]);

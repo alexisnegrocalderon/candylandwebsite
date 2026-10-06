@@ -945,6 +945,27 @@ export const customers = mysqlTable("customers", {
   cardPinHash: varchar("cardPinHash", { length: 255 }),
   cardPinSetAt: timestamp("cardPinSetAt"),
   notes: text("notes"),
+  // --- Ficha completa del cliente (Admin → Clientes) ---
+  // Fecha de nacimiento: "YYYY-MM-DD", o "MM-DD" cuando solo se sabe el
+  // día/mes (el año no se pide en Cumpleañeros, ver birthdayApplications).
+  birthDate: varchar("birthDate", { length: 10 }),
+  gender: mysqlEnum("gender", ["hombre", "mujer", "pareja", "otro"]),
+  city: varchar("city", { length: 100 }), // ciudad o comuna
+  // Permisos de contacto: la baja de correo se respeta en TODAS las audiencias
+  // de mailing/promos/encuestas (listCustomers({ forMailing: true })).
+  emailOptOut: int("emailOptOut").default(0).notNull(),
+  whatsappOptOut: int("whatsappOptOut").default(0).notNull(),
+  optOutAt: timestamp("optOutAt"),
+  optOutReason: varchar("optOutReason", { length: 200 }),
+  // De dónde llegó (instagram, embajador, referido, web, caja, evento, otro) y
+  // el código del embajador que lo trajo (exclusiveAmbassadors.code).
+  source: varchar("source", { length: 40 }),
+  ambassadorCode: varchar("ambassadorCode", { length: 32 }),
+  // null = nivel automático; 'vip' o 'inactivo' fuerzan el nivel a mano.
+  levelOverride: varchar("levelOverride", { length: 20 }),
+  // Campos editados a mano ("fullName", "phone", ...): las compras nuevas
+  // (upsertCustomerFromOrder) no los pisan.
+  lockedFields: json("lockedFields"),
   firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
   lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

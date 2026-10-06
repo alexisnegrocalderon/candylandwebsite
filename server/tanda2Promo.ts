@@ -123,7 +123,7 @@ export async function runTanda2PromoDaily(): Promise<Tanda2PromoRunResult> {
   const budget = TANDA2_PROMO_DAILY_TARGET - sentToday;
   if (budget <= 0) return { ran: false, reason: 'daily-cap-reached' };
 
-  const eligible = await listCustomers({ notPurchasedEventId: event.id, excludeTags: [TANDA2_PROMO_TAG] });
+  const eligible = await listCustomers({ forMailing: true, notPurchasedEventId: event.id, excludeTags: [TANDA2_PROMO_TAG] });
   if (eligible.length === 0) {
     await updateSiteSettings({ tanda2PromoEnabled: false });
     return { ran: false, reason: 'audience-exhausted' };
@@ -178,7 +178,7 @@ export async function getTanda2PromoStatus() {
 
   const [offer, eligible, sentToday] = await Promise.all([
     resolveTanda2Offer(event.id),
-    listCustomers({ notPurchasedEventId: event.id, excludeTags: [TANDA2_PROMO_TAG] }),
+    listCustomers({ forMailing: true, notPurchasedEventId: event.id, excludeTags: [TANDA2_PROMO_TAG] }),
     countTandaPromoEmailsSentToday(),
   ]);
   return {

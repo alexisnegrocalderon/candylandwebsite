@@ -8,6 +8,7 @@ vi.mock("./db", () => ({
   markMailingRecipientResult: vi.fn(),
   markMailingRecipientSkipped: vi.fn(),
   hasApprovedOrderForEvent: vi.fn(),
+  isCustomerEmailOptedOut: vi.fn(),
   addCustomerTag: vi.fn(),
   getFeaturedEvent: vi.fn(),
   countAutomatedEmailsSentToday: vi.fn(),
@@ -22,6 +23,7 @@ const getPendingMailingRecipientsMock = vi.mocked(db.getPendingMailingRecipients
 const markMailingRecipientResultMock = vi.mocked(db.markMailingRecipientResult);
 const markMailingRecipientSkippedMock = vi.mocked(db.markMailingRecipientSkipped);
 const hasApprovedOrderForEventMock = vi.mocked(db.hasApprovedOrderForEvent);
+const isCustomerEmailOptedOutMock = vi.mocked(db.isCustomerEmailOptedOut);
 const addCustomerTagMock = vi.mocked(db.addCustomerTag);
 const sendEmailMock = vi.mocked(sendEmail);
 const countSentTodayMock = vi.mocked(db.countAutomatedEmailsSentToday);
@@ -46,6 +48,7 @@ describe("processMailingCronBatch", () => {
     // probando se comporta como antes de que existiera.
     countSentTodayMock.mockResolvedValue(0);
     hasApprovedOrderForEventMock.mockResolvedValue(false);
+    isCustomerEmailOptedOutMock.mockResolvedValue(false);
   });
 
   it("manda cada pendiente, lo marca sent y taguea al cliente con el nombre de la campaña", async () => {
@@ -127,6 +130,19 @@ describe("processMailingCronBatch — saltar a quien ya compró", () => {
     expect(markMailingRecipientSkippedMock).toHaveBeenCalledWith(1, 10);
     expect(markMailingRecipientResultMock).not.toHaveBeenCalled();
     expect(result).toEqual({ processed: 0, sent: 0, failed: 0, skipped: 1, campaignsTouched: 1 });
+  });
+
+  it("saltea y no manda nada a quien pidió la baja de correos mientras esperaba en la cola", async () => {
+    getPendingMailingRecipientsMock.mockResolvedValueOnce([baseRecipient]);
+    isCustomerEmailOptedOutMock.mockResolvedValueOnce(true);
+
+    const result = await processMailingCronBatch();
+
+    expect(isCustomerEmailOptedOutMock).toHaveBeenCalledWith(baseRecipient.customerId);
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(markMailingRecipientSkippedMock).toHaveBeenCalledWith(baseRecipient.id, baseRecipient.campaignId);
+    expect(markMailingRecipientResultMock).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ sent: 0, failed: 0, skipped: 1 });
   });
 
   it("manda normal cuando todavía no compró", async () => {

@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
@@ -33,6 +33,8 @@ import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { CameraCaptureField } from '@/components/admin/CameraCaptureField';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
+import { CustomerDrawer } from '@/components/admin/CustomerDrawer';
+import { CUSTOMER_LEVEL_META, GENDER_OPTIONS, SOURCE_OPTIONS, daysBetween, recencyTone } from '@shared/customerInsights';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { InstagramInbox } from '@/components/admin/InstagramInbox';
 import { SalesStrategyView } from '@/components/admin/SalesStrategyView';
@@ -3551,8 +3553,14 @@ function CustomersView() {
   const [accessType, setAccessType] = useState<string>('all');
   const [tagFilter, setTagFilter] = useState('');
   const [eventFilter, setEventFilter] = useState<string>('all');
-  const [newTagByCustomer, setNewTagByCustomer] = useState<Record<number, string>>({});
-  const [adjustByCustomer, setAdjustByCustomer] = useState<Record<number, string>>({});
+  // Filtros de la ficha de cliente ('all' = sin filtro).
+  const [levelFilter, setLevelFilter] = useState<string>('all');
+  const [genderFilter, setGenderFilter] = useState<string>('all');
+  const [sourceFilter, setSourceFilter] = useState<string>('all');
+  const [birthdayFilter, setBirthdayFilter] = useState<string>('all');
+  const [contactFilter, setContactFilter] = useState<string>('all');
+  const [cityFilter, setCityFilter] = useState('');
+  const [openCustomerId, setOpenCustomerId] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
   const [page, setPage] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -3565,12 +3573,16 @@ function CustomersView() {
     accessType: accessType === 'all' ? undefined : accessType,
     tag: tagFilter || undefined,
     eventId: eventFilter === 'all' ? undefined : Number(eventFilter),
+    level: levelFilter === 'all' ? undefined : (levelFilter as 'nuevo' | 'recurrente' | 'vip' | 'inactivo' | 'sin_compras'),
+    gender: genderFilter === 'all' ? undefined : genderFilter,
+    source: sourceFilter === 'all' ? undefined : sourceFilter,
+    city: cityFilter.trim() || undefined,
+    birthdayMonth: birthdayFilter === 'all' ? undefined : Number(birthdayFilter),
+    optedOut: contactFilter === 'all' ? undefined : (contactFilter as 'email' | 'any'),
   });
-  const addTag = trpc.customers.addTag.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
-  const removeTag = trpc.customers.removeTag.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
-  const adjustPlaycoins = trpc.customers.adjustPlaycoins.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
 
   const customersList = customersData ?? [];
+  const openIdx = openCustomerId != null ? customersList.findIndex((c: any) => c.id === openCustomerId) : -1;
   // La lista completa filtrada ya viene sin paginar del server (se necesita
   // entera para armar audiencias de mailing en otra vista) -- acá se pagina
   // solo en el cliente, para que la tabla no se haga eterna de scrollear.
@@ -3578,7 +3590,7 @@ function CustomersView() {
   const currentPage = Math.min(page, totalPages - 1);
   const pageItems = customersList.slice(currentPage * CUSTOMERS_PAGE_SIZE, currentPage * CUSTOMERS_PAGE_SIZE + CUSTOMERS_PAGE_SIZE);
 
-  useEffect(() => { setPage(0); }, [search, accessType, tagFilter, eventFilter]);
+  useEffect(() => { setPage(0); }, [search, accessType, tagFilter, eventFilter, levelFilter, genderFilter, sourceFilter, birthdayFilter, contactFilter, cityFilter]);
 
   const filterParams = () => {
     const params = new URLSearchParams();
@@ -3638,6 +3650,50 @@ function CustomersView() {
           </SelectContent>
         </Select>
 
+        <div className="basis-full flex flex-wrap items-center gap-3">
+          <Select value={levelFilter} onValueChange={setLevelFilter}>
+            <SelectTrigger className="w-44"><SelectValue placeholder="Nivel" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los niveles</SelectItem>
+              {(['vip', 'recurrente', 'nuevo', 'inactivo', 'sin_compras'] as const).map((l) => (
+                <SelectItem key={l} value={l}>{CUSTOMER_LEVEL_META[l].label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={genderFilter} onValueChange={setGenderFilter}>
+            <SelectTrigger className="w-40"><SelectValue placeholder="Género" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los géneros</SelectItem>
+              {GENDER_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={sourceFilter} onValueChange={setSourceFilter}>
+            <SelectTrigger className="w-48"><SelectValue placeholder="Origen" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los orígenes</SelectItem>
+              {SOURCE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={birthdayFilter} onValueChange={setBirthdayFilter}>
+            <SelectTrigger className="w-48"><SelectValue placeholder="Cumpleaños" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Cumpleaños: todos</SelectItem>
+              {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((m, i) => (
+                <SelectItem key={m} value={String(i + 1)}>Cumplen en {m}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={contactFilter} onValueChange={setContactFilter}>
+            <SelectTrigger className="w-52"><SelectValue placeholder="Contacto" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los permisos</SelectItem>
+              <SelectItem value="email">Sin permiso de correo</SelectItem>
+              <SelectItem value="any">Con alguna baja</SelectItem>
+            </SelectContent>
+          </Select>
+          <Input value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} placeholder="Ciudad / comuna…" className="max-w-[11rem]" />
+        </div>
+
         <div className="ml-auto flex items-center gap-2">
           <input
             ref={fileInputRef}
@@ -3676,82 +3732,60 @@ function CustomersView() {
               <thead>
                 <tr className="border-b border-border">
                   <th className="text-left py-2 px-3">Cliente</th>
-                  <th className="text-left py-2 px-3">Accesos</th>
-                  <th className="text-left py-2 px-3">Etiquetas</th>
+                  <th className="text-left py-2 px-3">Última actividad</th>
                   <th className="text-left py-2 px-3">Compras</th>
                   <th className="text-left py-2 px-3">Playcoins</th>
+                  <th className="text-left py-2 px-3">Etiquetas</th>
                 </tr>
               </thead>
               <tbody>
                 {pageItems.map((c: any) => {
-                  const accessTypes: string[] = Array.isArray(c.accessTypes) ? c.accessTypes : [];
                   const tags: string[] = Array.isArray(c.tags) ? c.tags : [];
+                  const accessTypes: string[] = Array.isArray(c.accessTypes) ? c.accessTypes : [];
+                  const level = CUSTOMER_LEVEL_META[c.level as keyof typeof CUSTOMER_LEVEL_META];
+                  const days = c.lastSeenAt ? Math.max(0, daysBetween(c.lastSeenAt, new Date())) : null;
+                  const tone = recencyTone(days);
                   return (
-                    <tr key={c.id} className="border-b border-border/50 align-top">
-                      <td className="py-2 px-3">
-                        <p className="font-semibold">{c.fullName || '(sin nombre)'}</p>
-                        <p className="text-muted-foreground text-xs">{c.email}{c.phone ? ` · ${c.phone}` : ''}{c.rut ? ` · ${c.rut}` : ''}</p>
+                    <tr
+                      key={c.id}
+                      onClick={() => setOpenCustomerId(c.id)}
+                      className="border-b border-border/50 align-top cursor-pointer hover:bg-muted/40 active:bg-muted/60 transition-colors"
+                    >
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold">{c.fullName || '(sin nombre)'}</p>
+                          {level && <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${level.chip}`}>{level.label}</span>}
+                          {(c.emailOptOut || c.whatsappOptOut) && <BellOff className="w-3.5 h-3.5 text-destructive" aria-label="No contactar" />}
+                        </div>
+                        <p className="text-muted-foreground text-xs">{c.email}{c.phone ? ` · ${c.phone}` : ''}{c.city ? ` · ${c.city}` : ''}</p>
+                        {accessTypes.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {accessTypes.map((slug) => (
+                              <span key={slug} className="text-[11px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                                {ACCESO_SLUG_OPTIONS.find((o) => o.value === slug)?.label ?? slug}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </td>
-                      <td className="py-2 px-3">
+                      <td className="py-3 px-3 whitespace-nowrap">
+                        <span className={`text-xs font-medium ${tone === 'frio' ? 'text-destructive' : tone === 'tibio' ? 'text-amber-600' : 'text-emerald-600'}`}>
+                          {days != null ? (days === 0 ? 'hoy' : `hace ${days} d`) : '—'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-muted-foreground text-xs whitespace-nowrap">
+                        {c.totalOrders} compra{c.totalOrders !== 1 ? 's' : ''}
+                        <br />${Number(c.totalSpent).toLocaleString('es-CL')}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium whitespace-nowrap">🪙 {c.playcoins ?? 0}</span>
+                      </td>
+                      <td className="py-3 px-3 min-w-40">
                         <div className="flex flex-wrap gap-1">
-                          {accessTypes.map((slug) => (
-                            <span key={slug} className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                              {ACCESO_SLUG_OPTIONS.find((o) => o.value === slug)?.label ?? slug}
-                            </span>
+                          {tags.slice(0, 3).map((tag) => (
+                            <span key={tag} className="text-xs px-2 py-0.5 rounded-full bg-secondary/20 text-secondary-foreground">{tag}</span>
                           ))}
-                        </div>
-                      </td>
-                      <td className="py-2 px-3 min-w-48">
-                        <div className="flex flex-wrap items-center gap-1">
-                          {tags.map((tag) => (
-                            <span key={tag} className="text-xs pl-2 pr-1 py-0.5 rounded-full bg-secondary/20 text-secondary-foreground flex items-center gap-1">
-                              {tag}
-                              <button onClick={() => removeTag.mutate({ customerId: c.id, tag })} className="hover:text-destructive">
-                                <X className="w-3 h-3" />
-                              </button>
-                            </span>
-                          ))}
-                          <Input
-                            value={newTagByCustomer[c.id] ?? ''}
-                            onChange={(e) => setNewTagByCustomer((prev) => ({ ...prev, [c.id]: e.target.value }))}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && newTagByCustomer[c.id]?.trim()) {
-                                addTag.mutate({ customerId: c.id, tag: newTagByCustomer[c.id].trim() });
-                                setNewTagByCustomer((prev) => ({ ...prev, [c.id]: '' }));
-                              }
-                            }}
-                            placeholder="+ etiqueta"
-                            className="h-7 w-28 text-xs"
-                          />
-                        </div>
-                      </td>
-                      <td className="py-2 px-3 text-muted-foreground text-xs whitespace-nowrap">
-                        {c.totalOrders} compra{c.totalOrders !== 1 ? 's' : ''} · ${Number(c.totalSpent).toLocaleString('es-CL')}
-                        <br />Última: {new Date(c.lastSeenAt).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}
-                      </td>
-                      <td className="py-2 px-3">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 font-medium whitespace-nowrap">
-                            🪙 {c.playcoins ?? 0}
-                          </span>
-                          <Input
-                            type="number"
-                            value={adjustByCustomer[c.id] ?? ''}
-                            onChange={(e) => setAdjustByCustomer((prev) => ({ ...prev, [c.id]: e.target.value }))}
-                            placeholder="+/-"
-                            className="h-7 w-16 text-xs"
-                          />
-                          <WriteButton
-                            size="sm" variant="outline" className="h-7 text-xs px-2"
-                            onClick={() => {
-                              const delta = Number(adjustByCustomer[c.id]);
-                              if (!Number.isFinite(delta) || delta === 0) return;
-                              adjustPlaycoins.mutate({ customerId: c.id, delta, note: 'Ajuste manual desde admin' });
-                              setAdjustByCustomer((prev) => ({ ...prev, [c.id]: '' }));
-                            }}
-                          >
-                            OK
-                          </WriteButton>
+                          {tags.length > 3 && <span className="text-xs text-muted-foreground">+{tags.length - 3}</span>}
                         </div>
                       </td>
                     </tr>
@@ -3773,6 +3807,14 @@ function CustomersView() {
           )}
         </CardContent>
       </Card>
+
+      <CustomerDrawer
+        customerId={openCustomerId}
+        onClose={() => setOpenCustomerId(null)}
+        onChanged={() => refetch()}
+        onPrev={openIdx > 0 ? () => setOpenCustomerId(customersList[openIdx - 1].id) : undefined}
+        onNext={openIdx >= 0 && openIdx < customersList.length - 1 ? () => setOpenCustomerId(customersList[openIdx + 1].id) : undefined}
+      />
     </div>
   );
 }
@@ -4396,6 +4438,7 @@ function MailingSection() {
   const events = eventsData ?? [];
 
   const { data: customersData } = trpc.customers.listAll.useQuery({
+    forMailing: true,
     search: search || undefined,
     accessType: accessType === 'all' ? undefined : accessType,
     tag: tagFilter || undefined,

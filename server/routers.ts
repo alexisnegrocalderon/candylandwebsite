@@ -71,6 +71,8 @@ import { listKitchenTickets, updateKitchenTicket, listKitchenProducts, updateKit
 import { listLockerItems, updateLockerItem } from "./locker";
 import { voidTicketCode } from "./caja/void";
 import { voidCajaSale } from "./caja/voidSale";
+import { getCustomerProfile, updateCustomerProfile } from "./customerProfile";
+import { computeCustomerLevel } from "../shared/customerInsights";
 import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftClosed, listCajaAlerts } from "./caja/alerts";
 import { BRAND } from "../shared/eventBrand";
 import { sendEmail, buildShiftCloseEmail, buildMailingBlastEmail, buildKitchenVendorEmail, buildSimpleReportEmail, buildOrderEmail, buildMissionTopupEmail, buildPendingReminderEmail, buildGiftEmail, buildTopupCodeEmail, buildPinChangedEmail } from "./email";
@@ -3930,8 +3932,61 @@ export const appRouter = router({
       // se expone acá para poder armar audiencias de mailing manual tipo
       // "todos menos los que ya compraron este evento".
       notPurchasedEventId: z.number().optional(),
+      // Audiencia de correos masivos: deja afuera a quien pidió la baja.
+      forMailing: z.boolean().optional(),
+      // Filtros de la ficha de cliente.
+      level: z.enum(['sin_compras', 'nuevo', 'recurrente', 'vip', 'inactivo']).optional(),
+      city: z.string().optional(),
+      gender: z.string().optional(),
+      source: z.string().optional(),
+      birthdayMonth: z.number().int().min(1).max(12).optional(),
+      optedOut: z.enum(['email', 'any']).optional(),
     }).optional()).query(async ({ input }) => {
-      return db.listCustomers(input ?? {});
+      const now = new Date();
+      const rows = await db.listCustomers(input ?? {});
+      // Nunca sale el hash del PIN de la tarjeta; el nivel va calculado.
+      return rows.map(({ cardPinHash: _hash, ...c }: any) => ({
+        ...c,
+        level: computeCustomerLevel({
+          totalOrders: c.totalOrders, totalSpent: Number(c.totalSpent), lastActivityAt: c.lastSeenAt, levelOverride: c.levelOverride, now,
+        }),
+      }));
+    }),
+    // Ficha completa: datos + historial por evento, valor, consumo y próxima acción.
+    detail: adminReadProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
+      const profile = await getCustomerProfile(input.id);
+      if (!profile) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontré a ese cliente.' });
+      return profile;
+    }),
+    // Edición manual de la ficha. Lo que se toca queda protegido de las
+    // compras nuevas (lockedFields) y se deja en la bitácora de admin.
+    update: adminProcedure.input(z.object({
+      id: z.number(),
+      fullName: z.string().nullable().optional(),
+      phone: z.string().nullable().optional(),
+      rut: z.string().nullable().optional(),
+      instagram: z.string().nullable().optional(),
+      birthDate: z.string().nullable().optional(),
+      gender: z.string().nullable().optional(),
+      city: z.string().nullable().optional(),
+      source: z.string().nullable().optional(),
+      ambassadorCode: z.string().nullable().optional(),
+      levelOverride: z.string().nullable().optional(),
+      emailOptOut: z.boolean().optional(),
+      whatsappOptOut: z.boolean().optional(),
+      optOutReason: z.string().nullable().optional(),
+      notes: z.string().nullable().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const { id, ...edit } = input;
+      try {
+        const { changed } = await updateCustomerProfile(id, edit);
+        if (Object.keys(changed).length > 0) {
+          await db.recordAdminAudit({ action: 'customers.update', targetType: 'customer', targetId: id, payload: changed, ip: clientIp(ctx) });
+        }
+        return { success: true, changedFields: Object.keys(changed) } as const;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar la ficha.' });
+      }
     }),
     // Etiquetas existentes con su conteo -- alimenta los selectores de
     // "incluir/excluir etiqueta" al armar una campaña de mailing, para no

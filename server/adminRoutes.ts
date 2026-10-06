@@ -1,4 +1,5 @@
 import { formatChileDateTime } from '../shared/chileDate';
+import { formatBirthDate, parseBirthDateInput, GENDER_OPTIONS, SOURCE_OPTIONS } from '../shared/customerInsights';
 import type { Express, Request, Response } from "express";
 import { sdk } from "./_core/sdk";
 import * as db from "./db";
@@ -76,6 +77,8 @@ export function registerAdminRoutes(app: Express) {
         ...c,
         accessTypes: Array.isArray(c.accessTypes) ? c.accessTypes.join(";") : "",
         tags: Array.isArray(c.tags) ? c.tags.join(";") : "",
+        birthDate: formatBirthDate(c.birthDate),
+        emailOptOutLabel: c.emailOptOut ? "Sí" : "",
         firstSeenAt: c.firstSeenAt ? formatChileDateTime(c.firstSeenAt) : "",
         lastSeenAt: c.lastSeenAt ? formatChileDateTime(c.lastSeenAt) : "",
       })),
@@ -91,6 +94,11 @@ export function registerAdminRoutes(app: Express) {
         { key: "totalSpent", label: "Total gastado" },
         { key: "playcoins", label: "Playcoins" },
         { key: "notes", label: "Notas" },
+        { key: "birthDate", label: "Cumpleaños" },
+        { key: "gender", label: "Género" },
+        { key: "city", label: "Ciudad" },
+        { key: "source", label: "Origen" },
+        { key: "emailOptOutLabel", label: "Baja de correo" },
         { key: "firstSeenAt", label: "Primera compra" },
         { key: "lastSeenAt", label: "Última compra" },
       ],
@@ -140,6 +148,11 @@ export function registerAdminRoutes(app: Express) {
     const idxAccessTypes = col("tipos de acceso", "accesstypes");
     const idxTags = isShopifyExport ? -1 : col("etiquetas", "tags");
     const idxNotes = col("notas", "notes");
+    const idxBirthDate = col("cumpleaños", "cumpleanos", "birthdate", "fecha de nacimiento");
+    const idxGender = col("género", "genero", "gender");
+    const idxCity = col("ciudad", "city", "comuna");
+    const idxSource = col("origen", "source");
+    const idxEmailOptOut = col("baja de correo", "emailoptout");
     const idxTotalOrders = col("total orders");
     const idxTotalSpent = col("total spent");
 
@@ -172,6 +185,12 @@ export function registerAdminRoutes(app: Express) {
           accessTypes: idxAccessTypes !== -1 ? splitList(r[idxAccessTypes]) : undefined,
           tags: idxTags !== -1 ? splitList(r[idxTags]) : undefined,
           notes: idxNotes !== -1 ? r[idxNotes]?.trim() || undefined : undefined,
+          // Fechas y listas cerradas inválidas se ignoran en vez de tumbar toda la importación.
+          birthDate: idxBirthDate !== -1 ? parseBirthDateInput(r[idxBirthDate]).value ?? undefined : undefined,
+          gender: idxGender !== -1 ? GENDER_OPTIONS.find((o) => o.value === r[idxGender]?.trim().toLowerCase())?.value : undefined,
+          city: idxCity !== -1 ? r[idxCity]?.trim() || undefined : undefined,
+          source: idxSource !== -1 ? SOURCE_OPTIONS.find((o) => o.value === r[idxSource]?.trim().toLowerCase())?.value : undefined,
+          emailOptOut: idxEmailOptOut !== -1 ? /^(s[ií]|1|true|yes)$/i.test(r[idxEmailOptOut]?.trim() ?? "") : undefined,
           totalOrders: Number.isFinite(totalOrders) ? totalOrders : undefined,
           totalSpent: Number.isFinite(totalSpent) ? totalSpent : undefined,
         };

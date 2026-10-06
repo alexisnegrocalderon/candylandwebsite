@@ -132,7 +132,7 @@ describe("runTanda2PromoDaily", () => {
     const result = await runTanda2PromoDaily();
 
     // No excluye la etiqueta de la 1ª tanda: los recontacta con el nuevo precio.
-    expect(listCustomersMock).toHaveBeenCalledWith({ notPurchasedEventId: event.id, excludeTags: [TANDA2_PROMO_TAG] });
+    expect(listCustomersMock).toHaveBeenCalledWith({ forMailing: true, notPurchasedEventId: event.id, excludeTags: [TANDA2_PROMO_TAG] });
     const [ids, content, ctaUrl, tag, , , source] = sendMailingBatchMock.mock.calls[0];
     expect(ids).toEqual([1, 2]);
     expect(content.subject).toContain('12.000');
