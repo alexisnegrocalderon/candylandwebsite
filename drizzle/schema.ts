@@ -2227,3 +2227,36 @@ export const orderAddons = mysqlTable("orderAddons", {
 ]);
 
 export type OrderAddon = typeof orderAddons.$inferSelect;
+
+// Crédito de acceso: una persona no puede ir a la fiesta que compró y el dueño
+// le deja ese MISMO tipo de acceso (ej. Acceso Dúo) vigente para un evento
+// futuro. A diferencia de un código de descuento (por monto/%, sobre todo el
+// carrito), esto vale "1 unidad de este acceso" -- se reconoce por
+// `ticketTypes.accesoSlug`, que se repite en todos los eventos --, así que da
+// igual cuánto cueste en la tanda en que lo use. Un registro por unidad.
+//
+// `status` guarda lo último que se escribió; el estado REAL se deriva con
+// shared/accessCredit.ts (creditAvailability), mirando la orden que lo
+// reservó: pagada = usado, rechazada o abandonada = vuelve a estar disponible.
+export const accessCredits = mysqlTable("accessCredits", {
+  id: int("id").autoincrement().primaryKey(),
+  code: varchar("code", { length: 40 }).notNull().unique(),
+  accesoSlug: varchar("accesoSlug", { length: 50 }).notNull(),
+  accesoName: varchar("accesoName", { length: 100 }).notNull(),
+  buyerEmail: varchar("buyerEmail", { length: 320 }).notNull(),
+  buyerName: varchar("buyerName", { length: 255 }),
+  originOrderId: int("originOrderId").notNull(),
+  originEventId: int("originEventId").notNull(),
+  status: mysqlEnum("status", ["available", "reserved", "used", "cancelled"]).default("available").notNull(),
+  // La orden que lo canjeó (o lo tiene reservado) y desde cuándo.
+  usedOrderId: int("usedOrderId"),
+  reservedAt: timestamp("reservedAt"),
+  note: varchar("note", { length: 500 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("access_credits_origin_order_idx").on(t.originOrderId),
+  index("access_credits_email_idx").on(t.buyerEmail),
+]);
+
+export type AccessCredit = typeof accessCredits.$inferSelect;
+export type InsertAccessCredit = typeof accessCredits.$inferInsert;

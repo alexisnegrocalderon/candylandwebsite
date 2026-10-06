@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
@@ -2424,6 +2424,89 @@ function EditAttendeesDialog({ order, onClose, onSaved }: { order: any | null; o
 
 const clp = (n: number) => `$${Number(n).toLocaleString('es-CL')}`;
 
+/** Ventana "Dejar para otra fecha" de Ventas Web: la persona no puede ir y el
+ * dueño le deja el MISMO tipo de acceso vigente para un evento futuro. Crea un
+ * código de crédito (1 acceso, sin vencimiento), cancela las entradas del acceso
+ * en este evento, devuelve el cupo y le avisa por correo. El Piscolón u otros
+ * extras de la compra no se tocan. Pide la clave de admin: cancela entradas. */
+function CreditDialog({ order, onClose, onDone }: { order: any | null; onClose: () => void; onDone: () => void }) {
+  const [adminPassword, setAdminPassword] = useState('');
+  const issue = trpc.accessCredit.createFromOrder.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Listo: ${r.codes.map((c) => c.code).join(', ')}${r.emailSent ? ' — le llegó el correo' : ' — el correo no se pudo enviar, avísale tú'}`);
+      setAdminPassword('');
+      onDone();
+      onClose();
+    },
+    onError: onMutationError,
+  });
+  useEffect(() => { setAdminPassword(''); }, [order?.id]);
+  const accesoName = order?.accesoName ?? 'el acceso';
+  return (
+    <AlertDialog open={!!order} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Dejar {accesoName} para otra fecha</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2 text-sm">
+              <p><strong>{order?.buyerName}</strong> ({order?.buyerEmail}) no podrá ir. Al confirmar:</p>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>Se crea un <strong>código de crédito</strong> por el mismo acceso ({accesoName}), de 1 solo uso y sin fecha de vencimiento, válido para cualquier evento futuro.</li>
+                <li>Las entradas de ese acceso en este evento <strong>se cancelan</strong> (ya no sirven en la puerta) y el cupo vuelve a la venta.</li>
+                <li>Los extras de la compra (ej. Piscolón) <strong>no se tocan</strong>.</li>
+                <li>Le llega un correo con el código y el aviso de usarlo en la preventa.</li>
+              </ul>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <Input
+          type="password"
+          autoFocus
+          value={adminPassword}
+          onChange={(e) => setAdminPassword(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && adminPassword && !issue.isPending) { e.preventDefault(); issue.mutate({ orderId: order.id, adminPassword }); } }}
+          placeholder="Tu clave de admin"
+        />
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => { e.preventDefault(); if (adminPassword && order) issue.mutate({ orderId: order.id, adminPassword }); }}
+            disabled={!adminPassword || issue.isPending}
+          >
+            {issue.isPending ? 'Guardando…' : 'Dejar para otra fecha'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+/** Créditos de acceso aún disponibles (Ventas Web): quién los tiene y un botón
+ * para recordarles por correo que los usen, idealmente en la preventa. */
+function PendingCreditsCard() {
+  const { data: credits } = trpc.accessCredit.list.useQuery();
+  const remind = trpc.accessCredit.remind.useMutation({
+    onSuccess: (r) => (r.sent ? toast.success('Recordatorio enviado') : toast.error('No se pudo enviar el correo')),
+    onError: onMutationError,
+  });
+  const available = (credits ?? []).filter((c) => c.availability === 'available');
+  if (available.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
+      <p className="text-sm font-medium">Créditos de acceso pendientes ({available.length})</p>
+      {available.map((c) => (
+        <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span>
+            <span className="font-mono">{c.code}</span> · {c.accesoName} · {c.buyerName ?? c.buyerEmail}
+            {c.originEventTitle && <span className="text-[var(--admin-muted)]"> · de {c.originEventTitle}</span>}
+          </span>
+          <Button size="sm" variant="outline" disabled={remind.isPending} onClick={() => remind.mutate({ creditId: c.id })}>Recordar por correo</Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Ventana "Subir de acceso" de Ventas Web: un comprador quiere pasar su acceso
  * a otro más caro (Soltera→Dúo, Dúo→Trío, Dúo→Grupo...). El admin elige el
  * acceso nuevo -- solo aparecen los que esa orden realmente puede tener --,
@@ -2954,6 +3037,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [upgradeOrderId, setUpgradeOrderId] = useState<number | null>(null);
   const [addonOrderId, setAddonOrderId] = useState<number | null>(null);
+  const [creditOrderId, setCreditOrderId] = useState<number | null>(null);
   // Antes esta vista no tenía filtro de evento: la lista y los totales
   // mezclaban TODAS las fiestas de la historia y se leían como si fueran de
   // una sola. Con dos eventos publicados a la vez eso deja de ser un detalle.
@@ -3024,6 +3108,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const editingOrder = ordersList.find((o: any) => o.id === editingOrderId) ?? null;
   const upgradeOrder = ordersList.find((o: any) => o.id === upgradeOrderId) ?? null;
   const addonOrder = ordersList.find((o: any) => o.id === addonOrderId) ?? null;
+  const creditOrder = ordersList.find((o: any) => o.id === creditOrderId) ?? null;
   // Sin pagar de este evento (del contador, no solo de la página que se ve).
   const pendingCount = statusCounts?.pending ?? 0;
   // Si la página actual quedó vacía (ej. se borró una orden), volver a la última.
@@ -3096,6 +3181,8 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         </div>
       </div>
 
+      {channel === 'web' && <PendingCreditsCard />}
+
       {searching ? (
         <p className="text-sm text-[var(--admin-muted)]">Buscando en todos los eventos y estados.</p>
       ) : (
@@ -3162,6 +3249,8 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         onClose={() => setAddonOrderId(null)}
         onChanged={() => { refetchOrders(); refetchStats(); }}
       />
+
+      <CreditDialog order={creditOrder} onClose={() => setCreditOrderId(null)} onDone={() => { refetchOrders(); refetchStats(); }} />
 
       <UpgradeDialog
         order={upgradeOrder}
@@ -3302,6 +3391,11 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                                 {order.pendingUpgrade.toName ? `Subir a ${order.pendingUpgrade.toName}` : 'Cambio de acceso'} pendiente · {clp(order.pendingUpgrade.amount)}
                               </button>
                             )}
+                            {(order.credits ?? []).map((c: any) => (
+                              <span key={c.id} className="mt-1 block w-fit rounded-full bg-purple-500/15 px-2 py-0.5 text-xs font-semibold text-purple-700">
+                                Crédito {c.code} · {c.availability === 'available' ? 'disponible' : c.availability === 'used' ? 'usado' : 'cancelado'}
+                              </span>
+                            ))}
                           </td>
                           <td className="py-2.5 px-3 tabular-nums">${Number(order.total).toLocaleString('es-CL')}</td>
                           <td className="py-2.5 px-3">
@@ -3366,6 +3460,14 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                                       label="Subir de acceso"
                                       tone="send"
                                       onClick={() => setUpgradeOrderId(order.id)}
+                                    />
+                                  )}
+                                  {channel === 'web' && order.accesoSlug && order.accesoSlug !== 'cumpleaneros' && (order.credits?.length ?? 0) === 0 && (
+                                    <RowActionButton
+                                      icon={CalendarClock}
+                                      label="Dejar para otra fecha"
+                                      tone="send"
+                                      onClick={() => setCreditOrderId(order.id)}
                                     />
                                   )}
                                   {channel === 'web' && (
@@ -3507,6 +3609,11 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                           {order.pendingUpgrade.toName ? `Subir a ${order.pendingUpgrade.toName}` : 'Cambio de acceso'} pendiente · {clp(order.pendingUpgrade.amount)}
                         </button>
                       )}
+                      {(order.credits ?? []).map((c: any) => (
+                        <span key={c.id} className="mt-1 block w-fit rounded-full bg-purple-500/15 px-2 py-0.5 text-xs font-semibold text-purple-700">
+                          Crédito {c.code} · {c.availability === 'available' ? 'disponible' : c.availability === 'used' ? 'usado' : 'cancelado'}
+                        </span>
+                      ))}
                     </div>
                     <StatusBadge status={order.paymentStatus} />
                   </div>
@@ -3552,6 +3659,14 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                             label="Subir de acceso"
                             tone="send"
                             onClick={() => setUpgradeOrderId(order.id)}
+                          />
+                        )}
+                        {channel === 'web' && order.accesoSlug && order.accesoSlug !== 'cumpleaneros' && (order.credits?.length ?? 0) === 0 && (
+                          <RowActionButton
+                            icon={CalendarClock}
+                            label="Dejar para otra fecha"
+                            tone="send"
+                            onClick={() => setCreditOrderId(order.id)}
                           />
                         )}
                         {channel === 'web' && (

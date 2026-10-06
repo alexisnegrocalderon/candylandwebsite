@@ -546,6 +546,54 @@ export function buildAddonEmail(data: {
   });
 }
 
+/** Aviso de que el acceso de una fiesta que no pudieron usar quedó guardado como
+ * crédito para un evento futuro: el código, cómo usarlo y el recordatorio de
+ * sacarlo durante la preventa. */
+export function buildAccessCreditEmail(data: {
+  buyerName: string;
+  originEventTitle: string;
+  credits: Array<{ code: string; accesoName: string }>;
+  reminder?: boolean;
+}) {
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+  const buyerName = esc(data.buyerName);
+  const eventTitle = esc(data.originEventTitle);
+  const plural = data.credits.length > 1;
+  const codes = data.credits.map((c) => `
+    <div style="text-align:center;margin:0 0 14px;">
+      <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;">${esc(c.accesoName)}</p>
+      <p style="color:${ACCENT.gold.text};font-size:28px;font-weight:800;letter-spacing:2px;margin:0;user-select:all;">${esc(c.code)}</p>
+    </div>`).join('');
+  return emailShell({
+    preheader: data.reminder ? 'Recuerda: tu acceso guardado te espera para el próximo evento.' : `Tu acceso de ${eventTitle} quedó guardado para un próximo evento.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'yellow',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🍭🪩',
+      title: data.reminder ? `¡Hola de nuevo, ${buyerName}!` : `¡Todo listo, ${buyerName}!`,
+      subtitle: plural ? 'Tus accesos quedaron guardados para un próximo evento.' : 'Tu acceso quedó guardado para un próximo evento.',
+    }),
+    body: `
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">
+        ${data.reminder
+          ? `Te recordamos que ${plural ? 'tienes accesos guardados' : 'tienes un acceso guardado'} de <strong style="color:${INK};">${eventTitle}</strong>.`
+          : `Como no podrás asistir a <strong style="color:${INK};">${eventTitle}</strong>, ${plural ? 'dejamos tus accesos guardados' : 'dejamos tu acceso guardado'} para que ${plural ? 'los uses' : 'lo uses'} en un próximo evento.`}
+        Vale por <strong style="color:${INK};">el mismo tipo de acceso</strong>, sin importar el precio que tenga ese día.
+      </p>
+      ${sectionTitle('🎟️', plural ? 'Tus códigos' : 'Tu código')}
+      ${card(`
+        ${codes}
+        <p style="color:${MUTED};font-size:13px;line-height:1.6;margin:8px 0 18px;text-align:center;">
+          Cuando salga el próximo evento, entra a comprar el mismo acceso y escribe ${plural ? 'un código' : 'el código'} en el campo <em>código</em> del checkout: te queda sin costo.
+        </p>
+        <div style="text-align:center;">${pastelButton(EMAIL_BASE_URL, 'Ver eventos', 'gold')}</div>
+        <p style="color:${FAINT};font-size:12px;margin:16px 0 0;text-align:center;">Te recomendamos usarlo durante la <strong>preventa</strong> para asegurar tu cupo antes de que se agote. Cada código se puede usar una sola vez.</p>
+      `, { glow: 'gold' })}
+    `,
+  });
+}
+
 /** Código de 6 dígitos para entrar a /recargar. Va en un bloque grande con
  * `user-select:all` para que un toque lo seleccione entero y se pueda copiar. */
 export function buildTopupCodeEmail(data: { code: string; purpose?: 'recargar' | 'pin' }) {
