@@ -7,18 +7,18 @@
  * Diseño:
  *  - Un solo AudioContext (lo crea SoundContext dentro del gesto del usuario,
  *    por la política de autoplay de Safari/Chrome, y se lo entrega a `init`).
- *  - Un filtro pasa-bajos maestro simula "oírlo a través de la pared"; se va
- *    abriendo con las zonas de la página y se abre del todo en una pista.
- *  - Cada escena (ambiente, tech, perreo) tiene su bus de volumen y su propio
- *    reloj. El reloj usa el patrón estándar de planificación con anticipación
+ *  - El sitio está en silencio: solo suena una pista (tech o perreo) cuando
+ *    alguien la toca. Un filtro pasa-bajos maestro arranca "tras la puerta" y
+ *    se abre en medio segundo al empezar desde el silencio.
+ *  - Cada pista tiene su bus de volumen y su propio reloj. El reloj usa el patrón estándar de planificación con anticipación
  *    (un setInterval corto agenda lo que viene en los próximos ~120 ms sobre
  *    el reloj del audio), así el ritmo no se descuadra aunque la pestaña vaya
  *    justa de CPU, y no hace nada ligado al scroll.
  *  - Las voces son nodos efímeros que se liberan solos al terminar. */
 import {
-  CROSSFADE_S, CUTOFF_OPEN_HZ, EQ_BARS, MASTER_FADE_IN_S, MASTER_FADE_OUT_S, MASTER_LEVEL,
-  SCENES, stepSeconds, stepsFor, zoneCutoff,
-  type PistaId, type SceneId, type StepHit,
+  CROSSFADE_S, CUTOFF_DOOR_HZ, CUTOFF_OPEN_HZ, EQ_BARS, MASTER_FADE_IN_S, MASTER_FADE_OUT_S, MASTER_LEVEL,
+  SCENES, stepSeconds, stepsFor,
+  type PistaId, type StepHit,
 } from './config';
 
 const LOOKAHEAD_S = 0.12;
@@ -40,11 +40,10 @@ export class SoundEngine {
   private filter!: BiquadFilterNode;
   private analyser!: AnalyserNode;
   private noise!: AudioBuffer;
-  private buses = {} as Record<SceneId, GainNode>;
+  private buses = {} as Record<PistaId, GainNode>;
   private cueBus!: GainNode;
-  private clocks: Partial<Record<SceneId, Clock>> = {};
+  private clocks: Partial<Record<PistaId, Clock>> = {};
   private timer: ReturnType<typeof setInterval> | null = null;
-  private zone = 0;
   private pista: PistaId | null = null;
   private freqData = new Uint8Array(0);
   private ready = false;
@@ -64,7 +63,7 @@ export class SoundEngine {
     this.filter = ctx.createBiquadFilter();
     this.filter.type = 'lowpass';
     this.filter.Q.value = 0.7;
-    this.filter.frequency.value = zoneCutoff(this.zone);
+    this.filter.frequency.value = CUTOFF_OPEN_HZ;
 
     const compressor = ctx.createDynamicsCompressor();
     compressor.threshold.value = -16;
@@ -77,8 +76,8 @@ export class SoundEngine {
     this.analyser.smoothingTimeConstant = 0.78;
     this.freqData = new Uint8Array(this.analyser.frequencyBinCount);
 
-    // bus de cada escena → filtro → master → compresor → (analizador + salida)
-    (Object.keys(SCENES) as SceneId[]).forEach((id) => {
+    // bus de cada pista → filtro → master → compresor → (analizador + salida)
+    (Object.keys(SCENES) as PistaId[]).forEach((id) => {
       const bus = ctx.createGain();
       bus.gain.value = 0;
       bus.connect(this.filter);
@@ -105,8 +104,9 @@ export class SoundEngine {
     return this.ready && !this.paused && this.ctx.state === 'running';
   }
 
-  /** Enciende el sonido: sube el volumen general y arranca la escena actual. */
-  async start() {
+  /** Enciende el sonido: sube el volumen general. Si ya hay una pista elegida
+   * la arranca (con el efecto de apertura salvo al volver de una pausa). */
+  async start(withCue = true) {
     if (!this.ready) return;
     this.cancelPendingStop();
     this.paused = false;
@@ -116,14 +116,12 @@ export class SoundEngine {
     this.master.gain.setValueAtTime(this.master.gain.value, now);
     this.master.gain.linearRampToValueAtTime(MASTER_LEVEL, now + MASTER_FADE_IN_S);
 
-    const scene: SceneId = this.pista ?? 'AMBIENT';
-    if (!this.clocks[scene]) {
-      this.startScene(scene, now + 0.05, MASTER_FADE_IN_S);
-      // Si el sonido se enciende tocando una pista, también se abre la puerta.
-      if (this.pista) this.cue(this.pista, now);
+    const pista = this.pista;
+    if (pista && !this.clocks[pista]) {
+      this.openDoor(now);
+      this.startScene(pista, now + 0.05, MASTER_FADE_IN_S);
+      if (withCue) this.cue(pista, now);
     }
-    this.filter.frequency.setTargetAtTime(this.pista ? CUTOFF_OPEN_HZ : zoneCutoff(this.zone), now, 0.3);
-    if (!this.timer) this.timer = setInterval(() => this.tick(), TICK_MS);
   }
 
   /** Apaga: baja el volumen y suspende el contexto (deja de gastar CPU). */
@@ -144,7 +142,7 @@ export class SoundEngine {
 
   resume() {
     if (!this.ready) return;
-    void this.start();
+    void this.start(false);
   }
 
   private suspendNow() {
@@ -156,7 +154,7 @@ export class SoundEngine {
     // Las escenas se reinician al volver a empezar: sin esto, el reloj
     // quedaría desfasado respecto del reloj del audio, que estuvo suspendido.
     this.clocks = {};
-    (Object.keys(this.buses) as SceneId[]).forEach((id) => {
+    (Object.keys(this.buses) as PistaId[]).forEach((id) => {
       this.buses[id].gain.cancelScheduledValues(0);
       this.buses[id].gain.value = 0;
     });
@@ -170,14 +168,8 @@ export class SoundEngine {
     }
   }
 
-  /** Qué tan "adentro" de la Mansión está la persona (0 = afuera, 1 = adentro). */
-  setZone(level: number) {
-    this.zone = level;
-    if (!this.ready || this.pista) return;
-    this.filter.frequency.setTargetAtTime(zoneCutoff(level), this.ctx.currentTime, 0.7);
-  }
-
-  /** Abre la puerta de una pista (o vuelve al ambiente con `null`). */
+  /** Abre una pista (o la suelta con `null`: se apaga con un fundido y el
+   * sitio vuelve al silencio). */
   setPista(next: PistaId | null) {
     const prev = this.pista;
     this.pista = next;
@@ -185,18 +177,20 @@ export class SoundEngine {
     const now = this.ctx.currentTime;
 
     if (next) {
-      this.filter.frequency.cancelScheduledValues(now);
-      this.filter.frequency.setTargetAtTime(CUTOFF_OPEN_HZ, now, 0.25);
+      // Desde el silencio la puerta se abre; entre pistas ya está abierta.
+      if (!prev) this.openDoor(now);
       this.cue(next, now);
-      this.startScene(next, now + 0.05, CROSSFADE_S);
-    } else {
-      this.filter.frequency.setTargetAtTime(zoneCutoff(this.zone), now, 0.5);
+      this.startScene(next, now + 0.05, prev ? CROSSFADE_S : 0.5);
     }
+    if (prev) this.endScene(prev, now, CROSSFADE_S);
+  }
 
-    const from: SceneId = prev ?? 'AMBIENT';
-    const to: SceneId = next ?? 'AMBIENT';
-    if (from !== to) this.endScene(from, now, CROSSFADE_S);
-    if (!next) this.startScene('AMBIENT', now + 0.05, CROSSFADE_S);
+  /** Barrido de filtro "la puerta se abre": de apagado/lejano a todo abierto. */
+  private openDoor(t: number) {
+    const f = this.filter.frequency;
+    f.cancelScheduledValues(t);
+    f.setValueAtTime(CUTOFF_DOOR_HZ, t);
+    f.setTargetAtTime(CUTOFF_OPEN_HZ, t + 0.02, 0.2);
   }
 
   /** Alturas (0-1) para las barras del ecualizador, tomadas del audio real. */
@@ -220,15 +214,16 @@ export class SoundEngine {
 
   // ── Escenas ──────────────────────────────────────────────────────────
 
-  private startScene(id: SceneId, at: number, fadeS: number) {
+  private startScene(id: PistaId, at: number, fadeS: number) {
     this.clocks[id] = { next: at, step: 0, stopAt: null };
     const gain = this.buses[id].gain;
     gain.cancelScheduledValues(at);
     gain.setValueAtTime(0, at);
     gain.linearRampToValueAtTime(SCENES[id].level, at + fadeS);
+    if (!this.timer) this.timer = setInterval(() => this.tick(), TICK_MS);
   }
 
-  private endScene(id: SceneId, at: number, fadeS: number) {
+  private endScene(id: PistaId, at: number, fadeS: number) {
     const clock = this.clocks[id];
     if (!clock) return;
     clock.stopAt = at + fadeS + 0.05;
@@ -241,7 +236,7 @@ export class SoundEngine {
   private tick() {
     const now = this.ctx.currentTime;
     const horizon = now + LOOKAHEAD_S;
-    (Object.keys(this.clocks) as SceneId[]).forEach((id) => {
+    (Object.keys(this.clocks) as PistaId[]).forEach((id) => {
       const clock = this.clocks[id];
       if (!clock) return;
       if (clock.stopAt !== null && now >= clock.stopAt) {
@@ -256,6 +251,11 @@ export class SoundEngine {
         clock.step++;
       }
     });
+    // Sin pistas sonando no hace falta el reloj: cero CPU en silencio.
+    if (Object.keys(this.clocks).length === 0 && this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
   }
 
   // ── Voces ────────────────────────────────────────────────────────────
@@ -270,7 +270,6 @@ export class SoundEngine {
       case 'bass': return this.bass(t, out, hit.vel, hit.freq ?? 55);
       case 'sub': return this.sub(t, out, hit.vel, hit.freq ?? 55);
       case 'pluck': return this.pluck(t, out, hit.vel, hit.freq ?? 220);
-      case 'rumble': return this.rumble(t, out, hit.vel);
     }
   }
 
@@ -391,18 +390,6 @@ export class SoundEngine {
       osc.start(t);
       osc.stop(t + 0.34);
     }
-  }
-
-  private rumble(t: number, out: AudioNode, vel: number) {
-    // golpe grave amortiguado: lo que se siente a través de una pared gruesa
-    const osc = this.ctx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(70, t);
-    osc.frequency.exponentialRampToValueAtTime(38, t + 0.35);
-    const g = this.env(t, vel * 0.7, 0.01, 0.6);
-    osc.connect(g).connect(out);
-    osc.start(t);
-    osc.stop(t + 0.7);
   }
 
   // ── El "momento especial" al tocar una pista ─────────────────────────

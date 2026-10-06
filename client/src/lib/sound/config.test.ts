@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { stepsFor, stepSeconds, zoneCutoff, SCENES, CUTOFF_CLOSED_HZ, CUTOFF_NEAR_HZ } from './config';
+import { stepsFor, stepSeconds, SCENES } from './config';
 
-const kinds = (scene: 'AMBIENT' | 'TECH' | 'PERREO', step: number) => stepsFor(scene, step).map((h) => h.kind);
-const allSteps = (scene: 'AMBIENT' | 'TECH' | 'PERREO') =>
+const kinds = (scene: 'TECH' | 'PERREO', step: number) => stepsFor(scene, step).map((h) => h.kind);
+const allSteps = (scene: 'TECH' | 'PERREO') =>
   Array.from({ length: 32 }, (_, i) => stepsFor(scene, i)).flat();
 
 describe('patrones rítmicos', () => {
@@ -18,18 +18,13 @@ describe('patrones rítmicos', () => {
     expect(kinds('PERREO', 5)).not.toContain('snare');
   });
 
-  it('el ambiente es solo graves y bombo suave: nada agudo que se cuele por la pared', () => {
-    const used = new Set(allSteps('AMBIENT').map((h) => h.kind));
-    expect([...used].sort()).toEqual(['kick', 'rumble']);
-  });
-
   it('el patrón se repite cada compás (16 pasos) salvo los acentos de compases alternos', () => {
     expect(kinds('TECH', 0)).toEqual(kinds('TECH', 32));
     expect(kinds('PERREO', 4)).toEqual(kinds('PERREO', 36));
   });
 
   it('todas las notas y velocidades son válidas', () => {
-    for (const scene of ['AMBIENT', 'TECH', 'PERREO'] as const) {
+    for (const scene of ['TECH', 'PERREO'] as const) {
       for (const hit of allSteps(scene)) {
         expect(hit.vel).toBeGreaterThan(0);
         expect(hit.vel).toBeLessThanOrEqual(1);
@@ -39,7 +34,7 @@ describe('patrones rítmicos', () => {
   });
 });
 
-describe('tiempos y filtro', () => {
+describe('tiempos', () => {
   it('un paso a 120 BPM dura 125 ms', () => {
     expect(stepSeconds(120)).toBeCloseTo(0.125, 5);
   });
@@ -48,11 +43,4 @@ describe('tiempos y filtro', () => {
     expect(SCENES.PERREO.bpm).toBeLessThan(SCENES.TECH.bpm);
   });
 
-  it('la puerta se abre: el filtro sube con el nivel y se mantiene en rango', () => {
-    expect(zoneCutoff(0)).toBeCloseTo(CUTOFF_CLOSED_HZ, 3);
-    expect(zoneCutoff(1)).toBeCloseTo(CUTOFF_NEAR_HZ, 3);
-    expect(zoneCutoff(0.5)).toBeGreaterThan(zoneCutoff(0.2));
-    expect(zoneCutoff(-5)).toBeCloseTo(CUTOFF_CLOSED_HZ, 3);
-    expect(zoneCutoff(9)).toBeCloseTo(CUTOFF_NEAR_HZ, 3);
-  });
 });

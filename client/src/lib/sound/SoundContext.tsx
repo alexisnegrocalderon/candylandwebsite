@@ -5,10 +5,11 @@ import type { SoundEngine } from './engine';
 /* Estado del sonido del sitio + puente hacia el motor (engine.ts).
  *
  * Reglas:
- *  - Apagado por defecto. La preferencia ('mp_sound' = '1') solo dice que la
- *    persona QUIERE sonido: los navegadores no dejan sonar nada hasta que toca
- *    algo, así que si la preferencia está en '1' el sonido arranca con el
- *    primer toque de la visita (estado "armado").
+ *  - El sitio está en silencio: solo suena una pista cuando alguien la toca.
+ *    No hay música de fondo ni sonido atado a la sección que se ve.
+ *  - Apagado por defecto. El botón del header permite o silencia las pistas;
+ *    tocar una tarjeta de pista con el sonido apagado lo enciende (tocarla es
+ *    pedirlo). La preferencia ('mp_sound') se recuerda entre visitas.
  *  - El AudioContext se crea y se destraba SÍNCRONAMENTE dentro del gesto
  *    (Safari/iPhone no lo permite después de un `await`), y recién después se
  *    descarga el motor con import dinámico: quien nunca lo enciende no baja
@@ -17,16 +18,15 @@ import type { SoundEngine } from './engine';
  *    Navbar sin `window`) el contexto es un no-op seguro. */
 
 export interface SoundApi {
-  /** La persona quiere sonido (botón encendido). */
+  /** Sonido permitido (botón encendido). */
   enabled: boolean;
-  /** Está sonando de verdad ahora mismo. */
+  /** Hay una pista sonando de verdad ahora mismo. */
   playing: boolean;
   /** Pista elegida en la sección de line-up. */
   pista: PistaId | null;
   toggle: () => void;
   /** Elegir una pista (enciende el sonido si estaba apagado: tocar la tarjeta es consentimiento). */
   selectPista: (pista: PistaId | null) => void;
-  setZone: (level: number) => void;
   getBars: (n?: number) => number[] | null;
 }
 
@@ -36,7 +36,6 @@ const NOOP: SoundApi = {
   pista: null,
   toggle: () => {},
   selectPista: () => {},
-  setZone: () => {},
   getBars: () => null,
 };
 
@@ -80,14 +79,13 @@ function createUnlockedContext(): AudioContext | null {
 
 export function SoundProvider({ active, children }: { active: boolean; children: ReactNode }) {
   const [enabled, setEnabled] = useState<boolean>(() => readPref());
-  const [playing, setPlaying] = useState(false);
+  const [running, setRunning] = useState(false);
   const [pista, setPistaState] = useState<PistaId | null>(null);
 
   const engineRef = useRef<SoundEngine | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const enabledRef = useRef(enabled);
   const startedRef = useRef(false);
-  const zoneRef = useRef(0.3);
   const pistaRef = useRef<PistaId | null>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
@@ -110,16 +108,15 @@ export function SoundProvider({ active, children }: { active: boolean; children:
         engineRef.current = engine;
       }
       const engine = engineRef.current;
-      engine.setZone(zoneRef.current);
       engine.setPista(pistaRef.current);
       if (activeRef.current && !document.hidden) {
         await engine.start();
-        setPlaying(true);
+        setRunning(true);
       }
     } catch (err) {
       console.error('[sound] no se pudo iniciar el sonido', err);
       startedRef.current = false;
-      setPlaying(false);
+      setRunning(false);
     }
   }, []);
 
@@ -135,15 +132,13 @@ export function SoundProvider({ active, children }: { active: boolean; children:
     enabledRef.current = false;
     startedRef.current = false;
     setEnabled(false);
-    setPlaying(false);
+    setRunning(false);
     writePref(false);
     engineRef.current?.stop();
   }, []);
 
   const toggle = useCallback(() => {
-    // "Armado" (preferencia guardada pero todavía sin sonar): tocar el botón
-    // es pedir que suene, no apagarlo.
-    if (enabledRef.current && startedRef.current) disable();
+    if (enabledRef.current) disable();
     else enable();
   }, [enable, disable]);
 
@@ -160,27 +155,7 @@ export function SoundProvider({ active, children }: { active: boolean; children:
     }
   }, [enable, unlock, begin]);
 
-  const setZone = useCallback((level: number) => {
-    zoneRef.current = level;
-    engineRef.current?.setZone(level);
-  }, []);
-
   const getBars = useCallback((n: number = EQ_BARS) => engineRef.current?.getBars(n) ?? null, []);
-
-  // Preferencia guardada: el primer toque de la visita arranca el sonido.
-  useEffect(() => {
-    if (!enabled || startedRef.current || !active) return;
-    const events = ['pointerdown', 'keydown', 'touchend'] as const;
-    const arm = () => {
-      events.forEach((e) => window.removeEventListener(e, arm, true));
-      if (enabledRef.current) {
-        unlock();
-        void begin();
-      }
-    };
-    events.forEach((e) => window.addEventListener(e, arm, true));
-    return () => events.forEach((e) => window.removeEventListener(e, arm, true));
-  }, [enabled, active, unlock, begin]);
 
   // Pestaña oculta o pantalla interna (caja, admin...): en silencio.
   useEffect(() => {
@@ -189,10 +164,10 @@ export function SoundProvider({ active, children }: { active: boolean; children:
       if (!engine || !enabledRef.current || !startedRef.current) return;
       if (activeRef.current && !document.hidden) {
         engine.resume();
-        setPlaying(true);
+        setRunning(true);
       } else {
         engine.pause();
-        setPlaying(false);
+        setRunning(false);
       }
     };
     document.addEventListener('visibilitychange', sync);
@@ -200,65 +175,11 @@ export function SoundProvider({ active, children }: { active: boolean; children:
     return () => document.removeEventListener('visibilitychange', sync);
   }, [active]);
 
+  const playing = running && pista !== null;
   const value = useMemo<SoundApi>(
-    () => ({ enabled, playing, pista, toggle, selectPista, setZone, getBars }),
-    [enabled, playing, pista, toggle, selectPista, setZone, getBars],
+    () => ({ enabled, playing, pista, toggle, selectPista, getBars }),
+    [enabled, playing, pista, toggle, selectPista, getBars],
   );
 
   return <SoundCtx.Provider value={value}>{children}</SoundCtx.Provider>;
-}
-
-/** Mientras la página está montada, ajusta qué tan "abierta" está la puerta de
- * la Mansión según la sección que se ve (elementos con `data-sound-zone`,
- * valor de 0 a 1). Usa IntersectionObserver: saltos discretos, sin listener de
- * scroll -- el sitio evita a propósito todo lo ligado al scroll en celular. */
-export function useSoundZones() {
-  const { setZone } = useSound();
-  useEffect(() => {
-    if (typeof IntersectionObserver === 'undefined') return;
-    const ratios = new Map<Element, number>();
-    const observed = new Set<Element>();
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) ratios.set(entry.target, entry.isIntersecting ? entry.intersectionRatio : 0);
-        let best: HTMLElement | null = null;
-        let bestRatio = 0;
-        ratios.forEach((ratio, el) => {
-          if (ratio > bestRatio) {
-            bestRatio = ratio;
-            best = el as HTMLElement;
-          }
-        });
-        if (best) setZone(Number((best as HTMLElement).dataset.soundZone ?? 0));
-      },
-      { threshold: [0, 0.25, 0.5, 0.75, 1] },
-    );
-
-    // Algunas secciones aparecen recién cuando llegan los datos: se vuelve a
-    // buscar (con pausa, para no gastar nada) cuando el DOM cambia.
-    const scan = () => {
-      document.querySelectorAll<HTMLElement>('[data-sound-zone]').forEach((el) => {
-        if (observed.has(el)) return;
-        observed.add(el);
-        io.observe(el);
-      });
-    };
-    scan();
-    let pending: ReturnType<typeof setTimeout> | null = null;
-    const mo = new MutationObserver(() => {
-      if (pending) return;
-      pending = setTimeout(() => {
-        pending = null;
-        scan();
-      }, 400);
-    });
-    mo.observe(document.body, { childList: true, subtree: true });
-
-    return () => {
-      if (pending) clearTimeout(pending);
-      mo.disconnect();
-      io.disconnect();
-      setZone(0.3);
-    };
-  }, [setZone]);
 }
