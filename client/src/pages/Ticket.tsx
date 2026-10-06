@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRoute, Link } from 'wouter';
 import { motion } from 'framer-motion';
 import { CalendarPlus, MapPin, Calendar, ShieldCheck, TicketX, CheckCircle2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { MARCA } from '@/config/candyland';
 import { useSeo } from '@/hooks/useSeo';
-import { canEnterParty } from '@shared/party';
+import { canEnterParty, isPartyWindowOpen } from '@shared/party';
+import { toast } from 'sonner';
 import { rememberTicketCode } from '@/lib/lastTicketCode';
 import { WalletCard } from '@/components/wallet/WalletCard';
 import { TopupPanel } from '@/components/wallet/TopupPanel';
@@ -38,8 +39,30 @@ export default function Ticket() {
   }, [watching]);
   const { data: ticket, isLoading } = trpc.tickets.getByCode.useQuery(
     { ticketCode },
-    { enabled: !!ticketCode, retry: false, refetchInterval: watching ? 4000 : false },
+    {
+      enabled: !!ticketCode,
+      retry: false,
+      // Esta es la pantalla que la persona le muestra al anfitrión en la
+      // puerta. Mientras la entrada siga válida y la fiesta esté abierta, se
+      // consulta cada 5s (solo con la pestaña a la vista) para que en cuanto
+      // escaneen el QR aparezca "Entrar a Playmatch" sin recargar nada.
+      refetchInterval: (query) => {
+        if (watching) return 4000;
+        const t = query.state.data;
+        if (t?.status === 'valid' && t.eventDate
+          && isPartyWindowOpen({ eventDate: t.eventDate, doorsOpen: t.doorsOpen, eventEnd: t.eventEnd })) return 5000;
+        return false;
+      },
+    },
   );
+  const prevStatus = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ticket) return;
+    if (prevStatus.current === 'valid' && ticket.status === 'used') {
+      toast.success('¡Ya estás adentro! 🍬 Entra a Playmatch y conoce gente.', { duration: 8000 });
+    }
+    prevStatus.current = ticket.status;
+  }, [ticket?.status]);
   const { data: addonView } = trpc.playcardTopup.getAddonOptions.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
   const [addonOpen, setAddonOpen] = useState(false);
   const { data: wallet } = trpc.wallet.getByTicketCode.useQuery({ ticketCode }, { enabled: !!ticketCode, retry: false });
