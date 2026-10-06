@@ -1729,6 +1729,11 @@ export const budgetSimulations = mysqlTable("budgetSimulations", {
   // % de la venta BRUTA de barra que se lleva el local (ej. Hipódromo): costo
   // aparte, sin IVA encima, que se suma al arriendo fijo.
   venueBarSharePercent: decimal("venueBarSharePercent", { precision: 5, scale: 2 }).default("0").notNull(),
+  // [{ label, unitPrice, quantity, venueCostPerUnit }] -- ingresos adicionales
+  // que no son entradas ni barra (estacionamiento: autos × precio) y NO suman
+  // personas al aforo. Nullable: MySQL no admite un default literal en JSON;
+  // null se lee como lista vacía.
+  extraIncomes: json("extraIncomes"),
   // [{ label, price, expectedQty, personasPorEntrada }] -- una fila por tanda
   // (Founders/General/etc), igual que se arman los precios reales en Eventos.
   revenueTiers: json("revenueTiers").notNull(),

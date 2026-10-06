@@ -1,0 +1,1 @@
+ALTER TABLE `budgetSimulations` ADD `extraIncomes` json;

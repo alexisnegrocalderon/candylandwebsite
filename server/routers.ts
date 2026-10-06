@@ -328,6 +328,14 @@ const budgetSimulationInputSchema = z.object({
   otherRevenuePerPerson: z.number().nonnegative(),
   // Opcional para no romper un panel abierto con la versión anterior.
   venueBarSharePercent: z.number().min(0).max(100).default(0),
+  // Ingresos adicionales sin personas (estacionamiento): opcional para no
+  // romper un panel abierto con la versión anterior.
+  extraIncomes: z.array(z.object({
+    label: z.string().min(1),
+    unitPrice: z.number().nonnegative(),
+    quantity: z.number().int().nonnegative(),
+    venueCostPerUnit: z.number().nonnegative().optional(),
+  })).default([]),
   revenueTiers: z.array(z.object({
     label: z.string().min(1),
     price: z.number().nonnegative(),

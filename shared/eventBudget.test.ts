@@ -91,3 +91,63 @@ describe("gastos fijos '+ IVA'", () => {
     expect(a.pnl.iva.creditoFiscal).toBe(0);
   });
 });
+
+describe("otros ingresos (estacionamiento) sin personas", () => {
+  const parking = { label: "Estacionamiento", unitPrice: 5000, quantity: 120, venueCostPerUnit: 3000 };
+
+  it("suma al ingreso bruto pero NO al aforo ni a las entradas", () => {
+    const sin = computeBudgetResult(base);
+    const con = computeBudgetResult({ ...base, extraIncomes: [parking] });
+    expect(con.extraIncomeTotal).toBe(600000);
+    expect(con.grossIncome).toBe(sin.grossIncome + 600000);
+    expect(con.attendance).toBe(sin.attendance);
+    expect(con.ticketsSold).toBe(sin.ticketsSold);
+    expect(con.ticketRevenue).toBe(sin.ticketRevenue);
+  });
+
+  it("no infla la barra ni el costo variable por persona", () => {
+    const withVariable = { ...base, variableCostPerPerson: 2000 };
+    const sin = computeBudgetResult(withVariable);
+    const con = computeBudgetResult({ ...withVariable, extraIncomes: [parking] });
+    expect(con.otherRevenue).toBe(sin.otherRevenue);
+    expect(con.variableCostTotal).toBe(sin.variableCostTotal);
+  });
+
+  it("el pago al local baja el margen y el techo de gasto, sin ser gasto fijo", () => {
+    const sinCosto = computeBudgetResult({ ...base, extraIncomes: [{ ...parking, venueCostPerUnit: 0 }] });
+    const conCosto = computeBudgetResult({ ...base, extraIncomes: [parking] });
+    expect(conCosto.extraVenueCost).toBe(360000);
+    expect(sinCosto.pnl.netProfit - conCosto.pnl.netProfit).toBe(360000);
+    expect(sinCosto.maxDirectExpenses - conCosto.maxDirectExpenses).toBe(360000);
+    expect(conCosto.pnl.directExpensesTotal).toBe(0);
+  });
+
+  it("la comisión de tarjeta sí aplica y la de embajadores no", () => {
+    const sin = computeBudgetResult({ ...base, cardFeePercent: 10, commissionPercent: 10 });
+    const con = computeBudgetResult({ ...base, cardFeePercent: 10, commissionPercent: 10, extraIncomes: [{ ...parking, venueCostPerUnit: 0 }] });
+    expect(con.pnl.ambassadorCommissions).toBe(sin.pnl.ambassadorCommissions);
+    expect(con.pnl.cardFeeAmount - sin.pnl.cardFeeAmount).toBe(60000); // 10% de $600.000
+  });
+
+  it("con IVA se extrae el débito fiscal también del ingreso adicional", () => {
+    const sin = computeBudgetResult({ ...base, ivaApplies: true });
+    const con = computeBudgetResult({ ...base, ivaApplies: true, extraIncomes: [{ ...parking, venueCostPerUnit: 0 }] });
+    expect(con.pnl.iva.debitoFiscal - sin.pnl.iva.debitoFiscal).toBe(Math.round((600000 * 19) / 119));
+  });
+
+  it("baja el punto de equilibrio y nunca da negativo", () => {
+    const lines = [{ category: "arriendo", label: "Local", amount: 1000000 }];
+    const sin = computeBudgetResult({ ...base, expenseLines: lines });
+    const con = computeBudgetResult({ ...base, expenseLines: lines, extraIncomes: [{ ...parking, venueCostPerUnit: 0 }] });
+    expect(con.breakevenTickets!).toBeLessThan(sin.breakevenTickets!);
+    const enorme = computeBudgetResult({ ...base, expenseLines: lines, extraIncomes: [{ label: "x", unitPrice: 1000000, quantity: 100 }] });
+    expect(enorme.breakevenTickets).toBe(0);
+  });
+
+  it("sin extraIncomes (o null) da lo mismo que antes", () => {
+    const expected = computeBudgetResult({ ...base, extraIncomes: [] });
+    expect(computeBudgetResult(base)).toEqual(expected);
+    expect(computeBudgetResult({ ...base, extraIncomes: null })).toEqual(expected);
+    expect(expected.extraIncomeTotal).toBe(0);
+  });
+});

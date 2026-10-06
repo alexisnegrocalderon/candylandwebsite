@@ -1,7 +1,7 @@
 import { desc, eq } from 'drizzle-orm';
 import { getDb } from './db';
 import { budgetSimulations } from '../drizzle/schema';
-import type { RevenueTier, BudgetExpenseLine } from '../shared/eventBudget';
+import type { RevenueTier, BudgetExpenseLine, ExtraIncomeLine } from '../shared/eventBudget';
 
 /* CRUD de las simulaciones de presupuesto pre-evento -- la matemática vive
  * en shared/eventBudget.ts (computeBudgetResult), acá solo se guarda y lee
@@ -17,6 +17,7 @@ export type SimulationInput = {
   variableCostPerPerson: number;
   otherRevenuePerPerson: number;
   venueBarSharePercent: number;
+  extraIncomes: ExtraIncomeLine[];
   revenueTiers: RevenueTier[];
   expenseLines: BudgetExpenseLine[];
   notes?: string | null;
@@ -50,6 +51,7 @@ export async function createSimulation(data: SimulationInput, createdByUserId?: 
     variableCostPerPerson: String(data.variableCostPerPerson),
     otherRevenuePerPerson: String(data.otherRevenuePerPerson),
     venueBarSharePercent: String(data.venueBarSharePercent),
+    extraIncomes: data.extraIncomes,
     revenueTiers: data.revenueTiers,
     expenseLines: data.expenseLines,
     notes: data.notes || null,
@@ -71,6 +73,7 @@ export async function updateSimulation(id: number, data: SimulationInput) {
     variableCostPerPerson: String(data.variableCostPerPerson),
     otherRevenuePerPerson: String(data.otherRevenuePerPerson),
     venueBarSharePercent: String(data.venueBarSharePercent),
+    extraIncomes: data.extraIncomes,
     revenueTiers: data.revenueTiers,
     expenseLines: data.expenseLines,
     notes: data.notes || null,
