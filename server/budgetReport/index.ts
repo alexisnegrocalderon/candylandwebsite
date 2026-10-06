@@ -51,6 +51,7 @@ type SimDbRow = NonNullable<Awaited<ReturnType<typeof eventBudget.getSimulation>
 export function rowToInput(r: SimDbRow): BudgetSimulationInput {
   return {
     ivaApplies: !!r.ivaApplies,
+    onlineSalesNoIva: !!r.ivaApplies && !!r.onlineSalesNoIva,
     marginTargetPercent: Number(r.marginTargetPercent),
     cardFeePercent: Number(r.cardFeePercent),
     commissionPercent: Number(r.commissionPercent),

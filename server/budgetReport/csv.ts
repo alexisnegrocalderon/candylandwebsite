@@ -24,6 +24,7 @@ export function buildSimulationCsv(name: string, input: BudgetSimulationInput): 
   section("INFORME DE SIMULACIÓN", [], [["Nombre", name]]);
   section("GENERAL", ["Dato", "Valor"], [
     ["Evento aplica IVA", yesNo(input.ivaApplies)],
+    ["Entradas y compras online sin IVA", yesNo(!!input.ivaApplies && !!input.onlineSalesNoIva)],
     ["Meta de margen neto mínimo (%)", input.marginTargetPercent],
     ["Comisión de tarjeta (%)", input.cardFeePercent],
     ["Comisión de embajadores (%)", input.commissionPercent],
@@ -81,6 +82,7 @@ export function buildComparisonCsv(items: { id: number; name: string; input: Bud
   heading("SUPUESTOS");
   const inp = (i: number) => cmp.sims[i].input;
   row("Evento aplica IVA", (i) => yesNo(inp(i).ivaApplies));
+  row("Entradas y compras online sin IVA", (i) => yesNo(!!inp(i).ivaApplies && !!inp(i).onlineSalesNoIva));
   row("Meta de margen (%)", (i) => inp(i).marginTargetPercent);
   row("Venta de barra por persona", (i) => inp(i).otherRevenuePerPerson);
   row("% de la barra para el local", (i) => inp(i).venueBarSharePercent ?? 0);

@@ -575,6 +575,13 @@
       "when": 1791292234516,
       "tag": "0081_simulador_otros_ingresos",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "5",
+      "when": 1791295292828,
+      "tag": "0082_simulador_online_sin_iva",
+      "breakpoints": true
     }
   ]
 }

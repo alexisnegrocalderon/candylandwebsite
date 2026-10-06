@@ -63,6 +63,9 @@ export function extraVenueCostFor(lines: ExtraIncomeLine[] | null | undefined): 
 
 export interface BudgetSimulationInput {
   ivaApplies: boolean;
+  /** Con `ivaApplies`: las entradas y los ingresos adicionales (estacionamiento) se venden online y
+   * NO se declaran al SII; solo la barra genera IVA. Ausente = false (comportamiento anterior). */
+  onlineSalesNoIva?: boolean;
   marginTargetPercent: number;
   cardFeePercent: number;
   commissionPercent: number;
@@ -160,26 +163,29 @@ function computeBreakeven(params: {
   commissionPercent: number;
   cardFeePercent: number;
   ivaApplies: boolean;
+  onlineSalesNoIva: boolean;
   fixedExpensesTotal: number;
   /** Aporte neto de los ingresos adicionales (monto fijo, no por entrada). */
   extraNetContribution: number;
 }): number | null {
   const {
     avgPrice, avgPersonasPorEntrada, otherRevenuePerPerson, venueBarSharePercent, variableCostPerPerson,
-    commissionPercent, cardFeePercent, ivaApplies, extraNetContribution,
+    commissionPercent, cardFeePercent, ivaApplies, extraNetContribution, onlineSalesNoIva,
   } = params;
   // Los ingresos adicionales (estacionamiento) cubren parte de los gastos
   // fijos antes de que haga falta vender una sola entrada; nunca da negativo.
   const fixedExpensesTotal = Math.max(0, params.fixedExpensesTotal - extraNetContribution);
   if (avgPrice <= 0) return null;
 
-  const revenuePerTicket = avgPrice + otherRevenuePerPerson * avgPersonasPorEntrada;
   // La parte del local sale de la barra de cada persona, así que también es
   // un costo por entrada, no solo un total.
   const venueShareCostPerTicket = otherRevenuePerPerson * avgPersonasPorEntrada * venueBarSharePercent / 100;
   const variableCostPerTicket = variableCostPerPerson * avgPersonasPorEntrada + venueShareCostPerTicket;
   const k = ivaApplies ? 100 / 119 : 1;
-  const contributionMargin = revenuePerTicket * (k - (commissionPercent + cardFeePercent) / 100) - variableCostPerTicket;
+  const kTicket = onlineSalesNoIva ? 1 : k;
+  const barPerTicket = otherRevenuePerPerson * avgPersonasPorEntrada;
+  const rate = (commissionPercent + cardFeePercent) / 100;
+  const contributionMargin = avgPrice * (kTicket - rate) + barPerTicket * (k - rate) - variableCostPerTicket;
   if (contributionMargin <= 0) return null;
 
   return Math.ceil(fixedExpensesTotal / contributionMargin);
@@ -202,8 +208,11 @@ export function computeBudgetResult(input: BudgetSimulationInput): BudgetResult 
   const ambassadorCommissions = Math.round(entriesAndBarIncome * input.commissionPercent / 100);
   const directExpenses = input.expenseLines.map(toPnlExpense);
 
+  const onlineSalesNoIva = !!input.ivaApplies && !!input.onlineSalesNoIva;
+  const ivaExemptIncome = onlineSalesNoIva ? ticketRevenue + extraIncomeTotal : 0;
   const pnl = computePnl({
     ivaApplies: input.ivaApplies,
+    ivaExemptIncome,
     grossIncome,
     cogs: variableCostTotal,
     ambassadorCommissions,
@@ -220,6 +229,7 @@ export function computeBudgetResult(input: BudgetSimulationInput): BudgetResult 
   // fijo -- de ahí se despeja el máximo que se puede cargar.
   const pnlWithoutFixed = computePnl({
     ivaApplies: input.ivaApplies,
+    ivaExemptIncome,
     grossIncome,
     cogs: variableCostTotal,
     ambassadorCommissions,
@@ -245,8 +255,9 @@ export function computeBudgetResult(input: BudgetSimulationInput): BudgetResult 
     commissionPercent: input.commissionPercent,
     cardFeePercent: input.cardFeePercent,
     ivaApplies: input.ivaApplies,
+    onlineSalesNoIva,
     fixedExpensesTotal: pnl.directExpensesTotal,
-    extraNetContribution: extraIncomeTotal * ((input.ivaApplies ? 100 / 119 : 1) - input.cardFeePercent / 100) - extraVenueCost,
+    extraNetContribution: extraIncomeTotal * ((input.ivaApplies && !onlineSalesNoIva ? 100 / 119 : 1) - input.cardFeePercent / 100) - extraVenueCost,
   });
 
   const status: BudgetResult['status'] =
