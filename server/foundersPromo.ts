@@ -108,7 +108,7 @@ export async function runFoundersPromoDaily(): Promise<FoundersPromoRunResult> {
     return { ran: false, reason: 'sold-out' };
   }
 
-  const eligible = await listCustomers({ notPurchasedEventId: event.id, excludeTags: [FOUNDERS_PROMO_TAG] });
+  const eligible = await listCustomers({ forMailing: true, notPurchasedEventId: event.id, excludeTags: [FOUNDERS_PROMO_TAG] });
   if (eligible.length === 0) {
     await updateSiteSettings({ foundersPromoEnabled: false });
     return { ran: false, reason: 'audience-exhausted' };
@@ -144,7 +144,7 @@ export async function getFoundersPromoStatus() {
   if (!event) return { enabled: !!settings.foundersPromoEnabled, eventTitle: null, remaining: null, audienceSize: 0, dailyTarget: FOUNDERS_PROMO_DAILY_TARGET };
 
   const remaining = await resolveSharedPoolRemaining(event.id);
-  const eligible = await listCustomers({ notPurchasedEventId: event.id, excludeTags: [FOUNDERS_PROMO_TAG] });
+  const eligible = await listCustomers({ forMailing: true, notPurchasedEventId: event.id, excludeTags: [FOUNDERS_PROMO_TAG] });
   return {
     enabled: !!settings.foundersPromoEnabled,
     eventTitle: event.title,

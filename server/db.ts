@@ -20,6 +20,7 @@ import type { AdminAlertsConfig } from '../shared/adminAlertsConfig';
 import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { normalizeRut } from '../shared/rut';
 import { escapeLikePattern } from '../shared/sqlLike';
+import { computeCustomerLevel, hasBirthdayInMonth, mergeFromOrder, parseLockedFields } from '../shared/customerInsights';
 import { generateTicketQR } from './qr';
 import { generateDisplayCode, fallbackInternalCode } from './caja/displayCode';
 import { filterShiftSales, computeExpectedTotals, shiftCashDiff, expectedCashWithOpening, findPossibleDuplicateSales, cardTotals } from './caja/shiftMath';
@@ -3380,10 +3381,15 @@ export async function getSurveyAttendees(eventId: number): Promise<{ email: stri
     ))
     .orderBy(orders.id);
 
+  // Quien pidió la baja de correos no recibe la encuesta (ficha de cliente).
+  const optedOut = new Set(
+    (await db.select({ email: customers.email }).from(customers).where(eq(customers.emailOptOut, 1))).map((c) => c.email.trim().toLowerCase()),
+  );
+
   const byEmail = new Map<string, { email: string; name: string }>();
   for (const r of rows) {
     const email = (r.email ?? '').trim().toLowerCase();
-    if (!email || !email.includes('@') || PLACEHOLDER_BUYER_EMAILS.has(email)) continue;
+    if (!email || !email.includes('@') || PLACEHOLDER_BUYER_EMAILS.has(email) || optedOut.has(email)) continue;
     if (!byEmail.has(email)) byEmail.set(email, { email, name: r.name ?? '' });
   }
   return Array.from(byEmail.values());
@@ -4857,11 +4863,13 @@ export async function upsertCustomerFromOrder(order: any, accesoSlugs: string[])
   const mergedAccessTypes = Array.from(new Set([...existingAccessTypes, ...accesoSlugs]));
 
   if (existing) {
+    // Lo que el dueño corrigió a mano en la ficha (lockedFields) no se pisa.
+    const locked = parseLockedFields(existing.lockedFields);
     await db.update(customers).set({
-      fullName: order.buyerName || existing.fullName,
-      phone: order.buyerPhone || existing.phone,
-      rut: rut ?? existing.rut,
-      instagram: instagram ?? existing.instagram,
+      fullName: mergeFromOrder('fullName', locked, existing.fullName, order.buyerName),
+      phone: mergeFromOrder('phone', locked, existing.phone, order.buyerPhone),
+      rut: mergeFromOrder('rut', locked, existing.rut, rut),
+      instagram: mergeFromOrder('instagram', locked, existing.instagram, instagram),
       accessTypes: mergedAccessTypes,
       totalOrders: existing.totalOrders + 1,
       totalSpent: String(Number(existing.totalSpent) + Number(order.total)),
@@ -5314,7 +5322,18 @@ export function excludeCustomersByTags<T extends { tags: unknown }>(rows: T[], e
   return rows.filter((c) => !Array.isArray(c.tags) || !c.tags.some((t: string) => excludeSet.has(t)));
 }
 
-export async function listCustomers(filters: { search?: string; accessType?: string; tag?: string; excludeTags?: string[]; eventId?: number; notPurchasedEventId?: number } = {}) {
+export type CustomerListFilters = {
+  search?: string; accessType?: string; tag?: string; excludeTags?: string[]; eventId?: number; notPurchasedEventId?: number;
+  /** Audiencia de correos masivos/promos: deja afuera a quien pidió la baja. */
+  forMailing?: boolean;
+  level?: string; city?: string; gender?: string; source?: string;
+  /** Mes 1-12: solo quienes cumplen años ese mes. */
+  birthdayMonth?: number;
+  /** 'email' = sin permiso de correo; 'any' = con cualquier baja. */
+  optedOut?: 'email' | 'any';
+};
+
+export async function listCustomers(filters: CustomerListFilters = {}) {
   const db = await getDb();
   if (!db) return [];
   let rows = await db.select().from(customers).orderBy(desc(customers.lastSeenAt));
@@ -5332,6 +5351,22 @@ export async function listCustomers(filters: { search?: string; accessType?: str
   }
   if (filters.tag) {
     rows = rows.filter((c: any) => Array.isArray(c.tags) && c.tags.includes(filters.tag));
+  }
+  if (filters.forMailing) rows = rows.filter((c: any) => !c.emailOptOut);
+  if (filters.optedOut === 'email') rows = rows.filter((c: any) => !!c.emailOptOut);
+  if (filters.optedOut === 'any') rows = rows.filter((c: any) => !!c.emailOptOut || !!c.whatsappOptOut);
+  if (filters.city) {
+    const city = filters.city.trim().toLowerCase();
+    rows = rows.filter((c: any) => (c.city ?? '').toLowerCase().includes(city));
+  }
+  if (filters.gender) rows = rows.filter((c: any) => c.gender === filters.gender);
+  if (filters.source) rows = rows.filter((c: any) => c.source === filters.source);
+  if (filters.birthdayMonth) rows = rows.filter((c: any) => hasBirthdayInMonth(c.birthDate, filters.birthdayMonth!));
+  if (filters.level) {
+    const now = new Date();
+    rows = rows.filter((c: any) => computeCustomerLevel({
+      totalOrders: c.totalOrders, totalSpent: Number(c.totalSpent), lastActivityAt: c.lastSeenAt, levelOverride: c.levelOverride, now,
+    }) === filters.level);
   }
   // Excluir por etiqueta (pedido explícito del usuario): armar audiencias de
   // mailing tipo "todos menos los que ya recibieron la campaña X" sin tener
@@ -5399,6 +5434,13 @@ export function tallyTags(tagLists: unknown[]): { tag: string; count: number }[]
 }
 
 /** Resuelve destinatarios de un lote de mailing masivo por id (server/mailing.ts). */
+export async function isCustomerEmailOptedOut(customerId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const [row] = await db.select({ emailOptOut: customers.emailOptOut }).from(customers).where(eq(customers.id, customerId)).limit(1);
+  return !!row?.emailOptOut;
+}
+
 export async function listCustomersByIds(ids: number[]) {
   const db = await getDb();
   if (!db || ids.length === 0) return [];
@@ -5730,6 +5772,11 @@ export async function importCustomers(rows: {
   notes?: string;
   totalOrders?: number;
   totalSpent?: number;
+  birthDate?: string;
+  gender?: string;
+  city?: string;
+  source?: string;
+  emailOptOut?: boolean;
 }[]) {
   const db = await getDb();
   if (!db) return { imported: 0, updated: 0 };
@@ -5757,6 +5804,13 @@ export async function importCustomers(rows: {
         accessTypes: Array.from(new Set([...existingAccessTypes, ...(row.accessTypes ?? [])])),
         tags: Array.from(new Set([...existingTags, ...(row.tags ?? [])])),
         notes: row.notes || existing.notes,
+        birthDate: row.birthDate || existing.birthDate,
+        gender: (row.gender || existing.gender) as any,
+        city: row.city || existing.city,
+        source: row.source || existing.source,
+        // Una baja importada solo se agrega, nunca se quita: reactivar a
+        // alguien que pidió no recibir correos se hace a mano en su ficha.
+        ...(row.emailOptOut ? { emailOptOut: 1, optOutAt: existing.optOutAt ?? new Date() } : {}),
         totalOrders: importedOrders !== undefined ? Math.max(existing.totalOrders, importedOrders) : existing.totalOrders,
         totalSpent: importedSpent !== undefined ? String(Math.max(Number(existing.totalSpent), importedSpent)) : existing.totalSpent,
       }).where(eq(customers.id, existing.id));
@@ -5771,6 +5825,11 @@ export async function importCustomers(rows: {
         accessTypes: row.accessTypes ?? [],
         tags: row.tags ?? [],
         notes: row.notes || null,
+        birthDate: row.birthDate || null,
+        gender: (row.gender || null) as any,
+        city: row.city || null,
+        source: row.source || null,
+        ...(row.emailOptOut ? { emailOptOut: 1, optOutAt: new Date() } : {}),
         totalOrders: row.totalOrders ?? 0,
         totalSpent: row.totalSpent !== undefined ? String(row.totalSpent) : "0",
       });

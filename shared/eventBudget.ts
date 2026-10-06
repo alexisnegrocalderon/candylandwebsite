@@ -27,11 +27,18 @@ export interface RevenueTier {
   personasPorEntrada: number;
 }
 
+/** Cómo se cargó el monto de un gasto fijo: con el IVA ya adentro, o neto
+ * ("+ IVA", se le suma 19% encima). */
+export type ExpenseIvaMode = 'incluido' | 'mas_iva';
+
 export interface BudgetExpenseLine {
   /** Un ExpenseCategory de shared/expenses.ts (mismo catálogo del gasto real). */
   category: string;
   label: string;
+  /** Monto tal como se cargó: con IVA incluido, o NETO si `ivaMode` es 'mas_iva'. */
   amount: number;
+  /** Ausente = 'incluido' (simulaciones guardadas antes de existir esta opción). */
+  ivaMode?: ExpenseIvaMode;
 }
 
 export interface BudgetSimulationInput {
@@ -41,6 +48,9 @@ export interface BudgetSimulationInput {
   commissionPercent: number;
   variableCostPerPerson: number;
   otherRevenuePerPerson: number;
+  /** % de la venta bruta de barra que se lleva el local (0-100). Ausente = 0.
+   * Es un costo aparte, sin IVA encima, que se suma al arriendo fijo. */
+  venueBarSharePercent?: number;
   revenueTiers: RevenueTier[];
   expenseLines: BudgetExpenseLine[];
 }
@@ -52,6 +62,11 @@ export interface BudgetResult {
   otherRevenue: number;
   grossIncome: number;
   variableCostTotal: number;
+  /** Parte de la barra que se lleva el local, en pesos. */
+  venueBarShare: number;
+  /** Gastos fijos sumados CON IVA (lo que realmente se paga), a diferencia de
+   * `pnl.directExpensesTotal`, que descuenta el IVA recuperable de las facturas. */
+  fixedExpensesGross: number;
   pnl: PnlResult;
   /** Techo de gasto fijo que todavía permite llegar a `marginTargetPercent`.
    * Puede dar negativo: significa que ni con $0 de gasto fijo se llega a la
@@ -64,10 +79,25 @@ export interface BudgetResult {
   status: 'ok' | 'warning' | 'danger';
 }
 
+/** Monto con IVA y neto de una línea de gasto fijo. */
+export function expenseLineAmounts(line: BudgetExpenseLine): { total: number; net: number; iva: number } {
+  if (line.ivaMode === 'mas_iva') {
+    const iva = Math.round(line.amount * 0.19);
+    return { total: line.amount + iva, net: line.amount, iva };
+  }
+  return { total: line.amount, net: line.amount, iva: 0 };
+}
+
 function toPnlExpense(line: BudgetExpenseLine): PnlExpense {
-  // Estimación conservadora a propósito: una simulación no tiene boleta/
-  // factura todavía, así que nunca se le asume crédito fiscal (eso solo lo
-  // da una factura real, ver givesCreditoFiscal en shared/expenses.ts).
+  // "+ IVA" significa que el proveedor emite factura: el IVA es crédito fiscal
+  // y, si el evento se declara, el gasto entra neto (ver expenseCostForPnl).
+  // Una línea "IVA incluido" sigue siendo una estimación conservadora sin
+  // documento: una simulación no tiene boleta/factura todavía, así que nunca
+  // se le asume crédito fiscal salvo que se marque explícitamente "+ IVA".
+  if (line.ivaMode === 'mas_iva') {
+    const { total, net, iva } = expenseLineAmounts(line);
+    return { amountTotal: total, netAmount: net, ivaAmount: iva, documentType: 'factura', category: line.category };
+  }
   return {
     amountTotal: line.amount,
     netAmount: line.amount,
@@ -99,6 +129,7 @@ function computeBreakeven(params: {
   avgPrice: number;
   avgPersonasPorEntrada: number;
   otherRevenuePerPerson: number;
+  venueBarSharePercent: number;
   variableCostPerPerson: number;
   commissionPercent: number;
   cardFeePercent: number;
@@ -106,13 +137,16 @@ function computeBreakeven(params: {
   fixedExpensesTotal: number;
 }): number | null {
   const {
-    avgPrice, avgPersonasPorEntrada, otherRevenuePerPerson, variableCostPerPerson,
+    avgPrice, avgPersonasPorEntrada, otherRevenuePerPerson, venueBarSharePercent, variableCostPerPerson,
     commissionPercent, cardFeePercent, ivaApplies, fixedExpensesTotal,
   } = params;
   if (avgPrice <= 0) return null;
 
   const revenuePerTicket = avgPrice + otherRevenuePerPerson * avgPersonasPorEntrada;
-  const variableCostPerTicket = variableCostPerPerson * avgPersonasPorEntrada;
+  // La parte del local sale de la barra de cada persona, así que también es
+  // un costo por entrada, no solo un total.
+  const venueShareCostPerTicket = otherRevenuePerPerson * avgPersonasPorEntrada * venueBarSharePercent / 100;
+  const variableCostPerTicket = variableCostPerPerson * avgPersonasPorEntrada + venueShareCostPerTicket;
   const k = ivaApplies ? 100 / 119 : 1;
   const contributionMargin = revenuePerTicket * (k - (commissionPercent + cardFeePercent) / 100) - variableCostPerTicket;
   if (contributionMargin <= 0) return null;
@@ -127,6 +161,8 @@ export function computeBudgetResult(input: BudgetSimulationInput): BudgetResult 
   const otherRevenue = Math.round(input.otherRevenuePerPerson * attendance);
   const grossIncome = ticketRevenue + otherRevenue;
   const variableCostTotal = Math.round(input.variableCostPerPerson * attendance);
+  const venueBarSharePercent = Math.min(100, Math.max(0, input.venueBarSharePercent ?? 0));
+  const venueBarShare = Math.round(otherRevenue * venueBarSharePercent / 100);
   const ambassadorCommissions = Math.round(grossIncome * input.commissionPercent / 100);
   const directExpenses = input.expenseLines.map(toPnlExpense);
 
@@ -140,6 +176,7 @@ export function computeBudgetResult(input: BudgetSimulationInput): BudgetResult 
     directExpenses,
     generalExpenses: [],
     prorationWeight: 1,
+    extraCostsTotal: venueBarShare,
   });
 
   // Techo de gasto: mismo cálculo pero SIN los gastos fijos cargados, para
@@ -155,6 +192,7 @@ export function computeBudgetResult(input: BudgetSimulationInput): BudgetResult 
     directExpenses: [],
     generalExpenses: [],
     prorationWeight: 1,
+    extraCostsTotal: venueBarShare,
   });
   const maxDirectExpenses = Math.round(
     pnlWithoutFixed.netProfit - pnlWithoutFixed.netIncome * input.marginTargetPercent / 100,
@@ -166,6 +204,7 @@ export function computeBudgetResult(input: BudgetSimulationInput): BudgetResult 
     avgPrice: avgTicketPrice ?? 0,
     avgPersonasPorEntrada,
     otherRevenuePerPerson: input.otherRevenuePerPerson,
+    venueBarSharePercent,
     variableCostPerPerson: input.variableCostPerPerson,
     commissionPercent: input.commissionPercent,
     cardFeePercent: input.cardFeePercent,
@@ -185,6 +224,8 @@ export function computeBudgetResult(input: BudgetSimulationInput): BudgetResult 
     otherRevenue,
     grossIncome,
     variableCostTotal,
+    venueBarShare,
+    fixedExpensesGross: input.expenseLines.reduce((sum, l) => sum + expenseLineAmounts(l).total, 0),
     pnl,
     maxDirectExpenses,
     breakevenTickets,

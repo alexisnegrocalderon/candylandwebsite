@@ -140,8 +140,15 @@ export async function sendMailingBatch(
   // Tarjeta de precios por acceso de la tanda vigente (aviso de 2ª tanda).
   extras?: { priceList?: MailingPriceRow[]; remaining?: number | null }
 ): Promise<{ batchId: string; results: MailingSendResult[] }> {
-  const recipients = await db.listCustomersByIds(customerIds);
+  const allRecipients = await db.listCustomersByIds(customerIds);
   const results: MailingSendResult[] = [];
+  // Quien pidió la baja de correos no recibe nada, aunque haya quedado en una
+  // lista armada antes de que la pidiera (ficha de cliente → Permisos).
+  const recipients = allRecipients.filter((c) => {
+    if (!c.emailOptOut) return true;
+    results.push({ customerId: c.id, email: c.email, success: false, reason: 'Pidió no recibir correos' });
+    return false;
+  });
   const cleanCampaignTag = campaignTag?.trim();
   // Agrupa todas las filas de este log bajo una misma corrida -- así el
   // admin ve "la tanda de hoy" como una sola entrada, no una por email.
@@ -307,6 +314,15 @@ export async function processMailingCronBatch(): Promise<MailingCronResult> {
     // como enviado/fallado. Campañas sin `campaignEventId` (no hablan de un
     // evento puntual) nunca entran acá.
     if (recipient.campaignEventId && await db.hasApprovedOrderForEvent(recipient.email, recipient.campaignEventId)) {
+      await db.markMailingRecipientSkipped(recipient.id, recipient.campaignId);
+      campaignsTouched.add(recipient.campaignId);
+      skipped++;
+      continue;
+    }
+
+    // Misma regla que en sendMailingBatch: una baja pedida mientras esperaba
+    // en la cola se respeta, sin gastar cupo ni contar como fallo.
+    if (await db.isCustomerEmailOptedOut(recipient.customerId)) {
       await db.markMailingRecipientSkipped(recipient.id, recipient.campaignId);
       campaignsTouched.add(recipient.campaignId);
       skipped++;

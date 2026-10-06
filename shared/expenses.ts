@@ -205,6 +205,10 @@ export type PnlInput = {
   generalExpenses: PnlExpense[];
   /** Participación de este evento en los ingresos del mes (0..1). */
   prorationWeight: number;
+  /** Costos que no son gastos con documento y no llevan IVA recuperable (hoy:
+   * la parte de la barra que se lleva el local en el simulador). Se restan
+   * del resultado tal cual. Default 0: el P&L real no lo usa. */
+  extraCostsTotal?: number;
 };
 
 export type PnlResult = {
@@ -220,6 +224,7 @@ export type PnlResult = {
   cardFeePercent: number;
   cardFeeAmount: number;
   iva: { debitoFiscal: number; creditoFiscal: number; ivaAPagar: number; remanenteCredito: number };
+  extraCostsTotal: number;
   netIncome: number;
   netProfit: number;
   marginPercent: number | null;
@@ -276,7 +281,8 @@ export function computePnl(input: PnlInput): PnlResult {
   const remanenteCredito = Math.max(0, creditoFiscal - debitoFiscal);
 
   const netIncome = ivaApplies ? grossIncome - debitoFiscal : grossIncome;
-  const netProfit = netIncome - cogs - directExpensesTotal - generalAssigned - ambassadorCommissions - cardFeeAmount;
+  const extraCostsTotal = input.extraCostsTotal ?? 0;
+  const netProfit = netIncome - cogs - directExpensesTotal - generalAssigned - ambassadorCommissions - cardFeeAmount - extraCostsTotal;
 
   return {
     grossIncome,
@@ -293,6 +299,7 @@ export function computePnl(input: PnlInput): PnlResult {
     cardFeePercent,
     cardFeeAmount,
     iva: { debitoFiscal, creditoFiscal, ivaAPagar, remanenteCredito },
+    extraCostsTotal,
     netIncome,
     netProfit,
     marginPercent: netIncome > 0 ? Math.round((netProfit / netIncome) * 1000) / 10 : null,

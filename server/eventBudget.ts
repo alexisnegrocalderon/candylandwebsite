@@ -16,6 +16,7 @@ export type SimulationInput = {
   commissionPercent: number;
   variableCostPerPerson: number;
   otherRevenuePerPerson: number;
+  venueBarSharePercent: number;
   revenueTiers: RevenueTier[];
   expenseLines: BudgetExpenseLine[];
   notes?: string | null;
@@ -48,6 +49,7 @@ export async function createSimulation(data: SimulationInput, createdByUserId?: 
     commissionPercent: String(data.commissionPercent),
     variableCostPerPerson: String(data.variableCostPerPerson),
     otherRevenuePerPerson: String(data.otherRevenuePerPerson),
+    venueBarSharePercent: String(data.venueBarSharePercent),
     revenueTiers: data.revenueTiers,
     expenseLines: data.expenseLines,
     notes: data.notes || null,
@@ -68,6 +70,7 @@ export async function updateSimulation(id: number, data: SimulationInput) {
     commissionPercent: String(data.commissionPercent),
     variableCostPerPerson: String(data.variableCostPerPerson),
     otherRevenuePerPerson: String(data.otherRevenuePerPerson),
+    venueBarSharePercent: String(data.venueBarSharePercent),
     revenueTiers: data.revenueTiers,
     expenseLines: data.expenseLines,
     notes: data.notes || null,
