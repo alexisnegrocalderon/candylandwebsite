@@ -32,6 +32,10 @@ const ALLOWED_CONTENT_TYPES = [
 // limitación técnica de Vercel.
 const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 
+/** El SDK solo lee BLOB_READ_WRITE_TOKEN. Al reconectar el store en Vercel, el token quedó
+ * con otro nombre (NEW_BLOB_READ_WRITE_TOKEN), así que se acepta cualquiera de los dos. */
+const blobToken = () => process.env.BLOB_READ_WRITE_TOKEN || process.env.NEW_BLOB_READ_WRITE_TOKEN;
+
 export function registerBlobUploadRoutes(app: Express) {
   app.post("/api/admin/blob/upload", async (req: Request, res: Response) => {
     if (!(await requireAdmin(req, res))) return;
@@ -40,6 +44,7 @@ export function registerBlobUploadRoutes(app: Express) {
       const jsonResponse = await handleUpload({
         body: req.body as HandleUploadBody,
         request: req,
+        token: blobToken(),
         onBeforeGenerateToken: async () => {
           // requireAdmin ya corrió arriba -- acá solo se fijan las
           // restricciones del token en sí.
