@@ -2,8 +2,9 @@ import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, isNull, isNotN
 import { drizzle } from "drizzle-orm/mysql2";
 import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
+import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAvailability } from "../shared/accessCredit";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -671,6 +672,48 @@ export async function validateDiscountCode(code: string, eventId: number) {
   return { valid: true, discount };
 }
 
+/* ── Crédito de acceso (shared/accessCredit.ts) ─────────────────────────── */
+
+/** El crédito con ese código y su estado REAL (mirando la orden que lo
+ * reservó, si la hay). Nunca lanza: si la tabla aún no existe (migración sin
+ * correr) o hay cualquier error, devuelve `null` y el checkout sigue con los
+ * códigos de descuento de siempre. */
+export async function findAccessCreditByCode(rawCode: string): Promise<{ credit: AccessCredit; availability: CreditAvailability } | null> {
+  try {
+    const db = await getDb();
+    const code = normalizeCreditCode(rawCode);
+    if (!db || !code) return null;
+    const [credit] = await db.select().from(accessCredits).where(eq(accessCredits.code, code)).limit(1);
+    if (!credit) return null;
+    const [order] = credit.usedOrderId
+      ? await db.select({ paymentStatus: orders.paymentStatus, createdAt: orders.createdAt }).from(orders).where(eq(orders.id, credit.usedOrderId)).limit(1)
+      : [];
+    return { credit, availability: creditAvailability(credit, order ?? null) };
+  } catch {
+    return null;
+  }
+}
+
+/** Reserva el crédito para una compra en curso. Atómico: solo uno gana si dos
+ * checkouts compiten, y reutiliza el crédito cuya reserva anterior ya venció. */
+export async function claimAccessCredit(credit: AccessCredit): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const observed = credit.status === 'available'
+    ? eq(accessCredits.status, 'available')
+    : and(eq(accessCredits.status, 'reserved'), credit.usedOrderId ? eq(accessCredits.usedOrderId, credit.usedOrderId) : isNull(accessCredits.usedOrderId));
+  const [result] = await db.update(accessCredits)
+    .set({ status: 'reserved', reservedAt: new Date(), usedOrderId: null })
+    .where(and(eq(accessCredits.id, credit.id), observed));
+  return (result as unknown as { affectedRows: number }).affectedRows === 1;
+}
+
+export async function attachAccessCreditToOrder(creditId: number, orderId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(accessCredits).set({ usedOrderId: orderId }).where(eq(accessCredits.id, creditId));
+}
+
 /** Busca un código de descuento por su texto, sin ninguna validación de
  * vigencia/evento -- para uso interno (ej. armar el mensaje de una
  * automatización de Instagram con el nombre del producto que regala), no
@@ -1273,7 +1316,23 @@ export async function createOrder(input: {
   // todavía más: solo sobre los accesos cuyo ticketTypeId esté en esa lista.
   let discountAmount = 0;
   let discountCodeId: number | undefined;
-  if (input.discountCode) {
+  // Crédito de acceso ("1 Acceso Dúo" que quedó vigente de otra fiesta): va
+  // antes que los códigos de descuento porque es otra cosa -- vale UNA unidad
+  // de ese acceso, no un monto ni un % del carrito.
+  const creditHit = input.discountCode ? await findAccessCreditByCode(input.discountCode) : null;
+  let accessCreditId: number | undefined;
+  if (creditHit) {
+    if (creditHit.availability !== 'available') throw new Error('Este crédito ya fue usado.');
+    const lines = input.items.map((item) => {
+      const tt = tts.find((t) => t.id === item.ticketTypeId);
+      return { ticketTypeId: item.ticketTypeId, accesoSlug: tt?.accesoSlug, category: tt?.category, unitPrice: unitPrices.get(item.ticketTypeId) ?? 0, quantity: item.quantity };
+    });
+    const credit = creditDiscount(creditHit.credit.accesoSlug, lines);
+    if (!credit) throw new Error(`Este crédito es para un ${creditHit.credit.accesoName}. Elige ese acceso para usarlo.`);
+    if (!(await claimAccessCredit(creditHit.credit))) throw new Error('Este crédito ya fue usado.');
+    accessCreditId = creditHit.credit.id;
+    discountAmount = credit.amount;
+  } else if (input.discountCode) {
     const validation = await validateDiscountCode(input.discountCode, event.id);
     if (validation.valid && validation.discount) {
       const disc = validation.discount;
@@ -1332,6 +1391,9 @@ export async function createOrder(input: {
   const serviceFee = serviceFeePercent > 0 ? Math.round(feeBase * serviceFeePercent / 100) : 0;
   const total = preTotal + serviceFee;
   const orderNumber = `MP-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`;
+  // El checkout manda el mismo código en discountCode y ambassadorCode: si era un
+  // crédito, no es un código de embajador y no debe quedar como atribución.
+  const ambassadorCodeForOrder = creditHit && input.ambassadorCode && normalizeCreditCode(input.ambassadorCode) === creditHit.credit.code ? undefined : input.ambassadorCode;
 
   // Create order
   const [orderResult] = await db.insert(orders).values({
@@ -1345,10 +1407,10 @@ export async function createOrder(input: {
     serviceFee: String(serviceFee),
     total: String(total),
     discountCodeId,
-    ambassadorCode: input.ambassadorCode,
+    ambassadorCode: ambassadorCodeForOrder,
     // Congelado para siempre, a diferencia de ambassadorCode (que
     // ensureOwnAmbassadorCode pisa más adelante) -- ver comentario en el schema.
-    referredByCode: input.ambassadorCode || null,
+    referredByCode: ambassadorCodeForOrder || null,
     paymentStatus: 'pending',
     missionDeposit: missionDeposit ? 1 : 0,
     attendeeData: input.attendeeData,
@@ -1359,6 +1421,7 @@ export async function createOrder(input: {
   });
 
   const orderId = orderResult.insertId;
+  if (accessCreditId) await attachAccessCreditToOrder(accessCreditId, orderId);
 
   // Create order items. soldCount (y con él, el contador de Misión 300) NO se
   // toca acá — la orden todavía está "pending", nadie pagó nada. Se

@@ -92,6 +92,7 @@ import { canReplyWithinWindow } from "./instagramSend";
 import { runInstagramAgent, buildInstagramContext } from "./instagramAgent";
 import { getIgCustomerLinkState } from "./igCustomerLink";
 import { AGENT_SITE_PAGES } from "./agentLinks";
+import { issueAccessCreditsForOrder, listAccessCredits, listCreditsByOrderIds, remindAccessCredit } from "./accessCredit";
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
 import { runAgentCoach } from "./agentCoach";
@@ -1048,6 +1049,25 @@ export const appRouter = router({
     }),
   }),
 
+  /* Crédito de acceso: dejar el acceso de una compra vigente para un evento futuro. */
+  accessCredit: router({
+    list: adminReadProcedure.query(() => listAccessCredits()),
+    createFromOrder: adminPasswordProcedure.input(z.object({ orderId: z.number() })).mutation(async ({ input, ctx }) => {
+      try {
+        return await issueAccessCreditsForOrder(input.orderId, { ip: clientIp(ctx) });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo dejar el crédito.' });
+      }
+    }),
+    remind: adminProcedure.input(z.object({ creditId: z.number() })).mutation(async ({ input }) => {
+      try {
+        return await remindAccessCredit(input.creditId);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo mandar el recordatorio.' });
+      }
+    }),
+  }),
+
   orders: router({
     validateDiscount: publicProcedure.input(z.object({
       code: z.string(),
@@ -1071,6 +1091,13 @@ export const appRouter = router({
       const ambassador = await db.getActiveExclusiveAmbassadorByCode(clean);
       if (ambassador) {
         return { type: 'ambassador' as const, name: ambassador.name, code: ambassador.code };
+      }
+
+      // Crédito de acceso ("1 Acceso Dúo" que quedó vigente de otra fiesta).
+      const creditHit = await db.findAccessCreditByCode(clean);
+      if (creditHit) {
+        if (creditHit.availability !== 'available') return { type: 'none' as const, message: 'Este crédito ya fue usado' };
+        return { type: 'credit' as const, code: creditHit.credit.code, accesoSlug: creditHit.credit.accesoSlug, accesoName: creditHit.credit.accesoName };
       }
 
       const discountResult = await db.validateDiscountCode(clean, input.eventId);
@@ -1137,12 +1164,14 @@ export const appRouter = router({
       const ids = result.orders.map((o) => o.id);
       const pending = await getPendingUpgradesByOrderIds(ids);
       const pendingAddons = await getPendingAddonsByOrderIds(ids);
+      const credits = await listCreditsByOrderIds(ids);
       return {
         ...result,
         orders: result.orders.map((o) => ({
           ...o,
           pendingUpgrade: pending.get(o.id) ?? null,
           pendingAddons: pendingAddons.get(o.id) ?? null,
+          credits: credits.filter((c) => c.originOrderId === o.id).map((c) => ({ id: c.id, code: c.code, availability: c.availability })),
         })),
       };
     }),

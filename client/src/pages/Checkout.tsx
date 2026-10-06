@@ -444,6 +444,7 @@ export default function Checkout() {
   const [codeResult, setCodeResult] = useState<
     | { type: 'discount'; discount: any }
     | { type: 'ambassador'; name: string; code: string }
+    | { type: 'credit'; code: string; accesoSlug: string; accesoName: string }
     | null
   >(null);
   const [codeError, setCodeError] = useState('');
@@ -567,11 +568,14 @@ export default function Checkout() {
 
   /* ── Totales ─────────────────────────────────────────────── */
   const subtotal = (acceso?.precio ?? 0) * qty;
+  // Crédito de acceso: vale UNA unidad del mismo acceso (mismo cálculo que
+  // `creditDiscount` en shared/accessCredit.ts, que es el que cobra el servidor).
+  const creditApplies = codeResult?.type === 'credit' && codeResult.accesoSlug === accesoSlug && qty > 0;
   const discountAmount = codeResult?.type === 'discount'
     ? codeResult.discount.discountType === 'percentage'
       ? Math.round(subtotal * Number(codeResult.discount.discountValue) / 100)
       : Number(codeResult.discount.discountValue)
-    : 0;
+    : creditApplies ? (acceso?.precio ?? 0) : 0;
   const dbExtrasTotal = extraTickets.reduce((s: number, t: any) => s + (dbExtraQty[t.id] || 0) * Number(t.price), 0);
   // Carga de saldo (ticketTypes.topupAmount, pedido explícito del dueño): NO
   // paga el recargo por servicio -- el monto cargado entra completo. Mismo
@@ -599,6 +603,8 @@ export default function Checkout() {
         setCodeResult({ type: 'discount', discount: result.discount });
       } else if (result.type === 'ambassador') {
         setCodeResult({ type: 'ambassador', name: result.name, code: result.code });
+      } else if (result.type === 'credit') {
+        setCodeResult({ type: 'credit', code: result.code, accesoSlug: result.accesoSlug, accesoName: result.accesoName });
       } else {
         setCodeResult(null);
         setCodeError(result.message || 'No encontramos ese código');
@@ -629,6 +635,7 @@ export default function Checkout() {
     validateCode.mutateAsync({ code: stored, eventId: event.id }).then((result) => {
       if (result.type === 'discount') setCodeResult({ type: 'discount', discount: result.discount });
       else if (result.type === 'ambassador') setCodeResult({ type: 'ambassador', name: result.name, code: result.code });
+      else if (result.type === 'credit') setCodeResult({ type: 'credit', code: result.code, accesoSlug: result.accesoSlug, accesoName: result.accesoName });
       // Si el código precargado ya no es válido (embajador dado de baja,
       // promo vencida, etc.) se deja el campo cargado en silencio -- no
       // tiene sentido mostrar un error por algo que la persona no escribió
@@ -1237,6 +1244,13 @@ export default function Checkout() {
                             : <><Tag className="w-4 h-4 mr-2" /> Aplicar</>}
                       </Button>
                     </div>
+                    {codeResult?.type === 'credit' && (
+                      <p className={`text-sm mt-1 ${creditApplies ? 'text-green-400' : 'text-yellow-400'}`}>
+                        {creditApplies
+                          ? `Crédito aplicado: tu ${codeResult.accesoName} va sin costo ✓`
+                          : `Este crédito es para un ${codeResult.accesoName}. Elige ese acceso para usarlo.`}
+                      </p>
+                    )}
                     {codeResult?.type === 'discount' && <p className="text-sm text-green-400 mt-1">{codeResult.discount.giftTicketTypeId ? '¡Regalo incluido en tu compra! 🎁' : 'Descuento aplicado ✓'}</p>}
                     {codeResult?.type === 'ambassador' && (
                       <p className="text-sm text-green-400 mt-1">Le vamos a acreditar la venta a {codeResult.name} ✓</p>
