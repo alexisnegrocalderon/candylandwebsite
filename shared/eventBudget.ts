@@ -41,6 +41,26 @@ export interface BudgetExpenseLine {
   ivaMode?: ExpenseIvaMode;
 }
 
+/** Ingreso adicional que NO son entradas ni barra (ej. estacionamiento: 120
+ * autos × $5.000). No suma personas al aforo: de ahí cuelgan el costo variable,
+ * la barra estimada y el punto de equilibrio, y un auto no es una persona más. */
+export interface ExtraIncomeLine {
+  label: string;
+  /** Precio por unidad, IVA incluido (igual que las entradas). */
+  unitPrice: number;
+  quantity: number;
+  /** Lo que se le paga al local por cada unidad (ej. $3.000 por auto). */
+  venueCostPerUnit?: number;
+}
+
+export function extraIncomeTotalFor(lines: ExtraIncomeLine[] | null | undefined): number {
+  return (lines ?? []).reduce((sum, l) => sum + (l.unitPrice || 0) * (l.quantity || 0), 0);
+}
+
+export function extraVenueCostFor(lines: ExtraIncomeLine[] | null | undefined): number {
+  return (lines ?? []).reduce((sum, l) => sum + (l.venueCostPerUnit || 0) * (l.quantity || 0), 0);
+}
+
 export interface BudgetSimulationInput {
   ivaApplies: boolean;
   marginTargetPercent: number;
@@ -51,6 +71,8 @@ export interface BudgetSimulationInput {
   /** % de la venta bruta de barra que se lleva el local (0-100). Ausente = 0.
    * Es un costo aparte, sin IVA encima, que se suma al arriendo fijo. */
   venueBarSharePercent?: number;
+  /** Ausente o null = sin ingresos adicionales (simulaciones guardadas antes). */
+  extraIncomes?: ExtraIncomeLine[] | null;
   revenueTiers: RevenueTier[];
   expenseLines: BudgetExpenseLine[];
 }
@@ -64,6 +86,10 @@ export interface BudgetResult {
   variableCostTotal: number;
   /** Parte de la barra que se lleva el local, en pesos. */
   venueBarShare: number;
+  /** Ingresos adicionales (estacionamiento, etc.), IVA incluido. Ya están en `grossIncome`. */
+  extraIncomeTotal: number;
+  /** Lo que se le paga al local por esos ingresos adicionales (ej. por auto). */
+  extraVenueCost: number;
   /** Gastos fijos sumados CON IVA (lo que realmente se paga), a diferencia de
    * `pnl.directExpensesTotal`, que descuenta el IVA recuperable de las facturas. */
   fixedExpensesGross: number;
@@ -135,11 +161,16 @@ function computeBreakeven(params: {
   cardFeePercent: number;
   ivaApplies: boolean;
   fixedExpensesTotal: number;
+  /** Aporte neto de los ingresos adicionales (monto fijo, no por entrada). */
+  extraNetContribution: number;
 }): number | null {
   const {
     avgPrice, avgPersonasPorEntrada, otherRevenuePerPerson, venueBarSharePercent, variableCostPerPerson,
-    commissionPercent, cardFeePercent, ivaApplies, fixedExpensesTotal,
+    commissionPercent, cardFeePercent, ivaApplies, extraNetContribution,
   } = params;
+  // Los ingresos adicionales (estacionamiento) cubren parte de los gastos
+  // fijos antes de que haga falta vender una sola entrada; nunca da negativo.
+  const fixedExpensesTotal = Math.max(0, params.fixedExpensesTotal - extraNetContribution);
   if (avgPrice <= 0) return null;
 
   const revenuePerTicket = avgPrice + otherRevenuePerPerson * avgPersonasPorEntrada;
@@ -159,11 +190,16 @@ export function computeBudgetResult(input: BudgetSimulationInput): BudgetResult 
   const ticketsSold = ticketsSoldForTiers(input.revenueTiers);
   const ticketRevenue = ticketRevenueForTiers(input.revenueTiers);
   const otherRevenue = Math.round(input.otherRevenuePerPerson * attendance);
-  const grossIncome = ticketRevenue + otherRevenue;
+  const extraIncomeTotal = Math.round(extraIncomeTotalFor(input.extraIncomes));
+  const extraVenueCost = Math.round(extraVenueCostFor(input.extraIncomes));
+  // Entradas + barra: la base de la comisión de embajadores. Los ingresos
+  // adicionales (estacionamiento) suman al ingreso bruto pero NO a esta base.
+  const entriesAndBarIncome = ticketRevenue + otherRevenue;
+  const grossIncome = entriesAndBarIncome + extraIncomeTotal;
   const variableCostTotal = Math.round(input.variableCostPerPerson * attendance);
   const venueBarSharePercent = Math.min(100, Math.max(0, input.venueBarSharePercent ?? 0));
   const venueBarShare = Math.round(otherRevenue * venueBarSharePercent / 100);
-  const ambassadorCommissions = Math.round(grossIncome * input.commissionPercent / 100);
+  const ambassadorCommissions = Math.round(entriesAndBarIncome * input.commissionPercent / 100);
   const directExpenses = input.expenseLines.map(toPnlExpense);
 
   const pnl = computePnl({
@@ -176,7 +212,7 @@ export function computeBudgetResult(input: BudgetSimulationInput): BudgetResult 
     directExpenses,
     generalExpenses: [],
     prorationWeight: 1,
-    extraCostsTotal: venueBarShare,
+    extraCostsTotal: venueBarShare + extraVenueCost,
   });
 
   // Techo de gasto: mismo cálculo pero SIN los gastos fijos cargados, para
@@ -192,7 +228,7 @@ export function computeBudgetResult(input: BudgetSimulationInput): BudgetResult 
     directExpenses: [],
     generalExpenses: [],
     prorationWeight: 1,
-    extraCostsTotal: venueBarShare,
+    extraCostsTotal: venueBarShare + extraVenueCost,
   });
   const maxDirectExpenses = Math.round(
     pnlWithoutFixed.netProfit - pnlWithoutFixed.netIncome * input.marginTargetPercent / 100,
@@ -210,6 +246,7 @@ export function computeBudgetResult(input: BudgetSimulationInput): BudgetResult 
     cardFeePercent: input.cardFeePercent,
     ivaApplies: input.ivaApplies,
     fixedExpensesTotal: pnl.directExpensesTotal,
+    extraNetContribution: extraIncomeTotal * ((input.ivaApplies ? 100 / 119 : 1) - input.cardFeePercent / 100) - extraVenueCost,
   });
 
   const status: BudgetResult['status'] =
@@ -225,6 +262,8 @@ export function computeBudgetResult(input: BudgetSimulationInput): BudgetResult 
     grossIncome,
     variableCostTotal,
     venueBarShare,
+    extraIncomeTotal,
+    extraVenueCost,
     fixedExpensesGross: input.expenseLines.reduce((sum, l) => sum + expenseLineAmounts(l).total, 0),
     pnl,
     maxDirectExpenses,

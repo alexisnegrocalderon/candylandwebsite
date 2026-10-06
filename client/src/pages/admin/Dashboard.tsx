@@ -59,7 +59,7 @@ import {
   type ExpenseCategory, type ExpenseDocumentType, type ExpensePaymentMethod,
 } from '@shared/expenses';
 import {
-  computeBudgetResult, expenseLineAmounts, type BudgetSimulationInput, type RevenueTier, type BudgetExpenseLine, type BudgetResult, type ExpenseIvaMode,
+  computeBudgetResult, expenseLineAmounts, type ExtraIncomeLine, type BudgetSimulationInput, type RevenueTier, type BudgetExpenseLine, type BudgetResult, type ExpenseIvaMode,
 } from '@shared/eventBudget';
 import { monthKeyFor } from '@shared/ambassadorProgram';
 import { formatChileDateTime, formatChileShortDate, formatChileTime } from '@shared/chileDate';
@@ -7869,7 +7869,7 @@ function EventBudgetSimulatorView() {
 const emptyRevenueTier = (): RevenueTier => ({ label: '', price: 0, expectedQty: 0, personasPorEntrada: 1 });
 const emptyExpenseLine = (): BudgetExpenseLine => ({ category: 'produccion', label: '', amount: 0, ivaMode: 'incluido' });
 
-type SimForm = BudgetSimulationInput & { name: string };
+type SimForm = Omit<BudgetSimulationInput, 'extraIncomes'> & { name: string; extraIncomes: ExtraIncomeLine[] };
 
 function emptySimForm(cardFeeDefault: number): SimForm {
   return {
@@ -7881,6 +7881,7 @@ function emptySimForm(cardFeeDefault: number): SimForm {
     variableCostPerPerson: 0,
     otherRevenuePerPerson: 0,
     venueBarSharePercent: 0,
+    extraIncomes: [],
     revenueTiers: [emptyRevenueTier()],
     expenseLines: [emptyExpenseLine()],
   };
@@ -7896,6 +7897,7 @@ function simFormFromRow(row: any): SimForm {
     variableCostPerPerson: Number(row.variableCostPerPerson),
     otherRevenuePerPerson: Number(row.otherRevenuePerPerson),
     venueBarSharePercent: Number(row.venueBarSharePercent ?? 0),
+    extraIncomes: Array.isArray(row.extraIncomes) ? row.extraIncomes : [],
     revenueTiers: Array.isArray(row.revenueTiers) ? row.revenueTiers : [],
     expenseLines: Array.isArray(row.expenseLines) ? row.expenseLines : [],
   };
@@ -8032,6 +8034,10 @@ function BudgetCompareTable({ sims }: { sims: any[] }) {
               {rows.map((r) => <td key={r.id} className="py-2 px-3 tabular-nums">${r.result.grossIncome.toLocaleString('es-CL')}</td>)}
             </tr>
             <tr className="border-b border-border/50">
+              <td className="py-2 px-3 text-muted-foreground">Otros ingresos (estacionamiento…)</td>
+              {rows.map((r) => <td key={r.id} className="py-2 px-3 tabular-nums">${r.result.extraIncomeTotal.toLocaleString('es-CL')}</td>)}
+            </tr>
+            <tr className="border-b border-border/50">
               <td className="py-2 px-3 text-muted-foreground">Parte del local (barra)</td>
               {rows.map((r) => <td key={r.id} className="py-2 px-3 tabular-nums">${r.result.venueBarShare.toLocaleString('es-CL')}</td>)}
             </tr>
@@ -8070,6 +8076,9 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
   const [eventToLink, setEventToLink] = useState<string>(linkedEventId ? String(linkedEventId) : '');
   const [filling, setFilling] = useState(false);
   const utils = trpc.useUtils();
+  // Valor por auto que ya se le paga al local según Ajustes (se usa para prellenar).
+  const { data: siteSettings } = trpc.settings.get.useQuery();
+  const parkingFeeFromSettings = Number((siteSettings as any)?.parkingVenueFeeClp ?? 3000);
 
   const result = computeBudgetResult(form);
 
@@ -8123,8 +8132,13 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
 
   const handleSave = () => {
     if (!form.name.trim()) { toast.error('Ponle un nombre a la simulación'); return; }
-    if (simId) update.mutate({ id: simId, ...form });
-    else create.mutate(form);
+    // Las filas de "otros ingresos" totalmente vacías se descartan; las que
+    // tienen datos necesitan nombre (el servidor lo exige).
+    const extraIncomes = form.extraIncomes.filter((l) => l.label.trim() || l.unitPrice > 0 || l.quantity > 0);
+    if (extraIncomes.some((l) => !l.label.trim())) { toast.error('Ponle un nombre a cada fila de "Otros ingresos"'); return; }
+    const payload = { ...form, extraIncomes };
+    if (simId) update.mutate({ id: simId, ...payload });
+    else create.mutate(payload);
   };
 
   const handleLinkNow = () => {
@@ -8139,6 +8153,12 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
   };
   const addTier = () => setForm((f) => ({ ...f, revenueTiers: [...f.revenueTiers, emptyRevenueTier()] }));
   const removeTier = (i: number) => setForm((f) => ({ ...f, revenueTiers: f.revenueTiers.filter((_, idx) => idx !== i) }));
+
+  const updateExtra = (i: number, patch: Partial<ExtraIncomeLine>) => {
+    setForm((f) => ({ ...f, extraIncomes: f.extraIncomes.map((l, idx) => (idx === i ? { ...l, ...patch } : l)) }));
+  };
+  const addExtra = (line: ExtraIncomeLine) => setForm((f) => ({ ...f, extraIncomes: [...f.extraIncomes, line] }));
+  const removeExtra = (i: number) => setForm((f) => ({ ...f, extraIncomes: f.extraIncomes.filter((_, idx) => idx !== i) }));
 
   const updateLine = (i: number, patch: Partial<BudgetExpenseLine>) => {
     setForm((f) => ({ ...f, expenseLines: f.expenseLines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)) }));
@@ -8192,6 +8212,52 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
             ))}
           </div>
           <Button variant="outline" size="sm" className="mt-2" onClick={addTier}><Plus className="w-3.5 h-3.5 mr-1" /> Agregar tanda</Button>
+        </div>
+
+        <div>
+          <Label>Otros ingresos (sin personas)</Label>
+          <p className="text-xs text-muted-foreground mt-1">
+            Ingresos que no son entradas ni barra, como el estacionamiento. <strong>No suman personas al aforo</strong>. Precio con IVA incluido; a la comisión de tarjeta se les aplica, a la de embajadores no.
+          </p>
+          {form.extraIncomes.length > 0 && (
+            <div className="hidden sm:grid sm:grid-cols-[1fr_110px_110px_150px_36px] gap-2 mt-3 mb-1 px-0.5">
+              <span className="text-xs font-semibold text-muted-foreground">Nombre</span>
+              <span className="text-xs font-semibold text-muted-foreground">Precio ($)</span>
+              <span className="text-xs font-semibold text-muted-foreground">Cantidad</span>
+              <span className="text-xs font-semibold text-muted-foreground">Pago al local por unidad ($)</span>
+              <span />
+            </div>
+          )}
+          <div className="space-y-2 mt-2">
+            {form.extraIncomes.map((l, i) => (
+              <div key={i}>
+                <div className="grid grid-cols-2 sm:grid-cols-[1fr_110px_110px_150px_36px] gap-2 items-center">
+                  <Input value={l.label} onChange={(e) => updateExtra(i, { label: e.target.value })} placeholder="Ej: Estacionamiento" className="col-span-2 sm:col-span-1" />
+                  <div className="sm:hidden text-xs text-muted-foreground -mb-1">Precio ($)</div>
+                  <Input type="number" min={0} value={l.unitPrice} onChange={(e) => updateExtra(i, { unitPrice: Number(e.target.value) })} placeholder="Precio" />
+                  <div className="sm:hidden text-xs text-muted-foreground -mb-1">Cantidad (ej. autos)</div>
+                  <Input type="number" min={0} value={l.quantity} onChange={(e) => updateExtra(i, { quantity: Math.max(0, Math.round(Number(e.target.value))) })} placeholder="Cantidad" />
+                  <div className="sm:hidden text-xs text-muted-foreground -mb-1">Pago al local por unidad ($)</div>
+                  <Input type="number" min={0} value={l.venueCostPerUnit ?? 0} onChange={(e) => updateExtra(i, { venueCostPerUnit: Number(e.target.value) })} placeholder="Pago al local" />
+                  <Button variant="outline" size="sm" onClick={() => removeExtra(i)} className="justify-self-start sm:justify-self-auto"><X className="w-3.5 h-3.5" /></Button>
+                </div>
+                {l.unitPrice * l.quantity > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    = ${(l.unitPrice * l.quantity).toLocaleString('es-CL')} de ingreso
+                    {(l.venueCostPerUnit ?? 0) > 0 ? ` · $${((l.venueCostPerUnit ?? 0) * l.quantity).toLocaleString('es-CL')} para el local` : ''}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <Button variant="outline" size="sm" onClick={() => addExtra({ label: 'Estacionamiento', unitPrice: 0, quantity: 0, venueCostPerUnit: parkingFeeFromSettings })}>
+              <Plus className="w-3.5 h-3.5 mr-1" /> Agregar estacionamiento
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => addExtra({ label: '', unitPrice: 0, quantity: 0, venueCostPerUnit: 0 })}>
+              <Plus className="w-3.5 h-3.5 mr-1" /> Agregar otro ingreso
+            </Button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -8295,6 +8361,8 @@ function BudgetSimulatorForm({ initial, simId, events, linkedEventId, onSaved, o
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm pt-1">
             <div><p className="text-muted-foreground text-xs">Aforo estimado</p><p className="font-semibold tabular-nums">{result.attendance}</p></div>
             <div><p className="text-muted-foreground text-xs">Ingreso proyectado</p><p className="font-semibold tabular-nums">${result.grossIncome.toLocaleString('es-CL')}</p></div>
+            <div><p className="text-muted-foreground text-xs">Otros ingresos</p><p className="font-semibold tabular-nums">${result.extraIncomeTotal.toLocaleString('es-CL')}</p></div>
+            <div><p className="text-muted-foreground text-xs">Pago al local (autos, etc.)</p><p className="font-semibold tabular-nums">${result.extraVenueCost.toLocaleString('es-CL')}</p></div>
             <div><p className="text-muted-foreground text-xs">Parte del local (barra)</p><p className="font-semibold tabular-nums">${result.venueBarShare.toLocaleString('es-CL')}</p></div>
             <div><p className="text-muted-foreground text-xs">Gastos fijos con IVA</p><p className="font-semibold tabular-nums">${result.fixedExpensesGross.toLocaleString('es-CL')}</p></div>
             <div><p className="text-muted-foreground text-xs">Margen resultante</p><p className="font-semibold tabular-nums">{result.pnl.marginPercent != null ? `${result.pnl.marginPercent}%` : '—'}</p></div>
