@@ -1806,6 +1806,30 @@ export const appRouter = router({
       return { ok: true };
     }),
 
+    // --- Swipe ---
+    swipeDeck: publicProcedure.input(z.object({ ticketCode: z.string() })).query(async ({ input }) => {
+      const actor = await requirePartyProfile(input.ticketCode);
+      // `null` = todavía no participa (sin foto o en pausa), no un error.
+      return { deck: await db.getPartySwipeDeck(actor.profile) };
+    }),
+    swipe: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number(), liked: z.boolean() }))
+      .mutation(async ({ input }) => {
+        const actor = await requirePartyProfile(input.ticketCode);
+        const res = await db.swipePartyProfile(actor.profile, input.targetProfileId, input.liked);
+        if (!res.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: res.reason });
+        if (!res.match) return { match: false as const };
+
+        const otherTicketCode = await db.getPartyProfileTicketCode(res.otherId);
+        if (otherTicketCode) {
+          await sendPushToProfile(res.otherId, {
+            title: '💘 ¡Hicieron match!',
+            body: `Tú y ${actor.profile.alias} se gustaron en Playmatch`,
+            url: `/fiesta/${otherTicketCode}`,
+          });
+        }
+        return { match: true as const, connectionId: res.connectionId, alias: res.otherAlias };
+      }),
+
     block: publicProcedure.input(z.object({ ticketCode: z.string(), targetProfileId: z.number() }))
       .mutation(async ({ input }) => {
         const actor = await requirePartyProfile(input.ticketCode);

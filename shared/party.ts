@@ -287,3 +287,14 @@ export function validatePhotoBytes(bytes: Uint8Array): { ok: true } | { ok: fals
 export function canSeePhotos(viewer: { swipeEnabled: number | boolean; banned?: number | boolean }, viewerHasPhoto: boolean): boolean {
   return !!viewer.swipeEnabled && !viewer.banned && viewerHasPhoto;
 }
+
+// --- Swipe ----------------------------------------------------------------
+
+/** Cuántas tarjetas se piden por vez. */
+export const SWIPE_DECK_SIZE = 12;
+
+export const SWIPE_REPORT_REASONS = [
+  'Datos personales en la foto o el alias',
+  'Foto inapropiada',
+  'Me hizo sentir incómodo/a',
+] as const;

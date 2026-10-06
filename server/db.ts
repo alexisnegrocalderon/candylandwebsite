@@ -2,11 +2,11 @@ import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, isNull, isNotN
 import { drizzle } from "drizzle-orm/mysql2";
 import { randomBytes } from "crypto";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
-import { MAX_TOUCHES_PER_EVENT, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
+import { MAX_TOUCHES_PER_EVENT, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhotos, giftExpiresAt, isGiftExpired, canPayGift, canRespondToGift, orderedPair, type PartyGender, type PartyZone } from '../shared/party';
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { chileHourOf, startOfChileDay } from '../shared/chileDate';
@@ -5992,7 +5992,7 @@ export async function listPartyMansion(profileId: number, eventId: number) {
       };
     });
 
-  const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId).length;
+  const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId && !c.viaSwipe).length;
 
   return { people, touchesUsed, touchesLeft: Math.max(0, MAX_TOUCHES_PER_EVENT - touchesUsed) };
 }
@@ -6039,7 +6039,7 @@ export async function touchPartyProfile(profileId: number, targetProfileId: numb
   }
 
   const connections = await getPartyConnectionsFor(db, profileId);
-  const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId).length;
+  const touchesUsed = connections.filter((c: any) => c.initiatedById === profileId && !c.viaSwipe).length;
   if (touchesUsed >= MAX_TOUCHES_PER_EVENT) {
     return { ok: false, reason: `Llegaste al máximo de ${MAX_TOUCHES_PER_EVENT} toques por noche` };
   }
@@ -6261,11 +6261,116 @@ export async function purgeClosedPartyPhotos(now: Date = new Date()) {
   if (closed.length === 0) return { photosDeleted: 0 };
   const ids = closed.map((e: any) => e.id);
   const photos = await db.select({ id: partyPhotos.id }).from(partyPhotos).where(inArray(partyPhotos.eventId, ids));
+  // Los swipes se borran siempre, haya o no fotos.
+  await db.delete(partySwipes).where(inArray(partySwipes.eventId, ids));
   if (photos.length > 0) {
     await db.delete(partyPhotos).where(inArray(partyPhotos.eventId, ids));
     await db.update(partyProfiles).set({ swipeEnabled: 0 }).where(inArray(partyProfiles.eventId, ids));
   }
   return { photosDeleted: photos.length };
+}
+
+/* --- Swipe ---------------------------------------------------------------- */
+
+/** Perfil que puede aparecer en el mazo / recibir un swipe: mismo evento,
+ * activo, no expulsado, participando y con foto. */
+async function isSwipeCandidate(db: any, viewerId: number, eventId: number, targetId: number) {
+  if (viewerId === targetId) return null;
+  const [t] = await db.select().from(partyProfiles).where(eq(partyProfiles.id, targetId)).limit(1);
+  if (!t || t.eventId !== eventId || t.active !== 1 || t.banned || !t.swipeEnabled) return null;
+  if (!(await partyProfileHasPhoto(targetId))) return null;
+  const hidden = await getPartyHiddenIds(db, viewerId);
+  if (hidden.has(targetId)) return null;
+  return t;
+}
+
+/** Las próximas tarjetas: gente conectada ahora, del mismo evento, que
+ * participa del swipe, no bloqueada en ningún sentido, a la que todavía no
+ * le di ❤️/✖️ y con la que todavía no hay conexión. Solo la ve quien también
+ * puso foto (`canSeePhotos`). Refresca mi presencia, igual que la mansión. */
+export async function getPartySwipeDeck(viewer: { id: number; eventId: number; swipeEnabled: number; banned: number }) {
+  const db = await getDb();
+  if (!db) return null;
+  if (!canSeePhotos(viewer, await partyProfileHasPhoto(viewer.id))) return null;
+
+  await db.update(partyProfiles).set({ lastSeenAt: new Date() }).where(eq(partyProfiles.id, viewer.id));
+
+  const [hidden, connections, swiped, profiles, withPhoto] = await Promise.all([
+    getPartyHiddenIds(db, viewer.id),
+    getPartyConnectionsFor(db, viewer.id),
+    db.select({ toProfileId: partySwipes.toProfileId }).from(partySwipes).where(eq(partySwipes.fromProfileId, viewer.id)),
+    db.select().from(partyProfiles).where(and(
+      eq(partyProfiles.eventId, viewer.eventId), eq(partyProfiles.active, 1),
+      eq(partyProfiles.banned, 0), eq(partyProfiles.swipeEnabled, 1),
+      gte(partyProfiles.lastSeenAt, new Date(Date.now() - PRESENCE_WINDOW_MS)),
+    )),
+    db.select({ profileId: partyPhotos.profileId }).from(partyPhotos).where(eq(partyPhotos.eventId, viewer.eventId)),
+  ]);
+
+  const skip = new Set<number>([viewer.id, ...Array.from(hidden), ...swiped.map((s: any) => s.toProfileId)]);
+  for (const c of connections) skip.add(c.profileLowId === viewer.id ? c.profileHighId : c.profileLowId);
+  const photoIds = new Set<number>(withPhoto.map((p: any) => p.profileId));
+
+  return profiles
+    .filter((p: any) => !skip.has(p.id) && photoIds.has(p.id))
+    .sort((a: any, b: any) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime())
+    .slice(0, SWIPE_DECK_SIZE)
+    .map((p: any) => ({ id: p.id, alias: p.alias, gender: p.gender as PartyGender, zone: p.zone as PartyZone }));
+}
+
+export type PartySwipeResult =
+  | { ok: true; match: false }
+  | { ok: true; match: true; connectionId: number; otherId: number; otherAlias: string }
+  | { ok: false; reason: string };
+
+/** Registra un ❤️ o ✖️. Si los dos se dieron ❤️ hay match: se abre la misma
+ * conexión aceptada de siempre (el chat y los tragos no cambian) y NO gasta
+ * toques. */
+export async function swipePartyProfile(
+  viewer: { id: number; eventId: number; swipeEnabled: number; banned: number },
+  targetProfileId: number,
+  liked: boolean,
+): Promise<PartySwipeResult> {
+  const db = await getDb();
+  if (!db) return { ok: false, reason: 'Base de datos no disponible' };
+  if (!canSeePhotos(viewer, await partyProfileHasPhoto(viewer.id))) return { ok: false, reason: 'Primero pon tu foto' };
+
+  const target = await isSwipeCandidate(db, viewer.id, viewer.eventId, targetProfileId);
+  if (!target) return { ok: false, reason: 'Esa persona ya no está disponible' };
+
+  await db.insert(partySwipes)
+    .values({ eventId: viewer.eventId, fromProfileId: viewer.id, toProfileId: targetProfileId, liked: liked ? 1 : 0 })
+    .onDuplicateKeyUpdate({ set: { liked: liked ? 1 : 0 } });
+  if (!liked) return { ok: true, match: false };
+
+  const [back] = await db.select().from(partySwipes).where(and(
+    eq(partySwipes.fromProfileId, targetProfileId), eq(partySwipes.toProfileId, viewer.id), eq(partySwipes.liked, 1),
+  )).limit(1);
+  if (!back) return { ok: true, match: false };
+
+  const { low, high } = orderedPair(viewer.id, targetProfileId);
+  const findPair = () => db.select().from(partyConnections)
+    .where(and(eq(partyConnections.profileLowId, low), eq(partyConnections.profileHighId, high))).limit(1);
+
+  let [conn] = await findPair();
+  if (!conn) {
+    try {
+      await db.insert(partyConnections).values({
+        eventId: viewer.eventId, profileLowId: low, profileHighId: high,
+        initiatedById: viewer.id, status: 'accepted', respondedAt: new Date(), viaSwipe: 1,
+      });
+    } catch {
+      // Los dos dieron ❤️ al mismo tiempo y el otro lado ganó la carrera.
+    }
+    [conn] = await findPair();
+  } else if (conn.status !== 'accepted') {
+    // Un toque pendiente o rechazado: el ❤️ mutuo es un consentimiento más
+    // claro que cualquiera de los dos, se abre igual.
+    await db.update(partyConnections).set({ status: 'accepted', respondedAt: new Date() })
+      .where(eq(partyConnections.id, conn.id));
+  }
+  if (!conn) return { ok: false, reason: 'No se pudo abrir la conversación' };
+  return { ok: true, match: true, connectionId: conn.id, otherId: targetProfileId, otherAlias: target.alias };
 }
 
 /** Borra lo que la gente escribió, 24h después de terminada la fiesta. Los

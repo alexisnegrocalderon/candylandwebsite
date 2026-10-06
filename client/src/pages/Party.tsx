@@ -10,6 +10,7 @@ import { PartyAvatar } from '@/components/party/Avatar';
 import { Mansion, type MansionPerson } from '@/components/party/Mansion';
 import { DrinkPicker, GiftInbox } from '@/components/party/Gifts';
 import { MyPhotoPanel } from '@/components/party/MyPhotoPanel';
+import { SwipeView } from '@/components/party/Swipe';
 import {
   AVATARS_PER_GENDER, MAX_ALIAS_LENGTH, MAX_MESSAGE_LENGTH, PARTY_GENDERS, PARTY_ZONES,
   ZONE_LABELS, sanitizeAlias, type PartyGender, type PartyZone,
@@ -56,6 +57,7 @@ export default function Party() {
   const [inboxOpen, setInboxOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
+  const [tab, setTab] = useState<'mansion' | 'swipe'>('mansion');
 
   if (session.isLoading) {
     return (
@@ -74,6 +76,15 @@ export default function Party() {
 
   return (
     <div className="min-h-dvh bg-[#120a11] text-white">
+      {tab === 'swipe' ? (
+        <SwipeView
+          ticketCode={ticketCode}
+          alias={session.data.profile.alias}
+          participating={session.data.profile.hasPhoto && session.data.profile.swipeEnabled}
+          onOpenPhoto={() => setPhotoOpen(true)}
+          onOpenChat={(connectionId, alias) => setOpenChat({ connectionId, alias })}
+        />
+      ) : (
       <MansionView
         ticketCode={ticketCode}
         myZone={session.data.profile.zone as PartyZone}
@@ -87,6 +98,21 @@ export default function Party() {
         selected={selected}
         onCloseCard={() => setSelected(null)}
       />
+      )}
+
+      <nav className="fixed bottom-0 inset-x-0 z-30 bg-[#120a11]/95 backdrop-blur border-t border-white/10">
+        <div className="max-w-md mx-auto grid grid-cols-2">
+          {([['mansion', '🍬 Mansión'], ['swipe', '💘 Swipe']] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`h-14 text-sm font-bold transition-colors ${tab === id ? 'text-white' : 'text-white/40'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </nav>
 
       <AnimatePresence>
         {gifting && (

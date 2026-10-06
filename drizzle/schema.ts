@@ -1460,6 +1460,22 @@ export const partyPhotos = mysqlTable("partyPhotos", {
 
 export type PartyPhoto = typeof partyPhotos.$inferSelect;
 
+// Cada ❤️ / ✖️ del swipe. Son ciegos: quien recibe un ❤️ no se entera salvo que
+// haya match (el otro también dio ❤️). Se borran al cerrar la fiesta.
+export const partySwipes = mysqlTable("partySwipes", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  fromProfileId: int("fromProfileId").notNull(),
+  toProfileId: int("toProfileId").notNull(),
+  liked: int("liked").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  pairIdx: uniqueIndex("party_swipes_pair_idx").on(table.fromProfileId, table.toProfileId),
+  eventIdx: index("party_swipes_event_idx").on(table.eventId),
+}));
+
+export type PartySwipe = typeof partySwipes.$inferSelect;
+
 // Un toque 👋 y su respuesta. El par se guarda SIEMPRE normalizado
 // (profileLowId < profileHighId, ver orderedPair en shared/party.ts): con
 // eso el índice único de abajo impide duplicados en los dos sentidos, y
@@ -1474,6 +1490,8 @@ export const partyConnections = mysqlTable("partyConnections", {
   status: mysqlEnum("status", ["pending", "accepted", "declined"]).default("pending").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   respondedAt: timestamp("respondedAt"),
+  // Nació de un match del swipe: no gasta uno de los 15 toques de la noche.
+  viaSwipe: int("viaSwipe").default(0).notNull(),
 }, (table) => ({
   pairIdx: uniqueIndex("party_connections_pair_idx").on(table.profileLowId, table.profileHighId),
   // "mis conexiones" se consulta por cada lado del par.
