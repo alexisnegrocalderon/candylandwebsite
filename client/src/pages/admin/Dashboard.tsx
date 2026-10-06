@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
@@ -10602,6 +10602,7 @@ const ADMIN_SECTIONS = [
   { id: 'caja', label: 'Caja', group: 'Hoy', icon: Store, render: () => <CajaAdminView /> },
   { id: 'flash-promo', label: 'Promo Flash', group: 'Hoy', icon: Zap, render: () => <FlashPromoCard /> },
   { id: 'denuncias', label: 'Denuncias', group: 'Hoy', icon: ShieldAlert, render: () => <DenunciasView /> },
+  { id: 'playmatch-test', label: 'Probar Playmatch', group: 'Hoy', icon: FlaskConical, render: () => <PlaymatchTestView /> },
   { id: 'party-gifts', label: 'Tragos de la Fiesta', group: 'Hoy', icon: Martini, render: () => <PartyGiftsView /> },
 
   { id: 'orders-web', label: 'Ventas Web', group: 'Ventas', icon: Ticket, render: () => <OrdersView channel="web" /> },
@@ -10733,6 +10734,134 @@ function DenunciasView() {
       )}
     </div>
   );
+}
+
+/** Invitados de prueba para ensayar Playmatch antes de la fiesta.
+ *
+ * Crea un evento OCULTO ("draft": no sale en el sitio, ni en la caja, ni en
+ * la puerta, ni en el correo de las 3am) con N invitados. Cada uno trae su
+ * link directo y un QR en pantalla para probar el lector de /playmatch con
+ * otro celular. "Borrar todo" deja la base como estaba. */
+function PlaymatchTestView() {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.party.testStatus.useQuery(undefined, { refetchInterval: 5000 });
+  const [count, setCount] = useState(4);
+  const [inside, setInside] = useState(true);
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+
+  const refresh = () => utils.party.testStatus.invalidate();
+  const create = trpc.party.testCreate.useMutation({
+    onSuccess: () => { refresh(); toast.success('Invitados de prueba listos'); },
+    onError: onMutationError,
+  });
+  const enter = trpc.party.testEnter.useMutation({ onSuccess: refresh, onError: onMutationError });
+  const del = trpc.party.testDelete.useMutation({
+    onSuccess: () => { refresh(); toast.success('Datos de prueba borrados'); },
+    onError: onMutationError,
+  });
+
+  const copy = (text: string) => {
+    navigator.clipboard?.writeText(text).then(() => toast.success('Link copiado'), () => toast.error('No se pudo copiar'));
+  };
+
+  return (
+    <div className="space-y-5">
+      <h2 className="font-heading text-2xl">Probar Playmatch</h2>
+      <p className="text-muted-foreground text-sm">
+        Crea invitados de prueba en un evento oculto (no aparece en el sitio, ni en la caja, ni en la puerta, ni en
+        los correos). Abre el link de cada uno en un celular o navegador distinto para probar perfil, foto, swipe,
+        match y chat. "Borrar todo" deja la base como estaba.
+      </p>
+
+      <div className="p-4 rounded-2xl border border-border/50 bg-card/50 space-y-3">
+        <div className="flex flex-wrap items-end gap-4">
+          <label className="text-sm">
+            <span className="block text-muted-foreground mb-1">Invitados</span>
+            <input
+              type="number" min={2} max={10} value={count}
+              onChange={(e) => setCount(Math.max(2, Math.min(10, Number(e.target.value) || 2)))}
+              className="h-10 w-24 px-3 rounded-lg border border-border bg-background"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm pb-2">
+            <input type="checkbox" checked={inside} onChange={(e) => setInside(e.target.checked)} />
+            Ya pasaron la puerta
+          </label>
+          <WriteButton disabled={create.isPending} onClick={() => create.mutate({ count, inside })}>
+            {data?.exists ? 'Recrear invitados' : 'Crear invitados de prueba'}
+          </WriteButton>
+          {data?.exists && (
+            <WriteButton
+              variant="outline"
+              disabled={del.isPending}
+              onClick={() => { if (confirm('¿Borrar el evento de prueba y todo lo que hicieron los invitados?')) del.mutate(); }}
+            >
+              Borrar todo
+            </WriteButton>
+          )}
+        </div>
+        {!inside && (
+          <p className="text-xs text-muted-foreground">
+            Sin marcar entrada: abre /verificar/&lt;código&gt; en un celular y toca "Marcar entrada" acá; en unos
+            5 segundos le aparece "¡Ya estás adentro!" (prueba del aviso al entrar).
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">Recrear borra primero lo anterior (perfiles, fotos, swipes y chats de la prueba).</p>
+      </div>
+
+      {isLoading && <p className="text-sm text-muted-foreground">Cargando…</p>}
+      {!isLoading && !data?.exists && <p className="text-sm text-muted-foreground">Todavía no hay invitados de prueba.</p>}
+
+      {data?.exists && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {data.guests.map((g) => {
+            const link = `${origin}/fiesta/${g.ticketCode}`;
+            return (
+              <div key={g.ticketCode} className="p-4 rounded-2xl border border-border/50 bg-card/50 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-mono text-sm font-semibold">{g.ticketCode}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {g.alias ? `Alias: ${g.alias}` : 'Aún sin perfil'}
+                      {g.hasPhoto ? ' · con foto' : ''}
+                      {g.banned ? ' · expulsado' : ''}
+                    </p>
+                  </div>
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${g.status === 'used' ? 'bg-green-500/15 text-green-600' : 'bg-muted text-muted-foreground'}`}>
+                    {g.status === 'used' ? 'Adentro' : 'Afuera'}
+                  </span>
+                </div>
+                <TestGuestQr value={`${origin}/verificar/${g.ticketCode}`} />
+                <div className="flex flex-wrap gap-2">
+                  <a href={link} target="_blank" rel="noreferrer" className="text-sm underline">Abrir Playmatch</a>
+                  <button className="text-sm underline" onClick={() => copy(link)}>Copiar link</button>
+                  {g.status !== 'used' && (
+                    <WriteButton size="sm" disabled={enter.isPending} onClick={() => enter.mutate({ ticketCode: g.ticketCode })}>
+                      Marcar entrada
+                    </WriteButton>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** QR de la entrada de prueba (mismo contenido que el de una entrada real:
+ * /verificar/<código>) para probar el lector de /playmatch desde otro celular. */
+function TestGuestQr({ value }: { value: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    import('qrcode').then((m) => m.default.toDataURL(value, { width: 220, margin: 1 }))
+      .then((url) => { if (!cancelled) setSrc(url); })
+      .catch(() => { if (!cancelled) setSrc(null); });
+    return () => { cancelled = true; };
+  }, [value]);
+  return src ? <img src={src} alt="QR de la entrada de prueba" className="w-28 h-28 rounded-lg bg-white p-1" /> : <div className="w-28 h-28" />;
 }
 
 /** Tragos que se invitaron durante una fiesta. Lo importante para el local
