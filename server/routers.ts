@@ -1146,6 +1146,13 @@ export const appRouter = router({
         })),
       };
     }),
+    /* Cuántas órdenes hay por estado (botones de Ventas Web/Caja). */
+    statusCounts: adminReadProcedure.input(z.object({
+      channel: z.enum(['web', 'caja']).optional(),
+      eventId: z.number().optional(),
+    }).optional()).query(async ({ input }) => {
+      return db.getOrderStatusCounts(input?.channel, input?.eventId);
+    }),
     /* Coincidencias de una búsqueda en todos los eventos/canales/estados (para
      * avisar cuando Ventas Web no las muestra por los filtros puestos). */
     findMatching: adminReadProcedure.input(z.object({ search: z.string().trim().min(2).max(100) })).query(async ({ input }) => {

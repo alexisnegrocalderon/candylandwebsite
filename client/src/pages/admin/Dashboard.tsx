@@ -22,6 +22,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
 import { ordersOutsideFilter } from '@shared/ordersOutsideFilter';
+import { ORDERS_PAGE_SIZE, ORDERS_REMINDERS_PAGE_SIZE, nextEventId, pageCount, pageRange } from '@shared/ordersPagination';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import {
   AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
@@ -2934,7 +2935,10 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   // iPad, en cualquier orientación -- ve las tarjetas, que sí muestran todo
   // sin necesitar scroll horizontal.
   const coarse = useCoarsePointer();
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  // Abre en "Aprobadas" (las ventas reales): los carritos abandonados quedan a
+  // un toque en "Sin pagar", con su contador, en vez de mezclarse en la lista.
+  const [statusFilter, setStatusFilter] = useState<string>('approved');
+  const [page, setPage] = useState(1);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   // `searchInput` es lo que se teclea; `search` es lo que se manda al servidor,
@@ -2953,23 +2957,45 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   // Antes esta vista no tenía filtro de evento: la lista y los totales
   // mezclaban TODAS las fiestas de la historia y se leían como si fueran de
   // una sola. Con dos eventos publicados a la vez eso deja de ser un detalle.
-  const [eventFilter, setEventFilter] = useState<string>('all');
+  // Arranca en el próximo evento (o en la última elección de esta pantalla) para
+  // no mezclar fiestas; "Todos los eventos" sigue disponible.
+  const eventStorageKey = `admin-orders-event-${channel}`;
+  const [eventFilter, setEventFilterState] = useState<string>(() => {
+    try { return window.localStorage.getItem(eventStorageKey) ?? 'auto'; } catch { return 'auto'; }
+  });
+  const setEventFilter = (v: string) => {
+    setEventFilterState(v);
+    try { window.localStorage.setItem(eventStorageKey, v); } catch { /* sin almacenamiento, no pasa nada */ }
+  };
   const { data: eventsList } = trpc.events.listAll.useQuery();
-  const eventId = eventFilter === 'all' ? undefined : Number(eventFilter);
+  useEffect(() => {
+    if (eventFilter !== 'auto' || !eventsList) return;
+    const next = nextEventId(eventsList as any[]);
+    setEventFilterState(next ? String(next) : 'all');
+  }, [eventFilter, eventsList]);
+  const eventReady = eventFilter !== 'auto';
+  const eventId = eventFilter === 'all' || eventFilter === 'auto' ? undefined : Number(eventFilter);
+  // Con una búsqueda se mira TODO (cualquier evento y estado): una venta nunca
+  // se pierde por un filtro olvidado.
+  const searching = search.length >= 2;
+  const listEventId = searching ? undefined : eventId;
+  const listStatus = searching || statusFilter === 'all' ? undefined : statusFilter;
+  const pageSize = !searching && statusFilter === 'pending' ? ORDERS_REMINDERS_PAGE_SIZE : ORDERS_PAGE_SIZE;
 
   const { data: ordersData, isLoading: ordersLoading, refetch: refetchOrders } = trpc.orders.listAll.useQuery(
-    { status: statusFilter === 'all' ? undefined : statusFilter, channel, eventId, search: search || undefined },
+    { status: listStatus, channel, eventId: listEventId, search: search || undefined, page, limit: pageSize },
     // Mantiene la lista anterior en pantalla mientras llega la nueva, para que
     // la tabla no parpadee con cada búsqueda.
-    { placeholderData: (prev) => prev },
+    { placeholderData: (prev) => prev, enabled: eventReady },
   );
+  const { data: statusCounts } = trpc.orders.statusCounts.useQuery({ channel, eventId }, { enabled: eventReady });
   // Coincidencias de la búsqueda en TODOS los eventos/canales/estados: si los
   // filtros de arriba esconden alguna, se avisa en vez de dejar creer que no existe.
   const { data: matchingOrders } = trpc.orders.findMatching.useQuery({ search }, { enabled: search.length >= 2 });
   const hiddenMatches = search.length >= 2
-    ? ordersOutsideFilter(matchingOrders ?? [], { channel, eventId, status: statusFilter === 'all' ? undefined : statusFilter })
+    ? ordersOutsideFilter(matchingOrders ?? [], { channel, eventId: listEventId, status: listStatus })
     : [];
-  const { data: stats, refetch: refetchStats } = trpc.orders.getStats.useQuery({ channel, eventId });
+  const { data: stats, refetch: refetchStats } = trpc.orders.getStats.useQuery({ channel, eventId }, { enabled: eventReady });
   const { data: orderTickets, isFetching: loadingTickets } = trpc.orders.getTickets.useQuery(
     { orderId: expandedOrderId ?? 0 },
     { enabled: expandedOrderId !== null }
@@ -2995,16 +3021,21 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const ordersList = ordersData?.orders ?? [];
   const visibleOrders = ordersList;
   const totalMatching = ordersData?.total ?? ordersList.length;
-  const hiddenByCap = Math.max(0, totalMatching - ordersList.length);
   const editingOrder = ordersList.find((o: any) => o.id === editingOrderId) ?? null;
   const upgradeOrder = ordersList.find((o: any) => o.id === upgradeOrderId) ?? null;
   const addonOrder = ordersList.find((o: any) => o.id === addonOrderId) ?? null;
-  const pendingCount = ordersList.filter((o: any) => o.paymentStatus === 'pending').length;
+  // Sin pagar de este evento (del contador, no solo de la página que se ve).
+  const pendingCount = statusCounts?.pending ?? 0;
+  // Si la página actual quedó vacía (ej. se borró una orden), volver a la última.
+  useEffect(() => {
+    const last = pageCount(totalMatching, pageSize);
+    if (ordersData && page > last) setPage(last);
+  }, [ordersData, totalMatching, pageSize, page]);
 
   // Recordatorios: solo con el filtro "Sin pagar" puesto. La selección es
   // manual a propósito -- no hay "mandar a todos", para no escribirle a quien
   // abandonó hace cinco minutos o ya está hablando por WhatsApp.
-  const remindersMode = statusFilter === 'pending';
+  const remindersMode = statusFilter === 'pending' && !searching;
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [reminderOpen, setReminderOpen] = useState(false);
 
@@ -3020,7 +3051,9 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
 
   // Al cambiar de filtro la selección deja de tener sentido (y podría arrastrar
   // ids de órdenes que ya no están en pantalla).
-  useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, channel, search, eventFilter]);
+  useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, channel, search, eventFilter, page]);
+  // Cambiar evento, estado o búsqueda vuelve a la primera página.
+  useEffect(() => { setPage(1); }, [statusFilter, channel, search, eventFilter]);
 
   const filterParams = () => {
     const params = new URLSearchParams();
@@ -3043,21 +3076,11 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         <h2 className="font-heading text-2xl">{channel === 'caja' ? 'Ventas en Caja' : 'Ventas Web'}</h2>
         <div className="flex flex-wrap items-center gap-2">
           <Input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Buscar por nombre, acompañante, email o N° de orden…" className="max-w-xs" />
-          <Select value={eventFilter} onValueChange={setEventFilter}>
+          <Select value={eventFilter === 'auto' ? 'all' : eventFilter} onValueChange={setEventFilter}>
             <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos los eventos</SelectItem>
               {(eventsList ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos los estados</SelectItem>
-              <SelectItem value="approved">Aprobados</SelectItem>
-              <SelectItem value="pending">Sin pagar (pendientes)</SelectItem>
-              <SelectItem value="rejected">Rechazados</SelectItem>
-              <SelectItem value="refunded">Reembolsados</SelectItem>
             </SelectContent>
           </Select>
           <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-36" aria-label="Desde" />
@@ -3073,7 +3096,40 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         </div>
       </div>
 
-      {pendingCount > 0 && !remindersMode && (
+      {searching ? (
+        <p className="text-sm text-[var(--admin-muted)]">Buscando en todos los eventos y estados.</p>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2" role="tablist" aria-label="Estado de las órdenes">
+            {([
+              ['approved', 'Aprobadas', statusCounts?.approved],
+              ['pending', 'Sin pagar', statusCounts?.pending],
+              ['rejected', 'Rechazadas', statusCounts?.rejected],
+              ['refunded', 'Reembolsadas', statusCounts?.refunded],
+              ['all', 'Todas', statusCounts?.total],
+            ] as const).map(([value, label, count]) => (
+              <Button
+                key={value}
+                role="tab"
+                aria-selected={statusFilter === value}
+                size="sm"
+                variant={statusFilter === value ? 'default' : 'outline'}
+                className="rounded-full"
+                onClick={() => setStatusFilter(value)}
+              >
+                {label}{count !== undefined ? ` · ${count.toLocaleString('es-CL')}` : ''}
+              </Button>
+            ))}
+          </div>
+          {statusCounts && (
+            <p className="text-xs text-[var(--admin-muted)]">
+              {eventId ? 'Este evento' : 'Todos los eventos'}: {statusCounts.approved.toLocaleString('es-CL')} aprobadas · {statusCounts.pending.toLocaleString('es-CL')} sin pagar · {statusCounts.rejected.toLocaleString('es-CL')} rechazadas · {statusCounts.refunded.toLocaleString('es-CL')} reembolsadas · {statusCounts.total.toLocaleString('es-CL')} en total
+            </p>
+          )}
+        </div>
+      )}
+
+      {pendingCount > 0 && !remindersMode && !searching && (
         <p className="text-sm text-yellow-500">
           ⚠️ {pendingCount} orden{pendingCount > 1 ? 'es' : ''} sin pagar — usa el filtro "Sin pagar" para seleccionarlas y mandarles un recordatorio ya mismo.
           {' '}
@@ -3139,16 +3195,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
       </BentoGrid>
 
       {!ordersLoading && ordersList.length > 0 && (
-        <p className="text-sm text-[var(--admin-muted)]">
-          Mostrando {ordersList.length.toLocaleString('es-CL')} de {totalMatching.toLocaleString('es-CL')} órdenes
-          {search ? ` que coinciden con "${search}"` : ''}
-        </p>
-      )}
-      {hiddenByCap > 0 && (
-        <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-          Hay {hiddenByCap.toLocaleString('es-CL')} órdenes más que no se muestran (la lista tiene un tope de {ordersList.length.toLocaleString('es-CL')}).
-          Filtra por evento o por estado, o usa el buscador, para verlas.
-        </div>
+        <OrdersPager page={page} pageSize={pageSize} total={totalMatching} onPage={setPage} extra={search ? `que coinciden con "${search}"` : undefined} />
       )}
 
       {hiddenMatches.length > 0 && (
@@ -3173,7 +3220,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
         </div>
       )}
 
-      {ordersLoading ? (
+      {ordersLoading || !eventReady ? (
         <div className="admin-clay p-6">
           <TableSkeleton rows={6} />
         </div>
@@ -3565,7 +3612,26 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
             ))}
           </div>
           )}
+          <OrdersPager page={page} pageSize={pageSize} total={totalMatching} onPage={(p) => { setPage(p); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
         </>
+      )}
+    </div>
+  );
+}
+
+/** "Mostrando 26–50 de 143" + Anterior / Página 2 de 6 / Siguiente. */
+function OrdersPager({ page, pageSize, total, onPage, extra }: { page: number; pageSize: number; total: number; onPage: (p: number) => void; extra?: string }) {
+  const pages = pageCount(total, pageSize);
+  const { from, to } = pageRange(page, pageSize, total);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-[var(--admin-muted)]">
+      <span>Mostrando {from.toLocaleString('es-CL')}–{to.toLocaleString('es-CL')} de {total.toLocaleString('es-CL')} órdenes{extra ? ` ${extra}` : ''}</span>
+      {pages > 1 && (
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => onPage(page - 1)}>Anterior</Button>
+          <span className="tabular-nums">Página {page} de {pages}</span>
+          <Button size="sm" variant="outline" disabled={page >= pages} onClick={() => onPage(page + 1)}>Siguiente</Button>
+        </div>
       )}
     </div>
   );

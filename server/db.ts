@@ -1,6 +1,7 @@
 import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, isNull, isNotNull, ne, getTableColumns } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { randomBytes } from "crypto";
+import { normalizeStatusCounts } from "../shared/ordersPagination";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -2162,6 +2163,20 @@ export async function getOrderStats(channel?: 'web' | 'caja', eventId?: number) 
   }).from(orders).where(where);
 
   return stats;
+}
+
+/** Cuántas órdenes hay por estado (para los botones de Ventas Web/Caja):
+ * mismo alcance que `getAllOrders` (canal y evento), sin filtrar por estado. */
+export async function getOrderStatusCounts(channel?: 'web' | 'caja', eventId?: number) {
+  const db = await getDb();
+  if (!db) return normalizeStatusCounts([]);
+  const conditions = [];
+  if (channel === 'caja') conditions.push(eq(orders.channel, 'caja'));
+  else if (channel === 'web') conditions.push(sql`${orders.channel} != 'caja'`);
+  if (eventId) conditions.push(eq(orders.eventId, eventId));
+  const rows = await db.select({ status: orders.paymentStatus, count: sql<number>`COUNT(*)` })
+    .from(orders).where(conditions.length ? and(...conditions) : undefined).groupBy(orders.paymentStatus);
+  return normalizeStatusCounts(rows);
 }
 
 /* Contadores para las burbujas del menú del admin (client/src/pages/admin/
