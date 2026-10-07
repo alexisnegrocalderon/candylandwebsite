@@ -1,5 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { formatRutLive, normalizeRut, isValidRut } from "./rut";
+import { formatRutLive, normalizeRut, isValidRut, isValidPassport } from "./rut";
+
+describe("isValidPassport", () => {
+  it("acepta pasaportes alfanuméricos de largo razonable", () => {
+    expect(isValidPassport("AB123456")).toBe(true);
+    expect(isValidPassport("123456789")).toBe(true);
+    expect(isValidPassport("ab123456")).toBe(true);
+  });
+
+  it("acepta espacios al tipear pero los ignora al validar", () => {
+    expect(isValidPassport(" AB 123 456 ")).toBe(true);
+  });
+
+  it("rechaza vacío, muy corto, muy largo o con caracteres raros", () => {
+    expect(isValidPassport("")).toBe(false);
+    expect(isValidPassport("AB12")).toBe(false);
+    expect(isValidPassport("A".repeat(16))).toBe(false);
+    expect(isValidPassport("AB-123456")).toBe(false);
+  });
+});
 
 describe("formatRutLive", () => {
   it("no toca nada mientras hay 0 o 1 carácter -- todavía no hay nada que agrupar", () => {

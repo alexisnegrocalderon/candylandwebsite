@@ -23,6 +23,15 @@ export function isValidRut(rutInput: string): boolean {
   return dv === expectedDv;
 }
 
+/** Validación laxa de número de pasaporte: no hay dígito verificador ni
+ * formato único (cada país emite el suyo), así que solo se exige un largo
+ * razonable y caracteres alfanuméricos -- para gente sin RUT chileno que
+ * compra con pasaporte (ver selector de tipo de documento en Checkout.tsx). */
+export function isValidPassport(value: string): boolean {
+  const clean = value.trim().replace(/\s/g, '').toUpperCase();
+  return /^[A-Z0-9]{5,15}$/.test(clean);
+}
+
 /** Formato chileno de celular: +56 9 XXXXXXXX, con o sin espacios/guiones/prefijo. */
 export function isValidChileanPhone(phoneInput: string): boolean {
   const clean = phoneInput.trim().replace(/[\s-]/g, '');

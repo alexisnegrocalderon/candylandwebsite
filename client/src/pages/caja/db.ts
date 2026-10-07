@@ -13,10 +13,12 @@ export interface CajaAttendee {
   buyerName: string;
   buyerEmail: string;
   buyerPhone: string | null;
-  /** Titular + acompañantes, cada uno con su propio nombre y RUT -- es lo
-   * que el anfitrión compara persona por persona contra la cédula en la
-   * puerta. `rut` es `null` si esa persona no lo tiene capturado. */
-  attendees: { name: string; rut: string | null }[];
+  /** Titular + acompañantes, cada uno con su propio nombre y documento -- es
+   * lo que el anfitrión compara persona por persona contra la cédula o el
+   * pasaporte en la puerta. `rut` es `null` si esa persona no lo tiene
+   * capturado. `docType` indica si ese valor es un RUT chileno o un
+   * pasaporte (selector elegido en el checkout, ver Checkout.tsx). */
+  attendees: { name: string; rut: string | null; docType: 'rut' | 'passport' }[];
   access: { ticketCode: string; status: string; typeName: string; accesoSlug: string | null; groupSize: number | null }[];
   extras: { displayCode: string | null; status: string; typeName: string }[];
 }

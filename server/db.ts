@@ -1079,27 +1079,29 @@ export function parseAttendeeRuts(attendeeDataJson: string | null | undefined): 
  * `acceso__acomp1_rut` → otro, etc.), así cada nombre queda pareado con SU
  * RUT aunque algún campo venga vacío. Usado en Puerta para mostrar todas las
  * personas de un acceso, no solo la del titular. */
-export function parseAttendees(attendeeDataJson: string | null | undefined): { name: string; rut: string | null }[] {
+export function parseAttendees(attendeeDataJson: string | null | undefined): { name: string; rut: string | null; docType: 'rut' | 'passport' }[] {
   if (!attendeeDataJson) return [];
   try {
     const parsed = JSON.parse(attendeeDataJson);
     const campos = parsed?.campos ?? {};
-    const bySlot = new Map<string, { name?: string; rut?: string }>();
+    const bySlot = new Map<string, { name?: string; rut?: string; docType?: string }>();
     const order: string[] = [];
     for (const [key, value] of Object.entries(campos)) {
       if (typeof value !== 'string' || !value.trim()) continue;
-      const m = key.match(/^(.*)_(nombre|rut)$/i);
+      const m = key.match(/^(.*)_(nombre|rut|docTipo)$/i);
       if (!m) continue;
       const [, slot, field] = m;
       if (!bySlot.has(slot)) { bySlot.set(slot, {}); order.push(slot); }
       const entry = bySlot.get(slot)!;
-      if (field.toLowerCase() === 'nombre') entry.name = value.trim();
-      else entry.rut = normalizeRut(value);
+      const lower = field.toLowerCase();
+      if (lower === 'nombre') entry.name = value.trim();
+      else if (lower === 'rut') entry.rut = normalizeRut(value);
+      else entry.docType = value.trim();
     }
     return order
       .map((slot) => bySlot.get(slot)!)
       .filter((e) => !!e.name)
-      .map((e) => ({ name: e.name!, rut: e.rut ?? null }));
+      .map((e) => ({ name: e.name!, rut: e.rut ?? null, docType: e.docType === 'passport' ? 'passport' : 'rut' }));
   } catch {
     return [];
   }
@@ -2846,7 +2848,7 @@ export async function getCajaSnapshot(eventId: number) {
       buyerPhone: o.buyerPhone,
       attendees: parsedAttendees.length > 0
         ? parsedAttendees
-        : [{ name: o.buyerName, rut: parseBuyerRut(o.attendeeData) ?? rutByEmail.get((o.buyerEmail || '').trim().toLowerCase()) ?? null }],
+        : [{ name: o.buyerName, rut: parseBuyerRut(o.attendeeData) ?? rutByEmail.get((o.buyerEmail || '').trim().toLowerCase()) ?? null, docType: 'rut' as const }],
       access: ts.filter((t: any) => ttById.get(t.ticketTypeId)?.category === 'acceso').map((t: any) => ({
         ticketCode: t.ticketCode,
         status: t.status,
