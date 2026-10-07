@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, whatsappComunidadLink, type Acceso, type CampoForm } from '@/config/candyland';
 import { isMissionActiveForEvent, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
-import { isValidRut, isValidChileanPhone, formatRutLive } from '@shared/rut';
+import { isValidRut, isValidPassport, isValidChileanPhone, formatRutLive } from '@shared/rut';
 import { isTopupProduct } from '@shared/prepaid';
 import { playcoinsEarnedForPurchase } from '@shared/playcoins';
 import { dropSupersededTickets } from '@shared/liveTickets';
@@ -122,8 +122,27 @@ const COMMUNITY_CODE_FIELD: CampoForm = {
   help: 'Sin código no se puede completar la compra. Consíguelo por WhatsApp.',
 };
 
+/** `true` si el campo es un RUT (comprador o acompañante) -- mismo criterio
+ * usado en todo el checkout para saber a qué campos aplica el selector de
+ * tipo de documento (RUT/Pasaporte). */
+function isRutFieldName(name: string): boolean {
+  return name === 'rut' || name.endsWith('_rut');
+}
+
+/** Clave del campo hermano "tipo de documento" de un campo RUT -- mismo
+ * prefijo/slot (`buyer__rut` -> `buyer__docTipo`, `acceso__acomp1_rut` ->
+ * `acceso__acomp1_docTipo`), para que `parseAttendees` (server/db.ts) agrupe
+ * ambos bajo la misma persona. A propósito no contiene "rut" en el nombre:
+ * `parseAttendeeRuts` cruza contra la lista de bloqueados cualquier campo
+ * cuya CLAVE contenga "rut", y el valor de este campo ("rut"/"passport") no
+ * es un documento a bloquear. */
+function docTipoKeyFor(fieldKey: string): string {
+  return fieldKey.replace(/rut$/, 'docTipo');
+}
+
 function buildSchema(fields: { key: string; field: CampoForm }[]) {
   const shape: Record<string, z.ZodTypeAny> = {};
+  const rutKeys: string[] = [];
   for (const { key, field } of fields) {
     if (field.type === 'checkbox') {
       shape[key] = field.required
@@ -133,10 +152,15 @@ function buildSchema(fields: { key: string; field: CampoForm }[]) {
       shape[key] = field.required
         ? z.string().min(1, 'Este dato es necesario').email('Revisa el formato del email')
         : z.string().email('Revisa el formato del email').or(z.literal('')).optional();
-    } else if (field.name === 'rut' || field.name.endsWith('_rut')) {
+    } else if (isRutFieldName(field.name)) {
+      // El formato (RUT chileno vs. pasaporte) se valida más abajo, en el
+      // `.superRefine()` -- depende del campo hermano `docTipo`, que todavía
+      // no está armado en este punto del loop.
       shape[key] = field.required
-        ? z.string().min(1, 'Este dato es necesario').refine(isValidRut, 'RUT inválido')
-        : z.string().refine((v) => !v || isValidRut(v), 'RUT inválido').or(z.literal('')).optional();
+        ? z.string().min(1, 'Este dato es necesario')
+        : z.string().optional();
+      shape[docTipoKeyFor(key)] = z.enum(['rut', 'passport']).default('rut');
+      rutKeys.push(key);
     } else if (field.type === 'tel') {
       shape[key] = field.required
         ? z.string().min(1, 'Este dato es necesario').refine(isValidChileanPhone, 'Revisa el formato del teléfono (+56 9 XXXXXXXX)')
@@ -147,7 +171,21 @@ function buildSchema(fields: { key: string; field: CampoForm }[]) {
       shape[key] = z.string().optional();
     }
   }
-  return z.object(shape);
+  return z.object(shape).superRefine((values, ctx) => {
+    for (const key of rutKeys) {
+      const value = (values as Record<string, unknown>)[key];
+      if (typeof value !== 'string' || !value) continue; // vacío ya lo marcó el .min(1) de arriba si era obligatorio
+      const tipo = (values as Record<string, unknown>)[docTipoKeyFor(key)];
+      const valido = tipo === 'passport' ? isValidPassport(value) : isValidRut(value);
+      if (!valido) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [key],
+          message: tipo === 'passport' ? 'Pasaporte inválido' : 'RUT inválido',
+        });
+      }
+    }
+  });
 }
 
 /* Autocomplete semántico por nombre de campo (teclado móvil correcto) */
@@ -167,14 +205,14 @@ function friendlyPregunta(rawKey: string, field: CampoForm): { titulo: string; s
     const n = Number(m[1]);
     const quien = n === 1 && !field.required ? 'tu +1' : n === 1 ? 'tu acompañante' : `tu acompañante ${n}`;
     if (m[2] === 'nombre') return { titulo: `¿Cómo se llama ${quien}?`, sub: field.required ? 'Así aparece en su carnet de acceso.' : 'Puedes completarlo ahora o después — es opcional.' };
-    if (m[2] === 'rut') return { titulo: '¿Cuál es su RUT?', sub: field.required ? 'Escríbelo con puntos y guion, igual que el ejemplo: 12.345.678-9' : 'Opcional. Si lo pones, escríbelo igual que el ejemplo: 12.345.678-9' };
+    if (m[2] === 'rut') return { titulo: '¿Cuál es su documento?', sub: '¿Tiene RUT chileno o pasaporte? Elige abajo y escríbelo en el formato correspondiente.' };
     return { titulo: '¿Su Instagram?', sub: 'Opcional, para etiquetarlos en las fotos de la fiesta.' };
   }
   switch (rawKey) {
     case 'nombre': return { titulo: '¿Cómo te llamas?', sub: 'Nombre y apellido, tal como aparece en tu carnet de identidad o el documento que vas a presentar en la entrada.' };
     case 'email': return { titulo: '¿A qué email enviamos tu entrada?', sub: 'Ahí llega tu QR y la dirección exacta.' };
     case 'whatsapp': return { titulo: '¿Cuál es tu WhatsApp?', sub: 'Por si necesitamos contactarte antes de la fiesta.' };
-    case 'rut': return { titulo: 'Tu RUT, para el carnet', sub: 'Escríbelo con puntos y guion, igual que el ejemplo: 12.345.678-9. Tus datos son 100% privados.' };
+    case 'rut': return { titulo: '¿Cuál es tu documento?', sub: '¿Tienes RUT chileno o pasaporte? Elige abajo y escríbelo en el formato correspondiente. Tus datos son 100% privados.' };
     case 'instagram': return { titulo: '¿Nos compartes tu Instagram?', sub: 'Es el único dato opcional — puedes saltarlo.' };
     case 'mayorEdad': return { titulo: 'Una última confirmación', sub: `${EVENTO.nombre} es un evento estrictamente +18.` };
     case 'codigo_acceso': return { titulo: 'Tu código de comunidad', sub: field.help };
@@ -218,25 +256,56 @@ function SquareImageOption({
 }
 
 function SingleFieldInput({
-  fieldKey, field, register, setValue, error, onEnter,
-}: { fieldKey: string; field: CampoForm; register: any; setValue: any; error?: string; onEnter: () => void }) {
+  fieldKey, field, register, setValue, watch, error, onEnter,
+}: { fieldKey: string; field: CampoForm; register: any; setValue: any; watch: any; error?: string; onEnter: () => void }) {
   // Mismo criterio que buildSchema() más arriba para saber si es un campo de
   // RUT (comprador o acompañante) -- puntos y guion se ponen solos mientras
   // se escribe, pedido explícito del dueño (antes había que tipear el guion
   // a mano). Ver formatRutLive en shared/rut.ts.
   const isRut = field.name === 'rut' || field.name.endsWith('_rut');
+  // Selector RUT/Pasaporte: gente sin RUT chileno (extranjeros) también
+  // necesita poder comprar -- el campo sigue siendo obligatorio, solo cambia
+  // cómo se valida y se formatea según lo elegido. Ver docTipoKeyFor() y el
+  // `.superRefine()` de buildSchema() más arriba.
+  const tipoKey = isRut ? docTipoKeyFor(fieldKey) : undefined;
+  const tipo = (tipoKey ? watch(tipoKey) : undefined) ?? 'rut';
+  const esPasaporte = isRut && tipo === 'passport';
+
   return (
     <div>
+      {isRut && tipoKey && (
+        <>
+          <input type="hidden" {...register(tipoKey)} defaultValue="rut" />
+          <div className="flex gap-2 mb-3" role="group" aria-label="Tipo de documento">
+          {(['rut', 'passport'] as const).map((opcion) => (
+            <button
+              key={opcion}
+              type="button"
+              aria-pressed={tipo === opcion}
+              onClick={() => {
+                setValue(tipoKey, opcion, { shouldValidate: false });
+                setValue(fieldKey, '', { shouldValidate: false });
+              }}
+              className={`flex-1 h-10 rounded-full text-sm font-semibold uppercase tracking-wide border transition-colors interactive ${
+                tipo === opcion ? 'border-primary bg-primary/15 text-primary' : 'border-border/50 text-muted-foreground hover:border-primary/40'
+              }`}
+            >
+              {opcion === 'rut' ? 'RUT' : 'Pasaporte'}
+            </button>
+          ))}
+          </div>
+        </>
+      )}
       <Input
         id={fieldKey}
         type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : field.type === 'tel' ? 'tel' : field.type === 'email' ? 'email' : 'text'}
         inputMode={field.type === 'tel' ? 'tel' : field.type === 'email' ? 'email' : field.type === 'number' ? 'numeric' : undefined}
         autoComplete={autoCompleteFor(fieldKey)}
         autoFocus
-        {...(isRut
+        {...(isRut && !esPasaporte
           ? register(fieldKey, { onChange: (e: React.ChangeEvent<HTMLInputElement>) => setValue(fieldKey, formatRutLive(e.target.value), { shouldValidate: false }) })
           : register(fieldKey))}
-        placeholder={field.placeholder}
+        placeholder={esPasaporte ? 'Número de pasaporte' : field.placeholder}
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onEnter(); } }}
         className="h-14 text-lg"
       />
@@ -1069,7 +1138,7 @@ export default function Checkout() {
 
               {/* Pasos de un solo campo (datos / contacto / extra del acceso) */}
               {pasoActual.id !== 'codigo-comunidad' && pasoActual.keys.length > 0 && soloFieldKey && soloField && soloField.type !== 'checkbox' && (
-                <SingleFieldInput fieldKey={soloFieldKey} field={soloField} register={register} setValue={setValue} error={err(soloFieldKey)} onEnter={continuar} />
+                <SingleFieldInput fieldKey={soloFieldKey} field={soloField} register={register} setValue={setValue} watch={watch} error={err(soloFieldKey)} onEnter={continuar} />
               )}
 
               {/* Paso de confirmación (checkbox): antes era una card sutil

@@ -31,9 +31,9 @@ type Ficha = {
    * invitación especial instantánea (un solo QR para todo un grupo). */
   groupSize: number | null;
   status: string;
-  /** Titular + acompañantes, cada uno con su propio nombre y RUT -- ver
+  /** Titular + acompañantes, cada uno con su propio nombre y documento -- ver
    * `caja/db.ts`. */
-  attendees: { name: string; rut: string | null }[];
+  attendees: { name: string; rut: string | null; docType: 'rut' | 'passport' }[];
   extras: { typeName: string; status: string }[];
   buyerName: string;
 };
@@ -202,7 +202,7 @@ function Scanner({ operatorName }: { operatorName: string }) {
       accesoSlug: acc.accesoSlug,
       groupSize: acc.groupSize ?? null,
       status: acc.status,
-      attendees: attendee.attendees?.length ? attendee.attendees : [{ name: attendee.buyerName, rut: null }],
+      attendees: attendee.attendees?.length ? attendee.attendees : [{ name: attendee.buyerName, rut: null, docType: 'rut' as const }],
       extras: attendee.extras.map((e) => ({ typeName: e.typeName, status: e.status })),
       buyerName: attendee.buyerName,
     };
@@ -392,7 +392,10 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
                     </p>
                     <p className={`${nameSize} font-bold leading-snug`}>{p.name}</p>
                     {p.rut ? (
-                      <p className={`${rutSize} font-mono font-bold tracking-wider mt-1`}>{p.rut}</p>
+                      <>
+                        <p className="text-xs uppercase tracking-widest text-white/45 mt-1.5">{p.docType === 'passport' ? 'Pasaporte' : 'RUT'}</p>
+                        <p className={`${rutSize} font-mono font-bold tracking-wider`}>{p.rut}</p>
+                      </>
                     ) : (
                       <p className="text-sm text-amber-200/80 mt-1">RUT no registrado — pídelo verbalmente</p>
                     )}
