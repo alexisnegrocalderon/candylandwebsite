@@ -114,6 +114,15 @@ export function normalizeAiDesign(raw: unknown): AiDesign {
   };
 }
 
+/** Reemplaza el HTML de una lámina (edición a mano en el panel). Rechaza lo que
+ * no cabe en vez de recortarlo: un HTML cortado a la mitad rompería la lámina. */
+export function replaceSlideHtml(design: AiDesign, index: number, html: string): AiDesign {
+  if (!Number.isInteger(index) || index < 0 || index >= design.slides.length) throw new Error('Esa lámina no existe.');
+  if (!html.trim()) throw new Error('La lámina quedó vacía.');
+  if (html.length > AI_MAX_SLIDE_HTML) throw new Error('La lámina quedó demasiado pesada para guardarla.');
+  return { ...design, slides: design.slides.map((s, i) => (i === index ? { html } : s)) };
+}
+
 /* --- Operaciones de edición (lo que devuelve la IA al ajustar) ------------- */
 
 export const AI_OPS = ['set_css', 'set_slide', 'insert_slide', 'delete_slide', 'move_slide', 'set_caption'] as const;

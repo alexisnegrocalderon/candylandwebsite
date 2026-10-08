@@ -32,7 +32,11 @@ export const SlideFrame = forwardRef<SlideFrameHandle, {
   /** Ancho en pantalla (px). */
   width: number;
   className?: string;
-}>(function SlideFrame({ css, format, slide, width, className }, ref) {
+  /** El editor a mano necesita poder tocar la lámina. */
+  interactive?: boolean;
+  /** Se llama cuando la lámina terminó de cargar y de ajustar su texto. */
+  onDocReady?: (doc: Document) => void;
+}>(function SlideFrame({ css, format, slide, width, className, interactive, onDocReady }, ref) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const size = STUDIO_SIZES[format];
   const scale = width / size.width;
@@ -56,7 +60,9 @@ export const SlideFrame = forwardRef<SlideFrameHandle, {
     const doc = iframeRef.current?.contentDocument;
     const done = loaded.current.resolve;
     if (!doc) { done(); return; }
-    fitWhenReady(doc).catch(() => { /* sin ajuste: se ve como la escribió la IA */ }).finally(done);
+    fitWhenReady(doc)
+      .catch(() => { /* sin ajuste: se ve como la escribió la IA */ })
+      .finally(() => { onDocReady?.(doc); done(); });
   };
 
   return (
@@ -67,8 +73,8 @@ export const SlideFrame = forwardRef<SlideFrameHandle, {
         sandbox="allow-same-origin"
         srcDoc={srcDoc}
         onLoad={onLoad}
-        style={{ width: size.width, height: size.height, border: 0, transform: `scale(${scale})`, transformOrigin: 'top left', pointerEvents: 'none' }}
-        tabIndex={-1}
+        style={{ width: size.width, height: size.height, border: 0, transform: `scale(${scale})`, transformOrigin: 'top left', pointerEvents: interactive ? 'auto' : 'none' }}
+        tabIndex={interactive ? 0 : -1}
       />
     </div>
   );
