@@ -9,6 +9,8 @@ import {
 import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/tandaSchedule';
 import type { IgMessage } from '../drizzle/schema';
 import { AGENT_SITE_PAGES, AGENT_PAGE_KEYS, stripUrlsFromReply } from './agentLinks';
+import { cleanAiMarks } from '../shared/captionCheck';
+import { AI_PHRASES_ES } from '../shared/aiPhrasesEs';
 import { EVENT_BRAND } from '../shared/eventBrand';
 import { dropSupersededTickets } from '../shared/liveTickets';
 
@@ -360,6 +362,7 @@ function buildSystemPrompt(
     `- Español chileno, cercano y breve: 1 a 3 frases, máximo ${IG_MAX_REPLY_CHARS} caracteres. Es un chat, no un correo.`,
     `- Sin markdown, sin listas con viñetas, sin negritas. Texto plano tal cual se lee en ${name}.`,
     '- Como mucho un emoji, y solo si calza.',
+    `- Que no suene a bot ni a folleto: no uses rayas largas (—) ni muletillas de IA como ${AI_PHRASES_ES.slice(0, 10).map((p) => `"${p.label}"`).join(', ')}.`,
     '- Saluda de forma natural solo la primera vez que le escribes a alguien en el hilo -- no repitas un saludo tipo "¡Hola! 💜" en cada respuesta del mismo hilo, ya se conocen.',
     '- Muestra entusiasmo genuino cuando corresponda, sin sobreactuar (el límite de un emoji sigue aplicando). Si la persona ya te contó algo de ella (su nombre, que va con amigas, que es su primera vez), úsalo para que se sienta una conversación real -- nunca le repitas una pregunta que ya te respondió.',
     '- Evita sonar a folleto o catálogo: si tienes 3 o más datos para dar, no los metas todos en una sola frase -- da lo esencial y cierra con una pregunta, en vez de listar todo de un tirón.',
@@ -538,7 +541,9 @@ export async function runInstagramAgent(input: {
     // coló un link en el texto, se saca y se convierte en el botón que
     // corresponde (ver server/agentLinks.ts).
     const stripped = stripUrlsFromReply(typeof parsed.reply === 'string' ? parsed.reply : '');
-    const reply = stripped.text;
+    // Sin marcas de IA seguras de quitar (caracteres invisibles, rayas largas):
+    // nunca se cambian palabras, solo puntuación invisible o delatora.
+    const reply = cleanAiMarks(stripped.text);
     if (reply.length === 0 && !isPersonal) return fallback;
 
     const allowedActions: AgentAction[] = channel === 'whatsapp'

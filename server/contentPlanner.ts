@@ -1,5 +1,6 @@
 import { invokeLLM, extractContent, NO_THINKING } from './_core/llm';
 import { ENV } from './_core/env';
+import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
 import { getEventById, getFeaturedEvent, getSiteSettings, listActiveIgKeywordAutomations } from './db';
 import { buildEventFacts } from './winback';
 import { ALL_ARTICLES } from '../client/src/content';
@@ -52,7 +53,7 @@ const PLAN_SCHEMA = {
             visual: { type: 'string', description: 'Qué grabar o fotografiar, concreto y posible de hacer con un celular.' },
             slides: { type: 'array', items: { type: 'string' }, description: 'SOLO en carruseles: el texto de cada lámina, en orden, de 3 a 10 láminas (la primera frena el scroll, la última pide la interacción). En cualquier otro formato, lista vacía.' },
             interaction: { type: 'string', description: 'Lo que le pides a la gente que haga: comentar algo concreto, etiquetar a alguien, votar en la encuesta de la historia, responder, guardar... Una frase. Vacío si la pieza no pide nada.' },
-            hashtags: { type: 'array', items: { type: 'string' }, description: 'De 3 a 6 hashtags, incluido #MansionPlayroom.' },
+            hashtags: { type: 'array', items: { type: 'string' }, description: 'De 3 a 5 hashtags (Instagram permite máximo 5), incluido #MansionPlayroom.' },
             keyword: { type: 'string', description: 'Solo en historias: una palabra clave de la lista entregada para que respondan a la historia, o vacío.' },
           },
           required: ['date', 'time', 'format', 'goal', 'hook', 'caption', 'visual', 'slides', 'interaction', 'hashtags', 'keyword'],
@@ -116,6 +117,7 @@ const LOYALTY_IDEAS = [
 ].join('\n');
 
 const SYSTEM_PROMPT = [
+  AI_PHRASES_PROMPT_LINE,
   'Eres el estratega de contenido de Mansion Playroom, una productora de fiestas liberales en Valparaíso / Viña del Mar, Chile. Le hablas al dueño: directo, en español chileno.',
   'Armas el calendario de publicaciones de Instagram (@mansionplayroom.cl) hasta el próximo evento. Cada pieza trae el texto listo para copiar, qué grabar y a qué hora publicar. El objetivo no es solo vender: es construir una comunidad que participa, comenta y vuelve.',
   'Reglas de contenido: nada sexual explícito ni doble sentido grueso -- la marca habla de respeto, consentimiento y libertad, y es solo para mayores de 18. Nunca muestres ni insinúes a personas concretas del público. No inventes shows, invitados, premios ni precios: usa SOLO los datos reales entregados. Nunca pidas fotos íntimas ni expongas a nadie; si republicas algo de la comunidad, siempre con permiso.',
