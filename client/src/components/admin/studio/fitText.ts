@@ -5,17 +5,19 @@
  * más que la lámina entera y se sale por el borde (pasó en la primera prueba
  * real, 08/10). En vez de confiar en que la IA calcule bien cada ancho, se
  * mide el texto ya dibujado y, si se sale por la derecha, se le baja el
- * tamaño de letra justo lo necesario para que quepa con el mismo margen que
- * tiene por la izquierda.
+ * tamaño de letra justo lo necesario para que quepa con aire a la derecha.
  *
- * Corre sobre el DOM del iframe (mismo origen), así lo que se ve en el panel
- * y lo que sale en el PNG es lo mismo. Solo ACHICA y solo lo que se pasa: una
+ * Corre igual sobre el iframe de la vista previa y sobre la lámina que se
+ * dibuja para exportar, así lo que se ve en el panel y lo que sale en el PNG es
+ * lo mismo. Solo ACHICA y solo lo que se pasa: una
  * lámina bien hecha no se toca. */
 
-/** Margen mínimo y máximo (px) que se deja a la derecha: el que tiene el
- * texto por la izquierda, entre estos topes (las láminas de marca usan 108). */
-const MIN_MARGIN = 60;
-const MAX_MARGIN = 108;
+/** Aire mínimo a la derecha: el 5% del ancho (54 px en 1080), el mismo criterio
+ * de «formatos-instagram» del Design System. Es un piso, no un estilo: los
+ * diseños de marca dejan ~90 px y NO deben tocarse (una regla más estricta,
+ * de 108 px, achicaba de más los titulares del Desafío). Solo se corrige texto
+ * que se sale o queda pegado al borde. */
+const SAFE_MARGIN_RATIO = 0.05;
 /** Pasadas por elemento: una sola suele alcanzar; el resto cubre el redibujado
  * de líneas (al achicar, un título que antes partía en 2 líneas cambia de ancho). */
 const MAX_PASSES = 4;
@@ -63,8 +65,7 @@ export function fitBoardText(board: HTMLElement): FitReport {
       if (!box) break;
       const left = (box.left - boardRect.left) / scale;
       const right = (box.right - boardRect.left) / scale;
-      const margin = Math.min(MAX_MARGIN, Math.max(MIN_MARGIN, left));
-      const limit = width - margin;
+      const limit = width - width * SAFE_MARGIN_RATIO;
       if (right <= limit + 0.5) break;
 
       const available = limit - Math.max(left, 0);
@@ -81,21 +82,37 @@ export function fitBoardText(board: HTMLElement): FitReport {
   return { adjusted };
 }
 
+/** Pausa con el temporizador de la PÁGINA PRINCIPAL. Nunca el de la ventana de
+ * un iframe `sandbox` sin scripts: Safari (iPad) no los ejecuta, y una espera
+ * que depende de ellos no termina jamás (la exportación quedaba girando). */
+export const sleep = (ms: number) => new Promise<void>((resolve) => { window.setTimeout(resolve, ms); });
+
+/** Deja que `promise` termine, pero nunca espera más de `ms`. */
+export async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  return Promise.race([promise, sleep(ms).then(() => undefined)]);
+}
+
 /** Espera fuentes e imágenes de la lámina y recién ahí mide: antes de que
- * cargue Gliker, el texto se mediría con la letra de reemplazo. */
-export async function fitWhenReady(doc: Document): Promise<FitReport> {
-  const board = doc.querySelector<HTMLElement>('.board');
-  if (!board) return { adjusted: 0 };
-  await doc.fonts.ready;
-  await Promise.all(
-    Array.from(doc.images).map((img) => (img.complete ? Promise.resolve() : new Promise<void>((resolve) => { img.onload = img.onerror = () => resolve(); }))),
-  );
+ * cargue Gliker, el texto se mediría con la letra de reemplazo. Todo con tope
+ * de tiempo y sin depender de eventos ni temporizadores del documento de la
+ * lámina (puede estar en un iframe sin scripts). */
+export async function waitForBoardAssets(board: HTMLElement, maxMs = 3000): Promise<void> {
+  const doc = board.ownerDocument;
+  const pending: Promise<unknown>[] = [];
+  if (doc.fonts?.ready) pending.push(doc.fonts.ready);
+  for (const img of Array.from(board.querySelectorAll('img'))) {
+    if (!img.complete && typeof img.decode === 'function') pending.push(img.decode().catch(() => undefined));
+  }
+  await withTimeout(Promise.all(pending), maxMs);
   // Un cuadro más: las fuentes recién listas todavía no repartieron las líneas.
-  // (Con tope de tiempo: en una pestaña oculta el navegador no dibuja cuadros.)
   await new Promise<void>((resolve) => {
-    const win = doc.defaultView!;
-    win.requestAnimationFrame(() => resolve());
-    win.setTimeout(resolve, 150);
+    window.requestAnimationFrame(() => resolve());
+    window.setTimeout(resolve, 150);
   });
+}
+
+/** Espera lo necesario y achica el texto que se sale. Siempre termina. */
+export async function fitWhenReady(board: HTMLElement): Promise<FitReport> {
+  await waitForBoardAssets(board);
   return fitBoardText(board);
 }
