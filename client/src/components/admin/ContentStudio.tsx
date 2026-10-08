@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  ArrowDown, ArrowLeft, ArrowUp, Copy, Download, Image as ImageIcon, Loader2, Palette, Plus, Save, Share2, Trash2, X,
+  ArrowDown, ArrowLeft, ArrowUp, Copy, Download, Image as ImageIcon, Loader2, Palette, Plus, Save, Share2, Sparkles, Trash2, X,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,8 @@ import { PASTEL_PALETTE_LABELS, StudioSlideView } from './studio/StudioSlideView
 import { downloadSlide, downloadZip, shareSlides, slideFileName } from './studio/exportSlides';
 import { newSlide, starterSlides } from './studio/starters';
 import { takeQueuedDesign } from './studio/handoff';
+import { AiDesigner } from './studio/AiDesigner';
+import { SlideFrame } from './studio/SlideFrame';
 
 /* Estudio de contenido: arma carruseles, posts e historias con las plantillas
  * de marca y los exporta a PNG (1080×1440 o 1080×1920) desde el navegador.
@@ -100,19 +102,29 @@ function useWidth<T extends HTMLElement>(fallback: number) {
   return [ref, width] as const;
 }
 
+/** Diseño del Diseñador IA abierto: uno guardado (`designId`) o uno nuevo. */
+interface AiOpen {
+  designId?: number;
+  format: StudioFormat;
+}
+
 export function ContentStudio() {
   const [editing, setEditing] = useState<Editing | null>(() => {
     const queued = takeQueuedDesign();
     return queued ? { design: queued, dirty: true } : null;
   });
+  const [ai, setAi] = useState<AiOpen | null>(null);
 
+  if (ai) {
+    return <AiDesigner key={ai.designId ?? 'nuevo'} designId={ai.designId} format={ai.format} onClose={() => setAi(null)} />;
+  }
   if (editing) {
     return <StudioEditor editing={editing} setEditing={setEditing} onClose={() => setEditing(null)} />;
   }
-  return <StudioHome onOpen={setEditing} />;
+  return <StudioHome onOpen={setEditing} onOpenAi={setAi} />;
 }
 
-function StudioHome({ onOpen }: { onOpen: (e: Editing) => void }) {
+function StudioHome({ onOpen, onOpenAi }: { onOpen: (e: Editing) => void; onOpenAi: (a: AiOpen) => void }) {
   const utils = trpc.useUtils();
   const { data: designs, isLoading } = trpc.contentStudio.list.useQuery();
   const [format, setFormat] = useState<StudioFormat>('carrusel');
@@ -145,19 +157,33 @@ function StudioHome({ onOpen }: { onOpen: (e: Editing) => void }) {
       <div>
         <h2 className="font-heading text-2xl flex items-center gap-2"><Palette className="w-6 h-6" /> Estudio de contenido</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Arma carruseles, posts e historias con las plantillas de la marca y descárgalos listos para Instagram (3:4 y 9:16).
-          También puedes abrir aquí cualquier pieza del Plan de contenido con el botón «Abrir en Estudio».
+          Arma carruseles, posts e historias y descárgalos listos para Instagram (3:4 y 9:16): con el Diseñador IA, que diseña
+          libremente con tu Design System conversando, o con las plantillas fijas de la marca.
         </p>
       </div>
 
-      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5 bg-gradient-to-br from-pink-500/5 to-sky-500/5">
         <CardContent className="pt-6 flex flex-wrap items-end gap-3">
+          <div className="min-w-0 flex-1 basis-60">
+            <p className="font-medium flex items-center gap-2"><Sparkles className="w-4 h-4" /> Diseñador IA</p>
+            <p className="text-sm text-muted-foreground">Como Claude Design, pero acá: pides el diseño en un chat y lo ajustas conversando.</p>
+          </div>
           <div className="space-y-1.5">
             <Label>Formato</Label>
             <Select value={format} onValueChange={(v) => setFormat(v as StudioFormat)}>
               <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
               <SelectContent>{Object.entries(FORMAT_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
             </Select>
+          </div>
+          <Button onClick={() => onOpenAi({ format })}><Sparkles className="w-4 h-4 mr-2" /> Nuevo con IA</Button>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6 flex flex-wrap items-end gap-3">
+          <div className="min-w-0 flex-1 basis-60">
+            <p className="font-medium">Plantillas fijas</p>
+            <p className="text-sm text-muted-foreground">Desafío azul, Test pastel y PlayCard: rellenas los textos y listo. Usa el formato elegido arriba.</p>
           </div>
           <div className="space-y-1.5">
             <Label>Plantilla</Label>
@@ -166,7 +192,7 @@ function StudioHome({ onOpen }: { onOpen: (e: Editing) => void }) {
               <SelectContent>{Object.entries(THEME_LABEL).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <Button onClick={createNew}><Plus className="w-4 h-4 mr-2" /> Nuevo diseño</Button>
+          <Button variant="outline" onClick={createNew}><Plus className="w-4 h-4 mr-2" /> Nuevo con plantilla</Button>
         </CardContent>
       </Card>
 
@@ -178,12 +204,25 @@ function StudioHome({ onOpen }: { onOpen: (e: Editing) => void }) {
         <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
           {designs.map((d) => (
             <div key={d.id} className="space-y-2">
-              <button type="button" className="block w-full text-left interactive" onClick={() => open(d.id)} disabled={opening != null}>
-                {d.cover && <ScaledSlide design={{ ...d, caption: '', slides: [d.cover] }} slide={d.cover} index={0} width={180} />}
+              <button
+                type="button"
+                className="block w-full text-left interactive"
+                onClick={() => (d.kind === 'ia' ? onOpenAi({ designId: d.id, format: d.format }) : open(d.id))}
+                disabled={opening != null}
+              >
+                {d.kind === 'ia'
+                  ? d.aiCover
+                    ? <SlideFrame css={d.aiCover.css} format={d.format} slide={{ html: d.aiCover.html }} width={180} className="rounded-lg shadow-sm" />
+                    : <div className="flex items-center justify-center rounded-lg bg-muted text-xs text-muted-foreground" style={{ width: 180, height: (STUDIO_SIZES[d.format].height * 180) / STUDIO_SIZES[d.format].width }}>Sin láminas</div>
+                  : d.cover && <ScaledSlide design={{ ...d, caption: '', slides: [d.cover] }} slide={d.cover} index={0} width={180} />}
               </button>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{opening === d.id && <Loader2 className="inline w-3 h-3 mr-1 animate-spin" />}{d.title}</p>
+                  <p className="text-sm font-medium truncate">
+                    {opening === d.id && <Loader2 className="inline w-3 h-3 mr-1 animate-spin" />}
+                    {d.kind === 'ia' && <Sparkles className="inline w-3 h-3 mr-1 text-pink-500" aria-label="Diseñador IA" />}
+                    {d.title}
+                  </p>
                   <p className="text-xs text-muted-foreground">{FORMAT_LABEL[d.format]} · {d.slideCount} lám. · {formatChileDateTime(d.updatedAt)}</p>
                 </div>
                 <ConfirmDeleteButton description={`el diseño «${d.title}»`} onConfirm={(adminPassword) => remove.mutateAsync({ id: d.id, adminPassword })} />

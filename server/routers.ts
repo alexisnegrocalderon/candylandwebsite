@@ -103,6 +103,7 @@ import { getWinbackOverview, draftWinbackEmail, createWinbackCampaign } from "./
 import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign } from "./contentStudio";
+import { listAiMessages, loadAiDesign, restoreAiVersion, updateAiDesignMeta } from "./studioAi/store";
 import { normalizeSalesStrategyState } from "../shared/salesStrategy";
 import { normalizeAgentCoachReport } from "../shared/agentCoach";
 import { normalizeWhatsAppAgentConfig, DEFAULT_WHATSAPP_AGENT_CONFIG, WA_MAX_REPLY_CHARS } from "../shared/whatsappAgentConfig";
@@ -2400,6 +2401,35 @@ export const appRouter = router({
     delete: adminPasswordProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
       await deleteContentDesign(input.id);
       return { success: true } as const;
+    }),
+  }),
+
+  // Diseñador IA del Estudio (server/studioAi/): el chat que diseña va por SSE
+  // (/api/admin/studio/ai); acá queda leer el diseño con su conversación,
+  // volver a una versión y los cambios a mano (nombre, caption).
+  studioAi: router({
+    get: adminReadProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
+      const design = await loadAiDesign(input.id);
+      if (!design) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ese diseño ya no existe.' });
+      return { id: input.id, design, messages: await listAiMessages(input.id) };
+    }),
+    restore: adminProcedure.input(z.object({ id: z.number().int().positive(), messageId: z.number().int().positive() })).mutation(async ({ input }) => {
+      try {
+        return await restoreAiVersion(input.id, input.messageId);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo volver a esa versión.' });
+      }
+    }),
+    updateMeta: adminProcedure.input(z.object({
+      id: z.number().int().positive(),
+      title: z.string().trim().min(1).max(200).optional(),
+      caption: z.string().max(3000).optional(),
+    })).mutation(async ({ input }) => {
+      try {
+        return await updateAiDesignMeta(input.id, { title: input.title, caption: input.caption });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar.' });
+      }
     }),
   }),
 

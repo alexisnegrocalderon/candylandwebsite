@@ -390,7 +390,7 @@ export const NO_THINKING = { type: "disabled" } as const;
 const ANTHROPIC_DEFAULT_MAX_TOKENS = 4096;
 
 let anthropicClient: Anthropic | null = null;
-const getAnthropicClient = (): Anthropic => {
+export const getAnthropicClient = (): Anthropic => {
   if (!anthropicClient) {
     anthropicClient = new Anthropic({ apiKey: ENV.anthropicApiKey });
   }

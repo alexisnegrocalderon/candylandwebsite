@@ -2282,6 +2282,9 @@ export const contentDesigns = mysqlTable("contentDesigns", {
   title: varchar("title", { length: 200 }).notNull(),
   format: mysqlEnum("format", ["carrusel", "post", "historia"]).notNull(),
   theme: varchar("theme", { length: 30 }).notNull(),
+  // "plantilla" = láminas con las plantillas fijas (shared/contentStudio.ts);
+  // "ia" = diseñadas libremente por el Diseñador IA (shared/studioAi.ts).
+  kind: varchar("kind", { length: 20 }).default("plantilla").notNull(),
   data: json("data").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -2290,3 +2293,25 @@ export const contentDesigns = mysqlTable("contentDesigns", {
 ]);
 
 export type ContentDesign = typeof contentDesigns.$inferSelect;
+
+// Conversación del Diseñador IA del Estudio con cada diseño: lo que pidió el
+// dueño (texto + fotos adjuntas) y lo que respondió la IA. Cada respuesta
+// guarda el diseño COMPLETO como quedó (`snapshot`) para poder volver a esa
+// versión, y lo que costó (tokens y US$ estimados) para que el gasto se vea.
+export const contentDesignMessages = mysqlTable("contentDesignMessages", {
+  id: int("id").autoincrement().primaryKey(),
+  designId: int("designId").notNull(),
+  role: mysqlEnum("role", ["user", "assistant"]).notNull(),
+  text: text("text").notNull(),
+  // URLs (Blob) de las fotos o referencias que el dueño adjuntó.
+  images: json("images"),
+  model: varchar("model", { length: 60 }),
+  usage: json("usage"),
+  costUsd: decimal("costUsd", { precision: 10, scale: 4 }),
+  snapshot: json("snapshot"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("content_design_messages_design_idx").on(t.designId),
+]);
+
+export type ContentDesignMessage = typeof contentDesignMessages.$inferSelect;
