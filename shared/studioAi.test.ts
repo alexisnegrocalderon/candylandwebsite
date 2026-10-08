@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyAiOps, emptyAiDesign, normalizeAiDesign, replaceSlideHtml, slideDocument, usageCostUsd, formatUsd, AI_MAX_SLIDE_HTML, type AiDesign, type AiOp } from './studioAi';
+import { applyAiOps, emptyAiDesign, normalizeAiDesign, replaceSlideHtml, shadowDesignCss, slideBoardHtml, slideDocument, usageCostUsd, formatUsd, AI_MAX_SLIDE_HTML, type AiDesign, type AiOp } from './studioAi';
 
 const op = (o: Partial<AiOp> & Pick<AiOp, 'op'>): AiOp => ({ index: -1, to: -1, html: '', css: '', caption: '', ...o });
 
@@ -98,5 +98,18 @@ describe('replaceSlideHtml', () => {
     expect(() => replaceSlideHtml(design(2), -1, '<div>x</div>')).toThrow('no existe');
     expect(() => replaceSlideHtml(design(2), 0, '  ')).toThrow('vacía');
     expect(() => replaceSlideHtml(design(2), 0, 'x'.repeat(AI_MAX_SLIDE_HTML + 1))).toThrow('pesada');
+  });
+});
+
+describe('lámina fuera del iframe', () => {
+  it('slideBoardHtml envuelve solo si falta el .board', () => {
+    expect(slideBoardHtml({ html: '<p>x</p>' })).toBe('<div class="board"><p>x</p></div>');
+    expect(slideBoardHtml({ html: '<div class="a board lilac">x</div>' })).toBe('<div class="a board lilac">x</div>');
+  });
+  it('shadowDesignCss pasa :root a :host (las variables de color no se pierden)', () => {
+    const css = shadowDesignCss(':root{--blue:#00A3FF}.board{background:var(--blue)}</style><script>');
+    expect(css).toContain(':host{--blue:#00A3FF}');
+    expect(css).not.toContain(':root');
+    expect(css).not.toContain('</style');
   });
 });

@@ -12,9 +12,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useDemoProps } from '@/lib/demoMode';
 import { STUDIO_SIZES, type StudioFormat } from '@shared/contentStudio';
 import { AI_MODEL_LABEL, AI_MODELS, emptyAiDesign, formatUsd, type AiDesign, type AiModel } from '@shared/studioAi';
-import { SlideFrame, type SlideFrameHandle } from './SlideFrame';
+import { SlideFrame } from './SlideFrame';
 import { SlideEditor } from './SlideEditor';
-import { downloadSlide, downloadZip, shareSlides, slideFileName } from './exportSlides';
+import { downloadBlob, downloadZipOf, renderAiSlide, shareItems, slideFileName, type ExportItem } from './exportSlides';
 
 /* Diseñador IA del Estudio: un chat con Claude que diseña láminas con el
  * PlayRoom Design System, como la ventana de Claude Design del dueño. El
@@ -106,7 +106,9 @@ export function AiDesigner({ designId: initialId, format: initialFormat, eventId
   const [selected, setSelected] = useState(0);
   const [exporting, setExporting] = useState<null | 'zip' | 'png' | 'share'>(null);
   const [editing, setEditing] = useState(false);
-  const frameRefs = useRef<(SlideFrameHandle | null)[]>([]);
+  // Las imágenes ya generadas del diseño actual: un segundo toque en «Compartir»
+  // (Safari lo pide si tardó) o en «Descargar» sale al instante, sin repetir el trabajo.
+  const exportCache = useRef<{ key: string; items: Map<number, ExportItem> }>({ key: '', items: new Map() });
   const fileRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [previewRef, previewWidth] = useWidth<HTMLDivElement>(420);
@@ -214,20 +216,35 @@ export function AiDesigner({ designId: initialId, format: initialFormat, eventId
     }
   };
 
-  const nodes = () => design.slides.map((_, i) => frameRefs.current[i]?.board() ?? null).filter((n): n is HTMLElement => n !== null);
+  const exportKey = JSON.stringify([design.css, design.format, design.title, design.slides.map((sl) => sl.html)]);
+  const itemsFor = async (indices: number[]): Promise<ExportItem[]> => {
+    if (exportCache.current.key !== exportKey) exportCache.current = { key: exportKey, items: new Map() };
+    const cache = exportCache.current;
+    for (const i of indices) {
+      if (cache.items.has(i)) continue;
+      cache.items.set(i, { name: slideFileName(design.title, i, design.slides.length), blob: await renderAiSlide(design, design.slides[i]) });
+    }
+    return indices.map((i) => cache.items.get(i)!);
+  };
   const runExport = async (kind: 'zip' | 'png' | 'share') => {
     setExporting(kind);
     try {
-      // Que cada lámina termine de cargar y de ajustar su texto antes de capturarla.
-      await Promise.all(frameRefs.current.slice(0, design.slides.length).map((f) => f?.ready()));
+      const all = design.slides.map((_, i) => i);
       if (kind === 'png') {
-        const node = frameRefs.current[selected]?.board();
-        if (!node) throw new Error('La lámina todavía no carga.');
-        await downloadSlide(node, slideFileName(design.title, selected, design.slides.length));
+        const [item] = await itemsFor([selected]);
+        downloadBlob(item);
       } else if (kind === 'zip') {
-        await downloadZip(nodes(), design.title);
-      } else if (!(await shareSlides(nodes(), design.title))) {
-        toast.info('Este navegador no permite compartir imágenes. Usa «Descargar».');
+        await downloadZipOf(await itemsFor(all), design.title);
+      } else {
+        const items = await itemsFor(all);
+        try {
+          if (!(await shareItems(items, design.title))) toast.info('Este navegador no permite compartir imágenes. Usa «Descargar».');
+        } catch (e) {
+          // Safari exige un toque reciente para abrir el menú de compartir: las
+          // imágenes ya quedaron hechas, el siguiente toque abre el menú al tiro.
+          if (e instanceof DOMException && e.name === 'NotAllowedError') toast.info('Las imágenes ya están listas: toca «Compartir» otra vez.');
+          else throw e;
+        }
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'No se pudo exportar.');
@@ -386,7 +403,7 @@ export function AiDesigner({ designId: initialId, format: initialFormat, eventId
                     aria-label={`Lámina ${i + 1}`}
                   >
                     {s.html
-                      ? <SlideFrame ref={(el) => { frameRefs.current[i] = el; }} css={design.css} format={design.format} slide={s} width={thumbWidth} className="rounded-lg" />
+                      ? <SlideFrame css={design.css} format={design.format} slide={s} width={thumbWidth} className="rounded-lg" />
                       : <div className="flex items-center justify-center rounded-lg bg-muted" style={{ width: thumbWidth, height: (size.height * thumbWidth) / size.width }}><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /></div>}
                   </button>
                 ))}

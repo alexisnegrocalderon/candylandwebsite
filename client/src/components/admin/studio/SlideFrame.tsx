@@ -1,5 +1,5 @@
-import { forwardRef, useImperativeHandle, useRef } from 'react';
-import { fitWhenReady } from './fitText';
+import { useRef } from 'react';
+import { fitWhenReady, withTimeout } from './fitText';
 import { STUDIO_SIZES, type StudioFormat } from '@shared/contentStudio';
 import { slideDocument, type AiSlide } from '@shared/studioAi';
 
@@ -8,61 +8,49 @@ import { slideDocument, type AiSlide } from '@shared/studioAi';
  *
  * El iframe va con `sandbox` SIN `allow-scripts`: el HTML lo escribió la IA y
  * aunque el servidor ya lo saneó, acá tampoco puede correr nada.
- * `allow-same-origin` hace falta para que la exportación a PNG pueda leer el
- * nodo de adentro (y las fuentes de /studio/). */
+ * `allow-same-origin` deja que el panel LEA y cambie su DOM.
+ *
+ * ⚠️ Lo que NO se puede hacer con un iframe sin scripts (Safari del iPad lo
+ * aplica estricto, Chrome no): registrar eventos dentro de él, ni usar los
+ * temporizadores de su ventana. Por eso los toques del editor se capturan en
+ * una capa transparente de la página principal y se traducen con
+ * `elementFromPoint`, y las esperas usan los temporizadores de la página.
+ * La exportación a PNG tampoco pasa por este iframe (ver exportSlides.ts). */
 
-export interface SlideFrameHandle {
-  /** El .board de adentro, listo para exportar (null si todavía no cargó). */
-  board(): HTMLElement | null;
-  /** Se cumple cuando la lámina terminó de cargar (fuentes, fotos) y de ajustar
-   * el texto que se salía (fitText.ts). Esperarla antes de exportar. */
-  ready(): Promise<void>;
-}
+/** Tope para el ajuste de texto: si algo se atasca, la lámina igual queda lista. */
+const READY_MAX_MS = 5000;
 
-function newDeferred() {
-  let resolve!: () => void;
-  const promise = new Promise<void>((r) => { resolve = r; });
-  return { promise, resolve };
-}
-
-export const SlideFrame = forwardRef<SlideFrameHandle, {
+export function SlideFrame({ css, format, slide, width, className, onDocReady, onTap }: {
   css: string;
   format: StudioFormat;
   slide: AiSlide;
   /** Ancho en pantalla (px). */
   width: number;
   className?: string;
-  /** El editor a mano necesita poder tocar la lámina. */
-  interactive?: boolean;
   /** Se llama cuando la lámina terminó de cargar y de ajustar su texto. */
   onDocReady?: (doc: Document) => void;
-}>(function SlideFrame({ css, format, slide, width, className, interactive, onDocReady }, ref) {
+  /** El editor a mano: se llama con el elemento de la lámina que se tocó. */
+  onTap?: (doc: Document, target: Element | null) => void;
+}) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const size = STUDIO_SIZES[format];
   const scale = width / size.width;
 
-  const srcDoc = slideDocument({ css, format }, slide);
-  // Cada vez que cambia el documento el iframe vuelve a cargar: se renueva la
-  // promesa de «lista», que se cumple recién cuando se ajustó el texto.
-  const lastDoc = useRef('');
-  const loaded = useRef(newDeferred());
-  if (lastDoc.current !== srcDoc) {
-    lastDoc.current = srcDoc;
-    loaded.current = newDeferred();
-  }
-
-  useImperativeHandle(ref, () => ({
-    board: () => iframeRef.current?.contentDocument?.querySelector<HTMLElement>('.board') ?? null,
-    ready: () => loaded.current.promise,
-  }));
-
   const onLoad = () => {
     const doc = iframeRef.current?.contentDocument;
-    const done = loaded.current.resolve;
-    if (!doc) { done(); return; }
-    fitWhenReady(doc)
-      .catch(() => { /* sin ajuste: se ve como la escribió la IA */ })
-      .finally(() => { onDocReady?.(doc); done(); });
+    if (!doc) return;
+    const board = doc.querySelector<HTMLElement>('.board');
+    const fit = board ? fitWhenReady(board) : Promise.resolve();
+    withTimeout(fit.catch(() => { /* sin ajuste: se ve como la escribió la IA */ }), READY_MAX_MS)
+      .finally(() => onDocReady?.(doc));
+  };
+
+  const tap = (e: React.MouseEvent<HTMLDivElement>) => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc || !onTap) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    // De píxeles de pantalla a píxeles de la lámina (que está escalada).
+    onTap(doc, doc.elementFromPoint((e.clientX - rect.left) / scale, (e.clientY - rect.top) / scale));
   };
 
   return (
@@ -71,11 +59,19 @@ export const SlideFrame = forwardRef<SlideFrameHandle, {
         ref={iframeRef}
         title="Lámina"
         sandbox="allow-same-origin"
-        srcDoc={srcDoc}
+        srcDoc={slideDocument({ css, format }, slide)}
         onLoad={onLoad}
-        style={{ width: size.width, height: size.height, border: 0, transform: `scale(${scale})`, transformOrigin: 'top left', pointerEvents: interactive ? 'auto' : 'none' }}
-        tabIndex={interactive ? 0 : -1}
+        style={{ width: size.width, height: size.height, border: 0, transform: `scale(${scale})`, transformOrigin: 'top left', pointerEvents: 'none' }}
+        tabIndex={-1}
       />
+      {onTap && (
+        <div
+          role="presentation"
+          onClick={tap}
+          className="absolute inset-0 cursor-pointer"
+          style={{ touchAction: 'manipulation' }}
+        />
+      )}
     </div>
   );
-});
+}

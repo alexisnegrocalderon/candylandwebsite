@@ -197,15 +197,32 @@ export function frameBaseCss(format: StudioFormat): string {
   ].join('\n');
 }
 
+/** El HTML de la lámina listo para ponerse en una página: si la IA no escribió
+ * el contenedor `.board`, se lo pone. */
+export function slideBoardHtml(slide: AiSlide): string {
+  return /class\s*=\s*["'][^"']*\bboard\b/.test(slide.html) ? slide.html : `<div class="board">${slide.html}</div>`;
+}
+
+/** El CSS compartido del diseño, sin nada que pueda cerrar la etiqueta <style>. */
+export function safeDesignCss(css: string): string {
+  return css.replace(/<\/style/gi, '');
+}
+
+/** Lo mismo para dibujar la lámina dentro de un shadow root (exportación a PNG
+ * fuera del iframe): ahí no existe `:root`, la raíz del documento, así que las
+ * variables de color que la IA define en `:root` se pasan a `:host`. */
+export function shadowDesignCss(css: string): string {
+  return safeDesignCss(css).replace(/:root\b/g, ':host');
+}
+
 /** Documento completo de una lámina para el `srcdoc` del iframe (sin
  * scripts: el iframe va con `sandbox`). */
 export function slideDocument(design: Pick<AiDesign, 'css' | 'format'>, slide: AiSlide): string {
-  const html = /class\s*=\s*["'][^"']*\bboard\b/.test(slide.html) ? slide.html : `<div class="board">${slide.html}</div>`;
   return [
     '<!doctype html><html lang="es"><head><meta charset="utf-8">',
     '<link rel="stylesheet" href="/studio/fonts.css">',
-    `<style>${design.css.replace(/<\/style/gi, '')}</style>`,
+    `<style>${safeDesignCss(design.css)}</style>`,
     `<style>${frameBaseCss(design.format)}</style>`,
-    `</head><body>${html}</body></html>`,
+    `</head><body>${slideBoardHtml(slide)}</body></html>`,
   ].join('');
 }

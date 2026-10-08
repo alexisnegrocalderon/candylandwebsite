@@ -25,11 +25,13 @@ export function getBoard(doc: Document): HTMLElement | null {
   return doc.querySelector<HTMLElement>('.board');
 }
 
-/** Qué elemento se elige al tocar `target`: el mismo elemento, o el <svg> entero
+/** Qué elemento se elige al tocar `target` (lo que devuelve `elementFromPoint`): el mismo elemento, o el <svg> entero
  * si se tocó una parte de un ícono; fuera del .board (o en el fondo vacío), la
  * lámina completa. */
-export function pickTarget(board: HTMLElement, target: EventTarget | null): HTMLElement {
-  if (!(target instanceof (board.ownerDocument.defaultView as Window & typeof globalThis).Element)) return board;
+export function pickTarget(board: HTMLElement, target: Element | null): HTMLElement {
+  // Sin `instanceof Element`: el elemento viene de OTRO documento (el iframe) y
+  // su constructor es de otra ventana.
+  if (!target || target.nodeType !== 1) return board;
   const svg = target.closest('svg');
   const el = (svg ?? target) as HTMLElement;
   return board.contains(el) ? el : board;

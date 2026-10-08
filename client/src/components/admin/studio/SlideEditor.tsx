@@ -141,15 +141,15 @@ export function SlideEditor({ css, format, html, width, saving, onSave, onCancel
     setCanUndo(false);
     setDirty(false);
     setSelection(null);
-    doc.addEventListener('click', (e) => {
-      const board = getBoard(doc);
-      if (!board) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const el = pickTarget(board, e.target);
-      select(board, el);
-      refresh(el);
-    }, true);
+  }, []);
+
+  /** Un toque en la lámina (SlideFrame lo traduce a un elemento). */
+  const onTap = useCallback((doc: Document, target: Element | null) => {
+    const board = getBoard(doc);
+    if (!board) return;
+    const el = pickTarget(board, target);
+    select(board, el);
+    refresh(el);
   }, [refresh]);
 
   // Al salir con cambios sin guardar el navegador avisa.
@@ -189,7 +189,7 @@ export function SlideEditor({ css, format, html, width, saving, onSave, onCancel
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,auto)_minmax(0,1fr)] items-start">
         <div className="mx-auto" style={{ width }}>
-          <SlideFrame css={css} format={format} slide={{ html }} width={width} interactive onDocReady={onDocReady} className="rounded-xl shadow-sm" />
+          <SlideFrame css={css} format={format} slide={{ html }} width={width} onDocReady={onDocReady} onTap={onTap} className="rounded-xl shadow-sm" />
         </div>
 
         <div className="rounded-2xl border p-4 space-y-4 min-w-0">
