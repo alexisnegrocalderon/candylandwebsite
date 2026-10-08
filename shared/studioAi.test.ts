@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyAiOps, emptyAiDesign, normalizeAiDesign, slideDocument, usageCostUsd, formatUsd, type AiDesign, type AiOp } from './studioAi';
+import { applyAiOps, emptyAiDesign, normalizeAiDesign, replaceSlideHtml, slideDocument, usageCostUsd, formatUsd, AI_MAX_SLIDE_HTML, type AiDesign, type AiOp } from './studioAi';
 
 const op = (o: Partial<AiOp> & Pick<AiOp, 'op'>): AiOp => ({ index: -1, to: -1, html: '', css: '', caption: '', ...o });
 
@@ -83,5 +83,20 @@ describe('costos', () => {
   it('formatUsd', () => {
     expect(formatUsd(0.004)).toBe('< US$0,01');
     expect(formatUsd(0.237)).toBe('US$0,24');
+  });
+});
+
+describe('replaceSlideHtml', () => {
+  it('reemplaza solo la lámina pedida, sin tocar el original', () => {
+    const base = design(3);
+    const next = replaceSlideHtml(base, 1, '<div class="board">editada</div>');
+    expect(next.slides.map((s) => s.html.replace(/<[^>]+>/g, ''))).toEqual(['0', 'editada', '2']);
+    expect(base.slides[1].html).toContain('1');
+  });
+  it('rechaza índices inválidos, vacío y demasiado largo', () => {
+    expect(() => replaceSlideHtml(design(2), 5, '<div>x</div>')).toThrow('no existe');
+    expect(() => replaceSlideHtml(design(2), -1, '<div>x</div>')).toThrow('no existe');
+    expect(() => replaceSlideHtml(design(2), 0, '  ')).toThrow('vacía');
+    expect(() => replaceSlideHtml(design(2), 0, 'x'.repeat(AI_MAX_SLIDE_HTML + 1))).toThrow('pesada');
   });
 });

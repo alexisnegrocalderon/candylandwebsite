@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { upload } from '@vercel/blob/client';
-import { ArrowLeft, Copy, Download, Image as ImageIcon, Loader2, Paperclip, RotateCcw, Send, Share2, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, Copy, Download, Image as ImageIcon, Loader2, Paperclip, Pencil, RotateCcw, Send, Share2, Sparkles, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,7 @@ import { useDemoProps } from '@/lib/demoMode';
 import { STUDIO_SIZES, type StudioFormat } from '@shared/contentStudio';
 import { AI_MODEL_LABEL, AI_MODELS, emptyAiDesign, formatUsd, type AiDesign, type AiModel } from '@shared/studioAi';
 import { SlideFrame, type SlideFrameHandle } from './SlideFrame';
+import { SlideEditor } from './SlideEditor';
 import { downloadSlide, downloadZip, shareSlides, slideFileName } from './exportSlides';
 
 /* Diseñador IA del Estudio: un chat con Claude que diseña láminas con el
@@ -104,6 +105,7 @@ export function AiDesigner({ designId: initialId, format: initialFormat, eventId
   const [status, setStatus] = useState('');
   const [selected, setSelected] = useState(0);
   const [exporting, setExporting] = useState<null | 'zip' | 'png' | 'share'>(null);
+  const [editing, setEditing] = useState(false);
   const frameRefs = useRef<(SlideFrameHandle | null)[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -119,6 +121,16 @@ export function AiDesigner({ designId: initialId, format: initialFormat, eventId
   useEffect(() => { chatEndRef.current?.scrollIntoView({ block: 'end' }); }, [messages.length, status]);
 
   const updateMeta = trpc.studioAi.updateMeta.useMutation({ onError: (e) => toast.error(e.message) });
+  const saveSlide = trpc.studioAi.saveSlide.useMutation({
+    onSuccess: (saved, vars) => {
+      setDesign(saved);
+      setEditing(false);
+      setMessages((m) => [...m, { role: 'assistant', text: `Editaste a mano la lámina ${vars.index + 1}.`, images: [], costUsd: 0 }]);
+      utils.contentStudio.list.invalidate();
+      toast.success('Cambios guardados.');
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const restore = trpc.studioAi.restore.useMutation({
     onSuccess: (restored) => {
       setDesign(restored);
@@ -325,7 +337,7 @@ export function AiDesigner({ designId: initialId, format: initialFormat, eventId
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(input); }
               }}
-              disabled={busy}
+              disabled={busy || editing}
             />
             <div className="flex flex-wrap items-center gap-2">
               <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { attach(e.target.files); e.target.value = ''; }} />
@@ -336,7 +348,7 @@ export function AiDesigner({ designId: initialId, format: initialFormat, eventId
                 <SelectTrigger className="h-9 w-[170px]"><SelectValue /></SelectTrigger>
                 <SelectContent>{AI_MODELS.map((m) => <SelectItem key={m} value={m}>{AI_MODEL_LABEL[m]}</SelectItem>)}</SelectContent>
               </Select>
-              <Button size="sm" className="ml-auto" onClick={() => send(input)} disabled={busy || uploading || !input.trim()} {...demoProps}>
+              <Button size="sm" className="ml-auto" onClick={() => send(input)} disabled={busy || uploading || editing || !input.trim()} {...demoProps}>
                 {busy ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Send className="w-4 h-4 mr-1" />} Enviar
               </Button>
             </div>
@@ -351,6 +363,18 @@ export function AiDesigner({ designId: initialId, format: initialFormat, eventId
               {busy ? status || 'Trabajando…' : 'Acá van a aparecer las láminas.'}
             </div>
           ) : (
+            editing && current?.html && designId ? (
+              <SlideEditor
+                key={`${selected}-${current.html.length}`}
+                css={design.css}
+                format={design.format}
+                html={current.html}
+                width={Math.min(previewWidth, design.format === 'historia' ? 380 : 520)}
+                saving={saveSlide.isPending}
+                onSave={(html) => saveSlide.mutate({ id: designId, index: selected, html })}
+                onCancel={() => setEditing(false)}
+              />
+            ) : (
             <>
               <div className="flex gap-3 overflow-x-auto pb-2">
                 {design.slides.map((s, i) => (
@@ -384,8 +408,12 @@ export function AiDesigner({ designId: initialId, format: initialFormat, eventId
                 <Button size="sm" variant="outline" onClick={() => runExport('share')} disabled={!ready || busy || exporting != null}>
                   {exporting === 'share' ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Share2 className="w-4 h-4 mr-2" />} Compartir / guardar en el celular
                 </Button>
+                <Button size="sm" variant="outline" onClick={() => setEditing(true)} disabled={!current?.html || !designId || busy || exporting != null} {...demoProps}>
+                  <Pencil className="w-4 h-4 mr-2" /> Editar esta lámina
+                </Button>
               </div>
             </>
+            )
           )}
 
           {(design.caption || design.slides.length > 0) && (

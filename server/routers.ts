@@ -103,7 +103,7 @@ import { getWinbackOverview, draftWinbackEmail, createWinbackCampaign } from "./
 import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign } from "./contentStudio";
-import { listAiMessages, loadAiDesign, restoreAiVersion, updateAiDesignMeta } from "./studioAi/store";
+import { listAiMessages, loadAiDesign, restoreAiVersion, saveSlideEdit, updateAiDesignMeta } from "./studioAi/store";
 import { normalizeSalesStrategyState } from "../shared/salesStrategy";
 import { normalizeAgentCoachReport } from "../shared/agentCoach";
 import { normalizeWhatsAppAgentConfig, DEFAULT_WHATSAPP_AGENT_CONFIG, WA_MAX_REPLY_CHARS } from "../shared/whatsappAgentConfig";
@@ -2418,6 +2418,17 @@ export const appRouter = router({
         return await restoreAiVersion(input.id, input.messageId);
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo volver a esa versión.' });
+      }
+    }),
+    saveSlide: adminProcedure.input(z.object({
+      id: z.number().int().positive(),
+      index: z.number().int().min(0).max(40),
+      html: z.string().min(1).max(60_000),
+    })).mutation(async ({ input }) => {
+      try {
+        return await saveSlideEdit(input.id, input.index, input.html);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar la lámina.' });
       }
     }),
     updateMeta: adminProcedure.input(z.object({

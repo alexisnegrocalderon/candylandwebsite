@@ -1,7 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 import { getDb } from '../db';
 import { contentDesignMessages, contentDesigns } from '../../drizzle/schema';
-import { normalizeAiDesign, type AiDesign, type AiUsage } from '../../shared/studioAi';
+import { normalizeAiDesign, replaceSlideHtml, type AiDesign, type AiUsage } from '../../shared/studioAi';
 import { sanitizeCss, sanitizeSlideHtml } from './sanitize';
 
 /* Diseños del Diseñador IA en la base: la fila de contentDesigns (kind "ia")
@@ -125,4 +125,15 @@ export async function updateAiDesignMeta(designId: number, patch: { title?: stri
   const current = await loadAiDesign(designId);
   if (!current) throw new Error('Ese diseño ya no existe.');
   return saveAiDesign(designId, { ...current, ...patch });
+}
+
+/** Una lámina retocada a mano en el panel (texto, tamaños, colores). Se sanea
+ * igual que lo que escribe la IA y deja una versión en la conversación, así se
+ * puede volver atrás. Sin costo: no pasa por la IA. */
+export async function saveSlideEdit(designId: number, index: number, html: string): Promise<AiDesign> {
+  const current = await loadAiDesign(designId);
+  if (!current) throw new Error('Ese diseño ya no existe.');
+  const saved = await saveAiDesign(designId, replaceSlideHtml(current, index, html));
+  await addAiMessage({ designId, role: 'assistant', text: `Editaste a mano la lámina ${index + 1}.`, snapshot: saved });
+  return saved;
 }
