@@ -810,7 +810,19 @@ export async function deleteDiscountCode(id: number) {
 }
 
 // Community Access Codes (gate-only — Soltero / Dúo Dos Hombres)
-export async function validateCommunityCode(code: string) {
+/** `true` si un código de comunidad puede usarse: sin `ownerRut` es
+ * compartido (siempre pasa, igual que siempre); con `ownerRut` asignado
+ * (código personal y permanente de una persona aprobada, ver
+ * drizzle/schema.ts), solo pasa si el RUT del comprador calza, normalizado.
+ * Aparte de `validateCommunityCode` para poder testearlo sin base de datos. */
+export function communityCodeOwnerMatches(ownerRut: string | null | undefined, buyerRut?: string): boolean {
+  if (!ownerRut) return true;
+  return normalizeRut(ownerRut) === normalizeRut(buyerRut ?? '');
+}
+
+/** `buyerRut` solo importa cuando el código tiene `ownerRut` -- un código
+ * compartido sigue validando igual que antes, sin pedir RUT. */
+export async function validateCommunityCode(code: string, buyerRut?: string) {
   const db = await getDb();
   if (!db) return { valid: false, message: 'Service unavailable' };
 
@@ -820,6 +832,9 @@ export async function validateCommunityCode(code: string) {
   const entry = result[0];
   if (!entry.isActive) return { valid: false, message: 'Código inactivo' };
   if (entry.maxUses && entry.usedCount >= entry.maxUses) return { valid: false, message: 'Código agotado' };
+  if (!communityCodeOwnerMatches(entry.ownerRut, buyerRut)) {
+    return { valid: false, message: 'Este código es personal de otra persona' };
+  }
 
   return { valid: true, communityCode: entry };
 }
@@ -839,14 +854,14 @@ export async function getAllCommunityCodes() {
 export async function createCommunityCode(data: any) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.insert(communityCodes).values(data);
+  await db.insert(communityCodes).values(data.ownerRut ? { ...data, ownerRut: normalizeRut(data.ownerRut) } : data);
   return { success: true };
 }
 
 export async function updateCommunityCode(id: number, data: any) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(communityCodes).set(data).where(eq(communityCodes.id, id));
+  await db.update(communityCodes).set(data.ownerRut ? { ...data, ownerRut: normalizeRut(data.ownerRut) } : data).where(eq(communityCodes.id, id));
   return { success: true };
 }
 
@@ -1368,7 +1383,7 @@ export async function createOrder(input: {
   // Confirm community access code (Soltero / Dúo Dos Hombres) — defense in depth,
   // el checkout ya lo valida en vivo antes de dejar avanzar.
   if (input.communityCode) {
-    const validation = await validateCommunityCode(input.communityCode);
+    const validation = await validateCommunityCode(input.communityCode, parseBuyerRut(input.attendeeData) ?? undefined);
     if (!validation.valid) throw new Error(validation.message || 'Código de comunidad inválido');
     if (validation.communityCode) await markCommunityCodeUsed(validation.communityCode.id);
   }
