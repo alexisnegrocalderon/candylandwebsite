@@ -1,8 +1,7 @@
 import { forwardRef, type CSSProperties, type ReactNode } from 'react';
-import '@fontsource-variable/unbounded/wght.css';
 import '@fontsource-variable/josefin-sans/wght.css';
 import '@fontsource-variable/josefin-sans/wght-italic.css';
-import '@fontsource/great-vibes/400.css';
+import './studio-fonts.css';
 import {
   fitFontSize,
   pageLabel,
@@ -23,9 +22,9 @@ import {
  * - pastel: carrusel "Test ¿Qué monstruo eres en Playroom?".
  * - playcard: carrusel de la Tarjeta PlayCard. */
 
-const DISPLAY = "'Unbounded Variable', 'Syne', sans-serif";
+const DISPLAY = "'Gliker Semi Bold Expanded', 'Syne', sans-serif";
 const JOSEFIN = "'Josefin Sans Variable', 'Space Grotesk', sans-serif";
-const SCRIPT = "'Great Vibes', cursive";
+const SCRIPT = "'Allura', cursive";
 const SYNE = "'Syne', sans-serif";
 const GROTESK = "'Space Grotesk', sans-serif";
 // La versión del correo: recortada justo al logo (la .webp del sitio es un
@@ -65,7 +64,7 @@ function tokensFor(theme: StudioTheme, slide: StudioSlide, index: number): Token
     return {
       bg: p.bg, brand: p.strong, line: p.accent, page: p.accent, number: p.accent, question: p.strong, headline: PURPLE,
       text: p.strong, accent: p.accent, optionLetter: p.accent, optionText: p.strong, script: p.accent,
-      display: { fontFamily: DISPLAY, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '-0.02em', charWidth: 0.95 },
+      display: { fontFamily: DISPLAY, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '-0.04em', charWidth: 0.95 },
     };
   }
   if (theme === 'playcard') {
@@ -78,7 +77,7 @@ function tokensFor(theme: StudioTheme, slide: StudioSlide, index: number): Token
   return {
     bg: '#00A3FF', brand: PINK, line: '#0A2BE0', page: PINK, number: PINK, question: PINK, headline: PINK,
     text: PINK, accent: '#F5A3F0', optionLetter: '#EE7FE6', optionText: PINK, script: PINK,
-    display: { fontFamily: DISPLAY, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '-0.02em', charWidth: 0.95 },
+    display: { fontFamily: DISPLAY, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '-0.04em', charWidth: 0.95 },
   };
 }
 
@@ -187,7 +186,7 @@ function OptionBubble({ letter, t, size }: { letter: string; t: Tokens; size: nu
     <div style={{
       width: size, height: size, borderRadius: '50%', background: '#FFFFFF', flexShrink: 0,
       boxShadow: `${size * 0.08}px ${size * 0.08}px 0 ${t.accent}`, display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: DISPLAY, fontWeight: 900, fontSize: size * 0.56, lineHeight: 1, color: t.optionLetter, paddingBottom: size * 0.06, boxSizing: 'border-box',
+      fontFamily: DISPLAY, fontWeight: 600, fontSize: size * 0.56, lineHeight: 1, color: t.optionLetter, paddingBottom: size * 0.06, boxSizing: 'border-box',
     }}>
       {letter}
     </div>
@@ -330,7 +329,7 @@ function AzulSlide({ slide, index, format, t, pad, width, height }: InnerProps) 
             <div key={i} style={{ display: 'flex', gap: 22 }}>
               <OptionBubble letter={item.badge || String(i + 1)} t={t} size={80} />
               <div>
-                <div style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: 36, textTransform: 'uppercase', color: t.headline }}>{item.title}</div>
+                <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 36, textTransform: 'uppercase', color: t.headline }}>{item.title}</div>
                 <Italic text={item.body} color={t.text} size={30} />
               </div>
             </div>

@@ -1,7 +1,8 @@
 import { desc, eq } from 'drizzle-orm';
 import { getDb } from './db';
-import { contentDesigns } from '../drizzle/schema';
+import { contentDesignMessages, contentDesigns } from '../drizzle/schema';
 import { normalizeStudioDesign, STUDIO_MAX_DESIGNS_LISTED, type StudioDesign } from '../shared/contentStudio';
+import { normalizeAiDesign } from '../shared/studioAi';
 
 /* Estudio de contenido (shared/contentStudio.ts): guarda los diseños para que
  * no se pierdan al cambiar de celular a computador. Todo lo que entra pasa
@@ -25,20 +26,42 @@ function toStored(row: typeof contentDesigns.$inferSelect): StoredDesign | null 
   return design ? { ...design, id: row.id, updatedAt: row.updatedAt } : null;
 }
 
-/** Lo más reciente primero, sin las láminas: la lista solo muestra el resumen. */
-export async function listContentDesigns() {
+/** Lo más reciente primero, sin las láminas: la lista solo muestra el
+ * resumen y la portada. Mezcla los diseños de plantilla y los del Diseñador
+ * IA (`kind`); de los de IA va la primera lámina en HTML para la miniatura. */
+export type DesignListItem =
+  | (Omit<StoredDesign, 'slides' | 'caption'> & { kind: 'plantilla'; slideCount: number; cover: StudioDesign['slides'][number] })
+  | { kind: 'ia'; id: number; title: string; format: StudioDesign['format']; eventId: number | null; updatedAt: Date; slideCount: number; aiCover: { css: string; html: string } | null };
+
+export async function listContentDesigns(): Promise<DesignListItem[]> {
   const db = await requireDb();
   const rows = await db.select().from(contentDesigns).orderBy(desc(contentDesigns.updatedAt)).limit(STUDIO_MAX_DESIGNS_LISTED);
-  return rows
-    .map(toStored)
-    .filter((d): d is StoredDesign => d !== null)
-    .map(({ slides, caption: _caption, ...rest }) => ({ ...rest, slideCount: slides.length, cover: slides[0] }));
+  return rows.flatMap((row): DesignListItem[] => {
+    if (row.kind === 'ia') {
+      const design = normalizeAiDesign({ ...(row.data as object), title: row.title, format: row.format, eventId: row.eventId });
+      return [{
+        kind: 'ia' as const,
+        id: row.id,
+        title: design.title,
+        format: design.format,
+        eventId: design.eventId,
+        updatedAt: row.updatedAt,
+        slideCount: design.slides.length,
+        aiCover: design.slides[0] ? { css: design.css, html: design.slides[0].html } : null,
+      }];
+    }
+    const stored = toStored(row);
+    if (!stored) return [];
+    const { slides, caption: _caption, ...rest } = stored;
+    return [{ ...rest, kind: 'plantilla' as const, slideCount: slides.length, cover: slides[0] }];
+  });
 }
 
 export async function getContentDesign(id: number): Promise<StoredDesign | null> {
   const db = await requireDb();
   const [row] = await db.select().from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
-  return row ? toStored(row) : null;
+  // Un diseño de IA no se abre en el editor de plantillas.
+  return row && row.kind !== 'ia' ? toStored(row) : null;
 }
 
 /** Crea (sin `id`) o reemplaza un diseño. Devuelve el id. */
@@ -56,8 +79,9 @@ export async function saveContentDesign(id: number | undefined, raw: unknown): P
   if (id != null) {
     // Se mira antes de escribir: `affectedRows` de MySQL no distingue "no
     // existe" de "no cambió nada" (guardar dos veces lo mismo).
-    const [existing] = await db.select({ id: contentDesigns.id }).from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
+    const [existing] = await db.select({ id: contentDesigns.id, kind: contentDesigns.kind }).from(contentDesigns).where(eq(contentDesigns.id, id)).limit(1);
     if (!existing) throw new Error('Ese diseño ya no existe.');
+    if (existing.kind === 'ia') throw new Error('Ese diseño es del Diseñador IA: se edita desde ahí.');
     await db.update(contentDesigns).set(values).where(eq(contentDesigns.id, id));
     return id;
   }
@@ -67,5 +91,6 @@ export async function saveContentDesign(id: number | undefined, raw: unknown): P
 
 export async function deleteContentDesign(id: number): Promise<void> {
   const db = await requireDb();
+  await db.delete(contentDesignMessages).where(eq(contentDesignMessages.designId, id));
   await db.delete(contentDesigns).where(eq(contentDesigns.id, id));
 }

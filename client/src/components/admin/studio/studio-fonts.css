@@ -1,0 +1,5 @@
+/* Gliker y Allura para las plantillas fijas del Estudio (las mismas de los
+ * diseños de Claude Design). Los archivos están en client/public/studio/fonts
+ * y los comparte el Diseñador IA. */
+@font-face { font-family: 'Gliker Semi Bold Expanded'; src: url('/studio/fonts/gliker-semibold-expanded.ttf') format('truetype'); font-weight: 600; font-style: normal; font-display: block; }
+@font-face { font-family: 'Allura'; src: url('/studio/fonts/allura.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: block; }

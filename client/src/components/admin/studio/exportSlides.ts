@@ -9,9 +9,43 @@ import JSZip from 'jszip';
  * sin las imágenes o sin la fuente (todavía las está incrustando). Se captura
  * dos veces y se usa la segunda. */
 
+/** Las fuentes de las láminas del Diseñador IA (/studio/fonts.css) con cada
+ * archivo incrustado como data: URL. Esas láminas viven dentro de un iframe,
+ * y html-to-image solo sabe leer las fuentes de la página principal: sin
+ * esto, el PNG saldría con la letra de reemplazo. Se arma una sola vez. */
+let studioFontCss: Promise<string> | null = null;
+function loadStudioFontCss(): Promise<string> {
+  studioFontCss ??= (async () => {
+    const css = await (await fetch('/studio/fonts.css')).text();
+    const urls = Array.from(new Set(Array.from(css.matchAll(/url\('([^']+)'\)/g), (m) => m[1])));
+    const inlined = await Promise.all(urls.map(async (url) => {
+      const blob = await (await fetch(url)).blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+      return [url, dataUrl] as const;
+    }));
+    return inlined.reduce((acc, [url, dataUrl]) => acc.split(`'${url}'`).join(`'${dataUrl}'`), css.replace(/\/\*[\s\S]*?\*\//g, ''));
+  })().catch((err) => {
+    studioFontCss = null; // que el próximo intento vuelva a probar
+    throw err;
+  });
+  return studioFontCss;
+}
+
 async function capture(node: HTMLElement): Promise<Blob> {
-  await document.fonts.ready;
-  const options = { pixelRatio: 1, cacheBust: false, width: node.offsetWidth, height: node.offsetHeight };
+  const inFrame = node.ownerDocument !== document;
+  await (inFrame ? node.ownerDocument.fonts.ready : document.fonts.ready);
+  const options = {
+    pixelRatio: 1,
+    cacheBust: false,
+    width: node.offsetWidth,
+    height: node.offsetHeight,
+    ...(inFrame ? { fontEmbedCSS: await loadStudioFontCss() } : {}),
+  };
   await toBlob(node, options).catch(() => null);
   const blob = await toBlob(node, options);
   if (!blob) throw new Error('No se pudo generar la imagen.');

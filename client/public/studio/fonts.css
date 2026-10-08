@@ -1,0 +1,10 @@
+/* Fuentes de las láminas del Diseñador IA (Estudio). Las carga SOLO el
+ * iframe de cada lámina, nunca el resto del sitio. Mismas fuentes del PlayRoom
+ * Design System de Claude Design. Gliker Semi Bold Expanded: licencia del
+ * dueño, autohospedada. */
+@font-face { font-family: 'Gliker Semi Bold Expanded'; src: url('/studio/fonts/gliker-semibold-expanded.ttf') format('truetype'); font-weight: 600; font-style: normal; font-display: block; }
+@font-face { font-family: 'Allura'; src: url('/studio/fonts/allura.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: block; }
+@font-face { font-family: 'Josefin Sans'; src: url('/studio/fonts/josefin-sans.woff2') format('woff2'); font-weight: 100 700; font-style: normal; font-display: block; }
+@font-face { font-family: 'Josefin Sans'; src: url('/studio/fonts/josefin-sans-italic.woff2') format('woff2'); font-weight: 100 700; font-style: italic; font-display: block; }
+@font-face { font-family: 'Unbounded'; src: url('/studio/fonts/unbounded.woff2') format('woff2'); font-weight: 200 900; font-style: normal; font-display: block; }
+@font-face { font-family: 'Inter'; src: url('/studio/fonts/inter.woff2') format('woff2'); font-weight: 100 900; font-style: normal; font-display: block; }
