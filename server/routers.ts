@@ -102,6 +102,7 @@ import { parseSurveyAnswer } from "../shared/eventSurvey";
 import { getWinbackOverview, draftWinbackEmail, createWinbackCampaign } from "./winback";
 import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
+import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign } from "./contentStudio";
 import { normalizeSalesStrategyState } from "../shared/salesStrategy";
 import { normalizeAgentCoachReport } from "../shared/agentCoach";
 import { normalizeWhatsAppAgentConfig, DEFAULT_WHATSAPP_AGENT_CONFIG, WA_MAX_REPLY_CHARS } from "../shared/whatsappAgentConfig";
@@ -2364,6 +2365,41 @@ export const appRouter = router({
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo generar el plan.' });
       }
+    }),
+  }),
+
+  // Estudio de contenido (server/contentStudio.ts): carruseles, posts e
+  // historias con las plantillas de marca. Leer es adminReadProcedure (no hay
+  // datos personales); guardar, adminProcedure; borrar pide la clave, como
+  // todo lo que se borra en el panel.
+  contentStudio: router({
+    list: adminReadProcedure.query(async () => listContentDesigns()),
+    get: adminReadProcedure.input(z.object({ id: z.number().int().positive() })).query(async ({ input }) => {
+      const design = await getContentDesign(input.id);
+      if (!design) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ese diseño ya no existe.' });
+      return design;
+    }),
+    save: adminProcedure.input(z.object({
+      id: z.number().int().positive().optional(),
+      // La forma fina la valida y recorta normalizeStudioDesign (shared/contentStudio.ts).
+      design: z.object({
+        title: z.string().max(300),
+        format: z.string().max(20),
+        theme: z.string().max(30),
+        eventId: z.number().int().nullable().optional(),
+        caption: z.string().max(5000),
+        slides: z.array(z.unknown()).min(1).max(40),
+      }),
+    })).mutation(async ({ input }) => {
+      try {
+        return { id: await saveContentDesign(input.id, input.design) };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el diseño.' });
+      }
+    }),
+    delete: adminPasswordProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {
+      await deleteContentDesign(input.id);
+      return { success: true } as const;
     }),
   }),
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { CalendarDays, Sparkles, AlertTriangle, Loader2, Copy } from 'lucide-react';
+import { CalendarDays, Sparkles, AlertTriangle, Loader2, Copy, Palette } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { WriteButton } from '@/components/admin/WriteButton';
@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
 import { normalizeContentPlan, type ContentGoal, type ContentPiece, type ContentPlan } from '@shared/contentPlan';
+import { designFromPiece } from '@shared/contentStudio';
+import { openInStudio } from '@/components/admin/studio/handoff';
 
 /* Plan de contenido para Instagram (server/contentPlanner.ts): el calendario
  * de publicaciones hasta el próximo evento, con el texto listo para copiar.
@@ -144,7 +146,7 @@ export function ContentPlanView() {
               {days.map((day) => (
                 <div key={day.date} className="space-y-3">
                   <h3 className="font-medium capitalize">{formatChileDate(`${day.date}T15:00:00Z`, { withWeekday: true })}</h3>
-                  {day.pieces.map((p, i) => <PieceCard key={`${day.date}-${i}`} piece={p} />)}
+                  {day.pieces.map((p, i) => <PieceCard key={`${day.date}-${i}`} piece={p} eventId={plan.eventId} />)}
                 </div>
               ))}
             </>
@@ -155,7 +157,7 @@ export function ContentPlanView() {
   );
 }
 
-function PieceCard({ piece }: { piece: ContentPiece }) {
+function PieceCard({ piece, eventId }: { piece: ContentPiece; eventId: number }) {
   const goal = GOAL_LABEL[piece.goal];
   const fullText = [piece.caption, piece.hashtags.join(' ')].filter(Boolean).join('\n\n');
   return (
@@ -192,6 +194,10 @@ function PieceCard({ piece }: { piece: ContentPiece }) {
               <Copy className="mr-2 h-4 w-4" /> Copiar las láminas
             </Button>
           )}
+          {/* Un reel se graba con el celular; acá solo se le puede hacer la portada. */}
+          <Button variant="outline" size="sm" onClick={() => openInStudio(designFromPiece(piece, eventId))}>
+            <Palette className="mr-2 h-4 w-4" /> {piece.format === 'reel' ? 'Portada en Estudio' : 'Abrir en Estudio'}
+          </Button>
         </div>
       </CardContent>
     </Card>
