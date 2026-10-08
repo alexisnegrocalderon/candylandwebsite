@@ -820,9 +820,15 @@ export function communityCodeOwnerMatches(ownerRut: string | null | undefined, b
   return normalizeRut(ownerRut) === normalizeRut(buyerRut ?? '');
 }
 
-/** `buyerRut` solo importa cuando el código tiene `ownerRut` -- un código
- * compartido sigue validando igual que antes, sin pedir RUT. */
-export async function validateCommunityCode(code: string, buyerRut?: string) {
+/** `true` si el código ya llegó a su máximo de usos en el evento (`maxUses` es
+ * POR EVENTO: un código personal con 1 sirve una vez en cada fiesta). */
+export function communityCodeExhausted(maxUses: number | null | undefined, usedInEvent: number): boolean {
+  return !!maxUses && usedInEvent >= maxUses;
+}
+
+/** `buyerRut` solo importa cuando el código tiene `ownerRut`. `eventId`
+ * habilita el tope por evento; sin él no se revisa (createOrder siempre lo manda). */
+export async function validateCommunityCode(code: string, buyerRut?: string, eventId?: number) {
   const db = await getDb();
   if (!db) return { valid: false, message: 'Service unavailable' };
 
@@ -831,7 +837,11 @@ export async function validateCommunityCode(code: string, buyerRut?: string) {
 
   const entry = result[0];
   if (!entry.isActive) return { valid: false, message: 'Código inactivo' };
-  if (entry.maxUses && entry.usedCount >= entry.maxUses) return { valid: false, message: 'Código agotado' };
+  if (eventId != null && entry.maxUses) {
+    const [row] = await db.select({ n: sql<number>`count(*)` }).from(orders)
+      .where(and(eq(orders.communityCodeId, entry.id), eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved')));
+    if (communityCodeExhausted(entry.maxUses, Number(row?.n ?? 0))) return { valid: false, message: 'Código ya usado en este evento' };
+  }
   if (!communityCodeOwnerMatches(entry.ownerRut, buyerRut)) {
     return { valid: false, message: 'Este código es personal de otra persona' };
   }
@@ -1382,10 +1392,14 @@ export async function createOrder(input: {
 
   // Confirm community access code (Soltero / Dúo Dos Hombres) — defense in depth,
   // el checkout ya lo valida en vivo antes de dejar avanzar.
+  let communityCodeId: number | undefined;
   if (input.communityCode) {
-    const validation = await validateCommunityCode(input.communityCode, parseBuyerRut(input.attendeeData) ?? undefined);
+    const validation = await validateCommunityCode(input.communityCode, parseBuyerRut(input.attendeeData) ?? undefined, event.id);
     if (!validation.valid) throw new Error(validation.message || 'Código de comunidad inválido');
-    if (validation.communityCode) await markCommunityCodeUsed(validation.communityCode.id);
+    if (validation.communityCode) {
+      communityCodeId = validation.communityCode.id;
+      await markCommunityCodeUsed(validation.communityCode.id);
+    }
   }
 
   // Recargo por servicio: % configurable en Ajustes, se calcula sobre el
@@ -1424,6 +1438,7 @@ export async function createOrder(input: {
     serviceFee: String(serviceFee),
     total: String(total),
     discountCodeId,
+    communityCodeId,
     ambassadorCode: ambassadorCodeForOrder,
     // Congelado para siempre, a diferencia de ambassadorCode (que
     // ensureOwnAmbassadorCode pisa más adelante) -- ver comentario en el schema.

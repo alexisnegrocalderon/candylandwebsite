@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { communityCodeOwnerMatches } from "./db";
+import { communityCodeOwnerMatches, communityCodeExhausted } from "./db";
 
 /* Código de comunidad personal y permanente (ver drizzle/schema.ts,
  * columna ownerRut): un código compartido (sin ownerRut) sigue pasando
@@ -22,5 +22,18 @@ describe("communityCodeOwnerMatches", () => {
     expect(communityCodeOwnerMatches("12345678-5", "11111111-1")).toBe(false);
     expect(communityCodeOwnerMatches("12345678-5", undefined)).toBe(false);
     expect(communityCodeOwnerMatches("12345678-5", "")).toBe(false);
+  });
+});
+
+describe("communityCodeExhausted (maxUses es por evento)", () => {
+  it("sin máximo nunca se agota", () => {
+    expect(communityCodeExhausted(null, 99)).toBe(false);
+    expect(communityCodeExhausted(0, 99)).toBe(false);
+  });
+
+  it("se agota al llegar al máximo dentro del evento, no antes", () => {
+    expect(communityCodeExhausted(1, 0)).toBe(false);
+    expect(communityCodeExhausted(1, 1)).toBe(true);
+    expect(communityCodeExhausted(2, 1)).toBe(false);
   });
 });

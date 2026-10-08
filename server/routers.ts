@@ -2910,8 +2910,9 @@ export const appRouter = router({
       // Solo importa cuando el código es personal (ownerRut asignado) --
       // ver validateCommunityCode en db.ts.
       buyerRut: z.string().optional(),
+      eventId: z.number().optional(),
     })).mutation(async ({ input }) => {
-      return db.validateCommunityCode(input.code, input.buyerRut);
+      return db.validateCommunityCode(input.code, input.buyerRut, input.eventId);
     }),
     // Admin
     listAll: adminReadProcedure.query(async () => {

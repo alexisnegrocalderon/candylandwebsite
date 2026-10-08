@@ -215,6 +215,9 @@ export const orders = mysqlTable("orders", {
   serviceFee: decimal("serviceFee", { precision: 10, scale: 0 }).default("0").notNull(),
   total: decimal("total", { precision: 10, scale: 0 }).notNull(),
   discountCodeId: int("discountCodeId"),
+  // Código de comunidad usado en esta compra: permite contar los usos POR
+  // EVENTO (maxUses de communityCodes es por evento, ver validateCommunityCode).
+  communityCodeId: int("communityCodeId"),
   ambassadorCode: varchar("ambassadorCode", { length: 32 }),
   // Código que el comprador tecleó al pagar, congelado para siempre desde
   // createOrder -- a diferencia de `ambassadorCode`, que más tarde
