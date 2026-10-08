@@ -12,6 +12,7 @@ import { formatChileDate, formatChileDateTime } from '@shared/chileDate';
 import { normalizeContentPlan, type ContentGoal, type ContentPiece, type ContentPlan } from '@shared/contentPlan';
 import { designFromPiece } from '@shared/contentStudio';
 import { openInStudio } from '@/components/admin/studio/handoff';
+import { CaptionReviewBox, CaptionReviewCard } from '@/components/admin/CaptionReview';
 
 /* Plan de contenido para Instagram (server/contentPlanner.ts): el calendario
  * de publicaciones hasta el próximo evento, con el texto listo para copiar.
@@ -153,6 +154,8 @@ export function ContentPlanView() {
           )}
         </>
       )}
+
+      <CaptionReviewCard />
     </div>
   );
 }
@@ -185,6 +188,7 @@ function PieceCard({ piece, eventId }: { piece: ContentPiece; eventId: number })
         {piece.visual && (
           <p className="rounded-xl bg-muted/40 p-3 text-sm"><span className="font-medium">Qué grabar:</span> {piece.visual}</p>
         )}
+        {piece.format !== 'historia' && <CaptionReviewBox caption={piece.caption} hashtags={piece.hashtags} />}
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => copyText(fullText, 'Texto')}>
             <Copy className="mr-2 h-4 w-4" /> Copiar el texto

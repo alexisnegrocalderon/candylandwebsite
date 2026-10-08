@@ -5,6 +5,7 @@
  * La IA escribe los textos, pero las FECHAS las valida el código: una pieza
  * con una fecha inventada, fuera de la ventana o repetida de más se descarta
  * en vez de llegar al calendario del dueño. */
+import { cleanAiMarks, INSTAGRAM_HASHTAG_LIMIT } from './captionCheck';
 
 export const CONTENT_FORMATS = ['post', 'reel', 'historia', 'carrusel'] as const;
 export type ContentFormat = (typeof CONTENT_FORMATS)[number];
@@ -103,6 +104,8 @@ function cleanTime(value: unknown): string {
 }
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+/** Texto de la IA sin marcas de IA seguras de quitar (invisibles, rayas largas). */
+const human = (v: unknown, max: number) => cleanAiMarks(str(v, max));
 
 /** Deja pasar solo lo que sirve: fecha real DENTRO de la ventana, formato y
  * objetivo conocidos, y texto no vacío. Máximo `CONTENT_PLAN_MAX_PER_DAY` por
@@ -116,11 +119,11 @@ export function cleanContentPieces(raw: unknown, window: { from: string; to: str
     if (!isRealIsoDate(r.date) || r.date < window.from || r.date > window.to) continue;
     const format = CONTENT_FORMATS.find((f) => f === r.format);
     const goal = CONTENT_GOALS.find((g) => g === r.goal);
-    const hook = str(r.hook, 200);
-    const caption = str(r.caption, 1200);
+    const hook = human(r.hook, 200);
+    const caption = human(r.caption, 1200);
     if (!format || !goal || !hook || !caption) continue;
     const slides = Array.isArray(r.slides)
-      ? r.slides.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => x.trim().slice(0, 400)).slice(0, CONTENT_MAX_SLIDES)
+      ? r.slides.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).map((x) => cleanAiMarks(x.trim().slice(0, 400))).slice(0, CONTENT_MAX_SLIDES)
       : [];
     // Un carrusel sin láminas no sirve (no hay nada que diseñar); y las láminas
     // en una pieza que no es carrusel son ruido.
@@ -132,11 +135,11 @@ export function cleanContentPieces(raw: unknown, window: { from: string; to: str
       goal,
       hook,
       caption,
-      visual: str(r.visual, 600),
+      visual: human(r.visual, 600),
       slides: format === 'carrusel' ? slides : [],
-      interaction: str(r.interaction, 300),
+      interaction: human(r.interaction, 300),
       hashtags: Array.isArray(r.hashtags)
-        ? r.hashtags.filter((h): h is string => typeof h === 'string' && h.trim().length > 0).map((h) => (h.trim().startsWith('#') ? h.trim() : `#${h.trim()}`)).slice(0, 8)
+        ? r.hashtags.filter((h): h is string => typeof h === 'string' && h.trim().length > 0).map((h) => (h.trim().startsWith('#') ? h.trim() : `#${h.trim()}`)).slice(0, INSTAGRAM_HASHTAG_LIMIT)
         : [],
       keyword: str(r.keyword, 60),
     });
