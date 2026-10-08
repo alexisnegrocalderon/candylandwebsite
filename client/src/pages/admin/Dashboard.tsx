@@ -1,5 +1,5 @@
 import '@/admin.css';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { startRegistration } from '@simplewebauthn/browser';
@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
@@ -44,6 +44,11 @@ import { SalesStrategyView } from '@/components/admin/SalesStrategyView';
 import { EventSurveyView } from '@/components/admin/EventSurveyView';
 import { WinbackView } from '@/components/admin/WinbackView';
 import { ContentPlanView } from '@/components/admin/ContentPlanView';
+import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
+
+// El Estudio trae sus propias fuentes, html-to-image y jszip: se carga recién
+// cuando se abre, para no sumarle peso al resto del panel.
+const ContentStudio = lazy(() => import('@/components/admin/ContentStudio').then((m) => ({ default: m.ContentStudio })));
 import { WhatsAppInbox } from '@/components/admin/WhatsAppInbox';
 import { StatusBadge } from '@/components/admin/StatusBadge';
 import { StatTile } from '@/components/admin/StatTile';
@@ -10845,6 +10850,11 @@ const ADMIN_SECTIONS = [
   { id: 'mailing-history', label: 'Historial de Mailing', group: 'Marketing', icon: History, render: () => <MailingHistoryView /> },
   { id: 'winback', label: 'Reactivar clientes', group: 'Marketing', icon: Users, render: () => <WinbackView /> },
   { id: 'content-plan', label: 'Plan de contenido', group: 'Marketing', icon: Calendar, render: () => <ContentPlanView /> },
+  { id: 'studio', label: 'Estudio', group: 'Marketing', icon: Palette, render: () => (
+    <Suspense fallback={<div className="py-12 flex justify-center"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
+      <ContentStudio />
+    </Suspense>
+  ) },
   { id: 'email-templates', label: 'Plantillas de correo', group: 'Marketing', icon: Send, render: () => <EmailTemplatesManager /> },
   { id: 'referrals', label: 'Referidos', group: 'Marketing', icon: Trophy, render: () => <ReferralsView /> },
   { id: 'ambassadors', label: 'Embajadores VIP', group: 'Marketing', icon: Crown, render: () => <AmbassadorsView /> },
@@ -11324,6 +11334,17 @@ export default function AdminDashboard() {
     setActiveSection(id);
     markSeen(id);
   };
+
+  // Otra sección pide cambiar de pantalla (ej. "Abrir en Estudio" desde el
+  // Plan de contenido -- studio/handoff.ts).
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      if (ADMIN_SECTIONS.some((s) => s.id === id)) openSection(id as typeof ADMIN_SECTIONS[number]['id']);
+    };
+    window.addEventListener(OPEN_SECTION_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_SECTION_EVENT, onOpen);
+  });
 
   if (loading) {
     return (

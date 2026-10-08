@@ -2269,3 +2269,24 @@ export const accessCredits = mysqlTable("accessCredits", {
 
 export type AccessCredit = typeof accessCredits.$inferSelect;
 export type InsertAccessCredit = typeof accessCredits.$inferInsert;
+
+// Estudio de contenido (admin → Marketing → Estudio): los carruseles, posts e
+// historias armados con las plantillas de marca. `data` guarda las láminas y
+// el texto de la publicación tal como los limpia
+// shared/contentStudio.ts (normalizeStudioDesign); las fotos viven en Vercel
+// Blob y acá solo queda su URL. El PNG final se exporta en el navegador: no
+// se guarda.
+export const contentDesigns = mysqlTable("contentDesigns", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId"),
+  title: varchar("title", { length: 200 }).notNull(),
+  format: mysqlEnum("format", ["carrusel", "post", "historia"]).notNull(),
+  theme: varchar("theme", { length: 30 }).notNull(),
+  data: json("data").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [
+  index("content_designs_event_idx").on(t.eventId),
+]);
+
+export type ContentDesign = typeof contentDesigns.$inferSelect;
