@@ -1602,7 +1602,7 @@ function CommunityCodesManager() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div><Label>Código</Label><Input value={newCode.code} onChange={(e) => setNewCode({ ...newCode, code: e.target.value.toUpperCase() })} className="mt-1" /></div>
               <div><Label>Etiqueta (opcional)</Label><Input value={newCode.label} onChange={(e) => setNewCode({ ...newCode, label: e.target.value })} className="mt-1" placeholder="Ej: Grupo WhatsApp Playroom" /></div>
-              <div><Label>Usos máximos</Label><Input type="number" value={newCode.maxUses} onChange={(e) => setNewCode({ ...newCode, maxUses: Number(e.target.value) })} className="mt-1" /></div>
+              <div><Label>Usos máximos por evento (0 = sin límite)</Label><Input type="number" value={newCode.maxUses} onChange={(e) => setNewCode({ ...newCode, maxUses: Number(e.target.value) })} className="mt-1" /></div>
             </div>
             <div>
               <Label>RUT del titular (opcional)</Label>
@@ -1624,7 +1624,7 @@ function CommunityCodesManager() {
               <div>
                 <span className="font-mono font-bold text-primary">{c.code}</span>
                 {c.label && <span className="text-muted-foreground text-sm ml-3">{c.label}</span>}
-                <span className="text-muted-foreground text-sm ml-3">Usos: {c.usedCount}/{c.maxUses || '∞'}</span>
+                <span className="text-muted-foreground text-sm ml-3">Usos totales: {c.usedCount} · máx. por evento: {c.maxUses || '∞'}</span>
                 <span className={`text-xs ml-3 px-2 py-0.5 rounded-full ${c.ownerRut ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}>{c.ownerRut ? `Personal — ${c.ownerRut}` : 'Compartido'}</span>
                 <span className={`text-xs ml-3 px-2 py-0.5 rounded-full ${c.isActive ? 'bg-green-500/20 text-green-400' : 'bg-muted text-muted-foreground'}`}>{c.isActive ? 'Activo' : 'Inactivo'}</span>
               </div>
