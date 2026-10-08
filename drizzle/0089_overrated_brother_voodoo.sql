@@ -1,0 +1,1 @@
+ALTER TABLE `communityCodes` ADD `ownerRut` varchar(20);

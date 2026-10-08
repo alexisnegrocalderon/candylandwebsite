@@ -624,6 +624,13 @@
       "when": 1791326018500,
       "tag": "0088_sharp_night_thrasher",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "5",
+      "when": 1791434109718,
+      "tag": "0089_overrated_brother_voodoo",
+      "breakpoints": true
     }
   ]
 }

@@ -2907,8 +2907,11 @@ export const appRouter = router({
   communityCodes: router({
     validate: publicProcedure.input(z.object({
       code: z.string(),
+      // Solo importa cuando el código es personal (ownerRut asignado) --
+      // ver validateCommunityCode en db.ts.
+      buyerRut: z.string().optional(),
     })).mutation(async ({ input }) => {
-      return db.validateCommunityCode(input.code);
+      return db.validateCommunityCode(input.code, input.buyerRut);
     }),
     // Admin
     listAll: adminReadProcedure.query(async () => {
@@ -2918,6 +2921,10 @@ export const appRouter = router({
       code: z.string(),
       label: z.string().optional(),
       maxUses: z.number().optional(),
+      // RUT de la persona dueña, para un código personal y permanente
+      // (ver drizzle/schema.ts) -- vacío/omitido = código compartido,
+      // igual que siempre.
+      ownerRut: z.string().optional(),
     })).mutation(async ({ input }) => {
       return db.createCommunityCode(input);
     }),
@@ -2927,6 +2934,7 @@ export const appRouter = router({
       label: z.string().optional(),
       maxUses: z.number().optional(),
       isActive: z.number().optional(),
+      ownerRut: z.string().optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
       return db.updateCommunityCode(id, data);

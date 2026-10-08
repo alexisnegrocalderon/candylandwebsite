@@ -1569,16 +1569,17 @@ function CommunityCodesManager() {
   const deleteCode = trpc.communityCodes.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
   const updateCode = trpc.communityCodes.update.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
 
-  const [newCode, setNewCode] = useState({ code: '', label: '', maxUses: 0 });
+  const [newCode, setNewCode] = useState({ code: '', label: '', maxUses: 0, ownerRut: '' });
   const [showForm, setShowForm] = useState(false);
 
   const codes = codesData ?? [];
 
   const handleCreate = async () => {
     if (!newCode.code) return;
+    if (newCode.ownerRut.trim() && !isValidRut(newCode.ownerRut)) { toast.error('RUT inválido — revisa el formato (12.345.678-9)'); return; }
     try {
-      await createCode.mutateAsync({ ...newCode, maxUses: newCode.maxUses || undefined });
-      setNewCode({ code: '', label: '', maxUses: 0 });
+      await createCode.mutateAsync({ ...newCode, maxUses: newCode.maxUses || undefined, ownerRut: newCode.ownerRut.trim() || undefined });
+      setNewCode({ code: '', label: '', maxUses: 0, ownerRut: '' });
       setShowForm(false);
     } catch {
       // el toast de error ya lo muestra onMutationError; dejamos el formulario abierto para reintentar
@@ -1603,6 +1604,11 @@ function CommunityCodesManager() {
               <div><Label>Etiqueta (opcional)</Label><Input value={newCode.label} onChange={(e) => setNewCode({ ...newCode, label: e.target.value })} className="mt-1" placeholder="Ej: Grupo WhatsApp Playroom" /></div>
               <div><Label>Usos máximos</Label><Input type="number" value={newCode.maxUses} onChange={(e) => setNewCode({ ...newCode, maxUses: Number(e.target.value) })} className="mt-1" /></div>
             </div>
+            <div>
+              <Label>RUT del titular (opcional)</Label>
+              <Input value={newCode.ownerRut} onChange={(e) => setNewCode({ ...newCode, ownerRut: formatRutLive(e.target.value) })} className="mt-1" placeholder="12.345.678-9" />
+              <p className="text-xs text-muted-foreground mt-1">Déjalo vacío para un código compartido (como hoy). Si pones un RUT, el código queda personal y permanente -- solo esa persona puede usarlo, en cualquier evento, para siempre.</p>
+            </div>
             <div className="flex gap-2">
               <WriteButton onClick={handleCreate}>Crear Código</WriteButton>
               <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
@@ -1619,6 +1625,7 @@ function CommunityCodesManager() {
                 <span className="font-mono font-bold text-primary">{c.code}</span>
                 {c.label && <span className="text-muted-foreground text-sm ml-3">{c.label}</span>}
                 <span className="text-muted-foreground text-sm ml-3">Usos: {c.usedCount}/{c.maxUses || '∞'}</span>
+                <span className={`text-xs ml-3 px-2 py-0.5 rounded-full ${c.ownerRut ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}>{c.ownerRut ? `Personal — ${c.ownerRut}` : 'Compartido'}</span>
                 <span className={`text-xs ml-3 px-2 py-0.5 rounded-full ${c.isActive ? 'bg-green-500/20 text-green-400' : 'bg-muted text-muted-foreground'}`}>{c.isActive ? 'Activo' : 'Inactivo'}</span>
               </div>
               <div className="flex gap-2">

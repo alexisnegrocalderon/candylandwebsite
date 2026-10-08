@@ -717,7 +717,7 @@ export default function Checkout() {
     if (!communityCodeInput.trim()) return;
     setCommunityCodeError('');
     try {
-      const result = await validateCommunityCode.mutateAsync({ code: communityCodeInput });
+      const result = await validateCommunityCode.mutateAsync({ code: communityCodeInput, buyerRut: watch('buyer__rut') || undefined });
       if (result.valid) {
         setCommunityCodeStatus('valid');
         setValue('acceso__codigo_acceso' as any, communityCodeInput, { shouldValidate: true });

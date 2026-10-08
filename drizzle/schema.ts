@@ -405,6 +405,12 @@ export const communityCodes = mysqlTable("communityCodes", {
   maxUses: int("maxUses"),
   usedCount: int("usedCount").default(0).notNull(),
   isActive: int("isActive").default(1).notNull(),
+  // RUT de la persona dueña del código, normalizado -- null = código
+  // compartido (comportamiento de siempre, cualquiera que lo escriba
+  // puede usarlo). Con RUT asignado, el código pasa a ser personal y
+  // permanente para esa persona (ver validateCommunityCode en db.ts):
+  // solo sirve si el RUT que escribe en el checkout calza con este.
+  ownerRut: varchar("ownerRut", { length: 20 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
