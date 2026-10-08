@@ -1532,8 +1532,8 @@ function DiscountsManager() {
       <div className="space-y-3">
         {discounts.map((d: any) => (
           <Card key={d.id}>
-            <CardContent className="pt-4 flex justify-between items-center">
-              <div>
+            <CardContent className="pt-4 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
+              <div className="min-w-0">
                 <span className="font-mono font-bold text-primary">{d.code}</span>
                 {!d.isActive && <span className="text-xs ml-2 px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Inactivo</span>}
                 <span className="text-muted-foreground text-sm ml-3">
@@ -1542,7 +1542,7 @@ function DiscountsManager() {
                 <span className="text-muted-foreground text-sm ml-3">Usos: {d.usedCount}/{d.maxUses || '∞'}</span>
                 <span className="text-muted-foreground text-sm ml-3">{d.eventId ? `Evento: ${eventTitleFor(d)}` : 'Todos los eventos'}</span>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 sm:shrink-0">
                 <Button variant="outline" size="sm" title="Editar" aria-label="Editar" onClick={() => startEdit(d)}>
                   <Edit className="w-3 h-3" />
                 </Button>
@@ -1579,6 +1579,19 @@ function CommunityCodesManager() {
 
   const codes = codesData ?? [];
 
+  // Mensaje para compartir: no nombra el evento a propósito (antes decía
+  // "Candyland", una fiesta ya pasada) -- el código vale para el evento vigente.
+  const shareText = (code: string) =>
+    `Usa tu código ${code} para comprar tu entrada en Mansion Playroom 🍭 ${window.location.origin}`;
+  const copyShareText = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(shareText(code));
+      toast.success('Mensaje copiado');
+    } catch {
+      toast.error('No se pudo copiar. Copia el mensaje manualmente.');
+    }
+  };
+
   const handleCreate = async () => {
     if (!newCode.code) return;
     if (newCode.ownerRut.trim() && !isValidRut(newCode.ownerRut)) { toast.error('RUT inválido — revisa el formato (12.345.678-9)'); return; }
@@ -1593,12 +1606,12 @@ function CommunityCodesManager() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
         <div>
           <h2 className="font-heading text-2xl">Códigos Comunidad</h2>
           <p className="text-muted-foreground text-sm mt-1">Desbloquean el acceso Soltero y Dúo Dos Hombres en el checkout — no aplican descuento, solo validan pertenencia a la comunidad.</p>
         </div>
-        <Button onClick={() => setShowForm(!showForm)} className="interactive"><Plus className="w-4 h-4 mr-2" /> Nuevo Código</Button>
+        <Button onClick={() => setShowForm(!showForm)} className="interactive w-full sm:w-auto sm:shrink-0"><Plus className="w-4 h-4 mr-2" /> Nuevo Código</Button>
       </div>
 
       {showForm && (
@@ -1625,24 +1638,27 @@ function CommunityCodesManager() {
       <div className="space-y-3">
         {codes.map((c: any) => (
           <Card key={c.id}>
-            <CardContent className="pt-4 flex justify-between items-center">
-              <div>
+            <CardContent className="pt-4 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
+              <div className="min-w-0">
                 <span className="font-mono font-bold text-primary">{c.code}</span>
                 {c.label && <span className="text-muted-foreground text-sm ml-3">{c.label}</span>}
                 <span className="text-muted-foreground text-sm ml-3">Usos totales: {c.usedCount} · máx. por evento: {c.maxUses || '∞'}</span>
                 <span className={`text-xs ml-3 px-2 py-0.5 rounded-full ${c.ownerRut ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'}`}>{c.ownerRut ? `Personal — ${c.ownerRut}` : 'Compartido'}</span>
                 <span className={`text-xs ml-3 px-2 py-0.5 rounded-full ${c.isActive ? 'bg-green-500/20 text-green-400' : 'bg-muted text-muted-foreground'}`}>{c.isActive ? 'Activo' : 'Inactivo'}</span>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2 sm:shrink-0">
                 <WriteButton variant="outline" size="sm" onClick={() => updateCode.mutateAsync({ id: c.id, isActive: c.isActive ? 0 : 1 })}>
                   {c.isActive ? 'Desactivar' : 'Activar'}
                 </WriteButton>
+                <Button variant="outline" size="sm" className="text-primary" title="Copiar mensaje" aria-label="Copiar mensaje" onClick={() => copyShareText(c.code)}>
+                  <Copy className="w-3 h-3" />
+                </Button>
                 <a
-                  href={`https://wa.me/?text=${encodeURIComponent(`Usa mi código ${c.code} para comprar tu entrada a Candyland en Mansion Playroom 🍭 ${window.location.origin}`)}`}
+                  href={`https://wa.me/?text=${encodeURIComponent(shareText(c.code))}`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  <Button variant="outline" size="sm" className="text-primary">
+                  <Button variant="outline" size="sm" className="text-primary" title="Enviar por WhatsApp" aria-label="Enviar por WhatsApp">
                     <MessageCircle className="w-3 h-3" />
                   </Button>
                 </a>
