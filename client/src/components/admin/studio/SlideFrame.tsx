@@ -1,4 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef } from 'react';
+import { fitWhenReady } from './fitText';
 import { STUDIO_SIZES, type StudioFormat } from '@shared/contentStudio';
 import { slideDocument, type AiSlide } from '@shared/studioAi';
 
@@ -13,6 +14,15 @@ import { slideDocument, type AiSlide } from '@shared/studioAi';
 export interface SlideFrameHandle {
   /** El .board de adentro, listo para exportar (null si todavía no cargó). */
   board(): HTMLElement | null;
+  /** Se cumple cuando la lámina terminó de cargar (fuentes, fotos) y de ajustar
+   * el texto que se salía (fitText.ts). Esperarla antes de exportar. */
+  ready(): Promise<void>;
+}
+
+function newDeferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => { resolve = r; });
+  return { promise, resolve };
 }
 
 export const SlideFrame = forwardRef<SlideFrameHandle, {
@@ -27,9 +37,27 @@ export const SlideFrame = forwardRef<SlideFrameHandle, {
   const size = STUDIO_SIZES[format];
   const scale = width / size.width;
 
+  const srcDoc = slideDocument({ css, format }, slide);
+  // Cada vez que cambia el documento el iframe vuelve a cargar: se renueva la
+  // promesa de «lista», que se cumple recién cuando se ajustó el texto.
+  const lastDoc = useRef('');
+  const loaded = useRef(newDeferred());
+  if (lastDoc.current !== srcDoc) {
+    lastDoc.current = srcDoc;
+    loaded.current = newDeferred();
+  }
+
   useImperativeHandle(ref, () => ({
     board: () => iframeRef.current?.contentDocument?.querySelector<HTMLElement>('.board') ?? null,
+    ready: () => loaded.current.promise,
   }));
+
+  const onLoad = () => {
+    const doc = iframeRef.current?.contentDocument;
+    const done = loaded.current.resolve;
+    if (!doc) { done(); return; }
+    fitWhenReady(doc).catch(() => { /* sin ajuste: se ve como la escribió la IA */ }).finally(done);
+  };
 
   return (
     <div className={`relative overflow-hidden ${className ?? ''}`} style={{ width, height: size.height * scale }}>
@@ -37,7 +65,8 @@ export const SlideFrame = forwardRef<SlideFrameHandle, {
         ref={iframeRef}
         title="Lámina"
         sandbox="allow-same-origin"
-        srcDoc={slideDocument({ css, format }, slide)}
+        srcDoc={srcDoc}
+        onLoad={onLoad}
         style={{ width: size.width, height: size.height, border: 0, transform: `scale(${scale})`, transformOrigin: 'top left', pointerEvents: 'none' }}
         tabIndex={-1}
       />

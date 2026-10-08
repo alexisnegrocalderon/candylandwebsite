@@ -206,6 +206,8 @@ export function AiDesigner({ designId: initialId, format: initialFormat, eventId
   const runExport = async (kind: 'zip' | 'png' | 'share') => {
     setExporting(kind);
     try {
+      // Que cada lámina termine de cargar y de ajustar su texto antes de capturarla.
+      await Promise.all(frameRefs.current.slice(0, design.slides.length).map((f) => f?.ready()));
       if (kind === 'png') {
         const node = frameRefs.current[selected]?.board();
         if (!node) throw new Error('La lámina todavía no carga.');
