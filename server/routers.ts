@@ -92,6 +92,7 @@ import { canReplyWithinWindow } from "./instagramSend";
 import { runInstagramAgent, buildInstagramContext } from "./instagramAgent";
 import { getIgCustomerLinkState } from "./igCustomerLink";
 import { AGENT_SITE_PAGES } from "./agentLinks";
+import { generateReelScript } from "./reelScript";
 import { issueAccessCreditsForOrder, listAccessCredits, listCreditsByOrderIds, remindAccessCredit } from "./accessCredit";
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
@@ -2355,6 +2356,17 @@ export const appRouter = router({
   // publicaciones hasta el próximo evento. adminProcedure: llama a la IA con
   // costo. No guarda nada en el servidor; el panel recuerda el último plan.
   contentPlan: router({
+    /* Guion de Reel (3 ganchos + líneas + qué grabar) desde una idea o una pieza del plan. */
+    reelScript: adminProcedure.input(z.object({
+      idea: z.string().min(3).max(1200),
+      targetEventId: z.number().optional(),
+    })).mutation(async ({ input }) => {
+      try {
+        return await generateReelScript(input);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo escribir el guion.' });
+      }
+    }),
     generate: adminProcedure.input(z.object({
       targetEventId: z.number().optional(),
       // Lo que el dueño quiere en ESTE plan ("2 desafíos tipo quiz", "algo para
