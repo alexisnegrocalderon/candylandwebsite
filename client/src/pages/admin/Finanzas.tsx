@@ -84,10 +84,11 @@ function StaffPanel({ eventId, report }: { eventId: number; report: any }) {
                 type="number" inputMode="numeric" className="w-28" defaultValue={s.amountClp} disabled={isDemo}
                 onBlur={(e) => { const v = Math.max(0, Math.round(Number(e.target.value) || 0)); if (v !== s.amountClp) updShift.mutate({ id: s.id, amountClp: v }); }}
               />
-              <Button
-                size="sm" variant={s.paid ? 'default' : 'outline'} disabled={isDemo}
-                onClick={() => updShift.mutate({ id: s.id, paid: !s.paid })}
-              >{s.paid ? 'Pagado ✓' : 'Marcar pagado'}</Button>
+              <button type="button" disabled={isDemo}
+                className={`rounded-full px-5 py-2 text-sm font-semibold text-white shadow-sm transition active:scale-95 disabled:opacity-60 ${s.paid ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-pink-500 hover:bg-pink-600'}`}
+                onClick={() => updShift.mutate({ id: s.id, paid: !s.paid })}>
+                {s.paid ? '✓ Pagado' : 'Marcar pagado'}
+              </button>
               <Button size="icon" variant="ghost" disabled={isDemo} aria-label={`Quitar a ${s.name}`}
                 onClick={() => { if (window.confirm(`¿Quitar a ${s.name} de este evento?`)) delShift.mutate({ id: s.id }); }}>
                 <Trash2 className="w-4 h-4" />
@@ -346,9 +347,11 @@ function PayablesTab() {
                     <p className="font-medium">{a.name}</p>
                     <p className="text-xs text-[var(--admin-muted)]">{a.salesCount} venta{a.salesCount === 1 ? '' : 's'} · pagado {money(a.paid)}</p>
                   </div>
-                  <p className="tabular-nums font-semibold">{money(a.pending)}</p>
+                  <p className="tabular-nums font-semibold">{money(a.pending > 0 ? a.pending : a.paid)}</p>
                   {a.pending > 0 ? (
-                    <Button size="sm" variant={ev.isFuture ? 'outline' : 'default'} disabled={isDemo || mark.isPending}
+                    // Rosado = pendiente de pago (también en eventos futuros; ahí pide confirmación).
+                    <button type="button" disabled={isDemo || mark.isPending}
+                      className="rounded-full px-5 py-2 text-sm font-semibold text-white bg-pink-500 hover:bg-pink-600 active:scale-95 shadow-sm transition disabled:opacity-60"
                       onClick={() => {
                         const msg = ev.isFuture
                           ? `«${ev.eventTitle}» todavía no ocurre. ¿Seguro que quieres marcar ${money(a.pending)} de ${a.name} como pagado?`
@@ -356,12 +359,17 @@ function PayablesTab() {
                         if (window.confirm(msg)) mark.mutate({ ambassadorId: a.ambassadorId, eventId: ev.eventId, paid: true, confirmFuture: ev.isFuture });
                       }}>
                       Marcar pagado
-                    </Button>
-                  ) : (
-                    <Button size="sm" variant="ghost" disabled={isDemo || mark.isPending}
+                    </button>
+                  ) : a.paid > 0 ? (
+                    // Verde = ya pagado (tocar de nuevo lo devuelve a pendiente, con confirmación).
+                    <button type="button" disabled={isDemo || mark.isPending}
+                      title="Tócalo para deshacer"
+                      className="rounded-full px-5 py-2 text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 active:scale-95 shadow-sm transition disabled:opacity-60"
                       onClick={() => { if (window.confirm(`¿Volver a pendiente lo de ${a.name} en ${ev.eventTitle}?`)) mark.mutate({ ambassadorId: a.ambassadorId, eventId: ev.eventId, paid: false }); }}>
-                      Al día ✓ · deshacer
-                    </Button>
+                      ✓ Pagado
+                    </button>
+                  ) : (
+                    <span className="rounded-full px-5 py-2 text-sm font-medium bg-black/5 text-[var(--admin-muted)]">Sin comisión</span>
                   )}
                 </div>
               ))}
