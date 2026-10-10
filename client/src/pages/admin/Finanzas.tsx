@@ -494,6 +494,217 @@ function EventCostsCard({ eventId, eventDate, costs }: { eventId: number; eventD
   );
 }
 
+const ACCOUNT_LABEL: Record<string, string> = { mercadopago: 'Mercado Pago', banco: 'Banco', efectivo: 'Efectivo' };
+const chileMonthNow = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit' }).format(new Date()).slice(0, 7);
+const todayIso = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+
+/** Un movimiento por clasificar: se decide qué fue con un toque. */
+function PendingMovement({ m, events, onDone }: { m: any; events: any[]; onDone: () => void }) {
+  const isDemo = useIsDemo();
+  const [mode, setMode] = useState<'gasto_evento' | 'gasto_empresa' | null>(null);
+  const [eventId, setEventId] = useState('');
+  const [category, setCategory] = useState('otros');
+  const [doc, setDoc] = useState<DocType>('sin_documento');
+  const classify = trpc.cash.classify.useMutation({ onSuccess: () => { onDone(); toast.success('Clasificado'); }, onError: onErr });
+  const go = (classification: any, extra: any = {}) => classify.mutate({ id: m.id, classification, ...extra });
+  const out = m.amount < 0;
+  return (
+    <div className="admin-clay-sm p-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <span className="text-xs rounded-full bg-black/5 px-2 py-0.5">{ACCOUNT_LABEL[m.source]}</span>
+        <span className="text-[var(--admin-muted)] w-24">{formatChileShortDate(m.date)}</span>
+        <span className="flex-1 min-w-[10rem] truncate">{m.description}</span>
+        <strong className={`tabular-nums ${out ? 'text-red-600' : 'text-emerald-700'}`}>{money(m.amount)}</strong>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {out && <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOn}`} onClick={() => go('retiro_dueno')}>Retiro mío</button>}
+        <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOff}`} onClick={() => go('traspaso')}>Traspaso entre mis cuentas</button>
+        {out && <button type="button" disabled={isDemo} className={`${pillBase} ${mode === 'gasto_evento' ? pillOn : pillOff}`} onClick={() => setMode(mode === 'gasto_evento' ? null : 'gasto_evento')}>Gasto de un evento</button>}
+        {out && <button type="button" disabled={isDemo} className={`${pillBase} ${mode === 'gasto_empresa' ? pillOn : pillOff}`} onClick={() => setMode(mode === 'gasto_empresa' ? null : 'gasto_empresa')}>Gasto de la empresa</button>}
+        {out && <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOff}`} onClick={() => go('comision')}>Comisión</button>}
+        {!out && <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOff}`} onClick={() => go('venta')}>Venta / ingreso</button>}
+        <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOff}`} onClick={() => go('otro')}>Otro</button>
+      </div>
+      {mode && (
+        <div className="flex flex-wrap items-center gap-2">
+          {mode === 'gasto_evento' && (
+            <div className="min-w-[12rem]">
+              <Select value={eventId} onValueChange={setEventId}>
+                <SelectTrigger><SelectValue placeholder="¿De qué evento?" /></SelectTrigger>
+                <SelectContent>{events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className="min-w-[10rem]">
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{EXPENSE_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <DocPills value={doc} onChange={setDoc} />
+          <button type="button" disabled={isDemo || classify.isPending || (mode === 'gasto_evento' && !eventId)} className={`${pillBase} bg-emerald-500 text-white`}
+            onClick={() => go(mode, { eventId: mode === 'gasto_evento' ? Number(eventId) : null, category, documentType: doc })}>Guardar como gasto</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Caja real: saldos, lo que se ganó vs. lo que retiraste, movimientos por clasificar y cartola. */
+function CashTab() {
+  const isDemo = useIsDemo();
+  const utils = trpc.useUtils();
+  const [monthKey, setMonthKey] = useState(chileMonthNow());
+  const { data, isLoading, isError, error } = trpc.cash.summary.useQuery({ monthKey });
+  const { data: rec } = trpc.cash.reconcileMercadoPago.useQuery();
+  const { data: events } = trpc.events.listAll.useQuery();
+  const refresh = () => { utils.cash.invalidate(); };
+  const sync = trpc.cash.syncMercadoPago.useMutation({
+    onSuccess: (r: any) => { refresh(); r.errors?.length ? toast.warning(`Mercado Pago: ${r.errors.join(' · ')}`) : toast.success(`Mercado Pago: ${r.payments} cobros y ${r.movements} movimientos. Reporte: ${r.reportStatus}`); },
+    onError: onErr,
+  });
+  const [w, setW] = useState({ date: todayIso(), amount: '', account: 'mercadopago' as 'mercadopago' | 'banco' | 'efectivo', note: '' });
+  const addW = trpc.cash.addWithdrawal.useMutation({ onSuccess: () => { refresh(); setW({ ...w, amount: '', note: '' }); toast.success('Retiro registrado'); }, onError: onErr });
+  const delW = trpc.cash.deleteWithdrawal.useMutation({ onSuccess: refresh, onError: onErr });
+  const setBal = trpc.cash.setBalance.useMutation({ onSuccess: () => { refresh(); toast.success('Saldo actualizado'); }, onError: onErr });
+  const [statement, setStatement] = useState<{ text: string; preview: any } | null>(null);
+  const imp = trpc.cash.importStatement.useMutation({ onError: onErr });
+
+  const months = useMemo(() => { const out: string[] = []; let m = chileMonthNow(); for (let i = 0; i < 12; i++) { out.push(m); const [y, mm] = m.split('-').map(Number); m = mm === 1 ? `${y - 1}-12` : `${y}-${String(mm - 1).padStart(2, '0')}`; } return out; }, []);
+
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 2_500_000) { toast.error('El archivo es muy grande (máx. 2,5 MB).'); return; }
+    if (/\.(xlsx?|xls)$/i.test(file.name)) { toast.error('Guarda la cartola como CSV desde Excel (Archivo → Guardar como → CSV) y súbela de nuevo.'); return; }
+    const text = await file.text();
+    imp.mutate({ text, preview: true }, { onSuccess: (r) => setStatement({ text, preview: r }) });
+  };
+
+  if (isLoading) return <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+  if (isError || !data) return <p className="text-sm text-destructive">No se pudo cargar: {error?.message}</p>;
+  const pos = data.position;
+  const bal = (src: 'mercadopago' | 'banco') => data.balances.find((b: any) => b.source === src);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Select value={monthKey} onValueChange={setMonthKey}>
+          <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+          <SelectContent>{months.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+        </Select>
+        <button type="button" disabled={isDemo || sync.isPending} onClick={() => sync.mutate()} className={`${pillBase} ${pillOn} px-5 py-2`}>
+          {sync.isPending ? <Loader2 className="w-4 h-4 inline animate-spin mr-1" /> : null} Actualizar Mercado Pago
+        </button>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {(['mercadopago', 'banco'] as const).map((src) => {
+          const b = bal(src);
+          return (
+            <div key={src} className="admin-clay-sm p-4 space-y-1">
+              <p className="text-xs text-[var(--admin-muted)]">Saldo {ACCOUNT_LABEL[src]}</p>
+              <p className="font-heading text-2xl tabular-nums">{b ? money(b.balance) : '—'}</p>
+              <p className="text-[11px] text-[var(--admin-muted)]">{b ? `${formatChileShortDate(b.asOf)} · ${b.origin === 'api' ? 'automático' : b.origin === 'cartola' ? 'de la cartola' : 'anotado a mano'}` : 'Sin dato todavía'}</p>
+              <button type="button" disabled={isDemo} className="text-xs underline" onClick={() => { const v = window.prompt(`Saldo actual en ${ACCOUNT_LABEL[src]}`); if (v) setBal.mutate({ source: src, balance: Math.round(Number(v.replace(/[^0-9-]/g, '')) || 0) }); }}>Anotar a mano</button>
+            </div>
+          );
+        })}
+        <div className="admin-clay-sm p-4">
+          <p className="text-xs text-[var(--admin-muted)]">Ganancia de los eventos del mes</p>
+          <p className="font-heading text-2xl tabular-nums">{money(pos.monthProfit)}</p>
+          <p className="text-[11px] text-[var(--admin-muted)]">Retiraste {money(pos.monthWithdrawals)}</p>
+        </div>
+        <div className={`rounded-2xl p-4 ${pos.leftInCompany < 0 ? 'bg-red-500/10' : 'bg-emerald-500/10'}`}>
+          <p className="text-xs text-[var(--admin-muted)]">Quedó en la empresa este mes</p>
+          <p className={`font-heading text-2xl tabular-nums ${pos.leftInCompany < 0 ? 'text-red-700' : 'text-emerald-700'}`}>{money(pos.leftInCompany)}</p>
+          <p className="text-[11px] text-[var(--admin-muted)]">{pos.withdrawalsOverProfit ? 'Retiraste más de lo que ganaste: estás usando plata de otros meses (o el IVA).' : 'Ganancia menos tus retiros'}</p>
+        </div>
+      </div>
+
+      <Card className="admin-clay border-0">
+        <CardHeader><CardTitle>Mis retiros (plata para vivir)</CardTitle><p className="text-sm text-[var(--admin-muted)]">No son gastos de ningún evento: no bajan la ganancia, pero sí salen de la caja.</p></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Input type="date" className="w-40" value={w.date} onChange={(e) => setW({ ...w, date: e.target.value })} />
+            <Input type="number" inputMode="numeric" className="w-32" placeholder="Monto $" value={w.amount} onChange={(e) => setW({ ...w, amount: e.target.value })} />
+            <PillChoice value={w.account} onChange={(account) => setW({ ...w, account })} options={[{ v: 'mercadopago', l: 'Mercado Pago' }, { v: 'banco', l: 'Banco' }, { v: 'efectivo', l: 'Efectivo' }]} />
+            <Input className="w-48" placeholder="Nota (opcional)" value={w.note} onChange={(e) => setW({ ...w, note: e.target.value })} />
+            <button type="button" disabled={isDemo || addW.isPending || !(Number(w.amount) > 0)} className={`${pillBase} bg-emerald-500 text-white`}
+              onClick={() => addW.mutate({ date: `${w.date}T12:00:00-03:00`, amount: Math.round(Number(w.amount)), account: w.account, note: w.note || null })}>Registrar retiro</button>
+          </div>
+          {data.withdrawals.length === 0 && <p className="text-sm text-[var(--admin-muted)]">Todavía no registras retiros.</p>}
+          {data.withdrawals.map((x: any) => (
+            <div key={x.id} className="admin-clay-sm px-3 py-2 flex flex-wrap items-center gap-3 text-sm">
+              <span className="w-24 text-[var(--admin-muted)]">{formatChileShortDate(x.date)}</span>
+              <span className="text-xs rounded-full bg-black/5 px-2 py-0.5">{ACCOUNT_LABEL[x.account]}</span>
+              <span className="flex-1 min-w-[8rem] truncate">{x.note ?? ''}</span>
+              <strong className="tabular-nums">{money(x.amount)}</strong>
+              <button type="button" disabled={isDemo} className="p-2 rounded-full hover:bg-black/5" aria-label="Borrar retiro" onClick={() => { if (window.confirm('¿Borrar este retiro?')) delW.mutate({ id: x.id }); }}><Trash2 className="w-4 h-4" /></button>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card className="admin-clay border-0">
+        <CardHeader><CardTitle>Movimientos por clasificar ({data.pending.length})</CardTitle><p className="text-sm text-[var(--admin-muted)]">De Mercado Pago y de tu cartola: dime qué fue cada uno y queda contabilizado.</p></CardHeader>
+        <CardContent className="space-y-2">
+          {data.pending.length === 0 && <p className="text-sm text-[var(--admin-muted)]">Nada pendiente ✓</p>}
+          {data.pending.map((m: any) => <PendingMovement key={m.id} m={m} events={events ?? []} onDone={() => { refresh(); utils.finance.eventReport.invalidate(); }} />)}
+        </CardContent>
+      </Card>
+
+      <Card className="admin-clay border-0">
+        <CardHeader><CardTitle>Cartola del banco</CardTitle><p className="text-sm text-[var(--admin-muted)]">Descarga la cartola desde tu banco como CSV y súbela: se leen los movimientos y el saldo. Reimportar la misma cartola no duplica nada.</p></CardHeader>
+        <CardContent className="space-y-3">
+          <input type="file" accept=".csv,text/csv,.txt" disabled={isDemo || imp.isPending} onChange={(e) => onFile(e.target.files?.[0])} className="text-sm" />
+          {statement?.preview?.error && <p className="text-sm text-red-600">{statement.preview.error}</p>}
+          {statement?.preview && !statement.preview.error && (
+            <div className="space-y-2">
+              <p className="text-sm">Encontré <strong>{statement.preview.movements.length}</strong> movimientos{statement.preview.skipped ? ` (salté ${statement.preview.skipped} filas sin fecha o monto)` : ''}.</p>
+              <div className="max-h-64 overflow-y-auto space-y-1">
+                {statement.preview.movements.slice(0, 30).map((m: any) => (
+                  <div key={m.externalId} className="flex gap-3 text-xs">
+                    <span className="w-20">{m.date}</span><span className="flex-1 truncate">{m.description}</span>
+                    <span className={`tabular-nums ${m.amount < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{money(m.amount)}</span>
+                  </div>
+                ))}
+              </div>
+              <button type="button" disabled={isDemo || imp.isPending} className={`${pillBase} bg-emerald-500 text-white`}
+                onClick={() => imp.mutate({ text: statement.text, preview: false }, { onSuccess: (r: any) => { setStatement(null); refresh(); toast.success(`Importados ${r.imported} movimientos nuevos`); } })}>
+                Importar {statement.preview.movements.length} movimientos
+              </button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {rec && (
+        <Card className="admin-clay border-0">
+          <CardHeader><CardTitle>Cuadratura con Mercado Pago (últimos {rec.days} días)</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {rec.count === 0 ? <p className="text-[var(--admin-muted)]">Aún no hay cobros sincronizados. Toca "Actualizar Mercado Pago".</p> : (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <p>Cobros <strong className="block tabular-nums">{rec.count}</strong></p>
+                  <p>Bruto <strong className="block tabular-nums">{money(rec.gross)}</strong></p>
+                  <p>Comisiones reales <strong className="block tabular-nums">{money(rec.fees)}</strong></p>
+                  <p>Neto recibido <strong className="block tabular-nums">{money(rec.net)}</strong></p>
+                </div>
+                {rec.notInSystemCount > 0 ? (
+                  <div className="rounded-xl px-4 py-3 bg-amber-500/15 text-amber-800">
+                    {rec.notInSystemCount} cobro(s) en Mercado Pago que no calzan con ninguna venta del sistema (por ejemplo, cobros hechos con link de pago o en otra plataforma).
+                    <ul className="mt-1 text-xs">{rec.notInSystem.map((p: any) => <li key={p.id}>{formatChileShortDate(p.date)} · {money(p.amount)} · {p.description}</li>)}</ul>
+                  </div>
+                ) : <p className="text-emerald-700">Todos los cobros calzan con ventas del sistema ✓</p>}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 const RANGES = [{ v: 30, l: '30 min' }, { v: 60, l: '1 hora' }, { v: 120, l: '2 horas' }, { v: 240, l: '4 horas' }];
 const ALERT_TONE: Record<string, string> = { danger: 'bg-red-500/10 text-red-700', warning: 'bg-amber-500/15 text-amber-800', info: 'bg-sky-500/10 text-sky-800' };
 
@@ -866,7 +1077,7 @@ function MarginGoal() {
 }
 
 export default function FinanzasView() {
-  const [tab, setTab] = useState<'live' | 'evento' | 'mes' | 'pagar'>('live');
+  const [tab, setTab] = useState<'live' | 'evento' | 'mes' | 'pagar' | 'caja'>('live');
   const isDemo = useIsDemo();
   const { data: events } = trpc.events.listAll.useQuery();
   const { data: defaultEvent } = trpc.events.getActiveForCaja.useQuery();
@@ -927,7 +1138,7 @@ export default function FinanzasView() {
       </div>
 
       <div className="flex gap-2" role="tablist">
-        {([['live', 'En vivo'], ['evento', 'Evento completo'], ['mes', 'Mes / Empresa'], ['pagar', 'Por pagar']] as const).map(([k, l]) => (
+        {([['live', 'En vivo'], ['evento', 'Evento completo'], ['mes', 'Mes / Empresa'], ['pagar', 'Por pagar'], ['caja', 'Caja']] as const).map(([k, l]) => (
           <Button key={k} role="tab" aria-selected={tab === k} variant={tab === k ? 'default' : 'outline'} onClick={() => setTab(k)}>{l}</Button>
         ))}
       </div>
@@ -939,6 +1150,7 @@ export default function FinanzasView() {
       {tab === 'live' && <LiveTab eventId={eventId} />}
       {tab === 'mes' && <CompanyTab />}
       {tab === 'pagar' && <PayablesTab />}
+      {tab === 'caja' && <CashTab />}
 
       {tab === 'evento' && isLoading && <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>}
       {tab === 'evento' && isError && <p className="text-sm text-destructive">No se pudo cargar: {error?.message}</p>}

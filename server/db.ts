@@ -4053,11 +4053,11 @@ function buildExpenseValues(input: any) {
 export async function createExpense(input: any) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.insert(expenses).values({
+  const [res] = await db.insert(expenses).values({
     ...buildExpenseValues(input),
     createdByUserId: input.createdByUserId ?? null,
-  });
-  return { success: true };
+  }) as any;
+  return { success: true, id: Number(res?.insertId) || null };
 }
 
 export async function updateExpense(id: number, input: any) {

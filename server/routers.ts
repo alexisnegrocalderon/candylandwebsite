@@ -79,6 +79,8 @@ import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftCl
 import { BRAND } from "../shared/eventBrand";
 import * as staffSvc from "./staff";
 import * as siiSvc from "./sii";
+import * as cashSvc from "./cash";
+import * as mpSync from "./mercadopagoSync";
 import { getEventFinanceReport, getEventLive, getMarginTarget } from "./finance";
 import { getCompanyYear, getPayables, markCommissionsPaid, resetCommissionPayments } from "./financeCompany";
 import { askFinance, buildNightSummary, buildWeeklySummary } from "./financeDirector";
@@ -3217,6 +3219,38 @@ export const appRouter = router({
   // shared/eventBudget.ts (computeBudgetResult), corrida 100% del lado
   // cliente para que la barra de estado sea instantánea; estos endpoints
   // solo guardan/leen lo que el admin cargó.
+  cash: router({
+    summary: adminProcedure.input(z.object({ monthKey: z.string().regex(/^\d{4}-\d{2}$/) })).query(({ input }) => cashSvc.getCashSummary(input.monthKey)),
+    addWithdrawal: adminProcedure.input(z.object({
+      date: z.string(), amount: z.number().int().positive().max(1_000_000_000), account: z.enum(['mercadopago', 'banco', 'efectivo']), note: z.string().max(255).nullish(),
+    })).mutation(async ({ input, ctx }) => {
+      const r = await cashSvc.addWithdrawal(input);
+      await db.recordAdminAudit({ action: 'cash.addWithdrawal', targetType: 'ownerWithdrawal', targetId: r.id, payload: input, ip: clientIp(ctx) });
+      return r;
+    }),
+    deleteWithdrawal: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      await db.recordAdminAudit({ action: 'cash.deleteWithdrawal', targetType: 'ownerWithdrawal', targetId: input.id, ip: clientIp(ctx) });
+      return cashSvc.deleteWithdrawal(input.id);
+    }),
+    setBalance: adminProcedure.input(z.object({ source: z.enum(['mercadopago', 'banco']), balance: z.number().int() })).mutation(({ input }) => cashSvc.setManualBalance(input.source, input.balance)),
+    classify: adminProcedure.input(z.object({
+      id: z.number().int().positive(),
+      classification: z.enum(['venta', 'comision', 'gasto_evento', 'gasto_empresa', 'retiro_dueno', 'traspaso', 'otro', 'por_clasificar']),
+      eventId: z.number().int().positive().nullish(), category: z.string().max(40).optional(),
+      documentType: z.enum(['boleta', 'factura', 'boleta_honorarios', 'sin_documento']).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      try { return await cashSvc.classifyMovement({ ...input, userId: ctx.user.id }); }
+      catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo clasificar' }); }
+    }),
+    importStatement: adminProcedure.input(z.object({ text: z.string().min(1).max(3_000_000), preview: z.boolean() })).mutation(async ({ input, ctx }) => {
+      const r = await cashSvc.importBankStatement(input.text, input.preview);
+      if (!input.preview) await db.recordAdminAudit({ action: 'cash.importStatement', targetType: 'accountMovements', payload: { imported: r.imported }, ip: clientIp(ctx) });
+      return { ...r, movements: r.movements.slice(0, 300) };
+    }),
+    syncMercadoPago: adminProcedure.mutation(async () => mpSync.syncMercadoPago()),
+    reconcileMercadoPago: adminProcedure.query(() => mpSync.reconcileMercadoPago()),
+  }),
+
   sii: router({
     month: adminProcedure.input(z.object({ monthKey: z.string().regex(/^\d{4}-\d{2}$/) })).query(({ input }) => siiSvc.getF29Month(input.monthKey)),
     mark: adminProcedure.input(z.object({
