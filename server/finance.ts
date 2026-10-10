@@ -17,6 +17,7 @@ import { isTopupProduct } from "../shared/prepaid";
 import { isPrepaidSpend, categoryLabel } from "../shared/expenses";
 import { honorariosBreakdown } from "../shared/honorarios";
 import { taxReserve } from "../shared/sii";
+import { costChecklistSummary } from "../shared/eventCostSlots";
 import { getSiiConfig } from "./sii";
 import { computeBudgetResult, type BudgetSimulationInput, type BudgetResult } from "../shared/eventBudget";
 import {
@@ -184,6 +185,25 @@ export async function getEventFinanceData(eventId: number): Promise<EventFinance
   };
 }
 
+/** Gastos cargados al evento, el checklist de costos fijos y con/sin factura. */
+export async function getEventCostChecklist(eventId: number) {
+  const conn = await db.getDb();
+  if (!conn) return null;
+  const rows = (await db.listExpenses({ eventId })) as any[];
+  const own = rows.filter((e) => e.scope === "evento" && e.eventId === eventId && e.recurrence === "none");
+  const summary = costChecklistSummary(own.map((e) => ({
+    slotKey: e.slotKey ?? null, amountTotal: Number(e.amountTotal), documentType: e.documentType, ivaAmount: Number(e.ivaAmount), ivaExempt: e.ivaExempt,
+  })));
+  return {
+    ...summary,
+    expenses: own.map((e) => ({
+      id: e.id, slotKey: e.slotKey ?? null, description: e.description, category: e.category, supplier: e.supplier, supplierRut: e.supplierRut,
+      documentType: e.documentType, amountTotal: Number(e.amountTotal), ivaAmount: Number(e.ivaAmount), receiptUrl: e.receiptUrl, expenseDate: e.expenseDate,
+      excludeFromPnl: !!e.excludeFromPnl,
+    })),
+  };
+}
+
 /** IVA a apartar y plata libre del evento. null si el evento no va en tu F29. */
 export async function getEventTaxReserve(eventId: number, pnl: RealPnl) {
   const event = await db.getEventById(eventId);
@@ -215,6 +235,7 @@ export async function getEventFinanceReport(eventId: number) {
   return {
     ...data,
     tax: await getEventTaxReserve(eventId, data.pnl),
+    costs: await getEventCostChecklist(eventId),
     result,
     verdict: verdictFor(result),
     recommendations: buildRecommendations(data.input),

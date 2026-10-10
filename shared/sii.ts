@@ -19,6 +19,9 @@ export type SiiConfig = {
   regime: string | null;
   /** Si las entradas están exentas de IVA (por defecto NO: afectas). */
   ticketsExempt: boolean;
+  /** Incluir las ventas web en el F29 sugerido (regla general: sí). Si se apaga, la
+   * herramienta calcula "como declaro hoy" y muestra aparte el IVA web no incluido. */
+  webSalesInF29: boolean;
   /** Avisos de vencimientos (push + correo). Prendidos por defecto: evitan multas. */
   remindersEnabled: boolean;
   /** Fechas anuales editables, formato "MM-DD". */
@@ -33,6 +36,7 @@ export const DEFAULT_SII_CONFIG: SiiConfig = {
   companyRut: null,
   regime: null,
   ticketsExempt: false,
+  webSalesInF29: true,
   remindersEnabled: true,
   dj1879Date: '03-31',
   rentaDate: '04-30',
@@ -51,6 +55,7 @@ export function normalizeSiiConfig(raw: unknown): SiiConfig {
     companyRut: typeof p.companyRut === 'string' && p.companyRut.trim() ? p.companyRut.trim() : null,
     regime: typeof p.regime === 'string' && p.regime.trim() ? p.regime.trim() : null,
     ticketsExempt: p.ticketsExempt === true,
+    webSalesInF29: p.webSalesInF29 !== false,
     remindersEnabled: p.remindersEnabled !== false,
     dj1879Date: typeof p.dj1879Date === 'string' && MMDD.test(p.dj1879Date) ? p.dj1879Date : DEFAULT_SII_CONFIG.dj1879Date,
     rentaDate: typeof p.rentaDate === 'string' && MMDD.test(p.rentaDate) ? p.rentaDate : DEFAULT_SII_CONFIG.rentaDate,
@@ -188,15 +193,19 @@ export function reminderFor(today: string, o: Obligation, done: boolean): Remind
 
 /* ─── Qué ventas del mes entran al F29 ───────────────────────── */
 
-export type SaleForF29 = { orderId: number; eventId: number; amount: number; accesoAmount?: number };
+export type SaleForF29 = { orderId: number; eventId: number; amount: number; accesoAmount?: number; channel?: string };
 export type EventTaxInfo = { title: string; taxIssuer: string; taxNote?: string | null };
 
 /** Reparte las ventas del mes (ya filtradas por fecha de venta y sin lo pagado
  * con saldo PlayCard) entre afectas, exentas y fuera del F29, según quién
  * factura cada evento. 'tercero' y 'por_revisar' no entran (los segundos se
  * alertan para que se decidan antes de declarar). */
-export function aggregateMonthSales(sales: SaleForF29[], eventsById: Map<number, EventTaxInfo>, ticketsExempt: boolean) {
+export function aggregateMonthSales(sales: SaleForF29[], eventsById: Map<number, EventTaxInfo>, ticketsExempt: boolean, includeWeb = true) {
   let taxableGross = 0, exempt = 0;
+  // Ventas web que quedaron fuera del cálculo por el modo elegido (siguen siendo IVA).
+  const webExcluded = { gross: 0, iva: 0, orders: 0 };
+  // Ventas afectas por canal (web vs. caja/barra), para ver cuánto IVA es de cada una.
+  const channels = { web: { gross: 0, iva: 0, orders: 0 }, caja: { gross: 0, iva: 0, orders: 0 } };
   const byEvent = new Map<number, { eventId: number; title: string; issuer: string; note: string | null; amount: number; orders: number }>();
   for (const s of sales) {
     const ev = eventsById.get(s.eventId);
@@ -207,11 +216,17 @@ export function aggregateMonthSales(sales: SaleForF29[], eventsById: Map<number,
       const ex = ticketsExempt ? Math.min(s.amount, s.accesoAmount ?? 0) : 0;
       exempt += ex;
       taxableGross += s.amount - ex;
+      const ch = s.channel === 'web' ? channels.web : channels.caja;
+      ch.gross += s.amount - ex; ch.orders += 1; ch.iva += ivaFromGross(s.amount - ex);
+      if (s.channel === 'web' && !includeWeb) {
+        exempt -= ex; taxableGross -= s.amount - ex;
+        webExcluded.gross += s.amount - ex; webExcluded.orders += 1; webExcluded.iva += ivaFromGross(s.amount - ex);
+      }
     } else if (issuer === 'exento') {
       exempt += s.amount;
     }
   }
-  return { taxableGross, exempt, byEvent: Array.from(byEvent.values()).sort((a, b) => b.amount - a.amount) };
+  return { taxableGross, exempt, channels, webExcluded, byEvent: Array.from(byEvent.values()).sort((a, b) => b.amount - a.amount) };
 }
 
 /* ─── Comparar con la propuesta del SII y aprender de cada mes ──── */
@@ -332,5 +347,27 @@ export function taxReserve(p: { grossIncome: number; debito: number; credito: nu
     debito, credito, ivaNeto, remanente, ppm, retencion, totalApartar,
     platLibre: gross - totalApartar,
     ivaPercentOfGross: gross > 0 ? Math.round((debito / gross) * 1000) / 10 : 0,
+  };
+}
+
+/* ─── Regularización de meses (ventas web no declaradas antes) ───── */
+
+export type RegStatus = 'pendiente' | 'rectificado' | 'en_convenio' | 'regularizado';
+export const REG_STATUS_LABEL: Record<RegStatus, string> = {
+  pendiente: 'Por regularizar', rectificado: 'F29 rectificado (falta pagar)', en_convenio: 'En convenio de pago', regularizado: 'Regularizado ✓',
+};
+
+export type RegMonth = { monthKey: string; webGross: number; webIva: number; status: RegStatus };
+
+/** Meses cuyo F29 ya venció (o es el del mes en curso: no) y que tienen IVA de
+ * ventas web sin regularizar. El mes que todavía está por declarar NO es
+ * atraso: se declara normal, con las ventas web incluidas. */
+export function regularizationBacklog(months: RegMonth[], today: string, dueDay: number) {
+  const due = (m: string) => f29DueDateFor(m, dueDay);
+  const overdue = months.filter((m) => m.webIva > 0 && due(m.monthKey) < today && m.status !== 'regularizado');
+  return {
+    months: overdue,
+    pendingIva: overdue.filter((m) => m.status === 'pendiente').reduce((s, m) => s + m.webIva, 0),
+    inProgressIva: overdue.filter((m) => m.status === 'rectificado' || m.status === 'en_convenio').reduce((s, m) => s + m.webIva, 0),
   };
 }

@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { formatChileShortDate } from '@shared/chileDate';
-import { monthLabel, previousMonthKey } from '@shared/sii';
+import { monthLabel, previousMonthKey, REG_STATUS_LABEL, type RegStatus } from '@shared/sii';
 
 const money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString('es-CL')}`;
 const onErr = (e: unknown) => toast.error((e as { message?: string })?.message || 'No se pudo completar la acción');
@@ -115,6 +115,29 @@ function F29Tab({ monthKey }: { monthKey: string }) {
           ))}
         </div>
       )}
+
+
+      {m.webExcluded && m.webExcluded.iva > 0 && (
+        <div className="rounded-xl px-4 py-3 text-sm bg-red-500/10 text-red-700">
+          <strong>Este total NO incluye las ventas web</strong> ({m.webExcluded.orders} venta{m.webExcluded.orders === 1 ? '' : 's'}, {money(m.webExcluded.gross)}). Su IVA, <strong>{money(m.webExcluded.iva)}</strong>, queda fuera y se acumula en <em>Regularizar</em>. Puedes cambiarlo en Ajustes.
+        </div>
+      )}
+
+      <Card className="admin-clay border-0">
+        <CardHeader>
+          <CardTitle>Ventas afectas del mes por canal</CardTitle>
+          <p className="text-sm text-[var(--admin-muted)]">Según la regla general, las dos llevan IVA (se cobren por la web, por Mercado Pago o en la barra). Puedes elegir qué suma el total en Ajustes.</p>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2">
+          {([['Ventas web', m.channels.web], ['Barra y caja (presencial)', m.channels.caja]] as const).map(([label, c]) => (
+            <div key={label} className="admin-clay-sm p-3">
+              <p className="text-xs text-[var(--admin-muted)]">{label} · {c.orders} venta{c.orders === 1 ? '' : 's'}</p>
+              <p className="font-heading text-xl tabular-nums">{money(c.gross)}</p>
+              <p className="text-xs text-[var(--admin-muted)]">IVA de esta parte: <strong>{money(c.iva)}</strong></p>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       <Card className="admin-clay border-0">
         <CardHeader><CardTitle>Casillas sugeridas del F29</CardTitle><p className="text-sm text-[var(--admin-muted)]">Compáralas con la propuesta del SII. Toca copiar para pegar el número.</p></CardHeader>
@@ -318,6 +341,77 @@ function HonorariosTab({ monthKey }: { monthKey: string }) {
   );
 }
 
+const REG_OPTIONS: RegStatus[] = ['pendiente', 'rectificado', 'en_convenio', 'regularizado'];
+
+/** Meses con ventas web que no se declararon a tiempo: seguimiento hasta dejarlos al día. */
+function RegularizeTab() {
+  const isDemo = useIsDemo();
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.sii.regularization.useQuery();
+  const save = trpc.sii.saveRegularization.useMutation({ onSuccess: () => { utils.sii.regularization.invalidate(); toast.success('Guardado'); }, onError: onErr });
+  const [edit, setEdit] = useState<Record<string, { folio: string; installments: string; note: string }>>({});
+  if (isLoading || !data) return <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+  const { backlog, months } = data;
+  const form = (m: any) => edit[m.monthKey] ?? { folio: m.folio ?? '', installments: m.installments ? String(m.installments) : '', note: m.note ?? '' };
+  const patch = (m: any, p: Partial<{ folio: string; installments: string; note: string }>) => setEdit({ ...edit, [m.monthKey]: { ...form(m), ...p } });
+  return (
+    <div className="space-y-6">
+      <Card className="admin-clay border-0">
+        <CardContent className="pt-6 space-y-3">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl bg-red-500/10 p-4"><p className="text-xs text-[var(--admin-muted)]">IVA de ventas web por regularizar</p><p className="font-heading text-3xl tabular-nums text-red-700">{money(backlog.pendingIva)}</p><p className="text-[11px] text-[var(--admin-muted)]">Meses cuyo F29 ya venció y no está regularizado</p></div>
+            <div className="rounded-2xl bg-amber-500/15 p-4"><p className="text-xs text-[var(--admin-muted)]">En proceso (rectificado o en convenio)</p><p className="font-heading text-3xl tabular-nums text-amber-800">{money(backlog.inProgressIva)}</p></div>
+            <a href="/api/admin/sii/informe-contador.csv" className="rounded-2xl bg-pink-500 text-white p-4 flex flex-col justify-center hover:bg-pink-600 transition">
+              <span className="font-semibold">Informe para mi contador (CSV)</span><span className="text-xs opacity-90">Ventas por mes y canal, comisiones de Mercado Pago, facturas de compra</span>
+            </a>
+          </div>
+          <div className="text-sm space-y-1 text-[var(--admin-muted)]">
+            <p>Por defecto el F29 sugerido incluye las ventas web de los eventos que factura Mansion Playroom. Si prefieres otro modo, lo cambias en Ajustes: el IVA que quede fuera se sigue mostrando acá.</p>
+            <p>Los meses de abajo ya vencieron sin esas ventas. Tu contador puede <strong className="text-foreground">rectificar el F29</strong> de cada uno. Si no alcanzas a pagar de una vez, se puede pedir un <strong className="text-foreground">convenio de pago en cuotas con Tesorería</strong>: es mucho mejor que dejar la deuda sin declarar, porque las multas e intereses crecen cada mes. Confírmalo con tu contador.</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="admin-clay border-0">
+        <CardHeader><CardTitle>Meses con ventas web</CardTitle><p className="text-sm text-[var(--admin-muted)]">Marca el avance de cada mes. El mes que aún no vence se declara normal, con las ventas web incluidas.</p></CardHeader>
+        <CardContent className="space-y-3">
+          {months.length === 0 && <p className="text-sm text-[var(--admin-muted)]">Todavía no hay ventas web de eventos que factura Mansion Playroom.</p>}
+          {months.map((m: any) => {
+            const overdue = m.dueDate < data.today;
+            const f = form(m);
+            return (
+              <div key={m.monthKey} className="admin-clay-sm p-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <span className="font-medium w-36">{monthLabel(m.monthKey)}</span>
+                  <span>Ventas web <strong>{money(m.webGross)}</strong></span>
+                  <span>IVA <strong>{money(m.webIva)}</strong></span>
+                  <span className={`text-xs rounded-full px-2 py-0.5 ${overdue ? 'bg-red-500/15 text-red-700' : 'bg-sky-500/15 text-sky-800'}`}>{overdue ? `F29 venció el ${ddmmyyyy(m.dueDate)}` : `F29 vence el ${ddmmyyyy(m.dueDate)}: declarar con las ventas web`}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {REG_OPTIONS.map((st) => (
+                    <button key={st} type="button" disabled={isDemo || save.isPending}
+                      className={`${pill} text-xs ${m.status === st ? (st === 'regularizado' ? 'bg-emerald-500 text-white' : 'bg-pink-500 text-white') : 'bg-black/5'}`}
+                      onClick={() => save.mutate({ monthKey: m.monthKey, status: st, folio: f.folio || null, installments: f.installments ? Number(f.installments) : null, note: f.note || null })}>
+                      {REG_STATUS_LABEL[st]}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input className="w-36" placeholder="Folio rectificatoria" value={f.folio} onChange={(e) => patch(m, { folio: e.target.value })} />
+                  <Input className="w-28" type="number" inputMode="numeric" placeholder="N° cuotas" value={f.installments} onChange={(e) => patch(m, { installments: e.target.value })} />
+                  <Input className="flex-1 min-w-[10rem]" placeholder="Nota (contador, convenio...)" value={f.note} onChange={(e) => patch(m, { note: e.target.value })} />
+                  <button type="button" disabled={isDemo || save.isPending} className={`${pill} bg-black/5 text-xs`}
+                    onClick={() => save.mutate({ monthKey: m.monthKey, status: m.status, folio: f.folio || null, installments: f.installments ? Number(f.installments) : null, note: f.note || null })}>Guardar datos</button>
+                </div>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function CalendarTab() {
   const [year, setYear] = useState(Number(chileMonthNow().slice(0, 4)));
   const { data } = trpc.sii.calendar.useQuery({ year });
@@ -396,6 +490,17 @@ function SettingsTab() {
               className={`${pill} ${cfg.ticketsExempt === o.v ? 'bg-pink-500 text-white' : 'bg-black/5'}`}>{o.l}</button>
           ))}
         </div>
+        <div className="space-y-2 rounded-xl border border-border/60 p-3">
+          <p className="text-sm font-medium">Ventas web en el F29 sugerido</p>
+          <div className="flex flex-wrap gap-2">
+            {[{ v: true, l: 'Incluirlas (regla general)' }, { v: false, l: 'No incluirlas (como declaro hoy)' }].map((o) => (
+              <button key={String(o.v)} type="button" disabled={isDemo || save.isPending}
+                onClick={() => { if (o.v || window.confirm('Con esta opción el F29 sugerido deja fuera las ventas web. El IVA de esas ventas igual existe: quedará marcado en rojo como no incluido y suma a lo por regularizar. ¿Continuar?')) save.mutate({ webSalesInF29: o.v }); }}
+                className={`${pill} ${cfg.webSalesInF29 === o.v ? 'bg-pink-500 text-white' : 'bg-black/5'}`}>{o.l}</button>
+            ))}
+          </div>
+          <p className="text-xs text-[var(--admin-muted)]">Este sistema es tu contabilidad personal: no declara nada en el SII. Esta opción solo cambia qué ventas suma el total sugerido. El IVA de las ventas web que quede fuera siempre se muestra aparte, para que lo regularices con tu contador.</p>
+        </div>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm">Avisos de vencimiento (push + correo):</span>
           <button type="button" disabled={isDemo} onClick={() => save.mutate({ remindersEnabled: !cfg.remindersEnabled })}
@@ -429,7 +534,7 @@ function AskSii({ monthKey }: { monthKey: string }) {
   );
 }
 
-const TABS = [['f29', 'F29 del mes'], ['honorarios', 'Honorarios'], ['calendario', 'Calendario'], ['ajustes', 'Ajustes']] as const;
+const TABS = [['f29', 'F29 del mes'], ['regularizar', 'Regularizar'], ['honorarios', 'Honorarios'], ['calendario', 'Calendario'], ['ajustes', 'Ajustes']] as const;
 
 export default function SiiView() {
   const isDemo = useIsDemo();
@@ -472,6 +577,7 @@ export default function SiiView() {
 
       {tab === 'f29' && <F29Tab monthKey={monthKey} />}
       {tab === 'f29' && <LearningCard />}
+      {tab === 'regularizar' && <RegularizeTab />}
       {tab === 'honorarios' && <HonorariosTab monthKey={monthKey} />}
       {tab === 'calendario' && <CalendarTab />}
       {tab === 'ajustes' && <SettingsTab />}

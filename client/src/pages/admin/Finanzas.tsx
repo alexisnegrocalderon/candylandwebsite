@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from 'recharts';
-import { Banknote, Landmark, Download, Sparkles, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
+import { Banknote, Landmark, Pencil, Download, Sparkles, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { formatChileTime, formatChileShortDate } from '@shared/chileDate';
 import { honorariosBreakdown } from '@shared/honorarios';
@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { BentoGrid, BentoTile } from '@/components/admin/BentoGrid';
 import { StatTile } from '@/components/admin/StatTile';
 import { EmptyState } from '@/components/admin/EmptyState';
+import { CameraCaptureField } from '@/components/admin/CameraCaptureField';
+import { EXPENSE_CATEGORIES } from '@shared/expenses';
 
 const money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString('es-CL')}`;
 const PALETTE = ['#ec4899', '#38bdf8', '#8b5cf6', '#f59e0b', '#10b981', '#f97316', '#64748b'];
@@ -310,6 +312,411 @@ function TaxReserveCard({ tax }: { tax: any }) {
         {tax.credito > 0 && <p className="text-xs text-emerald-700">Tus facturas te están ahorrando {money(tax.credito)} de IVA en este evento.</p>}
       </CardContent>
     </Card>
+  );
+}
+
+const DOC_TYPES = [
+  { v: 'factura', l: 'Factura' }, { v: 'boleta', l: 'Boleta' }, { v: 'boleta_honorarios', l: 'Honorarios' }, { v: 'sin_documento', l: 'Sin doc.' },
+] as const;
+type DocType = typeof DOC_TYPES[number]['v'];
+const DOC_LABEL: Record<string, string> = { factura: 'Factura', boleta: 'Boleta', boleta_honorarios: 'Honorarios', sin_documento: 'Sin documento' };
+
+function DocPills({ value, onChange }: { value: DocType; onChange: (v: DocType) => void }) {
+  return <PillChoice value={value} onChange={onChange} options={DOC_TYPES.map((d) => ({ v: d.v, l: d.l }))} />;
+}
+
+/** Una fila del checklist que todavía no tiene gasto: se carga en el momento. */
+function SlotRow({ slot, eventId, eventDate, onSaved }: { slot: any; eventId: number; eventDate: string; onSaved: () => void }) {
+  const isDemo = useIsDemo();
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [doc, setDoc] = useState<DocType>('factura');
+  const [supplier, setSupplier] = useState('');
+  const create = trpc.expenses.create.useMutation({ onSuccess: () => { setOpen(false); setAmount(''); setSupplier(''); onSaved(); toast.success(`${slot.label} cargado`); }, onError: onErr });
+  return (
+    <div className="admin-clay-sm p-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className={`w-2.5 h-2.5 rounded-full ${slot.loaded ? 'bg-emerald-500' : 'bg-pink-400'}`} />
+        <div className="flex-1 min-w-[10rem]">
+          <p className="font-medium text-sm">{slot.label}</p>
+          <p className="text-xs text-[var(--admin-muted)]">{slot.loaded ? `Cargado: ${money(slot.total)}` : slot.hint}</p>
+        </div>
+        <button type="button" disabled={isDemo} onClick={() => setOpen(!open)}
+          className={`${pillBase} ${slot.loaded ? pillOff : pillOn}`}>{slot.loaded ? '+ Agregar otro' : 'Cargar'}</button>
+      </div>
+      {open && (
+        <div className="flex flex-wrap items-center gap-2 pl-5">
+          <Input type="number" inputMode="numeric" className="w-32" placeholder="Monto total $" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <Input className="w-44" placeholder="Proveedor (opcional)" value={supplier} onChange={(e) => setSupplier(e.target.value)} />
+          <DocPills value={doc} onChange={setDoc} />
+          <button type="button" disabled={isDemo || create.isPending || !(Number(amount) > 0)} className={`${pillBase} bg-emerald-500 text-white`}
+            onClick={() => create.mutate({
+              scope: 'evento', eventId, expenseDate: eventDate, category: slot.category as any, description: slot.label,
+              supplier: supplier.trim() || undefined, documentType: doc, amountTotal: Math.round(Number(amount)),
+              paymentMethod: 'transferencia', slotKey: slot.key,
+            })}>Guardar</button>
+          {doc === 'factura' && Number(amount) > 0 && <span className="text-xs text-emerald-700">Recuperas {money(Math.round(Number(amount) * 19 / 119))} de IVA</span>}
+          {(doc === 'boleta' || doc === 'sin_documento') && Number(amount) > 0 && <span className="text-xs text-amber-700">Sin factura: pierdes {money(Math.round(Number(amount) * 19 / 119))} de IVA</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Gasto suelto con foto: la foto se lee sola (mismo escáner que /gastos). */
+function QuickExpense({ eventId, eventDate, onSaved }: { eventId: number; eventDate: string; onSaved: () => void }) {
+  const isDemo = useIsDemo();
+  const [f, setF] = useState({ description: '', category: 'otros', amount: '', supplier: '', rut: '', doc: 'factura' as DocType, receiptUrl: '' });
+  const scan = trpc.expenses.scanReceipt.useMutation({
+    onSuccess: (r: any) => {
+      if (!r.isReceipt) { toast.error('No pudimos leer la foto como boleta o factura: completa a mano.'); return; }
+      setF((x) => ({
+        ...x,
+        amount: r.amountTotal ? String(r.amountTotal) : x.amount,
+        category: r.category || x.category,
+        doc: (r.documentType as DocType) || x.doc,
+        description: r.description || x.description,
+        supplier: r.supplier || x.supplier,
+        rut: r.supplierRut || x.rut,
+      }));
+      if (r.confidence !== 'alta' || r.notes) toast.warning(r.notes || 'Revisa los datos leídos antes de guardar.');
+      else toast.success('Leída: revisa y guarda.');
+    },
+    onError: onErr,
+  });
+  const create = trpc.expenses.create.useMutation({
+    onSuccess: () => { setF({ description: '', category: 'otros', amount: '', supplier: '', rut: '', doc: 'factura', receiptUrl: '' }); onSaved(); toast.success('Gasto agregado'); },
+    onError: onErr,
+  });
+  return (
+    <div className="admin-clay-sm p-3 space-y-2">
+      <p className="text-sm font-semibold">Agregar otra compra o gasto</p>
+      <CameraCaptureField label="Sacar foto a la boleta o factura" pathPrefix="expenses" analyzing={scan.isPending}
+        onScanned={(url) => { setF((x) => ({ ...x, receiptUrl: url })); scan.mutate({ imageUrl: url }); }} />
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Input placeholder="Descripción *" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
+        <Select value={f.category} onValueChange={(v) => setF({ ...f, category: v })}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>{EXPENSE_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>)}</SelectContent>
+        </Select>
+        <Input type="number" inputMode="numeric" placeholder="Monto total $ *" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
+        <Input placeholder="Proveedor" value={f.supplier} onChange={(e) => setF({ ...f, supplier: e.target.value })} />
+        <Input placeholder="RUT proveedor (para factura)" value={f.rut} onChange={(e) => setF({ ...f, rut: e.target.value })} />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <DocPills value={f.doc} onChange={(doc) => setF({ ...f, doc })} />
+        <button type="button" disabled={isDemo || create.isPending || !f.description.trim() || !(Number(f.amount) > 0)} className={`${pillBase} bg-emerald-500 text-white`}
+          onClick={() => create.mutate({
+            scope: 'evento', eventId, expenseDate: eventDate, category: f.category as any, description: f.description.trim(),
+            supplier: f.supplier.trim() || undefined, supplierRut: f.rut.trim() || undefined, documentType: f.doc,
+            amountTotal: Math.round(Number(f.amount)), paymentMethod: 'transferencia', receiptUrl: f.receiptUrl || undefined,
+          })}>Guardar gasto</button>
+        {f.doc === 'factura' && !f.rut.trim() && Number(f.amount) > 0 && <span className="text-xs text-amber-700">Agrega el RUT del proveedor para cuadrar con el SII</span>}
+      </div>
+    </div>
+  );
+}
+
+/** Gastos del evento: checklist de costos fijos, gasto rápido con foto y lo ya cargado. */
+function EventCostsCard({ eventId, eventDate, costs }: { eventId: number; eventDate: string; costs: any }) {
+  const isDemo = useIsDemo();
+  const utils = trpc.useUtils();
+  const refresh = () => { utils.finance.eventReport.invalidate(); utils.finance.live.invalidate(); utils.cajaReports.eventPnl.invalidate(); };
+  const update = trpc.expenses.update.useMutation({ onSuccess: () => { refresh(); toast.success('Gasto actualizado'); }, onError: onErr });
+  const del = trpc.expenses.delete.useMutation({ onSuccess: () => { refresh(); toast.success('Gasto borrado'); }, onError: onErr });
+  if (!costs) return null;
+  const askPassword = () => window.prompt('Por seguridad, ingresa tu clave de admin') || '';
+  return (
+    <Card className="admin-clay border-0">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Receipt className="w-5 h-5" /> Gastos del evento</CardTitle>
+        <p className="text-sm text-[var(--admin-muted)]">Carga aquí el arriendo y todos los costos: los gráficos, el margen, el IVA a apartar y el F29 se ajustan solos.</p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {(!costs.hasVenueRent || costs.total === 0) && (
+          <div className="rounded-xl px-4 py-3 text-sm bg-amber-500/15 text-amber-800 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            {costs.total === 0 ? 'Este evento no tiene gastos cargados: el margen y los consejos están inflados.' : 'Falta el arriendo del venue: el margen se ve más alto de lo real.'}
+          </div>
+        )}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            ['Gastos cargados', costs.total, `${costs.expenses.length} gasto(s)`],
+            ['Con factura', costs.conFacturaTotal, `Recuperas ${money(costs.ivaRecuperado)} de IVA`],
+            ['Con boleta o sin documento', costs.sinFacturaTotal, costs.ivaPerdido > 0 ? `Pierdes ${money(costs.ivaPerdido)} de IVA` : 'Nada perdido'],
+            ['Costos fijos pendientes', costs.pendingSlots.length, 'del checklist'],
+          ].map(([label, value, hint], i) => (
+            <div key={label as string} className="admin-clay-sm p-3">
+              <p className="text-xs text-[var(--admin-muted)]">{label}</p>
+              <p className="font-heading text-xl tabular-nums">{i === 3 ? value : money(value as number)}</p>
+              <p className={`text-[11px] ${i === 2 && costs.ivaPerdido > 0 ? 'text-amber-700' : 'text-[var(--admin-muted)]'}`}>{hint}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-semibold">Checklist de costos fijos</p>
+          {costs.slots.map((slot: any) => <SlotRow key={slot.key} slot={slot} eventId={eventId} eventDate={eventDate} onSaved={refresh} />)}
+        </div>
+
+        <QuickExpense eventId={eventId} eventDate={eventDate} onSaved={refresh} />
+
+        {costs.expenses.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-sm font-semibold">Lo que ya cargaste</p>
+            {costs.expenses.map((e: any) => (
+              <div key={e.id} className="admin-clay-sm p-3 flex flex-wrap items-center gap-3 text-sm">
+                <div className="flex-1 min-w-[10rem]">
+                  <p className="font-medium">{e.description}{e.excludeFromPnl ? ' (excluido del P&L)' : ''}</p>
+                  <p className="text-xs text-[var(--admin-muted)]">{e.supplier ?? 'Sin proveedor'}{e.supplierRut ? ` · ${e.supplierRut}` : ''}{e.receiptUrl ? '' : ' · sin foto'}</p>
+                </div>
+                <select disabled={isDemo} value={e.documentType} aria-label="Tipo de documento"
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold border-0 ${e.documentType === 'factura' ? 'bg-emerald-500/15 text-emerald-800' : 'bg-amber-500/15 text-amber-800'}`}
+                  onChange={(ev) => { const pw = askPassword(); if (pw) update.mutate({ id: e.id, documentType: ev.target.value as any, adminPassword: pw } as any); }}>
+                  {DOC_TYPES.map((d) => <option key={d.v} value={d.v}>{DOC_LABEL[d.v]}</option>)}
+                </select>
+                <strong className="tabular-nums">{money(e.amountTotal)}</strong>
+                {e.receiptUrl && <a href={e.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-xs underline">foto</a>}
+                <button type="button" disabled={isDemo} className="p-2 rounded-full hover:bg-black/5" aria-label={`Editar monto de ${e.description}`}
+                  onClick={() => { const v = window.prompt('Nuevo monto total', String(e.amountTotal)); if (!v) return; const pw = askPassword(); if (pw) update.mutate({ id: e.id, amountTotal: Math.max(1, Math.round(Number(v) || 0)), adminPassword: pw } as any); }}>
+                  <Pencil className="w-4 h-4" />
+                </button>
+                <button type="button" disabled={isDemo} className="p-2 rounded-full hover:bg-black/5" aria-label={`Borrar ${e.description}`}
+                  onClick={() => { if (!window.confirm(`¿Borrar "${e.description}"?`)) return; const pw = askPassword(); if (pw) del.mutate({ id: e.id, adminPassword: pw } as any); }}>
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+const MOVEMENT_LABEL: Record<string, string> = { retiro_dueno: 'retiro mío', gasto_empresa: 'gasto de la empresa', gasto_evento: 'gasto de un evento', traspaso: 'traspaso', comision: 'comisión' };
+const ACCOUNT_LABEL: Record<string, string> = { mercadopago: 'Mercado Pago', banco: 'Banco', efectivo: 'Efectivo' };
+const chileMonthNow = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit' }).format(new Date()).slice(0, 7);
+const todayIso = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+
+/** Un movimiento por clasificar: se decide qué fue con un toque. */
+function PendingMovement({ m, events, onDone }: { m: any; events: any[]; onDone: () => void }) {
+  const isDemo = useIsDemo();
+  const [mode, setMode] = useState<'gasto_evento' | 'gasto_empresa' | null>(null);
+  const [eventId, setEventId] = useState('');
+  const [category, setCategory] = useState('otros');
+  const [doc, setDoc] = useState<DocType>('sin_documento');
+  const classify = trpc.cash.classify.useMutation({ onSuccess: () => { onDone(); toast.success('Clasificado'); }, onError: onErr });
+  const go = (classification: any, extra: any = {}) => classify.mutate({ id: m.id, classification, ...extra });
+  const out = m.amount < 0;
+  const sug = typeof m.kind === 'string' && m.kind.startsWith('sug:') ? m.kind.slice(4) : null;
+  const tone = (c: string) => (sug === c ? pillOn : pillOff);
+  return (
+    <div className="admin-clay-sm p-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <span className="text-xs rounded-full bg-black/5 px-2 py-0.5">{ACCOUNT_LABEL[m.source]}</span>
+        <span className="text-[var(--admin-muted)] w-24">{formatChileShortDate(m.date)}</span>
+        <span className="flex-1 min-w-[10rem] truncate">{m.description}{sug ? <span className="text-xs text-pink-600"> · sugerido: {MOVEMENT_LABEL[sug] ?? sug}</span> : null}</span>
+        <strong className={`tabular-nums ${out ? 'text-red-600' : 'text-emerald-700'}`}>{money(m.amount)}</strong>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {out && <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${tone('retiro_dueno')}`} onClick={() => go('retiro_dueno')}>Retiro mío</button>}
+        <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOff}`} onClick={() => go('traspaso')}>Traspaso entre mis cuentas</button>
+        {out && <button type="button" disabled={isDemo} className={`${pillBase} ${mode === 'gasto_evento' ? pillOn : pillOff}`} onClick={() => setMode(mode === 'gasto_evento' ? null : 'gasto_evento')}>Gasto de un evento</button>}
+        {out && <button type="button" disabled={isDemo} className={`${pillBase} ${mode === 'gasto_empresa' || (!mode && sug === 'gasto_empresa') ? pillOn : pillOff}`} onClick={() => setMode(mode === 'gasto_empresa' ? null : 'gasto_empresa')}>Gasto de la empresa</button>}
+        {out && <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOff}`} onClick={() => go('comision')}>Comisión</button>}
+        {!out && <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOff}`} onClick={() => go('venta')}>Venta / ingreso</button>}
+        <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOff}`} onClick={() => go('otro')}>Otro</button>
+      </div>
+      {mode && (
+        <div className="flex flex-wrap items-center gap-2">
+          {mode === 'gasto_evento' && (
+            <div className="min-w-[12rem]">
+              <Select value={eventId} onValueChange={setEventId}>
+                <SelectTrigger><SelectValue placeholder="¿De qué evento?" /></SelectTrigger>
+                <SelectContent>{events.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className="min-w-[10rem]">
+            <Select value={category} onValueChange={setCategory}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{EXPENSE_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <DocPills value={doc} onChange={setDoc} />
+          <button type="button" disabled={isDemo || classify.isPending || (mode === 'gasto_evento' && !eventId)} className={`${pillBase} bg-emerald-500 text-white`}
+            onClick={() => go(mode, { eventId: mode === 'gasto_evento' ? Number(eventId) : null, category, documentType: doc })}>Guardar como gasto</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Caja real: saldos, lo que se ganó vs. lo que retiraste, movimientos por clasificar y cartola. */
+function CashTab() {
+  const isDemo = useIsDemo();
+  const utils = trpc.useUtils();
+  const [monthKey, setMonthKey] = useState(chileMonthNow());
+  const { data, isLoading, isError, error } = trpc.cash.summary.useQuery({ monthKey });
+  const { data: rec } = trpc.cash.reconcileMercadoPago.useQuery();
+  const { data: events } = trpc.events.listAll.useQuery();
+  const refresh = () => { utils.cash.invalidate(); };
+  const sync = trpc.cash.syncMercadoPago.useMutation({
+    onSuccess: (r: any) => { refresh(); r.errors?.length ? toast.warning(`Mercado Pago: ${r.errors.join(' · ')}`) : toast.success(`Mercado Pago: ${r.payments} cobros y ${r.movements} movimientos. Reporte: ${r.reportStatus}`); },
+    onError: onErr,
+  });
+  const [w, setW] = useState({ date: todayIso(), amount: '', account: 'mercadopago' as 'mercadopago' | 'banco' | 'efectivo', note: '' });
+  const addW = trpc.cash.addWithdrawal.useMutation({ onSuccess: () => { refresh(); setW({ ...w, amount: '', note: '' }); toast.success('Retiro registrado'); }, onError: onErr });
+  const delW = trpc.cash.deleteWithdrawal.useMutation({ onSuccess: refresh, onError: onErr });
+  const setBal = trpc.cash.setBalance.useMutation({ onSuccess: () => { refresh(); toast.success('Saldo actualizado'); }, onError: onErr });
+  const [statement, setStatement] = useState<{ text: string; preview: any } | null>(null);
+  const imp = trpc.cash.importStatement.useMutation({ onError: onErr });
+
+  const months = useMemo(() => { const out: string[] = []; let m = chileMonthNow(); for (let i = 0; i < 12; i++) { out.push(m); const [y, mm] = m.split('-').map(Number); m = mm === 1 ? `${y - 1}-12` : `${y}-${String(mm - 1).padStart(2, '0')}`; } return out; }, []);
+
+  const onFile = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 2_500_000) { toast.error('El archivo es muy grande (máx. 2,5 MB).'); return; }
+    if (/\.(xlsx?|xls)$/i.test(file.name)) { toast.error('Guarda la cartola como CSV desde Excel (Archivo → Guardar como → CSV) y súbela de nuevo.'); return; }
+    const text = await file.text();
+    imp.mutate({ text, preview: true }, { onSuccess: (r) => setStatement({ text, preview: r }) });
+  };
+
+  if (isLoading) return <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+  if (isError || !data) return <p className="text-sm text-destructive">No se pudo cargar: {error?.message}</p>;
+  const pos = data.position;
+  const bal = (src: 'mercadopago' | 'banco') => data.balances.find((b: any) => b.source === src);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Select value={monthKey} onValueChange={setMonthKey}>
+          <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+          <SelectContent>{months.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+        </Select>
+        <button type="button" disabled={isDemo || sync.isPending} onClick={() => sync.mutate()} className={`${pillBase} ${pillOn} px-5 py-2`}>
+          {sync.isPending ? <Loader2 className="w-4 h-4 inline animate-spin mr-1" /> : null} Actualizar Mercado Pago
+        </button>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {(['mercadopago', 'banco'] as const).map((src) => {
+          const b = bal(src);
+          return (
+            <div key={src} className="admin-clay-sm p-4 space-y-1">
+              <p className="text-xs text-[var(--admin-muted)]">Saldo {ACCOUNT_LABEL[src]}</p>
+              <p className="font-heading text-2xl tabular-nums">{b ? money(b.balance) : '—'}</p>
+              <p className="text-[11px] text-[var(--admin-muted)]">{b ? `${formatChileShortDate(b.asOf)} · ${b.origin === 'api' ? 'automático' : b.origin === 'cartola' ? 'de la cartola' : 'anotado a mano'}` : 'Sin dato todavía'}</p>
+              <button type="button" disabled={isDemo} className="text-xs underline" onClick={() => { const v = window.prompt(`Saldo actual en ${ACCOUNT_LABEL[src]}`); if (v) setBal.mutate({ source: src, balance: Math.round(Number(v.replace(/[^0-9-]/g, '')) || 0) }); }}>Anotar a mano</button>
+            </div>
+          );
+        })}
+        <div className="admin-clay-sm p-4">
+          <p className="text-xs text-[var(--admin-muted)]">Ganancia de los eventos del mes</p>
+          <p className="font-heading text-2xl tabular-nums">{money(pos.monthProfit)}</p>
+          <p className="text-[11px] text-[var(--admin-muted)]">Retiraste {money(pos.monthWithdrawals)}</p>
+        </div>
+        <div className={`rounded-2xl p-4 ${pos.leftInCompany < 0 ? 'bg-red-500/10' : 'bg-emerald-500/10'}`}>
+          <p className="text-xs text-[var(--admin-muted)]">Quedó en la empresa este mes</p>
+          <p className={`font-heading text-2xl tabular-nums ${pos.leftInCompany < 0 ? 'text-red-700' : 'text-emerald-700'}`}>{money(pos.leftInCompany)}</p>
+          <p className="text-[11px] text-[var(--admin-muted)]">{pos.withdrawalsOverProfit ? 'Retiraste más de lo que ganaste: estás usando plata de otros meses (o el IVA).' : 'Ganancia menos tus retiros'}</p>
+        </div>
+      </div>
+
+      <Card className="admin-clay border-0">
+        <CardHeader><CardTitle>Mis retiros (plata para vivir)</CardTitle><p className="text-sm text-[var(--admin-muted)]">No son gastos de ningún evento: no bajan la ganancia, pero sí salen de la caja.</p></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Input type="date" className="w-40" value={w.date} onChange={(e) => setW({ ...w, date: e.target.value })} />
+            <Input type="number" inputMode="numeric" className="w-32" placeholder="Monto $" value={w.amount} onChange={(e) => setW({ ...w, amount: e.target.value })} />
+            <PillChoice value={w.account} onChange={(account) => setW({ ...w, account })} options={[{ v: 'mercadopago', l: 'Mercado Pago' }, { v: 'banco', l: 'Banco' }, { v: 'efectivo', l: 'Efectivo' }]} />
+            <Input className="w-48" placeholder="Nota (opcional)" value={w.note} onChange={(e) => setW({ ...w, note: e.target.value })} />
+            <button type="button" disabled={isDemo || addW.isPending || !(Number(w.amount) > 0)} className={`${pillBase} bg-emerald-500 text-white`}
+              onClick={() => addW.mutate({ date: `${w.date}T12:00:00-03:00`, amount: Math.round(Number(w.amount)), account: w.account, note: w.note || null })}>Registrar retiro</button>
+          </div>
+          {data.withdrawals.length === 0 && <p className="text-sm text-[var(--admin-muted)]">Todavía no registras retiros.</p>}
+          {data.withdrawals.map((x: any) => (
+            <div key={x.id} className="admin-clay-sm px-3 py-2 flex flex-wrap items-center gap-3 text-sm">
+              <span className="w-24 text-[var(--admin-muted)]">{formatChileShortDate(x.date)}</span>
+              <span className="text-xs rounded-full bg-black/5 px-2 py-0.5">{ACCOUNT_LABEL[x.account]}</span>
+              <span className="flex-1 min-w-[8rem] truncate">{x.note ?? ''}</span>
+              <strong className="tabular-nums">{money(x.amount)}</strong>
+              <button type="button" disabled={isDemo} className="p-2 rounded-full hover:bg-black/5" aria-label="Borrar retiro" onClick={() => { if (window.confirm('¿Borrar este retiro?')) delW.mutate({ id: x.id }); }}><Trash2 className="w-4 h-4" /></button>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card className="admin-clay border-0">
+        <CardHeader><CardTitle>Movimientos por clasificar ({data.pending.length})</CardTitle><p className="text-sm text-[var(--admin-muted)]">De Mercado Pago y de tu cartola: dime qué fue cada uno y queda contabilizado.</p></CardHeader>
+        <CardContent className="space-y-2">
+          {data.pending.length === 0 && <p className="text-sm text-[var(--admin-muted)]">Nada pendiente ✓</p>}
+          {data.pending.map((m: any) => <PendingMovement key={m.id} m={m} events={events ?? []} onDone={() => { refresh(); utils.finance.eventReport.invalidate(); }} />)}
+        </CardContent>
+      </Card>
+
+      <Card className="admin-clay border-0">
+        <CardHeader><CardTitle>Subir estado de cuenta (Mercado Pago o banco)</CardTitle><p className="text-sm text-[var(--admin-muted)]">Sube el CSV del estado de cuenta de Mercado Pago o la cartola del banco: se detecta solo, se leen los movimientos y el saldo. Volver a subir el mismo archivo no duplica nada.</p></CardHeader>
+        <CardContent className="space-y-3">
+          <input type="file" accept=".csv,text/csv,.txt" disabled={isDemo || imp.isPending} onChange={(e) => onFile(e.target.files?.[0])} className="text-sm" />
+          {statement?.preview?.error && <p className="text-sm text-red-600">{statement.preview.error}</p>}
+          {statement?.preview && !statement.preview.error && (
+            <div className="space-y-2">
+              <p className="text-sm">{statement.preview.format === 'mercadopago' ? 'Estado de cuenta de Mercado Pago' : 'Cartola del banco'}: <strong>{statement.preview.movements.length}</strong> movimientos{statement.preview.skipped ? ` (salté ${statement.preview.skipped} filas sin fecha o monto)` : ''}.</p>
+              {statement.preview.totals && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs admin-clay-sm p-3">
+                  <p>Ventas liberadas <strong className="block text-sm tabular-nums">{money(statement.preview.totals.ventasBrutas)}</strong></p>
+                  <p>Comisiones Mercado Pago <strong className="block text-sm tabular-nums">{money(statement.preview.totals.comisiones)}</strong>{statement.preview.feePercent != null ? ` (${statement.preview.feePercent}%)` : ''}</p>
+                  <p>Transferencias enviadas <strong className="block text-sm tabular-nums">{money(statement.preview.totals.transferenciasEnviadas)}</strong></p>
+                  <p>Pagos con Mercado Pago <strong className="block text-sm tabular-nums">{money(statement.preview.totals.pagos)}</strong></p>
+                  <p>Retiros <strong className="block text-sm tabular-nums">{money(statement.preview.totals.retiros)}</strong></p>
+                  <p>Transferencias recibidas <strong className="block text-sm tabular-nums">{money(statement.preview.totals.transferenciasRecibidas)}</strong></p>
+                  <p>Rentabilidad <strong className="block text-sm tabular-nums">{money(statement.preview.totals.rentabilidad)}</strong></p>
+                  <p>Saldo final <strong className="block text-sm tabular-nums">{statement.preview.finalBalance != null ? money(statement.preview.finalBalance) : '—'}</strong></p>
+                </div>
+              )}
+              <div className="max-h-64 overflow-y-auto space-y-1">
+                {statement.preview.movements.slice(0, 30).map((m: any) => (
+                  <div key={m.externalId} className="flex gap-3 text-xs">
+                    <span className="w-20">{m.date}</span><span className="flex-1 truncate">{m.description}</span>
+                    <span className={`tabular-nums ${m.amount < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{money(m.amount)}</span>
+                  </div>
+                ))}
+              </div>
+              <button type="button" disabled={isDemo || imp.isPending} className={`${pillBase} bg-emerald-500 text-white`}
+                onClick={() => imp.mutate({ text: statement.text, preview: false }, { onSuccess: (r: any) => { setStatement(null); refresh(); toast.success(`Importados ${r.imported} movimientos nuevos`); } })}>
+                Importar {statement.preview.movements.length} movimientos
+              </button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {rec && (
+        <Card className="admin-clay border-0">
+          <CardHeader><CardTitle>Cuadratura con Mercado Pago (últimos {rec.days} días)</CardTitle></CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {rec.count === 0 ? <p className="text-[var(--admin-muted)]">Aún no hay cobros sincronizados. Toca "Actualizar Mercado Pago".</p> : (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <p>Cobros <strong className="block tabular-nums">{rec.count}</strong></p>
+                  <p>Bruto <strong className="block tabular-nums">{money(rec.gross)}</strong></p>
+                  <p>Comisiones reales <strong className="block tabular-nums">{money(rec.fees)}</strong></p>
+                  <p>Neto recibido <strong className="block tabular-nums">{money(rec.net)}</strong></p>
+                </div>
+                {rec.notInSystemCount > 0 ? (
+                  <div className="rounded-xl px-4 py-3 bg-amber-500/15 text-amber-800">
+                    {rec.notInSystemCount} cobro(s) en Mercado Pago que no calzan con ninguna venta del sistema (por ejemplo, cobros hechos con link de pago o en otra plataforma).
+                    <ul className="mt-1 text-xs">{rec.notInSystem.map((p: any) => <li key={p.id}>{formatChileShortDate(p.date)} · {money(p.amount)} · {p.description}</li>)}</ul>
+                  </div>
+                ) : <p className="text-emerald-700">Todos los cobros calzan con ventas del sistema ✓</p>}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }
 
@@ -685,7 +1092,7 @@ function MarginGoal() {
 }
 
 export default function FinanzasView() {
-  const [tab, setTab] = useState<'live' | 'evento' | 'mes' | 'pagar'>('live');
+  const [tab, setTab] = useState<'live' | 'evento' | 'mes' | 'pagar' | 'caja'>('live');
   const isDemo = useIsDemo();
   const { data: events } = trpc.events.listAll.useQuery();
   const { data: defaultEvent } = trpc.events.getActiveForCaja.useQuery();
@@ -746,7 +1153,7 @@ export default function FinanzasView() {
       </div>
 
       <div className="flex gap-2" role="tablist">
-        {([['live', 'En vivo'], ['evento', 'Evento completo'], ['mes', 'Mes / Empresa'], ['pagar', 'Por pagar']] as const).map(([k, l]) => (
+        {([['live', 'En vivo'], ['evento', 'Evento completo'], ['mes', 'Mes / Empresa'], ['pagar', 'Por pagar'], ['caja', 'Caja']] as const).map(([k, l]) => (
           <Button key={k} role="tab" aria-selected={tab === k} variant={tab === k ? 'default' : 'outline'} onClick={() => setTab(k)}>{l}</Button>
         ))}
       </div>
@@ -758,6 +1165,7 @@ export default function FinanzasView() {
       {tab === 'live' && <LiveTab eventId={eventId} />}
       {tab === 'mes' && <CompanyTab />}
       {tab === 'pagar' && <PayablesTab />}
+      {tab === 'caja' && <CashTab />}
 
       {tab === 'evento' && isLoading && <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>}
       {tab === 'evento' && isError && <p className="text-sm text-destructive">No se pudo cargar: {error?.message}</p>}
@@ -782,6 +1190,8 @@ export default function FinanzasView() {
               {p.warnings.map((w: string, i: number) => <p key={i} className="text-sm text-[var(--admin-warning-text)]">{w}</p>)}
             </div>
           )}
+
+          <EventCostsCard eventId={eventId} eventDate={new Date(rep.pnl.eventDate as any).toISOString()} costs={rep.costs} />
 
           <TaxReserveCard tax={rep.tax} />
 

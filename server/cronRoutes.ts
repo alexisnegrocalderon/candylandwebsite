@@ -11,6 +11,7 @@ import { runTanda2PromoDaily } from "./tanda2Promo";
 import { runAdminDigest } from "./adminDigest";
 import { runFinanceDigest } from "./financeDirector";
 import { runSiiReminders } from "./sii";
+import { syncMercadoPago } from "./mercadopagoSync";
 import { runCajaWatch } from "./caja/alerts";
 import { refreshInstagramToken } from "./instagramSend";
 import { syncInstagramStats } from "./instagramStats";
@@ -294,6 +295,18 @@ export function registerCronRoutes(app: Express) {
       res.json(await runSiiReminders());
     } catch (err) {
       console.error('[Cron] Error en los avisos del SII:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  /* Mercado Pago (solo lectura): cobros, comisiones, retiros al banco y saldo,
+   * para la pestaña Caja de Finanzas. */
+  app.get("/api/cron/mp-sync", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      res.json(await syncMercadoPago());
+    } catch (err) {
+      console.error('[Cron] Error sincronizando Mercado Pago:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
   });

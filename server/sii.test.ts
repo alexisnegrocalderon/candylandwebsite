@@ -154,3 +154,54 @@ describe("taxReserve (IVA a apartar y plata libre)", () => {
     expect(taxReserve({ grossIncome: 0, debito: 0, credito: 0, ppmRatePercent: 0.25, retencion: 0 })).toMatchObject({ ivaNeto: 0, totalApartar: 0, platLibre: 0, ivaPercentOfGross: 0 });
   });
 });
+
+import { regularizationBacklog } from "../shared/sii";
+describe("canales y regularización", () => {
+  const evs = new Map([[1, { title: "Aniversario", taxIssuer: "mansion" }], [2, { title: "Del local", taxIssuer: "tercero" }]]);
+  it("separa web y barra y el IVA de cada una (solo lo que factura Mansion)", () => {
+    const r = aggregateMonthSales([
+      { orderId: 1, eventId: 1, amount: 119_000, channel: "web" },
+      { orderId: 2, eventId: 1, amount: 59_500, channel: "caja" },
+      { orderId: 3, eventId: 2, amount: 80_000, channel: "web" },
+    ], evs, false);
+    expect(r.channels.web).toMatchObject({ gross: 119_000, iva: 19_000, orders: 1 });
+    expect(r.channels.caja).toMatchObject({ gross: 59_500, iva: 9_500, orders: 1 });
+    expect(r.taxableGross).toBe(178_500);
+  });
+  it("el mes que aún no vence no es atraso; los vencidos sin regularizar sí", () => {
+    const months = [
+      { monthKey: "2026-08", webGross: 119_000, webIva: 19_000, status: "pendiente" as const },
+      { monthKey: "2026-07", webGross: 119_000, webIva: 19_000, status: "regularizado" as const },
+      { monthKey: "2026-09", webGross: 1_190_000, webIva: 190_000, status: "pendiente" as const },
+      { monthKey: "2026-06", webGross: 59_500, webIva: 9_500, status: "en_convenio" as const },
+    ];
+    // Hoy 10-oct-2026: el F29 de septiembre vence el 12-oct (no es atraso todavía).
+    const b = regularizationBacklog(months, "2026-10-10", 12);
+    expect(b.months.map((m) => m.monthKey).sort()).toEqual(["2026-06", "2026-08"]);
+    expect(b.pendingIva).toBe(19_000);
+    expect(b.inProgressIva).toBe(9_500);
+    // Pasado el 12, septiembre pasa a atraso.
+    expect(regularizationBacklog(months, "2026-10-13", 12).pendingIva).toBe(19_000 + 190_000);
+  });
+});
+
+describe("modo 'como declaro hoy' (sin ventas web)", () => {
+  const evs = new Map([[1, { title: "Aniversario", taxIssuer: "mansion" }]]);
+  const sales = [
+    { orderId: 1, eventId: 1, amount: 119_000, channel: "web" },
+    { orderId: 2, eventId: 1, amount: 59_500, channel: "caja" },
+  ];
+  it("por defecto incluye todo", () => {
+    const r = aggregateMonthSales(sales, evs, false);
+    expect(r.taxableGross).toBe(178_500);
+    expect(r.webExcluded.iva).toBe(0);
+    expect(normalizeSiiConfig({}).webSalesInF29).toBe(true);
+  });
+  it("sin web: el total baja pero el IVA web excluido queda registrado aparte, nunca se pierde", () => {
+    const r = aggregateMonthSales(sales, evs, false, false);
+    expect(r.taxableGross).toBe(59_500);
+    expect(r.webExcluded).toMatchObject({ gross: 119_000, iva: 19_000, orders: 1 });
+    expect(r.channels.web.iva).toBe(19_000);
+    expect(normalizeSiiConfig({ webSalesInF29: false }).webSalesInF29).toBe(false);
+  });
+});

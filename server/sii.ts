@@ -8,13 +8,13 @@
  * recargar (`isPrepaidSpend`).
  */
 import { and, eq, gte, inArray, like, lte } from "drizzle-orm";
-import { emailLog, events, expenses, orderItems, orders, siteSettings, staffMembers, staffShifts, taxPeriods, ticketTypes } from "../drizzle/schema";
+import { accountMovements, emailLog, events, expenses, orderItems, orders, siteSettings, staffMembers, staffShifts, taxPeriods, taxRegularizations, ticketTypes } from "../drizzle/schema";
 import * as db from "./db";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { cashCollectedFromOrders, isPrepaidSpend } from "../shared/expenses";
 import { honorariosBreakdown } from "../shared/honorarios";
 import {
-  aggregateMonthSales, compareWithProposal, computeF29, learnFromPeriods, f29DueDateFor, monthLabel, normalizeSiiConfig, obligationsForYear, previousMonthKey, reminderFor,
+  aggregateMonthSales, compareWithProposal, regularizationBacklog, type RegMonth, type RegStatus, computeF29, learnFromPeriods, f29DueDateFor, monthLabel, normalizeSiiConfig, obligationsForYear, previousMonthKey, reminderFor,
   type Obligation, type PeriodRecord, type SiiConfig,
 } from "../shared/sii";
 import { sendEmail, buildFinanceDigestEmail } from "./email";
@@ -75,9 +75,10 @@ export async function getF29Month(monthKey: string) {
   }
 
   const agg = aggregateMonthSales(
-    orderRows.map((o) => ({ orderId: o.id, eventId: o.eventId, amount: cashCollectedFromOrders([o]), accesoAmount: accesoByOrder.get(o.id) ?? 0 })),
+    orderRows.map((o) => ({ orderId: o.id, eventId: o.eventId, amount: cashCollectedFromOrders([o]), accesoAmount: accesoByOrder.get(o.id) ?? 0, channel: o.channel })),
     new Map((allEvents as any[]).map((e) => [e.id, { title: e.title, taxIssuer: e.taxIssuer, taxNote: e.taxNote }])),
     cfg.ticketsExempt,
+    cfg.webSalesInF29,
   );
   const salesTaxableGross = agg.taxableGross, salesExempt = agg.exempt;
   const byEventList = agg.byEvent;
@@ -114,6 +115,7 @@ export async function getF29Month(monthKey: string) {
   if (sinDoc.length) alerts.push({ level: "info", text: `${sinDoc.length} gasto(s) sin documento este mes: no dan crédito fiscal. Pide factura cuando puedas.` });
   const honSinRut = honorarios.filter((h) => !h.rut);
   if (honSinRut.length) alerts.push({ level: "warning", text: `${honSinRut.length} boleta(s) de honorarios de personas sin RUT registrado (${honSinRut.map((h) => h.name).join(", ")}). Lo necesitas para la DJ 1879.` });
+  if (!cfg.webSalesInF29 && agg.webExcluded.iva > 0) alerts.push({ level: "danger", text: `Tu modo actual NO incluye las ventas web en el F29: quedan ${clp(agg.webExcluded.iva)} de IVA de este mes sin declarar (${agg.webExcluded.orders} venta(s) web). Es plata que se suma a lo por regularizar. Mira la pestaña Regularizar y habla con tu contador.` });
   if (cfg.ppmRatePercent === null) alerts.push({ level: "warning", text: "La tasa de PPM no está configurada (Ajustes). Confírmala una vez con un contador o en tu F29 anterior." });
   if (!prev && f29.debito > 0) alerts.push({ level: "info", text: `No tienes registrado el F29 de ${monthLabel(previousMonthKey(monthKey))}: si te quedó remanente de crédito, no se está sumando.` });
 
@@ -127,6 +129,8 @@ export async function getF29Month(monthKey: string) {
     siiProposal, comparison,
     salesTaxableGross, salesExempt, creditoFacturas, retencionHonorarios,
     salesByEvent: byEventList,
+    channels: agg.channels,
+    webExcluded: cfg.webSalesInF29 ? null : agg.webExcluded,
     facturas: facturas.map((e) => ({ id: e.id, date: e.expenseDate, supplier: e.supplier, supplierRut: e.supplierRut, total: Number(e.amountTotal), iva: Number(e.ivaAmount), hasReceipt: !!e.receiptUrl, description: e.description })),
     honorarios,
     f29,
@@ -283,6 +287,7 @@ export async function runSiiReminders(now: Date = new Date()) {
           rows.push({ label: "IVA", value: clp(m.f29.ivaDeterminado) }, { label: "Retención de honorarios", value: clp(m.f29.retencion) });
           if (m.f29.ppm !== null) rows.push({ label: "PPM", value: clp(m.f29.ppm) });
         }
+        if (m.webExcluded && m.webExcluded.iva > 0) rows.push({ label: "IVA web NO incluido en este F29", value: clp(m.webExcluded.iva), tone: "bad" });
         if (m.comparison) rows.push({ label: "Propuesta del SII", value: clp(m.comparison.proposal), tone: m.comparison.level === "distinto" ? "bad" : "good" });
         alerts = m.alerts.filter((a) => a.level !== "info").map((a) => a.text);
         body += m.f29.sinMovimiento ? " Este mes no tiene movimiento: igual hay que declararlo (sin movimiento)." : ` Total sugerido: ${clp(m.f29.total)}.`;
@@ -324,4 +329,90 @@ export async function askSii(question: string, monthKey: string): Promise<string
   const answer = extractContent(result.choices[0]?.message ?? { content: "" }).trim();
   if (!answer) throw new Error("La IA no devolvió ninguna respuesta. Intenta de nuevo.");
   return answer;
+}
+
+
+/* ─── Regularización de ventas web de meses anteriores ───────────── */
+
+/** IVA de las ventas web (de eventos que factura Mansion) por mes, con su estado. */
+export async function getWebRegularization() {
+  const conn = await need();
+  const cfg = await getSiiConfig();
+  const evs = (await conn.select({ id: events.id, taxIssuer: events.taxIssuer }).from(events)) as any[];
+  const mansion = new Set(evs.filter((e) => e.taxIssuer === "mansion").map((e) => e.id));
+  const rows = ((await conn.select({
+    eventId: orders.eventId, total: orders.total, channel: orders.channel, paymentMethod: orders.paymentMethod,
+    missionTopupStatus: orders.missionTopupStatus, missionTopupAmount: orders.missionTopupAmount, createdAt: orders.createdAt,
+  }).from(orders).where(and(eq(orders.paymentStatus, "approved"), eq(orders.channel, "web")))) as any[]).filter((o) => mansion.has(o.eventId));
+  const byMonth = new Map<string, number>();
+  for (const o of rows) {
+    const m = monthKeyFor(o.createdAt);
+    byMonth.set(m, (byMonth.get(m) ?? 0) + cashCollectedFromOrders([o]));
+  }
+  const regs = (await conn.select().from(taxRegularizations)) as any[];
+  const regByMonth = new Map(regs.map((r) => [r.monthKey, r]));
+  const months: (RegMonth & { folio: string | null; installments: number | null; note: string | null; dueDate: string })[] = Array.from(byMonth.entries()).sort(([a], [b]) => a.localeCompare(b)).map(([monthKey, gross]) => {
+    const r = regByMonth.get(monthKey);
+    return {
+      monthKey, webGross: gross, webIva: Math.round((gross * 19) / 119), status: (r?.status ?? "pendiente") as RegStatus,
+      folio: r?.folio ?? null, installments: r?.installments ?? null, note: r?.note ?? null, dueDate: f29DueDateFor(monthKey, cfg.f29DueDay),
+    };
+  });
+  const today = chileToday();
+  const backlog = regularizationBacklog(months, today, cfg.f29DueDay);
+  return { months, backlog, today };
+}
+
+export async function saveRegularization(monthKey: string, p: { status: RegStatus; folio?: string | null; installments?: number | null; note?: string | null }) {
+  const conn = await need();
+  const values = { status: p.status, folio: p.folio ?? null, installments: p.installments ?? null, note: p.note ?? null };
+  const [existing] = await conn.select({ id: taxRegularizations.id }).from(taxRegularizations).where(eq(taxRegularizations.monthKey, monthKey)).limit(1);
+  if (existing) await conn.update(taxRegularizations).set(values).where(eq(taxRegularizations.id, (existing as any).id));
+  else await conn.insert(taxRegularizations).values({ monthKey, ...values });
+  return { success: true };
+}
+
+/** CSV para el contador: por mes y canal, ventas, IVA, comisiones de Mercado Pago y facturas de compra. */
+export async function buildAccountantCsv(): Promise<string> {
+  const conn = await need();
+  const evs = (await conn.select({ id: events.id, title: events.title, taxIssuer: events.taxIssuer }).from(events)) as any[];
+  const evById = new Map(evs.map((e) => [e.id, e]));
+  const orderRows = (await conn.select({
+    id: orders.id, eventId: orders.eventId, total: orders.total, channel: orders.channel, paymentMethod: orders.paymentMethod,
+    missionTopupStatus: orders.missionTopupStatus, missionTopupAmount: orders.missionTopupAmount, createdAt: orders.createdAt,
+  }).from(orders).where(eq(orders.paymentStatus, "approved"))) as any[];
+  type Acc = { gross: number; orders: number };
+  const sales = new Map<string, Acc>();
+  for (const o of orderRows) {
+    if (isPrepaidSpend(o)) continue;
+    const ev = evById.get(o.eventId);
+    const key = `${monthKeyFor(o.createdAt)}|${o.channel}|${ev?.title ?? o.eventId}|${ev?.taxIssuer ?? "por_revisar"}`;
+    const cur = sales.get(key) ?? { gross: 0, orders: 0 };
+    cur.gross += cashCollectedFromOrders([o]); cur.orders += 1; sales.set(key, cur);
+  }
+  const mpFees = new Map<string, number>();
+  for (const m of (await conn.select().from(accountMovements).where(eq(accountMovements.kind, "venta"))) as any[]) {
+    const k = monthKeyFor(m.occurredAt);
+    mpFees.set(k, (mpFees.get(k) ?? 0) + Number(m.raw?.fee ?? 0));
+  }
+  const facturas = new Map<string, { total: number; iva: number; n: number }>();
+  for (const e of (await conn.select().from(expenses).where(eq(expenses.documentType, "factura"))) as any[]) {
+    if (e.ivaExempt) continue;
+    const k = monthKeyFor(e.expenseDate);
+    const cur = facturas.get(k) ?? { total: 0, iva: 0, n: 0 };
+    cur.total += Number(e.amountTotal); cur.iva += Number(e.ivaAmount); cur.n += 1; facturas.set(k, cur);
+  }
+  const lines: string[][] = [["Mes", "Canal", "Evento", "Quién factura", "N° ventas", "Ventas brutas (IVA incluido)", "IVA de la venta (19/119)"]];
+  for (const [key, v] of Array.from(sales.entries()).sort(([a], [b]) => a.localeCompare(b))) {
+    const [m, ch, title, issuer] = key.split("|");
+    lines.push([m, ch === "web" ? "Web" : ch === "caja" ? "Barra / caja" : ch, title, issuer, String(v.orders), String(Math.round(v.gross)), String(Math.round((v.gross * 19) / 119))]);
+  }
+  lines.push([], ["Mes", "Comisión Mercado Pago (cobros sincronizados)", "IVA recuperable estimado (solo si te emite factura)", "Facturas de compra (N°)", "Compras con factura (IVA incl.)", "IVA crédito de facturas"]);
+  const months = Array.from(new Set([...Array.from(mpFees.keys()), ...Array.from(facturas.keys())])).sort();
+  for (const m of months) {
+    const fee = mpFees.get(m) ?? 0, f = facturas.get(m);
+    lines.push([m, String(Math.round(fee)), String(Math.round((fee * 19) / 119)), String(f?.n ?? 0), String(f?.total ?? 0), String(f?.iva ?? 0)]);
+  }
+  const esc = (v: string) => (/[",\n;]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  return "\uFEFF" + lines.map((r) => r.map(esc).join(";")).join("\r\n");
 }

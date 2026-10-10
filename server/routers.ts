@@ -79,6 +79,8 @@ import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftCl
 import { BRAND } from "../shared/eventBrand";
 import * as staffSvc from "./staff";
 import * as siiSvc from "./sii";
+import * as cashSvc from "./cash";
+import * as mpSync from "./mercadopagoSync";
 import { getEventFinanceReport, getEventLive, getMarginTarget } from "./finance";
 import { getCompanyYear, getPayables, markCommissionsPaid, resetCommissionPayments } from "./financeCompany";
 import { askFinance, buildNightSummary, buildWeeklySummary } from "./financeDirector";
@@ -146,6 +148,11 @@ function withTaxIssuer<T extends { taxIssuer?: string; taxNote?: string | null; 
   if (!data.taxIssuer) return data;
   if ((data.taxIssuer === 'tercero' || data.taxIssuer === 'exento') && !data.taxNote?.trim()) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: data.taxIssuer === 'tercero' ? 'Indica quién factura este evento (el local u otro organizador).' : 'Indica por qué es exento (y quién lo confirmó).' });
+  }
+  // "Exento" es una condición legal, no una forma de tener más caja: se exige
+  // que diga qué norma o qué contador lo respalda.
+  if (data.taxIssuer === 'exento' && !/(art|ley|decreto|contador|resoluci|sii|cultural)/i.test(data.taxNote ?? '')) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Para marcarlo exento indica la norma (art./ley/resolución) o el contador que lo confirmó. Si las entradas se cobran por tu Mercado Pago, normalmente se declaran con IVA.' });
   }
   return { ...data, ivaApplies: data.taxIssuer === 'mansion' ? 1 : 0, taxNote: data.taxNote?.trim() || null };
 }
@@ -326,6 +333,7 @@ const expenseInputSchema = z.object({
   prorate: z.boolean().optional(),
   receiptUrl: z.string().optional(),
   notes: z.string().max(500).optional(),
+  slotKey: z.string().max(32).nullish(),
 // Una plantilla 'por_evento' es el catálogo de un costo fijo de cada fiesta,
 // no un gasto de una fiesta puntual: va con scope 'evento' pero SIN eventId,
 // porque se copia a todas. Por eso queda exenta de la regla de abajo.
@@ -3211,6 +3219,38 @@ export const appRouter = router({
   // shared/eventBudget.ts (computeBudgetResult), corrida 100% del lado
   // cliente para que la barra de estado sea instantánea; estos endpoints
   // solo guardan/leen lo que el admin cargó.
+  cash: router({
+    summary: adminProcedure.input(z.object({ monthKey: z.string().regex(/^\d{4}-\d{2}$/) })).query(({ input }) => cashSvc.getCashSummary(input.monthKey)),
+    addWithdrawal: adminProcedure.input(z.object({
+      date: z.string(), amount: z.number().int().positive().max(1_000_000_000), account: z.enum(['mercadopago', 'banco', 'efectivo']), note: z.string().max(255).nullish(),
+    })).mutation(async ({ input, ctx }) => {
+      const r = await cashSvc.addWithdrawal(input);
+      await db.recordAdminAudit({ action: 'cash.addWithdrawal', targetType: 'ownerWithdrawal', targetId: r.id, payload: input, ip: clientIp(ctx) });
+      return r;
+    }),
+    deleteWithdrawal: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      await db.recordAdminAudit({ action: 'cash.deleteWithdrawal', targetType: 'ownerWithdrawal', targetId: input.id, ip: clientIp(ctx) });
+      return cashSvc.deleteWithdrawal(input.id);
+    }),
+    setBalance: adminProcedure.input(z.object({ source: z.enum(['mercadopago', 'banco']), balance: z.number().int() })).mutation(({ input }) => cashSvc.setManualBalance(input.source, input.balance)),
+    classify: adminProcedure.input(z.object({
+      id: z.number().int().positive(),
+      classification: z.enum(['venta', 'comision', 'gasto_evento', 'gasto_empresa', 'retiro_dueno', 'traspaso', 'otro', 'por_clasificar']),
+      eventId: z.number().int().positive().nullish(), category: z.string().max(40).optional(),
+      documentType: z.enum(['boleta', 'factura', 'boleta_honorarios', 'sin_documento']).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      try { return await cashSvc.classifyMovement({ ...input, userId: ctx.user.id }); }
+      catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo clasificar' }); }
+    }),
+    importStatement: adminProcedure.input(z.object({ text: z.string().min(1).max(3_000_000), preview: z.boolean() })).mutation(async ({ input, ctx }) => {
+      const r = await cashSvc.importBankStatement(input.text, input.preview);
+      if (!input.preview) await db.recordAdminAudit({ action: 'cash.importStatement', targetType: 'accountMovements', payload: { imported: r.imported }, ip: clientIp(ctx) });
+      return { ...r, movements: r.movements.slice(0, 300) };
+    }),
+    syncMercadoPago: adminProcedure.mutation(async () => mpSync.syncMercadoPago()),
+    reconcileMercadoPago: adminProcedure.query(() => mpSync.reconcileMercadoPago()),
+  }),
+
   sii: router({
     month: adminProcedure.input(z.object({ monthKey: z.string().regex(/^\d{4}-\d{2}$/) })).query(({ input }) => siiSvc.getF29Month(input.monthKey)),
     mark: adminProcedure.input(z.object({
@@ -3229,6 +3269,17 @@ export const appRouter = router({
       return r;
     }),
     learning: adminProcedure.query(() => siiSvc.getSiiLearning()),
+    regularization: adminProcedure.query(() => siiSvc.getWebRegularization()),
+    saveRegularization: adminProcedure.input(z.object({
+      monthKey: z.string().regex(/^\d{4}-\d{2}$/),
+      status: z.enum(['pendiente', 'rectificado', 'en_convenio', 'regularizado']),
+      folio: z.string().max(40).nullish(), installments: z.number().int().min(1).max(120).nullish(), note: z.string().max(500).nullish(),
+    })).mutation(async ({ input, ctx }) => {
+      const { monthKey, ...rest } = input;
+      const r = await siiSvc.saveRegularization(monthKey, rest);
+      await db.recordAdminAudit({ action: 'sii.regularization', targetType: 'taxRegularization', payload: input, ip: clientIp(ctx) });
+      return r;
+    }),
     honorariosYear: adminProcedure.input(z.object({ year: z.number().int().min(2020).max(2100) })).query(({ input }) => siiSvc.getHonorariosYear(input.year)),
     calendar: adminProcedure.input(z.object({ year: z.number().int().min(2020).max(2100) })).query(({ input }) => siiSvc.getTaxCalendar(input.year)),
     config: adminProcedure.query(() => siiSvc.getSiiConfig()),
@@ -3238,6 +3289,7 @@ export const appRouter = router({
       companyRut: z.string().max(20).nullable().optional(),
       regime: z.string().max(80).nullable().optional(),
       ticketsExempt: z.boolean().optional(),
+      webSalesInF29: z.boolean().optional(),
       remindersEnabled: z.boolean().optional(),
       dj1879Date: z.string().optional(), rentaDate: z.string().optional(), patenteDates: z.array(z.string()).max(4).optional(),
     })).mutation(async ({ input, ctx }) => {
