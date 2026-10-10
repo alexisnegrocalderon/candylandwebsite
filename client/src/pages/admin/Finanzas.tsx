@@ -716,12 +716,20 @@ function CashTab() {
                   <p>Comisiones reales <strong className="block tabular-nums">{money(rec.fees)}</strong></p>
                   <p>Neto recibido <strong className="block tabular-nums">{money(rec.net)}</strong></p>
                 </div>
+                <p className="text-sm">Calzaron con ventas del sistema: <strong>{rec.matchedById + rec.matchedByAmount}</strong> de {rec.count}
+                  {rec.matchedByAmount > 0 ? <span className="text-xs text-[var(--admin-muted)]"> ({rec.matchedById} por número de cobro, {rec.matchedByAmount} por monto y fecha)</span> : null}</p>
                 {rec.notInSystemCount > 0 ? (
                   <div className="rounded-xl px-4 py-3 bg-amber-500/15 text-amber-800">
-                    {rec.notInSystemCount} cobro(s) en Mercado Pago que no calzan con ninguna venta del sistema (por ejemplo, cobros hechos con link de pago o en otra plataforma).
-                    <ul className="mt-1 text-xs">{rec.notInSystem.map((p: any) => <li key={p.id}>{formatChileShortDate(p.date)} · {money(p.amount)} · {p.description}</li>)}</ul>
+                    {rec.notInSystemCount} cobro(s) en Mercado Pago sin venta equivalente en el sistema (cobros por link de pago, otra plataforma o una venta que no quedó registrada).
+                    <ul className="mt-1 text-xs">{rec.notInSystem.map((p: any) => <li key={`${p.id}-${p.date}`}>{formatChileShortDate(p.date)} · {money(p.amount)} · cobro {p.id}</li>)}</ul>
                   </div>
                 ) : <p className="text-emerald-700">Todos los cobros calzan con ventas del sistema ✓</p>}
+                {rec.ordersWithoutPaymentCount > 0 && (
+                  <div className="rounded-xl px-4 py-3 bg-red-500/10 text-red-700">
+                    {rec.ordersWithoutPaymentCount} venta(s) web del sistema con más de 20 días que no aparecen cobradas en Mercado Pago (pueden estar en un estado de cuenta que aún no subiste).
+                    <ul className="mt-1 text-xs">{rec.ordersWithoutPayment.map((o: any) => <li key={o.orderNumber}>{formatChileShortDate(o.date)} · {money(o.amount)} · orden {o.orderNumber}</li>)}</ul>
+                  </div>
+                )}
               </>
             )}
           </CardContent>
