@@ -294,3 +294,43 @@ export function learnFromPeriods(periods: PeriodRecord[], currentPpm: number | n
   else if (avgAbsErrorPercent !== null && avgAbsErrorPercent > 5) message = `En promedio nos desviamos ${avgAbsErrorPercent}% del monto real: revisa facturas o eventos sin definir antes de declarar.`;
   return { history, avgAbsErrorPercent, impliedPpmPercent, suggestedPpmPercent, message };
 }
+
+/* ─── IVA a apartar y plata libre de un evento ──────────────────── */
+
+export type TaxReserve = {
+  /** IVA que cobraste en las ventas (19/119 del total cobrado). */
+  debito: number;
+  /** IVA de tus facturas de compra: lo que recuperas. */
+  credito: number;
+  /** Lo que debes apartar para el F29 (débito − crédito, si es positivo). */
+  ivaNeto: number;
+  /** Si el crédito supera al débito, lo que sobra pasa al mes siguiente. */
+  remanente: number;
+  /** PPM estimado sobre las ventas netas; null si la tasa no está configurada. */
+  ppm: number | null;
+  /** Retención de las boletas de honorarios del staff. */
+  retencion: number;
+  /** Total a apartar: IVA neto + PPM + retención. */
+  totalApartar: number;
+  /** Lo cobrado menos lo que no es tuyo (IVA neto, PPM y retención). */
+  platLibre: number;
+  /** Qué parte de lo cobrado es IVA (%), para el "por cada $100". */
+  ivaPercentOfGross: number;
+};
+
+export function taxReserve(p: { grossIncome: number; debito: number; credito: number; ppmRatePercent: number | null; retencion: number }): TaxReserve {
+  const gross = Math.max(0, Math.round(p.grossIncome));
+  const debito = Math.max(0, Math.round(p.debito));
+  const credito = Math.max(0, Math.round(p.credito));
+  const ivaNeto = Math.max(0, debito - credito);
+  const remanente = Math.max(0, credito - debito);
+  const netIncome = Math.max(0, gross - debito);
+  const ppm = p.ppmRatePercent === null ? null : Math.round((netIncome * p.ppmRatePercent) / 100);
+  const retencion = Math.max(0, Math.round(p.retencion));
+  const totalApartar = ivaNeto + (ppm ?? 0) + retencion;
+  return {
+    debito, credito, ivaNeto, remanente, ppm, retencion, totalApartar,
+    platLibre: gross - totalApartar,
+    ivaPercentOfGross: gross > 0 ? Math.round((debito / gross) * 1000) / 10 : 0,
+  };
+}

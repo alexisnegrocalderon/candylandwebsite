@@ -16,6 +16,8 @@ import * as db from "./db";
 import { isTopupProduct } from "../shared/prepaid";
 import { isPrepaidSpend, categoryLabel } from "../shared/expenses";
 import { honorariosBreakdown } from "../shared/honorarios";
+import { taxReserve } from "../shared/sii";
+import { getSiiConfig } from "./sii";
 import { computeBudgetResult, type BudgetSimulationInput, type BudgetResult } from "../shared/eventBudget";
 import {
   buildRecommendations, buildScenarios, buildSensitivity, profitCurve, verdictFor,
@@ -182,6 +184,21 @@ export async function getEventFinanceData(eventId: number): Promise<EventFinance
   };
 }
 
+/** IVA a apartar y plata libre del evento. null si el evento no va en tu F29. */
+export async function getEventTaxReserve(eventId: number, pnl: RealPnl) {
+  const event = await db.getEventById(eventId);
+  const issuer = ((event as any)?.taxIssuer as string | undefined) ?? (pnl.ivaApplies ? "mansion" : "por_revisar");
+  if (issuer !== "mansion") return { applies: false as const, issuer, note: ((event as any)?.taxNote as string | null) ?? null };
+  const cfg = await getSiiConfig();
+  return {
+    applies: true as const, issuer, ppmConfigured: cfg.ppmRatePercent !== null,
+    ...taxReserve({
+      grossIncome: pnl.grossIncome, debito: pnl.iva.debitoFiscal, credito: pnl.iva.creditoFiscal,
+      ppmRatePercent: cfg.ppmRatePercent, retencion: (pnl as any).staffRetentionTotal ?? 0,
+    }),
+  };
+}
+
 /** Informe completo para la pantalla: cifras reales + consejos del motor. */
 export async function getEventFinanceReport(eventId: number) {
   const data = await getEventFinanceData(eventId);
@@ -197,6 +214,7 @@ export async function getEventFinanceReport(eventId: number) {
   };
   return {
     ...data,
+    tax: await getEventTaxReserve(eventId, data.pnl),
     result,
     verdict: verdictFor(result),
     recommendations: buildRecommendations(data.input),
@@ -292,6 +310,7 @@ export async function getEventLive(eventId: number, windowMinutes = 60, now: Dat
 
   return {
     asOf: now.toISOString(), windowMinutes: win, isLive: live,
+    tax: await getEventTaxReserve(eventId, pnl),
     totals: { gross, netProfit: pnl.netProfit, marginPercent: pnl.marginPercent, sales: sales.length },
     pace: { last5: since(5), last15: since(15), last60: since(60), perHourNow: since(60) },
     lastSaleAt: last ? new Date(last.at).toISOString() : null,
