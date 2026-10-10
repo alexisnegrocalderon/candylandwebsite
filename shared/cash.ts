@@ -147,3 +147,88 @@ export function cashPosition(p: { balances: { source: string; balance: number }[
     withdrawalsOverProfit: p.monthWithdrawals > p.monthProfit && p.monthProfit >= 0,
   };
 }
+
+/* ─── Estado de cuenta de Mercado Pago (CSV que se descarga desde la app/web) ── */
+
+export type StatementMovement = {
+  externalId: string;
+  occurredAt: string; // ISO con hora de Chile
+  description: string;
+  amount: number; // con signo; en ventas, el NETO (ya sin comisión)
+  kind: string;
+  classification: MovementClass;
+  /** Sugerencia para el dueño cuando queda por clasificar. */
+  suggestion: MovementClass | null;
+  gross?: number;
+  fee?: number;
+};
+
+export type MpStatement = {
+  movements: StatementMovement[];
+  finalBalance: number | null;
+  lastDate: string | null;
+  totals: { ventasBrutas: number; comisiones: number; ventasNetas: number; transferenciasEnviadas: number; pagos: number; retiros: number; transferenciasRecibidas: number; rentabilidad: number };
+  feePercent: number | null;
+};
+
+/** "02-09-2026 20:07:30" → ISO en hora de Chile. */
+export function parseDateTimeCl(raw: string): string | null {
+  const m = raw.trim().match(/^(\d{1,2})-(\d{1,2})-(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return null;
+  const [, d, mo, y, h = '12', mi = '00', se = '00'] = m;
+  return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}T${h.padStart(2, '0')}:${mi}:${se}-03:00`;
+}
+
+const MP_SUGGEST: Record<string, MovementClass> = {
+  'retiro de dinero': 'retiro_dueno',
+  'pago de suscripción': 'gasto_empresa',
+  'pago de servicio': 'gasto_empresa',
+};
+
+/** Lee el estado de cuenta de Mercado Pago. Devuelve null si el archivo no es de ese formato. */
+export function parseMercadoPagoStatement(text: string): MpStatement | null {
+  const rows = parseDelimited(text);
+  const hIdx = rows.findIndex((r) => r.some((c) => /^RELEASE_DATE$/i.test(c)) && r.some((c) => /^TRANSACTION_NET_AMOUNT$/i.test(c)));
+  if (hIdx < 0) return null;
+  const sIdx = rows.findIndex((r) => r.some((c) => /^FINAL_BALANCE$/i.test(c)));
+  const finalBalance = sIdx >= 0 && rows[sIdx + 1] ? parseClp(rows[sIdx + 1][rows[sIdx].findIndex((c) => /^FINAL_BALANCE$/i.test(c))]) : null;
+  const h = rows[hIdx].map((c) => c.toUpperCase());
+  const i = (n: string) => h.indexOf(n);
+  const iDate = i('RELEASE_DATE'), iMov = i('MOVEMENT_TYPE'), iType = i('TRANSACTION_TYPE'), iId = i('TRANSACTION_ID'), iAmt = i('TRANSACTION_NET_AMOUNT'), iFee = i('MP_PROCESSING_FEE');
+  const totals = { ventasBrutas: 0, comisiones: 0, ventasNetas: 0, transferenciasEnviadas: 0, pagos: 0, retiros: 0, transferenciasRecibidas: 0, rentabilidad: 0 };
+  const movements: StatementMovement[] = [];
+  let lastDate: string | null = null;
+  for (const r of rows.slice(hIdx + 1)) {
+    const when = parseDateTimeCl(r[iDate] ?? '');
+    const amount = parseClp(r[iAmt]);
+    if (!when || amount === null) continue;
+    lastDate = when;
+    const fee = Math.abs(parseClp(r[iFee]) ?? 0);
+    const type = (r[iType] ?? r[iMov] ?? 'Movimiento').trim();
+    const t = type.toLowerCase();
+    const id = (r[iId] ?? '').trim();
+    if (t === 'liberación de dinero' || t === 'liberacion de dinero') {
+      totals.ventasBrutas += amount; totals.comisiones += fee; totals.ventasNetas += amount - fee;
+      // Mismo id que usa la sincronización por API (`pay:<id>`): no se duplica.
+      movements.push({ externalId: `pay:${id}`, occurredAt: when, description: 'Venta liberada', amount: amount - fee, kind: 'venta', classification: 'venta', suggestion: null, gross: amount, fee });
+      continue;
+    }
+    if (t === 'rentabilidad') {
+      totals.rentabilidad += amount;
+      movements.push({ externalId: `mpst:${id}`, occurredAt: when, description: 'Rentabilidad (intereses de Mercado Pago)', amount, kind: 'rentabilidad', classification: 'otro', suggestion: null });
+      continue;
+    }
+    if (t === 'transferencia enviada') totals.transferenciasEnviadas += amount;
+    else if (t === 'transferencia recibida') totals.transferenciasRecibidas += amount;
+    else if (t.startsWith('retiro')) totals.retiros += amount;
+    else if (t.startsWith('pago')) totals.pagos += amount;
+    movements.push({
+      externalId: `mpst:${id}`, occurredAt: when, description: type, amount: amount - fee, kind: t.slice(0, 40),
+      classification: 'por_clasificar', suggestion: MP_SUGGEST[t] ?? null,
+    });
+  }
+  return {
+    movements, finalBalance, lastDate, totals,
+    feePercent: totals.ventasBrutas > 0 ? Math.round((totals.comisiones / totals.ventasBrutas) * 1000) / 10 : null,
+  };
+}

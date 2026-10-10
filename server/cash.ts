@@ -2,7 +2,7 @@
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { accountBalances, accountMovements, expenses, ownerWithdrawals } from "../drizzle/schema";
 import * as db from "./db";
-import { cashPosition, parseBankStatement, type MovementClass } from "../shared/cash";
+import { cashPosition, parseBankStatement, parseMercadoPagoStatement, type MovementClass } from "../shared/cash";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { getCompanyYear } from "./financeCompany";
 
@@ -88,22 +88,52 @@ export async function classifyMovement(p: {
   return { success: true };
 }
 
-/** Importa una cartola: con `preview` solo la lee y muestra; sin él la guarda (sin duplicar). */
+/** Importa un archivo de movimientos: estado de cuenta de Mercado Pago o cartola
+ * del banco (se detecta solo). Con `preview` solo lo lee y lo resume; sin él lo
+ * guarda sin duplicar (único por fuente + id). Las sugerencias NO se aplican
+ * solas: quedan "por clasificar" para que el dueño confirme. */
 export async function importBankStatement(text: string, preview: boolean) {
+  const mp = parseMercadoPagoStatement(text);
+  if (mp) {
+    const base = {
+      format: "mercadopago" as const, error: mp.movements.length ? null : "No encontré movimientos en el estado de cuenta.", skipped: 0, columns: {},
+      movements: mp.movements.map((m) => ({ externalId: m.externalId, date: m.occurredAt.slice(0, 10), description: m.description, amount: m.amount, balance: null, suggested: (m.suggestion ?? m.classification) as MovementClass })),
+      totals: mp.totals, feePercent: mp.feePercent, finalBalance: mp.finalBalance,
+    };
+    if (preview || base.error) return { ...base, imported: 0 };
+    const conn = await need();
+    let imported = 0;
+    for (const m of mp.movements) {
+      try {
+        await conn.insert(accountMovements).values({
+          source: "mercadopago", externalId: m.externalId.slice(0, 120), occurredAt: new Date(m.occurredAt), amountClp: m.amount,
+          description: m.description, kind: m.suggestion ? `sug:${m.suggestion}` : m.kind, classification: m.classification as any,
+          raw: m.gross !== undefined ? { gross: m.gross, fee: m.fee, net: m.amount, fromStatement: true } : { fromStatement: true },
+        });
+        imported++;
+      } catch { /* ya estaba (por la API o una importación anterior) */ }
+    }
+    if (mp.finalBalance !== null && mp.lastDate) await conn.insert(accountBalances).values({ source: "mercadopago", balanceClp: mp.finalBalance, asOf: new Date(mp.lastDate), origin: "cartola" });
+    return { ...base, imported };
+  }
+
   const parsed = parseBankStatement(text);
-  if (preview || parsed.error) return { ...parsed, imported: 0 };
+  const base = { ...parsed, format: "banco" as const, totals: null, feePercent: null, finalBalance: null };
+  if (preview || parsed.error) return { ...base, imported: 0 };
   const conn = await need();
   let imported = 0;
   for (const mv of parsed.movements) {
+    const sure = mv.suggested === "traspaso" || mv.suggested === "comision";
     try {
       await conn.insert(accountMovements).values({
         source: "banco", externalId: mv.externalId, occurredAt: new Date(`${mv.date}T12:00:00-03:00`), amountClp: mv.amount,
-        description: mv.description, kind: mv.amount > 0 ? "abono" : "cargo", classification: mv.suggested as any, balanceAfter: mv.balance,
+        description: mv.description, kind: sure || mv.suggested === "por_clasificar" ? (mv.amount > 0 ? "abono" : "cargo") : `sug:${mv.suggested}`,
+        classification: (sure ? mv.suggested : "por_clasificar") as any, balanceAfter: mv.balance,
       });
       imported++;
     } catch { /* ya importado: el único (fuente, id) lo frena */ }
   }
   const last = [...parsed.movements].reverse().find((m) => m.balance !== null);
   if (last) await conn.insert(accountBalances).values({ source: "banco", balanceClp: last.balance as number, asOf: new Date(`${last.date}T23:59:00-03:00`), origin: "cartola" });
-  return { ...parsed, imported };
+  return { ...base, imported };
 }

@@ -494,6 +494,7 @@ function EventCostsCard({ eventId, eventDate, costs }: { eventId: number; eventD
   );
 }
 
+const MOVEMENT_LABEL: Record<string, string> = { retiro_dueno: 'retiro mío', gasto_empresa: 'gasto de la empresa', gasto_evento: 'gasto de un evento', traspaso: 'traspaso', comision: 'comisión' };
 const ACCOUNT_LABEL: Record<string, string> = { mercadopago: 'Mercado Pago', banco: 'Banco', efectivo: 'Efectivo' };
 const chileMonthNow = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit' }).format(new Date()).slice(0, 7);
 const todayIso = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -508,19 +509,21 @@ function PendingMovement({ m, events, onDone }: { m: any; events: any[]; onDone:
   const classify = trpc.cash.classify.useMutation({ onSuccess: () => { onDone(); toast.success('Clasificado'); }, onError: onErr });
   const go = (classification: any, extra: any = {}) => classify.mutate({ id: m.id, classification, ...extra });
   const out = m.amount < 0;
+  const sug = typeof m.kind === 'string' && m.kind.startsWith('sug:') ? m.kind.slice(4) : null;
+  const tone = (c: string) => (sug === c ? pillOn : pillOff);
   return (
     <div className="admin-clay-sm p-3 space-y-2">
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <span className="text-xs rounded-full bg-black/5 px-2 py-0.5">{ACCOUNT_LABEL[m.source]}</span>
         <span className="text-[var(--admin-muted)] w-24">{formatChileShortDate(m.date)}</span>
-        <span className="flex-1 min-w-[10rem] truncate">{m.description}</span>
+        <span className="flex-1 min-w-[10rem] truncate">{m.description}{sug ? <span className="text-xs text-pink-600"> · sugerido: {MOVEMENT_LABEL[sug] ?? sug}</span> : null}</span>
         <strong className={`tabular-nums ${out ? 'text-red-600' : 'text-emerald-700'}`}>{money(m.amount)}</strong>
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {out && <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOn}`} onClick={() => go('retiro_dueno')}>Retiro mío</button>}
+        {out && <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${tone('retiro_dueno')}`} onClick={() => go('retiro_dueno')}>Retiro mío</button>}
         <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOff}`} onClick={() => go('traspaso')}>Traspaso entre mis cuentas</button>
         {out && <button type="button" disabled={isDemo} className={`${pillBase} ${mode === 'gasto_evento' ? pillOn : pillOff}`} onClick={() => setMode(mode === 'gasto_evento' ? null : 'gasto_evento')}>Gasto de un evento</button>}
-        {out && <button type="button" disabled={isDemo} className={`${pillBase} ${mode === 'gasto_empresa' ? pillOn : pillOff}`} onClick={() => setMode(mode === 'gasto_empresa' ? null : 'gasto_empresa')}>Gasto de la empresa</button>}
+        {out && <button type="button" disabled={isDemo} className={`${pillBase} ${mode === 'gasto_empresa' || (!mode && sug === 'gasto_empresa') ? pillOn : pillOff}`} onClick={() => setMode(mode === 'gasto_empresa' ? null : 'gasto_empresa')}>Gasto de la empresa</button>}
         {out && <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOff}`} onClick={() => go('comision')}>Comisión</button>}
         {!out && <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOff}`} onClick={() => go('venta')}>Venta / ingreso</button>}
         <button type="button" disabled={isDemo || classify.isPending} className={`${pillBase} ${pillOff}`} onClick={() => go('otro')}>Otro</button>
@@ -654,13 +657,25 @@ function CashTab() {
       </Card>
 
       <Card className="admin-clay border-0">
-        <CardHeader><CardTitle>Cartola del banco</CardTitle><p className="text-sm text-[var(--admin-muted)]">Descarga la cartola desde tu banco como CSV y súbela: se leen los movimientos y el saldo. Reimportar la misma cartola no duplica nada.</p></CardHeader>
+        <CardHeader><CardTitle>Subir estado de cuenta (Mercado Pago o banco)</CardTitle><p className="text-sm text-[var(--admin-muted)]">Sube el CSV del estado de cuenta de Mercado Pago o la cartola del banco: se detecta solo, se leen los movimientos y el saldo. Volver a subir el mismo archivo no duplica nada.</p></CardHeader>
         <CardContent className="space-y-3">
           <input type="file" accept=".csv,text/csv,.txt" disabled={isDemo || imp.isPending} onChange={(e) => onFile(e.target.files?.[0])} className="text-sm" />
           {statement?.preview?.error && <p className="text-sm text-red-600">{statement.preview.error}</p>}
           {statement?.preview && !statement.preview.error && (
             <div className="space-y-2">
-              <p className="text-sm">Encontré <strong>{statement.preview.movements.length}</strong> movimientos{statement.preview.skipped ? ` (salté ${statement.preview.skipped} filas sin fecha o monto)` : ''}.</p>
+              <p className="text-sm">{statement.preview.format === 'mercadopago' ? 'Estado de cuenta de Mercado Pago' : 'Cartola del banco'}: <strong>{statement.preview.movements.length}</strong> movimientos{statement.preview.skipped ? ` (salté ${statement.preview.skipped} filas sin fecha o monto)` : ''}.</p>
+              {statement.preview.totals && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs admin-clay-sm p-3">
+                  <p>Ventas liberadas <strong className="block text-sm tabular-nums">{money(statement.preview.totals.ventasBrutas)}</strong></p>
+                  <p>Comisiones Mercado Pago <strong className="block text-sm tabular-nums">{money(statement.preview.totals.comisiones)}</strong>{statement.preview.feePercent != null ? ` (${statement.preview.feePercent}%)` : ''}</p>
+                  <p>Transferencias enviadas <strong className="block text-sm tabular-nums">{money(statement.preview.totals.transferenciasEnviadas)}</strong></p>
+                  <p>Pagos con Mercado Pago <strong className="block text-sm tabular-nums">{money(statement.preview.totals.pagos)}</strong></p>
+                  <p>Retiros <strong className="block text-sm tabular-nums">{money(statement.preview.totals.retiros)}</strong></p>
+                  <p>Transferencias recibidas <strong className="block text-sm tabular-nums">{money(statement.preview.totals.transferenciasRecibidas)}</strong></p>
+                  <p>Rentabilidad <strong className="block text-sm tabular-nums">{money(statement.preview.totals.rentabilidad)}</strong></p>
+                  <p>Saldo final <strong className="block text-sm tabular-nums">{statement.preview.finalBalance != null ? money(statement.preview.finalBalance) : '—'}</strong></p>
+                </div>
+              )}
               <div className="max-h-64 overflow-y-auto space-y-1">
                 {statement.preview.movements.slice(0, 30).map((m: any) => (
                   <div key={m.externalId} className="flex gap-3 text-xs">

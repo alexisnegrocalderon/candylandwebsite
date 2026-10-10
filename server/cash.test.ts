@@ -65,3 +65,35 @@ describe("suggestClass y cashPosition", () => {
     expect(c.withdrawalsOverProfit).toBe(true);
   });
 });
+
+import { parseMercadoPagoStatement } from "../shared/cash";
+describe("parseMercadoPagoStatement (estado de cuenta de Mercado Pago)", () => {
+  const file = [
+    "INITIAL_BALANCE;CREDITS;DEBITS;FEES;TAX_WITHHOLDINGS;AVERAGE_DAILY_BALANCE;FINAL_BALANCE",
+    "10.000,00;31.901,00;15.000,00;1.212,00;0,00;1,00;25.689,00",
+    "",
+    "RELEASE_DATE;MOVEMENT_TYPE;TRANSACTION_TYPE;TRANSACTION_ID;CURRENCY_DESCRIPTION;TRANSACTION_NET_AMOUNT;MP_PROCESSING_FEE;STORE_NAME",
+    "02-09-2026 00:12:19;Abono;Rentabilidad;111;CLP;1,00;0,00;",
+    "07-09-2026 09:38:20;Abono;Liberación de dinero;222;CLP;31.900,00;-1.212,00;",
+    "09-09-2026 15:03:38;Cargo;Retiro de dinero;333;CLP;-10.000,00;0,00;",
+    "10-09-2026 17:34:53;Cargo;Pago;444;CLP;-5.000,00;0,00;",
+  ].join("\n");
+  const r = parseMercadoPagoStatement(file)!;
+  it("lee ventas netas de comisión y el saldo final cuadra", () => {
+    expect(r.finalBalance).toBe(25_689);
+    const sale = r.movements.find((m) => m.externalId === "pay:222")!;
+    expect(sale).toMatchObject({ amount: 30_688, gross: 31_900, fee: 1_212, classification: "venta" });
+    expect(10_000 + r.movements.reduce((s, m) => s + m.amount, 0)).toBe(r.finalBalance);
+    expect(r.feePercent).toBe(3.8);
+  });
+  it("rentabilidad se contabiliza sola; retiros y pagos quedan por clasificar (con sugerencia)", () => {
+    expect(r.movements.find((m) => m.kind === "rentabilidad")?.classification).toBe("otro");
+    const retiro = r.movements.find((m) => m.description === "Retiro de dinero")!;
+    expect(retiro).toMatchObject({ classification: "por_clasificar", suggestion: "retiro_dueno" });
+    expect(r.movements.find((m) => m.description === "Pago")?.classification).toBe("por_clasificar");
+    expect(r.movements[0].occurredAt).toBe("2026-09-02T00:12:19-03:00");
+  });
+  it("una cartola de banco no se confunde con un estado de Mercado Pago", () => {
+    expect(parseMercadoPagoStatement("Fecha;Descripción;Cargos;Abonos;Saldo\n01/10/2026;X;;1;1")).toBeNull();
+  });
+});
