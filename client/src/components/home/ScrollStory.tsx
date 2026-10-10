@@ -1,16 +1,8 @@
 import { useRef, useState } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { isFinePointer, prefersReducedMotion } from '@/lib/smoothScroll';
+import { reveal } from '@/lib/reveal';
 
-// Mismo objeto `reveal` que usa Home.tsx (ver ahí para el porqué del
-// margin:'400px') -- duplicado acá a propósito en vez de importado, para no
-// crear un import circular entre este archivo y Home.tsx.
-const reveal = {
-  initial: { opacity: 0, y: 40 },
-  whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true, margin: '400px' },
-  transition: { duration: 0.5, ease: [0.23, 1, 0.32, 1] as const },
-};
 
 const BEATS = ['De la mansión...', '...a la pista...', 'una sola noche.'];
 const FULL_SENTENCE = 'De la mansión a la pista — dos ambientes, una sola noche.';

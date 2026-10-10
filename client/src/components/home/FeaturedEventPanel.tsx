@@ -78,7 +78,7 @@ export default function FeaturedEventPanel({ event, mode }: FeaturedEventPanelPr
              * proporción, así que object-cover no tiene nada que recortar
              * (a diferencia del viejo aspect-[21/9]). */}
             {imgOk ? (
-              <img
+              <img decoding="async"
                 src={event.imageUrl}
                 alt={event.title}
                 width={1060}

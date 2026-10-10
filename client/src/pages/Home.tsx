@@ -48,6 +48,7 @@ import { eventImage } from '@shared/eventImage';
 import { useSound } from '@/lib/sound/SoundContext';
 import { EQ_BARS, type PistaId } from '@/lib/sound/config';
 import { useSeo } from '@/hooks/useSeo';
+import { reveal, revealGroup, revealItemProps, useRevealWatchdog } from '@/lib/reveal';
 import { eventSchema, faqSchema } from '@shared/structuredData';
 import { getArticle, articlePath, ALL_ARTICLES, STANDALONE_PAGES } from '@/content';
 
@@ -124,12 +125,6 @@ const AMENITY_ICONS: Record<string, typeof Music> = {
 // caramelos, textura de ruido) pero es ancho (así que SÍ le aplican los blur
 // `md:` grandes y las tarjetas glass a todo el ancho). El hilo principal
 // llega tarde a disparar la animación y el hueco se hace visible.
-const reveal = {
-  initial: { opacity: 0, y: 40 },
-  whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true, margin: '400px' },
-  transition: { duration: 0.5, ease: [0.23, 1, 0.32, 1] as const },
-};
 
 /* ─── Tilt 3D para tarjetas .candy-pass (Lineup/Experience) ──
  * El sistema de CSS .candy-perspective/.candy-pass/.candy-sheen/.candy-holo
@@ -399,7 +394,7 @@ function Hero() {
       {/* Fondo: el video candy define la paleta del sitio, con un velo claro
           suficiente para que el texto se lea sin taparle el color. */}
       <motion.div className="absolute inset-0" style={pointerFine ? { y: bgY } : undefined}>
-        <img
+        <img decoding="async"
           src="/candyland/poster-hero-bg.webp"
           alt=""
           aria-hidden
@@ -605,7 +600,7 @@ function EventCard({ event, size = 'normal' }: { event: HomeEventItem; size?: 'n
        * tarjeta glass casi blanca. Son las proporciones nominales, no un
        * tamaño fijo -- el `object-cover` manda igual. */}
       {imgOk ? (
-        <img
+        <img decoding="async"
           src={event.imageUrl}
           alt={event.title}
           loading="lazy"
@@ -1516,10 +1511,7 @@ function ExperienceSection() {
          * escalonado más corto -- con 0.08s × 8 amenities + 0.5s cada una,
          * la última tardaba ~1.1s en aparecer desde que disparaba. */}
         <motion.div
-          initial="hidden"
-          whileInView="show"
-          viewport={{ once: true, margin: '400px' }}
-          variants={{ hidden: {}, show: { transition: { staggerChildren: 0.04 } } }}
+          {...revealGroup}
           className="grid grid-cols-2 gap-4"
         >
           {CANDYLAND.amenities.map((a) => {
@@ -1527,10 +1519,7 @@ function ExperienceSection() {
             return (
               <motion.div
                 key={a.texto}
-                variants={{
-                  hidden: { opacity: 0, y: 26, scale: 0.92 },
-                  show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.35, ease: [0.23, 1, 0.32, 1] } },
-                }}
+                {...revealItemProps}
                 whileHover={{ y: -4, scale: 1.03 }}
                 className="candy-perspective"
               >
@@ -1980,19 +1969,13 @@ function InfoSection() {
          * de useSeo (Home()) que arma el JSON-LD del FAQPage a partir de esos
          * mismos datos -- ese sigue generándose desde CANDYLAND.faqs, no del DOM. */}
         <motion.div
-          initial="hidden"
-          whileInView="show"
-          viewport={{ once: true, margin: '400px' }}
-          variants={{ hidden: {}, show: { transition: { staggerChildren: 0.04 } } }}
+          {...revealGroup}
         >
           <Accordion type="single" collapsible className="w-full">
             {CANDYLAND.faqs.map((faq, i) => (
               <motion.div
                 key={i}
-                variants={{
-                  hidden: { opacity: 0, y: 16 },
-                  show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.23, 1, 0.32, 1] } },
-                }}
+                {...revealItemProps}
               >
                 <AccordionItem value={`faq-${i}`} className="border-primary/15">
                   <AccordionTrigger className="text-left text-base md:text-lg font-semibold hover:text-primary">
@@ -2016,7 +1999,7 @@ function InfoSection() {
 function FinalCTASection() {
   return (
     <section className="relative py-28 md:py-40 overflow-hidden">
-      <img
+      <img decoding="async"
         src="/candyland/poster-hero-bg.webp"
         alt=""
         aria-hidden
@@ -2042,7 +2025,7 @@ function FinalCTASection() {
       </div>
 
       <motion.div {...reveal} className="container relative text-center max-w-3xl">
-        <img
+        <img decoding="async"
           src="/candyland/logo-wordmark.webp"
           alt=""
           aria-hidden
@@ -2136,7 +2119,7 @@ function Footer() {
     <footer className="border-t border-primary/15 py-14">
       <div className="container">
         <div className="flex flex-col md:flex-row items-center justify-between gap-8">
-          <img src="/candyland/logo-wordmark.webp" alt="Mansion Playroom" width={300} height={300} loading="lazy" className="h-12 w-auto" />
+          <img decoding="async" src="/candyland/logo-wordmark.webp" alt="Mansion Playroom" width={300} height={300} loading="lazy" className="h-12 w-auto" />
 
           <div className="flex items-center gap-5">
             {/* Botón "Agregar como fuente preferida" de Google -- lo hidrata
@@ -2237,6 +2220,7 @@ function StickyMobileCTA({ salesEnd, soldOut }: { salesEnd: Date | null; soldOut
 /* ─── Página ───────────────────────────────────────────────── */
 
 export default function Home() {
+  useRevealWatchdog();
   // La textura de ruido es una capa fija a pantalla completa (un SVG de
   // turbulencia) a opacity 0.03: en celular es prácticamente invisible y
   // cuesta una capa de composición del tamaño de toda la ventana. Se apaga
