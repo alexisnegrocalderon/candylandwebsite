@@ -78,7 +78,7 @@ import { computeCustomerLevel } from "../shared/customerInsights";
 import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftClosed, listCajaAlerts } from "./caja/alerts";
 import { BRAND } from "../shared/eventBrand";
 import * as staffSvc from "./staff";
-import { getEventFinanceReport, getEventLive } from "./finance";
+import { getEventFinanceReport, getEventLive, getMarginTarget } from "./finance";
 import { getCompanyYear, getPayables, markCommissionsPaid } from "./financeCompany";
 import { askFinance, buildNightSummary, buildWeeklySummary } from "./financeDirector";
 import { comparisonPdf as budgetComparisonPdf, singlePdf as budgetSinglePdf, loadSims as loadBudgetSims, slug as budgetSlug } from "./budgetReport";
@@ -2248,6 +2248,7 @@ export const appRouter = router({
       dailyDigestEmail: z.boolean(),
       pushCajaAlerts: z.boolean().optional(),
       cajaAiSummary: z.boolean().optional(),
+      financeMarginTargetPercent: z.number().min(1).max(90).optional(),
       financeNightlyEmail: z.boolean().optional(),
       financeWeeklyEmail: z.boolean().optional(),
       cajaLowStockUnits: z.number().int().min(0).max(10000).optional(),
@@ -3224,6 +3225,14 @@ export const appRouter = router({
       if (!mail) return { sent: false, reason: 'No hay datos para armar el resumen' };
       const r = await sendEmail({ to: ADMIN_NOTIFICATION_EMAIL, subject: mail.subject, html: mail.html });
       return { sent: r.success, reason: r.success ? undefined : r.reason };
+    }),
+    marginTarget: adminProcedure.query(async () => ({ percent: await getMarginTarget() })),
+    setMarginTarget: adminProcedure.input(z.object({ percent: z.number().min(1).max(90) })).mutation(async ({ input, ctx }) => {
+      const settings = await db.getSiteSettings();
+      const cfg = normalizeAdminAlertsConfig((settings as any).adminAlertsConfig);
+      await db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig({ ...cfg, financeMarginTargetPercent: input.percent }) });
+      await db.recordAdminAudit({ action: 'finance.setMarginTarget', targetType: 'siteSettings', payload: { percent: input.percent }, ip: clientIp(ctx) });
+      return { percent: normalizeAdminAlertsConfig({ financeMarginTargetPercent: input.percent }).financeMarginTargetPercent };
     }),
     staffList: adminProcedure.query(() => staffSvc.listStaff()),
     staffSave: adminProcedure.input(z.object({

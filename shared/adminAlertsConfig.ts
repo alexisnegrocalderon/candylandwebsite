@@ -32,6 +32,8 @@ export interface AdminAlertsConfig {
   financeNightlyEmail: boolean;
   /** Correo de los lunes con el mes, el año y lo que hay por pagar. */
   financeWeeklyEmail: boolean;
+  /** Meta de margen neto (%) que usa Finanzas para el veredicto, los consejos y las alertas. */
+  financeMarginTargetPercent: number;
   /** Avisa cuando a un producto le quedan esta cantidad de unidades o menos. */
   cajaLowStockUnits: number;
   /** Avisa de cualquier venta de caja por sobre este monto (CLP). */
@@ -47,11 +49,17 @@ export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
   dailyDigestEmail: false,
   pushCajaAlerts: false,
   cajaAiSummary: false,
+  financeMarginTargetPercent: 30,
   financeNightlyEmail: false,
   financeWeeklyEmail: false,
   cajaLowStockUnits: 10,
   cajaHighSaleClp: 100000,
 };
+
+/** Meta de margen válida: entre 1 y 90 %; si no, la de siempre (30 %). */
+export function marginTarget(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 1 && value <= 90 ? Math.round(value * 10) / 10 : 30;
+}
 
 function nonNegativeNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
@@ -71,6 +79,7 @@ export function normalizeAdminAlertsConfig(raw: unknown): AdminAlertsConfig {
     dailyDigestEmail: partial.dailyDigestEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.dailyDigestEmail,
     pushCajaAlerts: partial.pushCajaAlerts ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushCajaAlerts,
     cajaAiSummary: partial.cajaAiSummary ?? DEFAULT_ADMIN_ALERTS_CONFIG.cajaAiSummary,
+    financeMarginTargetPercent: marginTarget(partial.financeMarginTargetPercent),
     financeNightlyEmail: partial.financeNightlyEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.financeNightlyEmail,
     financeWeeklyEmail: partial.financeWeeklyEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.financeWeeklyEmail,
     cajaLowStockUnits: nonNegativeNumber(partial.cajaLowStockUnits, DEFAULT_ADMIN_ALERTS_CONFIG.cajaLowStockUnits),

@@ -399,6 +399,37 @@ function AskCard() {
   );
 }
 
+/** Meta de margen neto: el veredicto, los consejos y las alertas se miden contra este número. */
+function MarginGoal() {
+  const isDemo = useIsDemo();
+  const utils = trpc.useUtils();
+  const { data } = trpc.finance.marginTarget.useQuery();
+  const [value, setValue] = useState<string | null>(null);
+  const save = trpc.finance.setMarginTarget.useMutation({
+    onSuccess: (r) => {
+      setValue(null);
+      utils.finance.marginTarget.invalidate(); utils.finance.eventReport.invalidate(); utils.finance.live.invalidate();
+      toast.success(`Meta de margen: ${r.percent}%`);
+    },
+    onError: onErr,
+  });
+  const shown = value ?? String(data?.percent ?? 30);
+  const n = Number(shown);
+  const valid = Number.isFinite(n) && n >= 1 && n <= 90;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <Target className="w-4 h-4 text-[var(--admin-muted)]" />
+      <label htmlFor="margin-goal" className="text-[var(--admin-muted)]">Meta de margen</label>
+      <Input id="margin-goal" type="number" inputMode="decimal" min={1} max={90} step={1} className="w-20" value={shown}
+        disabled={isDemo} onChange={(e) => setValue(e.target.value)} />
+      <span>%</span>
+      {value !== null && value !== String(data?.percent) && (
+        <Button size="sm" disabled={!valid || save.isPending} onClick={() => save.mutate({ percent: n })}>Guardar</Button>
+      )}
+    </div>
+  );
+}
+
 export default function FinanzasView() {
   const [tab, setTab] = useState<'live' | 'evento' | 'mes' | 'pagar'>('live');
   const isDemo = useIsDemo();
@@ -465,6 +496,8 @@ export default function FinanzasView() {
           <Button key={k} role="tab" aria-selected={tab === k} variant={tab === k ? 'default' : 'outline'} onClick={() => setTab(k)}>{l}</Button>
         ))}
       </div>
+
+      {(tab === 'live' || tab === 'evento') && <MarginGoal />}
 
       <AskCard />
 
