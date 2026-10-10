@@ -11,6 +11,7 @@ import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
 import { Switch } from '@/components/ui/switch';
 import { trpc } from '@/lib/trpc';
 import FinanzasView from './Finanzas';
+import SiiView from './Sii';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -18,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
@@ -83,6 +84,38 @@ import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from '@/componen
 /* Toda escritura del admin pasa por acá: sin esto, un error del servidor
  * (típicamente "Database not available" si falta DATABASE_URL) fallaba en
  * silencio — el botón volvía a su estado normal sin avisar que no se guardó nada. */
+
+type TaxIssuer = 'mansion' | 'tercero' | 'exento' | 'por_revisar';
+const TAX_ISSUER_OPTIONS: { v: TaxIssuer; l: string; hint: string }[] = [
+  { v: 'mansion', l: 'Mansion Playroom', hint: 'Sus ventas van a tu F29 (IVA 19%).' },
+  { v: 'tercero', l: 'El local u otro organizador', hint: 'Otro emite las boletas; no va a tu F29. Indica quién.' },
+  { v: 'exento', l: 'Exento', hint: 'Solo si un contador lo confirmó. Indica por qué.' },
+];
+
+/** "¿Quién factura este evento?": define si sus ventas van al F29 (Dinero → SII). */
+function TaxIssuerField({ issuer, note, onChange }: { issuer: TaxIssuer; note: string; onChange: (issuer: TaxIssuer, note: string) => void }) {
+  const needsNote = issuer === 'tercero' || issuer === 'exento';
+  return (
+    <div className="mt-2 space-y-2 rounded-xl border border-border/60 p-3">
+      <p className="text-sm font-medium">¿Quién factura este evento? <span className="text-xs text-muted-foreground font-normal">(SII)</span></p>
+      {issuer === 'por_revisar' && <p className="text-xs text-amber-700">Por revisar: elige una opción para que el F29 del mes quede correcto.</p>}
+      <div className="flex flex-wrap gap-1.5">
+        {TAX_ISSUER_OPTIONS.map((o) => (
+          <button key={o.v} type="button" onClick={() => onChange(o.v, o.v === 'mansion' ? '' : note)}
+            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${issuer === o.v ? 'bg-pink-500 text-white' : 'bg-black/5 text-muted-foreground hover:bg-black/10'}`}>
+            {o.l}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground">{TAX_ISSUER_OPTIONS.find((o) => o.v === issuer)?.hint ?? ''}</p>
+      {needsNote && (
+        <Input value={note} maxLength={255} onChange={(e) => onChange(issuer, e.target.value)}
+          placeholder={issuer === 'tercero' ? 'Ej: factura el local (Club X, RUT ...)' : 'Ej: exento según contador, art. ...'} />
+      )}
+    </div>
+  );
+}
+
 const onMutationError = (error: unknown) => {
   const message = error instanceof Error ? error.message : 'No se pudo guardar. Intenta de nuevo.';
   // El invitado de demostración recibe FORBIDDEN del servidor en cualquier
@@ -887,6 +920,7 @@ function eventFormFromEvent(event: any) {
     status: (event.status || 'draft') as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past',
     imageUrl: (event.imageUrl || '') as string, featured: !!event.featured,
     missionForceClosed: !!event.missionForceClosed, ivaApplies: !!event.ivaApplies,
+    taxIssuer: (event.taxIssuer ?? (event.ivaApplies ? 'mansion' : 'por_revisar')) as TaxIssuer, taxNote: event.taxNote ?? '',
   };
 }
 
@@ -1006,7 +1040,8 @@ function EventCard({ event, onDeleted, expanded, onToggleExpand }: { event: any;
       ...form,
       featured: form.featured ? 1 : 0,
       missionForceClosed: form.missionForceClosed ? 1 : 0,
-      ivaApplies: form.ivaApplies ? 1 : 0,
+      ivaApplies: form.taxIssuer === 'mansion' ? 1 : 0,
+      taxIssuer: form.taxIssuer, taxNote: form.taxNote || null,
       eventDate: fromChileInputValue(form.eventDate),
       doorsOpen: fromChileInputValue(form.doorsOpen),
       eventEnd: fromChileInputValue(form.eventEnd),
@@ -1114,10 +1149,7 @@ function EventCard({ event, onDeleted, expanded, onToggleExpand }: { event: any;
                 <input type="checkbox" checked={form.missionForceClosed} onChange={(e) => setForm({ ...form, missionForceClosed: e.target.checked })} className="w-4 h-4 accent-primary" />
                 <span className="text-sm">Cerrar Misión 300 (cobrar valor general ya)</span>
               </label>
-              <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
-                <input type="checkbox" checked={form.ivaApplies} onChange={(e) => setForm({ ...form, ivaApplies: e.target.checked })} className="w-4 h-4 accent-primary" />
-                <span className="text-sm">Este evento se declara al SII (IVA 19%)</span>
-              </label>
+              <TaxIssuerField issuer={form.taxIssuer} note={form.taxNote} onChange={(taxIssuer, taxNote) => setForm({ ...form, taxIssuer, taxNote })} />
             </div>
             <div className="flex gap-2">
               <WriteButton onClick={handleSaveEvent} disabled={updateEvent.isPending}>Guardar Cambios</WriteButton>
@@ -1233,7 +1265,7 @@ function EventsManager() {
 
   const [newEvent, setNewEvent] = useState({
     title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', eventEnd: '',
-    status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false,
+    status: 'draft' as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false, taxIssuer: 'mansion' as TaxIssuer, taxNote: '',
   });
   const [showEventForm, setShowEventForm] = useState(false);
   // Cada card arranca colapsada -- con decenas de eventos (incluyendo
@@ -1249,13 +1281,14 @@ function EventsManager() {
       ...newEvent,
       featured: newEvent.featured ? 1 : 0,
       missionForceClosed: newEvent.missionForceClosed ? 1 : 0,
-      ivaApplies: newEvent.ivaApplies ? 1 : 0,
+      ivaApplies: newEvent.taxIssuer === 'mansion' ? 1 : 0,
+      taxIssuer: newEvent.taxIssuer, taxNote: newEvent.taxNote || null,
       eventDate: fromChileInputValue(newEvent.eventDate),
       doorsOpen: fromChileInputValue(newEvent.doorsOpen),
       eventEnd: fromChileInputValue(newEvent.eventEnd),
     };
     await createEvent.mutateAsync(payload);
-    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', eventEnd: '', status: 'draft', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false });
+    setNewEvent({ title: '', slug: '', description: '', shortDescription: '', venue: '', address: '', mapsUrl: '', eventDate: '', doorsOpen: '', eventEnd: '', status: 'draft', imageUrl: '', featured: false, missionForceClosed: false, ivaApplies: false, taxIssuer: 'mansion', taxNote: '' });
     setShowEventForm(false);
   };
 
@@ -1326,10 +1359,7 @@ function EventsManager() {
                 <input type="checkbox" checked={newEvent.missionForceClosed} onChange={(e) => setNewEvent({ ...newEvent, missionForceClosed: e.target.checked })} className="w-4 h-4 accent-primary" />
                 <span className="text-sm">Cerrar Misión 300 (cobrar valor general ya)</span>
               </label>
-              <label className="flex items-center gap-2 mb-1 cursor-pointer select-none">
-                <input type="checkbox" checked={newEvent.ivaApplies} onChange={(e) => setNewEvent({ ...newEvent, ivaApplies: e.target.checked })} className="w-4 h-4 accent-primary" />
-                <span className="text-sm">Este evento se declara al SII (IVA 19%)</span>
-              </label>
+              <TaxIssuerField issuer={newEvent.taxIssuer} note={newEvent.taxNote} onChange={(taxIssuer, taxNote) => setNewEvent({ ...newEvent, taxIssuer, taxNote })} />
             </div>
             <div className="flex gap-2">
               <WriteButton onClick={handleCreateEvent} disabled={createEvent.isPending}>Crear Evento</WriteButton>
@@ -10871,6 +10901,7 @@ const ADMIN_SECTION_GROUPS = ['Dinero', 'Hoy', 'Ventas', 'Eventos', 'Clientes', 
 
 const ADMIN_SECTIONS = [
   { id: 'finanzas', label: 'Finanzas', group: 'Dinero', icon: Banknote, render: () => <FinanzasView /> },
+  { id: 'sii', label: 'SII', group: 'Dinero', icon: Landmark, render: () => <SiiView /> },
   { id: 'overview', label: 'Resumen de la noche', group: 'Hoy', icon: LayoutDashboard, render: () => <EventOverview /> },
   { id: 'caja', label: 'Caja', group: 'Hoy', icon: Store, render: () => <CajaAdminView /> },
   { id: 'flash-promo', label: 'Promo Flash', group: 'Hoy', icon: Zap, render: () => <FlashPromoCard /> },

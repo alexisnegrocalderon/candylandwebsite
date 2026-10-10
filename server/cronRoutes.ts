@@ -10,6 +10,7 @@ import { runFoundersPromoDaily } from "./foundersPromo";
 import { runTanda2PromoDaily } from "./tanda2Promo";
 import { runAdminDigest } from "./adminDigest";
 import { runFinanceDigest } from "./financeDirector";
+import { runSiiReminders } from "./sii";
 import { runCajaWatch } from "./caja/alerts";
 import { refreshInstagramToken } from "./instagramSend";
 import { syncInstagramStats } from "./instagramStats";
@@ -280,6 +281,19 @@ export function registerCronRoutes(app: Express) {
       res.json(await runFinanceDigest());
     } catch (err) {
       console.error('[Cron] Error en el resumen financiero:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  /* SII: avisos de vencimiento del F29 (día 1, 5 días antes, 1 día antes, el
+   * mismo día y si quedó vencido), DJ 1879, renta y patente. Prendidos por
+   * defecto (evitan multas); se apagan en Dinero → SII → Ajustes. */
+  app.get("/api/cron/sii-reminders", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      res.json(await runSiiReminders());
+    } catch (err) {
+      console.error('[Cron] Error en los avisos del SII:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
   });

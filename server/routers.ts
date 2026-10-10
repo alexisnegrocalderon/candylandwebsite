@@ -78,6 +78,7 @@ import { computeCustomerLevel } from "../shared/customerInsights";
 import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftClosed, listCajaAlerts } from "./caja/alerts";
 import { BRAND } from "../shared/eventBrand";
 import * as staffSvc from "./staff";
+import * as siiSvc from "./sii";
 import { getEventFinanceReport, getEventLive, getMarginTarget } from "./finance";
 import { getCompanyYear, getPayables, markCommissionsPaid, resetCommissionPayments } from "./financeCompany";
 import { askFinance, buildNightSummary, buildWeeklySummary } from "./financeDirector";
@@ -137,6 +138,17 @@ import { consumeBackupCode, createTotpSecret, generateBackupCodes, parseBackupCo
 import { ADMIN_WEBAUTHN_USER_ID_B64URL, ADMIN_WEBAUTHN_USER_NAME, ADMIN_WEBAUTHN_USER_DISPLAY_NAME, buildAuthenticationOptions, buildRegistrationOptions, getRpIdAndOrigin, verifyAuthentication, verifyRegistration } from "./webauthn";
 
 const SHIFT_CLOSE_REPORT_EMAIL = ADMIN_NOTIFICATION_EMAIL;
+
+/** "¿Quién factura este evento?" manda: `ivaApplies` (lo que usa el P&L) se
+ * deriva de ahí para que nunca se contradigan. Los que no van en el F29
+ * exigen una nota que explique por qué. */
+function withTaxIssuer<T extends { taxIssuer?: string; taxNote?: string | null; ivaApplies?: number }>(data: T): T {
+  if (!data.taxIssuer) return data;
+  if ((data.taxIssuer === 'tercero' || data.taxIssuer === 'exento') && !data.taxNote?.trim()) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: data.taxIssuer === 'tercero' ? 'Indica quién factura este evento (el local u otro organizador).' : 'Indica por qué es exento (y quién lo confirmó).' });
+  }
+  return { ...data, ivaApplies: data.taxIssuer === 'mansion' ? 1 : 0, taxNote: data.taxNote?.trim() || null };
+}
 const APPLICATIONS_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 const APPLICATION_MAX_PER_HOUR = 5;
 const COSTUME_ORACLE_MAX_PER_HOUR = 8;
@@ -877,8 +889,10 @@ export const appRouter = router({
       featured: z.number().optional(),
       missionForceClosed: z.number().optional(),
       ivaApplies: z.number().optional(),
+      taxIssuer: z.enum(['mansion', 'tercero', 'exento', 'por_revisar']).optional(),
+      taxNote: z.string().max(255).nullish(),
     })).mutation(async ({ input }) => {
-      const result = await db.createEvent(input);
+      const result = await db.createEvent(withTaxIssuer(input));
       // La Carta de la Fiesta nace vacía si no se hace nada -- se le copia
       // la del evento anterior automáticamente, sin bloquear la creación
       // si algo falla (un evento sin carta copiada es mejor que ninguno).
@@ -919,6 +933,8 @@ export const appRouter = router({
       featured: z.number().optional(),
       missionForceClosed: z.number().optional(),
       ivaApplies: z.number().optional(),
+      taxIssuer: z.enum(['mansion', 'tercero', 'exento', 'por_revisar']).optional(),
+      taxNote: z.string().max(255).nullish(),
       // Escala de descuentos por fase de este evento -- ver
       // shared/tandaSchedule.ts (TandaPhase[]: % + fecha límite opcional
       // por fase, para el avance automático). Editable desde el admin, por
@@ -929,7 +945,7 @@ export const appRouter = router({
       })).optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
-      return db.updateEvent(id, data);
+      return db.updateEvent(id, withTaxIssuer(data));
     }),
     delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const before = await db.getEventById(input.id);
@@ -3195,6 +3211,42 @@ export const appRouter = router({
   // shared/eventBudget.ts (computeBudgetResult), corrida 100% del lado
   // cliente para que la barra de estado sea instantánea; estos endpoints
   // solo guardan/leen lo que el admin cargó.
+  sii: router({
+    month: adminProcedure.input(z.object({ monthKey: z.string().regex(/^\d{4}-\d{2}$/) })).query(({ input }) => siiSvc.getF29Month(input.monthKey)),
+    mark: adminProcedure.input(z.object({
+      monthKey: z.string().regex(/^\d{4}-\d{2}$/),
+      status: z.enum(['pendiente', 'declarado', 'pagado']),
+      folio: z.string().max(40).nullish(), amountPaid: z.number().int().min(0).nullish(), notes: z.string().max(1000).nullish(),
+    })).mutation(async ({ input, ctx }) => {
+      const { monthKey, ...rest } = input;
+      const r = await siiSvc.markF29(monthKey, rest);
+      await db.recordAdminAudit({ action: `sii.f29.${input.status}`, targetType: 'taxPeriod', payload: input, ip: clientIp(ctx) });
+      return r;
+    }),
+    honorariosYear: adminProcedure.input(z.object({ year: z.number().int().min(2020).max(2100) })).query(({ input }) => siiSvc.getHonorariosYear(input.year)),
+    calendar: adminProcedure.input(z.object({ year: z.number().int().min(2020).max(2100) })).query(({ input }) => siiSvc.getTaxCalendar(input.year)),
+    config: adminProcedure.query(() => siiSvc.getSiiConfig()),
+    saveConfig: adminProcedure.input(z.object({
+      f29DueDay: z.number().int().min(1).max(28).optional(),
+      ppmRatePercent: z.number().min(0).max(10).nullable().optional(),
+      companyRut: z.string().max(20).nullable().optional(),
+      regime: z.string().max(80).nullable().optional(),
+      ticketsExempt: z.boolean().optional(),
+      remindersEnabled: z.boolean().optional(),
+      dj1879Date: z.string().optional(), rentaDate: z.string().optional(), patenteDates: z.array(z.string()).max(4).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const r = await siiSvc.saveSiiConfig(input as any);
+      await db.recordAdminAudit({ action: 'sii.saveConfig', targetType: 'siteSettings', payload: input, ip: clientIp(ctx) });
+      return r;
+    }),
+    ask: adminProcedure.input(z.object({ question: z.string().trim().min(3).max(500), monthKey: z.string().regex(/^\d{4}-\d{2}$/) })).mutation(async ({ input }) => {
+      try { return { answer: await siiSvc.askSii(input.question, input.monthKey) }; }
+      catch (err) { throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar la respuesta.' }); }
+    }),
+    eventsToReview: adminProcedure.query(async () => (await db.getAllEvents()).filter((e: any) => e.taxIssuer === 'por_revisar').map((e: any) => ({ id: e.id, title: e.title, eventDate: e.eventDate }))),
+    runRemindersNow: adminProcedure.mutation(() => siiSvc.runSiiReminders()),
+  }),
+
   finance: router({
     eventReport: adminProcedure.input(z.object({ eventId: z.number().int().positive() })).query(async ({ input }) => {
       return getEventFinanceReport(input.eventId);

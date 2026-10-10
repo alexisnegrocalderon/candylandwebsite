@@ -54,6 +54,13 @@ export const events = mysqlTable("events", {
   // que su resultado se calcula 100% bruto. Es una decisión por FIESTA, no
   // global -- mismo patrón int-como-booleano que `featured`.
   ivaApplies: int("ivaApplies").default(0).notNull(),
+  // ¿Quién factura este evento? Decide si sus ventas van al F29 de Mansion
+  // Playroom: 'mansion' (sí), 'tercero' (el local u otro organizador), 'exento'
+  // (confirmado por contador) o 'por_revisar' (aún no se decide). `ivaApplies`
+  // se mantiene sincronizado (= 'mansion') para que el P&L no cambie.
+  taxIssuer: mysqlEnum("taxIssuer", ["mansion", "tercero", "exento", "por_revisar"]).default("por_revisar").notNull(),
+  // Por qué no va en el F29 (quién factura, o la razón de la exención).
+  taxNote: varchar("taxNote", { length: 255 }),
   // Escala de descuentos de las tandas de este evento, en % sobre
   // originalPrice (ej. [60, 50, 40, 30, 0] -- Founders 60%, luego 50%...).
   // La posición en el arreglo ES la fase, no hace falta un número de fase
@@ -528,6 +535,9 @@ export const siteSettings = mysqlTable("siteSettings", {
   // en shared/adminAlertsConfig.ts. null = todas apagadas (desplegar esto no
   // debe empezar a mandar nada solo, mismo criterio que foundersPromoEnabled).
   adminAlertsConfig: json("adminAlertsConfig"),
+  // Ajustes tributarios (shared/sii.ts SiiConfig): plazo del F29, tasa de
+  // PPM, RUT de la empresa, fechas del calendario y avisos.
+  siiConfig: json("siiConfig"),
   // Plantillas de Promo Flash guardadas para activar con un toque durante
   // la fiesta -- forma en shared/flashPromoPresets.ts. null = ninguna
   // guardada todavía.
@@ -2365,3 +2375,24 @@ export const staffShifts = mysqlTable("staffShifts", {
 ]);
 
 export type StaffShift = typeof staffShifts.$inferSelect;
+
+
+// Un registro por mes tributario (F29): si ya se declaró y pagó, con qué
+// folio y cuánto. `remanente` es el crédito fiscal que pasa al mes siguiente
+// (casilla 77); `snapshot` guarda los valores tal como se declararon.
+export const taxPeriods = mysqlTable("taxPeriods", {
+  id: int("id").autoincrement().primaryKey(),
+  monthKey: varchar("monthKey", { length: 7 }).notNull().unique(),
+  status: mysqlEnum("status", ["pendiente", "declarado", "pagado"]).default("pendiente").notNull(),
+  declaredAt: timestamp("declaredAt"),
+  paidAt: timestamp("paidAt"),
+  folio: varchar("folio", { length: 40 }),
+  amountPaid: int("amountPaid"),
+  remanente: int("remanente").default(0).notNull(),
+  snapshot: json("snapshot"),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TaxPeriod = typeof taxPeriods.$inferSelect;
