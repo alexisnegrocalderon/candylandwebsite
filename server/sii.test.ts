@@ -126,3 +126,31 @@ describe("learnFromPeriods", () => {
     expect(r.message).toContain("desviamos");
   });
 });
+
+import { taxReserve } from "../shared/sii";
+describe("taxReserve (IVA a apartar y plata libre)", () => {
+  it("con facturas el IVA neto baja y la plata libre sube", () => {
+    // ventas $3.000.000 → débito 478.992 (19/119); compras con factura: crédito 190.000
+    const sinFacturas = taxReserve({ grossIncome: 3_000_000, debito: 478_992, credito: 0, ppmRatePercent: 0.25, retencion: 0 });
+    const conFacturas = taxReserve({ grossIncome: 3_000_000, debito: 478_992, credito: 190_000, ppmRatePercent: 0.25, retencion: 0 });
+    expect(sinFacturas.ivaNeto).toBe(478_992);
+    expect(conFacturas.ivaNeto).toBe(288_992);
+    expect(conFacturas.platLibre - sinFacturas.platLibre).toBe(190_000);
+    expect(conFacturas.ivaPercentOfGross).toBe(16);
+  });
+  it("si el crédito supera al débito no hay IVA que apartar y el resto pasa al mes siguiente", () => {
+    const r = taxReserve({ grossIncome: 100_000, debito: 15_966, credito: 40_000, ppmRatePercent: null, retencion: 0 });
+    expect(r.ivaNeto).toBe(0);
+    expect(r.remanente).toBe(24_034);
+    expect(r.ppm).toBeNull();
+  });
+  it("suma PPM y retención al total a apartar", () => {
+    const r = taxReserve({ grossIncome: 1_190_000, debito: 190_000, credito: 50_000, ppmRatePercent: 0.25, retencion: 17_994 });
+    expect(r.ppm).toBe(2_500);
+    expect(r.totalApartar).toBe(140_000 + 2_500 + 17_994);
+    expect(r.platLibre).toBe(1_190_000 - r.totalApartar);
+  });
+  it("sin ventas todo es cero", () => {
+    expect(taxReserve({ grossIncome: 0, debito: 0, credito: 0, ppmRatePercent: 0.25, retencion: 0 })).toMatchObject({ ivaNeto: 0, totalApartar: 0, platLibre: 0, ivaPercentOfGross: 0 });
+  });
+});

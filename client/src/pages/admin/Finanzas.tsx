@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from 'recharts';
-import { Banknote, Download, Sparkles, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
+import { Banknote, Landmark, Download, Sparkles, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { formatChileTime, formatChileShortDate } from '@shared/chileDate';
 import { honorariosBreakdown } from '@shared/honorarios';
@@ -260,6 +260,59 @@ function StaffPanel({ eventId, report }: { eventId: number; report: any }) {
   );
 }
 
+/** Cuánto de lo cobrado NO es tuyo (IVA neto, PPM, retención) y cuánta plata queda libre. */
+function TaxReserveCard({ tax }: { tax: any }) {
+  if (!tax) return null;
+  if (!tax.applies) {
+    return (
+      <Card className="admin-clay border-0">
+        <CardContent className="pt-6 text-sm text-[var(--admin-muted)]">
+          Este evento no va en tu F29 ({tax.issuer === 'tercero' ? 'lo factura otro' : tax.issuer === 'exento' ? 'exento' : 'por revisar'}{tax.note ? `: ${tax.note}` : ''}), así que no hay IVA que apartar aquí.
+          {tax.issuer === 'por_revisar' && ' Define quién lo factura en Eventos para calcularlo.'}
+        </CardContent>
+      </Card>
+    );
+  }
+  const rows: [string, number | null, string, boolean?][] = [
+    ['IVA cobrado en las ventas', tax.debito, `${tax.ivaPercentOfGross}% de lo cobrado: es del SII, no tuyo`],
+    ['− IVA de tus facturas (lo recuperas)', tax.credito, 'Solo facturas cargadas en Gastos con tipo Factura'],
+    ['= IVA neto a apartar', tax.ivaNeto, tax.remanente > 0 ? `Te sobra crédito: ${money(tax.remanente)} pasa al mes siguiente` : 'Para el F29', true],
+    ['PPM estimado', tax.ppm, tax.ppmConfigured ? 'Sobre las ventas sin IVA' : 'Configura tu tasa en Dinero → SII → Ajustes'],
+    ['Retención de honorarios', tax.retencion, 'De las boletas del staff, al SII'],
+  ];
+  return (
+    <Card className="admin-clay border-0">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Landmark className="w-5 h-5" /> Plata que no es tuya (impuestos)</CardTitle>
+        <p className="text-sm text-[var(--admin-muted)]">De lo cobrado, esto va al SII. Apártalo para que el F29 no te tome por sorpresa.</p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded-2xl bg-pink-500/10 p-4">
+            <p className="text-xs text-[var(--admin-muted)]">Total a apartar</p>
+            <p className="font-heading text-3xl tabular-nums text-pink-700">{money(tax.totalApartar)}</p>
+            <p className="text-xs text-[var(--admin-muted)]">IVA neto + PPM + retención</p>
+          </div>
+          <div className="rounded-2xl bg-emerald-500/10 p-4">
+            <p className="text-xs text-[var(--admin-muted)]">Plata libre de impuestos</p>
+            <p className="font-heading text-3xl tabular-nums text-emerald-700">{money(tax.platLibre)}</p>
+            <p className="text-xs text-[var(--admin-muted)]">Lo cobrado menos lo que va al SII (aún sin descontar tus costos)</p>
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          {rows.map(([label, value, hint, strong]) => (
+            <div key={label} className={`flex items-start justify-between gap-3 text-sm ${strong ? 'font-semibold border-t border-black/5 pt-1.5' : ''}`}>
+              <div><p>{label}</p><p className="text-xs font-normal text-[var(--admin-muted)]">{hint}</p></div>
+              <span className="tabular-nums shrink-0">{value === null ? '—' : money(value)}</span>
+            </div>
+          ))}
+        </div>
+        {tax.credito > 0 && <p className="text-xs text-emerald-700">Tus facturas te están ahorrando {money(tax.credito)} de IVA en este evento.</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
 const RANGES = [{ v: 30, l: '30 min' }, { v: 60, l: '1 hora' }, { v: 120, l: '2 horas' }, { v: 240, l: '4 horas' }];
 const ALERT_TONE: Record<string, string> = { danger: 'bg-red-500/10 text-red-700', warning: 'bg-amber-500/15 text-amber-800', info: 'bg-sky-500/10 text-sky-800' };
 
@@ -304,6 +357,8 @@ function LiveTab({ eventId }: { eventId: number }) {
         <BentoTile><StatTile icon={TrendingUp} tone="count" value={money(data.pace.last60)} label="Última hora (ritmo por hora)" /></BentoTile>
         <BentoTile><StatTile icon={Wallet} tone={data.totals.netProfit < 0 ? 'danger' : 'success'} value={money(data.totals.netProfit)} label={data.totals.netProfit < 0 ? 'Pérdida del momento' : 'Ganancia del momento'} /></BentoTile>
       </BentoGrid>
+
+      <TaxReserveCard tax={data.tax} />
 
       <Card className="admin-clay border-0">
         <CardHeader><CardTitle>Minuto a minuto</CardTitle><p className="text-sm text-[var(--admin-muted)]">Plata que entra en cada minuto (hora de Chile).</p></CardHeader>
@@ -727,6 +782,8 @@ export default function FinanzasView() {
               {p.warnings.map((w: string, i: number) => <p key={i} className="text-sm text-[var(--admin-warning-text)]">{w}</p>)}
             </div>
           )}
+
+          <TaxReserveCard tax={rep.tax} />
 
           <div className="grid gap-6 lg:grid-cols-2">
             <Card className="admin-clay border-0">
