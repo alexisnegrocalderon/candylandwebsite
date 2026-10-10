@@ -97,3 +97,44 @@ describe("parseMercadoPagoStatement (estado de cuenta de Mercado Pago)", () => {
     expect(parseMercadoPagoStatement("Fecha;Descripción;Cargos;Abonos;Saldo\n01/10/2026;X;;1;1")).toBeNull();
   });
 });
+
+import { matchPaymentsToOrders, paymentIdOf } from "../shared/cash";
+describe("cuadratura de cobros con ventas del sistema", () => {
+  const day = (d: number) => new Date(Date.UTC(2026, 9, d, 15)).toISOString();
+  it("el número de cobro sale de raw.id (API) o del id externo (estado de cuenta)", () => {
+    expect(paymentIdOf({ externalId: "pay:180866722159", raw: { gross: 1 } })).toBe("180866722159");
+    expect(paymentIdOf({ externalId: "pay:1", raw: { id: 999 } })).toBe("999");
+  });
+  it("calza por número de cobro aunque el movimiento no traiga raw.id", () => {
+    const r = matchPaymentsToOrders(
+      [{ key: "a", paymentId: "180866722159", occurredAt: day(1), gross: 31_900 }],
+      [{ orderId: 1, paymentId: "180866722159", createdAt: day(1), total: 31_900 }],
+    );
+    expect(r.matchedById).toEqual(["a"]);
+    expect(r.unmatchedPayments).toHaveLength(0);
+    expect(r.unmatchedOrders).toHaveLength(0);
+  });
+  it("si el número no coincide, calza por monto y fecha, una venta por cobro", () => {
+    const r = matchPaymentsToOrders(
+      [{ key: "a", paymentId: "X1", occurredAt: day(3), gross: 26_400 }, { key: "b", paymentId: "X2", occurredAt: day(3), gross: 26_400 }],
+      [{ orderId: 1, paymentId: "Y1", createdAt: day(1), total: 26_400 }, { orderId: 2, paymentId: "Y2", createdAt: day(2), total: 26_400 }],
+    );
+    expect(r.matchedByAmount).toHaveLength(2);
+    expect(r.unmatchedPayments).toHaveLength(0);
+    // Un tercer cobro igual ya no tiene venta libre
+    const r2 = matchPaymentsToOrders(
+      [{ key: "a", paymentId: "X1", occurredAt: day(3), gross: 26_400 }, { key: "b", paymentId: "X2", occurredAt: day(3), gross: 26_400 }],
+      [{ orderId: 1, paymentId: "Y1", createdAt: day(1), total: 26_400 }],
+    );
+    expect(r2.matchedByAmount).toHaveLength(1);
+    expect(r2.unmatchedPayments).toHaveLength(1);
+  });
+  it("monto distinto o fecha muy lejana no calzan, y las ventas sin cobro quedan aparte", () => {
+    const r = matchPaymentsToOrders(
+      [{ key: "a", paymentId: "X1", occurredAt: day(20), gross: 26_400 }],
+      [{ orderId: 1, paymentId: "Y1", createdAt: day(1), total: 26_400 }, { orderId: 2, paymentId: "Y2", createdAt: day(20), total: 10_000 }],
+    );
+    expect(r.unmatchedPayments).toHaveLength(1);
+    expect(r.unmatchedOrders).toHaveLength(2);
+  });
+});

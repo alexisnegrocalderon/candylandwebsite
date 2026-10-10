@@ -232,3 +232,39 @@ export function parseMercadoPagoStatement(text: string): MpStatement | null {
     feePercent: totals.ventasBrutas > 0 ? Math.round((totals.comisiones / totals.ventasBrutas) * 1000) / 10 : null,
   };
 }
+
+/* ─── Cuadratura: cobros de Mercado Pago vs. ventas del sistema ──── */
+
+export type MpPayment = { key: string; paymentId: string; occurredAt: string; gross: number; description?: string };
+export type SystemOrder = { orderId: number; paymentId: string | null; createdAt: string; total: number };
+
+/** Número del cobro de un movimiento: viene en `raw.id` (API) o en el id externo `pay:<n>` (estado de cuenta). */
+export function paymentIdOf(m: { externalId: string; raw?: { id?: unknown } | null }): string {
+  return String(m.raw?.id ?? m.externalId.replace(/^pay:/, '')).trim();
+}
+
+/** Calza cada cobro con una venta: primero por número de cobro y, si no hay,
+ * por monto exacto dentro de ±`windowDays` días (una sola venta por cobro).
+ * Devuelve lo que quedó sin calzar de cada lado. */
+export function matchPaymentsToOrders(payments: MpPayment[], orders: SystemOrder[], windowDays = 5) {
+  const usedOrders = new Set<number>();
+  const byId = new Map(orders.filter((o) => o.paymentId).map((o) => [String(o.paymentId), o]));
+  const matchedById: string[] = [];
+  const matchedByAmount: string[] = [];
+  const unmatchedPayments: MpPayment[] = [];
+  const left: MpPayment[] = [];
+  for (const p of payments) {
+    const o = byId.get(p.paymentId);
+    if (o && !usedOrders.has(o.orderId)) { usedOrders.add(o.orderId); matchedById.push(p.key); } else left.push(p);
+  }
+  const ms = windowDays * 86_400_000;
+  for (const p of left) {
+    const t = Date.parse(p.occurredAt);
+    const cand = orders
+      .filter((o) => !usedOrders.has(o.orderId) && Math.round(o.total) === Math.round(p.gross) && Math.abs(Date.parse(o.createdAt) - t) <= ms)
+      .sort((a, b) => Math.abs(Date.parse(a.createdAt) - t) - Math.abs(Date.parse(b.createdAt) - t))[0];
+    if (cand) { usedOrders.add(cand.orderId); matchedByAmount.push(p.key); } else unmatchedPayments.push(p);
+  }
+  const unmatchedOrders = orders.filter((o) => !usedOrders.has(o.orderId));
+  return { matchedById, matchedByAmount, unmatchedPayments, unmatchedOrders };
+}

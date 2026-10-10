@@ -8,10 +8,10 @@
  *    lo genera de forma asíncrona: si no hay uno reciente se pide y queda
  *    para la próxima sincronización.
  */
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gte } from "drizzle-orm";
 import { accountBalances, accountMovements, orders } from "../drizzle/schema";
 import * as db from "./db";
-import { parseClp, parseDelimited, suggestClass } from "../shared/cash";
+import { matchPaymentsToOrders, parseClp, parseDelimited, paymentIdOf, suggestClass, type MpPayment, type SystemOrder } from "../shared/cash";
 
 const API = "https://api.mercadopago.com";
 
@@ -116,26 +116,45 @@ export async function syncMercadoPago(days = 45): Promise<SyncResult> {
   return { payments, movements, balance, reportStatus, errors };
 }
 
-/** Cuadra los cobros de Mercado Pago con las órdenes del sistema (últimos N días). */
+/** Cuadra los cobros de Mercado Pago con las ventas web del sistema (últimos N días).
+ * Calza por número de cobro y, si no coincide, por monto y fecha. */
 export async function reconcileMercadoPago(days = 45) {
   const conn = await db.getDb();
   if (!conn) return null;
   const since = new Date(Date.now() - days * 86_400_000);
-  const pays = ((await conn.select().from(accountMovements).where(and(eq(accountMovements.source, "mercadopago"), eq(accountMovements.kind, "venta")))) as any[])
+  const moves = ((await conn.select().from(accountMovements).where(and(eq(accountMovements.source, "mercadopago"), eq(accountMovements.kind, "venta")))) as any[])
     .filter((m) => new Date(m.occurredAt) >= since);
-  const ids = pays.map((m) => String(m.raw?.id ?? "")).filter(Boolean);
-  const matched = ids.length
-    ? ((await conn.select({ paymentId: orders.paymentId }).from(orders).where(inArray(orders.paymentId, ids))) as any[]).map((o) => String(o.paymentId))
-    : [];
-  const matchedSet = new Set(matched);
-  const notInSystem = pays.filter((m) => !matchedSet.has(String(m.raw?.id ?? "")));
+  const payments: MpPayment[] = moves.map((m) => ({
+    key: String(m.id), paymentId: paymentIdOf(m), occurredAt: new Date(m.occurredAt).toISOString(),
+    gross: Number(m.raw?.gross ?? m.amountClp), description: m.description,
+  }));
+  // Ventas web aprobadas desde un poco antes (el dinero se libera después de cobrar).
+  const from = new Date(since.getTime() - 20 * 86_400_000);
+  const ords = ((await conn.select({
+    id: orders.id, paymentId: orders.paymentId, total: orders.total, createdAt: orders.createdAt, channel: orders.channel,
+    missionTopupStatus: orders.missionTopupStatus, missionTopupAmount: orders.missionTopupAmount, orderNumber: orders.orderNumber,
+  }).from(orders).where(and(eq(orders.paymentStatus, "approved"), eq(orders.channel, "web"), gte(orders.createdAt, from)))) as any[]);
+  const sys: SystemOrder[] = ords.map((o) => ({
+    orderId: o.id, paymentId: o.paymentId ? String(o.paymentId) : null, createdAt: new Date(o.createdAt).toISOString(),
+    total: Number(o.total) + (o.missionTopupStatus === "paid" ? Number(o.missionTopupAmount ?? 0) : 0),
+  }));
+  const r = matchPaymentsToOrders(payments, sys);
+  const numberById = new Map(ords.map((o) => [o.id, o.orderNumber]));
+  // Ventas del sistema sin cobro en Mercado Pago: solo las de hace más de 20 días
+  // (las recientes pueden no haberse liberado todavía y no aparecer en el estado de cuenta).
+  const oldCut = Date.now() - 20 * 86_400_000;
+  const orphanOrders = r.unmatchedOrders.filter((o) => Date.parse(o.createdAt) < oldCut && Date.parse(o.createdAt) >= since.getTime() && !String(o.paymentId ?? "").match(/^(FREE|MANUAL|TEST|PUERTA)/i));
   return {
     days,
-    count: pays.length,
-    gross: pays.reduce((s, m) => s + Number(m.raw?.gross ?? 0), 0),
-    net: pays.reduce((s, m) => s + Number(m.amountClp), 0),
-    fees: pays.reduce((s, m) => s + Number(m.raw?.fee ?? 0), 0),
-    notInSystem: notInSystem.slice(0, 20).map((m) => ({ id: m.raw?.id, date: m.occurredAt, amount: m.raw?.gross ?? m.amountClp, description: m.description })),
-    notInSystemCount: notInSystem.length,
+    count: payments.length,
+    gross: payments.reduce((s, p) => s + p.gross, 0),
+    net: moves.reduce((s, m) => s + Number(m.amountClp), 0),
+    fees: moves.reduce((s, m) => s + Number(m.raw?.fee ?? 0), 0),
+    matchedById: r.matchedById.length,
+    matchedByAmount: r.matchedByAmount.length,
+    notInSystemCount: r.unmatchedPayments.length,
+    notInSystem: r.unmatchedPayments.slice(0, 20).map((p) => ({ id: p.paymentId, date: p.occurredAt, amount: p.gross, description: p.description })),
+    ordersWithoutPaymentCount: orphanOrders.length,
+    ordersWithoutPayment: orphanOrders.slice(0, 20).map((o) => ({ orderNumber: numberById.get(o.orderId) ?? o.orderId, date: o.createdAt, amount: o.total })),
   };
 }

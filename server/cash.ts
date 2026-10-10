@@ -108,7 +108,7 @@ export async function importBankStatement(text: string, preview: boolean) {
         await conn.insert(accountMovements).values({
           source: "mercadopago", externalId: m.externalId.slice(0, 120), occurredAt: new Date(m.occurredAt), amountClp: m.amount,
           description: m.description, kind: m.suggestion ? `sug:${m.suggestion}` : m.kind, classification: m.classification as any,
-          raw: m.gross !== undefined ? { gross: m.gross, fee: m.fee, net: m.amount, fromStatement: true } : { fromStatement: true },
+          raw: m.gross !== undefined ? { id: m.externalId.replace(/^pay:/, ''), gross: m.gross, fee: m.fee, net: m.amount, fromStatement: true } : { fromStatement: true },
         });
         imported++;
       } catch { /* ya estaba (por la API o una importación anterior) */ }
