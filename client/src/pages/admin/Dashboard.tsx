@@ -9306,6 +9306,17 @@ function SettingsManager() {
     }
   }, [settings]);
 
+  const utilsSettings = trpc.useUtils();
+  const syncInstagram = trpc.settings.syncInstagram.useMutation({
+    onSuccess: (r) => {
+      setFollowers(String(r.followers));
+      if (r.posts) setPosts(String(r.posts));
+      utilsSettings.settings.get.invalidate();
+      toast.success(`Actualizado: ${r.followers.toLocaleString('es-CL')} seguidores`);
+    },
+    onError: onMutationError,
+  });
+
   const handleSave = () => {
     updateSettings.mutate({ instagramFollowers: Number(followers) || 0, instagramPosts: Number(posts) || 0 });
   };
@@ -9383,14 +9394,22 @@ function SettingsManager() {
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardHeader><CardTitle>Instagram</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-sm">Números que se muestran junto al ícono de Instagram en el footer. Actualízalos cuando quieras — no se auto-sincronizan.</p>
+          <p className="text-muted-foreground text-sm">
+            Números que se muestran junto al ícono de Instagram en el footer. Se actualizan solos cada madrugada desde Instagram (gratis, sin IA).
+            Si Meta no responde se queda el último número. También puedes editarlos a mano o actualizarlos ahora.
+          </p>
           <div className="grid grid-cols-2 gap-4">
             <div><Label>Seguidores</Label><Input type="number" value={followers} onChange={(e) => setFollowers(e.target.value)} className="mt-1" /></div>
             <div><Label>Publicaciones</Label><Input type="number" value={posts} onChange={(e) => setPosts(e.target.value)} className="mt-1" /></div>
           </div>
-          <WriteButton onClick={handleSave} disabled={updateSettings.isPending} className="interactive">
-            {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
-          </WriteButton>
+          <div className="flex flex-wrap gap-2">
+            <WriteButton onClick={handleSave} disabled={updateSettings.isPending} className="interactive">
+              {updateSettings.isPending ? 'Guardando…' : 'Guardar'}
+            </WriteButton>
+            <WriteButton variant="outline" onClick={() => syncInstagram.mutate()} disabled={syncInstagram.isPending} className="interactive">
+              {syncInstagram.isPending ? 'Actualizando…' : 'Actualizar desde Instagram'}
+            </WriteButton>
+          </div>
         </CardContent>
       </Card>
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
