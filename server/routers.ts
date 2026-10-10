@@ -79,6 +79,7 @@ import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftCl
 import { BRAND } from "../shared/eventBrand";
 import * as staffSvc from "./staff";
 import { getEventFinanceReport, getEventLive } from "./finance";
+import { getCompanyYear, getPayables, markCommissionsPaid } from "./financeCompany";
 import { comparisonPdf as budgetComparisonPdf, singlePdf as budgetSinglePdf, loadSims as loadBudgetSims, slug as budgetSlug } from "./budgetReport";
 import { compareSimulations, formatPercent } from "../shared/budgetInsights";
 import { computeBudgetResult } from "../shared/eventBudget";
@@ -3196,6 +3197,13 @@ export const appRouter = router({
     }),
     live: adminProcedure.input(z.object({ eventId: z.number().int().positive(), windowMinutes: z.number().int().min(10).max(240).default(60) })).query(async ({ input }) => {
       return getEventLive(input.eventId, input.windowMinutes);
+    }),
+    companyYear: adminProcedure.input(z.object({ year: z.number().int().min(2020).max(2100) })).query(({ input }) => getCompanyYear(input.year)),
+    payables: adminProcedure.query(() => getPayables()),
+    markCommissionsPaid: adminProcedure.input(z.object({ ambassadorId: z.number().int().positive(), paid: z.boolean() })).mutation(async ({ input, ctx }) => {
+      const r = await markCommissionsPaid(input.ambassadorId, input.paid);
+      await db.recordAdminAudit({ action: input.paid ? 'finance.commissionsPaid' : 'finance.commissionsUnpaid', targetType: 'ambassador', targetId: input.ambassadorId, ip: clientIp(ctx) });
+      return r;
     }),
     staffList: adminProcedure.query(() => staffSvc.listStaff()),
     staffSave: adminProcedure.input(z.object({

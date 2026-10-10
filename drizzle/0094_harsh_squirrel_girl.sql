@@ -1,0 +1,1 @@
+ALTER TABLE `ambassadorCommissions` ADD `paidAt` timestamp;

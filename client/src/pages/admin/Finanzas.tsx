@@ -234,8 +234,139 @@ function LiveTab({ eventId }: { eventId: number }) {
   );
 }
 
+const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+/** Resultado de la empresa mes a mes, incluidos los meses sin evento. */
+function CompanyTab() {
+  const [year, setYear] = useState(() => new Date().getFullYear());
+  const { data, isLoading, isError, error } = trpc.finance.companyYear.useQuery({ year });
+  if (isLoading) return <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+  if (isError || !data) return <p className="text-sm text-destructive">No se pudo cargar: {error?.message}</p>;
+  const chart = data.months.map((m: any, i: number) => ({ mes: MONTHS[i], resultado: m.result }));
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="outline" onClick={() => setYear(year - 1)}>←</Button>
+        <span className="font-heading text-xl w-16 text-center">{year}</span>
+        <Button size="sm" variant="outline" onClick={() => setYear(year + 1)}>→</Button>
+      </div>
+      <BentoGrid>
+        <BentoTile><StatTile icon={Banknote} tone="revenue" value={money(data.totals.grossIncome)} label={`Ingreso del año (${data.totals.events} eventos)`} /></BentoTile>
+        <BentoTile><StatTile icon={TrendingUp} tone="count" value={money(data.totals.eventsProfit)} label="Ganancia de los eventos" /></BentoTile>
+        <BentoTile><StatTile icon={Receipt} tone="alert" value={money(data.totals.unassignedExpenses)} label="Gastos fijos sin evento" /></BentoTile>
+        <BentoTile><StatTile icon={Wallet} tone={data.totals.result < 0 ? 'danger' : 'success'} value={money(data.totals.result)} label="Resultado del año" /></BentoTile>
+      </BentoGrid>
+      <Card className="admin-clay border-0">
+        <CardHeader><CardTitle>Resultado mes a mes</CardTitle><p className="text-sm text-[var(--admin-muted)]">Ganancia de los eventos menos los gastos fijos que ningún evento absorbió.</p></CardHeader>
+        <CardContent>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chart}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" />
+                <XAxis dataKey="mes" fontSize={12} /><YAxis fontSize={11} width={52} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                <Tooltip formatter={(v: number) => money(v)} />
+                <Bar dataKey="resultado" radius={[3, 3, 0, 0]}>
+                  {chart.map((c: any, i: number) => <Cell key={i} fill={c.resultado < 0 ? '#ef4444' : '#10b981'} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+      <Card className="admin-clay border-0">
+        <CardHeader><CardTitle>Detalle por mes</CardTitle></CardHeader>
+        <CardContent className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-[var(--admin-muted)]"><th className="py-1.5">Mes</th><th>Eventos</th><th className="text-right">Ingreso</th><th className="text-right">Ganancia eventos</th><th className="text-right">Gastos sin evento</th><th className="text-right">Resultado</th></tr></thead>
+            <tbody>
+              {data.months.map((m: any, i: number) => (
+                <tr key={m.monthKey} className={`border-t border-black/5 ${m.monthKey === data.bestMonth ? 'bg-emerald-500/5' : m.monthKey === data.worstMonth ? 'bg-red-500/5' : ''}`}>
+                  <td className="py-1.5 pr-2 font-medium">{MONTHS[i]}</td>
+                  <td className="pr-2 text-[var(--admin-muted)]">{m.events.length ? m.events.map((e: any) => e.title).join(', ') : '—'}</td>
+                  <td className="text-right tabular-nums">{money(m.grossIncome)}</td>
+                  <td className="text-right tabular-nums">{money(m.eventsProfit)}</td>
+                  <td className="text-right tabular-nums">{money(m.unassignedExpenses)}</td>
+                  <td className={`text-right tabular-nums font-semibold ${m.result < 0 ? 'text-red-600' : ''}`}>{money(m.result)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/** Todo lo que hay que pagar a terceros. */
+function PayablesTab() {
+  const isDemo = useIsDemo();
+  const utils = trpc.useUtils();
+  const { data, isLoading, isError, error } = trpc.finance.payables.useQuery();
+  const mark = trpc.finance.markCommissionsPaid.useMutation({ onSuccess: () => { utils.finance.payables.invalidate(); utils.finance.eventReport.invalidate(); }, onError: onErr });
+  if (isLoading) return <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+  if (isError || !data) return <p className="text-sm text-destructive">No se pudo cargar: {error?.message}</p>;
+  const total = data.ambassadorsPending + data.staffUnpaidTotal + data.parkingTotal;
+  return (
+    <div className="space-y-6">
+      <BentoGrid>
+        <BentoTile span={2}><StatTile size="lg" icon={Wallet} tone="alert" value={money(total)} label="Por pagar (embajadores + staff + estacionamiento)" /></BentoTile>
+        <BentoTile><StatTile icon={Users} tone="count" value={money(data.ambassadorsPending)} label="Comisiones pendientes" /></BentoTile>
+        <BentoTile><StatTile icon={Banknote} tone="count" value={money(data.playcardSaldoClientes)} label="Saldo PlayCard de clientes" /></BentoTile>
+      </BentoGrid>
+
+      <Card className="admin-clay border-0">
+        <CardHeader><CardTitle>Comisiones de embajadores</CardTitle><p className="text-sm text-[var(--admin-muted)]">Marca como pagado cuando les transfieras. "Pagado" se guarda con la fecha.</p></CardHeader>
+        <CardContent className="space-y-2">
+          {data.ambassadors.length === 0 && <EmptyState icon={Users} title="Sin comisiones registradas" />}
+          {data.ambassadors.map((a: any) => (
+            <div key={a.ambassadorId} className="admin-clay-sm p-3 flex flex-wrap items-center gap-3">
+              <div className="flex-1 min-w-[8rem]">
+                <p className="font-medium">{a.name}</p>
+                <p className="text-xs text-[var(--admin-muted)]">Pagado hasta ahora {money(a.paid)}</p>
+              </div>
+              <p className="tabular-nums font-semibold">{money(a.pending)}</p>
+              {a.pending > 0 ? (
+                <Button size="sm" disabled={isDemo || mark.isPending}
+                  onClick={() => { if (window.confirm(`¿Marcar ${money(a.pending)} de ${a.name} como pagado?`)) mark.mutate({ ambassadorId: a.ambassadorId, paid: true }); }}>
+                  Marcar pagado
+                </Button>
+              ) : <span className="text-sm text-emerald-700">Al día ✓</span>}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card className="admin-clay border-0">
+          <CardHeader><CardTitle>Staff sin pagar</CardTitle><p className="text-sm text-[var(--admin-muted)]">Se marca como pagado dentro de cada evento (pestaña Evento completo).</p></CardHeader>
+          <CardContent className="space-y-2">
+            {data.staffUnpaid.length === 0 && <p className="text-sm text-[var(--admin-muted)]">Todo el staff está al día ✓</p>}
+            {data.staffUnpaid.map((r: any, i: number) => (
+              <div key={i} className="flex justify-between gap-3 text-sm admin-clay-sm px-3 py-2">
+                <span>{r.name} <span className="text-[var(--admin-muted)]">· {r.eventTitle}</span></span>
+                <strong className="tabular-nums">{money(r.amountClp)}</strong>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+        <Card className="admin-clay border-0">
+          <CardHeader><CardTitle>Estacionamiento al local</CardTitle><p className="text-sm text-[var(--admin-muted)]">Autos pagados × tarifa del local, de los últimos eventos.</p></CardHeader>
+          <CardContent className="space-y-2">
+            {data.parking.length === 0 && <p className="text-sm text-[var(--admin-muted)]">Sin estacionamiento por pagar.</p>}
+            {data.parking.map((r: any) => (
+              <div key={r.eventId} className="flex justify-between gap-3 text-sm admin-clay-sm px-3 py-2">
+                <span>{r.eventTitle}</span><strong className="tabular-nums">{money(r.amount)}</strong>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export default function FinanzasView() {
-  const [tab, setTab] = useState<'live' | 'evento'>('live');
+  const [tab, setTab] = useState<'live' | 'evento' | 'mes' | 'pagar'>('live');
   const isDemo = useIsDemo();
   const { data: events } = trpc.events.listAll.useQuery();
   const { data: defaultEvent } = trpc.events.getActiveForCaja.useQuery();
@@ -282,6 +413,7 @@ export default function FinanzasView() {
           <h2 className="font-heading text-2xl">Finanzas</h2>
           <p className="text-sm text-[var(--admin-muted)]">Todo el dinero del evento, con datos reales y en tiempo real.</p>
         </div>
+        {(tab === 'live' || tab === 'evento') && (
         <div className="flex flex-wrap items-center gap-2">
           <Select value={String(eventId)} onValueChange={(v) => setSelected(Number(v))}>
             <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
@@ -291,15 +423,18 @@ export default function FinanzasView() {
             <a href={`/api/admin/finanzas/informe.pdf?eventId=${eventId}`}><Download className="w-4 h-4 mr-1" /> Informe real (PDF)</a>
           </Button>
         </div>
+        )}
       </div>
 
       <div className="flex gap-2" role="tablist">
-        {([['live', 'En vivo'], ['evento', 'Evento completo']] as const).map(([k, l]) => (
+        {([['live', 'En vivo'], ['evento', 'Evento completo'], ['mes', 'Mes / Empresa'], ['pagar', 'Por pagar']] as const).map(([k, l]) => (
           <Button key={k} role="tab" aria-selected={tab === k} variant={tab === k ? 'default' : 'outline'} onClick={() => setTab(k)}>{l}</Button>
         ))}
       </div>
 
       {tab === 'live' && <LiveTab eventId={eventId} />}
+      {tab === 'mes' && <CompanyTab />}
+      {tab === 'pagar' && <PayablesTab />}
 
       {tab === 'evento' && isLoading && <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>}
       {tab === 'evento' && isError && <p className="text-sm text-destructive">No se pudo cargar: {error?.message}</p>}

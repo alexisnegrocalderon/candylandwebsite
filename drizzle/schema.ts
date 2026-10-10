@@ -635,6 +635,8 @@ export const ambassadorCommissions = mysqlTable("ambassadorCommissions", {
   // Qué número de venta exclusiva del mes fue esta, para poder auditar de
   // dónde salió el % aplicado.
   salesRank: int("salesRank"),
+  // Cuándo se le pagó esta comisión al embajador (null = pendiente de pago).
+  paidAt: timestamp("paidAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
