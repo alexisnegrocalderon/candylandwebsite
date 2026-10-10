@@ -79,7 +79,7 @@ import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftCl
 import { BRAND } from "../shared/eventBrand";
 import * as staffSvc from "./staff";
 import { getEventFinanceReport, getEventLive, getMarginTarget } from "./finance";
-import { getCompanyYear, getPayables, markCommissionsPaid } from "./financeCompany";
+import { getCompanyYear, getPayables, markCommissionsPaid, resetCommissionPayments } from "./financeCompany";
 import { askFinance, buildNightSummary, buildWeeklySummary } from "./financeDirector";
 import { comparisonPdf as budgetComparisonPdf, singlePdf as budgetSinglePdf, loadSims as loadBudgetSims, slug as budgetSlug } from "./budgetReport";
 import { compareSimulations, formatPercent } from "../shared/budgetInsights";
@@ -3204,9 +3204,18 @@ export const appRouter = router({
     }),
     companyYear: adminProcedure.input(z.object({ year: z.number().int().min(2020).max(2100) })).query(({ input }) => getCompanyYear(input.year)),
     payables: adminProcedure.query(() => getPayables()),
-    markCommissionsPaid: adminProcedure.input(z.object({ ambassadorId: z.number().int().positive(), paid: z.boolean() })).mutation(async ({ input, ctx }) => {
-      const r = await markCommissionsPaid(input.ambassadorId, input.paid);
-      await db.recordAdminAudit({ action: input.paid ? 'finance.commissionsPaid' : 'finance.commissionsUnpaid', targetType: 'ambassador', targetId: input.ambassadorId, ip: clientIp(ctx) });
+    markCommissionsPaid: adminProcedure.input(z.object({
+      ambassadorId: z.number().int().positive(), eventId: z.number().int().positive(), paid: z.boolean(), confirmFuture: z.boolean().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      try {
+        const r = await markCommissionsPaid(input);
+        await db.recordAdminAudit({ action: input.paid ? 'finance.commissionsPaid' : 'finance.commissionsUnpaid', targetType: 'ambassador', targetId: input.ambassadorId, eventId: input.eventId, ip: clientIp(ctx) });
+        return r;
+      } catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo actualizar el pago' }); }
+    }),
+    resetCommissionPayments: adminProcedure.mutation(async ({ ctx }) => {
+      const r = await resetCommissionPayments();
+      await db.recordAdminAudit({ action: 'finance.commissionsPaymentsReset', targetType: 'ambassadorCommissions', payload: r, ip: clientIp(ctx) });
       return r;
     }),
     ask: adminProcedure.input(z.object({ question: z.string().trim().min(3).max(500) })).mutation(async ({ input }) => {
