@@ -5256,7 +5256,7 @@ function ReferralsView() {
  * normal ahora, y el campo se deja vacío para dejarlo así. */
 function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, onDelete, updating, deleting }: {
   ambassador: any;
-  stats: { exclusiveSales: number; existingSales: number; monthlyRevenue: number; monthlyCommission: number; totalCommission: number } | undefined;
+  stats: { exclusiveSales: number; existingSales: number; eventRevenue: number; eventCommission: number; totalCommission: number } | undefined;
   expanded: boolean;
   onToggleExpand: () => void;
   onUpdate: (data: { name?: string; code?: string; commissionPercent?: number | null; contact?: string; email?: string; instagram?: string; active?: number }) => Promise<unknown>;
@@ -5273,7 +5273,7 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
   const [contact, setContact] = useState(ambassador.contact ?? '');
   const [email, setEmail] = useState(ambassador.email ?? '');
 
-  const s = stats ?? { exclusiveSales: 0, existingSales: 0, monthlyRevenue: 0, monthlyCommission: 0, totalCommission: 0 };
+  const s = stats ?? { exclusiveSales: 0, existingSales: 0, eventRevenue: 0, eventCommission: 0, totalCommission: 0 };
 
   const handleSave = async () => {
     await onUpdate({
@@ -5294,8 +5294,8 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
         <td className="py-2 px-3"><Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} className="h-8 font-mono" /></td>
         <td className="py-2 px-3"><Input type="number" value={commissionPercent} onChange={(e) => setCommissionPercent(e.target.value)} placeholder="Escala" className="h-8 w-20" /></td>
         <td className="py-2 px-3 text-muted-foreground">{s.exclusiveSales}</td>
-        <td className="py-2 px-3 text-muted-foreground">${s.monthlyRevenue.toLocaleString('es-CL')}</td>
-        <td className="py-2 px-3 text-muted-foreground">${s.monthlyCommission.toLocaleString('es-CL')}</td>
+        <td className="py-2 px-3 text-muted-foreground">${s.eventRevenue.toLocaleString('es-CL')}</td>
+        <td className="py-2 px-3 text-muted-foreground">${s.eventCommission.toLocaleString('es-CL')}</td>
         <td className="py-2 px-3"><Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Correo" className="h-8" /></td>
         <td className="py-2 px-3"><Input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="Contacto" className="h-8" /></td>
         <td className="py-2 px-3">
@@ -5325,8 +5325,8 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
         {s.exclusiveSales}
         {s.existingSales > 0 && <span className="text-muted-foreground text-xs"> +{s.existingSales} exist.</span>}
       </td>
-      <td className="py-2 px-3">${s.monthlyRevenue.toLocaleString('es-CL')}</td>
-      <td className="py-2 px-3 font-semibold text-primary">${s.monthlyCommission.toLocaleString('es-CL')}</td>
+      <td className="py-2 px-3">${s.eventRevenue.toLocaleString('es-CL')}</td>
+      <td className="py-2 px-3 font-semibold text-primary">${s.eventCommission.toLocaleString('es-CL')}</td>
       <td className="py-2 px-3 text-muted-foreground text-xs">{ambassador.email || '—'}</td>
       <td className="py-2 px-3 text-muted-foreground text-xs">{ambassador.contact || '—'}</td>
       <td className="py-2 px-3">
@@ -5347,16 +5347,16 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
 /** Ficha completa que se abre al tocar un embajador: nivel, progreso,
  * beneficios e historial de ventas. Usa el patrón de fila expandible de
  * OrdersView, que es el que ya usa el panel. */
-function AmbassadorProfileRow({ ambassadorId, monthKey, deliveredKeys, onMarkBenefit, onUnmarkBenefit, marking, unmarking }: {
+function AmbassadorProfileRow({ ambassadorId, eventId, deliveredKeys, onMarkBenefit, onUnmarkBenefit, marking, unmarking }: {
   ambassadorId: number;
-  monthKey: string;
+  eventId: number;
   deliveredKeys: Set<string>;
   onMarkBenefit: (benefitKey: string) => void;
   onUnmarkBenefit: (benefitKey: string) => void;
   marking: boolean;
   unmarking: boolean;
 }) {
-  const { data } = trpc.ambassadors.getProfile.useQuery({ id: ambassadorId, monthKey });
+  const { data } = trpc.ambassadors.getProfile.useQuery({ id: ambassadorId, eventId });
   const stats = data?.stats;
   const sales = data?.sales ?? [];
 
@@ -5365,7 +5365,7 @@ function AmbassadorProfileRow({ ambassadorId, monthKey, deliveredKeys, onMarkBen
   }
 
   const progreso = stats?.nextTarget
-    ? Math.min(100, Math.round((stats.monthlySales / stats.nextTarget.target) * 100))
+    ? Math.min(100, Math.round((stats.eventSales / stats.nextTarget.target) * 100))
     : 100;
 
   return (
@@ -5376,14 +5376,14 @@ function AmbassadorProfileRow({ ambassadorId, monthKey, deliveredKeys, onMarkBen
             <p className="text-xs text-muted-foreground">Comisión actual</p>
             <p className="font-heading text-2xl">{stats?.currentPercent ?? 0}%</p>
             <p className="text-xs text-muted-foreground mt-1">
-              {stats?.monthlySales ?? 0} venta{(stats?.monthlySales ?? 0) === 1 ? '' : 's'} a clientes exclusivos este mes
+              {stats?.eventSales ?? 0} venta{(stats?.eventSales ?? 0) === 1 ? '' : 's'} a clientes exclusivos en este evento
             </p>
           </div>
           <div className="p-3 rounded-xl bg-background border border-border">
             <p className="text-xs text-muted-foreground">Próximo objetivo</p>
             {stats?.nextTarget ? (
               <>
-                <p className="font-heading text-2xl">{stats.monthlySales} / {stats.nextTarget.target}</p>
+                <p className="font-heading text-2xl">{stats.eventSales} / {stats.nextTarget.target}</p>
                 <div className="w-full h-2 bg-muted rounded-full overflow-hidden mt-2">
                   <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${progreso}%` }} />
                 </div>
@@ -5406,7 +5406,7 @@ function AmbassadorProfileRow({ ambassadorId, monthKey, deliveredKeys, onMarkBen
 
         {stats && stats.benefits.tiers.length > 0 && (
           <div className="mb-4">
-            <p className="text-xs text-muted-foreground mb-1.5">Beneficios desbloqueados este mes — marca los que ya le entregaste</p>
+            <p className="text-xs text-muted-foreground mb-1.5">Beneficios desbloqueados en este evento — marca los que ya le entregaste</p>
             <div className="space-y-2">
               {stats.benefits.tiers.map((t: any) => {
                 const key = `tramo-${t.minSales}`;
@@ -5485,20 +5485,6 @@ function AmbassadorProfileRow({ ambassadorId, monthKey, deliveredKeys, onMarkBen
   );
 }
 
-/** Últimos 12 meses como opciones "2026-08", en hora de Chile. */
-function monthOptions(): { value: string; label: string }[] {
-  const out: { value: string; label: string }[] = [];
-  const now = new Date();
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 15, 12));
-    out.push({
-      value: monthKeyFor(d),
-      label: d.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' }),
-    });
-  }
-  return out;
-}
-
 const AMBASSADOR_TABS = [
   { id: 'resumen', label: 'Resumen' },
   { id: 'embajadores', label: 'Embajadores' },
@@ -5511,8 +5497,11 @@ const AMBASSADOR_TABS = [
 
 function AmbassadorsView() {
   const [tab, setTab] = useState<typeof AMBASSADOR_TABS[number]['id']>('resumen');
-  const meses = monthOptions();
-  const [monthKey, setMonthKey] = useState(meses[0].value);
+  // Cada evento es su propia campaña: el nivel, los beneficios y el ranking se miden por evento.
+  const { data: allEvents } = trpc.events.listAll.useQuery();
+  const { data: featured } = trpc.events.getActiveForCaja.useQuery();
+  const [selectedEvent, setSelectedEvent] = useState<number | null>(null);
+  const eventId = selectedEvent ?? featured?.id ?? allEvents?.[0]?.id ?? null;
   const { data: pendingApplications } = trpc.ambassadorApplications.countPending.useQuery(undefined, { refetchInterval: 60_000 });
 
   return (
@@ -5522,15 +5511,15 @@ function AmbassadorsView() {
           <h2 className="font-heading text-2xl">Embajadores VIP</h2>
           <p className="text-muted-foreground text-sm mt-1 max-w-3xl">
             Cada embajador tiene un código permanente. Las ventas a clientes que él trae (exclusivos) suben su comisión
-            del 30% al 50% según cuántas haga en el mes; las ventas a clientes que ya estaban en la base pagan un 10%
+            del 30% al 50% según cuántas haga en cada evento (cada evento parte de cero); las ventas a clientes que ya estaban en la base pagan un 10%
             fijo y no suben el nivel. Todo se calcula solo al aprobarse cada compra.
           </p>
         </div>
         {tab !== 'config' && tab !== 'clientes' && tab !== 'material' && tab !== 'postulaciones' && (
-          <Select value={monthKey} onValueChange={setMonthKey}>
-            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+          <Select value={eventId ? String(eventId) : ''} onValueChange={(v) => setSelectedEvent(Number(v))}>
+            <SelectTrigger className="w-64"><SelectValue placeholder="Elige un evento" /></SelectTrigger>
             <SelectContent>
-              {meses.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+              {(allEvents ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
             </SelectContent>
           </Select>
         )}
@@ -5555,10 +5544,11 @@ function AmbassadorsView() {
         ))}
       </div>
 
-      {tab === 'resumen' && <AmbassadorSummaryTab monthKey={monthKey} />}
-      {tab === 'embajadores' && <AmbassadorsListTab monthKey={monthKey} />}
+      {!eventId && ['resumen', 'embajadores', 'ranking'].includes(tab) && <p className="text-sm text-muted-foreground">Todavía no hay eventos cargados.</p>}
+      {eventId && tab === 'resumen' && <AmbassadorSummaryTab eventId={eventId} />}
+      {eventId && tab === 'embajadores' && <AmbassadorsListTab eventId={eventId} />}
       {tab === 'postulaciones' && <AmbassadorApplicationsTab />}
-      {tab === 'ranking' && <AmbassadorRankingTab monthKey={monthKey} />}
+      {eventId && tab === 'ranking' && <AmbassadorRankingTab eventId={eventId} />}
       {tab === 'clientes' && <ReferredClientsTab />}
       {tab === 'material' && <WeeklyMaterialTab />}
       {tab === 'config' && <ProgramConfigTab />}
@@ -5566,23 +5556,23 @@ function AmbassadorsView() {
   );
 }
 
-function AmbassadorSummaryTab({ monthKey }: { monthKey: string }) {
-  const { data } = trpc.ambassadors.getSummary.useQuery({ monthKey }, { refetchInterval: 60_000 });
+function AmbassadorSummaryTab({ eventId }: { eventId: number }) {
+  const { data } = trpc.ambassadors.getSummary.useQuery({ eventId }, { refetchInterval: 60_000 });
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={Crown} colorClass="bg-[oklch(0.70_0.19_340)]" value={data?.activeAmbassadors ?? 0} label="Embajadores activos" />
-        <StatCard icon={Ticket} colorClass="bg-[oklch(0.74_0.13_220)]" value={data?.monthlySales ?? 0} label="Ventas del mes" />
-        <StatCard icon={DollarSign} colorClass="bg-[oklch(0.75_0.15_230)]" value={`$${(data?.monthlyRevenue ?? 0).toLocaleString('es-CL')}`} label="Monto vendido" />
-        <StatCard icon={Percent} colorClass="bg-[oklch(0.7_0.16_20)]" value={`$${(data?.monthlyCommission ?? 0).toLocaleString('es-CL')}`} label="Comisiones del mes" />
+        <StatCard icon={Ticket} colorClass="bg-[oklch(0.74_0.13_220)]" value={data?.eventSales ?? 0} label="Ventas del evento" />
+        <StatCard icon={DollarSign} colorClass="bg-[oklch(0.75_0.15_230)]" value={`$${(data?.eventRevenue ?? 0).toLocaleString('es-CL')}`} label="Monto vendido" />
+        <StatCard icon={Percent} colorClass="bg-[oklch(0.7_0.16_20)]" value={`$${(data?.eventCommission ?? 0).toLocaleString('es-CL')}`} label="Comisiones del evento" />
         <StatCard icon={Users} colorClass="bg-[oklch(0.72_0.14_150)]" value={data?.newClients ?? 0} label="Ventas a clientes nuevos" />
         <StatCard icon={Contact} colorClass="bg-[oklch(0.7_0.08_260)]" value={data?.existingClients ?? 0} label="Ventas a clientes existentes" />
         <StatCard icon={Gift} colorClass="bg-[oklch(0.74_0.13_90)]" value={data?.benefitsDelivered ?? 0} label="Beneficios entregados" />
       </div>
 
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-        <CardHeader><CardTitle>Top embajador del mes</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Top embajador del evento</CardTitle></CardHeader>
         <CardContent>
           {data?.topAmbassador ? (
             <div className="flex items-baseline gap-3">
@@ -5593,7 +5583,7 @@ function AmbassadorSummaryTab({ monthKey }: { monthKey: string }) {
               </p>
             </div>
           ) : (
-            <p className="text-muted-foreground text-sm">Todavía nadie hizo ventas este mes.</p>
+            <p className="text-muted-foreground text-sm">Todavía nadie hizo ventas en este evento.</p>
           )}
         </CardContent>
       </Card>
@@ -5601,9 +5591,9 @@ function AmbassadorSummaryTab({ monthKey }: { monthKey: string }) {
   );
 }
 
-function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
+function AmbassadorsListTab({ eventId }: { eventId: number }) {
   const { data: listData, refetch } = trpc.ambassadors.listAll.useQuery();
-  const { data: rankingData, refetch: refetchRanking } = trpc.ambassadors.getRanking.useQuery({ monthKey });
+  const { data: rankingData, refetch: refetchRanking } = trpc.ambassadors.getRanking.useQuery({ eventId });
   const ambassadors = listData ?? [];
   const statsById = new Map((rankingData ?? []).map((r: any) => [r.id, r]));
 
@@ -5616,9 +5606,9 @@ function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
   const updateAmbassador = trpc.ambassadors.update.useMutation({ onSuccess: refreshAll, onError: onMutationError });
   const deleteAmbassador = trpc.ambassadors.delete.useMutation({ onSuccess: () => { refreshAll(); toast.success('Embajador eliminado'); }, onError: onMutationError });
 
-  // Beneficios entregados del mes: se consultan una vez para toda la tabla y
+  // Beneficios entregados del evento: se consultan una vez para toda la tabla y
   // se reparten por embajador, en vez de una consulta por ficha abierta.
-  const { data: deliveriesData, refetch: refetchDeliveries } = trpc.ambassadors.listBenefitDeliveries.useQuery({ monthKey });
+  const { data: deliveriesData, refetch: refetchDeliveries } = trpc.ambassadors.listBenefitDeliveries.useQuery({ eventId });
   const deliveredByAmbassador = new Map<number, Set<string>>();
   for (const d of deliveriesData ?? []) {
     const set = deliveredByAmbassador.get(d.ambassadorId) ?? new Set<string>();
@@ -5663,8 +5653,8 @@ function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
     }
   };
 
-  const totalComision = visibles.reduce((sum: number, a: any) => sum + (statsById.get(a.id)?.monthlyCommission ?? 0), 0);
-  const totalVendido = visibles.reduce((sum: number, a: any) => sum + (statsById.get(a.id)?.monthlyRevenue ?? 0), 0);
+  const totalComision = visibles.reduce((sum: number, a: any) => sum + (statsById.get(a.id)?.eventCommission ?? 0), 0);
+  const totalVendido = visibles.reduce((sum: number, a: any) => sum + (statsById.get(a.id)?.eventRevenue ?? 0), 0);
 
   return (
     <div className="space-y-4">
@@ -5695,7 +5685,7 @@ function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
               <div><Label>Contacto (opcional)</Label><Input value={newAmbassador.contact} onChange={(e) => setNewAmbassador({ ...newAmbassador, contact: e.target.value })} className="mt-1" placeholder="Teléfono o Instagram" /></div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Deja el "% fijo" vacío para que use la escala del programa (30% a 50% según sus ventas del mes). Solo
+              Deja el "% fijo" vacío para que use la escala del programa (30% a 50% según sus ventas del evento). Solo
               ponle un número si ese embajador tiene un trato distinto al resto.
             </p>
             <div className="flex gap-2">
@@ -5715,9 +5705,9 @@ function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
                   <th className="text-left py-2 px-3">Embajador</th>
                   <th className="text-left py-2 px-3">Código</th>
                   <th className="text-left py-2 px-3">% Comisión</th>
-                  <th className="text-left py-2 px-3">Ventas del mes</th>
+                  <th className="text-left py-2 px-3">Ventas del evento</th>
                   <th className="text-left py-2 px-3">Monto vendido</th>
-                  <th className="text-left py-2 px-3">Comisión del mes</th>
+                  <th className="text-left py-2 px-3">Comisión del evento</th>
                   <th className="text-left py-2 px-3">Correo</th>
                   <th className="text-left py-2 px-3">Contacto</th>
                   <th className="text-left py-2 px-3">Acciones</th>
@@ -5739,10 +5729,10 @@ function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
                     {expandedId === a.id && (
                       <AmbassadorProfileRow
                         ambassadorId={a.id}
-                        monthKey={monthKey}
+                        eventId={eventId}
                         deliveredKeys={deliveredByAmbassador.get(a.id) ?? new Set()}
-                        onMarkBenefit={(benefitKey) => markBenefit.mutate({ ambassadorId: a.id, monthKey, benefitKey })}
-                        onUnmarkBenefit={(benefitKey) => unmarkBenefit.mutate({ ambassadorId: a.id, monthKey, benefitKey })}
+                        onMarkBenefit={(benefitKey) => markBenefit.mutate({ ambassadorId: a.id, eventId, benefitKey })}
+                        onUnmarkBenefit={(benefitKey) => unmarkBenefit.mutate({ ambassadorId: a.id, eventId, benefitKey })}
                         marking={markBenefit.isPending}
                         unmarking={unmarkBenefit.isPending}
                       />
@@ -5758,7 +5748,7 @@ function AmbassadorsListTab({ monthKey }: { monthKey: string }) {
               {visibles.length > 0 && (
                 <tfoot>
                   <tr className="border-t border-border font-semibold">
-                    <td colSpan={4} className="py-2 px-3 text-right">Total del mes</td>
+                    <td colSpan={4} className="py-2 px-3 text-right">Total del evento</td>
                     <td className="py-2 px-3">${totalVendido.toLocaleString('es-CL')}</td>
                     <td className="py-2 px-3 text-primary">${totalComision.toLocaleString('es-CL')}</td>
                     <td colSpan={3}></td>
@@ -6213,8 +6203,8 @@ function BirthdayActiveTab({ eventId, events }: { eventId: number; events: any[]
   );
 }
 
-function AmbassadorRankingTab({ monthKey }: { monthKey: string }) {
-  const { data } = trpc.ambassadors.getRanking.useQuery({ monthKey });
+function AmbassadorRankingTab({ eventId }: { eventId: number }) {
+  const { data } = trpc.ambassadors.getRanking.useQuery({ eventId });
   const ranking = (data ?? []).filter((r: any) => r.exclusiveSales > 0 || r.existingSales > 0);
   const MEDALLAS = ['🥇', '🥈', '🥉'];
 
@@ -6232,7 +6222,7 @@ function AmbassadorRankingTab({ monthKey }: { monthKey: string }) {
                 <th className="text-left py-2 px-3">Embajador</th>
                 <th className="text-left py-2 px-3">Ventas exclusivas</th>
                 <th className="text-left py-2 px-3">Monto vendido</th>
-                <th className="text-left py-2 px-3">Comisión del mes</th>
+                <th className="text-left py-2 px-3">Comisión del evento</th>
                 <th className="text-left py-2 px-3">Comisión acumulada</th>
               </tr>
             </thead>
@@ -6244,13 +6234,13 @@ function AmbassadorRankingTab({ monthKey }: { monthKey: string }) {
                     {r.name} <span className="font-mono text-primary text-xs">{r.code}</span>
                   </td>
                   <td className="py-2 px-3 font-semibold">{r.exclusiveSales}</td>
-                  <td className="py-2 px-3">${r.monthlyRevenue.toLocaleString('es-CL')}</td>
-                  <td className="py-2 px-3 text-primary font-semibold">${r.monthlyCommission.toLocaleString('es-CL')}</td>
+                  <td className="py-2 px-3">${r.eventRevenue.toLocaleString('es-CL')}</td>
+                  <td className="py-2 px-3 text-primary font-semibold">${r.eventCommission.toLocaleString('es-CL')}</td>
                   <td className="py-2 px-3 text-muted-foreground">${r.totalCommission.toLocaleString('es-CL')}</td>
                 </tr>
               ))}
               {ranking.length === 0 && (
-                <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">Sin ventas de embajadores este mes.</td></tr>
+                <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">Sin ventas de embajadores en este evento.</td></tr>
               )}
             </tbody>
           </table>
@@ -6614,7 +6604,7 @@ function ProgramConfigTab() {
       </Card>
 
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-        <CardHeader><CardTitle>Beneficios por ventas del mes</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Beneficios por ventas del evento</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           <p className="text-muted-foreground text-sm">
             Son acumulativos: quien llega a 10 ventas también tiene lo de 5 y lo de 1. Con 0 ventas no hay beneficios.

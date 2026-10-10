@@ -6,7 +6,7 @@
  * ningún evento absorbió: los marcados "no prorratear" y los de meses sin
  * eventos. Sin esa resta, esa plata no aparecía en ningún resultado.
  */
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { ambassadorCommissions, events, exclusiveAmbassadors, expenses, staffMembers, staffShifts, customers } from "../drizzle/schema";
 import { sql } from "drizzle-orm";
 import * as db from "./db";
@@ -87,24 +87,62 @@ export async function getCompanyYear(year: number) {
   };
 }
 
+export type EventCommissionGroup = {
+  eventId: number;
+  eventTitle: string;
+  eventDate: string | null;
+  /** El evento todavía no ocurre: sus comisiones no se deben aún. */
+  isFuture: boolean;
+  pending: number;
+  paid: number;
+  ambassadors: { ambassadorId: number; name: string; pending: number; paid: number; pendingCount: number; salesCount: number }[];
+};
+
+/** Agrupa comisiones por evento y por embajador. Pura (testeable). */
+export function groupCommissionsByEvent(
+  rows: { ambassadorId: number; name: string | null; amount: string | number; paidAt: Date | null; eventId: number; eventTitle: string | null; eventDate: Date | string | null }[],
+  now: Date,
+): EventCommissionGroup[] {
+  const byEvent = new Map<number, EventCommissionGroup>();
+  for (const r of rows) {
+    const date = r.eventDate ? new Date(r.eventDate) : null;
+    const g = byEvent.get(r.eventId) ?? {
+      eventId: r.eventId, eventTitle: r.eventTitle ?? `Evento #${r.eventId}`, eventDate: date ? date.toISOString() : null,
+      isFuture: !!date && date.getTime() > now.getTime(), pending: 0, paid: 0, ambassadors: [],
+    };
+    let a = g.ambassadors.find((x) => x.ambassadorId === r.ambassadorId);
+    if (!a) {
+      a = { ambassadorId: r.ambassadorId, name: r.name ?? `Embajador #${r.ambassadorId}`, pending: 0, paid: 0, pendingCount: 0, salesCount: 0 };
+      g.ambassadors.push(a);
+    }
+    const amount = Number(r.amount);
+    a.salesCount += 1;
+    if (r.paidAt) { a.paid += amount; g.paid += amount; } else { a.pending += amount; a.pendingCount += 1; g.pending += amount; }
+    byEvent.set(r.eventId, g);
+  }
+  const groups = Array.from(byEvent.values());
+  for (const g of groups) g.ambassadors.sort((x, y) => y.pending - x.pending || x.name.localeCompare(y.name));
+  // Primero los próximos/futuros más cercanos y luego los pasados, del más reciente al más viejo.
+  return groups.sort((x, y) => new Date(y.eventDate ?? 0).getTime() - new Date(x.eventDate ?? 0).getTime());
+}
+
 /** Todo lo que hay que pagar o que se le debe a terceros. */
 export async function getPayables() {
   const conn = await db.getDb();
   if (!conn) return null;
 
+  // Comisiones de embajadores, agrupadas por EVENTO: cada evento es su propia
+  // campaña y se paga por separado (un evento que aún no ocurre no se debe).
   const comm = await conn.select({
     ambassadorId: ambassadorCommissions.ambassadorId, name: exclusiveAmbassadors.name,
     amount: ambassadorCommissions.commissionAmount, paidAt: ambassadorCommissions.paidAt,
-    eventId: ambassadorCommissions.eventId,
-  }).from(ambassadorCommissions).leftJoin(exclusiveAmbassadors, eq(exclusiveAmbassadors.id, ambassadorCommissions.ambassadorId));
-  const byAmb = new Map<number, { ambassadorId: number; name: string; pending: number; paid: number; pendingCount: number }>();
-  for (const c of comm as any[]) {
-    const cur = byAmb.get(c.ambassadorId) ?? { ambassadorId: c.ambassadorId, name: c.name ?? `Embajador #${c.ambassadorId}`, pending: 0, paid: 0, pendingCount: 0 };
-    if (c.paidAt) cur.paid += Number(c.amount);
-    else { cur.pending += Number(c.amount); cur.pendingCount += 1; }
-    byAmb.set(c.ambassadorId, cur);
-  }
-  const ambassadors = Array.from(byAmb.values()).sort((a, b) => b.pending - a.pending);
+    eventId: ambassadorCommissions.eventId, eventTitle: events.title, eventDate: events.eventDate,
+  }).from(ambassadorCommissions)
+    .leftJoin(exclusiveAmbassadors, eq(exclusiveAmbassadors.id, ambassadorCommissions.ambassadorId))
+    .leftJoin(events, eq(events.id, ambassadorCommissions.eventId));
+  const ambassadorEvents = groupCommissionsByEvent(comm as any[], new Date());
+  const ambassadorsPending = ambassadorEvents.filter((e) => !e.isFuture).reduce((sum, e) => sum + e.pending, 0);
+  const ambassadorsPendingFuture = ambassadorEvents.filter((e) => e.isFuture).reduce((sum, e) => sum + e.pending, 0);
 
   const staffRows = await conn.select({
     eventId: staffShifts.eventId, title: events.title, name: staffMembers.name, amountClp: staffShifts.amountClp,
@@ -125,8 +163,9 @@ export async function getPayables() {
   const [{ saldo }] = (await conn.select({ saldo: sql<number>`COALESCE(SUM(${customers.prepaidBalance}), 0)` }).from(customers)) as any[];
 
   return {
-    ambassadors,
-    ambassadorsPending: ambassadors.reduce((s, a) => s + a.pending, 0),
+    ambassadorEvents,
+    ambassadorsPending,
+    ambassadorsPendingFuture,
     staffUnpaid,
     staffUnpaidTotal: staffUnpaid.reduce((s, r) => s + r.amountClp, 0),
     parking,
@@ -135,15 +174,32 @@ export async function getPayables() {
   };
 }
 
-/** Marca como pagadas las comisiones pendientes de un embajador. */
-export async function markCommissionsPaid(ambassadorId: number, paid: boolean) {
+/** Marca como pagadas (o pendientes) las comisiones de UN embajador en UN evento.
+ * Nunca toca otros eventos. Un evento que aún no ocurre exige `confirmFuture`. */
+export async function markCommissionsPaid(p: { ambassadorId: number; eventId: number; paid: boolean; confirmFuture?: boolean }) {
   const conn = await db.getDb();
   if (!conn) throw new Error("Database not available");
-  if (paid) {
-    await conn.update(ambassadorCommissions).set({ paidAt: new Date() })
-      .where(and(eq(ambassadorCommissions.ambassadorId, ambassadorId), isNull(ambassadorCommissions.paidAt)));
+  const [event] = await conn.select({ eventDate: events.eventDate, title: events.title }).from(events).where(eq(events.id, p.eventId)).limit(1);
+  if (!event) throw new Error("Evento no encontrado");
+  if (p.paid && new Date(event.eventDate as any).getTime() > Date.now() && !p.confirmFuture) {
+    throw new Error(`«${event.title}» todavía no ocurre: sus comisiones aún no se deben. Confirma si de verdad ya las pagaste.`);
+  }
+  const scope = and(eq(ambassadorCommissions.ambassadorId, p.ambassadorId), eq(ambassadorCommissions.eventId, p.eventId));
+  if (p.paid) {
+    await conn.update(ambassadorCommissions).set({ paidAt: new Date() }).where(and(scope, isNull(ambassadorCommissions.paidAt)));
   } else {
-    await conn.update(ambassadorCommissions).set({ paidAt: null }).where(eq(ambassadorCommissions.ambassadorId, ambassadorId));
+    await conn.update(ambassadorCommissions).set({ paidAt: null }).where(scope);
   }
   return { success: true };
+}
+
+/** Vuelve a "pendiente" TODAS las comisiones marcadas como pagadas. El estado
+ * "pagado" nació en Finanzas (antes no existía), y se marcó sin separar por
+ * evento: se reinicia para volver a marcarlo evento por evento. */
+export async function resetCommissionPayments() {
+  const conn = await db.getDb();
+  if (!conn) throw new Error("Database not available");
+  const [{ n }] = (await conn.select({ n: sql<number>`COUNT(*)` }).from(ambassadorCommissions).where(isNotNull(ambassadorCommissions.paidAt))) as any[];
+  await conn.update(ambassadorCommissions).set({ paidAt: null }).where(isNotNull(ambassadorCommissions.paidAt));
+  return { reset: Number(n ?? 0) };
 }

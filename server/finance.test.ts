@@ -43,7 +43,7 @@ describe("informe real en PDF", () => {
 
 import { vi } from "vitest";
 vi.mock("./db", () => ({
-  getEventPnl: vi.fn(), getDb: vi.fn(), getEventById: vi.fn(), listShiftClosings: vi.fn(), getParkingReport: vi.fn(),
+  getEventPnl: vi.fn(), getDb: vi.fn(), getEventById: vi.fn(), listShiftClosings: vi.fn(), getParkingReport: vi.fn(), getSiteSettings: vi.fn().mockResolvedValue({}),
 }));
 import * as dbm from "./db";
 import { getEventLive } from "./finance";

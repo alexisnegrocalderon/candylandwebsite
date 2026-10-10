@@ -20,7 +20,13 @@ import {
   buildRecommendations, buildScenarios, buildSensitivity, profitCurve, verdictFor,
 } from "../shared/budgetInsights";
 
-const DEFAULT_MARGIN_TARGET = 30;
+import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
+
+/** Meta de margen que eligió el dueño en Finanzas (30 % por defecto). */
+export async function getMarginTarget(): Promise<number> {
+  const settings = await db.getSiteSettings();
+  return normalizeAdminAlertsConfig((settings as any).adminAlertsConfig).financeMarginTargetPercent;
+}
 
 export type RealPnl = NonNullable<Awaited<ReturnType<typeof db.getEventPnl>>>;
 
@@ -49,6 +55,7 @@ const PERSONAS_RE = /d[uú]o|pareja/i;
 /** Traduce el evento real a las entradas del simulador (solo para consejos). */
 export function realToSimulationInput(p: {
   pnl: RealPnl;
+  marginTargetPercent?: number;
   cardFeePercent: number;
   tiers: { label: string; price: number; qty: number; personas: number }[];
   extraIncomes: { label: string; unitPrice: number; quantity: number; venueCostPerUnit?: number }[];
@@ -62,7 +69,7 @@ export function realToSimulationInput(p: {
   const entriesAndBar = ticketRevenue + otherRevenue;
   return {
     ivaApplies: pnl.ivaApplies,
-    marginTargetPercent: DEFAULT_MARGIN_TARGET,
+    marginTargetPercent: p.marginTargetPercent ?? 30,
     cardFeePercent: p.cardFeePercent,
     commissionPercent: entriesAndBar > 0 ? (pnl.ambassadorCommissions / entriesAndBar) * 100 : 0,
     variableCostPerPerson: attendance > 0 ? pnl.cogs / attendance : 0,
@@ -141,7 +148,8 @@ export async function getEventFinanceData(eventId: number): Promise<EventFinance
 
   const settings = await db.getSiteSettings();
   const input = realToSimulationInput({
-    pnl, cardFeePercent: Number(settings.cardFeePercent ?? 3.5), tiers, extraIncomes, expenseLines,
+    pnl, marginTargetPercent: normalizeAdminAlertsConfig((settings as any).adminAlertsConfig).financeMarginTargetPercent,
+    cardFeePercent: Number(settings.cardFeePercent ?? 3.5), tiers, extraIncomes, expenseLines,
   });
 
   const [{ saldo }] = await conn.select({ saldo: sql<number>`COALESCE(SUM(${customers.prepaidBalance}), 0)` }).from(customers) as any[];
@@ -258,10 +266,11 @@ export async function getEventLive(eventId: number, windowMinutes = 60, now: Dat
     diff: (c.countedCash + c.countedDebit + c.countedCredit + c.countedQr) - (c.expectedCash + (c.openingCash ?? 0) + c.expectedDebit + c.expectedCredit + c.expectedQr),
   })).filter((d) => Math.abs(d.diff) >= 1);
 
+  const marginGoal = await getMarginTarget();
   const alerts: LiveAlert[] = [];
   const gross = pnl.grossIncome;
   if (gross > 0 && pnl.netProfit < 0) alerts.push({ level: "danger", text: `Hoy va en pérdida de $${Math.abs(pnl.netProfit).toLocaleString("es-CL")}: los costos superan lo que ha entrado.` });
-  else if (gross > 0 && pnl.marginPercent != null && pnl.marginPercent < DEFAULT_MARGIN_TARGET) alerts.push({ level: "warning", text: `El margen va en ${pnl.marginPercent}%, bajo la meta de ${DEFAULT_MARGIN_TARGET}%.` });
+  else if (gross > 0 && pnl.marginPercent != null && pnl.marginPercent < marginGoal) alerts.push({ level: "warning", text: `El margen va en ${pnl.marginPercent}%, bajo la meta de ${marginGoal}%.` });
   for (const d of diffs) alerts.push({ level: "warning", text: `Caja descuadrada (${d.name}): ${d.diff > 0 ? "sobran" : "faltan"} $${Math.abs(d.diff).toLocaleString("es-CL")}.` });
   const event = await db.getEventById(eventId);
   // "En vivo" = desde 6 h antes de la hora del evento hasta 14 h después (la

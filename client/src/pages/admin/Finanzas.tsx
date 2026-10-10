@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from 'recharts';
 import { Banknote, Download, Sparkles, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
-import { formatChileTime } from '@shared/chileDate';
+import { formatChileTime, formatChileShortDate } from '@shared/chileDate';
 import { useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -302,37 +302,80 @@ function PayablesTab() {
   const isDemo = useIsDemo();
   const utils = trpc.useUtils();
   const { data, isLoading, isError, error } = trpc.finance.payables.useQuery();
-  const mark = trpc.finance.markCommissionsPaid.useMutation({ onSuccess: () => { utils.finance.payables.invalidate(); utils.finance.eventReport.invalidate(); }, onError: onErr });
+  const refresh = () => { utils.finance.payables.invalidate(); utils.finance.eventReport.invalidate(); };
+  const mark = trpc.finance.markCommissionsPaid.useMutation({ onSuccess: refresh, onError: onErr });
+  const reset = trpc.finance.resetCommissionPayments.useMutation({
+    onSuccess: (r) => { refresh(); toast.success(`${r.reset} comisión(es) volvieron a pendiente`); },
+    onError: onErr,
+  });
   if (isLoading) return <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>;
   if (isError || !data) return <p className="text-sm text-destructive">No se pudo cargar: {error?.message}</p>;
+  // "Por pagar ahora" solo cuenta eventos que ya ocurrieron.
   const total = data.ambassadorsPending + data.staffUnpaidTotal + data.parkingTotal;
+  const paidTotal = data.ambassadorEvents.reduce((sum: number, e: any) => sum + e.paid, 0);
   return (
     <div className="space-y-6">
       <BentoGrid>
         <BentoTile span={2}><StatTile size="lg" icon={Wallet} tone="alert" value={money(total)} label="Por pagar (embajadores + staff + estacionamiento)" /></BentoTile>
-        <BentoTile><StatTile icon={Users} tone="count" value={money(data.ambassadorsPending)} label="Comisiones pendientes" /></BentoTile>
+        <BentoTile><StatTile icon={Users} tone="count" value={money(data.ambassadorsPending)} label={`Comisiones por pagar ahora${data.ambassadorsPendingFuture > 0 ? ` (+${money(data.ambassadorsPendingFuture)} de eventos que aún no ocurren)` : ''}`} /></BentoTile>
         <BentoTile><StatTile icon={Banknote} tone="count" value={money(data.playcardSaldoClientes)} label="Saldo PlayCard de clientes" /></BentoTile>
       </BentoGrid>
 
       <Card className="admin-clay border-0">
-        <CardHeader><CardTitle>Comisiones de embajadores</CardTitle><p className="text-sm text-[var(--admin-muted)]">Marca como pagado cuando les transfieras. "Pagado" se guarda con la fecha.</p></CardHeader>
-        <CardContent className="space-y-2">
-          {data.ambassadors.length === 0 && <EmptyState icon={Users} title="Sin comisiones registradas" />}
-          {data.ambassadors.map((a: any) => (
-            <div key={a.ambassadorId} className="admin-clay-sm p-3 flex flex-wrap items-center gap-3">
-              <div className="flex-1 min-w-[8rem]">
-                <p className="font-medium">{a.name}</p>
-                <p className="text-xs text-[var(--admin-muted)]">Pagado hasta ahora {money(a.paid)}</p>
+        <CardHeader>
+          <CardTitle>Comisiones de embajadores, evento por evento</CardTitle>
+          <p className="text-sm text-[var(--admin-muted)]">
+            Cada evento es una campaña aparte y se paga por separado. Los eventos que todavía no ocurren se muestran, pero no se cuentan como deuda.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {data.ambassadorEvents.length === 0 && <EmptyState icon={Users} title="Sin comisiones registradas" />}
+          {data.ambassadorEvents.map((ev: any) => (
+            <div key={ev.eventId} className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-semibold">{ev.eventTitle}</p>
+                {ev.eventDate && <span className="text-xs text-[var(--admin-muted)]">{formatChileShortDate(ev.eventDate)}</span>}
+                <span className={`text-xs px-2 py-0.5 rounded-full ${ev.isFuture ? 'bg-sky-500/15 text-sky-800' : 'bg-emerald-500/15 text-emerald-800'}`}>
+                  {ev.isFuture ? 'Aún no ocurre: todavía no se paga' : 'Ya ocurrió'}
+                </span>
+                <span className="ml-auto text-sm tabular-nums">Pendiente <strong>{money(ev.pending)}</strong> · Pagado {money(ev.paid)}</span>
               </div>
-              <p className="tabular-nums font-semibold">{money(a.pending)}</p>
-              {a.pending > 0 ? (
-                <Button size="sm" disabled={isDemo || mark.isPending}
-                  onClick={() => { if (window.confirm(`¿Marcar ${money(a.pending)} de ${a.name} como pagado?`)) mark.mutate({ ambassadorId: a.ambassadorId, paid: true }); }}>
-                  Marcar pagado
-                </Button>
-              ) : <span className="text-sm text-emerald-700">Al día ✓</span>}
+              {ev.ambassadors.map((a: any) => (
+                <div key={a.ambassadorId} className="admin-clay-sm p-3 flex flex-wrap items-center gap-3">
+                  <div className="flex-1 min-w-[8rem]">
+                    <p className="font-medium">{a.name}</p>
+                    <p className="text-xs text-[var(--admin-muted)]">{a.salesCount} venta{a.salesCount === 1 ? '' : 's'} · pagado {money(a.paid)}</p>
+                  </div>
+                  <p className="tabular-nums font-semibold">{money(a.pending)}</p>
+                  {a.pending > 0 ? (
+                    <Button size="sm" variant={ev.isFuture ? 'outline' : 'default'} disabled={isDemo || mark.isPending}
+                      onClick={() => {
+                        const msg = ev.isFuture
+                          ? `«${ev.eventTitle}» todavía no ocurre. ¿Seguro que quieres marcar ${money(a.pending)} de ${a.name} como pagado?`
+                          : `¿Marcar ${money(a.pending)} de ${a.name} (${ev.eventTitle}) como pagado?`;
+                        if (window.confirm(msg)) mark.mutate({ ambassadorId: a.ambassadorId, eventId: ev.eventId, paid: true, confirmFuture: ev.isFuture });
+                      }}>
+                      Marcar pagado
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="ghost" disabled={isDemo || mark.isPending}
+                      onClick={() => { if (window.confirm(`¿Volver a pendiente lo de ${a.name} en ${ev.eventTitle}?`)) mark.mutate({ ambassadorId: a.ambassadorId, eventId: ev.eventId, paid: false }); }}>
+                      Al día ✓ · deshacer
+                    </Button>
+                  )}
+                </div>
+              ))}
             </div>
           ))}
+          {paidTotal > 0 && (
+            <div className="pt-3 border-t border-black/5 text-sm flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[var(--admin-muted)]">Marcado como pagado en total: {money(paidTotal)}. Si lo marcaste sin separar por evento, puedes empezar de cero.</span>
+              <Button size="sm" variant="outline" disabled={isDemo || reset.isPending}
+                onClick={() => { if (window.confirm('Esto vuelve TODAS las comisiones a "pendiente" para que las marques de nuevo, evento por evento. No se pierde ningún monto. ¿Continuar?')) reset.mutate(); }}>
+                Reiniciar pagos marcados
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -396,6 +439,37 @@ function AskCard() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Meta de margen neto: el veredicto, los consejos y las alertas se miden contra este número. */
+function MarginGoal() {
+  const isDemo = useIsDemo();
+  const utils = trpc.useUtils();
+  const { data } = trpc.finance.marginTarget.useQuery();
+  const [value, setValue] = useState<string | null>(null);
+  const save = trpc.finance.setMarginTarget.useMutation({
+    onSuccess: (r) => {
+      setValue(null);
+      utils.finance.marginTarget.invalidate(); utils.finance.eventReport.invalidate(); utils.finance.live.invalidate();
+      toast.success(`Meta de margen: ${r.percent}%`);
+    },
+    onError: onErr,
+  });
+  const shown = value ?? String(data?.percent ?? 30);
+  const n = Number(shown);
+  const valid = Number.isFinite(n) && n >= 1 && n <= 90;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <Target className="w-4 h-4 text-[var(--admin-muted)]" />
+      <label htmlFor="margin-goal" className="text-[var(--admin-muted)]">Meta de margen</label>
+      <Input id="margin-goal" type="number" inputMode="decimal" min={1} max={90} step={1} className="w-20" value={shown}
+        disabled={isDemo} onChange={(e) => setValue(e.target.value)} />
+      <span>%</span>
+      {value !== null && value !== String(data?.percent) && (
+        <Button size="sm" disabled={!valid || save.isPending} onClick={() => save.mutate({ percent: n })}>Guardar</Button>
+      )}
+    </div>
   );
 }
 
@@ -465,6 +539,8 @@ export default function FinanzasView() {
           <Button key={k} role="tab" aria-selected={tab === k} variant={tab === k ? 'default' : 'outline'} onClick={() => setTab(k)}>{l}</Button>
         ))}
       </div>
+
+      {(tab === 'live' || tab === 'evento') && <MarginGoal />}
 
       <AskCard />
 
@@ -600,7 +676,7 @@ export default function FinanzasView() {
                 {[
                   ['Estacionamiento al local', rep.payables.parkingVenue, 'Lo que le debes al local por los autos'],
                   ['Staff sin pagar', rep.payables.staffUnpaid, 'Turnos de este evento no marcados como pagados'],
-                  ['Comisiones de embajadores', rep.payables.ambassadorCommissions, 'Total del evento'],
+                  ['Comisiones de embajadores', rep.payables.ambassadorCommissions, `Solo de «${rep.eventTitle}» (el pago se marca en Por pagar)`],
                   ['IVA a pagar al SII', rep.payables.ivaAPagar, 'Débito menos crédito fiscal (si el evento declara)'],
                   ['Saldo PlayCard de clientes', rep.payables.playcardSaldoClientes, 'Plata de clientes que todavía no gastan (todos los eventos)'],
                 ].map(([label, value, hint]) => (

@@ -64,3 +64,15 @@ describe("askFinance", () => {
     await expect(askFinance("hola mundo")).rejects.toThrow(/no devolvió/);
   });
 });
+
+import { normalizeAdminAlertsConfig, marginTarget } from "../shared/adminAlertsConfig";
+describe("meta de margen configurable", () => {
+  it("usa 30 % por defecto y acepta solo valores razonables", () => {
+    expect(normalizeAdminAlertsConfig({}).financeMarginTargetPercent).toBe(30);
+    expect(marginTarget(40)).toBe(40);
+    expect(marginTarget(0)).toBe(30);
+    expect(marginTarget(150)).toBe(30);
+    expect(marginTarget("abc")).toBe(30);
+    expect(normalizeAdminAlertsConfig({ financeMarginTargetPercent: 25 }).financeMarginTargetPercent).toBe(25);
+  });
+});

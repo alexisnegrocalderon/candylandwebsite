@@ -162,7 +162,8 @@ export async function buildFinanceDataBlock(now: Date = new Date()): Promise<str
   if (payables) {
     parts.push([
       "Por pagar:",
-      `- Comisiones de embajadores pendientes ${clp(payables.ambassadorsPending)}`,
+      `- Comisiones de embajadores por pagar ahora (eventos que ya ocurrieron) ${clp(payables.ambassadorsPending)}`,
+      `- Comisiones de embajadores de eventos que aún no ocurren (todavía no se deben) ${clp(payables.ambassadorsPendingFuture)}`,
       `- Staff sin pagar ${clp(payables.staffUnpaidTotal)}`,
       `- Estacionamiento al local ${clp(payables.parkingTotal)}`,
       `- Saldo PlayCard de clientes ${clp(payables.playcardSaldoClientes)}`,

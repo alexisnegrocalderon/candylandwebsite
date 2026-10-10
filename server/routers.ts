@@ -78,8 +78,8 @@ import { computeCustomerLevel } from "../shared/customerInsights";
 import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftClosed, listCajaAlerts } from "./caja/alerts";
 import { BRAND } from "../shared/eventBrand";
 import * as staffSvc from "./staff";
-import { getEventFinanceReport, getEventLive } from "./finance";
-import { getCompanyYear, getPayables, markCommissionsPaid } from "./financeCompany";
+import { getEventFinanceReport, getEventLive, getMarginTarget } from "./finance";
+import { getCompanyYear, getPayables, markCommissionsPaid, resetCommissionPayments } from "./financeCompany";
 import { askFinance, buildNightSummary, buildWeeklySummary } from "./financeDirector";
 import { comparisonPdf as budgetComparisonPdf, singlePdf as budgetSinglePdf, loadSims as loadBudgetSims, slug as budgetSlug } from "./budgetReport";
 import { compareSimulations, formatPercent } from "../shared/budgetInsights";
@@ -2248,6 +2248,7 @@ export const appRouter = router({
       dailyDigestEmail: z.boolean(),
       pushCajaAlerts: z.boolean().optional(),
       cajaAiSummary: z.boolean().optional(),
+      financeMarginTargetPercent: z.number().min(1).max(90).optional(),
       financeNightlyEmail: z.boolean().optional(),
       financeWeeklyEmail: z.boolean().optional(),
       cajaLowStockUnits: z.number().int().min(0).max(10000).optional(),
@@ -3203,9 +3204,18 @@ export const appRouter = router({
     }),
     companyYear: adminProcedure.input(z.object({ year: z.number().int().min(2020).max(2100) })).query(({ input }) => getCompanyYear(input.year)),
     payables: adminProcedure.query(() => getPayables()),
-    markCommissionsPaid: adminProcedure.input(z.object({ ambassadorId: z.number().int().positive(), paid: z.boolean() })).mutation(async ({ input, ctx }) => {
-      const r = await markCommissionsPaid(input.ambassadorId, input.paid);
-      await db.recordAdminAudit({ action: input.paid ? 'finance.commissionsPaid' : 'finance.commissionsUnpaid', targetType: 'ambassador', targetId: input.ambassadorId, ip: clientIp(ctx) });
+    markCommissionsPaid: adminProcedure.input(z.object({
+      ambassadorId: z.number().int().positive(), eventId: z.number().int().positive(), paid: z.boolean(), confirmFuture: z.boolean().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      try {
+        const r = await markCommissionsPaid(input);
+        await db.recordAdminAudit({ action: input.paid ? 'finance.commissionsPaid' : 'finance.commissionsUnpaid', targetType: 'ambassador', targetId: input.ambassadorId, eventId: input.eventId, ip: clientIp(ctx) });
+        return r;
+      } catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo actualizar el pago' }); }
+    }),
+    resetCommissionPayments: adminProcedure.mutation(async ({ ctx }) => {
+      const r = await resetCommissionPayments();
+      await db.recordAdminAudit({ action: 'finance.commissionsPaymentsReset', targetType: 'ambassadorCommissions', payload: r, ip: clientIp(ctx) });
       return r;
     }),
     ask: adminProcedure.input(z.object({ question: z.string().trim().min(3).max(500) })).mutation(async ({ input }) => {
@@ -3224,6 +3234,14 @@ export const appRouter = router({
       if (!mail) return { sent: false, reason: 'No hay datos para armar el resumen' };
       const r = await sendEmail({ to: ADMIN_NOTIFICATION_EMAIL, subject: mail.subject, html: mail.html });
       return { sent: r.success, reason: r.success ? undefined : r.reason };
+    }),
+    marginTarget: adminProcedure.query(async () => ({ percent: await getMarginTarget() })),
+    setMarginTarget: adminProcedure.input(z.object({ percent: z.number().min(1).max(90) })).mutation(async ({ input, ctx }) => {
+      const settings = await db.getSiteSettings();
+      const cfg = normalizeAdminAlertsConfig((settings as any).adminAlertsConfig);
+      await db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig({ ...cfg, financeMarginTargetPercent: input.percent }) });
+      await db.recordAdminAudit({ action: 'finance.setMarginTarget', targetType: 'siteSettings', payload: { percent: input.percent }, ip: clientIp(ctx) });
+      return { percent: normalizeAdminAlertsConfig({ financeMarginTargetPercent: input.percent }).financeMarginTargetPercent };
     }),
     staffList: adminProcedure.query(() => staffSvc.listStaff()),
     staffSave: adminProcedure.input(z.object({
@@ -3474,17 +3492,19 @@ export const appRouter = router({
       });
     }),
 
-    /** `monthKey` en formato "2026-08"; si no viene, el mes actual de Chile. */
-    getSummary: adminReadProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
-      return ambassadorProgram.getAmbassadorAdminSummary(input?.monthKey || monthKeyFor(new Date()));
+    /** Cada evento es su propia campaña: si no viene `eventId`, se usa el evento destacado. */
+    getSummary: adminReadProcedure.input(z.object({ eventId: z.number().int().positive().optional() }).optional()).query(async ({ input }) => {
+      const eventId = input?.eventId ?? (await db.getFeaturedEvent())?.id;
+      return eventId ? ambassadorProgram.getAmbassadorAdminSummary(eventId) : null;
     }),
-    getRanking: adminReadProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
-      return ambassadorProgram.getAmbassadorRanking(input?.monthKey || monthKeyFor(new Date()));
+    getRanking: adminReadProcedure.input(z.object({ eventId: z.number().int().positive().optional() }).optional()).query(async ({ input }) => {
+      const eventId = input?.eventId ?? (await db.getFeaturedEvent())?.id;
+      return eventId ? ambassadorProgram.getAmbassadorRanking(eventId) : [];
     }),
-    getProfile: adminReadProcedure.input(z.object({ id: z.number(), monthKey: z.string().optional() })).query(async ({ input }) => {
-      const monthKey = input.monthKey || monthKeyFor(new Date());
+    getProfile: adminReadProcedure.input(z.object({ id: z.number(), eventId: z.number().int().positive().optional() })).query(async ({ input }) => {
+      const eventId = input.eventId ?? (await db.getFeaturedEvent())?.id;
       return {
-        stats: await ambassadorProgram.getAmbassadorStats(input.id, monthKey),
+        stats: eventId ? await ambassadorProgram.getAmbassadorStats(input.id, eventId) : null,
         sales: await ambassadorProgram.getAmbassadorSales(input.id),
       };
     }),
@@ -3493,12 +3513,13 @@ export const appRouter = router({
     }),
 
     // --- Beneficios entregados ---
-    listBenefitDeliveries: adminReadProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
-      return ambassadorProgram.listBenefitDeliveries(input?.monthKey || monthKeyFor(new Date()));
+    listBenefitDeliveries: adminReadProcedure.input(z.object({ eventId: z.number().int().positive().optional() }).optional()).query(async ({ input }) => {
+      const eventId = input?.eventId ?? (await db.getFeaturedEvent())?.id;
+      return eventId ? ambassadorProgram.listBenefitDeliveries(eventId) : [];
     }),
     markBenefitDelivered: adminProcedure.input(z.object({
       ambassadorId: z.number(),
-      monthKey: z.string(),
+      eventId: z.number().int().positive(),
       benefitKey: z.string(),
       note: z.string().optional(),
     })).mutation(async ({ input }) => {
@@ -3506,7 +3527,7 @@ export const appRouter = router({
     }),
     unmarkBenefitDelivered: adminProcedure.input(z.object({
       ambassadorId: z.number(),
-      monthKey: z.string(),
+      eventId: z.number().int().positive(),
       benefitKey: z.string(),
     })).mutation(async ({ input }) => {
       return ambassadorProgram.unmarkBenefitDelivered(input);

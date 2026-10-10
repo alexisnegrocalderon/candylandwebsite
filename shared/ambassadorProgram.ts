@@ -37,7 +37,7 @@ export const DEFAULT_COMMISSION_SCALE: CommissionTier[] = [
  * este % fijo y NUNCA suben de nivel al embajador. */
 export const DEFAULT_EXISTING_CLIENT_PERCENT = 10;
 
-/** Beneficios por cantidad de ventas del MES, acumulativos: quien llega a 10
+/** Beneficios por cantidad de ventas del EVENTO, acumulativos: quien llega a 10
  * también tiene lo de 5 y lo de 1. Con 0 ventas no hay nada. */
 export const DEFAULT_BENEFITS: BenefitTier[] = [
   { minSales: 1, items: ['Entrada liberada', '1 acompañante'], bonusClp: 0 },
@@ -53,7 +53,7 @@ function sortedScale(scale: CommissionTier[]): CommissionTier[] {
   return [...scale].sort((a, b) => a.minSales - b.minSales);
 }
 
-/** El % que le corresponde a la enésima venta exclusiva del mes.
+/** El % que le corresponde a la enésima venta exclusiva del EVENTO (cada evento parte de cero).
  *
  * Clave: recibe el NÚMERO de esa venta, no el total acumulado -- por eso la
  * escala no es retroactiva (decisión del dueño). La venta 5 paga 30% para
@@ -70,7 +70,7 @@ export function percentForSaleNumber(saleNumber: number, scale: CommissionTier[]
 }
 
 /** Tramo en el que está parado un embajador con `count` ventas exclusivas
- * este mes. `undefined` con 0 ventas: todavía no ganó ningún nivel. */
+ * en el evento. `undefined` con 0 ventas: todavía no ganó ningún nivel. */
 export function tierForSales(count: number, scale: CommissionTier[] = DEFAULT_COMMISSION_SCALE): CommissionTier | undefined {
   if (count < 1) return undefined;
   const tiers = sortedScale(scale);
@@ -91,7 +91,7 @@ export function nextTierTarget(
   return { target: next.minSales, salesNeeded: next.minSales - count, nextPercent: next.percent };
 }
 
-/** Todo lo que desbloqueó este mes, acumulado. */
+/** Todo lo que desbloqueó en el evento, acumulado. */
 export function unlockedBenefits(
   monthlySales: number,
   benefits: BenefitTier[] = DEFAULT_BENEFITS,
@@ -119,7 +119,7 @@ export type Attribution = {
   clientType: ClientType;
   /** Si esta venta convierte al cliente en propiedad permanente de quien cobra. */
   assignsOwnership: boolean;
-  /** Si esta venta suma para la escala mensual de quien cobra. */
+  /** Si esta venta suma para la escala (por evento) de quien cobra. */
   countsForTier: boolean;
 };
 
@@ -165,7 +165,7 @@ export function resolveAttribution(params: {
 /** El % final de una venta, ya sabiendo de qué tipo es. */
 export function commissionPercentForSale(params: {
   clientType: ClientType;
-  /** Número de esta venta dentro del mes (solo importa si es exclusiva). */
+  /** Número de esta venta dentro del evento (solo importa si es exclusiva). */
   saleNumberThisMonth: number;
   scale?: CommissionTier[];
   existingClientPercent?: number;
@@ -200,8 +200,8 @@ export type CommissionEstimate = { total: number; breakdown: CommissionEstimateB
  * venta por venta con `percentForSaleNumber`, exactamente como se calcula
  * cada comisión real, arrancando desde las ventas que ya lleva este mes. */
 export function estimateAdditionalCommission(params: {
-  /** Ventas exclusivas que ya lleva este mes (`stats.monthlySales`). */
-  currentMonthlySales: number;
+  /** Ventas exclusivas que ya lleva en este evento (`stats.eventSales`). */
+  currentEventSales: number;
   /** Cuántas ventas más simula el embajador. */
   additionalSales: number;
   /** Precio promedio por venta. */
@@ -210,12 +210,12 @@ export function estimateAdditionalCommission(params: {
   /** Override por embajador: si viene, manda sobre la escala en todas las ventas simuladas. */
   overridePercent?: number | null;
 }): CommissionEstimate {
-  const { currentMonthlySales, additionalSales, avgSalePrice, scale = DEFAULT_COMMISSION_SCALE, overridePercent } = params;
+  const { currentEventSales, additionalSales, avgSalePrice, scale = DEFAULT_COMMISSION_SCALE, overridePercent } = params;
   if (!Number.isFinite(additionalSales) || additionalSales < 1 || !Number.isFinite(avgSalePrice) || avgSalePrice <= 0) {
     return { total: 0, breakdown: [] };
   }
 
-  const base = Math.max(0, Math.floor(currentMonthlySales));
+  const base = Math.max(0, Math.floor(currentEventSales));
   const n = Math.floor(additionalSales);
 
   if (overridePercent !== null && overridePercent !== undefined) {
