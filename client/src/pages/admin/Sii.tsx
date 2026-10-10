@@ -33,6 +33,13 @@ const STATUS: Record<string, { l: string; c: string }> = {
 const ISSUER: Record<string, string> = { mansion: 'Mansion Playroom', tercero: 'Lo factura otro', exento: 'Exento', por_revisar: 'Por revisar' };
 const ALERT_TONE: Record<string, string> = { danger: 'bg-red-500/10 text-red-700', warning: 'bg-amber-500/15 text-amber-800', info: 'bg-sky-500/10 text-sky-800' };
 
+/** Accesos directos al SII y a Tesorería (se abren en pestaña nueva). */
+const SII_LINKS = [
+  { l: 'Entrar a Mi SII (declarar F29)', href: 'https://misii.sii.cl/', primary: true },
+  { l: 'Ir a sii.cl', href: 'https://www.sii.cl/', primary: false },
+  { l: 'Pagar en Tesorería', href: 'https://www.tgr.cl/', primary: false },
+];
+
 const STEPS = [
   'Revisa las alertas de arriba y corrige lo que falte (facturas sin RUT, eventos sin definir quién factura).',
   'Entra a sii.cl con tu RUT y clave tributaria.',
@@ -88,6 +95,9 @@ function F29Tab({ monthKey }: { monthKey: string }) {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className={`rounded-full px-4 py-1.5 text-sm font-semibold ${st.c}`}>{st.l}</span>
+            {SII_LINKS.slice(0, 1).map((k) => (
+              <a key={k.href} href={k.href} target="_blank" rel="noopener noreferrer" className={`${pill} bg-pink-500 text-white`}>{k.l} ↗</a>
+            ))}
             <button type="button" onClick={printFolder} className={`${pill} bg-black/5 hover:bg-black/10`}><Printer className="w-4 h-4 inline mr-1" /> Carpeta del mes (PDF)</button>
           </div>
         </CardContent>
@@ -123,6 +133,12 @@ function F29Tab({ monthKey }: { monthKey: string }) {
       <Card className="admin-clay border-0">
         <CardHeader><CardTitle>Paso a paso en sii.cl</CardTitle></CardHeader>
         <CardContent>
+          <div className="flex flex-wrap gap-2 mb-4">
+            {SII_LINKS.map((k) => (
+              <a key={k.href} href={k.href} target="_blank" rel="noopener noreferrer"
+                className={`${pill} ${k.primary ? 'bg-pink-500 text-white' : 'bg-black/5 hover:bg-black/10'}`}>{k.l} ↗</a>
+            ))}
+          </div>
           <ol className="space-y-2 text-sm list-decimal pl-5">{STEPS.map((s) => <li key={s}>{s}</li>)}</ol>
           <div className="mt-5 pt-4 border-t border-black/5 flex flex-wrap items-end gap-2">
             <div><p className="text-xs text-[var(--admin-muted)] mb-1">Folio</p><Input className="w-40" placeholder={m.period.folio ?? 'N° de folio'} value={folio} onChange={(e) => setFolio(e.target.value)} /></div>
