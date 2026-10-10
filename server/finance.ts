@@ -204,6 +204,24 @@ export async function getEventCostChecklist(eventId: number) {
   };
 }
 
+/** Ventas del evento por canal (web vs. barra/caja) con neto e IVA de cada una.
+ * Sin lo pagado con saldo PlayCard: ya se contó cuando se recargó. */
+export async function getEventChannelSplit(eventId: number) {
+  const conn = await db.getDb();
+  if (!conn) return null;
+  const rows = (await conn.select({
+    total: orders.total, channel: orders.channel, paymentMethod: orders.paymentMethod,
+    missionTopupStatus: orders.missionTopupStatus, missionTopupAmount: orders.missionTopupAmount,
+  }).from(orders).where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, "approved")))) as any[];
+  const acc = { web: 0, caja: 0 };
+  for (const o of rows) {
+    if (isPrepaidSpend(o) || o.channel === "import") continue;
+    acc[o.channel === "web" ? "web" : "caja"] += Number(o.total) + (o.missionTopupStatus === "paid" ? Number(o.missionTopupAmount ?? 0) : 0);
+  }
+  const part = (gross: number) => ({ gross, iva: Math.round((gross * 19) / 119), net: gross - Math.round((gross * 19) / 119) });
+  return { web: part(acc.web), caja: part(acc.caja) };
+}
+
 /** IVA a apartar y plata libre del evento. null si el evento no va en tu F29. */
 export async function getEventTaxReserve(eventId: number, pnl: RealPnl) {
   const event = await db.getEventById(eventId);
@@ -212,6 +230,7 @@ export async function getEventTaxReserve(eventId: number, pnl: RealPnl) {
   const cfg = await getSiiConfig();
   return {
     applies: true as const, issuer, ppmConfigured: cfg.ppmRatePercent !== null,
+    channels: await getEventChannelSplit(eventId),
     ...taxReserve({
       grossIncome: pnl.grossIncome, debito: pnl.iva.debitoFiscal, credito: pnl.iva.creditoFiscal,
       ppmRatePercent: cfg.ppmRatePercent, retencion: (pnl as any).staffRetentionTotal ?? 0,

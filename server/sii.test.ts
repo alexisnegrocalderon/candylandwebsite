@@ -205,3 +205,11 @@ describe("modo 'como declaro hoy' (sin ventas web)", () => {
     expect(normalizeSiiConfig({ webSalesInF29: false }).webSalesInF29).toBe(false);
   });
 });
+
+describe("neto sin IVA por canal", () => {
+  it("con IVA = neto + IVA, sin perder un peso", () => {
+    const r = aggregateMonthSales([{ orderId: 1, eventId: 1, amount: 119_000, channel: "web" }, { orderId: 2, eventId: 1, amount: 33_333, channel: "caja" }], new Map([[1, { title: "A", taxIssuer: "mansion" }]]), false);
+    for (const c of [r.channels.web, r.channels.caja]) expect(c.gross - c.iva + c.iva).toBe(c.gross);
+    expect(r.channels.web.gross - r.channels.web.iva).toBe(100_000);
+  });
+});

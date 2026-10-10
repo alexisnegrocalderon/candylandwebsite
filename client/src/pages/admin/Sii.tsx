@@ -132,8 +132,8 @@ function F29Tab({ monthKey }: { monthKey: string }) {
           {([['Ventas web', m.channels.web], ['Barra y caja (presencial)', m.channels.caja]] as const).map(([label, c]) => (
             <div key={label} className="admin-clay-sm p-3">
               <p className="text-xs text-[var(--admin-muted)]">{label} · {c.orders} venta{c.orders === 1 ? '' : 's'}</p>
-              <p className="font-heading text-xl tabular-nums">{money(c.gross)}</p>
-              <p className="text-xs text-[var(--admin-muted)]">IVA de esta parte: <strong>{money(c.iva)}</strong></p>
+              <p className="font-heading text-xl tabular-nums">{money(c.gross)} <span className="text-xs font-normal text-[var(--admin-muted)]">con IVA</span></p>
+              <p className="text-xs text-[var(--admin-muted)]">Neto sin IVA <strong>{money(c.gross - c.iva)}</strong> · IVA <strong>{money(c.iva)}</strong></p>
             </div>
           ))}
         </CardContent>
@@ -383,7 +383,8 @@ function RegularizeTab() {
               <div key={m.monthKey} className="admin-clay-sm p-3 space-y-2">
                 <div className="flex flex-wrap items-center gap-3 text-sm">
                   <span className="font-medium w-36">{monthLabel(m.monthKey)}</span>
-                  <span>Ventas web <strong>{money(m.webGross)}</strong></span>
+                  <span>Ventas web (con IVA) <strong>{money(m.webGross)}</strong></span>
+                  <span>Neto sin IVA <strong>{money(m.webGross - m.webIva)}</strong></span>
                   <span>IVA <strong>{money(m.webIva)}</strong></span>
                   <span className={`text-xs rounded-full px-2 py-0.5 ${overdue ? 'bg-red-500/15 text-red-700' : 'bg-sky-500/15 text-sky-800'}`}>{overdue ? `F29 venció el ${ddmmyyyy(m.dueDate)}` : `F29 vence el ${ddmmyyyy(m.dueDate)}: declarar con las ventas web`}</span>
                 </div>
