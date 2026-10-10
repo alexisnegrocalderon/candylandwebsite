@@ -301,6 +301,17 @@ function TaxReserveCard({ tax }: { tax: any }) {
             <p className="text-xs text-[var(--admin-muted)]">Lo cobrado menos lo que va al SII (aún sin descontar tus costos)</p>
           </div>
         </div>
+        {tax.channels && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {([['Ventas web', tax.channels.web], ['Barra y caja', tax.channels.caja]] as const).map(([label, c]) => (
+              <div key={label} className="admin-clay-sm p-3 text-sm">
+                <p className="text-xs text-[var(--admin-muted)]">{label}</p>
+                <p className="font-heading text-lg tabular-nums">{money(c.gross)} <span className="text-xs font-normal text-[var(--admin-muted)]">con IVA</span></p>
+                <p className="text-xs text-[var(--admin-muted)]">Neto sin IVA <strong>{money(c.net)}</strong> · IVA <strong>{money(c.iva)}</strong></p>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="space-y-1.5">
           {rows.map(([label, value, hint, strong]) => (
             <div key={label} className={`flex items-start justify-between gap-3 text-sm ${strong ? 'font-semibold border-t border-black/5 pt-1.5' : ''}`}>

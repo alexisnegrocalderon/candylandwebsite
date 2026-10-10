@@ -402,10 +402,10 @@ export async function buildAccountantCsv(): Promise<string> {
     const cur = facturas.get(k) ?? { total: 0, iva: 0, n: 0 };
     cur.total += Number(e.amountTotal); cur.iva += Number(e.ivaAmount); cur.n += 1; facturas.set(k, cur);
   }
-  const lines: string[][] = [["Mes", "Canal", "Evento", "Quién factura", "N° ventas", "Ventas brutas (IVA incluido)", "IVA de la venta (19/119)"]];
+  const lines: string[][] = [["Mes", "Canal", "Evento", "Quién factura", "N° ventas", "Ventas con IVA incluido", "Neto sin IVA", "IVA de la venta (19/119)"]];
   for (const [key, v] of Array.from(sales.entries()).sort(([a], [b]) => a.localeCompare(b))) {
     const [m, ch, title, issuer] = key.split("|");
-    lines.push([m, ch === "web" ? "Web" : ch === "caja" ? "Barra / caja" : ch, title, issuer, String(v.orders), String(Math.round(v.gross)), String(Math.round((v.gross * 19) / 119))]);
+    lines.push([m, ch === "web" ? "Web" : ch === "caja" ? "Barra / caja" : ch, title, issuer, String(v.orders), String(Math.round(v.gross)), String(Math.round(v.gross - (v.gross * 19) / 119)), String(Math.round((v.gross * 19) / 119))]);
   }
   lines.push([], ["Mes", "Comisión Mercado Pago (cobros sincronizados)", "IVA recuperable estimado (solo si te emite factura)", "Facturas de compra (N°)", "Compras con factura (IVA incl.)", "IVA crédito de facturas"]);
   const months = Array.from(new Set([...Array.from(mpFees.keys()), ...Array.from(facturas.keys())])).sort();
