@@ -3223,6 +3223,12 @@ export const appRouter = router({
       await db.recordAdminAudit({ action: `sii.f29.${input.status}`, targetType: 'taxPeriod', payload: input, ip: clientIp(ctx) });
       return r;
     }),
+    saveProposal: adminProcedure.input(z.object({ monthKey: z.string().regex(/^\d{4}-\d{2}$/), amount: z.number().int().min(0).nullable() })).mutation(async ({ input, ctx }) => {
+      const r = await siiSvc.saveSiiProposal(input.monthKey, input.amount);
+      await db.recordAdminAudit({ action: 'sii.saveProposal', targetType: 'taxPeriod', payload: input, ip: clientIp(ctx) });
+      return r;
+    }),
+    learning: adminProcedure.query(() => siiSvc.getSiiLearning()),
     honorariosYear: adminProcedure.input(z.object({ year: z.number().int().min(2020).max(2100) })).query(({ input }) => siiSvc.getHonorariosYear(input.year)),
     calendar: adminProcedure.input(z.object({ year: z.number().int().min(2020).max(2100) })).query(({ input }) => siiSvc.getTaxCalendar(input.year)),
     config: adminProcedure.query(() => siiSvc.getSiiConfig()),

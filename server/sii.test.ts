@@ -90,3 +90,39 @@ describe("aggregateMonthSales (qué entra al F29)", () => {
     expect(r.exempt).toBe(100_000 + 30_000);
   });
 });
+
+import { compareWithProposal, learnFromPeriods } from "../shared/sii";
+describe("compareWithProposal", () => {
+  it("exacto, cerca y distinto", () => {
+    expect(compareWithProposal(150_000, 150_000).level).toBe("ok");
+    expect(compareWithProposal(150_000, 151_500).level).toBe("cerca");
+    const d = compareWithProposal(150_000, 190_000);
+    expect(d.level).toBe("distinto");
+    expect(d.diff).toBe(40_000);
+    expect(d.message).toContain("MÁS");
+    expect(compareWithProposal(150_000, 100_000).message).toContain("MENOS");
+  });
+});
+
+describe("learnFromPeriods", () => {
+  const lines = (iva: number, ret: number, base: number) => [{ code: "89", value: iva }, { code: "151", value: ret }, { code: "563", value: base }];
+  it("deduce el PPM real de lo pagado y sugiere usarlo", () => {
+    // pagó 142.500 = IVA 140.000 + ret 0 + PPM 2.500 sobre base 1.000.000 → 0,25 %
+    const r = learnFromPeriods([{ monthKey: "2026-09", estimate: 140_000, paid: 142_500, lines: lines(140_000, 0, 1_000_000) }], null);
+    expect(r.impliedPpmPercent).toBe(0.25);
+    expect(r.suggestedPpmPercent).toBe(0.25);
+    expect(r.history[0].diff).toBe(2_500);
+  });
+  it("si el PPM configurado ya coincide, no sugiere nada", () => {
+    const r = learnFromPeriods([{ monthKey: "2026-09", estimate: 142_500, paid: 142_500, lines: lines(140_000, 0, 1_000_000) }], 0.25);
+    expect(r.suggestedPpmPercent).toBeNull();
+    expect(r.avgAbsErrorPercent).toBe(0);
+  });
+  it("sin meses pagados no hay historial", () => {
+    expect(learnFromPeriods([{ monthKey: "2026-09", estimate: null, paid: null, lines: null }], null).history).toEqual([]);
+  });
+  it("avisa si el error promedio supera 5 %", () => {
+    const r = learnFromPeriods([{ monthKey: "2026-08", estimate: 100_000, paid: 120_000, lines: null }], 0.25);
+    expect(r.message).toContain("desviamos");
+  });
+});

@@ -14,8 +14,8 @@ import { monthKeyFor } from "../shared/ambassadorProgram";
 import { cashCollectedFromOrders, isPrepaidSpend } from "../shared/expenses";
 import { honorariosBreakdown } from "../shared/honorarios";
 import {
-  aggregateMonthSales, computeF29, f29DueDateFor, monthLabel, normalizeSiiConfig, obligationsForYear, previousMonthKey, reminderFor,
-  type Obligation, type SiiConfig,
+  aggregateMonthSales, compareWithProposal, computeF29, learnFromPeriods, f29DueDateFor, monthLabel, normalizeSiiConfig, obligationsForYear, previousMonthKey, reminderFor,
+  type Obligation, type PeriodRecord, type SiiConfig,
 } from "../shared/sii";
 import { sendEmail, buildFinanceDigestEmail } from "./email";
 import { sendPushToAdmins } from "./push";
@@ -117,8 +117,14 @@ export async function getF29Month(monthKey: string) {
   if (cfg.ppmRatePercent === null) alerts.push({ level: "warning", text: "La tasa de PPM no está configurada (Ajustes). Confírmala una vez con un contador o en tu F29 anterior." });
   if (!prev && f29.debito > 0) alerts.push({ level: "info", text: `No tienes registrado el F29 de ${monthLabel(previousMonthKey(monthKey))}: si te quedó remanente de crédito, no se está sumando.` });
 
+  const snapshot: any = (period as any)?.snapshot ?? null;
+  const siiProposal: number | null = typeof snapshot?.siiProposal === "number" ? snapshot.siiProposal : null;
+  const comparison = siiProposal !== null ? compareWithProposal(f29.total, siiProposal) : null;
+  if (comparison && comparison.level !== "ok") alerts.push({ level: comparison.level === "distinto" ? "danger" : "info", text: comparison.message });
+
   return {
     monthKey, label: monthLabel(monthKey), dueDate: f29DueDateFor(monthKey, cfg.f29DueDay), config: cfg,
+    siiProposal, comparison,
     salesTaxableGross, salesExempt, creditoFacturas, retencionHonorarios,
     salesByEvent: byEventList,
     facturas: facturas.map((e) => ({ id: e.id, date: e.expenseDate, supplier: e.supplier, supplierRut: e.supplierRut, total: Number(e.amountTotal), iva: Number(e.ivaAmount), hasReceipt: !!e.receiptUrl, description: e.description })),
@@ -172,7 +178,7 @@ export async function markF29(monthKey: string, p: { status: "pendiente" | "decl
     amountPaid: p.amountPaid ?? null,
     notes: p.notes ?? null,
     remanente: data.f29.remanenteSiguiente,
-    snapshot: { lines: data.f29.lines, total: data.f29.total, savedAt: now.toISOString() },
+    snapshot: { lines: data.f29.lines, total: data.f29.total, savedAt: now.toISOString(), siiProposal: data.siiProposal },
     declaredAt: p.status === "pendiente" ? null : now,
     paidAt: p.status === "pagado" ? now : null,
   };
@@ -184,6 +190,31 @@ export async function markF29(monthKey: string, p: { status: "pendiente" | "decl
     await conn.insert(taxPeriods).values({ monthKey, ...values });
   }
   return { success: true };
+}
+
+/** Guarda (o borra) el monto que muestra la propuesta del SII para el mes. */
+export async function saveSiiProposal(monthKey: string, amount: number | null) {
+  const conn = await need();
+  const [existing] = await conn.select().from(taxPeriods).where(eq(taxPeriods.monthKey, monthKey)).limit(1);
+  const prev: any = (existing as any)?.snapshot ?? {};
+  const snapshot = { ...prev, siiProposal: amount };
+  if (existing) await conn.update(taxPeriods).set({ snapshot }).where(eq(taxPeriods.id, (existing as any).id));
+  else await conn.insert(taxPeriods).values({ monthKey, status: "pendiente", remanente: 0, snapshot } as any);
+  return { success: true };
+}
+
+/** Precisión de nuestro cálculo frente a lo realmente pagado, y PPM implícito. */
+export async function getSiiLearning() {
+  const conn = await need();
+  const cfg = await getSiiConfig();
+  const rows = (await conn.select().from(taxPeriods)) as any[];
+  const records: PeriodRecord[] = rows.filter((r) => r.status === "pagado").map((r) => ({
+    monthKey: r.monthKey,
+    estimate: typeof r.snapshot?.total === "number" ? r.snapshot.total : null,
+    paid: r.amountPaid ?? null,
+    lines: Array.isArray(r.snapshot?.lines) ? r.snapshot.lines.map((l: any) => ({ code: l.code, value: l.value })) : null,
+  }));
+  return learnFromPeriods(records, cfg.ppmRatePercent);
 }
 
 /** Calendario del año con el estado de cada obligación. */
@@ -240,10 +271,22 @@ export async function runSiiReminders(now: Date = new Date()) {
     if (o.kind !== "f29" && kind === "vencido") kind = null;
     if (!kind) continue;
     let body = REMINDER_TEXT[kind](o);
+    const rows: { label: string; value: string; tone?: "good" | "bad" | "warn" }[] = [
+      { label: "Vence", value: o.dueDate.split("-").reverse().join("-"), tone: kind === "vencido" || kind === "hoy" ? "bad" : "warn" },
+    ];
+    let alerts: string[] = [];
     if (o.kind === "f29" && o.period) {
       try {
         const m = await getF29Month(o.period);
+        rows.push({ label: "Total sugerido a pagar", value: m.f29.sinMovimiento ? "$0 (sin movimiento)" : clp(m.f29.total) });
+        if (!m.f29.sinMovimiento) {
+          rows.push({ label: "IVA", value: clp(m.f29.ivaDeterminado) }, { label: "Retención de honorarios", value: clp(m.f29.retencion) });
+          if (m.f29.ppm !== null) rows.push({ label: "PPM", value: clp(m.f29.ppm) });
+        }
+        if (m.comparison) rows.push({ label: "Propuesta del SII", value: clp(m.comparison.proposal), tone: m.comparison.level === "distinto" ? "bad" : "good" });
+        alerts = m.alerts.filter((a) => a.level !== "info").map((a) => a.text);
         body += m.f29.sinMovimiento ? " Este mes no tiene movimiento: igual hay que declararlo (sin movimiento)." : ` Total sugerido: ${clp(m.f29.total)}.`;
+        if (alerts.length) body += ` ${alerts.length} cosa(s) por revisar.`;
       } catch { /* el aviso sale igual */ }
     }
     const subject = `🧾 SII: ${o.title} (${kind})`;
@@ -251,7 +294,7 @@ export async function runSiiReminders(now: Date = new Date()) {
     await sendPushToAdmins("siiReminders", { title: "🧾 SII", body, url: "/admin" } as any);
     await sendEmail({
       to: ADMIN_NOTIFICATION_EMAIL, subject,
-      html: buildFinanceDigestEmail({ title: `🧾 ${o.title}`, subtitle: body, rows: [{ label: "Vence", value: o.dueDate.split("-").reverse().join("-"), tone: kind === "vencido" || kind === "hoy" ? "bad" : "warn" }], link: "https://mansionplayroom.cl/admin" }),
+      html: buildFinanceDigestEmail({ title: `🧾 ${o.title}`, subtitle: REMINDER_TEXT[kind](o), rows, alerts, link: "https://mansionplayroom.cl/admin" }),
     });
     sent.push(o.key + ":" + kind);
   }

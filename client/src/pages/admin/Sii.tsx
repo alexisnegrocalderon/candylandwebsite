@@ -103,6 +103,9 @@ function F29Tab({ monthKey }: { monthKey: string }) {
         </CardContent>
       </Card>
 
+
+      <ProposalCard monthKey={monthKey} m={m} isDemo={isDemo} />
+
       {m.alerts.length > 0 && (
         <div className="space-y-2">
           {m.alerts.map((a, i) => (
@@ -184,6 +187,88 @@ function F29Tab({ monthKey }: { monthKey: string }) {
         </Card>
       </div>
     </div>
+  );
+}
+
+/** Compara nuestro total con el monto que muestra la propuesta del F29 en sii.cl. */
+function ProposalCard({ monthKey, m, isDemo }: { monthKey: string; m: any; isDemo: boolean }) {
+  const utils = trpc.useUtils();
+  const [val, setVal] = useState('');
+  const save = trpc.sii.saveProposal.useMutation({
+    onSuccess: () => { utils.sii.month.invalidate(); setVal(''); toast.success('Propuesta guardada'); },
+    onError: onErr,
+  });
+  const c = m.comparison;
+  const tone = !c ? '' : c.level === 'ok' ? 'bg-emerald-500/10 text-emerald-800' : c.level === 'cerca' ? 'bg-sky-500/10 text-sky-800' : 'bg-red-500/10 text-red-700';
+  return (
+    <Card className="admin-clay border-0">
+      <CardHeader>
+        <CardTitle>Compara con la propuesta del SII</CardTitle>
+        <p className="text-sm text-[var(--admin-muted)]">Al entrar a Mi SII, el F29 muestra una propuesta con el total a pagar. Anótalo y el sistema te dice si calza con el cálculo de aquí.</p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <p className="text-xs text-[var(--admin-muted)] mb-1">Total a pagar según el SII</p>
+            <Input className="w-44" type="number" inputMode="numeric" placeholder={m.siiProposal != null ? String(m.siiProposal) : 'Ej: 152000'} value={val} onChange={(e) => setVal(e.target.value)} />
+          </div>
+          <button type="button" disabled={isDemo || save.isPending || val === ''} className={`${pill} bg-pink-500 text-white`}
+            onClick={() => save.mutate({ monthKey, amount: Math.max(0, Math.round(Number(val) || 0)) })}>Comparar</button>
+          {m.siiProposal != null && (
+            <button type="button" disabled={isDemo || save.isPending} className={`${pill} bg-black/5`} onClick={() => save.mutate({ monthKey, amount: null })}>Borrar</button>
+          )}
+        </div>
+        {c && (
+          <div className={`rounded-xl px-4 py-3 text-sm ${tone}`}>
+            <p className="font-semibold">SII {money(c.proposal)} · nuestro cálculo {money(c.estimate)}{c.diff !== 0 ? ` · diferencia ${money(c.diff)}` : ''}</p>
+            <p>{c.message}</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Precisión del cálculo frente a lo realmente pagado y sugerencia de PPM. */
+function LearningCard() {
+  const isDemo = useIsDemo();
+  const utils = trpc.useUtils();
+  const { data } = trpc.sii.learning.useQuery();
+  const apply = trpc.sii.saveConfig.useMutation({ onSuccess: () => { utils.sii.invalidate(); toast.success('PPM actualizado'); }, onError: onErr });
+  if (!data || data.history.length === 0) {
+    return (
+      <Card className="admin-clay border-0">
+        <CardHeader><CardTitle>Precisión del cálculo</CardTitle></CardHeader>
+        <CardContent><p className="text-sm text-[var(--admin-muted)]">Cuando marques un mes como <strong>Pagado</strong> con el monto real, aquí verás cuánto nos desviamos y si tu PPM real es distinto al configurado.</p></CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card className="admin-clay border-0">
+      <CardHeader>
+        <CardTitle>Precisión del cálculo</CardTitle>
+        <p className="text-sm text-[var(--admin-muted)]">{data.avgAbsErrorPercent !== null ? `Desviación promedio: ${data.avgAbsErrorPercent}% sobre lo realmente pagado.` : ''}</p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {data.message && (
+          <div className="rounded-xl px-4 py-3 text-sm bg-amber-500/15 text-amber-800 flex flex-wrap items-center justify-between gap-2">
+            <span>{data.message}</span>
+            {data.suggestedPpmPercent !== null && (
+              <button type="button" disabled={isDemo || apply.isPending} className={`${pill} bg-pink-500 text-white`}
+                onClick={() => apply.mutate({ ppmRatePercent: data.suggestedPpmPercent })}>Usar {data.suggestedPpmPercent}% como mi PPM</button>
+            )}
+          </div>
+        )}
+        {data.history.map((h) => (
+          <div key={h.monthKey} className="admin-clay-sm p-3 flex flex-wrap items-center gap-3 text-sm">
+            <span className="font-medium w-36">{monthLabel(h.monthKey)}</span>
+            <span>Calculado <strong>{money(h.estimate)}</strong></span>
+            <span>Pagado <strong>{money(h.paid)}</strong></span>
+            <span className={h.diff === 0 ? 'text-emerald-700' : 'text-[var(--admin-muted)]'}>{h.diff === 0 ? 'Exacto ✓' : `Diferencia ${money(h.diff)}`}</span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -386,6 +471,7 @@ export default function SiiView() {
       </div>
 
       {tab === 'f29' && <F29Tab monthKey={monthKey} />}
+      {tab === 'f29' && <LearningCard />}
       {tab === 'honorarios' && <HonorariosTab monthKey={monthKey} />}
       {tab === 'calendario' && <CalendarTab />}
       {tab === 'ajustes' && <SettingsTab />}

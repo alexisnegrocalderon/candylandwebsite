@@ -213,3 +213,84 @@ export function aggregateMonthSales(sales: SaleForF29[], eventsById: Map<number,
   }
   return { taxableGross, exempt, byEvent: Array.from(byEvent.values()).sort((a, b) => b.amount - a.amount) };
 }
+
+/* ─── Comparar con la propuesta del SII y aprender de cada mes ──── */
+
+export type ProposalComparison = {
+  proposal: number;
+  estimate: number;
+  diff: number; // propuesta del SII − nuestro cálculo
+  level: 'ok' | 'cerca' | 'distinto';
+  message: string;
+};
+
+/** Compara nuestro total con el que muestra la propuesta del SII. Una
+ * diferencia pequeña (hasta 2 % o $1.000) se considera "cerca". */
+export function compareWithProposal(estimate: number, proposal: number): ProposalComparison {
+  const diff = Math.round(proposal) - Math.round(estimate);
+  const tolerance = Math.max(1000, Math.abs(proposal) * 0.02);
+  const level = diff === 0 ? 'ok' : Math.abs(diff) <= tolerance ? 'cerca' : 'distinto';
+  const fmt = (n: number) => `$${Math.abs(Math.round(n)).toLocaleString('es-CL')}`;
+  const message = level === 'ok'
+    ? 'Calza exacto con la propuesta del SII.'
+    : diff > 0
+      ? `El SII propone ${fmt(diff)} MÁS que nuestro cálculo. Suele ser por ventas o boletas que el SII ya tiene registradas y aquí no, o por facturas de compra que no están en el Registro de Compras.`
+      : `El SII propone ${fmt(diff)} MENOS que nuestro cálculo. Suele ser por créditos (facturas de compra) que el SII ya tiene y aquí no cargaste, o ventas de eventos que factura otro.`;
+  return { proposal: Math.round(proposal), estimate: Math.round(estimate), diff, level, message };
+}
+
+export type PeriodRecord = {
+  monthKey: string;
+  /** Nuestro total sugerido al declarar. */
+  estimate: number | null;
+  /** Lo que de verdad se pagó. */
+  paid: number | null;
+  /** Casillas guardadas al declarar (para deducir el PPM real). */
+  lines: { code: string; value: number }[] | null;
+};
+
+export type SiiLearning = {
+  history: { monthKey: string; estimate: number; paid: number; diff: number; diffPercent: number | null }[];
+  avgAbsErrorPercent: number | null;
+  impliedPpmPercent: number | null;
+  suggestedPpmPercent: number | null;
+  message: string | null;
+};
+
+function median(xs: number[]): number {
+  const a = [...xs].sort((x, y) => x - y);
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+
+/** Aprende de los meses ya pagados: cuánto nos desviamos del monto real y qué
+ * tasa de PPM implica lo que se pagó (total − IVA − retención ÷ base). */
+export function learnFromPeriods(periods: PeriodRecord[], currentPpm: number | null): SiiLearning {
+  const done = periods.filter((p) => p.estimate !== null && p.paid !== null).sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+  const history = done.map((p) => {
+    const diff = (p.paid as number) - (p.estimate as number);
+    return { monthKey: p.monthKey, estimate: p.estimate as number, paid: p.paid as number, diff, diffPercent: (p.paid as number) > 0 ? Math.round((diff / (p.paid as number)) * 1000) / 10 : null };
+  });
+  const pcts = history.map((h) => h.diffPercent).filter((x): x is number => x !== null).map(Math.abs);
+  const avgAbsErrorPercent = pcts.length ? Math.round((pcts.reduce((a, b) => a + b, 0) / pcts.length) * 10) / 10 : null;
+
+  const implied: number[] = [];
+  for (const p of done) {
+    const code = (c: string) => p.lines?.find((l) => l.code === c)?.value ?? null;
+    const base = code('563'), iva = code('89'), ret = code('151');
+    if (base && base > 0 && iva !== null && ret !== null) {
+      const ppmReal = (p.paid as number) - iva - ret;
+      if (ppmReal >= 0) implied.push((ppmReal / base) * 100);
+    }
+  }
+  const last = implied.slice(-3);
+  const impliedPpmPercent = last.length ? Math.round(median(last) * 100) / 100 : null;
+  const suggestedPpmPercent = impliedPpmPercent !== null && impliedPpmPercent <= 10 && (currentPpm === null || Math.abs(currentPpm - impliedPpmPercent) > 0.05) ? impliedPpmPercent : null;
+
+  let message: string | null = null;
+  if (suggestedPpmPercent !== null) message = currentPpm === null
+    ? `Con lo que pagaste, tu PPM parece ser ${suggestedPpmPercent}%. Puedes usarlo para que el total sugerido sea más exacto.`
+    : `Con lo que pagaste, tu PPM real parece ser ${suggestedPpmPercent}% (tienes configurado ${currentPpm}%).`;
+  else if (avgAbsErrorPercent !== null && avgAbsErrorPercent > 5) message = `En promedio nos desviamos ${avgAbsErrorPercent}% del monto real: revisa facturas o eventos sin definir antes de declarar.`;
+  return { history, avgAbsErrorPercent, impliedPpmPercent, suggestedPpmPercent, message };
+}
