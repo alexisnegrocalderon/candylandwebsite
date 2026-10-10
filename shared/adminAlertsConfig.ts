@@ -34,6 +34,8 @@ export interface AdminAlertsConfig {
   financeWeeklyEmail: boolean;
   /** Meta de margen neto (%) que usa Finanzas para el veredicto, los consejos y las alertas. */
   financeMarginTargetPercent: number;
+  /** Avisos de vencimientos del SII (F29, DJ, renta, patente). Prendido por defecto: evita multas. */
+  siiReminders: boolean;
   /** Avisa cuando a un producto le quedan esta cantidad de unidades o menos. */
   cajaLowStockUnits: number;
   /** Avisa de cualquier venta de caja por sobre este monto (CLP). */
@@ -49,6 +51,7 @@ export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
   dailyDigestEmail: false,
   pushCajaAlerts: false,
   cajaAiSummary: false,
+  siiReminders: true,
   financeMarginTargetPercent: 30,
   financeNightlyEmail: false,
   financeWeeklyEmail: false,
@@ -79,6 +82,7 @@ export function normalizeAdminAlertsConfig(raw: unknown): AdminAlertsConfig {
     dailyDigestEmail: partial.dailyDigestEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.dailyDigestEmail,
     pushCajaAlerts: partial.pushCajaAlerts ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushCajaAlerts,
     cajaAiSummary: partial.cajaAiSummary ?? DEFAULT_ADMIN_ALERTS_CONFIG.cajaAiSummary,
+    siiReminders: partial.siiReminders ?? DEFAULT_ADMIN_ALERTS_CONFIG.siiReminders,
     financeMarginTargetPercent: marginTarget(partial.financeMarginTargetPercent),
     financeNightlyEmail: partial.financeNightlyEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.financeNightlyEmail,
     financeWeeklyEmail: partial.financeWeeklyEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.financeWeeklyEmail,

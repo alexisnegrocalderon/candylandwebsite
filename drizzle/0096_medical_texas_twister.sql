@@ -1,0 +1,2 @@
+ALTER TABLE `staffShifts` ADD `paymentType` enum('transferencia','boleta_honorarios') DEFAULT 'transferencia' NOT NULL;--> statement-breakpoint
+ALTER TABLE `staffShifts` ADD `amountMode` enum('liquido','bruto') DEFAULT 'liquido' NOT NULL;
