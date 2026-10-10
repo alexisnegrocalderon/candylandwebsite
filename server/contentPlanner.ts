@@ -135,7 +135,7 @@ const SYSTEM_PROMPT = [
   'Las fechas de cada pieza tienen que estar DENTRO de la ventana indicada y en formato YYYY-MM-DD.',
 ].join('\n');
 
-async function resolveTargetEvent(targetEventId: number | undefined) {
+export async function resolveTargetEvent(targetEventId: number | undefined) {
   const event = targetEventId ? await getEventById(targetEventId) : await getFeaturedEvent();
   if (!event) throw new Error('No hay ningún evento publicado para planificar.');
   return event;

@@ -13,6 +13,7 @@ import { normalizeContentPlan, type ContentGoal, type ContentPiece, type Content
 import { designFromPiece } from '@shared/contentStudio';
 import { openInStudio } from '@/components/admin/studio/handoff';
 import { CaptionReviewBox, CaptionReviewCard } from '@/components/admin/CaptionReview';
+import { ReelScriptCard, ReelScriptForPiece } from '@/components/admin/ReelScript';
 
 /* Plan de contenido para Instagram (server/contentPlanner.ts): el calendario
  * de publicaciones hasta el próximo evento, con el texto listo para copiar.
@@ -155,6 +156,8 @@ export function ContentPlanView() {
         </>
       )}
 
+      <ReelScriptCard eventId={eventId ?? null} />
+
       <CaptionReviewCard />
     </div>
   );
@@ -189,6 +192,9 @@ function PieceCard({ piece, eventId }: { piece: ContentPiece; eventId: number })
           <p className="rounded-xl bg-muted/40 p-3 text-sm"><span className="font-medium">Qué grabar:</span> {piece.visual}</p>
         )}
         {piece.format !== 'historia' && <CaptionReviewBox caption={piece.caption} hashtags={piece.hashtags} />}
+        {piece.format === 'reel' && (
+          <ReelScriptForPiece seed={[piece.hook, piece.caption, piece.visual].filter(Boolean).join('\n')} eventId={eventId} />
+        )}
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => copyText(fullText, 'Texto')}>
             <Copy className="mr-2 h-4 w-4" /> Copiar el texto
