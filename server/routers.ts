@@ -80,6 +80,7 @@ import { BRAND } from "../shared/eventBrand";
 import * as staffSvc from "./staff";
 import { getEventFinanceReport, getEventLive } from "./finance";
 import { getCompanyYear, getPayables, markCommissionsPaid } from "./financeCompany";
+import { askFinance, buildNightSummary, buildWeeklySummary } from "./financeDirector";
 import { comparisonPdf as budgetComparisonPdf, singlePdf as budgetSinglePdf, loadSims as loadBudgetSims, slug as budgetSlug } from "./budgetReport";
 import { compareSimulations, formatPercent } from "../shared/budgetInsights";
 import { computeBudgetResult } from "../shared/eventBudget";
@@ -2247,6 +2248,8 @@ export const appRouter = router({
       dailyDigestEmail: z.boolean(),
       pushCajaAlerts: z.boolean().optional(),
       cajaAiSummary: z.boolean().optional(),
+      financeNightlyEmail: z.boolean().optional(),
+      financeWeeklyEmail: z.boolean().optional(),
       cajaLowStockUnits: z.number().int().min(0).max(10000).optional(),
       cajaHighSaleClp: z.number().int().min(0).optional(),
     })).mutation(async ({ input }) => {
@@ -3204,6 +3207,23 @@ export const appRouter = router({
       const r = await markCommissionsPaid(input.ambassadorId, input.paid);
       await db.recordAdminAudit({ action: input.paid ? 'finance.commissionsPaid' : 'finance.commissionsUnpaid', targetType: 'ambassador', targetId: input.ambassadorId, ip: clientIp(ctx) });
       return r;
+    }),
+    ask: adminProcedure.input(z.object({ question: z.string().trim().min(3).max(500) })).mutation(async ({ input }) => {
+      try {
+        return { answer: await askFinance(input.question) };
+      } catch (err) {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar la respuesta.' });
+      }
+    }),
+    // Para probar los correos sin esperar al cron: manda el de la noche más
+    // reciente (si hay) o el semanal, sin importar los interruptores.
+    sendDigestNow: adminProcedure.input(z.object({ kind: z.enum(['night', 'week']), eventId: z.number().int().positive().optional() })).mutation(async ({ input }) => {
+      const mail = input.kind === 'night'
+        ? await buildNightSummary(input.eventId ?? (await db.getFeaturedEvent())?.id ?? 0)
+        : await buildWeeklySummary(new Date());
+      if (!mail) return { sent: false, reason: 'No hay datos para armar el resumen' };
+      const r = await sendEmail({ to: ADMIN_NOTIFICATION_EMAIL, subject: mail.subject, html: mail.html });
+      return { sent: r.success, reason: r.success ? undefined : r.reason };
     }),
     staffList: adminProcedure.query(() => staffSvc.listStaff()),
     staffSave: adminProcedure.input(z.object({

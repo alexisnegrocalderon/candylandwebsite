@@ -9,6 +9,7 @@ import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { runFoundersPromoDaily } from "./foundersPromo";
 import { runTanda2PromoDaily } from "./tanda2Promo";
 import { runAdminDigest } from "./adminDigest";
+import { runFinanceDigest } from "./financeDirector";
 import { runCajaWatch } from "./caja/alerts";
 import { refreshInstagramToken } from "./instagramSend";
 import { syncInstagramStats } from "./instagramStats";
@@ -266,6 +267,19 @@ export function registerCronRoutes(app: Express) {
       res.json(await runCajaWatch());
     } catch (err) {
       console.error('[Cron] Error en el vigilante de caja:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  /* Director financiero: cierre de la noche (la mañana siguiente) y resumen
+   * de los lunes. Cada correo tiene su interruptor en Ajustes (apagados por
+   * defecto) y no se repite si el cron corre dos veces. */
+  app.get("/api/cron/finance-digest", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      res.json(await runFinanceDigest());
+    } catch (err) {
+      console.error('[Cron] Error en el resumen financiero:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
   });

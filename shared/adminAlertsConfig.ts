@@ -28,6 +28,10 @@ export interface AdminAlertsConfig {
   /** Resumen escrito por IA cada hora durante la fiesta (push) y correo al
    * cierre de la noche con todo lo que pasó en caja. */
   cajaAiSummary: boolean;
+  /** Correo con el resumen financiero de la noche, la mañana siguiente al evento. */
+  financeNightlyEmail: boolean;
+  /** Correo de los lunes con el mes, el año y lo que hay por pagar. */
+  financeWeeklyEmail: boolean;
   /** Avisa cuando a un producto le quedan esta cantidad de unidades o menos. */
   cajaLowStockUnits: number;
   /** Avisa de cualquier venta de caja por sobre este monto (CLP). */
@@ -43,6 +47,8 @@ export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
   dailyDigestEmail: false,
   pushCajaAlerts: false,
   cajaAiSummary: false,
+  financeNightlyEmail: false,
+  financeWeeklyEmail: false,
   cajaLowStockUnits: 10,
   cajaHighSaleClp: 100000,
 };
@@ -65,6 +71,8 @@ export function normalizeAdminAlertsConfig(raw: unknown): AdminAlertsConfig {
     dailyDigestEmail: partial.dailyDigestEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.dailyDigestEmail,
     pushCajaAlerts: partial.pushCajaAlerts ?? DEFAULT_ADMIN_ALERTS_CONFIG.pushCajaAlerts,
     cajaAiSummary: partial.cajaAiSummary ?? DEFAULT_ADMIN_ALERTS_CONFIG.cajaAiSummary,
+    financeNightlyEmail: partial.financeNightlyEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.financeNightlyEmail,
+    financeWeeklyEmail: partial.financeWeeklyEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.financeWeeklyEmail,
     cajaLowStockUnits: nonNegativeNumber(partial.cajaLowStockUnits, DEFAULT_ADMIN_ALERTS_CONFIG.cajaLowStockUnits),
     cajaHighSaleClp: nonNegativeNumber(partial.cajaHighSaleClp, DEFAULT_ADMIN_ALERTS_CONFIG.cajaHighSaleClp),
   };
