@@ -25,7 +25,7 @@ const outDir = join(import.meta.dirname, '..', 'dist', 'public');
 const baseHtml = readFileSync(join(outDir, 'index.html'), 'utf-8');
 
 const SCREENS = [
-  { file: 'admin.html', manifest: '/admin.webmanifest', title: 'Admin', appleTouchIcon: '/app-icons/admin/icon-180.png' },
+  { file: 'admin.html', manifest: '/admin.webmanifest', title: 'Admin', appleTouchIcon: '/app-icons/admin/icon-180.png?v=3' },
   { file: 'caja.html', manifest: '/caja.webmanifest', title: 'Caja', appleTouchIcon: '/app-icons/caja/icon-180.png' },
   { file: 'puerta.html', manifest: '/puerta.webmanifest', title: 'Puerta', appleTouchIcon: '/app-icons/puerta/icon-180.png' },
   // Ícono propio: con las cuatro apps instaladas en la misma pantalla de
