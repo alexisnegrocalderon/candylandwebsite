@@ -94,6 +94,7 @@ import { getIgCustomerLinkState } from "./igCustomerLink";
 import { AGENT_SITE_PAGES } from "./agentLinks";
 import { generateReelScript } from "./reelScript";
 import { generateProfileAudit } from "./profileAudit";
+import { syncInstagramStats } from "./instagramStats";
 import { issueAccessCreditsForOrder, listAccessCredits, listCreditsByOrderIds, remindAccessCredit } from "./accessCredit";
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
@@ -2167,6 +2168,14 @@ export const appRouter = router({
   settings: router({
     get: publicProcedure.query(async () => {
       return db.getSiteSettings();
+    }),
+    /* Trae de Instagram los seguidores y publicaciones del footer (gratis, sin IA). */
+    syncInstagram: adminProcedure.mutation(async () => {
+      try {
+        return await syncInstagramStats();
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo actualizar desde Instagram.' });
+      }
     }),
     update: adminProcedure.input(z.object({
       instagramFollowers: z.number().optional(),

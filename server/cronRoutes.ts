@@ -11,6 +11,7 @@ import { runTanda2PromoDaily } from "./tanda2Promo";
 import { runAdminDigest } from "./adminDigest";
 import { runCajaWatch } from "./caja/alerts";
 import { refreshInstagramToken } from "./instagramSend";
+import { syncInstagramStats } from "./instagramStats";
 import { runInstagramFollowUps } from "./instagramFollowUp";
 import { runWhatsAppFollowUps } from "./whatsappFollowUp";
 import { runAgentAutoResume } from "./agentAutoResume";
@@ -147,7 +148,15 @@ export function registerCronRoutes(app: Express) {
       console.error('[Cron] Error limpiando conversaciones viejas de WhatsApp:', err);
     }
 
-    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, igThreadsPurged, waThreadsPurged });
+    // Seguidores/publicaciones del footer: si Meta falla queda el último número bueno.
+    let instagramStats: { followers: number; posts: number } | null = null;
+    try {
+      instagramStats = await syncInstagramStats();
+    } catch (err) {
+      console.error('[Cron] No se pudo actualizar los seguidores de Instagram:', err);
+    }
+
+    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, igThreadsPurged, waThreadsPurged, instagramStats });
   });
 
   /* Correo semanal de embajadores (docs: pestaña "Material" en /admin →
