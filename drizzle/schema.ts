@@ -700,12 +700,15 @@ export type AmbassadorProgramConfig = typeof ambassadorProgramConfig.$inferSelec
 export const ambassadorBenefitDeliveries = mysqlTable("ambassadorBenefitDeliveries", {
   id: int("id").autoincrement().primaryKey(),
   ambassadorId: int("ambassadorId").notNull(),
+  // Los beneficios se ganan POR EVENTO. Las filas anteriores a ese cambio
+  // quedan con eventId null (se marcaron por mes).
+  eventId: int("eventId"),
   monthKey: varchar("monthKey", { length: 7 }).notNull(),
   benefitKey: varchar("benefitKey", { length: 64 }).notNull(),
   note: text("note"),
   deliveredAt: timestamp("deliveredAt").defaultNow().notNull(),
 }, (t) => [
-  uniqueIndex("ambassadorBenefitDeliveries_unique").on(t.ambassadorId, t.monthKey, t.benefitKey),
+  uniqueIndex("ambassadorBenefitDeliveries_event_unique").on(t.ambassadorId, t.eventId, t.benefitKey),
 ]);
 
 export type AmbassadorBenefitDelivery = typeof ambassadorBenefitDeliveries.$inferSelect;

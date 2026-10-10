@@ -117,14 +117,15 @@ export async function updateProgramConfig(data: {
   return { success: true };
 }
 
-/** Cuántas ventas EXCLUSIVAS lleva un embajador en el mes. Es lo que define su
- * nivel: las ventas a clientes existentes no cuentan (decisión del dueño). */
-async function countExclusiveSalesInMonth(db: any, ambassadorId: number, monthKey: string): Promise<number> {
+/** Cuántas ventas EXCLUSIVAS lleva un embajador EN ESE EVENTO. Es lo que define
+ * su nivel: cada evento es su propia campaña y la escala parte de cero en
+ * cada uno. Las ventas a clientes existentes no cuentan (decisión del dueño). */
+async function countExclusiveSalesInEvent(db: any, ambassadorId: number, eventId: number): Promise<number> {
   const [row] = await db.select({ count: sql<number>`COUNT(*)` })
     .from(ambassadorCommissions)
     .where(and(
       eq(ambassadorCommissions.ambassadorId, ambassadorId),
-      eq(ambassadorCommissions.monthKey, monthKey),
+      eq(ambassadorCommissions.eventId, eventId),
       eq(ambassadorCommissions.clientType, 'exclusivo'),
     ));
   return Number(row?.count ?? 0);
@@ -189,10 +190,10 @@ export async function attributeAmbassadorSale(params: {
   const createdAt = order.createdAt ? new Date(order.createdAt) : new Date();
   const monthKey = monthKeyFor(createdAt);
 
-  // El número de esta venta dentro del mes fija el % y no se recalcula nunca
+  // El número de esta venta dentro del EVENTO fija el % y no se recalcula nunca
   // más: por eso la escala no es retroactiva.
   const salesRank = attribution.countsForTier
-    ? (await countExclusiveSalesInMonth(db, earner.id, monthKey)) + 1
+    ? (await countExclusiveSalesInEvent(db, earner.id, order.eventId)) + 1
     : 0;
 
   const percent = commissionPercentForSale({
@@ -248,7 +249,7 @@ export async function attributeAmbassadorSale(params: {
   console.log(
     `[Embajadores] Orden ${order.orderNumber}: ${earner.name} (${earner.code}) cobra ` +
     `$${commissionAmount.toLocaleString('es-CL')} = ${percent}% de $${baseAmount.toLocaleString('es-CL')} ` +
-    `· cliente ${attribution.clientType}${attribution.countsForTier ? ` · venta #${salesRank} del mes ${monthKey}` : ''}` +
+    `· cliente ${attribution.clientType}${attribution.countsForTier ? ` · venta #${salesRank} del evento ${order.eventId}` : ''}` +
     `${code && fromCode && owner && owner.ambassadorId !== earner.id ? ' · código cruzado' : ''}`,
   );
 
@@ -260,40 +261,43 @@ async function getAmbassadorById(db: any, id: number) {
   return row ?? null;
 }
 
-/** Estadísticas de un embajador para un mes, reusadas por su panel público,
- * el perfil del admin, el ranking y el correo semanal. */
-export async function getAmbassadorStats(ambassadorId: number, monthKey: string) {
+/** Estadísticas de un embajador para UN EVENTO, reusadas por su panel público,
+ * el perfil del admin, el ranking y el correo semanal. `totalCommission` y
+ * `totalSales` son del historial completo (todos los eventos). */
+export async function getAmbassadorStats(ambassadorId: number, eventId: number) {
   const db = await getDb();
   if (!db) return null;
 
   const all = await db.select().from(ambassadorCommissions)
     .where(eq(ambassadorCommissions.ambassadorId, ambassadorId));
 
-  const delMes = all.filter((c: any) => c.monthKey === monthKey);
-  const exclusivasDelMes = delMes.filter((c: any) => c.clientType === 'exclusivo');
+  const delEvento = all.filter((c: any) => c.eventId === eventId);
+  const exclusivasDelEvento = delEvento.filter((c: any) => c.clientType === 'exclusivo');
 
   const config = await getProgramConfig();
-  const monthlySales = exclusivasDelMes.length;
+  const eventSales = exclusivasDelEvento.length;
+  const [event] = await db.select({ title: events.title }).from(events).where(eq(events.id, eventId)).limit(1);
 
   const clientes = await db.select({ count: sql<number>`COUNT(*)` }).from(ambassadorClients)
     .where(eq(ambassadorClients.ambassadorId, ambassadorId));
 
   return {
-    monthKey,
-    monthlySales,
-    monthlyExistingSales: delMes.length - monthlySales,
-    monthlyRevenue: delMes.reduce((s: number, c: any) => s + Number(c.baseAmount), 0),
-    monthlyCommission: delMes.reduce((s: number, c: any) => s + Number(c.commissionAmount), 0),
+    eventId,
+    eventTitle: (event?.title as string | undefined) ?? '—',
+    eventSales,
+    eventExistingSales: delEvento.length - eventSales,
+    eventRevenue: delEvento.reduce((s: number, c: any) => s + Number(c.baseAmount), 0),
+    eventCommission: delEvento.reduce((s: number, c: any) => s + Number(c.commissionAmount), 0),
     totalCommission: all.reduce((s: number, c: any) => s + Number(c.commissionAmount), 0),
     totalSales: all.length,
     exclusiveClientsCount: Number(clientes[0]?.count ?? 0),
     existingClientsCount: new Set(
       all.filter((c: any) => c.clientType === 'existente').map((c: any) => c.customerEmail).filter(Boolean),
     ).size,
-    currentPercent: tierForSales(monthlySales, config.commissionScale)?.percent ?? config.commissionScale[0]?.percent ?? 0,
-    nextTarget: nextTierTarget(monthlySales, config.commissionScale),
-    benefits: unlockedBenefits(monthlySales, config.benefits),
-    nextBenefit: nextBenefit(monthlySales, config.benefits),
+    currentPercent: tierForSales(eventSales, config.commissionScale)?.percent ?? config.commissionScale[0]?.percent ?? 0,
+    nextTarget: nextTierTarget(eventSales, config.commissionScale),
+    benefits: unlockedBenefits(eventSales, config.benefits),
+    nextBenefit: nextBenefit(eventSales, config.benefits),
   };
 }
 
@@ -323,7 +327,10 @@ export async function getAmbassadorSales(ambassadorId: number, limit = 200) {
   return rows.map((r: any) => ({
     id: r.id,
     createdAt: r.createdAt,
+    eventId: r.eventId,
     eventTitle: titleById.get(r.eventId) ?? '—',
+    // Las filas anteriores al cambio a "por evento" se calcularon con la escala mensual.
+    monthKey: r.monthKey,
     orderNumber: orderById.get(r.orderId)?.orderNumber ?? null,
     customerName: orderById.get(r.orderId)?.buyerName ?? null,
     customerEmail: r.customerEmail,
@@ -392,6 +399,17 @@ export async function getAmbassadorEventStats(ambassadorId: number, eventId: num
   };
 }
 
+/** Ventas y comisión por evento, para el historial del panel. Pura. */
+export function summarizeSalesByEvent(sales: { eventId: number; eventTitle: string; commissionAmount: number }[]) {
+  const map = new Map<number, { eventId: number; eventTitle: string; sales: number; commission: number }>();
+  for (const s of sales) {
+    const cur = map.get(s.eventId) ?? { eventId: s.eventId, eventTitle: s.eventTitle, sales: 0, commission: 0 };
+    cur.sales += 1; cur.commission += s.commissionAmount;
+    map.set(s.eventId, cur);
+  }
+  return Array.from(map.values());
+}
+
 /** Panel público en /embajador/<CODIGO>. El código hace de llave: no hay
  * login de embajadores (mismo criterio que /mis-referidos). */
 export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
@@ -405,9 +423,9 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
     .where(eq(exclusiveAmbassadors.code, clean)).limit(1);
   if (!ambassador) return null;
 
-  const monthKey = monthKeyFor(now);
-  const stats = await getAmbassadorStats(ambassador.id, monthKey);
-  const sales = await getAmbassadorSales(ambassador.id, 50);
+  const featuredEvent = await getFeaturedEvent();
+  const stats = featuredEvent ? await getAmbassadorStats(ambassador.id, featuredEvent.id) : null;
+  const sales = await getAmbassadorSales(ambassador.id, 200);
   const config = await getProgramConfig();
 
   // `getAmbassadorStats` calcula el % siempre con la escala por tramos, sin
@@ -421,7 +439,6 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
   if (stats && overridePercent !== null) stats.currentPercent = overridePercent;
 
   const avgSalePrice = await getAmbassadorAvgSalePrice(ambassador.id);
-  const featuredEvent = await getFeaturedEvent();
   const eventStats = featuredEvent ? await getAmbassadorEventStats(ambassador.id, featuredEvent.id) : null;
 
   return {
@@ -436,64 +453,67 @@ export async function getAmbassadorPanel(code: string, now: Date = new Date()) {
     overridePercent,
     avgSalePrice,
     eventStats,
+    eventsHistory: summarizeSalesByEvent(sales),
     referralUrl: buildAmbassadorReferralUrl(featuredEvent, ambassador.code),
   };
 }
 
-/** Ranking: se ordena por CANTIDAD de ventas a clientes exclusivos, nunca por
- * dinero (pedido explícito del dueño). */
-export async function getAmbassadorRanking(monthKey: string) {
+/** Ranking de UN EVENTO: se ordena por CANTIDAD de ventas a clientes
+ * exclusivos, nunca por dinero (pedido explícito del dueño). */
+export async function getAmbassadorRanking(eventId: number) {
   const db = await getDb();
   if (!db) return [];
 
   const ambassadors = await db.select().from(exclusiveAmbassadors).orderBy(exclusiveAmbassadors.name);
-  const rows = await db.select().from(ambassadorCommissions).where(eq(ambassadorCommissions.monthKey, monthKey));
   const allRows = await db.select().from(ambassadorCommissions);
+  const rows = allRows.filter((r: any) => r.eventId === eventId);
 
   const ranking = ambassadors.map((a: any) => {
-    const delMes = rows.filter((r: any) => r.ambassadorId === a.id);
-    const exclusivas = delMes.filter((r: any) => r.clientType === 'exclusivo');
+    const delEvento = rows.filter((r: any) => r.ambassadorId === a.id);
+    const exclusivas = delEvento.filter((r: any) => r.clientType === 'exclusivo');
     return {
       id: a.id,
       name: a.name,
       code: a.code,
       active: a.active === 1,
       exclusiveSales: exclusivas.length,
-      existingSales: delMes.length - exclusivas.length,
-      monthlyRevenue: delMes.reduce((s: number, r: any) => s + Number(r.baseAmount), 0),
-      monthlyCommission: delMes.reduce((s: number, r: any) => s + Number(r.commissionAmount), 0),
+      existingSales: delEvento.length - exclusivas.length,
+      eventRevenue: delEvento.reduce((s: number, r: any) => s + Number(r.baseAmount), 0),
+      eventCommission: delEvento.reduce((s: number, r: any) => s + Number(r.commissionAmount), 0),
       totalCommission: allRows.filter((r: any) => r.ambassadorId === a.id).reduce((s: number, r: any) => s + Number(r.commissionAmount), 0),
     };
   });
 
   return ranking
-    .sort((a, b) => b.exclusiveSales - a.exclusiveSales || b.monthlyRevenue - a.monthlyRevenue)
+    .sort((a, b) => b.exclusiveSales - a.exclusiveSales || b.eventRevenue - a.eventRevenue)
     .map((r, i) => ({ position: i + 1, ...r }));
 }
 
-/** Resumen general del módulo en el admin. */
-export async function getAmbassadorAdminSummary(monthKey: string) {
+/** Resumen general del módulo en el admin, de UN EVENTO. */
+export async function getAmbassadorAdminSummary(eventId: number) {
   const db = await getDb();
   if (!db) {
     return {
-      monthKey, activeAmbassadors: 0, monthlySales: 0, monthlyRevenue: 0,
-      monthlyCommission: 0, newClients: 0, existingClients: 0, topAmbassador: null,
+      eventId, eventTitle: '—', activeAmbassadors: 0, eventSales: 0, eventRevenue: 0,
+      eventCommission: 0, newClients: 0, existingClients: 0, benefitsDelivered: 0, topAmbassador: null,
     };
   }
 
-  const ranking = await getAmbassadorRanking(monthKey);
-  const rows = await db.select().from(ambassadorCommissions).where(eq(ambassadorCommissions.monthKey, monthKey));
+  const ranking = await getAmbassadorRanking(eventId);
+  const rows = await db.select().from(ambassadorCommissions).where(eq(ambassadorCommissions.eventId, eventId));
   const exclusivas = rows.filter((r: any) => r.clientType === 'exclusivo');
   const top = ranking.find((r) => r.exclusiveSales > 0) ?? null;
   const deliveries = await db.select({ count: sql<number>`COUNT(*)` }).from(ambassadorBenefitDeliveries)
-    .where(eq(ambassadorBenefitDeliveries.monthKey, monthKey));
+    .where(eq(ambassadorBenefitDeliveries.eventId, eventId));
+  const [event] = await db.select({ title: events.title }).from(events).where(eq(events.id, eventId)).limit(1);
 
   return {
-    monthKey,
+    eventId,
+    eventTitle: (event?.title as string | undefined) ?? '—',
     activeAmbassadors: ranking.filter((r) => r.active).length,
-    monthlySales: rows.length,
-    monthlyRevenue: rows.reduce((s: number, r: any) => s + Number(r.baseAmount), 0),
-    monthlyCommission: rows.reduce((s: number, r: any) => s + Number(r.commissionAmount), 0),
+    eventSales: rows.length,
+    eventRevenue: rows.reduce((s: number, r: any) => s + Number(r.baseAmount), 0),
+    eventCommission: rows.reduce((s: number, r: any) => s + Number(r.commissionAmount), 0),
     newClients: exclusivas.length,
     existingClients: rows.length - exclusivas.length,
     benefitsDelivered: Number(deliveries[0]?.count ?? 0),
@@ -556,19 +576,22 @@ export async function listReferredClients() {
 
 // --- Beneficios entregados ---
 
-export async function listBenefitDeliveries(monthKey: string) {
+export async function listBenefitDeliveries(eventId: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(ambassadorBenefitDeliveries).where(eq(ambassadorBenefitDeliveries.monthKey, monthKey));
+  return db.select().from(ambassadorBenefitDeliveries).where(eq(ambassadorBenefitDeliveries.eventId, eventId));
 }
 
-export async function markBenefitDelivered(params: { ambassadorId: number; monthKey: string; benefitKey: string; note?: string }) {
+export async function markBenefitDelivered(params: { ambassadorId: number; eventId: number; benefitKey: string; note?: string }) {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
+  const [event] = await db.select({ eventDate: events.eventDate }).from(events).where(eq(events.id, params.eventId)).limit(1);
   try {
     await db.insert(ambassadorBenefitDeliveries).values({
       ambassadorId: params.ambassadorId,
-      monthKey: params.monthKey,
+      eventId: params.eventId,
+      // Columna heredada (NOT NULL): el mes del evento, solo como referencia.
+      monthKey: event?.eventDate ? monthKeyFor(event.eventDate) : monthKeyFor(new Date()),
       benefitKey: params.benefitKey,
       note: params.note,
     });
@@ -578,12 +601,12 @@ export async function markBenefitDelivered(params: { ambassadorId: number; month
   return { success: true };
 }
 
-export async function unmarkBenefitDelivered(params: { ambassadorId: number; monthKey: string; benefitKey: string }) {
+export async function unmarkBenefitDelivered(params: { ambassadorId: number; eventId: number; benefitKey: string }) {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
   await db.delete(ambassadorBenefitDeliveries).where(and(
     eq(ambassadorBenefitDeliveries.ambassadorId, params.ambassadorId),
-    eq(ambassadorBenefitDeliveries.monthKey, params.monthKey),
+    eq(ambassadorBenefitDeliveries.eventId, params.eventId),
     eq(ambassadorBenefitDeliveries.benefitKey, params.benefitKey),
   ));
   return { success: true };
@@ -672,9 +695,10 @@ export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
   const db = await getDb();
   if (!db) return { sent: 0, skipped: 0, failed: 0 };
 
-  const monthKey = monthKeyFor(now);
   const material = await getWeeklyMaterial();
   const featured = await getFeaturedEvent();
+  // Cada evento es su propia campaña: sin evento destacado no hay a qué resumir.
+  if (!featured) { console.log('[Embajadores] Correo semanal: no hay evento destacado.'); return { sent: 0, skipped: 0, failed: 0 }; }
   const materialLinks = resolveMaterialLinks(material);
 
   // Si el material no trae cuenta regresiva escrita a mano, se arma con los
@@ -691,15 +715,16 @@ export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
   for (const a of ambassadors) {
     if (!a.email) { skipped++; continue; }
     try {
-      const stats = await getAmbassadorStats(a.id, monthKey);
+      const stats = await getAmbassadorStats(a.id, featured.id);
       if (!stats) { skipped++; continue; }
 
       const html = buildAmbassadorWeeklyEmail({
         name: a.name,
         code: a.code,
-        monthlySales: stats.monthlySales,
-        monthlyExistingSales: stats.monthlyExistingSales,
-        monthlyCommission: stats.monthlyCommission,
+        eventTitle: featured.title,
+        eventSales: stats.eventSales,
+        eventExistingSales: stats.eventExistingSales,
+        eventCommission: stats.eventCommission,
         totalCommission: stats.totalCommission,
         currentPercent: stats.currentPercent,
         nextTarget: stats.nextTarget,
@@ -715,8 +740,8 @@ export async function sendWeeklyAmbassadorEmails(now: Date = new Date()) {
 
       const res = await sendEmail({
         to: a.email,
-        subject: stats.nextTarget && stats.monthlySales > 0
-          ? `🍬 ${a.name}, te faltan ${stats.nextTarget.salesNeeded} ventas para el ${stats.nextTarget.nextPercent}%`
+        subject: stats.nextTarget && stats.eventSales > 0
+          ? `🍬 ${a.name}, te faltan ${stats.nextTarget.salesNeeded} ventas para el ${stats.nextTarget.nextPercent}% en ${featured.title}`
           : `🍬 Tu resumen de embajador — ${a.name}`,
         html,
       });

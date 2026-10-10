@@ -676,7 +676,7 @@ export default function FinanzasView() {
                 {[
                   ['Estacionamiento al local', rep.payables.parkingVenue, 'Lo que le debes al local por los autos'],
                   ['Staff sin pagar', rep.payables.staffUnpaid, 'Turnos de este evento no marcados como pagados'],
-                  ['Comisiones de embajadores', rep.payables.ambassadorCommissions, 'Total del evento'],
+                  ['Comisiones de embajadores', rep.payables.ambassadorCommissions, `Solo de «${rep.eventTitle}» (el pago se marca en Por pagar)`],
                   ['IVA a pagar al SII', rep.payables.ivaAPagar, 'Débito menos crédito fiscal (si el evento declara)'],
                   ['Saldo PlayCard de clientes', rep.payables.playcardSaldoClientes, 'Plata de clientes que todavía no gastan (todos los eventos)'],
                 ].map(([label, value, hint]) => (

@@ -100,7 +100,7 @@ export default function Ambassador() {
 
   const stats = data.stats;
   const progreso = stats?.nextTarget
-    ? Math.min(100, Math.round((stats.monthlySales / stats.nextTarget.target) * 100))
+    ? Math.min(100, Math.round((stats.eventSales / stats.nextTarget.target) * 100))
     : 100;
 
   const handleCopy = () => {
@@ -161,7 +161,7 @@ export default function Ambassador() {
           </div>
 
           {/* Comisión exacta de este evento -- plata ya generada, no una
-              estimación. A diferencia de "comisión del mes" (mes calendario)
+              estimación. A diferencia de "comisión del evento"
               o "acumulada histórica" (todos los eventos), esto responde
               justo lo que más le importa antes de una fiesta cuyas ventas se
               repartieron en varios meses: cuánto va a recibir cuando termine. */}
@@ -186,11 +186,12 @@ export default function Ambassador() {
             </div>
           )}
 
-          {/* Números del mes */}
+          {/* Números del evento: cada evento es su propia campaña y el nivel parte de cero */}
+          {stats && <p className="text-sm text-muted-foreground mb-2">Tus números en <strong className="text-foreground">{stats.eventTitle}</strong></p>}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-            <StatBox value={String(stats?.monthlySales ?? 0)} label="Ventas del mes" />
+            <StatBox value={String(stats?.eventSales ?? 0)} label="Ventas del evento" />
             <StatBox value={`${stats?.currentPercent ?? 0}%`} label="Tu comisión actual" highlight />
-            <StatBox value={`$${(stats?.monthlyCommission ?? 0).toLocaleString('es-CL')}`} label="Comisión del mes" />
+            <StatBox value={`$${(stats?.eventCommission ?? 0).toLocaleString('es-CL')}`} label="Comisión del evento" />
             <StatBox value={`$${(stats?.totalCommission ?? 0).toLocaleString('es-CL')}`} label="Acumulada histórica" />
           </div>
 
@@ -202,7 +203,7 @@ export default function Ambassador() {
               <h2 className="font-heading text-xl mb-1">Tu comisión es fija</h2>
               <p className="text-muted-foreground text-sm">
                 Tienes un <strong className="text-primary">{data.overridePercent}%</strong> acordado en cada venta,
-                sin importar cuántas hagas en el mes. No depende de ningún nivel.
+                sin importar cuántas hagas en cada evento. No depende de ningún nivel.
               </p>
             </div>
           ) : (
@@ -212,7 +213,7 @@ export default function Ambassador() {
                   <>
                     <div className="flex items-baseline justify-between mb-2">
                       <h2 className="font-heading text-xl">Próximo objetivo</h2>
-                      <p className="font-heading text-2xl">{stats.monthlySales} / {stats.nextTarget.target}</p>
+                      <p className="font-heading text-2xl">{stats.eventSales} / {stats.nextTarget.target}</p>
                     </div>
                     <div className="w-full h-3 bg-muted rounded-full overflow-hidden mb-3">
                       <motion.div
@@ -234,7 +235,7 @@ export default function Ambassador() {
                   </>
                 )}
                 <p className="text-xs text-muted-foreground mt-4 pt-4 border-t border-border/40">
-                  El nivel se cuenta por mes y solo con ventas a tus propios clientes. Las ventas a clientes que ya estaban
+                  El nivel se cuenta por evento (cada evento parte de cero) y solo con ventas a tus propios clientes. Las ventas a clientes que ya estaban
                   en la base pagan {data.existingClientPercent}% y no suben el nivel.
                 </p>
               </div>
@@ -248,14 +249,14 @@ export default function Ambassador() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border text-muted-foreground">
-                        <th className="text-left py-2 pr-3 font-medium">Ventas del mes</th>
+                        <th className="text-left py-2 pr-3 font-medium">Ventas del evento</th>
                         <th className="text-left py-2 font-medium">Comisión</th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.commissionScale.map((tier: CommissionTier) => {
-                        const esTuTramo = (stats?.monthlySales ?? 0) >= tier.minSales
-                          && (tier.maxSales === null || (stats?.monthlySales ?? 0) <= tier.maxSales);
+                        const esTuTramo = (stats?.eventSales ?? 0) >= tier.minSales
+                          && (tier.maxSales === null || (stats?.eventSales ?? 0) <= tier.maxSales);
                         return (
                           <tr key={tier.minSales} className={`border-b border-border/40 ${esTuTramo ? 'bg-primary/10' : ''}`}>
                             <td className="py-2 pr-3">
@@ -276,15 +277,42 @@ export default function Ambassador() {
           {/* Calculadora: cada entrada vendida cuenta como una venta, sin
               importar cuántas personas cubra -- así paga el sistema hoy. */}
           <CommissionCalculator
-            monthlySales={stats?.monthlySales ?? 0}
+            eventSales={stats?.eventSales ?? 0}
             avgSalePrice={data.avgSalePrice}
             commissionScale={data.commissionScale}
             overridePercent={data.overridePercent}
           />
 
+          {/* Historial por evento: cada campaña por separado */}
+          {data.eventsHistory && data.eventsHistory.length > 0 && (
+            <div className="bg-card border border-border/50 rounded-2xl p-6 mb-6">
+              <h2 className="font-heading text-xl mb-3">Tus ventas, evento por evento</h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-muted-foreground">
+                      <th className="text-left py-2 pr-3 font-medium">Evento</th>
+                      <th className="text-left py-2 pr-3 font-medium">Ventas</th>
+                      <th className="text-left py-2 font-medium">Comisión</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.eventsHistory.map((e: { eventId: number; eventTitle: string; sales: number; commission: number }) => (
+                      <tr key={e.eventId} className="border-b border-border/40">
+                        <td className="py-2 pr-3">{e.eventTitle}</td>
+                        <td className="py-2 pr-3">{e.sales}</td>
+                        <td className="py-2 font-semibold">${e.commission.toLocaleString('es-CL')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* Beneficios */}
           <div className="bg-card border border-border/50 rounded-2xl p-6 mb-6">
-            <h2 className="font-heading text-xl mb-3">Tus beneficios de este mes</h2>
+            <h2 className="font-heading text-xl mb-3">Tus beneficios en este evento</h2>
             {stats && (stats.benefits.items.length > 0 || stats.benefits.bonusClp > 0) ? (
               <>
                 <div className="flex flex-wrap gap-2">
@@ -301,7 +329,7 @@ export default function Ambassador() {
               </>
             ) : (
               <p className="text-muted-foreground text-sm">
-                Con tu primera venta del mes se activan: entrada liberada y un acompañante.
+                Con tu primera venta de este evento se activan: entrada liberada y un acompañante.
               </p>
             )}
             {stats?.nextBenefit && (
@@ -383,14 +411,14 @@ const AVG_SALE_PRICE_SOURCE_LABEL: Record<string, string> = {
   referencia: 'un precio de referencia (el programa recién está arrancando)',
 };
 
-/** "Si vendo N entradas más este mes, cuánto me llevo" -- corre entero en el
+/** "Si vendo N entradas más en este evento, cuánto me llevo" -- corre entero en el
  * navegador con `estimateAdditionalCommission` (misma función pura que usa
  * el servidor para calcular cada comisión real), sin pegarle al backend en
  * cada tecla. Es una estimación en el sentido de que el embajador todavía no
  * hizo esas ventas, pero el cálculo en sí es exacto: suma venta por venta
  * con la escala real, no aplica el % final a todas de un tirón. */
-function CommissionCalculator({ monthlySales, avgSalePrice, commissionScale, overridePercent }: {
-  monthlySales: number;
+function CommissionCalculator({ eventSales, avgSalePrice, commissionScale, overridePercent }: {
+  eventSales: number;
   avgSalePrice: { amount: number; source: 'propio' | 'programa' | 'referencia' };
   commissionScale: CommissionTier[];
   overridePercent: number | null;
@@ -400,13 +428,13 @@ function CommissionCalculator({ monthlySales, avgSalePrice, commissionScale, ove
 
   const estimate = useMemo(
     () => estimateAdditionalCommission({
-      currentMonthlySales: monthlySales,
+      currentEventSales: eventSales,
       additionalSales,
       avgSalePrice: avgSalePrice.amount,
       scale: commissionScale,
       overridePercent,
     }),
-    [monthlySales, additionalSales, avgSalePrice.amount, commissionScale, overridePercent],
+    [eventSales, additionalSales, avgSalePrice.amount, commissionScale, overridePercent],
   );
 
   const primerPorcentaje = estimate.breakdown[0]?.percent;
@@ -421,7 +449,7 @@ function CommissionCalculator({ monthlySales, avgSalePrice, commissionScale, ove
       </div>
 
       <Label htmlFor="calc-entradas" className="text-sm text-muted-foreground">
-        ¿Cuántas entradas más crees que vas a vender este mes?
+        ¿Cuántas entradas más crees que vas a vender en este evento?
       </Label>
       <div className="flex gap-3 mt-2 mb-3">
         <Input

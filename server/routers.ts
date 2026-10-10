@@ -3492,17 +3492,19 @@ export const appRouter = router({
       });
     }),
 
-    /** `monthKey` en formato "2026-08"; si no viene, el mes actual de Chile. */
-    getSummary: adminReadProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
-      return ambassadorProgram.getAmbassadorAdminSummary(input?.monthKey || monthKeyFor(new Date()));
+    /** Cada evento es su propia campaña: si no viene `eventId`, se usa el evento destacado. */
+    getSummary: adminReadProcedure.input(z.object({ eventId: z.number().int().positive().optional() }).optional()).query(async ({ input }) => {
+      const eventId = input?.eventId ?? (await db.getFeaturedEvent())?.id;
+      return eventId ? ambassadorProgram.getAmbassadorAdminSummary(eventId) : null;
     }),
-    getRanking: adminReadProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
-      return ambassadorProgram.getAmbassadorRanking(input?.monthKey || monthKeyFor(new Date()));
+    getRanking: adminReadProcedure.input(z.object({ eventId: z.number().int().positive().optional() }).optional()).query(async ({ input }) => {
+      const eventId = input?.eventId ?? (await db.getFeaturedEvent())?.id;
+      return eventId ? ambassadorProgram.getAmbassadorRanking(eventId) : [];
     }),
-    getProfile: adminReadProcedure.input(z.object({ id: z.number(), monthKey: z.string().optional() })).query(async ({ input }) => {
-      const monthKey = input.monthKey || monthKeyFor(new Date());
+    getProfile: adminReadProcedure.input(z.object({ id: z.number(), eventId: z.number().int().positive().optional() })).query(async ({ input }) => {
+      const eventId = input.eventId ?? (await db.getFeaturedEvent())?.id;
       return {
-        stats: await ambassadorProgram.getAmbassadorStats(input.id, monthKey),
+        stats: eventId ? await ambassadorProgram.getAmbassadorStats(input.id, eventId) : null,
         sales: await ambassadorProgram.getAmbassadorSales(input.id),
       };
     }),
@@ -3511,12 +3513,13 @@ export const appRouter = router({
     }),
 
     // --- Beneficios entregados ---
-    listBenefitDeliveries: adminReadProcedure.input(z.object({ monthKey: z.string().optional() }).optional()).query(async ({ input }) => {
-      return ambassadorProgram.listBenefitDeliveries(input?.monthKey || monthKeyFor(new Date()));
+    listBenefitDeliveries: adminReadProcedure.input(z.object({ eventId: z.number().int().positive().optional() }).optional()).query(async ({ input }) => {
+      const eventId = input?.eventId ?? (await db.getFeaturedEvent())?.id;
+      return eventId ? ambassadorProgram.listBenefitDeliveries(eventId) : [];
     }),
     markBenefitDelivered: adminProcedure.input(z.object({
       ambassadorId: z.number(),
-      monthKey: z.string(),
+      eventId: z.number().int().positive(),
       benefitKey: z.string(),
       note: z.string().optional(),
     })).mutation(async ({ input }) => {
@@ -3524,7 +3527,7 @@ export const appRouter = router({
     }),
     unmarkBenefitDelivered: adminProcedure.input(z.object({
       ambassadorId: z.number(),
-      monthKey: z.string(),
+      eventId: z.number().int().positive(),
       benefitKey: z.string(),
     })).mutation(async ({ input }) => {
       return ambassadorProgram.unmarkBenefitDelivered(input);

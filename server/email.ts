@@ -1101,9 +1101,10 @@ export function buildBirthdayTierUnlockedEmail(data: {
 export function buildAmbassadorWeeklyEmail(data: {
   name: string;
   code: string;
-  monthlySales: number;
-  monthlyExistingSales: number;
-  monthlyCommission: number;
+  eventTitle: string;
+  eventSales: number;
+  eventExistingSales: number;
+  eventCommission: number;
   totalCommission: number;
   currentPercent: number;
   nextTarget: { target: number; salesNeeded: number; nextPercent: number } | null;
@@ -1134,7 +1135,7 @@ export function buildAmbassadorWeeklyEmail(data: {
   const tieneMaterial = !!m && !!(m.storiesText || m.reelText || m.postText || m.countdownText || links.length > 0 || images.length > 0);
 
   const progreso = data.nextTarget
-    ? Math.min(100, Math.round((data.monthlySales / data.nextTarget.target) * 100))
+    ? Math.min(100, Math.round((data.eventSales / data.nextTarget.target) * 100))
     : 100;
 
   const materialRow = (label: string, value?: string | null) => value
@@ -1157,18 +1158,18 @@ export function buildAmbassadorWeeklyEmail(data: {
       <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Tu semana como embajador</p>
       <h1 style="color:${INK};font-size:26px;font-weight:800;margin:0 0 8px;">Hola ${data.name}</h1>
       <p style="color:${MUTED};font-size:15px;margin:0;">
-        ${data.monthlySales === 0
-          ? 'Este mes todavía no registras ventas — cualquier venta que traigas empieza al 30%.'
-          : `Llevas ${data.monthlySales} venta${data.monthlySales === 1 ? '' : 's'} este mes y estás cobrando el ${data.currentPercent}%.`}
+        ${data.eventSales === 0
+          ? `Para ${data.eventTitle} todavía no registras ventas — cualquier venta que traigas empieza al 30%.`
+          : `Llevas ${data.eventSales} venta${data.eventSales === 1 ? '' : 's'} para ${data.eventTitle} y estás cobrando el ${data.currentPercent}%.`}
       </p>
     </div>
 
     <div style="padding:32px 24px 0;">
-      ${sectionTitle('📊', 'Tus números del mes')}
+      ${sectionTitle('📊', `Tus números de ${data.eventTitle}`)}
       ${card(`
         ${grid([
           `<div style="background:${ACCENT.pink.bg};border-radius:14px;padding:14px;text-align:center;">
-            <p style="color:${ACCENT.pink.text};font-size:24px;font-weight:800;margin:0;">${data.monthlySales}</p>
+            <p style="color:${ACCENT.pink.text};font-size:24px;font-weight:800;margin:0;">${data.eventSales}</p>
             <p style="color:${MUTED};font-size:11px;margin:4px 0 0;">Ventas a tus clientes</p>
           </div>`,
           `<div style="background:${ACCENT.blue.bg};border-radius:14px;padding:14px;text-align:center;">
@@ -1178,8 +1179,8 @@ export function buildAmbassadorWeeklyEmail(data: {
         ], 2)}
         <div style="padding:10px 0 0;">
           <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${BORDER};">
-            <span style="color:${MUTED};font-size:13px;">Comisión de este mes</span>
-            <span style="color:${INK};font-size:14px;font-weight:700;">${money(data.monthlyCommission)}</span>
+            <span style="color:${MUTED};font-size:13px;">Comisión de este evento</span>
+            <span style="color:${INK};font-size:14px;font-weight:700;">${money(data.eventCommission)}</span>
           </div>
           <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid ${BORDER};">
             <span style="color:${MUTED};font-size:13px;">Comisión acumulada (histórica)</span>
@@ -1189,9 +1190,9 @@ export function buildAmbassadorWeeklyEmail(data: {
             <span style="color:${MUTED};font-size:13px;">Tus clientes exclusivos</span>
             <span style="color:${INK};font-size:14px;font-weight:700;">${data.exclusiveClientsCount}</span>
           </div>
-          ${data.monthlyExistingSales > 0 ? `
+          ${data.eventExistingSales > 0 ? `
           <p style="color:${FAINT};font-size:11px;margin:10px 0 0;line-height:1.5;">
-            Además hiciste ${data.monthlyExistingSales} venta${data.monthlyExistingSales === 1 ? '' : 's'} a clientes que ya estaban
+            Además hiciste ${data.eventExistingSales} venta${data.eventExistingSales === 1 ? '' : 's'} a clientes que ya estaban
             en la base: esas pagan 10% y no suben tu nivel.
           </p>` : ''}
         </div>
@@ -1200,7 +1201,7 @@ export function buildAmbassadorWeeklyEmail(data: {
       ${data.nextTarget ? `
       ${sectionTitle('🎯', 'Tu próximo objetivo')}
       ${card(`
-        <p style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">${data.monthlySales} / ${data.nextTarget.target} ventas</p>
+        <p style="color:${INK};font-size:20px;font-weight:800;margin:0 0 4px;">${data.eventSales} / ${data.nextTarget.target} ventas</p>
         <p style="color:${MUTED};font-size:14px;margin:0 0 12px;">
           Te faltan <strong>${data.nextTarget.salesNeeded}</strong> para subir al <strong>${data.nextTarget.nextPercent}%</strong>.
         </p>
@@ -1214,14 +1215,14 @@ export function buildAmbassadorWeeklyEmail(data: {
       `}
 
       ${data.benefitItems.length > 0 || data.benefitBonusClp > 0 ? `
-      ${sectionTitle('🎁', 'Lo que ya desbloqueaste este mes')}
+      ${sectionTitle('🎁', `Lo que ya desbloqueaste en ${data.eventTitle}`)}
       ${card(`
         ${data.benefitItems.map((b) => `<p style="color:${INK};font-size:15px;font-weight:600;margin:0 0 6px;">• ${b}</p>`).join('')}
         ${data.benefitBonusClp > 0 ? `<p style="color:${ACCENT.pink.text};font-size:17px;font-weight:800;margin:8px 0 0;">+ Bono de ${money(data.benefitBonusClp)}</p>` : ''}
         <p style="color:${MUTED};font-size:12px;margin:10px 0 0;">Escríbenos por Instagram para coordinar cómo lo recibes.</p>
       `, { bg: ACCENT.yellow.bg, border: false })}
       ` : `
-      ${card(`<p style="color:${MUTED};font-size:14px;margin:0;">Con tu primera venta del mes se activan tus beneficios: entrada liberada y un acompañante.</p>`)}
+      ${card(`<p style="color:${MUTED};font-size:14px;margin:0;">Con tu primera venta de este evento se activan tus beneficios: entrada liberada y un acompañante.</p>`)}
       `}
 
       ${tieneMaterial ? `

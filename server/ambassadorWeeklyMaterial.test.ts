@@ -58,7 +58,7 @@ describe("generateWeeklyMaterial", () => {
 
 describe("buildAmbassadorWeeklyEmail — material para compartir", () => {
   const data = {
-    name: "Camila", code: "CAMI", monthlySales: 1, monthlyExistingSales: 0, monthlyCommission: 1000,
+    name: "Camila", code: "CAMI", eventTitle: "2do Aniversario", eventSales: 1, eventExistingSales: 0, eventCommission: 1000,
     totalCommission: 5000, currentPercent: 30, nextTarget: null, benefitItems: [], benefitBonusClp: 0,
     exclusiveClientsCount: 1, panelUrl: "https://x.cl/embajador/CAMI",
   };
