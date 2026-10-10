@@ -117,10 +117,16 @@ function F29Tab({ monthKey }: { monthKey: string }) {
       )}
 
 
+      {m.webExcluded && m.webExcluded.iva > 0 && (
+        <div className="rounded-xl px-4 py-3 text-sm bg-red-500/10 text-red-700">
+          <strong>Este total NO incluye las ventas web</strong> ({m.webExcluded.orders} venta{m.webExcluded.orders === 1 ? '' : 's'}, {money(m.webExcluded.gross)}). Su IVA, <strong>{money(m.webExcluded.iva)}</strong>, queda fuera y se acumula en <em>Regularizar</em>. Puedes cambiarlo en Ajustes.
+        </div>
+      )}
+
       <Card className="admin-clay border-0">
         <CardHeader>
           <CardTitle>Ventas afectas del mes por canal</CardTitle>
-          <p className="text-sm text-[var(--admin-muted)]">El F29 incluye las dos: una venta lleva IVA se cobre por la web, por Mercado Pago o en la barra.</p>
+          <p className="text-sm text-[var(--admin-muted)]">Según la regla general, las dos llevan IVA (se cobren por la web, por Mercado Pago o en la barra). Puedes elegir qué suma el total en Ajustes.</p>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2">
           {([['Ventas web', m.channels.web], ['Barra y caja (presencial)', m.channels.caja]] as const).map(([label, c]) => (
@@ -360,7 +366,7 @@ function RegularizeTab() {
             </a>
           </div>
           <div className="text-sm space-y-1 text-[var(--admin-muted)]">
-            <p><strong className="text-foreground">Desde ahora el F29 incluye las ventas web</strong> de todos los eventos que factura Mansion Playroom, incluido el próximo.</p>
+            <p>Por defecto el F29 sugerido incluye las ventas web de los eventos que factura Mansion Playroom. Si prefieres otro modo, lo cambias en Ajustes: el IVA que quede fuera se sigue mostrando acá.</p>
             <p>Los meses de abajo ya vencieron sin esas ventas. Tu contador puede <strong className="text-foreground">rectificar el F29</strong> de cada uno. Si no alcanzas a pagar de una vez, se puede pedir un <strong className="text-foreground">convenio de pago en cuotas con Tesorería</strong>: es mucho mejor que dejar la deuda sin declarar, porque las multas e intereses crecen cada mes. Confírmalo con tu contador.</p>
           </div>
         </CardContent>
@@ -483,6 +489,17 @@ function SettingsTab() {
             <button key={String(o.v)} type="button" disabled={isDemo} onClick={() => save.mutate({ ticketsExempt: o.v })}
               className={`${pill} ${cfg.ticketsExempt === o.v ? 'bg-pink-500 text-white' : 'bg-black/5'}`}>{o.l}</button>
           ))}
+        </div>
+        <div className="space-y-2 rounded-xl border border-border/60 p-3">
+          <p className="text-sm font-medium">Ventas web en el F29 sugerido</p>
+          <div className="flex flex-wrap gap-2">
+            {[{ v: true, l: 'Incluirlas (regla general)' }, { v: false, l: 'No incluirlas (como declaro hoy)' }].map((o) => (
+              <button key={String(o.v)} type="button" disabled={isDemo || save.isPending}
+                onClick={() => { if (o.v || window.confirm('Con esta opción el F29 sugerido deja fuera las ventas web. El IVA de esas ventas igual existe: quedará marcado en rojo como no incluido y suma a lo por regularizar. ¿Continuar?')) save.mutate({ webSalesInF29: o.v }); }}
+                className={`${pill} ${cfg.webSalesInF29 === o.v ? 'bg-pink-500 text-white' : 'bg-black/5'}`}>{o.l}</button>
+            ))}
+          </div>
+          <p className="text-xs text-[var(--admin-muted)]">Este sistema es tu contabilidad personal: no declara nada en el SII. Esta opción solo cambia qué ventas suma el total sugerido. El IVA de las ventas web que quede fuera siempre se muestra aparte, para que lo regularices con tu contador.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm">Avisos de vencimiento (push + correo):</span>

@@ -184,3 +184,24 @@ describe("canales y regularización", () => {
     expect(regularizationBacklog(months, "2026-10-13", 12).pendingIva).toBe(19_000 + 190_000);
   });
 });
+
+describe("modo 'como declaro hoy' (sin ventas web)", () => {
+  const evs = new Map([[1, { title: "Aniversario", taxIssuer: "mansion" }]]);
+  const sales = [
+    { orderId: 1, eventId: 1, amount: 119_000, channel: "web" },
+    { orderId: 2, eventId: 1, amount: 59_500, channel: "caja" },
+  ];
+  it("por defecto incluye todo", () => {
+    const r = aggregateMonthSales(sales, evs, false);
+    expect(r.taxableGross).toBe(178_500);
+    expect(r.webExcluded.iva).toBe(0);
+    expect(normalizeSiiConfig({}).webSalesInF29).toBe(true);
+  });
+  it("sin web: el total baja pero el IVA web excluido queda registrado aparte, nunca se pierde", () => {
+    const r = aggregateMonthSales(sales, evs, false, false);
+    expect(r.taxableGross).toBe(59_500);
+    expect(r.webExcluded).toMatchObject({ gross: 119_000, iva: 19_000, orders: 1 });
+    expect(r.channels.web.iva).toBe(19_000);
+    expect(normalizeSiiConfig({ webSalesInF29: false }).webSalesInF29).toBe(false);
+  });
+});

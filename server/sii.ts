@@ -78,6 +78,7 @@ export async function getF29Month(monthKey: string) {
     orderRows.map((o) => ({ orderId: o.id, eventId: o.eventId, amount: cashCollectedFromOrders([o]), accesoAmount: accesoByOrder.get(o.id) ?? 0, channel: o.channel })),
     new Map((allEvents as any[]).map((e) => [e.id, { title: e.title, taxIssuer: e.taxIssuer, taxNote: e.taxNote }])),
     cfg.ticketsExempt,
+    cfg.webSalesInF29,
   );
   const salesTaxableGross = agg.taxableGross, salesExempt = agg.exempt;
   const byEventList = agg.byEvent;
@@ -114,6 +115,7 @@ export async function getF29Month(monthKey: string) {
   if (sinDoc.length) alerts.push({ level: "info", text: `${sinDoc.length} gasto(s) sin documento este mes: no dan crédito fiscal. Pide factura cuando puedas.` });
   const honSinRut = honorarios.filter((h) => !h.rut);
   if (honSinRut.length) alerts.push({ level: "warning", text: `${honSinRut.length} boleta(s) de honorarios de personas sin RUT registrado (${honSinRut.map((h) => h.name).join(", ")}). Lo necesitas para la DJ 1879.` });
+  if (!cfg.webSalesInF29 && agg.webExcluded.iva > 0) alerts.push({ level: "danger", text: `Tu modo actual NO incluye las ventas web en el F29: quedan ${clp(agg.webExcluded.iva)} de IVA de este mes sin declarar (${agg.webExcluded.orders} venta(s) web). Es plata que se suma a lo por regularizar. Mira la pestaña Regularizar y habla con tu contador.` });
   if (cfg.ppmRatePercent === null) alerts.push({ level: "warning", text: "La tasa de PPM no está configurada (Ajustes). Confírmala una vez con un contador o en tu F29 anterior." });
   if (!prev && f29.debito > 0) alerts.push({ level: "info", text: `No tienes registrado el F29 de ${monthLabel(previousMonthKey(monthKey))}: si te quedó remanente de crédito, no se está sumando.` });
 
@@ -128,6 +130,7 @@ export async function getF29Month(monthKey: string) {
     salesTaxableGross, salesExempt, creditoFacturas, retencionHonorarios,
     salesByEvent: byEventList,
     channels: agg.channels,
+    webExcluded: cfg.webSalesInF29 ? null : agg.webExcluded,
     facturas: facturas.map((e) => ({ id: e.id, date: e.expenseDate, supplier: e.supplier, supplierRut: e.supplierRut, total: Number(e.amountTotal), iva: Number(e.ivaAmount), hasReceipt: !!e.receiptUrl, description: e.description })),
     honorarios,
     f29,
@@ -284,6 +287,7 @@ export async function runSiiReminders(now: Date = new Date()) {
           rows.push({ label: "IVA", value: clp(m.f29.ivaDeterminado) }, { label: "Retención de honorarios", value: clp(m.f29.retencion) });
           if (m.f29.ppm !== null) rows.push({ label: "PPM", value: clp(m.f29.ppm) });
         }
+        if (m.webExcluded && m.webExcluded.iva > 0) rows.push({ label: "IVA web NO incluido en este F29", value: clp(m.webExcluded.iva), tone: "bad" });
         if (m.comparison) rows.push({ label: "Propuesta del SII", value: clp(m.comparison.proposal), tone: m.comparison.level === "distinto" ? "bad" : "good" });
         alerts = m.alerts.filter((a) => a.level !== "info").map((a) => a.text);
         body += m.f29.sinMovimiento ? " Este mes no tiene movimiento: igual hay que declararlo (sin movimiento)." : ` Total sugerido: ${clp(m.f29.total)}.`;

@@ -19,6 +19,9 @@ export type SiiConfig = {
   regime: string | null;
   /** Si las entradas están exentas de IVA (por defecto NO: afectas). */
   ticketsExempt: boolean;
+  /** Incluir las ventas web en el F29 sugerido (regla general: sí). Si se apaga, la
+   * herramienta calcula "como declaro hoy" y muestra aparte el IVA web no incluido. */
+  webSalesInF29: boolean;
   /** Avisos de vencimientos (push + correo). Prendidos por defecto: evitan multas. */
   remindersEnabled: boolean;
   /** Fechas anuales editables, formato "MM-DD". */
@@ -33,6 +36,7 @@ export const DEFAULT_SII_CONFIG: SiiConfig = {
   companyRut: null,
   regime: null,
   ticketsExempt: false,
+  webSalesInF29: true,
   remindersEnabled: true,
   dj1879Date: '03-31',
   rentaDate: '04-30',
@@ -51,6 +55,7 @@ export function normalizeSiiConfig(raw: unknown): SiiConfig {
     companyRut: typeof p.companyRut === 'string' && p.companyRut.trim() ? p.companyRut.trim() : null,
     regime: typeof p.regime === 'string' && p.regime.trim() ? p.regime.trim() : null,
     ticketsExempt: p.ticketsExempt === true,
+    webSalesInF29: p.webSalesInF29 !== false,
     remindersEnabled: p.remindersEnabled !== false,
     dj1879Date: typeof p.dj1879Date === 'string' && MMDD.test(p.dj1879Date) ? p.dj1879Date : DEFAULT_SII_CONFIG.dj1879Date,
     rentaDate: typeof p.rentaDate === 'string' && MMDD.test(p.rentaDate) ? p.rentaDate : DEFAULT_SII_CONFIG.rentaDate,
@@ -195,8 +200,10 @@ export type EventTaxInfo = { title: string; taxIssuer: string; taxNote?: string 
  * con saldo PlayCard) entre afectas, exentas y fuera del F29, según quién
  * factura cada evento. 'tercero' y 'por_revisar' no entran (los segundos se
  * alertan para que se decidan antes de declarar). */
-export function aggregateMonthSales(sales: SaleForF29[], eventsById: Map<number, EventTaxInfo>, ticketsExempt: boolean) {
+export function aggregateMonthSales(sales: SaleForF29[], eventsById: Map<number, EventTaxInfo>, ticketsExempt: boolean, includeWeb = true) {
   let taxableGross = 0, exempt = 0;
+  // Ventas web que quedaron fuera del cálculo por el modo elegido (siguen siendo IVA).
+  const webExcluded = { gross: 0, iva: 0, orders: 0 };
   // Ventas afectas por canal (web vs. caja/barra), para ver cuánto IVA es de cada una.
   const channels = { web: { gross: 0, iva: 0, orders: 0 }, caja: { gross: 0, iva: 0, orders: 0 } };
   const byEvent = new Map<number, { eventId: number; title: string; issuer: string; note: string | null; amount: number; orders: number }>();
@@ -211,11 +218,15 @@ export function aggregateMonthSales(sales: SaleForF29[], eventsById: Map<number,
       taxableGross += s.amount - ex;
       const ch = s.channel === 'web' ? channels.web : channels.caja;
       ch.gross += s.amount - ex; ch.orders += 1; ch.iva += ivaFromGross(s.amount - ex);
+      if (s.channel === 'web' && !includeWeb) {
+        exempt -= ex; taxableGross -= s.amount - ex;
+        webExcluded.gross += s.amount - ex; webExcluded.orders += 1; webExcluded.iva += ivaFromGross(s.amount - ex);
+      }
     } else if (issuer === 'exento') {
       exempt += s.amount;
     }
   }
-  return { taxableGross, exempt, channels, byEvent: Array.from(byEvent.values()).sort((a, b) => b.amount - a.amount) };
+  return { taxableGross, exempt, channels, webExcluded, byEvent: Array.from(byEvent.values()).sort((a, b) => b.amount - a.amount) };
 }
 
 /* ─── Comparar con la propuesta del SII y aprender de cada mes ──── */

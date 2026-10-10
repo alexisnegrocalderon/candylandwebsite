@@ -3289,6 +3289,7 @@ export const appRouter = router({
       companyRut: z.string().max(20).nullable().optional(),
       regime: z.string().max(80).nullable().optional(),
       ticketsExempt: z.boolean().optional(),
+      webSalesInF29: z.boolean().optional(),
       remindersEnabled: z.boolean().optional(),
       dj1879Date: z.string().optional(), rentaDate: z.string().optional(), patenteDates: z.array(z.string()).max(4).optional(),
     })).mutation(async ({ input, ctx }) => {
