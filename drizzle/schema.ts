@@ -2452,3 +2452,20 @@ export const accountBalances = mysqlTable("accountBalances", {
 }, (t) => [
   index("account_balances_source_idx").on(t.source, t.asOf),
 ]);
+
+
+// Seguimiento de la regularización de meses con ventas web que no se
+// declararon en su momento: qué mes se rectificó, si quedó en convenio de
+// pago con Tesorería y con cuántas cuotas.
+export const taxRegularizations = mysqlTable("taxRegularizations", {
+  id: int("id").autoincrement().primaryKey(),
+  monthKey: varchar("monthKey", { length: 7 }).notNull().unique(),
+  status: mysqlEnum("status", ["pendiente", "rectificado", "en_convenio", "regularizado"]).default("pendiente").notNull(),
+  folio: varchar("folio", { length: 40 }),
+  installments: int("installments"),
+  note: varchar("note", { length: 500 }),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type TaxRegularization = typeof taxRegularizations.$inferSelect;

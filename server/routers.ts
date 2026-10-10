@@ -3269,6 +3269,17 @@ export const appRouter = router({
       return r;
     }),
     learning: adminProcedure.query(() => siiSvc.getSiiLearning()),
+    regularization: adminProcedure.query(() => siiSvc.getWebRegularization()),
+    saveRegularization: adminProcedure.input(z.object({
+      monthKey: z.string().regex(/^\d{4}-\d{2}$/),
+      status: z.enum(['pendiente', 'rectificado', 'en_convenio', 'regularizado']),
+      folio: z.string().max(40).nullish(), installments: z.number().int().min(1).max(120).nullish(), note: z.string().max(500).nullish(),
+    })).mutation(async ({ input, ctx }) => {
+      const { monthKey, ...rest } = input;
+      const r = await siiSvc.saveRegularization(monthKey, rest);
+      await db.recordAdminAudit({ action: 'sii.regularization', targetType: 'taxRegularization', payload: input, ip: clientIp(ctx) });
+      return r;
+    }),
     honorariosYear: adminProcedure.input(z.object({ year: z.number().int().min(2020).max(2100) })).query(({ input }) => siiSvc.getHonorariosYear(input.year)),
     calendar: adminProcedure.input(z.object({ year: z.number().int().min(2020).max(2100) })).query(({ input }) => siiSvc.getTaxCalendar(input.year)),
     config: adminProcedure.query(() => siiSvc.getSiiConfig()),

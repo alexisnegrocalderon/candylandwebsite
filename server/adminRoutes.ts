@@ -8,6 +8,7 @@ import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
 import { buildPnlReportPdf } from "./caja/pnlPdf";
 import { buildMovementsPdf } from "./caja/movementsPdf";
 import { comparisonCsv, comparisonPdf, loadSims, singleCsv, singlePdf, slug, realEventPdf } from "./budgetReport";
+import { buildAccountantCsv } from "./sii";
 
 /** Exportada para que otras rutas Express crudas (fuera de tRPC) reusen el
  * mismo chequeo -- ver server/blobUpload.ts. */
@@ -67,6 +68,18 @@ export function registerAdminRoutes(app: Express) {
       res.send(out.pdf);
     } catch (e) {
       console.error("[finanzasPdf]", e);
+      res.status(500).json({ error: "No se pudo generar el informe" });
+    }
+  });
+  app.get("/api/admin/sii/informe-contador.csv", async (req: Request, res: Response) => {
+    if (!(await requireAdmin(req, res))) return;
+    try {
+      const csv = await buildAccountantCsv();
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="informe-contador-${today()}.csv"`);
+      res.send(csv);
+    } catch (e) {
+      console.error("[informeContador]", e);
       res.status(500).json({ error: "No se pudo generar el informe" });
     }
   });
