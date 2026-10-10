@@ -78,7 +78,7 @@ import { computeCustomerLevel } from "../shared/customerInsights";
 import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftClosed, listCajaAlerts } from "./caja/alerts";
 import { BRAND } from "../shared/eventBrand";
 import * as staffSvc from "./staff";
-import { getEventFinanceReport } from "./finance";
+import { getEventFinanceReport, getEventLive } from "./finance";
 import { comparisonPdf as budgetComparisonPdf, singlePdf as budgetSinglePdf, loadSims as loadBudgetSims, slug as budgetSlug } from "./budgetReport";
 import { compareSimulations, formatPercent } from "../shared/budgetInsights";
 import { computeBudgetResult } from "../shared/eventBudget";
@@ -3193,6 +3193,9 @@ export const appRouter = router({
   finance: router({
     eventReport: adminProcedure.input(z.object({ eventId: z.number().int().positive() })).query(async ({ input }) => {
       return getEventFinanceReport(input.eventId);
+    }),
+    live: adminProcedure.input(z.object({ eventId: z.number().int().positive(), windowMinutes: z.number().int().min(10).max(240).default(60) })).query(async ({ input }) => {
+      return getEventLive(input.eventId, input.windowMinutes);
     }),
     staffList: adminProcedure.query(() => staffSvc.listStaff()),
     staffSave: adminProcedure.input(z.object({

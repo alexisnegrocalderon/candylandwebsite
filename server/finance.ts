@@ -189,3 +189,94 @@ export async function getEventFinanceReport(eventId: number) {
     categoryLabels: Object.fromEntries(data.pnl.directByCategory.map((c) => [c.category, categoryLabel(c.category)])),
   };
 }
+
+
+/* ─── En vivo: minuto a minuto ──────────────────────────────── */
+
+export type LiveAlert = { level: "danger" | "warning" | "info"; text: string };
+
+const MIN = 60_000;
+
+/** Movimiento de plata del evento, por minuto y por hora, más las alertas.
+ * No incluye lo pagado con saldo PlayCard (ya se contó al recargar). */
+export async function getEventLive(eventId: number, windowMinutes = 60, now: Date = new Date()) {
+  const pnl = await db.getEventPnl(eventId);
+  const conn = await db.getDb();
+  if (!pnl || !conn) return null;
+  const win = Math.min(240, Math.max(10, Math.round(windowMinutes)));
+
+  const rows = (await conn.select({
+    id: orders.id, total: orders.total, channel: orders.channel, paymentMethod: orders.paymentMethod, createdAt: orders.createdAt,
+    buyerName: orders.buyerName,
+  }).from(orders).where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, "approved")))) as any[];
+  const sales = rows.filter((o) => !isPrepaidSpend(o) && Number(o.total) > 0)
+    .map((o) => ({ ...o, amount: Number(o.total), at: new Date(o.createdAt).getTime() }))
+    .sort((a, b) => a.at - b.at);
+
+  const nowMs = now.getTime();
+  const startMin = Math.floor((nowMs - (win - 1) * MIN) / MIN) * MIN;
+  const perMinute = Array.from({ length: win }, (_, i) => ({ at: new Date(startMin + i * MIN).toISOString(), amount: 0, count: 0 }));
+  for (const s of sales) {
+    const idx = Math.floor((s.at - startMin) / MIN);
+    if (idx >= 0 && idx < win) { perMinute[idx].amount += s.amount; perMinute[idx].count += 1; }
+  }
+
+  // Por hora, de la primera venta a la última (la noche completa).
+  const hourMap = new Map<number, { amount: number; count: number }>();
+  for (const s of sales) {
+    const h = Math.floor(s.at / (60 * MIN)) * 60 * MIN;
+    const cur = hourMap.get(h) ?? { amount: 0, count: 0 };
+    cur.amount += s.amount; cur.count += 1; hourMap.set(h, cur);
+  }
+  const perHour = Array.from(hourMap.entries()).sort((a, b) => a[0] - b[0])
+    .map(([t, v]) => ({ at: new Date(t).toISOString(), ...v }));
+
+  const since = (mins: number) => sales.filter((s) => s.at > nowMs - mins * MIN).reduce((sum, s) => sum + s.amount, 0);
+  const last = sales[sales.length - 1];
+
+  const recent = sales.slice(-25).reverse();
+  const items = recent.length
+    ? await conn.select({ orderId: orderItems.orderId, qty: orderItems.quantity, name: ticketTypes.name })
+      .from(orderItems).innerJoin(ticketTypes, eq(ticketTypes.id, orderItems.ticketTypeId))
+      .where(inArray(orderItems.orderId, recent.map((r) => r.id)))
+    : [];
+  const itemsByOrder = new Map<number, string[]>();
+  for (const it of items as any[]) {
+    const list = itemsByOrder.get(it.orderId) ?? [];
+    list.push(`${it.qty}× ${it.name}`);
+    itemsByOrder.set(it.orderId, list);
+  }
+  const feed = recent.map((r) => ({
+    id: r.id, at: new Date(r.at).toISOString(), amount: r.amount, channel: r.channel as string,
+    method: r.channel === "web" ? "Web" : (r.paymentMethod ?? "caja"),
+    summary: (itemsByOrder.get(r.id) ?? []).slice(0, 3).join(", "),
+  }));
+
+  const closings = (await db.listShiftClosings(eventId)) as any[];
+  const diffs = closings.map((c) => ({
+    name: `${c.registerName} · ${c.operatorName}`,
+    diff: (c.countedCash + c.countedDebit + c.countedCredit + c.countedQr) - (c.expectedCash + (c.openingCash ?? 0) + c.expectedDebit + c.expectedCredit + c.expectedQr),
+  })).filter((d) => Math.abs(d.diff) >= 1);
+
+  const alerts: LiveAlert[] = [];
+  const gross = pnl.grossIncome;
+  if (gross > 0 && pnl.netProfit < 0) alerts.push({ level: "danger", text: `Hoy va en pérdida de $${Math.abs(pnl.netProfit).toLocaleString("es-CL")}: los costos superan lo que ha entrado.` });
+  else if (gross > 0 && pnl.marginPercent != null && pnl.marginPercent < DEFAULT_MARGIN_TARGET) alerts.push({ level: "warning", text: `El margen va en ${pnl.marginPercent}%, bajo la meta de ${DEFAULT_MARGIN_TARGET}%.` });
+  for (const d of diffs) alerts.push({ level: "warning", text: `Caja descuadrada (${d.name}): ${d.diff > 0 ? "sobran" : "faltan"} $${Math.abs(d.diff).toLocaleString("es-CL")}.` });
+  const event = await db.getEventById(eventId);
+  // "En vivo" = desde 6 h antes de la hora del evento hasta 14 h después (la
+  // fiesta cruza la medianoche, así que no basta con comparar el día).
+  const startMs = event ? new Date((event as any).eventDate).getTime() : NaN;
+  const live = Number.isFinite(startMs) && nowMs >= startMs - 6 * 60 * MIN && nowMs <= startMs + 14 * 60 * MIN;
+  if (live && last && nowMs - last.at > 20 * MIN) alerts.push({ level: "info", text: `Sin ventas hace ${Math.round((nowMs - last.at) / MIN)} minutos.` });
+  if (live && !last) alerts.push({ level: "info", text: "Todavía no hay ventas registradas hoy." });
+  if (pnl.warnings?.length) alerts.push({ level: "info", text: `${pnl.warnings.length} aviso(s) sobre los números: revisa la pestaña Evento.` });
+
+  return {
+    asOf: now.toISOString(), windowMinutes: win, isLive: live,
+    totals: { gross, netProfit: pnl.netProfit, marginPercent: pnl.marginPercent, sales: sales.length },
+    pace: { last5: since(5), last15: since(15), last60: since(60), perHourNow: since(60) },
+    lastSaleAt: last ? new Date(last.at).toISOString() : null,
+    perMinute, perHour, feed, alerts,
+  };
+}

@@ -40,3 +40,34 @@ describe("informe real en PDF", () => {
     expect(pdf.length).toBeGreaterThan(5000);
   }, 60000);
 });
+
+import { vi } from "vitest";
+vi.mock("./db", () => ({
+  getEventPnl: vi.fn(), getDb: vi.fn(), getEventById: vi.fn(), listShiftClosings: vi.fn(), getParkingReport: vi.fn(),
+}));
+import * as dbm from "./db";
+import { getEventLive } from "./finance";
+
+describe("getEventLive", () => {
+  it("agrupa por minuto, ignora lo pagado con saldo y avisa de pérdida y caja descuadrada", async () => {
+    const now = new Date("2026-10-30T23:30:30Z");
+    const at = (m: number) => new Date(now.getTime() - m * 60_000);
+    const sales = [
+      { id: 1, total: "10000", channel: "web", paymentMethod: null, createdAt: at(2), buyerName: "A" },
+      { id: 2, total: "5000", channel: "caja", paymentMethod: "efectivo", createdAt: at(2), buyerName: null },
+      { id: 3, total: "8000", channel: "caja", paymentMethod: "saldo", createdAt: at(1), buyerName: null },
+    ];
+    const chain = (rows: any[]) => ({ from: () => ({ where: () => Promise.resolve(rows), innerJoin: () => ({ where: () => Promise.resolve([]) }) }) });
+    vi.mocked(dbm.getDb).mockResolvedValue({ select: () => chain(sales) } as any);
+    vi.mocked(dbm.getEventPnl).mockResolvedValue({ grossIncome: 15000, netProfit: -2000, marginPercent: -13, warnings: [] } as any);
+    vi.mocked(dbm.getEventById).mockResolvedValue({ eventDate: new Date(now.getTime() - 60 * 60_000) } as any);
+    vi.mocked(dbm.listShiftClosings).mockResolvedValue([{ registerName: "Caja 1", operatorName: "Ana", countedCash: 100, countedDebit: 0, countedCredit: 0, countedQr: 0, expectedCash: 150, expectedDebit: 0, expectedCredit: 0, expectedQr: 0, openingCash: 0 }] as any);
+    const live = await getEventLive(1, 30, now);
+    expect(live!.totals.sales).toBe(2);
+    expect(live!.pace.last5).toBe(15000);
+    expect(live!.perMinute).toHaveLength(30);
+    expect(live!.perMinute.reduce((s, m) => s + m.amount, 0)).toBe(15000);
+    expect(live!.alerts.map((a) => a.level)).toContain("danger");
+    expect(live!.alerts.some((a) => a.text.includes("Caja descuadrada"))).toBe(true);
+  });
+});

@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { Banknote, Download, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from 'recharts';
+import { Banknote, Download, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { formatChileTime } from '@shared/chileDate';
 import { useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -131,7 +132,110 @@ function StaffPanel({ eventId, report }: { eventId: number; report: any }) {
   );
 }
 
+
+const RANGES = [{ v: 30, l: '30 min' }, { v: 60, l: '1 hora' }, { v: 120, l: '2 horas' }, { v: 240, l: '4 horas' }];
+const ALERT_TONE: Record<string, string> = { danger: 'bg-red-500/10 text-red-700', warning: 'bg-amber-500/15 text-amber-800', info: 'bg-sky-500/10 text-sky-800' };
+
+/** Movimiento de plata minuto a minuto. Se refresca cada 15 s mientras la pestaña está abierta. */
+function LiveTab({ eventId }: { eventId: number }) {
+  const [win, setWin] = useState(60);
+  const { data, isLoading, isError, error, dataUpdatedAt } = trpc.finance.live.useQuery(
+    { eventId, windowMinutes: win }, { refetchInterval: 15_000, refetchIntervalInBackground: false },
+  );
+  if (isLoading) return <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>;
+  if (isError || !data) return <p className="text-sm text-destructive">No se pudo cargar el en vivo: {error?.message}</p>;
+  const minuteData = data.perMinute.map((m: any) => ({ t: formatChileTime(m.at), monto: m.amount, ventas: m.count }));
+  const hourData = data.perHour.map((h: any) => ({ t: formatChileTime(h.at), monto: h.amount }));
+  const tickEvery = Math.max(1, Math.floor(minuteData.length / 6));
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <span className="inline-flex items-center gap-2">
+          <span className={`w-2.5 h-2.5 rounded-full ${data.isLive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+          {data.isLive ? 'Evento en curso' : 'Fuera del horario del evento'} · actualizado {formatChileTime(new Date(dataUpdatedAt))}
+        </span>
+        <div className="flex gap-1">
+          {RANGES.map((r) => (
+            <Button key={r.v} size="sm" variant={win === r.v ? 'default' : 'outline'} onClick={() => setWin(r.v)}>{r.l}</Button>
+          ))}
+        </div>
+      </div>
+
+      {data.alerts.length > 0 && (
+        <div className="space-y-2">
+          {data.alerts.map((a: any, i: number) => (
+            <div key={i} className={`rounded-xl px-4 py-2.5 text-sm flex items-start gap-2 ${ALERT_TONE[a.level]}`}>
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" /> {a.text}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <BentoGrid>
+        <BentoTile><StatTile icon={Banknote} tone="revenue" value={money(data.totals.gross)} label={`Entró en total (${data.totals.sales} ventas)`} /></BentoTile>
+        <BentoTile><StatTile icon={Activity} tone="count" value={money(data.pace.last5)} label="Últimos 5 minutos" /></BentoTile>
+        <BentoTile><StatTile icon={TrendingUp} tone="count" value={money(data.pace.last60)} label="Última hora (ritmo por hora)" /></BentoTile>
+        <BentoTile><StatTile icon={Wallet} tone={data.totals.netProfit < 0 ? 'danger' : 'success'} value={money(data.totals.netProfit)} label={data.totals.netProfit < 0 ? 'Pérdida del momento' : 'Ganancia del momento'} /></BentoTile>
+      </BentoGrid>
+
+      <Card className="admin-clay border-0">
+        <CardHeader><CardTitle>Minuto a minuto</CardTitle><p className="text-sm text-[var(--admin-muted)]">Plata que entra en cada minuto (hora de Chile).</p></CardHeader>
+        <CardContent>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={minuteData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" />
+                <XAxis dataKey="t" fontSize={11} interval={tickEvery - 1} /><YAxis fontSize={11} width={48} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                <Tooltip formatter={(v: number, n) => (n === 'monto' ? money(v) : v)} />
+                <Bar dataKey="monto" fill="#ec4899" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card className="admin-clay border-0">
+          <CardHeader><CardTitle>Hora por hora de la noche</CardTitle></CardHeader>
+          <CardContent>
+            {hourData.length === 0 ? <EmptyState icon={Wallet} title="Todavía no hay ventas" /> : (
+              <div className="h-52">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={hourData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.08)" />
+                    <XAxis dataKey="t" fontSize={11} /><YAxis fontSize={11} width={48} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                    <Tooltip formatter={(v: number) => money(v)} />
+                    <Bar dataKey="monto" fill="#38bdf8" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="admin-clay border-0">
+          <CardHeader><CardTitle>Últimos movimientos</CardTitle></CardHeader>
+          <CardContent>
+            {data.feed.length === 0 ? <EmptyState icon={Wallet} title="Sin movimientos todavía" /> : (
+              <ul className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+                {data.feed.map((f: any) => (
+                  <li key={f.id} className="flex items-center gap-3 text-sm admin-clay-sm px-3 py-2">
+                    <span className="tabular-nums text-[var(--admin-muted)] w-12 shrink-0">{formatChileTime(f.at)}</span>
+                    <span className="flex-1 min-w-0 truncate">{f.summary || `Orden #${f.id}`} <span className="text-[var(--admin-muted)]">· {f.method}</span></span>
+                    <span className="tabular-nums font-semibold shrink-0">{money(f.amount)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export default function FinanzasView() {
+  const [tab, setTab] = useState<'live' | 'evento'>('live');
   const isDemo = useIsDemo();
   const { data: events } = trpc.events.listAll.useQuery();
   const { data: defaultEvent } = trpc.events.getActiveForCaja.useQuery();
@@ -139,7 +243,7 @@ export default function FinanzasView() {
   const eventId = selected ?? defaultEvent?.id ?? events?.[0]?.id ?? null;
 
   const { data: rep, isLoading, isError, error } = trpc.finance.eventReport.useQuery(
-    { eventId: eventId! }, { enabled: !!eventId && !isDemo, refetchInterval: 30_000 },
+    { eventId: eventId! }, { enabled: !!eventId && !isDemo && tab === 'evento', refetchInterval: 30_000 },
   );
 
   const donut = useMemo(() => {
@@ -176,7 +280,7 @@ export default function FinanzasView() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-heading text-2xl">Finanzas</h2>
-          <p className="text-sm text-[var(--admin-muted)]">Todo el dinero del evento, con datos reales. Se actualiza solo cada 30 segundos.</p>
+          <p className="text-sm text-[var(--admin-muted)]">Todo el dinero del evento, con datos reales y en tiempo real.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Select value={String(eventId)} onValueChange={(v) => setSelected(Number(v))}>
@@ -189,10 +293,18 @@ export default function FinanzasView() {
         </div>
       </div>
 
-      {isLoading && <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>}
-      {isError && <p className="text-sm text-destructive">No se pudo cargar: {error?.message}</p>}
+      <div className="flex gap-2" role="tablist">
+        {([['live', 'En vivo'], ['evento', 'Evento completo']] as const).map(([k, l]) => (
+          <Button key={k} role="tab" aria-selected={tab === k} variant={tab === k ? 'default' : 'outline'} onClick={() => setTab(k)}>{l}</Button>
+        ))}
+      </div>
 
-      {rep && p && (
+      {tab === 'live' && <LiveTab eventId={eventId} />}
+
+      {tab === 'evento' && isLoading && <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>}
+      {tab === 'evento' && isError && <p className="text-sm text-destructive">No se pudo cargar: {error?.message}</p>}
+
+      {tab === 'evento' && rep && p && (
         <>
           <div className={`rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 ${VERDICT_TONE[rep.verdict.key]}`}>
             <p className="font-semibold">{rep.verdict.label}</p>
