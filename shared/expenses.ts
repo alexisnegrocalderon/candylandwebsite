@@ -222,6 +222,8 @@ export type PnlInput = {
    * la parte de la barra que se lleva el local en el simulador). Se restan
    * del resultado tal cual. Default 0: el P&L real no lo usa. */
   extraCostsTotal?: number;
+  /** Pagos al staff registrados en el sistema (turnos), costo directo del evento. */
+  staffCostsTotal?: number;
 };
 
 export type PnlResult = {
@@ -238,6 +240,7 @@ export type PnlResult = {
   cardFeeAmount: number;
   iva: { debitoFiscal: number; creditoFiscal: number; ivaAPagar: number; remanenteCredito: number };
   extraCostsTotal: number;
+  staffCostsTotal: number;
   netIncome: number;
   netProfit: number;
   marginPercent: number | null;
@@ -295,7 +298,8 @@ export function computePnl(input: PnlInput): PnlResult {
 
   const netIncome = ivaApplies ? grossIncome - debitoFiscal : grossIncome;
   const extraCostsTotal = input.extraCostsTotal ?? 0;
-  const netProfit = netIncome - cogs - directExpensesTotal - generalAssigned - ambassadorCommissions - cardFeeAmount - extraCostsTotal;
+  const staffCostsTotal = input.staffCostsTotal ?? 0;
+  const netProfit = netIncome - cogs - directExpensesTotal - generalAssigned - ambassadorCommissions - cardFeeAmount - extraCostsTotal - staffCostsTotal;
 
   return {
     grossIncome,
@@ -313,6 +317,7 @@ export function computePnl(input: PnlInput): PnlResult {
     cardFeeAmount,
     iva: { debitoFiscal, creditoFiscal, ivaAPagar, remanenteCredito },
     extraCostsTotal,
+    staffCostsTotal,
     netIncome,
     netProfit,
     marginPercent: netIncome > 0 ? Math.round((netProfit / netIncome) * 1000) / 10 : null,

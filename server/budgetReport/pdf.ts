@@ -30,6 +30,8 @@ export type SingleReportData = {
   name: string;
   /** Evento real al que está vinculada, si lo hay. */
   eventTitle?: string | null;
+  /** Informe con datos reales del evento (no una simulación). */
+  real?: boolean;
   input: BudgetSimulationInput;
   result: BudgetResult;
   verdict: Verdict;
@@ -131,7 +133,7 @@ const AREA_COLOR: Record<Recommendation["area"], string> = { ingresos: C.pink, b
 
 function cover(doc: Doc, o: {
   kicker: string; title: string; subtitle: string; verdict?: Verdict; emittedAt: Date;
-  kpis: { label: string; value: string; caption?: string; color?: string }[]; chips?: string[];
+  kpis: { label: string; value: string; caption?: string; color?: string }[]; chips?: string[]; real?: boolean;
 }) {
   newPage(doc, "dark");
   // Bloques de color que se cruzan, como en la referencia editorial.
@@ -163,7 +165,7 @@ function cover(doc: Doc, o: {
     fitText(doc, k.value, x, 414, { width: colW - 24, height: 50, maxSize: 50, minSize: 22, font: "display", color: k.color ?? C.ink, spacing: 0.5 });
     if (k.caption) text(doc, k.caption, x, 470, { size: 10, color: C.muted, width: colW - 24, height: 14 });
   });
-  text(doc, `Informe generado el ${emittedText(o.emittedAt)} (hora de Chile). Cifras proyectadas: no incluyen ventas reales.`, MX, 508, { size: 8, color: C.muted, width: CONTENT_W, height: 12 });
+  text(doc, `Informe generado el ${emittedText(o.emittedAt)} (hora de Chile). ${o.real ? "Cifras reales: ventas y gastos registrados hasta este momento." : "Cifras proyectadas: no incluyen ventas reales."}`, MX, 508, { size: 8, color: C.muted, width: CONTENT_W, height: 12 });
 }
 
 /** Página final: cierre de marca con el contacto. */
@@ -179,7 +181,7 @@ function closingPage(doc: Doc) {
   text(doc, "GRACIAS", MX + 18, 111, { size: 9.5, bold: true, color: C.ink, spacing: 2.5, width: 420, height: 14 });
   text(doc, "¿DUDAS?", MX, 122, { font: "display", size: 84, color: C.ink, width: 700, spacing: 1 });
   text(doc, "CONVERSEMOS.", MX, 218, { font: "display", size: 84, color: C.ink, width: 800, spacing: 1 });
-  text(doc, "Esta proyección es una simulación: sirve para decidir con números antes de producir la fiesta.", 700, 330, { size: 11.5, color: C.ink, width: 212, height: 70 });
+  text(doc, "Este informe resume lo que realmente pasó en el evento: sirve para decidir mejor el próximo.", 700, 330, { size: 11.5, color: C.ink, width: 212, height: 70 });
   rule(doc, 700, 322, W - MX, 322, { width: 1.2 });
   text(doc, "contacto@mansionplayroom.cl", 700, 412, { size: 12, bold: true, color: C.ink, width: 230 });
   text(doc, "mansionplayroom.cl", 700, 430, { size: 11, color: C.ink, width: 230 });
@@ -474,12 +476,12 @@ const GLOSSARY: [string, string][] = [
   ["Aforo", "Cuánta gente asiste en total (cada entrada dúo cuenta como 2 personas)."],
 ];
 
-function pageAssumptions(doc: Doc, d: { input: BudgetSimulationInput; result: BudgetResult; recs?: RecommendationSet }, opts: { glossary: boolean; external?: boolean }) {
+function pageAssumptions(doc: Doc, d: { input: BudgetSimulationInput; result: BudgetResult; recs?: RecommendationSet; real?: boolean }, opts: { glossary: boolean; external?: boolean }) {
   newPage(doc, "light");
   header(doc, opts.glossary ? "Supuestos y glosario" : "Supuestos", opts.glossary ? "Cómo se calculó y qué significa cada palabra" : "Cómo leer estas cifras");
   const i = d.input;
   const bullets = [
-    "Es una simulación: usa los precios y cantidades que se cargaron, no ventas reales.",
+    d.real ? "Son cifras reales del sistema: ventas aprobadas, gastos cargados y pagos al staff. Los escenarios y consejos usan esos números como base." : "Es una simulación: usa los precios y cantidades que se cargaron, no ventas reales.",
     `Los precios de las entradas ${i.ivaApplies && i.onlineSalesNoIva ? "se venden online y no declaran IVA (solo se descuenta la comisión de la pasarela); el 19% se descuenta solo de la barra." : i.ivaApplies ? "incluyen IVA y el evento declara IVA: el 19% de las ventas se descuenta como impuesto." : "incluyen IVA, pero el evento no declara IVA: todo el ingreso cuenta completo."}`,
     ...(opts.external ? [] : [
       `Comisión de tarjeta: ${i.cardFeePercent}% del ingreso. Comisión de embajadores: ${i.commissionPercent}% sobre entradas y barra.`,
@@ -542,7 +544,7 @@ function pageExecutive(doc: Doc, d: SingleReportData) {
 /* ─── API: informe de una simulación ────────────────────────── */
 
 export async function buildSingleReportPdf(d: SingleReportData, version: ReportVersion): Promise<Buffer> {
-  const label = version === "externa" ? `Proyección «${d.name}»` : `Simulación «${d.name}»`;
+  const label = d.real ? `Informe real «${d.name}»` : version === "externa" ? `Proyección «${d.name}»` : `Simulación «${d.name}»`;
   const { doc, done } = createDoc(`${label} - Mansion Playroom`);
   const r = d.result;
 
@@ -566,10 +568,13 @@ export async function buildSingleReportPdf(d: SingleReportData, version: ReportV
 
   const margin = r.pnl.marginPercent;
   cover(doc, {
-    kicker: "Informe de simulación", title: d.name, subtitle: d.eventTitle ? `Vinculada al evento: ${d.eventTitle}` : "Simulación previa al evento: cuánto puedes gastar y cuánta gente necesitas", verdict: d.verdict, emittedAt: d.emittedAt,
+    real: d.real,
+    kicker: d.real ? "Informe real del evento" : "Informe de simulación", title: d.name,
+    subtitle: d.real ? "Lo que realmente entró y salió, con consejos para el próximo evento" : d.eventTitle ? `Vinculada al evento: ${d.eventTitle}` : "Simulación previa al evento: cuánto puedes gastar y cuánta gente necesitas",
+    verdict: d.verdict, emittedAt: d.emittedAt,
     kpis: [
-      { label: "Ingreso proyectado", value: compact(r.grossIncome), caption: `${r.attendance.toLocaleString("es-CL")} personas` },
-      { label: "Utilidad estimada", value: compact(r.pnl.netProfit), caption: "después de todos los costos", color: r.pnl.netProfit >= 0 ? "#13795B" : "#C23B40" },
+      { label: d.real ? "Ingreso real" : "Ingreso proyectado", value: compact(r.grossIncome), caption: `${r.attendance.toLocaleString("es-CL")} personas` },
+      { label: d.real ? "Utilidad real" : "Utilidad estimada", value: compact(r.pnl.netProfit), caption: "después de todos los costos", color: r.pnl.netProfit >= 0 ? "#13795B" : "#C23B40" },
       { label: "Margen", value: pctText(margin), caption: `meta ${d.input.marginTargetPercent}%` },
     ],
   });
@@ -588,7 +593,7 @@ export async function buildSingleReportPdf(d: SingleReportData, version: ReportV
   pageScenarios(doc, d);
   if (d.sensitivity.length > 0) pageSensitivity(doc, d);
   pageRecommendations(doc, d);
-  pageAssumptions(doc, { input: d.input, result: r }, { glossary: true });
+  pageAssumptions(doc, { input: d.input, result: r, real: d.real }, { glossary: true });
   closingPage(doc);
   footers(doc, label, { skipLast: true });
   doc.end();

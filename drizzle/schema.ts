@@ -2315,3 +2315,43 @@ export const contentDesignMessages = mysqlTable("contentDesignMessages", {
 ]);
 
 export type ContentDesignMessage = typeof contentDesignMessages.$inferSelect;
+
+// Personal de las fiestas (barra, seguridad, puerta, DJ...). Es el catálogo de
+// personas con su tarifa habitual; lo que se les paga en cada evento vive en
+// `staffShifts`.
+export const staffMembers = mysqlTable("staffMembers", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  role: varchar("role", { length: 80 }),
+  // Tarifa habitual por noche (CLP); se propone al asignarlo a un evento.
+  defaultRateClp: int("defaultRateClp").default(0).notNull(),
+  phone: varchar("phone", { length: 40 }),
+  rut: varchar("rut", { length: 20 }),
+  active: int("active").default(1).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type StaffMember = typeof staffMembers.$inferSelect;
+
+// Un turno = una persona trabajó en un evento por un monto. `paid` dice si ya
+// se le pagó (si no, aparece como "por pagar"). El monto entra al resultado
+// del evento como costo de staff.
+export const staffShifts = mysqlTable("staffShifts", {
+  id: int("id").autoincrement().primaryKey(),
+  eventId: int("eventId").notNull(),
+  staffId: int("staffId").notNull(),
+  amountClp: int("amountClp").notNull(),
+  hours: decimal("hours", { precision: 5, scale: 1 }),
+  paid: int("paid").default(0).notNull(),
+  paidAt: timestamp("paidAt"),
+  note: varchar("note", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => [
+  index("staff_shifts_event_idx").on(t.eventId),
+  index("staff_shifts_staff_idx").on(t.staffId),
+]);
+
+export type StaffShift = typeof staffShifts.$inferSelect;
