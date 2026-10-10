@@ -9591,6 +9591,7 @@ function AlertasCard() {
   const removeSubscription = trpc.adminAlerts.removeSubscription.useMutation({ onSuccess: () => refetchSubs() });
   const sendTestPush = trpc.adminAlerts.sendTestPush.useMutation();
   const sendDigestNow = trpc.adminAlerts.sendDigestNow.useMutation();
+  const sendFinanceNow = trpc.finance.sendDigestNow.useMutation();
 
   const [thisDeviceEndpoint, setThisDeviceEndpoint] = useState<string | null>(null);
   const [subscribing, setSubscribing] = useState(false);
@@ -9737,6 +9738,26 @@ function AlertasCard() {
               />
             </div>
           </div>
+          {([
+            ['financeNightlyEmail', 'Cierre financiero de la noche', 'La mañana siguiente a cada fiesta: ingreso, costos, ganancia, por pagar y consejos.', 'night'],
+            ['financeWeeklyEmail', 'Resumen financiero de los lunes', 'El mes en curso, lo que va del año y todo lo que hay por pagar.', 'week'],
+          ] as const).map(([key, title, desc, kind]) => (
+            <div key={key} className="flex items-center justify-between gap-3 py-1.5 border-t border-border/50 pt-3 mt-1">
+              <div>
+                <p className="text-sm">{title}</p>
+                <p className="text-xs text-muted-foreground">{desc}</p>
+                {config?.[key] && (
+                  <Button variant="link" size="sm" className="px-0 h-auto" disabled={sendFinanceNow.isPending}
+                    onClick={() => sendFinanceNow.mutate({ kind }, {
+                      onSuccess: (r) => toast.success(r.sent ? 'Correo enviado.' : `No se mandó: ${r.reason}`),
+                      onError: onMutationError,
+                    })}>Mandar uno ahora para probar</Button>
+                )}
+              </div>
+              <Switch checked={!!config?.[key]} disabled={saveConfig.isPending || !config}
+                onCheckedChange={(v) => config && saveConfig.mutate({ ...config, [key]: v })} />
+            </div>
+          ))}
           {config?.dailyDigestEmail && (
             <Button variant="outline" size="sm" disabled={sendDigestNow.isPending}
               onClick={() => sendDigestNow.mutate(undefined, {

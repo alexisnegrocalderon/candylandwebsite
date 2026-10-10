@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from 'recharts';
-import { Banknote, Download, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
+import { Banknote, Download, Sparkles, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { formatChileTime } from '@shared/chileDate';
 import { useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
@@ -365,6 +365,40 @@ function PayablesTab() {
   );
 }
 
+const SUGGESTIONS = ['¿Cuánto gané este año?', '¿Cómo va el evento de ahora?', '¿Cuánto tengo por pagar?', '¿Qué me conviene mejorar para ganar más?'];
+
+/** Pregúntale a tus finanzas: la IA responde solo con los números del sistema. */
+function AskCard() {
+  const isDemo = useIsDemo();
+  const [q, setQ] = useState('');
+  const [answer, setAnswer] = useState<{ q: string; a: string } | null>(null);
+  const ask = trpc.finance.ask.useMutation({ onSuccess: (r, v) => setAnswer({ q: v.question, a: r.answer }), onError: onErr });
+  const go = (text: string) => { const t = text.trim(); if (t.length >= 3 && !isDemo) ask.mutate({ question: t }); };
+  return (
+    <Card className="admin-clay border-0">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Sparkles className="w-5 h-5" /> Pregúntale a tus finanzas</CardTitle>
+        <p className="text-sm text-[var(--admin-muted)]">Responde solo con los números reales del sistema.</p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); go(q); }}>
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ej: ¿cuánto gané en octubre?" maxLength={500} />
+          <Button type="submit" disabled={ask.isPending || q.trim().length < 3}>{ask.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Preguntar'}</Button>
+        </form>
+        <div className="flex flex-wrap gap-2">
+          {SUGGESTIONS.map((s) => <Button key={s} size="sm" variant="outline" disabled={ask.isPending} onClick={() => { setQ(s); go(s); }}>{s}</Button>)}
+        </div>
+        {answer && (
+          <div className="admin-clay-sm p-4 space-y-1">
+            <p className="text-xs text-[var(--admin-muted)]">{answer.q}</p>
+            <p className="text-sm whitespace-pre-wrap">{answer.a}</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function FinanzasView() {
   const [tab, setTab] = useState<'live' | 'evento' | 'mes' | 'pagar'>('live');
   const isDemo = useIsDemo();
@@ -431,6 +465,8 @@ export default function FinanzasView() {
           <Button key={k} role="tab" aria-selected={tab === k} variant={tab === k ? 'default' : 'outline'} onClick={() => setTab(k)}>{l}</Button>
         ))}
       </div>
+
+      <AskCard />
 
       {tab === 'live' && <LiveTab eventId={eventId} />}
       {tab === 'mes' && <CompanyTab />}

@@ -1856,3 +1856,40 @@ export function buildEventSurveyEmail(data: {
     `,
   });
 }
+
+/** Correo del "Director financiero": resumen de la noche o de la semana.
+ * Interno (va al dueño) -- sin hero ni pie. */
+export function buildFinanceDigestEmail(data: {
+  title: string;
+  subtitle: string;
+  rows: { label: string; value: string; tone?: 'good' | 'bad' | 'warn' }[];
+  tips?: { title: string; gain: string }[];
+  alerts?: string[];
+  link: string;
+}) {
+  const color = (t?: string) => (t === 'bad' ? '#C0392B' : t === 'good' ? '#13795B' : t === 'warn' ? '#B7791F' : REPORT_INK);
+  const rows = data.rows.map((r) => `
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid ${REPORT_BORDER};">
+      <span style="color:${REPORT_MUTED};font-size:14px;">${r.label}</span>
+      <span style="color:${color(r.tone)};font-size:14px;font-weight:700;">${r.value}</span>
+    </div>`).join('');
+  const alerts = (data.alerts ?? []).map((a) => `<p style="margin:0 0 6px;color:#B7791F;font-size:13px;">⚠️ ${a}</p>`).join('');
+  const tips = (data.tips ?? []).map((t) => `
+    <div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;">
+      <span style="color:${REPORT_INK};font-size:13px;">💡 ${t.title}</span>
+      <span style="color:#13795B;font-size:13px;font-weight:700;white-space:nowrap;">${t.gain}</span>
+    </div>`).join('');
+  return emailShell({
+    footer: false,
+    rawBody: true,
+    body: `
+  <div style="max-width:600px;margin:0 auto;padding:24px;background-color:#FFFFFF;">
+    <h1 style="color:${REPORT_INK};font-size:20px;font-weight:800;margin:0 0 4px;">${data.title}</h1>
+    <p style="color:${REPORT_MUTED};font-size:13px;margin:0 0 20px;">${data.subtitle}</p>
+    ${alerts ? card(alerts, { bg: '#FFFBEB', borderColor: '#F6E05E' }) : ''}
+    ${card(rows, { bg: '#F9FAFB', borderColor: REPORT_BORDER })}
+    ${tips ? card(`<p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px;">Cómo subir el margen</p>${tips}`, { bg: '#F9FAFB', borderColor: REPORT_BORDER }) : ''}
+    <p style="margin:16px 0 0;"><a href="${data.link}" style="color:#D6336C;font-weight:700;font-size:14px;">Abrir Finanzas →</a></p>
+  </div>`,
+  });
+}
