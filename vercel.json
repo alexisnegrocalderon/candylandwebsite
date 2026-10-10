@@ -94,7 +94,7 @@
       "destination": "/politica-de-privacidad.html"
     },
     {
-      "source": "/((?!assets/|candyland/|api/|robots\\.txt|sitemap\\.xml|llms\\.txt|favicon\\.ico|gastos\\.webmanifest|gastos/sw\\.js|puerta\\.webmanifest|puerta/sw\\.js|admin\\.webmanifest|admin/sw\\.js|fiesta\\.webmanifest|fiesta/sw\\.js|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)",
+      "source": "/((?!assets/|candyland/|app-icons/|api/|robots\\.txt|sitemap\\.xml|llms\\.txt|favicon\\.ico|gastos\\.webmanifest|gastos/sw\\.js|puerta\\.webmanifest|puerta/sw\\.js|admin\\.webmanifest|admin/sw\\.js|fiesta\\.webmanifest|fiesta/sw\\.js|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)",
       "destination": "/api"
     }
   ],
