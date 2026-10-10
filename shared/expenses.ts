@@ -120,7 +120,16 @@ export type CollectedOrder = {
   total: string | number;
   missionTopupStatus?: string | null;
   missionTopupAmount?: string | number | null;
+  channel?: string | null;
+  paymentMethod?: string | null;
 };
+
+/** Una venta de caja pagada con saldo PlayCard NO es plata nueva: el dinero
+ * ya se contó cuando el cliente recargó la tarjeta. Contarla otra vez infla
+ * la ganancia (doble conteo). */
+export function isPrepaidSpend(o: { channel?: string | null; paymentMethod?: string | null }): boolean {
+  return o.channel === 'caja' && o.paymentMethod === 'saldo';
+}
 
 /** Plata EFECTIVAMENTE recaudada por un conjunto de órdenes.
  *
@@ -140,6 +149,7 @@ export type CollectedOrder = {
 export function cashCollectedFromOrders(rows: CollectedOrder[]): number {
   let sum = 0;
   for (const o of rows) {
+    if (isPrepaidSpend(o)) continue;
     sum += Number(o.total);
     if (o.missionTopupStatus === 'paid') sum += Number(o.missionTopupAmount ?? 0);
   }
@@ -212,6 +222,8 @@ export type PnlInput = {
    * la parte de la barra que se lleva el local en el simulador). Se restan
    * del resultado tal cual. Default 0: el P&L real no lo usa. */
   extraCostsTotal?: number;
+  /** Pagos al staff registrados en el sistema (turnos), costo directo del evento. */
+  staffCostsTotal?: number;
 };
 
 export type PnlResult = {
@@ -228,6 +240,7 @@ export type PnlResult = {
   cardFeeAmount: number;
   iva: { debitoFiscal: number; creditoFiscal: number; ivaAPagar: number; remanenteCredito: number };
   extraCostsTotal: number;
+  staffCostsTotal: number;
   netIncome: number;
   netProfit: number;
   marginPercent: number | null;
@@ -285,7 +298,8 @@ export function computePnl(input: PnlInput): PnlResult {
 
   const netIncome = ivaApplies ? grossIncome - debitoFiscal : grossIncome;
   const extraCostsTotal = input.extraCostsTotal ?? 0;
-  const netProfit = netIncome - cogs - directExpensesTotal - generalAssigned - ambassadorCommissions - cardFeeAmount - extraCostsTotal;
+  const staffCostsTotal = input.staffCostsTotal ?? 0;
+  const netProfit = netIncome - cogs - directExpensesTotal - generalAssigned - ambassadorCommissions - cardFeeAmount - extraCostsTotal - staffCostsTotal;
 
   return {
     grossIncome,
@@ -303,6 +317,7 @@ export function computePnl(input: PnlInput): PnlResult {
     cardFeeAmount,
     iva: { debitoFiscal, creditoFiscal, ivaAPagar, remanenteCredito },
     extraCostsTotal,
+    staffCostsTotal,
     netIncome,
     netProfit,
     marginPercent: netIncome > 0 ? Math.round((netProfit / netIncome) * 1000) / 10 : null,

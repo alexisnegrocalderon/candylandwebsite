@@ -76,3 +76,17 @@ export async function loadSims(ids: number[]): Promise<SimRow[]> {
 }
 
 export const slug = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "simulacion";
+
+/* ─── Informe REAL de un evento (mismos gráficos, datos reales) ─── */
+import { getEventFinanceReport } from "../finance";
+
+export async function realEventPdf(eventId: number): Promise<{ pdf: Buffer; title: string } | null> {
+  const rep = await getEventFinanceReport(eventId);
+  if (!rep) return null;
+  const narrative = await writeNarrative({ name: rep.eventTitle, result: rep.result, marginTarget: rep.input.marginTargetPercent, verdict: rep.verdict, recommendations: rep.recommendations });
+  const pdf = await buildSingleReportPdf({
+    name: rep.eventTitle, eventTitle: rep.eventTitle, real: true, input: rep.input, result: rep.result, verdict: rep.verdict,
+    scenarios: rep.scenarios, sensitivity: rep.sensitivity, curve: rep.curve, recommendations: rep.recommendations, narrative, emittedAt: new Date(),
+  }, "completa");
+  return { pdf, title: rep.eventTitle };
+}

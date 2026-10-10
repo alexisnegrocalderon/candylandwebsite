@@ -4,7 +4,7 @@ import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
 import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAvailability } from "../shared/accessCredit";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, staffMembers, staffShifts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -3807,11 +3807,17 @@ const CARD_LIKE_CAJA_METHODS = new Set(['debito', 'credito', 'qr']);
  * total de las órdenes aprobadas pagadas con tarjeta -- toda la web (se
  * asume pagada vía Mercado Pago Checkout) más las de caja con
  * débito/crédito/QR. El efectivo en caja no paga comisión. */
-function cardFeeBaseFromOrders(rows: { channel: string | null; paymentMethod: string | null; total: string | number }[]): number {
+function cardFeeBaseFromOrders(rows: { channel: string | null; paymentMethod: string | null; total: string | number; missionTopupStatus?: string | null; missionTopupAmount?: string | number | null }[]): number {
   return rows.reduce((sum, r) => {
-    const isWeb = r.channel === 'web';
+    // Las órdenes manuales (invitaciones, consumo staff, transferencias) no
+    // pasan por Mercado Pago, así que no pagan comisión.
+    const isManual = (r.paymentMethod ?? '').startsWith('Manual') || r.paymentMethod === 'Prueba';
+    const isWeb = r.channel === 'web' && !isManual;
     const isCajaCard = r.channel === 'caja' && r.paymentMethod != null && CARD_LIKE_CAJA_METHODS.has(r.paymentMethod);
-    return (isWeb || isCajaCard) ? sum + Number(r.total) : sum;
+    if (!isWeb && !isCajaCard) return sum;
+    // El copago de Misión 300 también se cobró con tarjeta.
+    const topup = isWeb && r.missionTopupStatus === 'paid' ? Number(r.missionTopupAmount ?? 0) : 0;
+    return sum + Number(r.total) + topup;
   }, 0);
 }
 
@@ -4160,11 +4166,19 @@ export async function getEventPnl(eventId: number) {
     eq(expenses.recurrence, 'none'),
   ));
 
+  // Estacionamiento: la plata del auto entra al ingreso, pero una parte por
+  // auto es del local. Es un costo real que antes no se restaba.
+  const parkingOwedToVenue = (await getParkingReport(eventId))?.amountOwedToVenueClp ?? 0;
+  const staffShiftRows = await db.select({ amountClp: staffShifts.amountClp }).from(staffShifts).where(eq(staffShifts.eventId, eventId));
+  const staffCostsTotal = (staffShiftRows as any[]).reduce((s, r) => s + Number(r.amountClp), 0);
+
   const pnl = computePnl({
     ivaApplies: event.ivaApplies === 1,
     grossIncome,
     cogs,
     ambassadorCommissions: commissionsTotal,
+    extraCostsTotal: parkingOwedToVenue,
+    staffCostsTotal,
     cardFeeBase,
     cardFeePercent,
     directExpenses: (directRows as any[]).map(toPnlExpense),
@@ -4180,7 +4194,7 @@ export async function getEventPnl(eventId: number) {
     ivaApplies: event.ivaApplies === 1,
     cogsCoverage,
     ...pnl,
-    warnings: await buildPnlWarnings({ eventId, cogs, directRows: directRows as any[], monthKey, grossIncome }),
+    warnings: await buildPnlWarnings({ eventId, cogs, directRows: directRows as any[], monthKey, grossIncome, staffCostsTotal }),
   };
 }
 
@@ -4188,13 +4202,21 @@ export async function getEventPnl(eventId: number) {
  * Es parte del entregable, no un extra: casi todos los errores de este módulo
  * son silenciosos. */
 async function buildPnlWarnings(params: {
-  eventId: number; cogs: number; directRows: any[]; monthKey: string; grossIncome: number;
+  eventId: number; cogs: number; directRows: any[]; monthKey: string; grossIncome: number; staffCostsTotal?: number;
 }): Promise<string[]> {
   const db = await getDb();
   const warnings: string[] = [];
 
   // Doble conteo: la mercadería ya está costeada en unitCost Y además se cargó
   // la compra al proveedor como gasto.
+  const staffExpenses = params.directRows.filter((e) => e.category === 'staff');
+  if ((params.staffCostsTotal ?? 0) > 0 && staffExpenses.length > 0) {
+    warnings.push(
+      `Hay ${staffExpenses.length} gasto(s) de categoría "Staff" y además pagos de staff registrados en Finanzas → Staff. ` +
+      `Si es la misma plata la estás contando dos veces: borra el gasto o márcalo como excluido del P&L.`,
+    );
+  }
+
   const merchandiseExpenses = params.directRows.filter((e) => e.category === 'barra' || e.category === 'merch');
   if (params.cogs > 0 && merchandiseExpenses.length > 0) {
     warnings.push(
@@ -4316,11 +4338,20 @@ export async function getPnlComparison(eventIds?: number[]) {
 
   const cardFeePercent = Number((await getSiteSettings()).cardFeePercent ?? 3.5);
   const eventIdSet = eventIds?.length ? new Set(eventIds) : null;
-  return (allEvents as any[])
-    .filter((e) => !eventIdSet || eventIdSet.has(e.id))
+  const shownEvents = (allEvents as any[]).filter((e) => !eventIdSet || eventIdSet.has(e.id));
+  const staffRows = await db.select({ eventId: staffShifts.eventId, amountClp: staffShifts.amountClp }).from(staffShifts);
+  const staffByEvent = new Map<number, number>();
+  for (const r of staffRows as any[]) staffByEvent.set(r.eventId, (staffByEvent.get(r.eventId) ?? 0) + Number(r.amountClp));
+  const owedByEvent = new Map<number, number>();
+  await Promise.all(shownEvents.map(async (e) => {
+    owedByEvent.set(e.id, (await getParkingReport(e.id))?.amountOwedToVenueClp ?? 0);
+  }));
+  return shownEvents
     .map((e) => {
       const monthKey = monthKeyFor(e.eventDate);
       const pnl = computePnl({
+        extraCostsTotal: owedByEvent.get(e.id) ?? 0,
+        staffCostsTotal: staffByEvent.get(e.id) ?? 0,
         ivaApplies: e.ivaApplies === 1,
         grossIncome: incomeOf(e.id),
         cogs: cogsByEvent.get(e.id) ?? 0,
@@ -4338,7 +4369,7 @@ export async function getPnlComparison(eventIds?: number[]) {
         monthKey,
         ivaApplies: e.ivaApplies === 1,
         grossIncome: pnl.grossIncome,
-        totalExpenses: pnl.cogs + pnl.directExpensesTotal + pnl.generalExpensesAssigned + pnl.ambassadorCommissions + pnl.cardFeeAmount,
+        totalExpenses: pnl.cogs + pnl.directExpensesTotal + pnl.generalExpensesAssigned + pnl.ambassadorCommissions + pnl.cardFeeAmount + pnl.extraCostsTotal + pnl.staffCostsTotal,
         netProfit: pnl.netProfit,
         marginPercent: pnl.marginPercent,
       };
@@ -8002,4 +8033,21 @@ export async function getIgThreadsSayingBought(threadIds: number[]): Promise<Set
       or(like(igMessages.text, '%ya %'), like(igMessages.text, '%ompr%'), like(igMessages.text, '%isto%'))));
   for (const r of rows) if (saysAlreadyBought([r.text])) hit.add(r.threadId);
   return hit;
+}
+
+/** Gastos que cuentan en el resultado de un evento (directos + la parte que le
+ * toca de los generales del mes), como líneas simples para el informe real. */
+export async function getEventExpenseLines(eventId: number): Promise<{ category: string; label: string; amount: number }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) return [];
+  const direct = await db.select().from(expenses).where(and(
+    eq(expenses.scope, 'evento'), eq(expenses.eventId, eventId), eq(expenses.excludeFromPnl, 0), eq(expenses.recurrence, 'none'),
+  ));
+  return (direct as any[]).map((e) => ({
+    category: e.category,
+    label: String(e.description || e.supplier || e.category).slice(0, 80),
+    amount: Number(e.amountTotal),
+  }));
 }

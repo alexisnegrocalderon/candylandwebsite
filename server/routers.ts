@@ -77,6 +77,9 @@ import { deleteCustomerProfile, getCustomerProfile, updateCustomerProfile } from
 import { computeCustomerLevel } from "../shared/customerInsights";
 import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftClosed, listCajaAlerts } from "./caja/alerts";
 import { BRAND } from "../shared/eventBrand";
+import * as staffSvc from "./staff";
+import { getEventFinanceReport, getEventLive } from "./finance";
+import { getCompanyYear, getPayables, markCommissionsPaid } from "./financeCompany";
 import { comparisonPdf as budgetComparisonPdf, singlePdf as budgetSinglePdf, loadSims as loadBudgetSims, slug as budgetSlug } from "./budgetReport";
 import { compareSimulations, formatPercent } from "../shared/budgetInsights";
 import { computeBudgetResult } from "../shared/eventBudget";
@@ -3188,6 +3191,68 @@ export const appRouter = router({
   // shared/eventBudget.ts (computeBudgetResult), corrida 100% del lado
   // cliente para que la barra de estado sea instantánea; estos endpoints
   // solo guardan/leen lo que el admin cargó.
+  finance: router({
+    eventReport: adminProcedure.input(z.object({ eventId: z.number().int().positive() })).query(async ({ input }) => {
+      return getEventFinanceReport(input.eventId);
+    }),
+    live: adminProcedure.input(z.object({ eventId: z.number().int().positive(), windowMinutes: z.number().int().min(10).max(240).default(60) })).query(async ({ input }) => {
+      return getEventLive(input.eventId, input.windowMinutes);
+    }),
+    companyYear: adminProcedure.input(z.object({ year: z.number().int().min(2020).max(2100) })).query(({ input }) => getCompanyYear(input.year)),
+    payables: adminProcedure.query(() => getPayables()),
+    markCommissionsPaid: adminProcedure.input(z.object({ ambassadorId: z.number().int().positive(), paid: z.boolean() })).mutation(async ({ input, ctx }) => {
+      const r = await markCommissionsPaid(input.ambassadorId, input.paid);
+      await db.recordAdminAudit({ action: input.paid ? 'finance.commissionsPaid' : 'finance.commissionsUnpaid', targetType: 'ambassador', targetId: input.ambassadorId, ip: clientIp(ctx) });
+      return r;
+    }),
+    staffList: adminProcedure.query(() => staffSvc.listStaff()),
+    staffSave: adminProcedure.input(z.object({
+      id: z.number().int().positive().optional(),
+      name: z.string().min(1).max(120),
+      role: z.string().max(80).nullish(),
+      defaultRateClp: z.number().int().min(0).max(100_000_000).optional(),
+      phone: z.string().max(40).nullish(),
+      rut: z.string().max(20).nullish(),
+      notes: z.string().max(2000).nullish(),
+      active: z.boolean().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const { id, ...rest } = input;
+      const r = await staffSvc.saveStaff(rest, id);
+      await db.recordAdminAudit({ action: id ? 'finance.staffUpdate' : 'finance.staffCreate', targetType: 'staffMember', targetId: r.id, ip: clientIp(ctx) });
+      return r;
+    }),
+    staffDelete: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      const r = await staffSvc.deleteStaff(input.id);
+      await db.recordAdminAudit({ action: 'finance.staffDelete', targetType: 'staffMember', targetId: input.id, ip: clientIp(ctx) });
+      return r;
+    }),
+    shiftsList: adminProcedure.input(z.object({ eventId: z.number().int().positive() })).query(({ input }) => staffSvc.listShifts(input.eventId)),
+    shiftAdd: adminProcedure.input(z.object({
+      eventId: z.number().int().positive(), staffId: z.number().int().positive(),
+      amountClp: z.number().int().min(0).max(100_000_000), hours: z.number().min(0).max(48).nullish(), note: z.string().max(255).nullish(),
+    })).mutation(async ({ input, ctx }) => {
+      try {
+        const r = await staffSvc.addShift(input);
+        await db.recordAdminAudit({ action: 'finance.shiftAdd', targetType: 'staffShift', targetId: r.id, eventId: input.eventId, ip: clientIp(ctx) });
+        return r;
+      } catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo asignar' }); }
+    }),
+    shiftUpdate: adminProcedure.input(z.object({
+      id: z.number().int().positive(), amountClp: z.number().int().min(0).max(100_000_000).optional(),
+      hours: z.number().min(0).max(48).nullish(), note: z.string().max(255).nullish(), paid: z.boolean().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const { id, ...rest } = input;
+      await staffSvc.updateShift(id, rest);
+      await db.recordAdminAudit({ action: 'finance.shiftUpdate', targetType: 'staffShift', targetId: id, payload: rest, ip: clientIp(ctx) });
+      return { success: true };
+    }),
+    shiftRemove: adminProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input, ctx }) => {
+      await staffSvc.removeShift(input.id);
+      await db.recordAdminAudit({ action: 'finance.shiftRemove', targetType: 'staffShift', targetId: input.id, ip: clientIp(ctx) });
+      return { success: true };
+    }),
+  }),
+
   budgetSimulations: router({
     // Envía el informe (PDF) por correo. El admin siempre recibe copia. La versión
     // "externa" no muestra costos ni márgenes, ni en el PDF ni en el cuerpo del correo.

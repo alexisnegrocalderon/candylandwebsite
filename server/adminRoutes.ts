@@ -7,7 +7,7 @@ import { csvEscape, toCsv, parseCsv } from "./csv";
 import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
 import { buildPnlReportPdf } from "./caja/pnlPdf";
 import { buildMovementsPdf } from "./caja/movementsPdf";
-import { comparisonCsv, comparisonPdf, loadSims, singleCsv, singlePdf, slug } from "./budgetReport";
+import { comparisonCsv, comparisonPdf, loadSims, singleCsv, singlePdf, slug, realEventPdf } from "./budgetReport";
 
 /** Exportada para que otras rutas Express crudas (fuera de tRPC) reusen el
  * mismo chequeo -- ver server/blobUpload.ts. */
@@ -55,6 +55,21 @@ export function registerAdminRoutes(app: Express) {
       res.status(500).json({ error: "No se pudo generar el informe" });
     }
   };
+  app.get("/api/admin/finanzas/informe.pdf", async (req: Request, res: Response) => {
+    if (!(await requireAdmin(req, res))) return;
+    try {
+      const eventId = Number(req.query.eventId);
+      if (!Number.isInteger(eventId) || eventId <= 0) { res.status(400).json({ error: "Falta el evento" }); return; }
+      const out = await realEventPdf(eventId);
+      if (!out) { res.status(404).json({ error: "Evento no encontrado" }); return; }
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="informe-real-${slug(out.title)}-${today()}.pdf"`);
+      res.send(out.pdf);
+    } catch (e) {
+      console.error("[finanzasPdf]", e);
+      res.status(500).json({ error: "No se pudo generar el informe" });
+    }
+  });
   app.get("/api/admin/simulaciones/informe.pdf", simReport("pdf", false));
   app.get("/api/admin/simulaciones/comparar.pdf", simReport("pdf", true));
   app.get("/api/admin/simulaciones/datos.csv", simReport("csv", false));
