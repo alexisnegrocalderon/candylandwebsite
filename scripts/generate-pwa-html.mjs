@@ -25,13 +25,13 @@ const outDir = join(import.meta.dirname, '..', 'dist', 'public');
 const baseHtml = readFileSync(join(outDir, 'index.html'), 'utf-8');
 
 const SCREENS = [
-  { file: 'admin.html', manifest: '/admin.webmanifest', title: 'Admin' },
-  { file: 'caja.html', manifest: '/caja.webmanifest', title: 'Caja' },
-  { file: 'puerta.html', manifest: '/puerta.webmanifest', title: 'Puerta' },
+  { file: 'admin.html', manifest: '/admin.webmanifest', title: 'Admin', appleTouchIcon: '/app-icons/admin/icon-180.png' },
+  { file: 'caja.html', manifest: '/caja.webmanifest', title: 'Caja', appleTouchIcon: '/app-icons/caja/icon-180.png' },
+  { file: 'puerta.html', manifest: '/puerta.webmanifest', title: 'Puerta', appleTouchIcon: '/app-icons/puerta/icon-180.png' },
   // Ícono propio: con las cuatro apps instaladas en la misma pantalla de
   // inicio, el isotipo genérico las hacía indistinguibles a simple vista.
   { file: 'gastos.html', manifest: '/gastos.webmanifest', title: 'Gastos', appleTouchIcon: '/gastos/icon-180.png' },
-  { file: 'fiesta.html', manifest: '/fiesta.webmanifest', title: 'Playmatch' },
+  { file: 'fiesta.html', manifest: '/fiesta.webmanifest', title: 'Playmatch', appleTouchIcon: '/app-icons/fiesta/icon-180.png' },
 ];
 
 for (const screen of SCREENS) {
