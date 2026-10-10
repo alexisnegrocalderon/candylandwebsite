@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
@@ -44,6 +44,7 @@ import { SalesStrategyView } from '@/components/admin/SalesStrategyView';
 import { EventSurveyView } from '@/components/admin/EventSurveyView';
 import { WinbackView } from '@/components/admin/WinbackView';
 import { ContentPlanView } from '@/components/admin/ContentPlanView';
+import { ProfileAuditView } from '@/components/admin/ProfileAuditView';
 import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
 
 // El Estudio trae sus propias fuentes, html-to-image y jszip: se carga recién
@@ -10866,6 +10867,7 @@ const ADMIN_SECTIONS = [
   { id: 'mailing-history', label: 'Historial de Mailing', group: 'Marketing', icon: History, render: () => <MailingHistoryView /> },
   { id: 'winback', label: 'Reactivar clientes', group: 'Marketing', icon: Users, render: () => <WinbackView /> },
   { id: 'content-plan', label: 'Plan de contenido', group: 'Marketing', icon: Calendar, render: () => <ContentPlanView /> },
+  { id: 'profile-audit', label: 'Revisar mi perfil', group: 'Marketing', icon: UserCheck, render: () => <ProfileAuditView /> },
   { id: 'studio', label: 'Estudio', group: 'Marketing', icon: Palette, render: () => (
     <Suspense fallback={<div className="py-12 flex justify-center"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
       <ContentStudio />

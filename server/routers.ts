@@ -88,11 +88,12 @@ import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emai
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
 import { normalizeInstagramAgentConfig, DEFAULT_INSTAGRAM_AGENT_CONFIG, IG_MAX_REPLY_CHARS } from "../shared/instagramAgentConfig";
 import { sendManualInstagramReply } from "./instagram";
-import { canReplyWithinWindow } from "./instagramSend";
+import { canReplyWithinWindow, fetchOwnProfile } from "./instagramSend";
 import { runInstagramAgent, buildInstagramContext } from "./instagramAgent";
 import { getIgCustomerLinkState } from "./igCustomerLink";
 import { AGENT_SITE_PAGES } from "./agentLinks";
 import { generateReelScript } from "./reelScript";
+import { generateProfileAudit } from "./profileAudit";
 import { issueAccessCreditsForOrder, listAccessCredits, listCreditsByOrderIds, remindAccessCredit } from "./accessCredit";
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
@@ -2355,6 +2356,33 @@ export const appRouter = router({
   // Plan de contenido para Instagram (server/contentPlanner.ts): calendario de
   // publicaciones hasta el próximo evento. adminProcedure: llama a la IA con
   // costo. No guarda nada en el servidor; el panel recuerda el último plan.
+  /* "Revisar mi perfil" de Instagram: puntaje de 100 con la rúbrica de Playroom. */
+  profileAudit: router({
+    fetchProfile: adminProcedure.mutation(async () => {
+      try {
+        return await fetchOwnProfile();
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo traer el perfil.' });
+      }
+    }),
+    run: adminProcedure.input(z.object({
+      username: z.string().max(60),
+      name: z.string().max(100),
+      bio: z.string().max(400),
+      link: z.string().max(300),
+      followers: z.number().int().nonnegative().optional(),
+      posts: z.number().int().nonnegative().optional(),
+      highlights: z.array(z.string().max(40)).max(20),
+      screenshotUrl: z.string().url().optional(),
+    })).mutation(async ({ input }) => {
+      try {
+        return await generateProfileAudit(input);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo revisar el perfil.' });
+      }
+    }),
+  }),
+
   contentPlan: router({
     /* Guion de Reel (3 ganchos + líneas + qué grabar) desde una idea o una pieza del plan. */
     reelScript: adminProcedure.input(z.object({
