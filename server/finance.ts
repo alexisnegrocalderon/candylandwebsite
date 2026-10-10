@@ -15,6 +15,7 @@ import { customers, orderItems, orders, ticketTypes, staffMembers, staffShifts }
 import * as db from "./db";
 import { isTopupProduct } from "../shared/prepaid";
 import { isPrepaidSpend, categoryLabel } from "../shared/expenses";
+import { honorariosBreakdown } from "../shared/honorarios";
 import { computeBudgetResult, type BudgetSimulationInput, type BudgetResult } from "../shared/eventBudget";
 import {
   buildRecommendations, buildScenarios, buildSensitivity, profitCurve, verdictFor,
@@ -39,10 +40,11 @@ export type EventFinanceData = {
   incomeLines: IncomeLine[];
   byChannel: { web: number; caja: number; import: number; saldoGastado: number };
   byMethod: { method: string; amount: number }[];
-  staff: { id: number; shiftId: number; name: string; role: string | null; amountClp: number; paid: boolean }[];
+  staff: { id: number; shiftId: number; name: string; role: string | null; amountClp: number; netClp: number; retentionClp: number; paid: boolean }[];
   payables: {
     parkingVenue: number;
     staffUnpaid: number;
+    staffRetention: number;
     ambassadorCommissions: number;
     ivaAPagar: number;
     playcardSaldoClientes: number;
@@ -134,10 +136,15 @@ export async function getEventFinanceData(eventId: number): Promise<EventFinance
 
   const shifts = await conn.select({
     shiftId: staffShifts.id, id: staffMembers.id, name: staffMembers.name, role: staffMembers.role,
-    amountClp: staffShifts.amountClp, paid: staffShifts.paid,
+    amountClp: staffShifts.amountClp, paymentType: staffShifts.paymentType, amountMode: staffShifts.amountMode, paid: staffShifts.paid,
   }).from(staffShifts).innerJoin(staffMembers, eq(staffMembers.id, staffShifts.staffId))
     .where(eq(staffShifts.eventId, eventId));
-  const staff = (shifts as any[]).map((s) => ({ ...s, paid: !!s.paid })) as EventFinanceData["staff"];
+  const staffYear = Number(pnl.monthKey.slice(0, 4));
+  // `amountClp` = lo que cuesta (bruto), para que los números del informe cuadren con el P&L.
+  const staff = (shifts as any[]).map((s) => {
+    const pay = honorariosBreakdown({ amount: Number(s.amountClp), paymentType: s.paymentType, amountMode: s.amountMode, year: staffYear });
+    return { ...s, amountClp: pay.cost, netClp: pay.net, retentionClp: pay.retention, paid: !!s.paid };
+  }) as EventFinanceData["staff"];
 
   const expenseRows = await db.getEventExpenseLines(eventId);
   const expenseLines = [
@@ -164,7 +171,9 @@ export async function getEventFinanceData(eventId: number): Promise<EventFinance
     staff,
     payables: {
       parkingVenue: parking?.amountOwedToVenueClp ?? 0,
-      staffUnpaid: staff.filter((s) => !s.paid).reduce((s, x) => s + x.amountClp, 0),
+      // A la persona se le transfiere el líquido; la retención va aparte, al SII.
+      staffUnpaid: staff.filter((s) => !s.paid).reduce((s, x) => s + x.netClp, 0),
+      staffRetention: staff.reduce((s, x) => s + x.retentionClp, 0),
       ambassadorCommissions: pnl.ambassadorCommissions,
       ivaAPagar: pnl.iva.ivaAPagar,
       playcardSaldoClientes: Number(saldo ?? 0),

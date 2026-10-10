@@ -4,6 +4,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis
 import { Banknote, Download, Sparkles, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { formatChileTime, formatChileShortDate } from '@shared/chileDate';
+import { honorariosBreakdown } from '@shared/honorarios';
 import { useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +22,10 @@ const VERDICT_TONE: Record<string, string> = {
 };
 const GROUP_LABEL: Record<string, string> = { entradas: 'Entradas', consumo: 'Barra y consumo', extras: 'Extras', saldo: 'Cargas PlayCard', otros: 'Otros' };
 
+/** Vista previa del cálculo antes de agregar el turno (misma función que usa el servidor). */
+const honorariosPreview = (amount: number, mode: 'liquido' | 'bruto', year?: number) =>
+  honorariosBreakdown({ amount, paymentType: 'boleta_honorarios', amountMode: mode, year: year ?? new Date().getFullYear() });
+
 const onErr = (e: unknown) => toast.error((e as { message?: string })?.message || 'No se pudo completar la acción');
 
 /** Una fila de la cascada: barra proporcional al ingreso. */
@@ -37,102 +42,223 @@ function FlowRow({ label, value, total, color, sign = '-' }: { label: string; va
   );
 }
 
+const pillBase = 'rounded-full px-4 py-1.5 text-sm font-semibold transition active:scale-95 disabled:opacity-60';
+const pillOn = 'bg-pink-500 text-white shadow-sm';
+const pillOff = 'bg-black/5 text-[var(--admin-muted)] hover:bg-black/10';
+
+type PayType = 'transferencia' | 'boleta_honorarios';
+type PayMode = 'liquido' | 'bruto';
+
+/** Dos pills excluyentes (forma de pago, líquido/bruto). */
+function PillChoice<T extends string>({ value, onChange, options, disabled }: { value: T; onChange: (v: T) => void; options: { v: T; l: string }[]; disabled?: boolean }) {
+  return (
+    <div className="inline-flex gap-1.5">
+      {options.map((o) => (
+        <button key={o.v} type="button" disabled={disabled} onClick={() => onChange(o.v)} className={`${pillBase} ${value === o.v ? pillOn : pillOff}`}>{o.l}</button>
+      ))}
+    </div>
+  );
+}
+
+const PAY_TYPES = [{ v: 'transferencia' as PayType, l: 'Transferencia' }, { v: 'boleta_honorarios' as PayType, l: 'Boleta de honorarios' }];
+const PAY_MODES = [{ v: 'liquido' as PayMode, l: 'El monto es líquido' }, { v: 'bruto' as PayMode, l: 'El monto es bruto' }];
+
+/** Qué pasa con la plata de este turno: boleta, retención, lo que recibe la persona y lo que cuesta. */
+function PayLine({ pay }: { pay: any }) {
+  if (pay.paymentType !== 'boleta_honorarios') {
+    return <p className="text-xs text-[var(--admin-muted)]">Transferencia: la persona recibe {money(pay.net)}. Costo para ti {money(pay.cost)}.</p>;
+  }
+  return (
+    <p className="text-xs text-[var(--admin-muted)]">
+      Boleta {money(pay.gross)} · retención {pay.ratePercent}% = {money(pay.retention)} al SII · la persona recibe <strong className="text-foreground">{money(pay.net)}</strong> · costo para ti <strong className="text-foreground">{money(pay.cost)}</strong>
+    </p>
+  );
+}
+
+function TeamEditor() {
+  const isDemo = useIsDemo();
+  const utils = trpc.useUtils();
+  const { data: team } = trpc.finance.staffList.useQuery();
+  const [editingId, setEditingId] = useState<number | 'new' | null>(null);
+  const [f, setF] = useState({ name: '', role: '', rate: '', phone: '', rut: '', notes: '' });
+  const save = trpc.finance.staffSave.useMutation({
+    onSuccess: () => { utils.finance.staffList.invalidate(); utils.finance.shiftsList.invalidate(); setEditingId(null); toast.success('Equipo actualizado'); },
+    onError: onErr,
+  });
+  const del = trpc.finance.staffDelete.useMutation({
+    onSuccess: (r) => { utils.finance.staffList.invalidate(); utils.finance.shiftsList.invalidate(); toast.success(r.archived ? 'Tiene historial: quedó archivado' : 'Persona eliminada'); },
+    onError: onErr,
+  });
+  const open = (m: any | null) => {
+    setEditingId(m ? m.id : 'new');
+    setF(m ? { name: m.name, role: m.role ?? '', rate: String(m.defaultRateClp || ''), phone: m.phone ?? '', rut: m.rut ?? '', notes: m.notes ?? '' }
+      : { name: '', role: '', rate: '', phone: '', rut: '', notes: '' });
+  };
+  const submit = () => save.mutate({
+    id: editingId === 'new' || editingId == null ? undefined : editingId,
+    name: f.name.trim(), role: f.role.trim() || null, defaultRateClp: Math.max(0, Math.round(Number(f.rate) || 0)),
+    phone: f.phone.trim() || null, rut: f.rut.trim() || null, notes: f.notes.trim() || null,
+  });
+  const form = (
+    <div className="admin-clay-sm p-3 space-y-2">
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Input placeholder="Nombre *" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        <Input placeholder="Rol (barra, puerta…)" value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} />
+        <Input type="number" inputMode="numeric" placeholder="Tarifa habitual $" value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} />
+        <Input placeholder="Teléfono" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+        <Input placeholder="RUT" value={f.rut} onChange={(e) => setF({ ...f, rut: e.target.value })} />
+        <Input placeholder="Notas" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
+      </div>
+      <div className="flex gap-2">
+        <button type="button" disabled={!f.name.trim() || save.isPending || isDemo} onClick={submit} className={`${pillBase} bg-emerald-500 text-white`}>Guardar</button>
+        <button type="button" onClick={() => setEditingId(null)} className={`${pillBase} ${pillOff}`}>Cancelar</button>
+      </div>
+    </div>
+  );
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold">Equipo ({(team ?? []).length})</p>
+        {editingId !== 'new' && <button type="button" disabled={isDemo} onClick={() => open(null)} className={`${pillBase} ${pillOn}`}>+ Nueva persona</button>}
+      </div>
+      {editingId === 'new' && form}
+      {(team ?? []).length === 0 && editingId !== 'new' && <p className="text-sm text-[var(--admin-muted)]">Todavía no hay nadie en el equipo.</p>}
+      {(team ?? []).map((m: any) => editingId === m.id ? <div key={m.id}>{form}</div> : (
+        <div key={m.id} className={`admin-clay-sm p-3 flex flex-wrap items-center gap-3 ${m.active ? '' : 'opacity-60'}`}>
+          <div className="flex-1 min-w-[10rem]">
+            <p className="font-medium">{m.name} {!m.active && <span className="text-xs text-[var(--admin-muted)]">(archivado)</span>}</p>
+            <p className="text-xs text-[var(--admin-muted)]">
+              {[m.role || 'Sin rol', m.defaultRateClp ? `tarifa ${money(m.defaultRateClp)}` : null, m.phone, m.rut].filter(Boolean).join(' · ')}
+            </p>
+            {m.notes && <p className="text-xs text-[var(--admin-muted)]">{m.notes}</p>}
+          </div>
+          <button type="button" disabled={isDemo} onClick={() => open(m)} className={`${pillBase} ${pillOff}`}>Editar</button>
+          <button type="button" disabled={isDemo || save.isPending} onClick={() => save.mutate({ id: m.id, name: m.name, role: m.role, defaultRateClp: m.defaultRateClp, phone: m.phone, rut: m.rut, notes: m.notes, active: !m.active })} className={`${pillBase} ${pillOff}`}>{m.active ? 'Archivar' : 'Reactivar'}</button>
+          <button type="button" disabled={isDemo || del.isPending} aria-label={`Eliminar a ${m.name}`}
+            onClick={() => { if (window.confirm(`¿Eliminar a ${m.name}? Si ya tiene pagos registrados quedará archivado.`)) del.mutate({ id: m.id }); }}
+            className="p-2 rounded-full hover:bg-black/5"><Trash2 className="w-4 h-4" /></button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function StaffPanel({ eventId, report }: { eventId: number; report: any }) {
   const utils = trpc.useUtils();
   const isDemo = useIsDemo();
   const { data: catalog } = trpc.finance.staffList.useQuery();
-  const { data: shifts } = trpc.finance.shiftsList.useQuery({ eventId });
+  const { data: sh } = trpc.finance.shiftsList.useQuery({ eventId });
   const [staffId, setStaffId] = useState<string>('');
   const [amount, setAmount] = useState('');
-  const [newName, setNewName] = useState('');
-  const [newRole, setNewRole] = useState('');
-  const [newRate, setNewRate] = useState('');
+  const [payType, setPayType] = useState<PayType>('transferencia');
+  const [payMode, setPayMode] = useState<PayMode>('liquido');
 
-  const refresh = () => { utils.finance.shiftsList.invalidate(); utils.finance.eventReport.invalidate(); utils.cajaReports.eventPnl.invalidate(); };
-  const saveStaff = trpc.finance.staffSave.useMutation({
-    onSuccess: () => { utils.finance.staffList.invalidate(); setNewName(''); setNewRole(''); setNewRate(''); toast.success('Persona agregada'); },
-    onError: onErr,
-  });
+  const refresh = () => { utils.finance.shiftsList.invalidate(); utils.finance.eventReport.invalidate(); utils.finance.payables.invalidate(); utils.cajaReports.eventPnl.invalidate(); };
   const addShift = trpc.finance.shiftAdd.useMutation({ onSuccess: () => { refresh(); setStaffId(''); setAmount(''); }, onError: onErr });
   const updShift = trpc.finance.shiftUpdate.useMutation({ onSuccess: refresh, onError: onErr });
   const delShift = trpc.finance.shiftRemove.useMutation({ onSuccess: refresh, onError: onErr });
 
+  const shifts: any[] = sh?.shifts ?? [];
+  const totals = sh?.totals ?? { gross: 0, retention: 0, net: 0, cost: 0 };
   const active = (catalog ?? []).filter((s: any) => s.active);
-  const assigned = new Set((shifts ?? []).map((s: any) => s.staffId));
-  const total = (shifts ?? []).reduce((s: number, x: any) => s + x.amountClp, 0);
-  const unpaid = (shifts ?? []).filter((x: any) => !x.paid).reduce((s: number, x: any) => s + x.amountClp, 0);
+  const assigned = new Set(shifts.map((s) => s.staffId));
+  const unpaid = shifts.filter((x) => !x.paid).reduce((s, x) => s + x.pay.net, 0);
+  const boletaGross = shifts.filter((x) => x.paymentType === 'boleta_honorarios').reduce((s, x) => s + x.pay.gross, 0);
 
   return (
     <Card className="admin-clay border-0">
       <CardHeader>
         <CardTitle className="flex items-center gap-2"><Users className="w-5 h-5" /> Staff de la noche</CardTitle>
         <p className="text-sm text-[var(--admin-muted)]">
-          Lo que pagas al equipo entra solo al resultado del evento. Total {money(total)} · por pagar {money(unpaid)}.
+          Lo que cuesta el equipo entra solo al resultado del evento. Retención de honorarios {sh?.ratePercent ?? '—'}% (año {sh?.year ?? '—'}).
           {report?.pnl?.warnings?.some((w: string) => w.includes('Staff')) && ' Ojo: revisa el aviso de doble conteo de arriba.'}
         </p>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          {(shifts ?? []).length === 0 && <EmptyState icon={Users} title="Nadie asignado todavía" description="Agrega al equipo de esta noche y cuánto se le paga." />}
-          {(shifts ?? []).map((s: any) => (
-            <div key={s.id} className="admin-clay-sm p-3 flex flex-wrap items-center gap-3">
-              <div className="min-w-[8rem] flex-1">
-                <p className="font-medium">{s.name}</p>
-                <p className="text-xs text-[var(--admin-muted)]">{s.role || 'Sin rol'}</p>
-              </div>
-              <Input
-                type="number" inputMode="numeric" className="w-28" defaultValue={s.amountClp} disabled={isDemo}
-                onBlur={(e) => { const v = Math.max(0, Math.round(Number(e.target.value) || 0)); if (v !== s.amountClp) updShift.mutate({ id: s.id, amountClp: v }); }}
-              />
-              <button type="button" disabled={isDemo}
-                className={`rounded-full px-5 py-2 text-sm font-semibold text-white shadow-sm transition active:scale-95 disabled:opacity-60 ${s.paid ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-pink-500 hover:bg-pink-600'}`}
-                onClick={() => updShift.mutate({ id: s.id, paid: !s.paid })}>
-                {s.paid ? '✓ Pagado' : 'Marcar pagado'}
-              </button>
-              <Button size="icon" variant="ghost" disabled={isDemo} aria-label={`Quitar a ${s.name}`}
-                onClick={() => { if (window.confirm(`¿Quitar a ${s.name} de este evento?`)) delShift.mutate({ id: s.id }); }}>
-                <Trash2 className="w-4 h-4" />
-              </Button>
+      <CardContent className="space-y-5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            ['A transferir a las personas', totals.net, `Por pagar ahora: ${money(unpaid)}`],
+            ['Boletas de honorarios (bruto)', boletaGross, 'Lo que dicen las boletas'],
+            ['Retención al SII', totals.retention, 'Se declara y paga en el F29'],
+            ['Costo total del staff', totals.cost, 'Lo que entra al resultado'],
+          ].map(([label, value, hint]) => (
+            <div key={label as string} className="admin-clay-sm p-3">
+              <p className="text-xs text-[var(--admin-muted)]">{label}</p>
+              <p className="font-heading text-xl tabular-nums">{money(value as number)}</p>
+              <p className="text-[11px] text-[var(--admin-muted)]">{hint}</p>
             </div>
           ))}
         </div>
 
-        <div className="flex flex-wrap items-end gap-2 pt-2 border-t border-black/5">
-          <div className="min-w-[10rem] flex-1">
-            <p className="text-xs text-[var(--admin-muted)] mb-1">Agregar al evento</p>
-            <Select value={staffId} onValueChange={(v) => { setStaffId(v); const m = active.find((x: any) => String(x.id) === v); if (m && !amount) setAmount(String(m.defaultRateClp || '')); }}>
-              <SelectTrigger><SelectValue placeholder="Elige una persona" /></SelectTrigger>
-              <SelectContent>
-                {active.filter((m: any) => !assigned.has(m.id)).map((m: any) => (
-                  <SelectItem key={m.id} value={String(m.id)}>{m.name}{m.role ? ` · ${m.role}` : ''}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Input type="number" inputMode="numeric" placeholder="Monto $" className="w-28" value={amount} onChange={(e) => setAmount(e.target.value)} />
-          <Button disabled={isDemo || !staffId || addShift.isPending} title={isDemo ? DEMO_TOOLTIP : undefined}
-            onClick={() => addShift.mutate({ eventId, staffId: Number(staffId), amountClp: Math.round(Number(amount) || 0) })}>
-            <Plus className="w-4 h-4 mr-1" /> Agregar
-          </Button>
+        <div className="space-y-2">
+          {shifts.length === 0 && <EmptyState icon={Users} title="Nadie asignado todavía" description="Agrega al equipo de esta noche y cuánto se le paga." />}
+          {shifts.map((s) => (
+            <div key={s.id} className="admin-clay-sm p-3 space-y-2">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-[8rem] flex-1">
+                  <p className="font-medium">{s.name}</p>
+                  <p className="text-xs text-[var(--admin-muted)]">{s.role || 'Sin rol'}</p>
+                </div>
+                <Input
+                  key={`${s.id}-${s.amountClp}`} type="number" inputMode="numeric" className="w-28" defaultValue={s.amountClp} disabled={isDemo}
+                  aria-label={`Monto pactado con ${s.name}`}
+                  onBlur={(e) => { const v = Math.max(0, Math.round(Number(e.target.value) || 0)); if (v !== s.amountClp) updShift.mutate({ id: s.id, amountClp: v }); }}
+                />
+                <button type="button" disabled={isDemo}
+                  className={`rounded-full px-5 py-2 text-sm font-semibold text-white shadow-sm transition active:scale-95 disabled:opacity-60 ${s.paid ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-pink-500 hover:bg-pink-600'}`}
+                  onClick={() => updShift.mutate({ id: s.id, paid: !s.paid })}>
+                  {s.paid ? '✓ Pagado' : 'Marcar pagado'}
+                </button>
+                <button type="button" disabled={isDemo} aria-label={`Quitar a ${s.name}`} className="p-2 rounded-full hover:bg-black/5"
+                  onClick={() => { if (window.confirm(`¿Quitar a ${s.name} de este evento?`)) delShift.mutate({ id: s.id }); }}>
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <PillChoice value={s.paymentType as PayType} options={PAY_TYPES} disabled={isDemo} onChange={(v) => updShift.mutate({ id: s.id, paymentType: v })} />
+                {s.paymentType === 'boleta_honorarios' && (
+                  <PillChoice value={s.amountMode as PayMode} options={PAY_MODES} disabled={isDemo} onChange={(v) => updShift.mutate({ id: s.id, amountMode: v })} />
+                )}
+              </div>
+              <PayLine pay={s.pay} />
+            </div>
+          ))}
         </div>
 
-        <details className="text-sm">
-          <summary className="cursor-pointer text-[var(--admin-muted)]">Equipo (personas que ya registraste: {(catalog ?? []).length})</summary>
-          <div className="flex flex-wrap items-end gap-2 mt-3">
-            <Input placeholder="Nombre" className="w-40" value={newName} onChange={(e) => setNewName(e.target.value)} />
-            <Input placeholder="Rol (barra, puerta…)" className="w-40" value={newRole} onChange={(e) => setNewRole(e.target.value)} />
-            <Input type="number" inputMode="numeric" placeholder="Tarifa por noche $" className="w-40" value={newRate} onChange={(e) => setNewRate(e.target.value)} />
-            <Button variant="outline" disabled={isDemo || !newName.trim() || saveStaff.isPending}
-              onClick={() => saveStaff.mutate({ name: newName, role: newRole || null, defaultRateClp: Math.round(Number(newRate) || 0) })}>
-              Crear persona
-            </Button>
+        <div className="pt-3 border-t border-black/5 space-y-2">
+          <p className="text-xs text-[var(--admin-muted)]">Agregar al evento</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="min-w-[12rem] flex-1">
+              <Select value={staffId} onValueChange={(v) => { setStaffId(v); const m = active.find((x: any) => String(x.id) === v); if (m && !amount) setAmount(String(m.defaultRateClp || '')); }}>
+                <SelectTrigger><SelectValue placeholder="Elige una persona" /></SelectTrigger>
+                <SelectContent>
+                  {active.filter((m: any) => !assigned.has(m.id)).map((m: any) => (
+                    <SelectItem key={m.id} value={String(m.id)}>{m.name}{m.role ? ` · ${m.role}` : ''}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Input type="number" inputMode="numeric" placeholder="Monto $" className="w-28" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </div>
-        </details>
+          <div className="flex flex-wrap items-center gap-2">
+            <PillChoice value={payType} options={PAY_TYPES} onChange={setPayType} />
+            {payType === 'boleta_honorarios' && <PillChoice value={payMode} options={PAY_MODES} onChange={setPayMode} />}
+            <button type="button" disabled={isDemo || !staffId || addShift.isPending} title={isDemo ? DEMO_TOOLTIP : undefined}
+              className={`${pillBase} ${pillOn} px-6 py-2`}
+              onClick={() => addShift.mutate({ eventId, staffId: Number(staffId), amountClp: Math.round(Number(amount) || 0), paymentType: payType, amountMode: payMode })}>
+              <Plus className="w-4 h-4 inline mr-1" /> Agregar
+            </button>
+          </div>
+          {payType === 'boleta_honorarios' && Number(amount) > 0 && (
+            <PayLine pay={honorariosPreview(Number(amount), payMode, sh?.year)} />
+          )}
+        </div>
+
+        <TeamEditor />
       </CardContent>
     </Card>
   );
 }
-
 
 const RANGES = [{ v: 30, l: '30 min' }, { v: 60, l: '1 hora' }, { v: 120, l: '2 horas' }, { v: 240, l: '4 horas' }];
 const ALERT_TONE: Record<string, string> = { danger: 'bg-red-500/10 text-red-700', warning: 'bg-amber-500/15 text-amber-800', info: 'bg-sky-500/10 text-sky-800' };
@@ -312,12 +438,12 @@ function PayablesTab() {
   if (isLoading) return <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>;
   if (isError || !data) return <p className="text-sm text-destructive">No se pudo cargar: {error?.message}</p>;
   // "Por pagar ahora" solo cuenta eventos que ya ocurrieron.
-  const total = data.ambassadorsPending + data.staffUnpaidTotal + data.parkingTotal;
+  const total = data.ambassadorsPending + data.staffUnpaidTotal + data.parkingTotal + data.retentionSiiTotal;
   const paidTotal = data.ambassadorEvents.reduce((sum: number, e: any) => sum + e.paid, 0);
   return (
     <div className="space-y-6">
       <BentoGrid>
-        <BentoTile span={2}><StatTile size="lg" icon={Wallet} tone="alert" value={money(total)} label="Por pagar (embajadores + staff + estacionamiento)" /></BentoTile>
+        <BentoTile span={2}><StatTile size="lg" icon={Wallet} tone="alert" value={money(total)} label="Por pagar (embajadores + staff + estacionamiento + retención SII)" /></BentoTile>
         <BentoTile><StatTile icon={Users} tone="count" value={money(data.ambassadorsPending)} label={`Comisiones por pagar ahora${data.ambassadorsPendingFuture > 0 ? ` (+${money(data.ambassadorsPendingFuture)} de eventos que aún no ocurren)` : ''}`} /></BentoTile>
         <BentoTile><StatTile icon={Banknote} tone="count" value={money(data.playcardSaldoClientes)} label="Saldo PlayCard de clientes" /></BentoTile>
       </BentoGrid>
@@ -387,9 +513,31 @@ function PayablesTab() {
         </CardContent>
       </Card>
 
+      <Card className="admin-clay border-0">
+        <CardHeader>
+          <CardTitle>Retención de honorarios al SII</CardTitle>
+          <p className="text-sm text-[var(--admin-muted)]">
+            Lo que retuviste en las boletas de honorarios del staff. Se declara y paga en el F29 hasta el día 12 del mes siguiente al evento.
+            Se muestran los eventos de los últimos 75 días (el sistema no registra el pago del F29).
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {data.retentionSii.length === 0 && <p className="text-sm text-[var(--admin-muted)]">No hay retenciones recientes por declarar.</p>}
+          {data.retentionSii.map((r: any) => (
+            <div key={r.eventId} className="admin-clay-sm p-3 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-medium">{r.eventTitle}</p>
+                <p className="text-xs text-[var(--admin-muted)]">{r.boletas} boleta{r.boletas === 1 ? '' : 's'} · vence el {r.dueDate ? r.dueDate.split('-').reverse().join('-') : '—'}</p>
+              </div>
+              <strong className="tabular-nums">{money(r.retention)}</strong>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="admin-clay border-0">
-          <CardHeader><CardTitle>Staff sin pagar</CardTitle><p className="text-sm text-[var(--admin-muted)]">Se marca como pagado dentro de cada evento (pestaña Evento completo).</p></CardHeader>
+          <CardHeader><CardTitle>Staff sin pagar</CardTitle><p className="text-sm text-[var(--admin-muted)]">Lo que hay que transferirles (líquido). Se marca como pagado dentro de cada evento (pestaña Evento completo).</p></CardHeader>
           <CardContent className="space-y-2">
             {data.staffUnpaid.length === 0 && <p className="text-sm text-[var(--admin-muted)]">Todo el staff está al día ✓</p>}
             {data.staffUnpaid.map((r: any, i: number) => (

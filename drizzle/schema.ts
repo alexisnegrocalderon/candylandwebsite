@@ -2347,7 +2347,12 @@ export const staffShifts = mysqlTable("staffShifts", {
   id: int("id").autoincrement().primaryKey(),
   eventId: int("eventId").notNull(),
   staffId: int("staffId").notNull(),
+  // Lo PACTADO. Si es boleta de honorarios, `amountMode` dice si es el líquido
+  // (la persona recibe exacto) o el bruto (el de la boleta); el bruto y la
+  // retención se calculan (shared/honorarios.ts), no se guardan.
   amountClp: int("amountClp").notNull(),
+  paymentType: mysqlEnum("paymentType", ["transferencia", "boleta_honorarios"]).default("transferencia").notNull(),
+  amountMode: mysqlEnum("amountMode", ["liquido", "bruto"]).default("liquido").notNull(),
   hours: decimal("hours", { precision: 5, scale: 1 }),
   paid: int("paid").default(0).notNull(),
   paidAt: timestamp("paidAt"),

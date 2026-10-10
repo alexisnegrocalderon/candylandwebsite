@@ -12,6 +12,15 @@ import { sql } from "drizzle-orm";
 import * as db from "./db";
 import { expenseCostForPnl } from "../shared/expenses";
 import { monthKeyFor } from "../shared/ambassadorProgram";
+import { honorariosBreakdown } from "../shared/honorarios";
+
+/** El F29 de lo retenido vence el día 12 del mes siguiente al del evento (hora de Chile). */
+export function f29DueDate(eventDate: Date | string): string {
+  const [y, m] = monthKeyFor(eventDate).split("-").map(Number);
+  const ny = m === 12 ? y + 1 : y;
+  const nm = m === 12 ? 1 : m + 1;
+  return `${ny}-${String(nm).padStart(2, "0")}-12`;
+}
 
 export type MonthRow = {
   monthKey: string;
@@ -144,13 +153,31 @@ export async function getPayables() {
   const ambassadorsPending = ambassadorEvents.filter((e) => !e.isFuture).reduce((sum, e) => sum + e.pending, 0);
   const ambassadorsPendingFuture = ambassadorEvents.filter((e) => e.isFuture).reduce((sum, e) => sum + e.pending, 0);
 
+  // Staff: a la persona se le transfiere el líquido; la retención de las boletas
+  // de honorarios se declara y paga al SII (F29, hasta el día 12 del mes siguiente).
   const staffRows = await conn.select({
-    eventId: staffShifts.eventId, title: events.title, name: staffMembers.name, amountClp: staffShifts.amountClp,
+    eventId: staffShifts.eventId, title: events.title, eventDate: events.eventDate, name: staffMembers.name,
+    amountClp: staffShifts.amountClp, paymentType: staffShifts.paymentType, amountMode: staffShifts.amountMode, paid: staffShifts.paid,
   }).from(staffShifts)
     .innerJoin(staffMembers, eq(staffMembers.id, staffShifts.staffId))
-    .innerJoin(events, eq(events.id, staffShifts.eventId))
-    .where(eq(staffShifts.paid, 0));
-  const staffUnpaid = (staffRows as any[]).map((r) => ({ eventId: r.eventId, eventTitle: r.title, name: r.name, amountClp: Number(r.amountClp) }));
+    .innerJoin(events, eq(events.id, staffShifts.eventId));
+  const staffUnpaid: { eventId: number; eventTitle: string; name: string; amountClp: number }[] = [];
+  const retentionByEvent = new Map<number, { eventId: number; eventTitle: string; eventDate: string | null; retention: number; boletas: number; dueDate: string | null }>();
+  for (const r of staffRows as any[]) {
+    const year = Number(monthKeyFor(r.eventDate).slice(0, 4));
+    const pay = honorariosBreakdown({ amount: Number(r.amountClp), paymentType: r.paymentType, amountMode: r.amountMode, year });
+    if (!r.paid) staffUnpaid.push({ eventId: r.eventId, eventTitle: r.title, name: r.name, amountClp: pay.net });
+    if (pay.retention > 0) {
+      const cur = retentionByEvent.get(r.eventId) ?? { eventId: r.eventId, eventTitle: r.title, eventDate: new Date(r.eventDate).toISOString(), retention: 0, boletas: 0, dueDate: f29DueDate(r.eventDate) };
+      cur.retention += pay.retention; cur.boletas += 1;
+      retentionByEvent.set(r.eventId, cur);
+    }
+  }
+  // Solo lo reciente: la retención de eventos viejos ya se declaró (no hay registro de pago del F29).
+  const cutoff = Date.now() - 75 * 86_400_000;
+  const retentionSii = Array.from(retentionByEvent.values())
+    .filter((r) => r.eventDate && new Date(r.eventDate).getTime() >= cutoff)
+    .sort((a, b) => new Date(b.eventDate ?? 0).getTime() - new Date(a.eventDate ?? 0).getTime());
 
   // Estacionamiento al local: de los eventos más recientes.
   const recent = await conn.select({ id: events.id, title: events.title }).from(events).orderBy(desc(events.eventDate)).limit(6);
@@ -168,6 +195,8 @@ export async function getPayables() {
     ambassadorsPendingFuture,
     staffUnpaid,
     staffUnpaidTotal: staffUnpaid.reduce((s, r) => s + r.amountClp, 0),
+    retentionSii,
+    retentionSiiTotal: retentionSii.reduce((s, r) => s + r.retention, 0),
     parking,
     parkingTotal: parking.reduce((s, r) => s + r.amount, 0),
     playcardSaldoClientes: Number(saldo ?? 0),

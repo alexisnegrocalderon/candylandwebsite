@@ -3268,6 +3268,7 @@ export const appRouter = router({
     shiftAdd: adminProcedure.input(z.object({
       eventId: z.number().int().positive(), staffId: z.number().int().positive(),
       amountClp: z.number().int().min(0).max(100_000_000), hours: z.number().min(0).max(48).nullish(), note: z.string().max(255).nullish(),
+      paymentType: z.enum(['transferencia', 'boleta_honorarios']).optional(), amountMode: z.enum(['liquido', 'bruto']).optional(),
     })).mutation(async ({ input, ctx }) => {
       try {
         const r = await staffSvc.addShift(input);
@@ -3278,6 +3279,7 @@ export const appRouter = router({
     shiftUpdate: adminProcedure.input(z.object({
       id: z.number().int().positive(), amountClp: z.number().int().min(0).max(100_000_000).optional(),
       hours: z.number().min(0).max(48).nullish(), note: z.string().max(255).nullish(), paid: z.boolean().optional(),
+      paymentType: z.enum(['transferencia', 'boleta_honorarios']).optional(), amountMode: z.enum(['liquido', 'bruto']).optional(),
     })).mutation(async ({ input, ctx }) => {
       const { id, ...rest } = input;
       await staffSvc.updateShift(id, rest);

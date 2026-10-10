@@ -14,6 +14,7 @@ import { isEventToday } from '../shared/eventDay';
 import { chileHourOf, startOfChileDay } from '../shared/chileDate';
 import { matchLeadForOrder as matchLeadForOrderImpl, syncLeadsAsMailingAudience as syncLeadsAsMailingAudienceImpl } from './leadsMailing';
 import { monthKeyFor } from '../shared/ambassadorProgram';
+import { staffTotals } from '../shared/honorarios';
 import { normalizeTandaSchedule, nextPhase } from '../shared/tandaSchedule';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
 import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, type PnlExpense } from '../shared/expenses';
@@ -4169,8 +4170,11 @@ export async function getEventPnl(eventId: number) {
   // Estacionamiento: la plata del auto entra al ingreso, pero una parte por
   // auto es del local. Es un costo real que antes no se restaba.
   const parkingOwedToVenue = (await getParkingReport(eventId))?.amountOwedToVenueClp ?? 0;
-  const staffShiftRows = await db.select({ amountClp: staffShifts.amountClp }).from(staffShifts).where(eq(staffShifts.eventId, eventId));
-  const staffCostsTotal = (staffShiftRows as any[]).reduce((s, r) => s + Number(r.amountClp), 0);
+  const staffShiftRows = await db.select({ amountClp: staffShifts.amountClp, paymentType: staffShifts.paymentType, amountMode: staffShifts.amountMode })
+    .from(staffShifts).where(eq(staffShifts.eventId, eventId));
+  // Lo que cuesta el staff es el BRUTO (si hay boleta de honorarios, incluye la retención).
+  const staffPay = staffTotals(staffShiftRows as any[], Number(monthKey.slice(0, 4)));
+  const staffCostsTotal = staffPay.cost;
 
   const pnl = computePnl({
     ivaApplies: event.ivaApplies === 1,
@@ -4194,6 +4198,7 @@ export async function getEventPnl(eventId: number) {
     ivaApplies: event.ivaApplies === 1,
     cogsCoverage,
     ...pnl,
+    staffRetentionTotal: staffPay.retention,
     warnings: await buildPnlWarnings({ eventId, cogs, directRows: directRows as any[], monthKey, grossIncome, staffCostsTotal }),
   };
 }
@@ -4339,9 +4344,14 @@ export async function getPnlComparison(eventIds?: number[]) {
   const cardFeePercent = Number((await getSiteSettings()).cardFeePercent ?? 3.5);
   const eventIdSet = eventIds?.length ? new Set(eventIds) : null;
   const shownEvents = (allEvents as any[]).filter((e) => !eventIdSet || eventIdSet.has(e.id));
-  const staffRows = await db.select({ eventId: staffShifts.eventId, amountClp: staffShifts.amountClp }).from(staffShifts);
+  const staffRows = await db.select({ eventId: staffShifts.eventId, amountClp: staffShifts.amountClp, paymentType: staffShifts.paymentType, amountMode: staffShifts.amountMode }).from(staffShifts);
+  const shiftsByEvent = new Map<number, any[]>();
+  for (const r of staffRows as any[]) shiftsByEvent.set(r.eventId, [...(shiftsByEvent.get(r.eventId) ?? []), r]);
   const staffByEvent = new Map<number, number>();
-  for (const r of staffRows as any[]) staffByEvent.set(r.eventId, (staffByEvent.get(r.eventId) ?? 0) + Number(r.amountClp));
+  for (const e of allEvents as any[]) {
+    const rows = shiftsByEvent.get(e.id);
+    if (rows) staffByEvent.set(e.id, staffTotals(rows, Number(monthKeyFor(e.eventDate).slice(0, 4))).cost);
+  }
   const owedByEvent = new Map<number, number>();
   await Promise.all(shownEvents.map(async (e) => {
     owedByEvent.set(e.id, (await getParkingReport(e.id))?.amountOwedToVenueClp ?? 0);
