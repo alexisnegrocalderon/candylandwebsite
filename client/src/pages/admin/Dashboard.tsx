@@ -89,7 +89,7 @@ type TaxIssuer = 'mansion' | 'tercero' | 'exento' | 'por_revisar';
 const TAX_ISSUER_OPTIONS: { v: TaxIssuer; l: string; hint: string }[] = [
   { v: 'mansion', l: 'Mansion Playroom', hint: 'Sus ventas van a tu F29 (IVA 19%).' },
   { v: 'tercero', l: 'El local u otro organizador', hint: 'Otro emite las boletas; no va a tu F29. Indica quién.' },
-  { v: 'exento', l: 'Exento', hint: 'Solo si un contador lo confirmó. Indica por qué.' },
+  { v: 'exento', l: 'Exento', hint: 'Solo con respaldo legal (norma o contador). Una fiesta cobrada por tu Mercado Pago normalmente se declara con IVA; "necesito caja" no es una exención.' },
 ];
 
 /** "¿Quién factura este evento?": define si sus ventas van al F29 (Dinero → SII). */
@@ -110,7 +110,7 @@ function TaxIssuerField({ issuer, note, onChange }: { issuer: TaxIssuer; note: s
       <p className="text-xs text-muted-foreground">{TAX_ISSUER_OPTIONS.find((o) => o.v === issuer)?.hint ?? ''}</p>
       {needsNote && (
         <Input value={note} maxLength={255} onChange={(e) => onChange(issuer, e.target.value)}
-          placeholder={issuer === 'tercero' ? 'Ej: factura el local (Club X, RUT ...)' : 'Ej: exento según contador, art. ...'} />
+          placeholder={issuer === 'tercero' ? 'Ej: factura el local (Club X, RUT ...)' : 'Ej: art. 12 E N°1 DL 825, confirmado por contador Juan Pérez'} />
       )}
     </div>
   );

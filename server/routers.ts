@@ -147,6 +147,11 @@ function withTaxIssuer<T extends { taxIssuer?: string; taxNote?: string | null; 
   if ((data.taxIssuer === 'tercero' || data.taxIssuer === 'exento') && !data.taxNote?.trim()) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: data.taxIssuer === 'tercero' ? 'Indica quién factura este evento (el local u otro organizador).' : 'Indica por qué es exento (y quién lo confirmó).' });
   }
+  // "Exento" es una condición legal, no una forma de tener más caja: se exige
+  // que diga qué norma o qué contador lo respalda.
+  if (data.taxIssuer === 'exento' && !/(art|ley|decreto|contador|resoluci|sii|cultural)/i.test(data.taxNote ?? '')) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Para marcarlo exento indica la norma (art./ley/resolución) o el contador que lo confirmó. Si las entradas se cobran por tu Mercado Pago, normalmente se declaran con IVA.' });
+  }
   return { ...data, ivaApplies: data.taxIssuer === 'mansion' ? 1 : 0, taxNote: data.taxNote?.trim() || null };
 }
 const APPLICATIONS_EMAIL = ADMIN_NOTIFICATION_EMAIL;
@@ -326,6 +331,7 @@ const expenseInputSchema = z.object({
   prorate: z.boolean().optional(),
   receiptUrl: z.string().optional(),
   notes: z.string().max(500).optional(),
+  slotKey: z.string().max(32).nullish(),
 // Una plantilla 'por_evento' es el catálogo de un costo fijo de cada fiesta,
 // no un gasto de una fiesta puntual: va con scope 'evento' pero SIN eventId,
 // porque se copia a todas. Por eso queda exenta de la regla de abajo.

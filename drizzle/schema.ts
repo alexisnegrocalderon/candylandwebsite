@@ -1743,6 +1743,9 @@ export const expenses = mysqlTable("expenses", {
   prorate: int("prorate").default(1).notNull(),
 
   receiptUrl: text("receiptUrl"),
+  // Fila del checklist de costos fijos del evento a la que corresponde este
+  // gasto (shared/eventCostSlots.ts: 'arriendo', 'dj', ...). null = gasto suelto.
+  slotKey: varchar("slotKey", { length: 32 }),
   notes: varchar("notes", { length: 500 }),
   createdByUserId: int("createdByUserId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -2396,3 +2399,56 @@ export const taxPeriods = mysqlTable("taxPeriods", {
 });
 
 export type TaxPeriod = typeof taxPeriods.$inferSelect;
+
+
+// Retiros del dueño: plata que se saca de la cuenta para vivir. NO es gasto
+// de ningún evento (no baja la ganancia del evento) pero sí sale de la caja.
+export const ownerWithdrawals = mysqlTable("ownerWithdrawals", {
+  id: int("id").autoincrement().primaryKey(),
+  withdrawnAt: timestamp("withdrawnAt").notNull(),
+  amountClp: int("amountClp").notNull(),
+  account: mysqlEnum("account", ["mercadopago", "banco", "efectivo"]).default("mercadopago").notNull(),
+  note: varchar("note", { length: 255 }),
+  movementId: int("movementId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type OwnerWithdrawal = typeof ownerWithdrawals.$inferSelect;
+
+// Movimientos importados de la cuenta de Mercado Pago (API) o del banco
+// (cartola). `amountClp` con signo: + entra, − sale. `classification` la
+// confirma el dueño (los que no son ventas quedan 'por_clasificar').
+export const accountMovements = mysqlTable("accountMovements", {
+  id: int("id").autoincrement().primaryKey(),
+  source: mysqlEnum("source", ["mercadopago", "banco"]).notNull(),
+  externalId: varchar("externalId", { length: 120 }).notNull(),
+  occurredAt: timestamp("occurredAt").notNull(),
+  amountClp: int("amountClp").notNull(),
+  description: varchar("description", { length: 255 }),
+  kind: varchar("kind", { length: 40 }),
+  classification: mysqlEnum("classification", ["venta", "comision", "gasto_evento", "gasto_empresa", "retiro_dueno", "traspaso", "otro", "por_clasificar"]).default("por_clasificar").notNull(),
+  eventId: int("eventId"),
+  expenseId: int("expenseId"),
+  withdrawalId: int("withdrawalId"),
+  balanceAfter: int("balanceAfter"),
+  raw: json("raw"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("account_movements_source_ext_unique").on(t.source, t.externalId),
+  index("account_movements_occurred_idx").on(t.occurredAt),
+]);
+
+export type AccountMovement = typeof accountMovements.$inferSelect;
+
+// Saldo conocido de cada cuenta en un momento (de la API, de la cartola o
+// anotado a mano). Se usa el más reciente de cada cuenta para la "caja real".
+export const accountBalances = mysqlTable("accountBalances", {
+  id: int("id").autoincrement().primaryKey(),
+  source: mysqlEnum("source", ["mercadopago", "banco"]).notNull(),
+  balanceClp: int("balanceClp").notNull(),
+  asOf: timestamp("asOf").notNull(),
+  origin: mysqlEnum("origin", ["api", "cartola", "manual"]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("account_balances_source_idx").on(t.source, t.asOf),
+]);

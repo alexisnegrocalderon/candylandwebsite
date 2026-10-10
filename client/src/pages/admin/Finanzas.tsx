@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from 'recharts';
-import { Banknote, Landmark, Download, Sparkles, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
+import { Banknote, Landmark, Pencil, Download, Sparkles, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { formatChileTime, formatChileShortDate } from '@shared/chileDate';
 import { honorariosBreakdown } from '@shared/honorarios';
@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { BentoGrid, BentoTile } from '@/components/admin/BentoGrid';
 import { StatTile } from '@/components/admin/StatTile';
 import { EmptyState } from '@/components/admin/EmptyState';
+import { CameraCaptureField } from '@/components/admin/CameraCaptureField';
+import { EXPENSE_CATEGORIES } from '@shared/expenses';
 
 const money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString('es-CL')}`;
 const PALETTE = ['#ec4899', '#38bdf8', '#8b5cf6', '#f59e0b', '#10b981', '#f97316', '#64748b'];
@@ -308,6 +310,185 @@ function TaxReserveCard({ tax }: { tax: any }) {
           ))}
         </div>
         {tax.credito > 0 && <p className="text-xs text-emerald-700">Tus facturas te están ahorrando {money(tax.credito)} de IVA en este evento.</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+const DOC_TYPES = [
+  { v: 'factura', l: 'Factura' }, { v: 'boleta', l: 'Boleta' }, { v: 'boleta_honorarios', l: 'Honorarios' }, { v: 'sin_documento', l: 'Sin doc.' },
+] as const;
+type DocType = typeof DOC_TYPES[number]['v'];
+const DOC_LABEL: Record<string, string> = { factura: 'Factura', boleta: 'Boleta', boleta_honorarios: 'Honorarios', sin_documento: 'Sin documento' };
+
+function DocPills({ value, onChange }: { value: DocType; onChange: (v: DocType) => void }) {
+  return <PillChoice value={value} onChange={onChange} options={DOC_TYPES.map((d) => ({ v: d.v, l: d.l }))} />;
+}
+
+/** Una fila del checklist que todavía no tiene gasto: se carga en el momento. */
+function SlotRow({ slot, eventId, eventDate, onSaved }: { slot: any; eventId: number; eventDate: string; onSaved: () => void }) {
+  const isDemo = useIsDemo();
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [doc, setDoc] = useState<DocType>('factura');
+  const [supplier, setSupplier] = useState('');
+  const create = trpc.expenses.create.useMutation({ onSuccess: () => { setOpen(false); setAmount(''); setSupplier(''); onSaved(); toast.success(`${slot.label} cargado`); }, onError: onErr });
+  return (
+    <div className="admin-clay-sm p-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className={`w-2.5 h-2.5 rounded-full ${slot.loaded ? 'bg-emerald-500' : 'bg-pink-400'}`} />
+        <div className="flex-1 min-w-[10rem]">
+          <p className="font-medium text-sm">{slot.label}</p>
+          <p className="text-xs text-[var(--admin-muted)]">{slot.loaded ? `Cargado: ${money(slot.total)}` : slot.hint}</p>
+        </div>
+        <button type="button" disabled={isDemo} onClick={() => setOpen(!open)}
+          className={`${pillBase} ${slot.loaded ? pillOff : pillOn}`}>{slot.loaded ? '+ Agregar otro' : 'Cargar'}</button>
+      </div>
+      {open && (
+        <div className="flex flex-wrap items-center gap-2 pl-5">
+          <Input type="number" inputMode="numeric" className="w-32" placeholder="Monto total $" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <Input className="w-44" placeholder="Proveedor (opcional)" value={supplier} onChange={(e) => setSupplier(e.target.value)} />
+          <DocPills value={doc} onChange={setDoc} />
+          <button type="button" disabled={isDemo || create.isPending || !(Number(amount) > 0)} className={`${pillBase} bg-emerald-500 text-white`}
+            onClick={() => create.mutate({
+              scope: 'evento', eventId, expenseDate: eventDate, category: slot.category as any, description: slot.label,
+              supplier: supplier.trim() || undefined, documentType: doc, amountTotal: Math.round(Number(amount)),
+              paymentMethod: 'transferencia', slotKey: slot.key,
+            })}>Guardar</button>
+          {doc === 'factura' && Number(amount) > 0 && <span className="text-xs text-emerald-700">Recuperas {money(Math.round(Number(amount) * 19 / 119))} de IVA</span>}
+          {(doc === 'boleta' || doc === 'sin_documento') && Number(amount) > 0 && <span className="text-xs text-amber-700">Sin factura: pierdes {money(Math.round(Number(amount) * 19 / 119))} de IVA</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Gasto suelto con foto: la foto se lee sola (mismo escáner que /gastos). */
+function QuickExpense({ eventId, eventDate, onSaved }: { eventId: number; eventDate: string; onSaved: () => void }) {
+  const isDemo = useIsDemo();
+  const [f, setF] = useState({ description: '', category: 'otros', amount: '', supplier: '', rut: '', doc: 'factura' as DocType, receiptUrl: '' });
+  const scan = trpc.expenses.scanReceipt.useMutation({
+    onSuccess: (r: any) => {
+      if (!r.isReceipt) { toast.error('No pudimos leer la foto como boleta o factura: completa a mano.'); return; }
+      setF((x) => ({
+        ...x,
+        amount: r.amountTotal ? String(r.amountTotal) : x.amount,
+        category: r.category || x.category,
+        doc: (r.documentType as DocType) || x.doc,
+        description: r.description || x.description,
+        supplier: r.supplier || x.supplier,
+        rut: r.supplierRut || x.rut,
+      }));
+      if (r.confidence !== 'alta' || r.notes) toast.warning(r.notes || 'Revisa los datos leídos antes de guardar.');
+      else toast.success('Leída: revisa y guarda.');
+    },
+    onError: onErr,
+  });
+  const create = trpc.expenses.create.useMutation({
+    onSuccess: () => { setF({ description: '', category: 'otros', amount: '', supplier: '', rut: '', doc: 'factura', receiptUrl: '' }); onSaved(); toast.success('Gasto agregado'); },
+    onError: onErr,
+  });
+  return (
+    <div className="admin-clay-sm p-3 space-y-2">
+      <p className="text-sm font-semibold">Agregar otra compra o gasto</p>
+      <CameraCaptureField label="Sacar foto a la boleta o factura" pathPrefix="expenses" analyzing={scan.isPending}
+        onScanned={(url) => { setF((x) => ({ ...x, receiptUrl: url })); scan.mutate({ imageUrl: url }); }} />
+      <div className="grid gap-2 sm:grid-cols-3">
+        <Input placeholder="Descripción *" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
+        <Select value={f.category} onValueChange={(v) => setF({ ...f, category: v })}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>{EXPENSE_CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.emoji} {c.label}</SelectItem>)}</SelectContent>
+        </Select>
+        <Input type="number" inputMode="numeric" placeholder="Monto total $ *" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
+        <Input placeholder="Proveedor" value={f.supplier} onChange={(e) => setF({ ...f, supplier: e.target.value })} />
+        <Input placeholder="RUT proveedor (para factura)" value={f.rut} onChange={(e) => setF({ ...f, rut: e.target.value })} />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <DocPills value={f.doc} onChange={(doc) => setF({ ...f, doc })} />
+        <button type="button" disabled={isDemo || create.isPending || !f.description.trim() || !(Number(f.amount) > 0)} className={`${pillBase} bg-emerald-500 text-white`}
+          onClick={() => create.mutate({
+            scope: 'evento', eventId, expenseDate: eventDate, category: f.category as any, description: f.description.trim(),
+            supplier: f.supplier.trim() || undefined, supplierRut: f.rut.trim() || undefined, documentType: f.doc,
+            amountTotal: Math.round(Number(f.amount)), paymentMethod: 'transferencia', receiptUrl: f.receiptUrl || undefined,
+          })}>Guardar gasto</button>
+        {f.doc === 'factura' && !f.rut.trim() && Number(f.amount) > 0 && <span className="text-xs text-amber-700">Agrega el RUT del proveedor para cuadrar con el SII</span>}
+      </div>
+    </div>
+  );
+}
+
+/** Gastos del evento: checklist de costos fijos, gasto rápido con foto y lo ya cargado. */
+function EventCostsCard({ eventId, eventDate, costs }: { eventId: number; eventDate: string; costs: any }) {
+  const isDemo = useIsDemo();
+  const utils = trpc.useUtils();
+  const refresh = () => { utils.finance.eventReport.invalidate(); utils.finance.live.invalidate(); utils.cajaReports.eventPnl.invalidate(); };
+  const update = trpc.expenses.update.useMutation({ onSuccess: () => { refresh(); toast.success('Gasto actualizado'); }, onError: onErr });
+  const del = trpc.expenses.delete.useMutation({ onSuccess: () => { refresh(); toast.success('Gasto borrado'); }, onError: onErr });
+  if (!costs) return null;
+  const askPassword = () => window.prompt('Por seguridad, ingresa tu clave de admin') || '';
+  return (
+    <Card className="admin-clay border-0">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Receipt className="w-5 h-5" /> Gastos del evento</CardTitle>
+        <p className="text-sm text-[var(--admin-muted)]">Carga aquí el arriendo y todos los costos: los gráficos, el margen, el IVA a apartar y el F29 se ajustan solos.</p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {(!costs.hasVenueRent || costs.total === 0) && (
+          <div className="rounded-xl px-4 py-3 text-sm bg-amber-500/15 text-amber-800 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            {costs.total === 0 ? 'Este evento no tiene gastos cargados: el margen y los consejos están inflados.' : 'Falta el arriendo del venue: el margen se ve más alto de lo real.'}
+          </div>
+        )}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            ['Gastos cargados', costs.total, `${costs.expenses.length} gasto(s)`],
+            ['Con factura', costs.conFacturaTotal, `Recuperas ${money(costs.ivaRecuperado)} de IVA`],
+            ['Con boleta o sin documento', costs.sinFacturaTotal, costs.ivaPerdido > 0 ? `Pierdes ${money(costs.ivaPerdido)} de IVA` : 'Nada perdido'],
+            ['Costos fijos pendientes', costs.pendingSlots.length, 'del checklist'],
+          ].map(([label, value, hint], i) => (
+            <div key={label as string} className="admin-clay-sm p-3">
+              <p className="text-xs text-[var(--admin-muted)]">{label}</p>
+              <p className="font-heading text-xl tabular-nums">{i === 3 ? value : money(value as number)}</p>
+              <p className={`text-[11px] ${i === 2 && costs.ivaPerdido > 0 ? 'text-amber-700' : 'text-[var(--admin-muted)]'}`}>{hint}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-sm font-semibold">Checklist de costos fijos</p>
+          {costs.slots.map((slot: any) => <SlotRow key={slot.key} slot={slot} eventId={eventId} eventDate={eventDate} onSaved={refresh} />)}
+        </div>
+
+        <QuickExpense eventId={eventId} eventDate={eventDate} onSaved={refresh} />
+
+        {costs.expenses.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-sm font-semibold">Lo que ya cargaste</p>
+            {costs.expenses.map((e: any) => (
+              <div key={e.id} className="admin-clay-sm p-3 flex flex-wrap items-center gap-3 text-sm">
+                <div className="flex-1 min-w-[10rem]">
+                  <p className="font-medium">{e.description}{e.excludeFromPnl ? ' (excluido del P&L)' : ''}</p>
+                  <p className="text-xs text-[var(--admin-muted)]">{e.supplier ?? 'Sin proveedor'}{e.supplierRut ? ` · ${e.supplierRut}` : ''}{e.receiptUrl ? '' : ' · sin foto'}</p>
+                </div>
+                <select disabled={isDemo} value={e.documentType} aria-label="Tipo de documento"
+                  className={`rounded-full px-3 py-1.5 text-xs font-semibold border-0 ${e.documentType === 'factura' ? 'bg-emerald-500/15 text-emerald-800' : 'bg-amber-500/15 text-amber-800'}`}
+                  onChange={(ev) => { const pw = askPassword(); if (pw) update.mutate({ id: e.id, documentType: ev.target.value as any, adminPassword: pw } as any); }}>
+                  {DOC_TYPES.map((d) => <option key={d.v} value={d.v}>{DOC_LABEL[d.v]}</option>)}
+                </select>
+                <strong className="tabular-nums">{money(e.amountTotal)}</strong>
+                {e.receiptUrl && <a href={e.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-xs underline">foto</a>}
+                <button type="button" disabled={isDemo} className="p-2 rounded-full hover:bg-black/5" aria-label={`Editar monto de ${e.description}`}
+                  onClick={() => { const v = window.prompt('Nuevo monto total', String(e.amountTotal)); if (!v) return; const pw = askPassword(); if (pw) update.mutate({ id: e.id, amountTotal: Math.max(1, Math.round(Number(v) || 0)), adminPassword: pw } as any); }}>
+                  <Pencil className="w-4 h-4" />
+                </button>
+                <button type="button" disabled={isDemo} className="p-2 rounded-full hover:bg-black/5" aria-label={`Borrar ${e.description}`}
+                  onClick={() => { if (!window.confirm(`¿Borrar "${e.description}"?`)) return; const pw = askPassword(); if (pw) del.mutate({ id: e.id, adminPassword: pw } as any); }}>
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -782,6 +963,8 @@ export default function FinanzasView() {
               {p.warnings.map((w: string, i: number) => <p key={i} className="text-sm text-[var(--admin-warning-text)]">{w}</p>)}
             </div>
           )}
+
+          <EventCostsCard eventId={eventId} eventDate={new Date(rep.pnl.eventDate as any).toISOString()} costs={rep.costs} />
 
           <TaxReserveCard tax={rep.tax} />
 

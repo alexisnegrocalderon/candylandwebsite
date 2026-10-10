@@ -4046,6 +4046,7 @@ function buildExpenseValues(input: any) {
     prorate: input.prorate === false || input.prorate === 0 ? 0 : 1,
     receiptUrl: input.receiptUrl || null,
     notes: input.notes || null,
+    slotKey: input.slotKey || null,
   };
 }
 
