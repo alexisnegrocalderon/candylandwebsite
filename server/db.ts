@@ -3807,11 +3807,17 @@ const CARD_LIKE_CAJA_METHODS = new Set(['debito', 'credito', 'qr']);
  * total de las órdenes aprobadas pagadas con tarjeta -- toda la web (se
  * asume pagada vía Mercado Pago Checkout) más las de caja con
  * débito/crédito/QR. El efectivo en caja no paga comisión. */
-function cardFeeBaseFromOrders(rows: { channel: string | null; paymentMethod: string | null; total: string | number }[]): number {
+function cardFeeBaseFromOrders(rows: { channel: string | null; paymentMethod: string | null; total: string | number; missionTopupStatus?: string | null; missionTopupAmount?: string | number | null }[]): number {
   return rows.reduce((sum, r) => {
-    const isWeb = r.channel === 'web';
+    // Las órdenes manuales (invitaciones, consumo staff, transferencias) no
+    // pasan por Mercado Pago, así que no pagan comisión.
+    const isManual = (r.paymentMethod ?? '').startsWith('Manual') || r.paymentMethod === 'Prueba';
+    const isWeb = r.channel === 'web' && !isManual;
     const isCajaCard = r.channel === 'caja' && r.paymentMethod != null && CARD_LIKE_CAJA_METHODS.has(r.paymentMethod);
-    return (isWeb || isCajaCard) ? sum + Number(r.total) : sum;
+    if (!isWeb && !isCajaCard) return sum;
+    // El copago de Misión 300 también se cobró con tarjeta.
+    const topup = isWeb && r.missionTopupStatus === 'paid' ? Number(r.missionTopupAmount ?? 0) : 0;
+    return sum + Number(r.total) + topup;
   }, 0);
 }
 
@@ -4160,11 +4166,16 @@ export async function getEventPnl(eventId: number) {
     eq(expenses.recurrence, 'none'),
   ));
 
+  // Estacionamiento: la plata del auto entra al ingreso, pero una parte por
+  // auto es del local. Es un costo real que antes no se restaba.
+  const parkingOwedToVenue = (await getParkingReport(eventId))?.amountOwedToVenueClp ?? 0;
+
   const pnl = computePnl({
     ivaApplies: event.ivaApplies === 1,
     grossIncome,
     cogs,
     ambassadorCommissions: commissionsTotal,
+    extraCostsTotal: parkingOwedToVenue,
     cardFeeBase,
     cardFeePercent,
     directExpenses: (directRows as any[]).map(toPnlExpense),
@@ -4316,11 +4327,16 @@ export async function getPnlComparison(eventIds?: number[]) {
 
   const cardFeePercent = Number((await getSiteSettings()).cardFeePercent ?? 3.5);
   const eventIdSet = eventIds?.length ? new Set(eventIds) : null;
-  return (allEvents as any[])
-    .filter((e) => !eventIdSet || eventIdSet.has(e.id))
+  const shownEvents = (allEvents as any[]).filter((e) => !eventIdSet || eventIdSet.has(e.id));
+  const owedByEvent = new Map<number, number>();
+  await Promise.all(shownEvents.map(async (e) => {
+    owedByEvent.set(e.id, (await getParkingReport(e.id))?.amountOwedToVenueClp ?? 0);
+  }));
+  return shownEvents
     .map((e) => {
       const monthKey = monthKeyFor(e.eventDate);
       const pnl = computePnl({
+        extraCostsTotal: owedByEvent.get(e.id) ?? 0,
         ivaApplies: e.ivaApplies === 1,
         grossIncome: incomeOf(e.id),
         cogs: cogsByEvent.get(e.id) ?? 0,
@@ -4338,7 +4354,7 @@ export async function getPnlComparison(eventIds?: number[]) {
         monthKey,
         ivaApplies: e.ivaApplies === 1,
         grossIncome: pnl.grossIncome,
-        totalExpenses: pnl.cogs + pnl.directExpensesTotal + pnl.generalExpensesAssigned + pnl.ambassadorCommissions + pnl.cardFeeAmount,
+        totalExpenses: pnl.cogs + pnl.directExpensesTotal + pnl.generalExpensesAssigned + pnl.ambassadorCommissions + pnl.cardFeeAmount + pnl.extraCostsTotal,
         netProfit: pnl.netProfit,
         marginPercent: pnl.marginPercent,
       };

@@ -325,3 +325,13 @@ describe("computePnl con comisión de tarjeta", () => {
     expect(r.cardFeeAmount).toBe(7000); // 3.5% de 200.000, no de 700.000
   });
 });
+
+describe("PlayCard: el saldo gastado en caja no es plata nueva", () => {
+  it("no cuenta de nuevo una venta de caja pagada con saldo", () => {
+    expect(cashCollectedFromOrders([
+      { total: '20000', channel: 'web' },
+      { total: '8000', channel: 'caja', paymentMethod: 'saldo' },
+      { total: '5000', channel: 'caja', paymentMethod: 'efectivo' },
+    ])).toBe(25000);
+  });
+});

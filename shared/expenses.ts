@@ -120,7 +120,16 @@ export type CollectedOrder = {
   total: string | number;
   missionTopupStatus?: string | null;
   missionTopupAmount?: string | number | null;
+  channel?: string | null;
+  paymentMethod?: string | null;
 };
+
+/** Una venta de caja pagada con saldo PlayCard NO es plata nueva: el dinero
+ * ya se contó cuando el cliente recargó la tarjeta. Contarla otra vez infla
+ * la ganancia (doble conteo). */
+export function isPrepaidSpend(o: { channel?: string | null; paymentMethod?: string | null }): boolean {
+  return o.channel === 'caja' && o.paymentMethod === 'saldo';
+}
 
 /** Plata EFECTIVAMENTE recaudada por un conjunto de órdenes.
  *
@@ -140,6 +149,7 @@ export type CollectedOrder = {
 export function cashCollectedFromOrders(rows: CollectedOrder[]): number {
   let sum = 0;
   for (const o of rows) {
+    if (isPrepaidSpend(o)) continue;
     sum += Number(o.total);
     if (o.missionTopupStatus === 'paid') sum += Number(o.missionTopupAmount ?? 0);
   }

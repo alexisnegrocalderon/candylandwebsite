@@ -10649,11 +10649,11 @@ function EventOverview() {
   // prueba creado después quedaría seleccionado por defecto.
   const eventId = selected ?? defaultEvent?.id ?? events?.[0]?.id ?? null;
 
-  const { data: webStats } = trpc.orders.getStats.useQuery({ channel: 'web', eventId: eventId! }, { enabled: !!eventId });
-  const { data: cajaStats } = trpc.orders.getStats.useQuery({ channel: 'caja', eventId: eventId! }, { enabled: !!eventId });
-  const { data: pnl } = trpc.cajaReports.eventPnl.useQuery({ eventId: eventId! }, { enabled: !!eventId });
-  const { data: closings } = trpc.cajaReports.shiftClosings.useQuery({ eventId: eventId! }, { enabled: !!eventId });
-  const { data: peak } = trpc.cajaReports.peakHours.useQuery({ eventId: eventId! }, { enabled: !!eventId });
+  const { data: webStats } = trpc.orders.getStats.useQuery({ channel: 'web', eventId: eventId! }, { enabled: !!eventId, refetchInterval: 30_000 });
+  const { data: cajaStats } = trpc.orders.getStats.useQuery({ channel: 'caja', eventId: eventId! }, { enabled: !!eventId, refetchInterval: 30_000 });
+  const { data: pnl } = trpc.cajaReports.eventPnl.useQuery({ eventId: eventId! }, { enabled: !!eventId, refetchInterval: 30_000 });
+  const { data: closings } = trpc.cajaReports.shiftClosings.useQuery({ eventId: eventId! }, { enabled: !!eventId, refetchInterval: 30_000 });
+  const { data: peak } = trpc.cajaReports.peakHours.useQuery({ eventId: eventId! }, { enabled: !!eventId, refetchInterval: 30_000 });
 
   if (!eventId) {
     return <EmptyState icon={Calendar} title="Todavía no hay eventos cargados" description="Crea un evento en la sección Eventos para ver su resumen acá." />;
@@ -10661,7 +10661,9 @@ function EventOverview() {
 
   const webRevenue = Number(webStats?.totalRevenue ?? 0);
   const cajaRevenue = Number(cajaStats?.totalRevenue ?? 0);
-  const gastos = (pnl?.directExpensesTotal ?? 0) + (pnl?.generalExpensesAssigned ?? 0);
+  // Todo lo que se descuenta entre lo que entró y la ganancia (IVA, productos,
+  // gastos, comisiones, tarjeta, local): así los 4 números siempre cuadran.
+  const gastos = pnl ? pnl.grossIncome - pnl.netProfit : 0;
   const resultado = pnl?.netProfit ?? null;
 
   // Solo las horas con movimiento: una fiesta ocupa 8 de las 24 horas del
@@ -10685,7 +10687,7 @@ function EventOverview() {
       <BentoGrid>
         <BentoTile><StatTile icon={Ticket} tone="revenue" value={`$${webRevenue.toLocaleString('es-CL')}`} label="Ventas web" /></BentoTile>
         <BentoTile><StatTile icon={ShoppingBag} tone="revenue" value={`$${cajaRevenue.toLocaleString('es-CL')}`} label="Ventas en caja" /></BentoTile>
-        <BentoTile><StatTile icon={Receipt} tone="alert" value={`$${gastos.toLocaleString('es-CL')}`} label="Gastos del evento" /></BentoTile>
+        <BentoTile><StatTile icon={Receipt} tone="alert" value={`$${gastos.toLocaleString('es-CL')}`} label="Costos, comisiones e IVA" /></BentoTile>
         <BentoTile>
           <StatTile
             icon={DollarSign}
