@@ -135,6 +135,46 @@ export async function fetchInstagramProfile(igUserId: string): Promise<{ usernam
   }
 }
 
+export interface OwnInstagramProfile {
+  username?: string;
+  name?: string;
+  bio?: string;
+  link?: string;
+  followers?: number;
+  posts?: number;
+  /** Datos que Meta no entregó (falta de permiso): el panel los pide a mano. */
+  missing: string[];
+}
+
+/** El perfil de la propia cuenta (@mansionplayroom.cl), para "Revisar mi
+ * perfil". Pide bio y link primero; si Meta no los entrega con este token,
+ * reintenta solo con lo básico y lo avisa en `missing`. Lanza con un mensaje
+ * entendible si no hay token o Meta rechaza todo. */
+export async function fetchOwnProfile(): Promise<OwnInstagramProfile> {
+  if (!ENV.igAccessToken) throw new InstagramApiError('Falta IG_ACCESS_TOKEN en el servidor.');
+  const call = async (fields: string) => {
+    const response = await fetch(`${GRAPH_BASE}/me?fields=${fields}&access_token=${encodeURIComponent(ENV.igAccessToken)}`);
+    if (!response.ok) return null;
+    return await response.json() as Record<string, unknown>;
+  };
+  let body = await call('username,name,biography,website,followers_count,media_count');
+  const missing: string[] = [];
+  if (!body) {
+    body = await call('username,name,followers_count,media_count');
+    missing.push('bio', 'link');
+  }
+  if (!body) throw new InstagramApiError('Meta no entregó el perfil con este token. Completa los datos a mano.');
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+  const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
+  const profile: OwnInstagramProfile = {
+    username: str(body.username), name: str(body.name), bio: str(body.biography), link: str(body.website),
+    followers: num(body.followers_count), posts: num(body.media_count), missing,
+  };
+  if (!profile.bio && !missing.includes('bio')) missing.push('bio');
+  if (!profile.link && !missing.includes('link')) missing.push('link');
+  return profile;
+}
+
 /** Renueva el token de larga duración (dura 60 días y se puede refrescar a
  * partir de las 24 horas de emitido).
  *
