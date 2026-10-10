@@ -433,3 +433,32 @@ html {
     animation: none !important;
   }
 }
+
+
+/* ─── Aparición al deslizar: red de seguridad ────────────────
+   `useRevealWatchdog` (lib/reveal.ts) marca con data-reveal-done lo que ya
+   está en pantalla pero sigue invisible porque el navegador llegó tarde a
+   animarlo (iPhone lento). Esto lo muestra igual: nada queda escondido. */
+[data-reveal-done] {
+  opacity: 1 !important;
+  transform: none !important;
+  filter: none !important;
+  transition: opacity 0.35s ease;
+}
+
+/* ─── Celular/tablet: menos costo de GPU ─────────────────────
+   En iOS los blur gigantes (los brillos de fondo de 90-150px) y el
+   backdrop-filter de las tarjetas son lo que hace que el scroll vaya a
+   saltos. Un blur de 28px se ve igual de suave y cuesta una fracción. */
+@media (pointer: coarse) {
+  [class*="blur-["]:not([class*="blur-[1px]"]),
+  [class*="blur-3xl"] {
+    filter: blur(28px) !important;
+  }
+  .glass-candy,
+  .glass-candy-pastel,
+  [class*="backdrop-blur"] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
