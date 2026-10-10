@@ -95,6 +95,7 @@ import { AGENT_SITE_PAGES } from "./agentLinks";
 import { generateReelScript } from "./reelScript";
 import { generateProfileAudit } from "./profileAudit";
 import { syncInstagramStats } from "./instagramStats";
+import { getInstagramShowcase } from "./instagramFeed";
 import { issueAccessCreditsForOrder, listAccessCredits, listCreditsByOrderIds, remindAccessCredit } from "./accessCredit";
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
@@ -2365,6 +2366,12 @@ export const appRouter = router({
   // Plan de contenido para Instagram (server/contentPlanner.ts): calendario de
   // publicaciones hasta el próximo evento. adminProcedure: llama a la IA con
   // costo. No guarda nada en el servidor; el panel recuerda el último plan.
+  /* "Ventana a Instagram" de la portada: perfil y últimas publicaciones públicas
+   * (lo mismo que ve cualquiera en el perfil), con caché de 1 hora. */
+  instagramShowcase: router({
+    get: publicProcedure.query(() => getInstagramShowcase()),
+  }),
+
   /* "Revisar mi perfil" de Instagram: puntaje de 100 con la rúbrica de Playroom. */
   profileAudit: router({
     fetchProfile: adminProcedure.mutation(async () => {

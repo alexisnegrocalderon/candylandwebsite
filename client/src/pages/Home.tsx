@@ -39,6 +39,8 @@ import { ORACLE_TEASER_CARDS } from '@shared/costumeOracle';
 import { EVENT_BRAND } from '@shared/eventBrand';
 import ScrollStory from '@/components/home/ScrollStory';
 import FeaturedEventPanel from '@/components/home/FeaturedEventPanel';
+import InstagramShowcase from '@/components/InstagramShowcase';
+import { formatCount } from '@shared/instagramShowcase';
 import { scrollToId, prefersReducedMotion, isFinePointer, isMobileViewport } from '@/lib/smoothScroll';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, MISSION_300_DEPOSIT_PER_PERSON } from '@shared/mission300';
 import { isUnlimitedStock } from '@shared/stock';
@@ -2090,7 +2092,7 @@ function InstagramBar() {
   const followers = settings?.instagramFollowers ?? 0;
   const posts = settings?.instagramPosts ?? 0;
   const handle = CANDYLAND.redes.instagram.split('/').filter(Boolean).pop();
-  const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K` : String(n));
+  const fmt = formatCount;
 
   return (
     <a
@@ -2388,6 +2390,7 @@ export default function Home() {
       <InfoSection />
       <BlogHighlightsSection />
       <FinalCTASection />
+      <InstagramShowcase />
       <Footer />
       <StickyMobileCTA salesEnd={!missionActive ? (tanda?.salesEnd ?? null) : null} soldOut={!!tanda?.soldOut} />
       <ExitIntentModal />

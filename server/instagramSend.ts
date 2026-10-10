@@ -142,6 +142,7 @@ export interface OwnInstagramProfile {
   link?: string;
   followers?: number;
   posts?: number;
+  picture?: string;
   /** Datos que Meta no entregó (falta de permiso): el panel los pide a mano. */
   missing: string[];
 }
@@ -157,10 +158,10 @@ export async function fetchOwnProfile(): Promise<OwnInstagramProfile> {
     if (!response.ok) return null;
     return await response.json() as Record<string, unknown>;
   };
-  let body = await call('username,name,biography,website,followers_count,media_count');
+  let body = await call('username,name,biography,website,followers_count,media_count,profile_picture_url');
   const missing: string[] = [];
   if (!body) {
-    body = await call('username,name,followers_count,media_count');
+    body = await call('username,name,followers_count,media_count,profile_picture_url');
     missing.push('bio', 'link');
   }
   if (!body) throw new InstagramApiError('Meta no entregó el perfil con este token. Completa los datos a mano.');
@@ -168,11 +169,23 @@ export async function fetchOwnProfile(): Promise<OwnInstagramProfile> {
   const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
   const profile: OwnInstagramProfile = {
     username: str(body.username), name: str(body.name), bio: str(body.biography), link: str(body.website),
-    followers: num(body.followers_count), posts: num(body.media_count), missing,
+    followers: num(body.followers_count), posts: num(body.media_count), picture: str(body.profile_picture_url), missing,
   };
   if (!profile.bio && !missing.includes('bio')) missing.push('bio');
   if (!profile.link && !missing.includes('link')) missing.push('link');
   return profile;
+}
+
+/** Las últimas publicaciones de la propia cuenta, crudas como las entrega
+ * Meta (shared/instagramShowcase.ts → normalizeMedia las limpia). Lanza si no
+ * hay token o Meta rechaza la llamada. */
+export async function fetchOwnMedia(limit = 9): Promise<unknown[]> {
+  if (!ENV.igAccessToken) throw new InstagramApiError('Falta IG_ACCESS_TOKEN en el servidor.');
+  const fields = 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count';
+  const response = await fetch(`${GRAPH_BASE}/me/media?fields=${fields}&limit=${Math.max(1, Math.min(25, limit))}&access_token=${encodeURIComponent(ENV.igAccessToken)}`);
+  if (!response.ok) throw new InstagramApiError(`Meta no entregó las publicaciones (${response.status}).`);
+  const body = await response.json() as { data?: unknown[] };
+  return Array.isArray(body.data) ? body.data : [];
 }
 
 /** Renueva el token de larga duración (dura 60 días y se puede refrescar a
