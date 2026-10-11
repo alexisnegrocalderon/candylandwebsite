@@ -25,7 +25,7 @@ const outDir = join(import.meta.dirname, '..', 'dist', 'public');
 const baseHtml = readFileSync(join(outDir, 'index.html'), 'utf-8');
 
 const SCREENS = [
-  { file: 'admin.html', manifest: '/admin.webmanifest', title: 'Admin', appleTouchIcon: '/app-icons/admin/icon-180.png?v=3' },
+  { file: 'admin.html', manifest: '/admin.webmanifest', title: 'Admin', appleTouchIcon: '/app-icons/admin/apple-touch-icon-v4.png' },
   { file: 'caja.html', manifest: '/caja.webmanifest', title: 'Caja', appleTouchIcon: '/app-icons/caja/icon-180.png' },
   { file: 'puerta.html', manifest: '/puerta.webmanifest', title: 'Puerta', appleTouchIcon: '/app-icons/puerta/icon-180.png' },
   // Ícono propio: con las cuatro apps instaladas en la misma pantalla de
@@ -51,7 +51,16 @@ for (const screen of SCREENS) {
   const headHtml = screen.appleTouchIcon
     ? baseHtml.replace(/\s*<link rel="apple-touch-icon"[^>]*\/>/, '')
     : baseHtml;
-  const html = headHtml.replace('</head>', `    ${tags}\n  </head>`);
+  // Los tags van al PRINCIPIO del <head>, justo después del viewport, no al
+  // final: "Agregar a Inicio" de iOS lee el ícono mientras parsea el
+  // documento, y al final quedaban detrás de los scripts y hojas de estilo
+  // del bundle -- el iPhone del dueño terminaba mostrando la letra "A" del
+  // título en vez del logo.
+  const viewport = headHtml.match(/<meta name="viewport"[^>]*\/?>/);
+  if (!viewport) {
+    throw new Error(`dist/public/index.html no tiene <meta name="viewport"> -- no se puede generar ${screen.file}`);
+  }
+  const html = headHtml.replace(viewport[0], `${viewport[0]}\n    ${tags}`);
   writeFileSync(join(outDir, screen.file), html);
   console.log(`[generate-pwa-html] ${screen.file} <- manifest=${screen.manifest}`);
 }
