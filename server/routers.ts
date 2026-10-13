@@ -3532,7 +3532,14 @@ export const appRouter = router({
   // mano que cobran una comisión en plata por venta, no descuento.
   ambassadors: router({
     listAll: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
-      return db.listExclusiveAmbassadors(input?.eventId);
+      const list = await db.listExclusiveAmbassadors(input?.eventId);
+      // Link personal de cada embajador (el mismo que ve en su panel y recibe
+      // por correo), para copiarlo desde el admin y mandárselo a mano.
+      const featured = await db.getFeaturedEvent();
+      return list.map((a: any) => ({
+        ...a,
+        referralUrl: ambassadorProgram.buildAmbassadorReferralUrl(featured, a.code),
+      }));
     }),
     create: adminProcedure.input(z.object({
       // Opcional: el código es permanente y de la persona, no del evento.
