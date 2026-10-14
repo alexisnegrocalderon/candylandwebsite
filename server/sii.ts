@@ -12,6 +12,7 @@ import { accountMovements, emailLog, events, expenses, orderItems, orders, siteS
 import * as db from "./db";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { cashCollectedFromOrders, isPrepaidSpend } from "../shared/expenses";
+import { countsAsIncome } from "./orderIncome";
 import { honorariosBreakdown } from "../shared/honorarios";
 import {
   aggregateMonthSales, compareWithProposal, regularizationBacklog, type RegMonth, type RegStatus, computeF29, learnFromPeriods, f29DueDateFor, monthLabel, normalizeSiiConfig, obligationsForYear, previousMonthKey, reminderFor,
@@ -62,7 +63,8 @@ export async function getF29Month(monthKey: string) {
   const orderRows = ((await conn.select({
     id: orders.id, eventId: orders.eventId, total: orders.total, channel: orders.channel, paymentMethod: orders.paymentMethod,
     missionTopupStatus: orders.missionTopupStatus, missionTopupAmount: orders.missionTopupAmount, createdAt: orders.createdAt,
-  }).from(orders).where(and(eq(orders.paymentStatus, "approved"), gte(orders.createdAt, from), lte(orders.createdAt, to)))) as any[])
+    refundAmount: orders.refundAmount,
+  }).from(orders).where(and(countsAsIncome, gte(orders.createdAt, from), lte(orders.createdAt, to)))) as any[])
     .filter((o) => monthKeyFor(o.createdAt) === monthKey && !isPrepaidSpend(o));
 
   // Monto de entradas por orden (solo si las entradas son exentas).
@@ -343,7 +345,8 @@ export async function getWebRegularization() {
   const rows = ((await conn.select({
     eventId: orders.eventId, total: orders.total, channel: orders.channel, paymentMethod: orders.paymentMethod,
     missionTopupStatus: orders.missionTopupStatus, missionTopupAmount: orders.missionTopupAmount, createdAt: orders.createdAt,
-  }).from(orders).where(and(eq(orders.paymentStatus, "approved"), eq(orders.channel, "web")))) as any[]).filter((o) => mansion.has(o.eventId));
+    refundAmount: orders.refundAmount,
+  }).from(orders).where(and(countsAsIncome, eq(orders.channel, "web")))) as any[]).filter((o) => mansion.has(o.eventId));
   const byMonth = new Map<string, number>();
   for (const o of rows) {
     const m = monthKeyFor(o.createdAt);
@@ -380,7 +383,8 @@ export async function buildAccountantCsv(): Promise<string> {
   const orderRows = (await conn.select({
     id: orders.id, eventId: orders.eventId, total: orders.total, channel: orders.channel, paymentMethod: orders.paymentMethod,
     missionTopupStatus: orders.missionTopupStatus, missionTopupAmount: orders.missionTopupAmount, createdAt: orders.createdAt,
-  }).from(orders).where(eq(orders.paymentStatus, "approved"))) as any[];
+    refundAmount: orders.refundAmount,
+  }).from(orders).where(countsAsIncome)) as any[];
   type Acc = { gross: number; orders: number };
   const sales = new Map<string, Acc>();
   for (const o of orderRows) {

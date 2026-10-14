@@ -122,6 +122,8 @@ export type CollectedOrder = {
   missionTopupAmount?: string | number | null;
   channel?: string | null;
   paymentMethod?: string | null;
+  /** Devolución desde Ventas Web: lo devuelto no es ingreso, solo lo retenido. */
+  refundAmount?: string | number | null;
 };
 
 /** Una venta de caja pagada con saldo PlayCard NO es plata nueva: el dinero
@@ -152,6 +154,7 @@ export function cashCollectedFromOrders(rows: CollectedOrder[]): number {
     if (isPrepaidSpend(o)) continue;
     sum += Number(o.total);
     if (o.missionTopupStatus === 'paid') sum += Number(o.missionTopupAmount ?? 0);
+    if (o.refundAmount != null) sum -= Number(o.refundAmount);
   }
   return sum;
 }

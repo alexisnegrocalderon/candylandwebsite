@@ -701,6 +701,13 @@
       "when": 1791655639165,
       "tag": "0099_nostalgic_runaways",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "5",
+      "when": 1791996994133,
+      "tag": "0100_greedy_blazing_skull",
+      "breakpoints": true
     }
   ]
 }

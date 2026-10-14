@@ -19,11 +19,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2 } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
 import { ordersOutsideFilter } from '@shared/ordersOutsideFilter';
+import { DEFAULT_REFUND_PERCENT, REFUND_DEADLINE_DAYS, isPastRefundDeadline, refundAmountForPercent, refundPercentForAmount } from '@shared/orderRefund';
 import { ORDERS_PAGE_SIZE, ORDERS_REMINDERS_PAGE_SIZE, nextEventId, pageCount, pageRange } from '@shared/ordersPagination';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import {
@@ -2541,6 +2542,115 @@ function CreditDialog({ order, onClose, onDone }: { order: any | null; onClose: 
   );
 }
 
+/** Ventana "Devolver" de Ventas Web: registra la devolución de una compra web
+ * según la política (50% del valor pagado hasta 5 días antes del evento). NO
+ * mueve plata: la devolución se hace a mano por Mercado Pago. Al confirmar, la
+ * compra pasa a "Devuelta", las entradas se anulan (el cupo vuelve a la venta),
+ * se quita la comisión del embajador y le llega un correo al cliente. En los
+ * ingresos solo cuenta lo que se retiene. Pide la clave de admin. */
+function RefundDialog({ order, eventDate, onClose, onDone }: { order: any | null; eventDate: Date | string | null; onClose: () => void; onDone: () => void }) {
+  const paid = order
+    ? Number(order.total) + (order.missionTopupStatus === 'paid' ? Number(order.missionTopupAmount ?? 0) : 0)
+    : 0;
+  const [percent, setPercent] = useState(String(DEFAULT_REFUND_PERCENT));
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const [overrideDeadline, setOverrideDeadline] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  useEffect(() => {
+    setPercent(String(DEFAULT_REFUND_PERCENT));
+    setAmount(String(refundAmountForPercent(paid, DEFAULT_REFUND_PERCENT)));
+    setReason('');
+    setOverrideDeadline(false);
+    setAdminPassword('');
+  }, [order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refund = trpc.orderRefund.refund.useMutation({
+    onSuccess: (r) => {
+      toast.success(`Devolución registrada: ${clp(r.refundAmount)} (${r.refundPercent}%)${r.emailSent ? ' — le llegó el correo' : ' — el correo no se pudo enviar, avísale tú'}`);
+      setAdminPassword('');
+      onDone();
+      onClose();
+    },
+    onError: onMutationError,
+  });
+
+  const amountNum = Math.round(Number(amount) || 0);
+  const pastDeadline = eventDate ? isPastRefundDeadline(eventDate) : false;
+  const valid = amountNum > 0 && amountNum <= paid;
+  const blocked = !adminPassword || !valid || (pastDeadline && !overrideDeadline) || refund.isPending;
+  const submit = () => {
+    if (!order || blocked) return;
+    refund.mutate({ orderId: order.id, amount: amountNum, reason: reason.trim() || undefined, overrideDeadline, adminPassword });
+  };
+
+  return (
+    <AlertDialog open={!!order} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Devolver compra {order?.orderNumber}</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2 text-sm">
+              <p><strong>{order?.buyerName}</strong> ({order?.buyerEmail}) pagó <strong>{clp(paid)}</strong>. Al confirmar:</p>
+              <ul className="list-disc pl-5 space-y-1">
+                <li>La compra queda como <strong>Devuelta</strong> y sus entradas se <strong>anulan</strong> (ya no sirven en la puerta); el cupo vuelve a la venta.</li>
+                <li>Se quita la comisión del embajador, si la había, y los códigos de descuento usados quedan disponibles.</li>
+                <li>Le llega un correo con el monto y el plazo (3 días hábiles después del evento).</li>
+                <li>Esto <strong>solo registra</strong> la devolución: la plata la devuelves tú por Mercado Pago.</li>
+              </ul>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>% de devolución</Label>
+            <Input
+              type="number" min={0} max={100} value={percent} className="mt-1"
+              onChange={(e) => { setPercent(e.target.value); setAmount(String(refundAmountForPercent(paid, Number(e.target.value) || 0))); }}
+            />
+          </div>
+          <div>
+            <Label>Monto a devolver ($)</Label>
+            <Input
+              type="number" min={0} max={paid} value={amount} className="mt-1"
+              onChange={(e) => { setAmount(e.target.value); setPercent(String(refundPercentForAmount(paid, Number(e.target.value) || 0))); }}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {valid
+            ? <>Te quedas con <strong>{clp(paid - amountNum)}</strong> (eso es lo que cuenta como ingreso). Puedes corregir el monto a mano.</>
+            : <>El monto debe ser mayor a $0 y no más de {clp(paid)}.</>}
+        </p>
+        <div>
+          <Label>Motivo (opcional)</Label>
+          <Input value={reason} onChange={(e) => setReason(e.target.value)} className="mt-1" maxLength={500} placeholder="Ej. no puede asistir, pidió devolución por correo" />
+        </div>
+        {pastDeadline && (
+          <label className="flex items-start gap-2 text-sm rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+            <Checkbox checked={overrideDeadline} onCheckedChange={(v) => setOverrideDeadline(v === true)} className="mt-0.5" />
+            <span>Faltan menos de {REFUND_DEADLINE_DAYS} días para el evento (o ya pasó): fuera del plazo de la política. Marca para devolver igual.</span>
+          </label>
+        )}
+        <Input
+          type="password"
+          value={adminPassword}
+          onChange={(e) => setAdminPassword(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+          placeholder="Tu clave de admin"
+        />
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction onClick={(e) => { e.preventDefault(); submit(); }} disabled={blocked}>
+            {refund.isPending ? 'Guardando…' : `Devolver ${clp(amountNum)}`}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 /** Créditos de acceso aún disponibles (Ventas Web): quién los tiene y un botón
  * para recordarles por correo que los usen, idealmente en la preventa. */
 function PendingCreditsCard() {
@@ -3098,6 +3208,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const [upgradeOrderId, setUpgradeOrderId] = useState<number | null>(null);
   const [addonOrderId, setAddonOrderId] = useState<number | null>(null);
   const [creditOrderId, setCreditOrderId] = useState<number | null>(null);
+  const [refundOrderId, setRefundOrderId] = useState<number | null>(null);
   // Antes esta vista no tenía filtro de evento: la lista y los totales
   // mezclaban TODAS las fiestas de la historia y se leían como si fueran de
   // una sola. Con dos eventos publicados a la vez eso deja de ser un detalle.
@@ -3169,6 +3280,8 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const upgradeOrder = ordersList.find((o: any) => o.id === upgradeOrderId) ?? null;
   const addonOrder = ordersList.find((o: any) => o.id === addonOrderId) ?? null;
   const creditOrder = ordersList.find((o: any) => o.id === creditOrderId) ?? null;
+  const refundOrder = ordersList.find((o: any) => o.id === refundOrderId) ?? null;
+  const refundEventDate = refundOrder ? ((eventsList as any[] | undefined)?.find((e: any) => e.id === refundOrder.eventId)?.eventDate ?? null) : null;
   // Sin pagar de este evento (del contador, no solo de la página que se ve).
   const pendingCount = statusCounts?.pending ?? 0;
   // Si la página actual quedó vacía (ej. se borró una orden), volver a la última.
@@ -3311,6 +3424,8 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
       />
 
       <CreditDialog order={creditOrder} onClose={() => setCreditOrderId(null)} onDone={() => { refetchOrders(); refetchStats(); }} />
+
+      <RefundDialog order={refundOrder} eventDate={refundEventDate} onClose={() => setRefundOrderId(null)} onDone={() => { refetchOrders(); refetchStats(); }} />
 
       <UpgradeDialog
         order={upgradeOrder}
@@ -3473,6 +3588,11 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                           </td>
                           <td className="py-2.5 px-3">
                             <StatusBadge status={order.paymentStatus} />
+                            {order.refundAmount != null && (
+                              <p className="text-xs text-[var(--admin-muted)] mt-1">
+                                Devuelto {Number(order.refundPercent)}% · {clp(Number(order.refundAmount))}
+                              </p>
+                            )}
                           </td>
                           <td className="py-2.5 px-3 text-[var(--admin-muted)]">
                             {formatChileShortDate(order.createdAt)}
@@ -3528,6 +3648,14 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                                       label="Dejar para otra fecha"
                                       tone="send"
                                       onClick={() => setCreditOrderId(order.id)}
+                                    />
+                                  )}
+                                  {channel === 'web' && (order.credits?.length ?? 0) === 0 && (
+                                    <RowActionButton
+                                      icon={RotateCcw}
+                                      label="Devolver (50%)"
+                                      tone="send"
+                                      onClick={() => setRefundOrderId(order.id)}
                                     />
                                   )}
                                   {channel === 'web' && (
@@ -3676,6 +3804,11 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                       ))}
                     </div>
                     <StatusBadge status={order.paymentStatus} />
+                            {order.refundAmount != null && (
+                              <p className="text-xs text-[var(--admin-muted)] mt-1">
+                                Devuelto {Number(order.refundPercent)}% · {clp(Number(order.refundAmount))}
+                              </p>
+                            )}
                   </div>
                   <div className="flex items-center justify-between text-sm">
                     <span className="tabular-nums font-medium">${Number(order.total).toLocaleString('es-CL')}</span>
@@ -3727,6 +3860,14 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                             label="Dejar para otra fecha"
                             tone="send"
                             onClick={() => setCreditOrderId(order.id)}
+                          />
+                        )}
+                        {channel === 'web' && (order.credits?.length ?? 0) === 0 && (
+                          <RowActionButton
+                            icon={RotateCcw}
+                            label="Devolver (50%)"
+                            tone="send"
+                            onClick={() => setRefundOrderId(order.id)}
                           />
                         )}
                         {channel === 'web' && (

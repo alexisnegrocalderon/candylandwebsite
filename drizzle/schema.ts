@@ -294,6 +294,14 @@ export const orders = mysqlTable("orders", {
   // (createInstantInvite, createStaffComp, ventas de caja sin email capturado)
   // no tienen identidad real de cliente detrás.
   customerId: int("customerId"),
+  // Devolución desde Ventas Web (server/orderRefund.ts): la orden queda
+  // `refunded`, pero a diferencia de una anulación de caja (que no deja nada
+  // de estos campos) el negocio se queda con `total - refundAmount`, y esa
+  // parte retenida SÍ cuenta como ingreso (ver cashCollectedFromOrders).
+  refundAmount: decimal("refundAmount", { precision: 10, scale: 0 }),
+  refundPercent: decimal("refundPercent", { precision: 5, scale: 2 }),
+  refundReason: varchar("refundReason", { length: 500 }),
+  refundedAt: timestamp("refundedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (t) => [
