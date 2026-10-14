@@ -17,6 +17,7 @@ import { monthKeyFor } from '../shared/ambassadorProgram';
 import { staffTotals } from '../shared/honorarios';
 import { normalizeTandaSchedule, nextPhase } from '../shared/tandaSchedule';
 import { checkAndAdvanceTandaIfNeeded } from './tandaAutoAdvance';
+import { countsAsIncome } from './orderIncome';
 import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, type PnlExpense } from '../shared/expenses';
 import { matchesKeyword } from './instagramAutomations';
 import type { EmailTemplateConfig } from '../shared/emailTemplateConfig';
@@ -3302,14 +3303,15 @@ export async function getEventSalesBreakdown(eventId: number) {
     channel: orders.channel,
     paymentMethod: orders.paymentMethod,
     total: orders.total,
-  }).from(orders).where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved')));
+    refundAmount: orders.refundAmount,
+  }).from(orders).where(and(eq(orders.eventId, eventId), countsAsIncome));
 
   let webTotal = 0, webCount = 0, cajaTotal = 0, cajaCount = 0;
   const cajaByMethod = new Map<string, { count: number; total: number }>();
   const webByMethod = new Map<string, { count: number; total: number }>();
 
   for (const r of rows as any[]) {
-    const amount = Number(r.total);
+    const amount = Number(r.total) - Number(r.refundAmount ?? 0);
     const key = r.paymentMethod ?? 'sin medio';
     if (r.channel === 'caja') {
       cajaTotal += amount; cajaCount += 1;
@@ -3799,6 +3801,7 @@ const CASH_COLLECTED_COLUMNS = {
   missionTopupAmount: orders.missionTopupAmount,
   channel: orders.channel,
   paymentMethod: orders.paymentMethod,
+  refundAmount: orders.refundAmount,
 };
 
 // Métodos de pago de caja que sí pagan comisión de tarjeta (efectivo no).
@@ -4116,7 +4119,7 @@ export async function getEventPnl(eventId: number) {
 
   const incomeRows = monthEventIds.length
     ? await db.select(CASH_COLLECTED_COLUMNS).from(orders)
-      .where(and(inArray(orders.eventId, monthEventIds), eq(orders.paymentStatus, 'approved')))
+      .where(and(inArray(orders.eventId, monthEventIds), countsAsIncome))
     : [];
   const incomeByEvent = new Map<number, typeof incomeRows>();
   for (const r of incomeRows as any[]) {
@@ -4282,7 +4285,7 @@ export async function getPnlComparison(eventIds?: number[]) {
   for (const m of monthsNeeded) await materializeRecurringExpenses(m);
 
   const incomeRows = await db.select(CASH_COLLECTED_COLUMNS).from(orders)
-    .where(eq(orders.paymentStatus, 'approved'));
+    .where(countsAsIncome);
   const incomeByEvent = new Map<number, any[]>();
   for (const r of incomeRows as any[]) {
     const list = incomeByEvent.get(r.eventId) ?? [];

@@ -594,6 +594,50 @@ export function buildAccessCreditEmail(data: {
   });
 }
 
+/** Aviso de devolución de una compra web: cuánto se devuelve, el porcentaje y
+ * cuándo llega la plata (política: 3 días hábiles después del evento). La
+ * devolución en sí la hace el equipo a mano por Mercado Pago. */
+export function buildOrderRefundEmail(data: {
+  buyerName: string;
+  eventTitle: string;
+  orderNumber: string;
+  paid: number;
+  refundAmount: number;
+  refundPercent: number;
+}) {
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+  const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+  const buyerName = esc(data.buyerName);
+  const eventTitle = esc(data.eventTitle);
+  const pct = Number.isInteger(data.refundPercent) ? String(data.refundPercent) : data.refundPercent.toFixed(2).replace(/\.?0+$/, '');
+  return emailShell({
+    preheader: `Registramos la devolución de tu compra de ${eventTitle}.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'yellow',
+      heroBg: DISCO_HERO_BG,
+      emoji: '💸',
+      title: `Hola, ${buyerName}`,
+      subtitle: 'Registramos la devolución de tu compra.',
+    }),
+    body: `
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Procesamos la devolución de tu compra <strong style="color:${INK};">${esc(data.orderNumber)}</strong> de
+        <strong style="color:${INK};">${eventTitle}</strong>. Tus entradas de esa compra quedaron anuladas y ya no sirven en la puerta.
+      </p>
+      ${card(`
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;text-align:center;">Monto a devolver (${esc(pct)}% de lo pagado)</p>
+        <p style="color:${ACCENT.gold.text};font-size:30px;font-weight:800;margin:0 0 12px;text-align:center;">${clp(data.refundAmount)}</p>
+        <p style="color:${MUTED};font-size:13px;line-height:1.6;margin:0;text-align:center;">Pagaste ${clp(data.paid)} en total.</p>
+      `, { glow: 'gold' })}
+      <p style="color:${MUTED};font-size:13px;line-height:1.6;margin:20px 0 0;">
+        Según nuestra política, la devolución se realiza dentro de los <strong style="color:${INK};">3 días hábiles posteriores a la fecha del evento original</strong>,
+        por el mismo medio de pago. Si tienes dudas, responde este correo o escríbenos por Instagram.
+      </p>
+    `,
+  });
+}
+
 /** Código de 6 dígitos para entrar a /recargar. Va en un bloque grande con
  * `user-select:all` para que un toque lo seleccione entero y se pueda copiar. */
 export function buildTopupCodeEmail(data: { code: string; purpose?: 'recargar' | 'pin' }) {

@@ -12,6 +12,7 @@
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { customers, orderItems, orders, ticketTypes, staffMembers, staffShifts } from "../drizzle/schema";
+import { countsAsIncome } from "./orderIncome";
 import * as db from "./db";
 import { isTopupProduct } from "../shared/prepaid";
 import { isPrepaidSpend, categoryLabel } from "../shared/expenses";
@@ -94,13 +95,19 @@ export async function getEventFinanceData(eventId: number): Promise<EventFinance
   const orderRows = await conn.select({
     id: orders.id, total: orders.total, channel: orders.channel, paymentMethod: orders.paymentMethod,
     missionTopupStatus: orders.missionTopupStatus, missionTopupAmount: orders.missionTopupAmount,
-  }).from(orders).where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, "approved")));
+    refundAmount: orders.refundAmount, paymentStatus: orders.paymentStatus,
+  }).from(orders).where(and(eq(orders.eventId, eventId), countsAsIncome));
 
   const byChannel = { web: 0, caja: 0, import: 0, saldoGastado: 0 };
   const methodMap = new Map<string, number>();
   const spendIds = new Set<number>();
+  // Compras devueltas desde Ventas Web: solo cuenta lo retenido, que no se
+  // puede repartir por producto -- va en una línea propia (abajo).
+  const refundedIds = new Set<number>();
+  let refundRetained = 0;
   for (const o of orderRows as any[]) {
-    const total = Number(o.total) + (o.missionTopupStatus === "paid" ? Number(o.missionTopupAmount ?? 0) : 0);
+    if (o.paymentStatus === "refunded") { refundedIds.add(o.id); refundRetained += Number(o.total) + (o.missionTopupStatus === "paid" ? Number(o.missionTopupAmount ?? 0) : 0) - Number(o.refundAmount ?? 0); }
+    const total = Number(o.total) + (o.missionTopupStatus === "paid" ? Number(o.missionTopupAmount ?? 0) : 0) - Number(o.refundAmount ?? 0);
     if (isPrepaidSpend(o)) { byChannel.saldoGastado += total; spendIds.add(o.id); continue; }
     byChannel[o.channel as "web" | "caja" | "import"] += total;
     const m = o.channel === "web" ? "Web (tarjeta)" : (o.paymentMethod ?? "otro");
@@ -119,7 +126,7 @@ export async function getEventFinanceData(eventId: number): Promise<EventFinance
   const lineMap = new Map<string, IncomeLine>();
   for (const r of itemRows as any[]) {
     // Lo gastado con saldo ya se contó al recargar.
-    if (spendIds.has(r.orderId)) continue;
+    if (spendIds.has(r.orderId) || refundedIds.has(r.orderId)) continue;
     const group: IncomeLine["group"] = isTopupProduct({ topupAmount: r.topupAmount }) ? "saldo"
       : r.category === "acceso" ? "entradas" : r.category === "consumo" ? "consumo" : r.category === "extra" ? "extras" : "otros";
     const key = `${group}|${r.name}`;
@@ -127,6 +134,7 @@ export async function getEventFinanceData(eventId: number): Promise<EventFinance
     cur.qty += Number(r.qty); cur.amount += Number(r.total);
     lineMap.set(key, cur);
   }
+  if (refundRetained > 0) lineMap.set("otros|Devoluciones (parte retenida)", { label: "Devoluciones (parte retenida)", qty: 0, amount: refundRetained, group: "otros" });
   const incomeLines = Array.from(lineMap.values()).sort((a, b) => b.amount - a.amount);
 
   const tiers = incomeLines.filter((l) => l.group === "entradas" && l.qty > 0)
@@ -212,11 +220,12 @@ export async function getEventChannelSplit(eventId: number) {
   const rows = (await conn.select({
     total: orders.total, channel: orders.channel, paymentMethod: orders.paymentMethod,
     missionTopupStatus: orders.missionTopupStatus, missionTopupAmount: orders.missionTopupAmount,
-  }).from(orders).where(and(eq(orders.eventId, eventId), eq(orders.paymentStatus, "approved")))) as any[];
+    refundAmount: orders.refundAmount,
+  }).from(orders).where(and(eq(orders.eventId, eventId), countsAsIncome))) as any[];
   const acc = { web: 0, caja: 0 };
   for (const o of rows) {
     if (isPrepaidSpend(o) || o.channel === "import") continue;
-    acc[o.channel === "web" ? "web" : "caja"] += Number(o.total) + (o.missionTopupStatus === "paid" ? Number(o.missionTopupAmount ?? 0) : 0);
+    acc[o.channel === "web" ? "web" : "caja"] += Number(o.total) + (o.missionTopupStatus === "paid" ? Number(o.missionTopupAmount ?? 0) : 0) - Number(o.refundAmount ?? 0);
   }
   const part = (gross: number) => ({ gross, iva: Math.round((gross * 19) / 119), net: gross - Math.round((gross * 19) / 119) });
   return { web: part(acc.web), caja: part(acc.caja) };

@@ -103,6 +103,7 @@ import { generateReelScript } from "./reelScript";
 import { generateProfileAudit } from "./profileAudit";
 import { syncInstagramStats } from "./instagramStats";
 import { getInstagramShowcase } from "./instagramFeed";
+import { refundOrder } from "./orderRefund";
 import { issueAccessCreditsForOrder, listAccessCredits, listCreditsByOrderIds, remindAccessCredit } from "./accessCredit";
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
@@ -1079,6 +1080,24 @@ export const appRouter = router({
         return await generateEventDescription(input);
       } catch (err) {
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar la descripción.' });
+      }
+    }),
+  }),
+
+  /* Devolución de una compra web (política: 50% hasta 5 días antes). Solo registra: la plata se devuelve a mano. */
+  orderRefund: router({
+    refund: adminPasswordProcedure.input(z.object({
+      orderId: z.number(),
+      percent: z.number().min(0).max(100).optional(),
+      amount: z.number().int().min(1).optional(),
+      reason: z.string().max(500).optional(),
+      overrideDeadline: z.boolean().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      if (input.percent == null && input.amount == null) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Indica el porcentaje o el monto a devolver.' });
+      try {
+        return await refundOrder({ ...input, ip: clientIp(ctx) });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo registrar la devolución.' });
       }
     }),
   }),
