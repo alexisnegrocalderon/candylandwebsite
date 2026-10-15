@@ -4,7 +4,7 @@ import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
 import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAvailability } from "../shared/accessCredit";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, staffMembers, staffShifts } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, staffMembers, staffShifts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -8064,4 +8064,74 @@ export async function getEventExpenseLines(eventId: number): Promise<{ category:
     label: String(e.description || e.supplier || e.category).slice(0, 80),
     amount: Number(e.amountTotal),
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Comentarios públicos de Instagram (igComments). Tolerantes a que la
+// migración todavía no esté corrida: nunca rompen el webhook ni el panel.
+// ---------------------------------------------------------------------------
+
+/** Guarda un comentario nuevo. Devuelve `null` si ya existía (Meta reintenta). */
+export async function insertIgComment(input: {
+  commentId: string; mediaId?: string | null; igUserId: string; username?: string | null; text: string;
+  category: string; draftReply?: string | null; draftDm?: string | null; status?: IgComment['status'];
+}): Promise<IgComment | null> {
+  const db = await getDb();
+  if (!db) return null;
+  try {
+    await db.insert(igComments).values({ ...input, status: input.status ?? 'pending' });
+  } catch (err: any) {
+    if (err?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(String(err?.message ?? ''))) return null;
+    throw err;
+  }
+  const [row] = await db.select().from(igComments).where(eq(igComments.commentId, input.commentId)).limit(1);
+  return row ?? null;
+}
+
+export async function listIgComments(status: IgComment['status'] | 'all', limit = 100): Promise<IgComment[]> {
+  try {
+    const db = await getDb();
+    if (!db) return [];
+    const query = db.select().from(igComments);
+    const rows = await (status === 'all' ? query : query.where(eq(igComments.status, status))).orderBy(desc(igComments.createdAt)).limit(limit);
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
+export async function countPendingIgComments(): Promise<number> {
+  try {
+    const db = await getDb();
+    if (!db) return 0;
+    const [row] = await db.select({ n: sql<number>`count(*)` }).from(igComments).where(eq(igComments.status, 'pending'));
+    return Number(row?.n ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+export async function getIgComment(id: number): Promise<IgComment | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(igComments).where(eq(igComments.id, id)).limit(1);
+  return row ?? null;
+}
+
+export async function decideIgComment(id: number, patch: { status: IgComment['status']; finalReply?: string | null; error?: string | null }): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(igComments).set({ ...patch, decidedAt: new Date() }).where(eq(igComments.id, id));
+}
+
+/** Respuestas públicas ya publicadas, para dar variedad y ejemplos de estilo. */
+export async function recentSentIgReplies(limit: number): Promise<string[]> {
+  try {
+    const db = await getDb();
+    if (!db) return [];
+    const rows = await db.select({ finalReply: igComments.finalReply }).from(igComments).where(eq(igComments.status, 'sent')).orderBy(desc(igComments.decidedAt)).limit(limit);
+    return rows.map((r) => r.finalReply ?? '').filter(Boolean);
+  } catch {
+    return [];
+  }
 }

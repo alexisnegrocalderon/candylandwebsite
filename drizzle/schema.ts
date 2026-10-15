@@ -2477,3 +2477,32 @@ export const taxRegularizations = mysqlTable("taxRegularizations", {
 });
 
 export type TaxRegularization = typeof taxRegularizations.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Comentarios públicos de Instagram (server/instagramComments.ts): la IA deja
+// un borrador de respuesta y el dueño lo aprueba antes de que salga nada.
+// ---------------------------------------------------------------------------
+
+export const igComments = mysqlTable("igComments", {
+  id: int("id").autoincrement().primaryKey(),
+  commentId: varchar("commentId", { length: 64 }).notNull(),
+  mediaId: varchar("mediaId", { length: 64 }),
+  igUserId: varchar("igUserId", { length: 64 }).notNull(),
+  username: varchar("username", { length: 120 }),
+  text: text("text").notNull(),
+  // spam | emoji | praise | question | sensitive | other (shared/commentTriage.ts)
+  category: varchar("category", { length: 12 }).notNull(),
+  draftReply: text("draftReply"),
+  // DM de seguimiento (solo preguntas de compra/precio), con botón al evento.
+  draftDm: text("draftDm"),
+  finalReply: text("finalReply"),
+  status: mysqlEnum("status", ["pending", "sent", "discarded", "hidden", "failed"]).default("pending").notNull(),
+  error: varchar("error", { length: 300 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  decidedAt: timestamp("decidedAt"),
+}, (table) => ({
+  commentIdx: uniqueIndex("ig_comments_comment_idx").on(table.commentId),
+  statusIdx: index("ig_comments_status_idx").on(table.status),
+}));
+
+export type IgComment = typeof igComments.$inferSelect;
