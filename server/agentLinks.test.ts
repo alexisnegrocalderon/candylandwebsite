@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AGENT_PAGE_KEYS, resolvePageLink, splitIntoBubbles, stripUrlsFromReply, withAgentUtm } from './agentLinks';
+import { AGENT_PAGE_KEYS, AGENT_SITE_PAGES, pageForMessage, resolvePageLink, splitIntoBubbles, stripUrlsFromReply, trackedUrl, withAgentUtm } from './agentLinks';
 
 describe('withAgentUtm', () => {
   it('marca el link con canal, medio y campaña del agente', () => {
@@ -15,7 +15,7 @@ describe('withAgentUtm', () => {
 describe('resolvePageLink', () => {
   it('arma el botón de una página de la lista, con UTM', () => {
     const link = resolvePageLink('/disfraces', 'instagram');
-    expect(link?.title).toBe('Ideas de disfraz');
+    expect(link?.title).toBe('Ideas de disfraz 👀');
     expect(link?.url).toMatch(/\/disfraces\?utm_source=instagram/);
   });
 
@@ -69,5 +69,55 @@ describe('splitIntoBubbles', () => {
 
   it('un texto de un solo bloque queda como una sola burbuja', () => {
     expect(splitIntoBubbles('hola, ¿cómo estás?')).toEqual(['hola, ¿cómo estás?']);
+  });
+});
+
+describe('catálogo de botones del agente', () => {
+  it('cada página tiene un nombre propio, claro y sin repetirse', () => {
+    const labels = AGENT_SITE_PAGES.map((p) => p.buttonLabel);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(labels.filter((l) => l.startsWith('Leer más')).length).toBe(0);
+  });
+
+  it('no incluye pantallas internas del equipo ni páginas personales', () => {
+    for (const bad of ['/puerta', '/cocina', '/guardarropia', '/caja', '/gastos', '/admin', '/mis-puntos', '/pago/exito']) {
+      expect(AGENT_PAGE_KEYS).not.toContain(bad);
+    }
+  });
+
+  it('incluye precios, primera vez, qué llevar, cómo llegar, cumpleañeros y preguntas frecuentes', () => {
+    for (const key of ['/entradas', '/blog/primera-vez-que-esperar', '/blog/que-llevar', '/blog/como-llegar-y-estacionar', '/beneficios-cumpleaneros', '/#preguntas-frecuentes']) {
+      expect(AGENT_PAGE_KEYS).toContain(key);
+    }
+  });
+
+  it('el ancla de las preguntas frecuentes llega al botón y al contador de clics', () => {
+    const link = resolvePageLink('/#preguntas-frecuentes', 'instagram')!;
+    expect(link.url).toContain('#preguntas-frecuentes');
+    expect(decodeURIComponent(trackedUrl(link.url))).toContain('#preguntas-frecuentes');
+  });
+});
+
+describe('pageForMessage (red de seguridad del botón)', () => {
+  it.each([
+    ['¿qué me pongo?', '/blog/dress-code-explicado'],
+    ['¿Cómo llego? ¿hay estacionamiento?', '/blog/como-llegar-y-estacionar'],
+    ['es mi primera vez, qué esperar', '/blog/primera-vez-que-esperar'],
+    ['¿qué debo llevar?', '/blog/que-llevar'],
+    ['es mi cumpleaños en noviembre', '/beneficios-cumpleaneros'],
+    ['quiero recargar mi tarjeta', '/recargar'],
+    ['¿qué es playmatch?', '/playmatch'],
+  ])('"%s" -> %s', (text, path) => {
+    expect(pageForMessage(text)?.path).toBe(path);
+  });
+
+  it('el precio lo decide el agente (primero pregunta qué acceso quiere)', () => {
+    expect(pageForMessage('cuánto cuesta la entrada')).toBeNull();
+  });
+
+  it('no inventa un botón cuando nada calza', () => {
+    expect(pageForMessage('hola')).toBeNull();
+    expect(pageForMessage('si')).toBeNull();
+    expect(pageForMessage('')).toBeNull();
   });
 });

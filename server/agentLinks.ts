@@ -12,83 +12,147 @@ const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\
 export type AgentLinkChannel = 'instagram' | 'whatsapp';
 
 export type AgentSitePage = {
-  /** Ruta del sitio -- también es la clave que elige el modelo. */
+  /** Ruta del sitio -- también es la clave que elige el modelo. Puede llevar
+   * ancla (`/#preguntas-frecuentes`) para caer en una sección. */
   path: string;
   topic: string;
   summary: string;
-  /** Texto del botón: Meta corta en 20 caracteres. */
+  /** Texto del botón: claro + 1 emoji. Meta corta en 20 caracteres. */
   buttonLabel: string;
+  /** Palabras (sin tildes, minúsculas) que, en el mensaje de la persona,
+   * indican claramente que esta página es la respuesta -- red de seguridad
+   * por si la IA olvida mandar el botón (`pageForMessage`). */
+  keywords?: string[];
+  /** La red de seguridad no la agrega sola: el agente decide (ej. precios,
+   * donde primero pregunta qué acceso quiere la persona para dar el precio
+   * exacto, y el botón de compra es la respuesta final). */
+  modelDecides?: boolean;
 };
 
-/** Páginas standalone (no viven en `content/index.ts`, ver
- * client/src/App.tsx) -- cambian poco, se mantienen a mano. */
+/** Páginas standalone y secciones útiles que no viven en `content/index.ts`
+ * -- cambian poco, se mantienen a mano. Quedan FUERA las pantallas de
+ * trabajo del equipo (puerta, cocina, guardarropía, caja, gastos, admin) y
+ * las páginas personales (mis puntos, tickets, pago). */
 const STANDALONE_SITE_PAGES: AgentSitePage[] = [
+  {
+    topic: 'Precios y tipos de acceso (qué incluye cada entrada)',
+    path: '/entradas',
+    summary: 'Los precios y los accesos disponibles, con lo que incluye cada uno. Mandarlo cuando pregunten por precios, valores o qué incluye la entrada y todavía no estén listos para comprar.',
+    buttonLabel: 'Ver precios 💜',
+    modelDecides: true,
+    keywords: ['precio', 'precios', 'cuanto cuesta', 'cuanto vale', 'cuanto sale', 'valor de la entrada', 'valores', 'que incluye'],
+  },
   {
     topic: 'Tarjeta PlayCard (QR, saldo, Playcoins)',
     path: '/blog/tarjeta-playcard',
     summary: 'Tu QR de acceso, saldo prepagado y Playcoins en un solo lugar, paso a paso.',
-    buttonLabel: 'Ver la PlayCard',
+    buttonLabel: 'Mi PlayCard 💳',
+    keywords: ['playcard', 'play card', 'playcoins'],
   },
   {
     topic: 'Recargar saldo de la PlayCard (después de comprar la entrada)',
     path: '/recargar',
     summary: 'Cargar saldo a la PlayCard cuando quieras, aunque ya tengan su entrada: ponen su correo, reciben un código de 6 dígitos y pagan. Mandarlo cuando pregunten cómo cargar o recargar saldo.',
-    buttonLabel: 'Recargar PlayCard',
+    buttonLabel: 'Recargar saldo 💳',
+    keywords: ['recargar', 'recarga', 'cargar saldo', 'cargar la tarjeta'],
   },
   {
     topic: 'Qué son las fiestas liberales',
     path: '/blog/que-son-las-fiestas-liberales',
     summary: 'Mitos y realidades de las fiestas liberales.',
-    buttonLabel: 'Leer más',
+    buttonLabel: 'Qué es Playroom 💜',
+    keywords: ['que son las fiestas', 'fiesta liberal', 'fiestas liberales', 'de que se trata', 'de que trata', 'que es playroom', 'que es mansion'],
   },
   {
     topic: 'Disfraz obligatorio (quiz de nivel de disfraz)',
     path: '/blog/dress-code-explicado',
     summary: 'No tiene que ser profesional, pero sí es obligatorio -- tips y un quiz de 1 minuto.',
-    buttonLabel: 'Ver el dress code',
+    buttonLabel: 'Qué ponerme 🎭',
+    keywords: ['dress code', 'dresscode', 'que me pongo', 'que ropa', 'como vestirme', 'como me visto', 'disfraz obligatorio', 'es obligatorio el disfraz', 'codigo de vestimenta'],
   },
   {
     topic: 'Ideas de disfraz / "¿de qué me disfrazo?" (Oráculo de Disfraces con IA)',
     path: '/disfraces',
     summary: 'Contestas 5 preguntas y te recomienda 3 disfraces concretos: con lo que tienes en casa, con accesorios o full producción. Mandarlo cuando pidan ideas de disfraz.',
-    buttonLabel: 'Ideas de disfraz',
+    buttonLabel: 'Ideas de disfraz 👀',
+    keywords: ['idea de disfraz', 'ideas de disfraz', 'de que me disfrazo', 'de que disfrazarme', 'que disfraz'],
+  },
+  {
+    topic: 'Beneficios para cumpleañeros',
+    path: '/beneficios-cumpleaneros',
+    summary: 'Postula si tu cumpleaños cae cerca de la fiesta y desbloquea entrada gratis, espumante y más. Mandarlo cuando pregunten por su cumpleaños o beneficios de cumpleañero.',
+    buttonLabel: 'Cumpleaños 🎂',
+    keywords: ['cumpleanos', 'cumpleanero', 'cumpleanera', 'mi cumple', 'cumple'],
+  },
+  {
+    topic: 'Preguntas frecuentes (lo esencial: edad, carnet, reglas, accesos)',
+    path: '/#preguntas-frecuentes',
+    summary: 'Las preguntas que más nos hacen, respondidas en la portada. Mandarlo cuando la duda sea general o de reglas básicas y no haya una página más específica.',
+    buttonLabel: 'Preguntas ❓',
+    keywords: ['preguntas frecuentes', 'faq'],
+  },
+  {
+    topic: 'PlayMatch (conocer gente en la fiesta)',
+    path: '/playmatch',
+    summary: 'Cómo funciona PlayMatch para conectar con otras personas durante la fiesta. Mandarlo cuando pregunten cómo conocer gente o qué es PlayMatch.',
+    buttonLabel: 'Ver PlayMatch 💘',
+    keywords: ['playmatch', 'play match', 'conocer gente', 'conocer personas'],
   },
   {
     topic: 'Quiénes somos',
     path: '/nosotros',
     summary: 'Quiénes son y la historia de Mansion Playroom.',
-    buttonLabel: 'Conócenos',
+    buttonLabel: 'Conócenos 💜',
+    keywords: ['quienes son', 'quienes somos', 'quien organiza', 'quien esta detras'],
   },
   {
     topic: 'Reembolso o transferencia de una entrada',
     path: '/politica-de-reembolso',
     summary: 'Reglas de reembolso y transferencia de entradas.',
-    buttonLabel: 'Ver política',
+    buttonLabel: 'Reembolsos 🔁',
+    keywords: ['reembolso', 'devolucion', 'devuelven', 'transferir la entrada', 'transferir mi entrada', 'cambiar el nombre de la entrada', 'ceder la entrada'],
   },
   {
     topic: 'Privacidad de los datos',
     path: '/politica-de-privacidad',
     summary: 'Cómo se usan los datos personales.',
-    buttonLabel: 'Ver privacidad',
+    buttonLabel: 'Privacidad 🔒',
+    keywords: ['privacidad', 'mis datos', 'datos personales', 'discrecion'],
   },
   {
     topic: 'Programa de embajadores',
     path: '/embajadores',
     summary: 'Cómo funciona el programa de embajadores/referidos.',
-    buttonLabel: 'Ser embajador',
+    buttonLabel: 'Ser embajador 👑',
+    keywords: ['embajador', 'embajadora', 'referidos', 'ganar comision'],
   },
 ];
+
+/** Nombre y palabras de cada artículo del blog o guía. Un artículo nuevo
+ * sin entrada acá aparece solo, como "Leer más 📖". */
+const ARTICLE_OVERRIDES: Record<string, { buttonLabel: string; keywords?: string[] }> = {
+  '/blog/primera-vez-que-esperar': { buttonLabel: 'Mi primera vez ✨', keywords: ['primera vez', 'nunca he ido', 'nunca fui', 'que esperar', 'como es una fiesta', 'me da nervio', 'me da verguenza'] },
+  '/blog/que-llevar': { buttonLabel: 'Qué llevar 🎒', keywords: ['que llevar', 'que debo llevar', 'que tengo que llevar', 'que se lleva', 'llevo carnet', 'que necesito llevar', 'hay que llevar'] },
+  '/blog/como-llegar-y-estacionar': { buttonLabel: 'Cómo llegar 📍', keywords: ['como llegar', 'como llego', 'donde queda', 'donde es', 'direccion', 'ubicacion', 'estacionar', 'estacionamiento', 'parking', 'en que sector'] },
+  '/panoramas/valparaiso': { buttonLabel: 'Panoramas Valpo 🌃', keywords: ['panoramas en valpo', 'panoramas en valparaiso', 'que hacer en valparaiso', 'donde salir en valparaiso'] },
+  '/panoramas/vina-del-mar': { buttonLabel: 'Panoramas Viña 🌴', keywords: ['panoramas en vina', 'que hacer en vina', 'donde salir en vina'] },
+};
 
 /** Lista cerrada de páginas que el agente puede mandar como botón. Los
  * artículos del blog/guías salen de `ALL_ARTICLES`, así uno nuevo aparece
  * solo sin tocar este archivo. */
 export const AGENT_SITE_PAGES: AgentSitePage[] = [
-  ...ALL_ARTICLES.map((a) => ({
-    path: articlePath(a),
-    topic: a.title,
-    summary: a.description,
-    buttonLabel: 'Leer más',
-  })),
+  ...ALL_ARTICLES.map((a) => {
+    const path = articlePath(a);
+    const override = ARTICLE_OVERRIDES[path];
+    return {
+      path,
+      topic: a.title,
+      summary: a.description,
+      buttonLabel: override?.buttonLabel ?? 'Leer más 📖',
+      keywords: override?.keywords,
+    };
+  }),
   ...STANDALONE_SITE_PAGES,
 ];
 
@@ -115,7 +179,7 @@ export function trackedUrl(url: string): string {
     const u = new URL(url);
     if (u.host !== new URL(APP_URL).host || u.pathname.startsWith('/api/go')) return url;
     const origin = u.searchParams.get('utm_content') || u.searchParams.get('utm_campaign') || 'sin-origen';
-    return `${APP_URL}/api/go?o=${encodeURIComponent(origin)}&to=${encodeURIComponent(u.pathname + u.search)}`;
+    return `${APP_URL}/api/go?o=${encodeURIComponent(origin)}&to=${encodeURIComponent(u.pathname + u.search + u.hash)}`;
   } catch {
     return url;
   }
@@ -175,4 +239,22 @@ export function splitIntoBubbles(text: string, max = 3): string[] {
   const parts = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   if (parts.length <= max) return parts;
   return [...parts.slice(0, max - 1), parts.slice(max - 1).join('\n\n')];
+}
+
+
+function plain(text: string): string {
+  return text.toLowerCase().normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** Red de seguridad: la página del catálogo que el mensaje de la persona
+ * pide con claridad (sus palabras aparecen tal cual), o `null`. Las páginas
+ * marcadas `modelDecides` (precios) no se agregan solas. Si calzan dos
+ * páginas, gana la primera de la lista (las más específicas van primero). */
+export function pageForMessage(message: string): AgentSitePage | null {
+  const text = ` ${plain(message)} `;
+  if (text.trim().length === 0) return null;
+  for (const page of AGENT_SITE_PAGES) {
+    if (!page.modelDecides && page.keywords?.some((k) => text.includes(` ${plain(k)} `))) return page;
+  }
+  return null;
 }

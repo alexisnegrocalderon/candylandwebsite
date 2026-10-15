@@ -23,7 +23,7 @@ import { pickHook } from '../shared/igEngagement';
 import { buildAdminUrl } from '../shared/adminDeepLink';
 
 export const COMMENT_MAX_CHARS = 300;
-const DM_BUTTON_TITLE = 'Ver entradas';
+const DM_BUTTON_TITLE = 'Comprar entrada 🔥';
 
 /** Limpia el texto que escribió la IA: sin links (van en el DM), sin marcas
  * de IA, sin exclamaciones en cadena, y con un largo de comentario. */
