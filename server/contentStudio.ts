@@ -74,7 +74,7 @@ export async function saveContentDesign(id: number | undefined, raw: unknown): P
     title: design.title,
     format: design.format,
     theme: design.theme,
-    data: { slides: design.slides, caption: design.caption },
+    data: { slides: design.slides, caption: design.caption, showBrand: design.showBrand },
   };
   if (id != null) {
     // Se mira antes de escribir: `affectedRows` de MySQL no distingue "no

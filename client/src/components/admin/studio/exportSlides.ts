@@ -27,6 +27,7 @@ const FONT_FACES = [
   'italic 300 40px "Josefin Sans"',
   '500 40px "Unbounded"',
   '400 40px "Inter"',
+  '700 40px "Fredoka Bubble"',
 ];
 
 /** Las fuentes de las láminas cargadas en la PÁGINA (no solo dentro de cada
