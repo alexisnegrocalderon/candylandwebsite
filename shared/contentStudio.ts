@@ -20,11 +20,15 @@ export const STUDIO_SIZES: Record<StudioFormat, { width: number; height: number 
   historia: { width: 1080, height: 1920 },
 };
 
-/** Las tres familias de diseño que ya usa la cuenta:
+/** Las familias de diseño que usa la cuenta:
+ * - bubble: el OFICIAL de la marca (letras estilo globo, íconos grandes, poco
+ *   texto), el de los carruseles que mejor rindieron. Es el que se usa por defecto.
  * - azul: el "Desafío" (fondo azul, letras fucsia, foto que se sale del borde).
  * - pastel: el "Test" de Halloween (fondos pastel que se turnan, morado).
  * - playcard: la de la PlayCard (rosado y celeste en diagonal, logo). */
-export const STUDIO_THEMES = ['azul', 'pastel', 'playcard'] as const;
+export const STUDIO_THEMES = ['bubble', 'azul', 'pastel', 'playcard'] as const;
+/** El diseño oficial: con el que parte todo diseño nuevo. */
+export const DEFAULT_STUDIO_THEME: StudioTheme = 'bubble';
 export type StudioTheme = (typeof STUDIO_THEMES)[number];
 
 export const STUDIO_LAYOUTS = ['portada', 'pregunta', 'resultados', 'pasos', 'cierre', 'imagen'] as const;
@@ -67,8 +71,12 @@ export interface StudioSlide {
   footnote: string;
   imageUrl: string;
   imageSide: StudioImageSide;
-  /** Paleta en la familia pastel (0 durazno, 1 lila, 2 lima); -1 = se turna sola. */
+  /** Color de fondo. Pastel: 0 durazno, 1 lila, 2 lima (-1 = se turna). Bubble:
+   * 0 celeste, 1 azul rey, 2 lila (-1 = celeste). */
   palette: number;
+  /** Solo "bubble": el gráfico grande de la lámina (un tipo de
+   * shared/studioBubble.ts o un emoji). Vacío = sin gráfico. */
+  hero: string;
   /** Muestra "Desliza →" abajo. */
   swipeHint: boolean;
 }
@@ -91,6 +99,7 @@ const LIMITS = {
   body: 400,
   option: 160,
   itemBadge: 24,
+  hero: 16,
   itemTitle: 80,
   itemBody: 240,
   cta: 60,
@@ -128,6 +137,7 @@ export function emptySlide(layout: StudioLayout = 'pregunta'): StudioSlide {
     imageUrl: '',
     imageSide: 'auto',
     palette: -1,
+    hero: '',
     swipeHint: false,
   };
 }
@@ -155,6 +165,7 @@ export function normalizeStudioSlide(raw: unknown): StudioSlide | null {
     imageUrl: cleanImageUrl(r.imageUrl),
     imageSide: oneOf(r.imageSide, STUDIO_IMAGE_SIDES, 'auto'),
     palette: Number.isInteger(palette) && palette >= 0 && palette <= 2 ? palette : -1,
+    hero: str(r.hero, LIMITS.hero).trim(),
     swipeHint: r.swipeHint === true,
   };
 }
@@ -175,6 +186,7 @@ export function normalizeStudioDesign(raw: unknown): StudioDesign | null {
   return {
     title: str(r.title, LIMITS.title).trim() || 'Sin título',
     format,
+    // Los diseños viejos guardan su tema y siguen igual; solo uno sin tema parte oficial.
     theme: oneOf(r.theme, STUDIO_THEMES, 'azul'),
     eventId: r.eventId != null && Number.isInteger(eventId) && eventId > 0 ? eventId : null,
     caption: str(r.caption, LIMITS.caption),
@@ -269,7 +281,7 @@ export function splitHeadline(text: string): { title: string; body: string } {
 export function designFromPiece(piece: ContentPiece, eventId: number | null): StudioDesign {
   const format: StudioFormat = piece.format === 'carrusel' ? 'carrusel' : piece.format === 'historia' ? 'historia' : 'post';
   const caption = [piece.caption, piece.hashtags.join(' ')].filter(Boolean).join('\n\n');
-  const base = { title: piece.hook.slice(0, LIMITS.title) || 'Sin título', format, theme: 'azul' as StudioTheme, eventId, caption: caption.slice(0, LIMITS.caption) };
+  const base = { title: piece.hook.slice(0, LIMITS.title) || 'Sin título', format, theme: DEFAULT_STUDIO_THEME, eventId, caption: caption.slice(0, LIMITS.caption) };
 
   if (format !== 'carrusel' || piece.slides.length === 0) {
     const { title, body } = splitHeadline(piece.hook);

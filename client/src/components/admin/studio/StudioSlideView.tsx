@@ -2,6 +2,8 @@ import { forwardRef, type CSSProperties, type ReactNode } from 'react';
 import '@fontsource-variable/josefin-sans/wght.css';
 import '@fontsource-variable/josefin-sans/wght-italic.css';
 import './studio-fonts.css';
+import { BubbleSlide } from './BubbleSlide';
+import { resolveBubblePalette } from '@shared/studioBubble';
 import {
   fitFontSize,
   pageLabel,
@@ -102,7 +104,7 @@ export const StudioSlideView = forwardRef<HTMLDivElement, StudioSlideViewProps>(
   const isPasos = slide.layout === 'pasos' && theme === 'playcard';
   const style: CSSProperties = {
     width, height, position: 'relative', overflow: 'hidden', boxSizing: 'border-box',
-    background: isPasos ? '#FDF0F7' : t.bg, fontFamily: theme === 'playcard' ? GROTESK : JOSEFIN, color: t.text,
+    background: isPasos ? '#FDF0F7' : theme === 'bubble' ? resolveBubblePalette(slide.palette).bg : t.bg, fontFamily: theme === 'playcard' ? GROTESK : JOSEFIN, color: t.text,
   };
 
   let body: ReactNode;
@@ -110,6 +112,8 @@ export const StudioSlideView = forwardRef<HTMLDivElement, StudioSlideViewProps>(
     body = slide.imageUrl
       ? <img src={slide.imageUrl} alt="" crossOrigin="anonymous" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
       : <Placeholder style={{ position: 'absolute', inset: 0 }} label="Sube tu imagen (hecha en Claude Design u otra)" />;
+  } else if (theme === 'bubble') {
+    body = <BubbleSlide slide={slide} index={index} format={format} width={width} height={height} />;
   } else if (theme === 'azul') {
     body = <AzulSlide {...props} t={t} pad={pad} width={width} height={height} />;
   } else if (theme === 'pastel') {

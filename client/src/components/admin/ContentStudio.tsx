@@ -15,7 +15,9 @@ import { WriteButton } from '@/components/admin/WriteButton';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { formatChileDateTime } from '@shared/chileDate';
+import { BUBBLE_HEROES, BUBBLE_PALETTES, isBubbleHeroKey } from '@shared/studioBubble';
 import {
+  DEFAULT_STUDIO_THEME,
   normalizeStudioDesign,
   STUDIO_LAYOUTS,
   STUDIO_MAX_ITEMS,
@@ -41,7 +43,7 @@ import { SlideFrame } from './studio/SlideFrame';
  * a Instagram a mano. Los diseños se guardan en la base (server/contentStudio.ts). */
 
 const FORMAT_LABEL: Record<StudioFormat, string> = { carrusel: 'Carrusel (3:4)', post: 'Post (3:4)', historia: 'Historia (9:16)' };
-const THEME_LABEL: Record<StudioTheme, string> = { azul: 'Desafío azul', pastel: 'Test pastel', playcard: 'PlayCard' };
+const THEME_LABEL: Record<StudioTheme, string> = { bubble: 'Bubble Playroom (oficial)', azul: 'Desafío azul', pastel: 'Test pastel', playcard: 'PlayCard' };
 const LAYOUT_LABEL: Record<StudioLayout, string> = {
   portada: 'Portada', pregunta: 'Pregunta / texto', resultados: 'Resultados', pasos: 'Pasos', cierre: 'Cierre', imagen: 'Imagen propia',
 };
@@ -54,6 +56,19 @@ const FIELDS: Record<StudioLayout, Field[]> = {
   pasos: ['script', 'title', 'items'],
   cierre: ['title', 'body', 'cta', 'footnote'],
   imagen: [],
+};
+/** Bubble: poco texto. Título grande, gráfico, una etiqueta con borde (`body`),
+ * un botón grande (`cta`) y un texto chico; los íconos van en `items`. */
+const BUBBLE_FIELDS: Record<StudioLayout, Field[]> = {
+  portada: ['title', 'body', 'cta', 'footnote'],
+  pregunta: ['title', 'body', 'footnote'],
+  resultados: ['title', 'items', 'cta', 'footnote'],
+  pasos: ['title', 'items', 'cta', 'footnote'],
+  cierre: ['title', 'body', 'cta', 'footnote'],
+  imagen: [],
+};
+const BUBBLE_FIELD_LABEL: Partial<Record<Field, string>> = {
+  title: 'Título grande (usa Enter para separar líneas)', body: 'Etiqueta con borde (corta)', cta: 'Botón grande (ej. COMENTA PLAYROOM)', footnote: 'Texto chico de abajo',
 };
 const FIELD_LABEL: Record<Field, string> = {
   script: 'Palabra manuscrita / antetítulo', number: 'Número', title: 'Título', body: 'Bajada (cursiva)', options: 'Opciones',
@@ -128,7 +143,7 @@ function StudioHome({ onOpen, onOpenAi }: { onOpen: (e: Editing) => void; onOpen
   const utils = trpc.useUtils();
   const { data: designs, isLoading } = trpc.contentStudio.list.useQuery();
   const [format, setFormat] = useState<StudioFormat>('carrusel');
-  const [theme, setTheme] = useState<StudioTheme>('azul');
+  const [theme, setTheme] = useState<StudioTheme>(DEFAULT_STUDIO_THEME);
   const [opening, setOpening] = useState<number | null>(null);
   const remove = trpc.contentStudio.delete.useMutation({
     onSuccess: () => { utils.contentStudio.list.invalidate(); toast.success('Diseño eliminado.'); },
@@ -183,7 +198,7 @@ function StudioHome({ onOpen, onOpenAi }: { onOpen: (e: Editing) => void; onOpen
         <CardContent className="pt-6 flex flex-wrap items-end gap-3">
           <div className="min-w-0 flex-1 basis-60">
             <p className="font-medium">Plantillas fijas</p>
-            <p className="text-sm text-muted-foreground">Desafío azul, Test pastel y PlayCard: rellenas los textos y listo. Usa el formato elegido arriba.</p>
+            <p className="text-sm text-muted-foreground">Bubble Playroom (el estilo oficial, de letras gruesas y poco texto), Desafío azul, Test pastel y PlayCard: rellenas los textos y listo. Usa el formato elegido arriba.</p>
           </div>
           <div className="space-y-1.5">
             <Label>Plantilla</Label>
@@ -311,7 +326,7 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
     }
   };
 
-  const fields = FIELDS[slide.layout];
+  const fields = (design.theme === 'bubble' ? BUBBLE_FIELDS : FIELDS)[slide.layout];
   const isCarousel = design.format === 'carrusel';
 
   return (
@@ -399,8 +414,25 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
                 </Select>
               </div>
 
+              {design.theme === 'bubble' && slide.layout !== 'imagen' && slide.layout !== 'resultados' && slide.layout !== 'pasos' && (
+                <div className="space-y-1.5">
+                  <Label>Gráfico grande</Label>
+                  <Select value={isBubbleHeroKey(slide.hero) ? slide.hero : slide.hero ? 'otro' : 'none'} onValueChange={(v) => updateSlide({ hero: v === 'none' ? '' : v === 'otro' ? '🔥' : v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin gráfico</SelectItem>
+                      {BUBBLE_HEROES.map((h) => <SelectItem key={h.key} value={h.key}>{h.label}</SelectItem>)}
+                      <SelectItem value="otro">Un emoji</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {slide.hero && !isBubbleHeroKey(slide.hero) && (
+                    <Input value={slide.hero} maxLength={8} placeholder="Escribe o pega un emoji (🔥 🍸 🎃)" onChange={(e) => updateSlide({ hero: e.target.value })} />
+                  )}
+                </div>
+              )}
+
               {fields.map((field) => (
-                <SlideField key={field} field={field} slide={slide} onChange={updateSlide} />
+                <SlideField key={field} field={field} slide={slide} onChange={updateSlide} theme={design.theme} />
               ))}
 
               <div className="space-y-1.5">
@@ -420,6 +452,18 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
                       <SelectItem value="auto">Automático (se alterna)</SelectItem>
                       <SelectItem value="left">Izquierda</SelectItem>
                       <SelectItem value="right">Derecha</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {design.theme === 'bubble' && slide.layout !== 'imagen' && (
+                <div className="space-y-1.5">
+                  <Label>Color de fondo</Label>
+                  <Select value={String(slide.palette)} onValueChange={(v) => updateSlide({ palette: Number(v) })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="-1">Celeste de la marca (por defecto)</SelectItem>
+                      {BUBBLE_PALETTES.map((p, i) => <SelectItem key={p.key} value={String(i)}>{p.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -484,8 +528,8 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
   );
 }
 
-function SlideField({ field, slide, onChange }: { field: Field; slide: StudioSlide; onChange: (patch: Partial<StudioSlide>) => void }) {
-  const label = FIELD_LABEL[field];
+function SlideField({ field, slide, onChange, theme }: { field: Field; slide: StudioSlide; onChange: (patch: Partial<StudioSlide>) => void; theme: StudioTheme }) {
+  const label = (theme === 'bubble' && BUBBLE_FIELD_LABEL[field]) || FIELD_LABEL[field];
   if (field === 'options') {
     return (
       <div className="space-y-1.5">
@@ -505,19 +549,20 @@ function SlideField({ field, slide, onChange }: { field: Field; slide: StudioSli
   }
   if (field === 'items') {
     const isSteps = slide.layout === 'pasos';
+    const bubble = theme === 'bubble';
     return (
       <div className="space-y-2">
-        <Label>{isSteps ? 'Pasos' : 'Resultados'}</Label>
+        <Label>{bubble ? 'Íconos (emoji o gráfico + nombre debajo)' : isSteps ? 'Pasos' : 'Resultados'}</Label>
         {slide.items.map((item, i) => {
           const set = (patch: Partial<typeof item>) => onChange({ items: slide.items.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
           return (
             <div key={i} className="rounded-xl border p-2 space-y-2">
               <div className="flex items-center gap-2">
-                <Input className="w-28" value={item.badge} maxLength={24} placeholder={isSteps ? `Paso ${i + 1}` : 'Emoji'} onChange={(e) => set({ badge: e.target.value })} />
-                <Input value={item.title} maxLength={80} placeholder="Título" onChange={(e) => set({ title: e.target.value })} />
+                <Input className="w-28" value={item.badge} maxLength={24} placeholder={bubble ? 'Emoji' : isSteps ? `Paso ${i + 1}` : 'Emoji'} onChange={(e) => set({ badge: e.target.value })} />
+                <Input value={item.title} maxLength={80} placeholder={bubble ? 'Nombre (ej. LIBERTAD)' : 'Título'} onChange={(e) => set({ title: e.target.value })} />
                 <Button size="icon" variant="ghost" onClick={() => onChange({ items: slide.items.filter((_, j) => j !== i) })} aria-label="Quitar"><X className="w-4 h-4" /></Button>
               </div>
-              <Textarea rows={2} value={item.body} maxLength={240} placeholder="Descripción" onChange={(e) => set({ body: e.target.value })} />
+              {!bubble && <Textarea rows={2} value={item.body} maxLength={240} placeholder="Descripción" onChange={(e) => set({ body: e.target.value })} />}
             </div>
           );
         })}
@@ -527,7 +572,7 @@ function SlideField({ field, slide, onChange }: { field: Field; slide: StudioSli
       </div>
     );
   }
-  const long = field === 'title' || field === 'body' || field === 'footnote';
+  const long = field === 'title' || (field === 'body' && theme !== 'bubble') || field === 'footnote';
   const max = { script: 40, number: 6, title: 200, body: 400, cta: 60, footnote: 200 }[field];
   return (
     <div className="space-y-1.5">
