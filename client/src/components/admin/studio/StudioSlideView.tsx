@@ -89,6 +89,8 @@ export interface StudioSlideViewProps {
   slide: StudioSlide;
   index: number;
   total: number;
+  /** Logo / "MANSION PLAYROOM" visible. Apagado por defecto (ver StudioDesign.showBrand). */
+  showBrand?: boolean;
 }
 
 /** Una lámina a tamaño real. El `ref` apunta al nodo que se exporta a PNG. */
@@ -113,7 +115,7 @@ export const StudioSlideView = forwardRef<HTMLDivElement, StudioSlideViewProps>(
       ? <img src={slide.imageUrl} alt="" crossOrigin="anonymous" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
       : <Placeholder style={{ position: 'absolute', inset: 0 }} label="Sube tu imagen (hecha en Claude Design u otra)" />;
   } else if (theme === 'bubble') {
-    body = <BubbleSlide slide={slide} index={index} format={format} width={width} height={height} />;
+    body = <BubbleSlide slide={slide} index={index} format={format} width={width} height={height} showBrand={props.showBrand === true} />;
   } else if (theme === 'azul') {
     body = <AzulSlide {...props} t={t} pad={pad} width={width} height={height} />;
   } else if (theme === 'pastel') {
@@ -160,12 +162,14 @@ function fit(text: string, t: Tokens, box: { width: number; height: number }, ma
   return fitFontSize(t.display.textTransform === 'uppercase' ? text.toUpperCase() : text, box, { max, min, charWidth: t.display.charWidth, lineHeight: 1.05 });
 }
 
-function Brand({ t, left, top, page }: { t: Tokens; left: number; top: number; page?: { text: string; right: number } }) {
+function Brand({ t, left, top, page, show }: { t: Tokens; left: number; top: number; page?: { text: string; right: number }; show?: boolean }) {
   return (
     <>
-      <div style={{ position: 'absolute', left, top, fontFamily: JOSEFIN, fontWeight: 600, fontSize: 30, letterSpacing: '0.2em', color: t.brand }}>
-        MANSION PLAYROOM
-      </div>
+      {show && (
+        <div style={{ position: 'absolute', left, top, fontFamily: JOSEFIN, fontWeight: 600, fontSize: 30, letterSpacing: '0.2em', color: t.brand }}>
+          MANSION PLAYROOM
+        </div>
+      )}
       {page?.text && (
         <div style={{ position: 'absolute', right: page.right, top, fontFamily: JOSEFIN, fontWeight: 700, fontSize: 30, letterSpacing: '0.08em', color: t.page }}>
           {page.text}
@@ -282,7 +286,7 @@ function StepCards({ slide, t, dark = '#3B2236', muted = '#6D5468' }: { slide: S
 
 /* --- Familia azul (Desafío) ------------------------------------------------ */
 
-function AzulSlide({ slide, index, format, t, pad, width, height }: InnerProps) {
+function AzulSlide({ slide, index, format, t, pad, width, height, showBrand }: InnerProps) {
   const side = resolveImageSide(slide, index);
   const cover = slide.layout === 'portada';
   const panelWidth = cover ? 114 : 355;
@@ -356,7 +360,7 @@ function AzulSlide({ slide, index, format, t, pad, width, height }: InnerProps) 
 
   return (
     <>
-      <Brand t={t} left={pad.side} top={pad.top} />
+      <Brand t={t} left={pad.side} top={pad.top} show={showBrand} />
       <div style={{ position: 'absolute', left: 0, top: pad.top + 60, width: 372, height: 3, background: t.line }} />
       <Photo url={slide.imageUrl} style={panel} />
       <div style={{ position: 'absolute', left: textLeft, top: cover ? top + 20 : top, width: textWidth, display: 'flex', flexDirection: 'column' }}>
@@ -369,7 +373,7 @@ function AzulSlide({ slide, index, format, t, pad, width, height }: InnerProps) 
 
 /* --- Familia pastel (Test) ------------------------------------------------- */
 
-function PastelSlide({ slide, index, total, format, t, pad, width, height }: InnerProps) {
+function PastelSlide({ slide, index, total, format, t, pad, width, height, showBrand }: InnerProps) {
   const inner = width - pad.side * 2;
   const story = format === 'historia';
   const imageHeight = story ? 640 : 520;
@@ -427,7 +431,7 @@ function PastelSlide({ slide, index, total, format, t, pad, width, height }: Inn
 
   return (
     <>
-      <Brand t={t} left={pad.side} top={pad.top} page={{ text: pageLabel(index, total), right: pad.side }} />
+      <Brand t={t} left={pad.side} top={pad.top} page={{ text: pageLabel(index, total), right: pad.side }} show={showBrand} />
       <div style={{ position: 'absolute', left: pad.side, right: pad.side, top: pad.top + 44, height: 3, background: t.line }} />
       <div style={{ position: 'absolute', left: pad.side, right: pad.side, top: pad.top + 96, bottom: pad.bottom, display: 'flex', flexDirection: 'column' }}>
         {content}
@@ -439,7 +443,7 @@ function PastelSlide({ slide, index, total, format, t, pad, width, height }: Inn
 
 /* --- Familia PlayCard ------------------------------------------------------ */
 
-function PlaycardSlide({ slide, t, pad, width, height }: InnerProps) {
+function PlaycardSlide({ slide, t, pad, width, height, showBrand }: InnerProps) {
   const inner = width - pad.side * 2;
   const diagonal = slide.layout !== 'pasos';
 
@@ -447,7 +451,7 @@ function PlaycardSlide({ slide, t, pad, width, height }: InnerProps) {
   if (slide.layout === 'cierre') {
     content = (
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 0 }}>
-        <img src={LOGO} alt="" style={{ height: 150, marginBottom: 50 }} />
+        {showBrand && <img src={LOGO} alt="" style={{ height: 150, marginBottom: 50 }} />}
         <Display text={slide.title} t={t} size={fit(slide.title, t, { width: inner, height: 420 }, 150, 60)} color={t.headline} />
         {slide.body && <div style={{ fontFamily: GROTESK, fontSize: 44, color: t.text, marginTop: 50 }}>{slide.body}</div>}
         {slide.cta && (
@@ -469,7 +473,7 @@ function PlaycardSlide({ slide, t, pad, width, height }: InnerProps) {
   } else if (slide.layout === 'resultados') {
     content = (
       <>
-        <img src={LOGO} alt="" style={{ height: 110, alignSelf: 'flex-start', marginBottom: 40 }} />
+        {showBrand && <img src={LOGO} alt="" style={{ height: 110, alignSelf: 'flex-start', marginBottom: 40 }} />}
         <Display text={slide.title} t={t} size={fit(slide.title, t, { width: inner, height: 260 }, 120, 50)} color={t.headline} />
         {slide.body && <div style={{ fontFamily: GROTESK, fontSize: 40, color: t.text, margin: '24px 0 56px' }}>{slide.body}</div>}
         <Results slide={slide} t={t} bubble={120} />
@@ -479,7 +483,7 @@ function PlaycardSlide({ slide, t, pad, width, height }: InnerProps) {
     const question = slide.layout === 'pregunta';
     content = (
       <>
-        <img src={LOGO} alt="" style={{ height: 130, alignSelf: 'flex-start', marginBottom: 44 }} />
+        {showBrand && <img src={LOGO} alt="" style={{ height: 130, alignSelf: 'flex-start', marginBottom: 44 }} />}
         {slide.script && <div style={{ fontFamily: GROTESK, fontWeight: 500, fontSize: 32, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#E866C2', marginBottom: 16 }}>{slide.script}</div>}
         {slide.number && <Display text={slide.number} t={t} size={110} color={t.number} />}
         <Display text={slide.title} t={t} size={fit(slide.title, t, { width: inner, height: question ? 300 : 420 }, question ? 110 : 160, 50)} color={question ? t.question : t.headline} />

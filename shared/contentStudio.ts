@@ -77,6 +77,8 @@ export interface StudioSlide {
   /** Solo "bubble": el gráfico grande de la lámina (un tipo de
    * shared/studioBubble.ts o un emoji). Vacío = sin gráfico. */
   hero: string;
+  /** Solo "bubble": el gráfico va DEBAJO del título (como en «Explora»), en vez de arriba. */
+  heroBelow: boolean;
   /** Muestra "Desliza →" abajo. */
   swipeHint: boolean;
 }
@@ -88,6 +90,9 @@ export interface StudioDesign {
   eventId: number | null;
   /** Texto de la publicación (del Plan de contenido), para copiarlo al subir. */
   caption: string;
+  /** Muestra el logo / "MANSION PLAYROOM" en las láminas. Apagado por defecto:
+   * Instagram baja el alcance de las publicaciones que siempre llevan marca. */
+  showBrand: boolean;
   slides: StudioSlide[];
 }
 
@@ -138,6 +143,7 @@ export function emptySlide(layout: StudioLayout = 'pregunta'): StudioSlide {
     imageSide: 'auto',
     palette: -1,
     hero: '',
+    heroBelow: false,
     swipeHint: false,
   };
 }
@@ -166,6 +172,7 @@ export function normalizeStudioSlide(raw: unknown): StudioSlide | null {
     imageSide: oneOf(r.imageSide, STUDIO_IMAGE_SIDES, 'auto'),
     palette: Number.isInteger(palette) && palette >= 0 && palette <= 2 ? palette : -1,
     hero: str(r.hero, LIMITS.hero).trim(),
+    heroBelow: r.heroBelow === true,
     swipeHint: r.swipeHint === true,
   };
 }
@@ -190,6 +197,7 @@ export function normalizeStudioDesign(raw: unknown): StudioDesign | null {
     theme: oneOf(r.theme, STUDIO_THEMES, 'azul'),
     eventId: r.eventId != null && Number.isInteger(eventId) && eventId > 0 ? eventId : null,
     caption: str(r.caption, LIMITS.caption),
+    showBrand: r.showBrand === true,
     // Un post o una historia es UNA imagen.
     slides: format === 'carrusel' ? slides : slides.slice(0, 1),
   };

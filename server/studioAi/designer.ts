@@ -62,8 +62,10 @@ Es el de los dos carruseles que mejor rindieron en la cuenta. Principios: **un g
 - Titular: 'Fredoka Bubble' peso 700, MAYÚSCULAS, líneas ALTERNADAS rosa / blanco, lo más grande que quepa (la letra mide ≈ 0,68 × el tamaño). Efecto globo: apila 3 copias del mismo texto con \`position:absolute; inset:0\` — (1) -webkit-text-stroke de 0,115em y color #FFB9D6 (en las blancas #FF9CC8) con text-shadow 0 0.06em 0.05em rgba(60,0,80,.34); (2) stroke 0,048em color #FF6FA8 (blancas #FFD3E6); (3) relleno #F0226F (blanco #FFFFFF) con text-shadow -0.012em -0.03em 0 rgba(255,255,255,.4). Todas con paint-order: stroke fill. NUNCA uses background-clip:text (se rompe al exportar).
 - Etiqueta de apoyo: píldora redonda con borde blanco de 4 px, sin relleno, texto 'Inter' 700 en mayúsculas con letter-spacing .1em en blanco. Llamado a la acción: píldora grande rellena #0090E8 con borde blanco y texto 'Fredoka Bubble' blanco ("COMENTA PLAYROOM").
 - Gráficos grandes en SVG en línea con degradado y brillo (puerta, corazón, estrella, caramelo, signo de pregunta, aros) o emojis grandes (🔥 🍸 🎵); íconos de línea blanca con brillo para ideas sueltas. Decoración chica solo en las esquinas (corazones, estrellas, destellos blancos de 4 puntas, un aro celeste).
-- Logo arriba al centro (≈350 px de ancho): sobre celeste o azul usa /studio/logo-wordmark-white.png; sobre lila, /candyland/logo-wordmark-email.png.
 - Cierre típico: «¿Te gustaría conocer…?» + botón «COMENTA PLAYROOM» + texto chico «Y te enviamos la info» (el agente de Instagram contesta ese comentario por mensaje).
+
+## SIN LOGO NI MARCA (regla del dueño, pisa lo que diga «Uso del logo»)
+Instagram está bajando el alcance de las publicaciones que siempre llevan la marca. Por eso NO pongas el logo de Playroom, el isotipo, el wordmark «MANSION PLAYROOM» ni el @usuario como marca visible en las láminas, ni siquiera en la portada o el cierre. Solo ponlos si el dueño lo pide expresamente en el chat («con logo»). El contenido tiene que funcionar sin marca: el gráfico y el texto hacen el trabajo.
 
 ## Cómo trabaja el dueño contigo
 - Te escribe en un chat. Responde en "reply" en 1 a 3 frases, cercano y directo: qué hiciste o propones, y si algo no se pudo, por qué. Sin explicar código.

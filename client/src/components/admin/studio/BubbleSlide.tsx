@@ -170,6 +170,104 @@ export function Lollipop({ size, style }: { size: number; style?: CSSProperties 
   );
 }
 
+
+/** Íconos de línea blanca con brillo (como los de «Conecta»). */
+function Neon({ size, children }: { size: number; children: ReactNode }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="none" stroke="#FFFFFF" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"
+      style={{ display: 'block', overflow: 'visible', filter: 'drop-shadow(0 0 5px rgba(255,255,255,0.95)) drop-shadow(0 0 12px rgba(255,255,255,0.55))' }}>
+      {children}
+      <path d="M86 12 C86.6 17 89 19.4 94 20 C89 20.6 86.6 23 86 28 C85.4 23 83 20.6 78 20 C83 19.4 85.4 17 86 12Z" fill="#FFFFFF" stroke="none" />
+    </svg>
+  );
+}
+
+const HEART_PATH = 'M50 86 C20 62 8 46 8 30 C8 18 17 10 29 10 C38 10 46 15 50 23 C54 15 62 10 71 10 C83 10 92 18 92 30 C92 46 80 62 50 86Z';
+
+function NeonHeart({ size }: { size: number }) {
+  return <Neon size={size}><path d={HEART_PATH} /></Neon>;
+}
+
+function NeonHands({ size }: { size: number }) {
+  return (
+    <Neon size={size}>
+      <path d={HEART_PATH} />
+      <path d="M26 46 L42 36 C46 34 50 35 53 38 L58 43 M74 46 L60 38" />
+      <path d="M34 54 L48 66 C51 69 55 69 58 66 L72 52 L58 43 C55 41 51 41 48 43 L36 52" />
+      <path d="M44 60 L50 66 M50 55 L56 61 M56 50 L61 55" />
+    </Neon>
+  );
+}
+
+function NeonHand({ size }: { size: number }) {
+  return (
+    <Neon size={size}>
+      <path d="M50 38 C44 33 36 36 38 43 C40 49 50 56 50 56 C50 56 60 49 62 43 C64 36 56 33 50 38Z" />
+      <rect x="8" y="64" width="18" height="24" rx="3" />
+      <path d="M26 70 L42 66 L60 66 C65 66 66 73 61 74 L46 75 M46 75 L76 68 C82 66 90 66 92 70 C86 78 70 88 54 88 L26 84" />
+    </Neon>
+  );
+}
+
+function NeonChat({ size }: { size: number }) {
+  return (
+    <Neon size={size}>
+      <path d="M50 14 C27 14 10 28 10 46 C10 56 15 64 24 70 L20 86 L38 76 C42 77 46 78 50 78 C73 78 90 64 90 46 C90 28 73 14 50 14Z" />
+      <circle cx="33" cy="46" r="3.6" fill="#FFFFFF" /><circle cx="50" cy="46" r="3.6" fill="#FFFFFF" /><circle cx="67" cy="46" r="3.6" fill="#FFFFFF" />
+    </Neon>
+  );
+}
+
+/** Íconos rosas con relieve (como los de «Todo comienza con el consentimiento»). */
+function PinkIcon({ size, children }: { size: number; children: ReactNode }) {
+  const id = gid('pk');
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" style={{ display: 'block', filter: 'drop-shadow(0 7px 7px rgba(60,0,80,0.32))' }}>
+      <defs><linearGradient id={id} x1="0" y1="0" x2="0.3" y2="1"><stop offset="0" stopColor="#FF4F95" /><stop offset="1" stopColor="#D3125F" /></linearGradient></defs>
+      <g fill={`url(#${id})`} stroke="#FFD0E4" strokeWidth="3.5" strokeLinejoin="round">{children}</g>
+    </svg>
+  );
+}
+
+function PinkChat({ size }: { size: number }) {
+  return (
+    <PinkIcon size={size}>
+      <path d="M50 10 C26 10 10 26 10 46 C10 58 16 67 25 73 L21 91 L41 80 C44 80.6 47 81 50 81 C74 81 90 65 90 46 C90 26 74 10 50 10Z" />
+      <circle cx="31" cy="46" r="5.5" fill="#FFFFFF" stroke="none" /><circle cx="50" cy="46" r="5.5" fill="#FFFFFF" stroke="none" /><circle cx="69" cy="46" r="5.5" fill="#FFFFFF" stroke="none" />
+    </PinkIcon>
+  );
+}
+
+function PinkHeartBox({ size }: { size: number }) {
+  return (
+    <PinkIcon size={size}>
+      <rect x="8" y="8" width="84" height="84" rx="20" />
+      <rect x="22" y="22" width="56" height="56" rx="10" fill="#FF7FB2" stroke="none" />
+      <path d="M50 70 C32 56 26 48 26 40 C26 33 31 29 37 29 C42 29 47 32 50 37 C53 32 58 29 63 29 C69 29 74 33 74 40 C74 48 68 56 50 70Z" fill="#FFFFFF" stroke="none" />
+    </PinkIcon>
+  );
+}
+
+function PinkNote({ size }: { size: number }) {
+  return (
+    <PinkIcon size={size}>
+      <path d="M36 74 V24 L82 14 V62" fill="none" strokeWidth="9" stroke="#E8206F" />
+      <ellipse cx="26" cy="76" rx="15" ry="12" />
+      <ellipse cx="72" cy="64" rx="15" ry="12" />
+      <path d="M36 28 L82 18" stroke="#E8206F" strokeWidth="9" fill="none" />
+    </PinkIcon>
+  );
+}
+
+function PinkFlame({ size }: { size: number }) {
+  return (
+    <PinkIcon size={size}>
+      <path d="M50 6 C54 24 78 34 78 62 C78 80 66 92 50 92 C34 92 22 80 22 62 C22 50 28 44 32 38 C34 46 38 50 42 50 C40 34 44 18 50 6Z" />
+      <path d="M50 52 C56 62 64 66 64 76 C64 84 58 88 50 88 C42 88 36 84 36 76 C36 68 44 64 50 52Z" fill="#FF8FBB" stroke="none" />
+    </PinkIcon>
+  );
+}
+
 function Door({ size }: { size: number }) {
   const id = gid('dg');
   return (
@@ -236,6 +334,14 @@ export function BubbleHero({ hero, size, tone = 'pink' }: { hero: string; size: 
       case 'check': return <Check size={size * 0.8} />;
       case 'mansion': return <Mansion size={size} />;
       case 'aro': return <Ring size={size * 0.9} />;
+      case 'chat': return <PinkChat size={size * 0.85} />;
+      case 'corazon-cuadro': return <PinkHeartBox size={size * 0.8} />;
+      case 'musica': return <PinkNote size={size * 0.85} />;
+      case 'fuego': return <PinkFlame size={size * 0.85} />;
+      case 'corazon-neon': return <NeonHeart size={size} />;
+      case 'manos-neon': return <NeonHands size={size * 1.05} />;
+      case 'mano-neon': return <NeonHand size={size * 1.05} />;
+      case 'chat-neon': return <NeonChat size={size} />;
     }
   }
   return <div style={{ fontSize: size * 0.82, lineHeight: 1, textAlign: 'center' }}>{value}</div>;
@@ -282,9 +388,11 @@ export interface BubbleSlideProps {
   format: StudioFormat;
   width: number;
   height: number;
+  /** Logo de Playroom visible (apagado por defecto: Instagram castiga lo que siempre lleva marca). */
+  showBrand?: boolean;
 }
 
-export function BubbleSlide({ slide, index, format, width, height }: BubbleSlideProps) {
+export function BubbleSlide({ slide, index, format, width, height, showBrand = false }: BubbleSlideProps) {
   const palette = resolveBubblePalette(slide.palette);
   const story = format === 'historia';
   const side = 90;
@@ -294,7 +402,7 @@ export function BubbleSlide({ slide, index, format, width, height }: BubbleSlide
   const logo = lila ? '/candyland/logo-wordmark-email.png' : '/studio/logo-wordmark-white.png';
   const logoTop = story ? 230 : 70;
   const logoHeight = 150;
-  const contentTop = logoTop + logoHeight + (story ? 40 : 10);
+  const contentTop = showBrand ? logoTop + logoHeight + (story ? 40 : 10) : story ? 250 : 80;
   const contentBottom = story ? 260 : 96;
   const items = slide.items.filter((it) => it.badge || it.title);
   const iconRow = (slide.layout === 'resultados' || slide.layout === 'pasos') && items.length > 0;
@@ -308,7 +416,7 @@ export function BubbleSlide({ slide, index, format, width, height }: BubbleSlide
     main = null;
   } else if (iconRow) {
     // Una palabra grande + íconos con su nombre debajo (VIVE / CONECTA).
-    const iconSize = Math.min(260, (boxWidth - 40) / items.length - 16);
+    const iconSize = Math.min(290, (boxWidth - 40) / items.length - 16);
     // Que el nombre más largo quepa en su columna sin pisar al vecino.
     const longestLabel = Math.max(...items.map((it) => it.title.length), 1);
     const labelSize = Math.max(24, Math.min(36, Math.floor((boxWidth / items.length - 20) / (longestLabel * 0.9))));
@@ -331,24 +439,28 @@ export function BubbleSlide({ slide, index, format, width, height }: BubbleSlide
     );
   } else {
     const headlineHeight = hasHero ? area * 0.36 : area * 0.6;
+    const below = hasHero && slide.heroBelow;
+    const heroNode = hasHero && (
+      <div style={below ? { marginTop: 34 } : { marginBottom: 26 }}>
+        {hasPhoto
+          ? <img src={slide.imageUrl} alt="" crossOrigin="anonymous" style={{ display: 'block', maxWidth: boxWidth, maxHeight: heroSize * 1.15, objectFit: 'contain' }} />
+          : <BubbleHero hero={slide.hero} size={heroSize} />}
+      </div>
+    );
+    const pills = slide.layout === 'cierre' || (slide.layout === 'portada' && slide.cta)
+      ? (
+        <>
+          <div style={{ marginTop: 44 }}><OutlinePill text={slide.body} size={36} /></div>
+          <div style={{ marginTop: slide.body ? 30 : 50 }}><BigPill text={slide.cta} color={palette.pill} /></div>
+        </>
+      )
+      : <div style={{ marginTop: below ? 28 : 40 }}><OutlinePill text={slide.body} size={38} /></div>;
     main = (
       <>
-        {hasHero && (
-          <div style={{ marginBottom: 26 }}>
-            {hasPhoto
-              ? <img src={slide.imageUrl} alt="" crossOrigin="anonymous" style={{ display: 'block', maxWidth: boxWidth, maxHeight: heroSize * 1.15, objectFit: 'contain' }} />
-              : <BubbleHero hero={slide.hero} size={heroSize} />}
-          </div>
-        )}
+        {!below && heroNode}
         <BubbleHeadline text={slide.title} box={{ width: boxWidth, height: headlineHeight }} max={hasHero ? 160 : 230} />
-        {slide.layout === 'cierre' || (slide.layout === 'portada' && slide.cta)
-          ? (
-            <>
-              <div style={{ marginTop: 44 }}><OutlinePill text={slide.body} size={36} /></div>
-              <div style={{ marginTop: slide.body ? 30 : 50 }}><BigPill text={slide.cta} color={palette.pill} /></div>
-            </>
-          )
-          : <div style={{ marginTop: 40 }}><OutlinePill text={slide.body} size={38} /></div>}
+        {pills}
+        {below && heroNode}
         {slide.options.length > 0 && (
           <div style={{ marginTop: 36, display: 'flex', flexDirection: 'column', gap: 18, alignItems: 'center' }}>
             {slide.options.map((o, i) => <OutlinePill key={i} text={o} size={34} />)}
@@ -365,7 +477,7 @@ export function BubbleSlide({ slide, index, format, width, height }: BubbleSlide
   return (
     <>
       {slide.layout !== 'imagen' && <Decor index={index} hasHero={hasHero} />}
-      {slide.layout !== 'imagen' && <img src={logo} alt="" style={{ position: 'absolute', left: '50%', top: logoTop, height: logoHeight, transform: 'translateX(-50%)', filter: 'drop-shadow(0 4px 4px rgba(0,20,90,0.3))' }} />}
+      {showBrand && slide.layout !== 'imagen' && <img src={logo} alt="" style={{ position: 'absolute', left: '50%', top: logoTop, height: logoHeight, transform: 'translateX(-50%)', filter: 'drop-shadow(0 4px 4px rgba(0,20,90,0.3))' }} />}
       {slide.layout !== 'imagen' && (
         <div style={{ position: 'absolute', left: side, right: side, top: contentTop, bottom: contentBottom, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
           {main}

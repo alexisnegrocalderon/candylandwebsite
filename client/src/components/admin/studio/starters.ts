@@ -11,14 +11,18 @@ const STARTERS: Record<StudioTheme, StudioSlide[]> = {
   // Los textos de los dos carruseles que mejor rindieron: pocas palabras, un
   // gráfico grande y una sola idea por lámina.
   bubble: [
-    s({ layout: 'portada', title: '¿Qué es realmente una fiesta liberal?', body: 'No es lo que muchos imaginan', footnote: 'Explora · Conecta · Vive', swipeHint: true }),
-    s({ layout: 'pregunta', title: 'No es una obligación', hero: 'puerta', body: 'Cada persona decide hasta dónde participar', footnote: 'Siempre a tu ritmo', swipeHint: true }),
+    s({ layout: 'portada', hero: 'interrogacion', title: '¿Listx para descubrirlo?', cta: 'Comenta PLAYROOM', footnote: 'Y te enviamos la info' }),
+    s({ layout: 'pregunta', title: 'Explora', hero: 'puerta', heroBelow: true, body: 'Una mansión llena de mundos por descubrir', footnote: 'Explora · Conecta · Vive', swipeHint: true }),
     s({ layout: 'resultados', title: 'Conecta', items: [
-      { badge: 'corazon', title: 'Libertad', body: '' },
-      { badge: '🤝', title: 'Respeto', body: '' },
-      { badge: 'check', title: 'Consentimiento', body: '' },
-    ], cta: 'Aquí la experiencia la defines tú', swipeHint: true }),
-    s({ layout: 'pregunta', title: 'Todo comienza con el consentimiento', body: 'No es no · Sí es sí', footnote: '', hero: '', swipeHint: true }),
+      { badge: 'corazon-neon', title: 'Libertad', body: '' },
+      { badge: 'manos-neon', title: 'Respeto', body: '' },
+      { badge: 'mano-neon', title: 'Consentimiento', body: '' },
+    ], cta: 'Aquí la experiencia la defines tú' }),
+    s({ layout: 'resultados', title: 'Todo comienza con el consentimiento', items: [
+      { badge: 'check', title: 'Preguntar', body: '' },
+      { badge: 'chat', title: 'Comunicar', body: '' },
+      { badge: 'corazon-cuadro', title: 'Respetar', body: '' },
+    ], cta: 'No es no · Sí es sí' }),
     s({ layout: 'cierre', title: '¿Te gustaría conocer la experiencia?', cta: 'Comenta PLAYROOM', footnote: 'Y te enviamos la info' }),
   ],
   azul: [

@@ -29,6 +29,14 @@ export const BUBBLE_HEROES = [
   { key: 'check', label: 'Check' },
   { key: 'mansion', label: 'Mansión' },
   { key: 'aro', label: 'Aro' },
+  { key: 'chat', label: 'Globo de chat' },
+  { key: 'corazon-cuadro', label: 'Corazón en cuadro' },
+  { key: 'musica', label: 'Nota musical' },
+  { key: 'fuego', label: 'Fuego' },
+  { key: 'corazon-neon', label: 'Corazón (línea brillante)' },
+  { key: 'manos-neon', label: 'Manos (línea brillante)' },
+  { key: 'mano-neon', label: 'Mano con corazón (línea brillante)' },
+  { key: 'chat-neon', label: 'Chat (línea brillante)' },
 ] as const;
 
 export type BubbleHeroKey = (typeof BUBBLE_HEROES)[number]['key'];

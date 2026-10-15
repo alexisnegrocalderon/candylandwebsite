@@ -54,6 +54,24 @@ describe('tema bubble en el Estudio', () => {
     expect(normalizeStudioDesign({ title: 'x', format: 'carrusel', theme: 'bubble', slides: [slide] })!.theme).toBe('bubble');
   });
 
+  it('sin logo por defecto, y con interruptor para volver a mostrarlo', () => {
+    const slide = emptySlide('portada');
+    expect(normalizeStudioDesign({ title: 'x', format: 'carrusel', slides: [slide] })!.showBrand).toBe(false);
+    expect(normalizeStudioDesign({ title: 'x', format: 'carrusel', showBrand: true, slides: [slide] })!.showBrand).toBe(true);
+    expect(normalizeStudioDesign({ title: 'x', format: 'carrusel', showBrand: 'si', slides: [slide] })!.showBrand).toBe(false);
+  });
+
+  it('el gráfico puede ir debajo del título', () => {
+    expect(normalizeStudioSlide({ layout: 'pregunta', heroBelow: true })!.heroBelow).toBe(true);
+    expect(normalizeStudioSlide({ layout: 'pregunta' })!.heroBelow).toBe(false);
+  });
+
+  it('hay gráficos de línea brillante y relieve rosa además de los básicos', () => {
+    for (const key of ['corazon-neon', 'manos-neon', 'mano-neon', 'chat-neon', 'chat', 'corazon-cuadro', 'musica', 'fuego']) {
+      expect(isBubbleHeroKey(key)).toBe(true);
+    }
+  });
+
   it('limpia el gráfico de la lámina', () => {
     expect(normalizeStudioSlide({ layout: 'portada', hero: '  puerta ' })!.hero).toBe('puerta');
     expect(normalizeStudioSlide({ layout: 'portada', hero: 'x'.repeat(100) })!.hero.length).toBe(16);

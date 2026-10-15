@@ -97,7 +97,7 @@ function ScaledSlide({ design, slide, index, width }: { design: StudioDesign; sl
   return (
     <div style={{ width, height: size.height * scale, overflow: 'hidden', position: 'relative' }} className="rounded-lg shadow-sm">
       <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left', position: 'absolute', top: 0, left: 0 }}>
-        <StudioSlideView theme={design.theme} format={design.format} slide={slide} index={index} total={design.slides.length} />
+        <StudioSlideView theme={design.theme} format={design.format} slide={slide} index={index} total={design.slides.length} showBrand={design.showBrand} />
       </div>
     </div>
   );
@@ -431,6 +431,13 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
                 </div>
               )}
 
+              {design.theme === 'bubble' && slide.layout !== 'imagen' && slide.layout !== 'resultados' && slide.layout !== 'pasos' && (slide.hero || slide.imageUrl) && (
+                <div className="flex items-center gap-2">
+                  <Switch id="hero-below" checked={slide.heroBelow} onCheckedChange={(v) => updateSlide({ heroBelow: v === true })} />
+                  <Label htmlFor="hero-below">Gráfico debajo del título</Label>
+                </div>
+              )}
+
               {fields.map((field) => (
                 <SlideField key={field} field={field} slide={slide} onChange={updateSlide} theme={design.theme} />
               ))}
@@ -499,6 +506,16 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
           )}
 
           <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+            <CardContent className="pt-6 flex items-start gap-3">
+              <Switch id="studio-brand" checked={design.showBrand} onCheckedChange={(v) => update({ showBrand: v === true })} />
+              <div>
+                <Label htmlFor="studio-brand">Mostrar el logo / «MANSION PLAYROOM» en las láminas</Label>
+                <p className="mt-1 text-xs text-muted-foreground">Apagado por defecto: Instagram baja el alcance de las publicaciones que siempre llevan la marca.</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
             <CardContent className="pt-6 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <Label htmlFor="studio-caption">Texto de la publicación</Label>
@@ -521,6 +538,7 @@ function StudioEditor({ editing, setEditing, onClose }: { editing: Editing; setE
             slide={s}
             index={i}
             total={design.slides.length}
+            showBrand={design.showBrand}
           />
         ))}
       </div>
