@@ -634,6 +634,20 @@ describe('runInstagramAgent', () => {
 
   // Caso real: "hola" -> "¿quieres saber de nuestras fiestas?" -> "si" -> "dame
   // un minutito" y pausa. Una respuesta afirmativa no es una duda: reintenta.
+  it('agrega el botón de la página si la IA lo olvidó y la pregunta lo pide con claridad', async () => {
+    mockLlmJson({ reply: 'El disfraz es obligatorio, pero no tiene que ser profesional 🎭', handoff: false, handoffReason: '', action: 'none', pageKey: '' });
+    const result = await runInstagramAgent({ incomingText: '¿qué me pongo?', history: [], config });
+    expect(result.action).toBe('page_link');
+    expect(result.pageKey).toBe('/blog/dress-code-explicado');
+  });
+
+  it('no agrega botón cuando deriva a una persona', async () => {
+    mockLlmJson({ reply: 'Lo ve el equipo', handoff: true, handoffReason: 'reclamo', action: 'none', pageKey: '' });
+    const result = await runInstagramAgent({ incomingText: 'quiero un reembolso, me cobraron doble', history: [], config });
+    expect(result.handoff).toBe(true);
+    expect(result.action).toBe('none');
+  });
+
   it('reintenta una vez cuando deriva una simple respuesta afirmativa a su pregunta', async () => {
     mockLlmJson({ reply: 'dame un minutito...', handoff: true, handoffReason: 'No estoy seguro' });
     mockLlmJson({ reply: 'La próxima es el sábado 💜 ¿te tinca venir?', handoff: false, handoffReason: '' });

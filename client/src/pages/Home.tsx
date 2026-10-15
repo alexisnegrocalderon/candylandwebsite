@@ -1948,7 +1948,7 @@ function LineupSection() {
 
 function InfoSection() {
   return (
-    <section className="relative overflow-hidden py-24 md:py-32 bg-gradient-to-b from-transparent via-primary/5 to-transparent">
+    <section id="preguntas-frecuentes" className="relative scroll-mt-24 overflow-hidden py-24 md:py-32 bg-gradient-to-b from-transparent via-primary/5 to-transparent">
       {/* Misma capa de brillos difuminados que Experience/Urgency -- acá antes
        * no había nada, así que la sección se veía chata al lado de las otras. */}
       <div aria-hidden className="absolute top-10 -right-16 w-72 h-72 rounded-full bg-violet-electric/12 blur-2xl md:blur-[120px] candy-float" />
@@ -2221,6 +2221,26 @@ function StickyMobileCTA({ salesEnd, soldOut }: { salesEnd: Date | null; soldOut
 
 export default function Home() {
   useRevealWatchdog();
+
+  // Enlace directo a una sección (ej. el botón "Preguntas ❓" del agente de
+  // Instagram, `/#preguntas-frecuentes`): la portada se arma después de cargar,
+  // así que el navegador no encuentra solo el ancla -- se reintenta unos
+  // segundos hasta que la sección existe.
+  useEffect(() => {
+    const id = window.location.hash.replace(/^#/, '');
+    if (!id) return;
+    let tries = 0;
+    const timer = window.setInterval(() => {
+      tries += 1;
+      if (document.getElementById(id)) {
+        window.clearInterval(timer);
+        scrollToId(id);
+      } else if (tries >= 20) {
+        window.clearInterval(timer);
+      }
+    }, 150);
+    return () => window.clearInterval(timer);
+  }, []);
   // La textura de ruido es una capa fija a pantalla completa (un SVG de
   // turbulencia) a opacity 0.03: en celular es prácticamente invisible y
   // cuesta una capa de composición del tamaño de toda la ventana. Se apaga

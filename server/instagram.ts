@@ -397,7 +397,7 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     const origin = (await latestIgReferrals([senderId])).get(senderId) ?? null;
     const resolved = await resolveInstagramBuyLink(new Date(), 'agente', referralUtmContent(origin));
     if (resolved) {
-      linkButton = { title: 'Comprar entrada', url: resolved.url };
+      linkButton = { title: 'Comprar entrada 🔥', url: resolved.url };
       try {
         const { mid: imageMid } = await sendImageMessage({ id: senderId }, resolved.imageUrl);
         await appendIgMessage({ threadId: thread.id, mid: imageMid, direction: 'out', source: 'bot', text: '[imagen]' });

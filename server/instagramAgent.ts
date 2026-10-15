@@ -8,7 +8,7 @@ import {
 } from '../shared/instagramAgentConfig';
 import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/tandaSchedule';
 import type { IgMessage } from '../drizzle/schema';
-import { AGENT_SITE_PAGES, AGENT_PAGE_KEYS, stripUrlsFromReply } from './agentLinks';
+import { AGENT_SITE_PAGES, AGENT_PAGE_KEYS, stripUrlsFromReply, pageForMessage } from './agentLinks';
 import { cleanAiMarks } from '../shared/captionCheck';
 import { AI_PHRASES_ES } from '../shared/aiPhrasesEs';
 import { EVENT_BRAND } from '../shared/eventBrand';
@@ -166,7 +166,7 @@ export async function buildInstagramContext(now: Date = new Date()): Promise<str
 function buildSiteLinksBlock(): string {
   const lines = [
     'PÁGINAS DEL SITIO CON MÁS INFORMACIÓN (para responder breve y mandar el resto como botón con `action: "page_link"` y la `pageKey` exacta de esta lista):',
-    ...AGENT_SITE_PAGES.map((p) => `- pageKey "${p.path}" -- ${p.topic}: ${p.summary}`),
+    ...AGENT_SITE_PAGES.map((p) => `- pageKey "${p.path}" (botón "${p.buttonLabel}") -- ${p.topic}: ${p.summary}`),
   ];
   return lines.join('\n');
 }
@@ -297,8 +297,9 @@ const WHATSAPP_INTERACTIVE_RULES = [
  * texto en Instagram, así que no hay equivalente a `buttons`. */
 const INSTAGRAM_BUTTON_RULES = [
   'BOTONES (solo en Instagram):',
-  '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón "Comprar entrada" con el link real debajo de tu mensaje, así que NO escribas el link dentro de `reply` -- tu `reply` tiene que tener sentido solo, sin el link (ej. "¡Dale! Toca el botón de abajo para asegurar tu entrada 💜").',
-  '- `action: "page_link"` + `pageKey`: cuando corresponde mandar una página del sitio (ver la regla de páginas más arriba). Se agrega un botón a esa página debajo de tu mensaje. `pageKey` tiene que ser EXACTAMENTE una de la lista; con cualquier otra action, `pageKey` va vacío.',
+  '- `action: "buy_link"`: en los mismos casos en que la regla de intención real dice mandar el link de compra. Se agrega solo un botón "Comprar entrada 🔥" con el link real debajo de tu mensaje, así que NO escribas el link dentro de `reply` -- tu `reply` tiene que tener sentido solo, sin el link (ej. "¡Dale! Toca el botón de abajo para asegurar tu entrada 💜").',
+  '- `action: "page_link"` + `pageKey`: REGLA DEL DUEÑO: si lo que la persona pregunta se responde en una página del sitio de la lista (precios, qué ponerse, cómo llegar, qué llevar, primera vez, PlayCard, cumpleañeros, PlayMatch, preguntas frecuentes...), contesta en 1 o 2 frases con lo esencial y manda UN botón a esa página (`page_link` + su `pageKey`). El botón va SIEMPRE que la información exista en el sitio; así la persona tiene todo el detalle sin que tú tengas que escribirlo. Se agrega solo debajo de tu mensaje, así que no escribas el link ni digas el nombre del botón. `pageKey` tiene que ser EXACTAMENTE una de la lista, nunca inventes una; si ninguna página responde la pregunta, no mandes botón. Si la pregunta toca dos temas, elige el más útil y ofrece el otro en el texto. Con cualquier otra action, `pageKey` va vacío.',
+  '- Cuando corresponde mandar el link de compra Y una página, manda el de compra (`buy_link`): un solo botón por respuesta.',
   '- En cualquier otro caso, `action: "none"`.',
 ];
 
@@ -567,6 +568,14 @@ async function runAgentOnce(input: {
     if (action === 'none' && !isPersonal) {
       if (stripped.eventLink) action = 'buy_link';
       else if (stripped.pageKey) { action = 'page_link'; pageKey = stripped.pageKey; }
+    }
+
+    // Red de seguridad de la regla del dueño "si la información está en el
+    // sitio, va el botón": si la IA olvidó mandarlo y el mensaje pide con
+    // claridad una página del catálogo, se agrega. Nunca pisa una derivación.
+    if (action === 'none' && !isPersonal && parsed.handoff !== true) {
+      const page = pageForMessage(input.incomingText);
+      if (page) { action = 'page_link'; pageKey = page.path; }
     }
 
     return {

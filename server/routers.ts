@@ -2655,6 +2655,8 @@ export const appRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar el reporte' });
       }
     }),
+    /* Los botones que el agente manda con la información del sitio. */
+    agentButtons: adminProcedure.query(() => AGENT_SITE_PAGES.map((p) => ({ path: p.path, label: p.buttonLabel, topic: p.topic }))),
     /* Embudo por origen: chats (links, anuncios, comentarios), clics en los
      * botones y compras, de los últimos `days` días. */
     funnel: adminProcedure.input(z.object({ days: z.number().int().min(1).max(90) })).query(async ({ input }) => {

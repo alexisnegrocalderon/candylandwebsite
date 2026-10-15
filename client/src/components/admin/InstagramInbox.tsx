@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp, Lightbulb } from 'lucide-react';
+import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp, Lightbulb, Link2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useAdminDeepLink } from '@/lib/adminDeepLink';
 import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
@@ -113,8 +113,9 @@ export function InstagramInbox() {
         <TabsContent value="conocimiento" className="pt-2">
           <AgentKnowledgeCard agent={agent} />
         </TabsContent>
-        <TabsContent value="ajustes" className="pt-2">
+        <TabsContent value="ajustes" className="space-y-6 pt-2">
           <AgentSettingsCard agent={agent} />
+          <AgentButtonsCard />
         </TabsContent>
         <TabsContent value="ventas" className="space-y-6 pt-2">
           <AgentSalesCard />
@@ -597,6 +598,33 @@ function FansCard({ onOpen }: { onOpen: (threadId: number) => void }) {
               <span className="shrink-0 text-xs text-muted-foreground">{f.interactions} interacciones{f.isCustomer ? ' · cliente' : ''}</span>
             </button>
           ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+/* Los botones que el agente manda debajo de una respuesta breve: cada uno
+ * lleva a la parte del sitio que tiene la información. Solo lectura: para
+ * cambiar un nombre, se pide (cuidando el largo y el emoji). */
+function AgentButtonsCard() {
+  const { data } = trpc.instagram.agentButtons.useQuery();
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader><CardTitle className="flex items-center gap-2"><Link2 className="w-5 h-5" /> Botones del agente</CardTitle></CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-xs text-muted-foreground">
+          Cuando la respuesta está en el sitio, el agente contesta breve y manda UNO de estos botones debajo. Nunca escribe el link.
+        </p>
+        {(data ?? []).map((b) => (
+          <div key={b.path} className="flex items-center justify-between gap-3 rounded-xl border p-2.5 text-sm">
+            <span className="shrink-0 rounded-full bg-primary/10 px-3 py-1 font-medium">{b.label}</span>
+            <span className="min-w-0 truncate text-right text-xs text-muted-foreground">{b.topic}</span>
+          </div>
+        ))}
+        <div className="flex items-center justify-between gap-3 rounded-xl border p-2.5 text-sm">
+          <span className="shrink-0 rounded-full bg-primary/10 px-3 py-1 font-medium">Comprar entrada 🔥</span>
+          <span className="min-w-0 truncate text-right text-xs text-muted-foreground">Próxima fecha (con tu link de compra)</span>
+        </div>
       </CardContent>
     </Card>
   );
