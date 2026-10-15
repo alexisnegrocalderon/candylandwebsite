@@ -324,7 +324,7 @@ const WARM_SALES_RULES = [
  * solo en una cuenta pública. */
 function buildSystemPrompt(
   config: InstagramAgentConfig,
-  opts: { isFinalReplyOfDay?: boolean; channel?: AgentChannel; customerNotes?: string | null; welcome?: string | null; isFan?: boolean } = {},
+  opts: { isFinalReplyOfDay?: boolean; channel?: AgentChannel; customerNotes?: string | null; welcome?: string | null; isFan?: boolean; extra?: string | null } = {},
 ): { stable: string; volatile: string } {
   const channel = opts.channel ?? 'instagram';
   const name = CHANNEL_NAME[channel];
@@ -357,6 +357,7 @@ function buildSystemPrompt(
     '9. Si el mensaje es SOLO un agradecimiento por lo ya conversado ("muchas gracias", "gracias!", "buenísimo gracias", "ok muchas gracias 🙏") y no trae ninguna pregunta ni pedido nuevo, marca isThanks=true y handoff=false -- eso NO se deriva, es puro cierre educado. Si el mensaje agradece PERO además pregunta o pide algo nuevo, isThanks=false y sigue las reglas normales.',
     '10. ANTES de escribir cualquier pregunta (si viene solo/a, en pareja o en grupo; su nombre; si es primera vez; cuál fecha le tinca; etc.), revisa el historial de mensajes completo de este hilo Y el bloque "LO QUE YA SABES DE ESTA PERSONA": si esa misma pregunta ya fue hecha y respondida en algún punto de la conversación (aunque haya sido varios mensajes atrás, o en otro tema), NO la repitas nunca -- usa esa respuesta directamente. Repetir una pregunta ya respondida es el error más notorio que puedes cometer: se nota inmediatamente que no es una persona real leyendo el chat. Si tienes dudas de si ya la respondió, relee el historial antes de preguntar de nuevo -- no preguntes "por las dudas".',
     '11. Si la persona dice que YA TIENE su entrada o acceso ("ya la adquirí", "ya compré", "ya tenemos las entradas", "listo, ya pagué", "ya estamos dentro", "ya tengo acceso", o cualquier forma de decir que está lista con su acceso), alégrate de verdad y despídete con ganas, con la fecha real del evento si la sabes (ej. "¡Genial! Entonces nos vemos el viernes 30, te estaremos esperando 💜🔥"). NO hagas NINGUNA pregunta más: ni qué acceso eligió, ni con quién va, ni nada. Tampoco le vuelvas a mandar el link de compra ni la promo (`action: "none"`). Solo si pregunta algo nuevo, responde eso. La fecha sale solo de los datos del evento que tienes: nunca inventes una.',
+    '12. Una respuesta corta y afirmativa a una pregunta que TÚ acabas de hacer ("sí", "si", "dale", "ok", "claro", "bueno", "me interesa", "cuéntame", "obvio") NO es una duda ni algo que no entiendas: es la persona diciendo que quiere seguir. Continúa la conversación con lo que ofreciste (por ejemplo, si preguntaste "¿quieres saber de nuestras fiestas?", cuéntale en 1-2 frases la próxima fecha y de qué se trata con los datos reales, y cierra con una pregunta abierta y cálida). NUNCA derives ni marques isPersonal por una respuesta así. Antes de derivar a una persona tienes que haber intentado resolver: solo se deriva por las razones de las reglas 1, 3, 6 y 7, o si de verdad no existe el dato.',
     '',
     'CÓMO ESCRIBIR:',
     `- Español chileno, cercano y breve: 1 a 3 frases, máximo ${IG_MAX_REPLY_CHARS} caracteres. Es un chat, no un correo.`,
@@ -389,6 +390,7 @@ function buildSystemPrompt(
   ].join('\n');
 
   const volatile = [
+    ...(opts.extra ? [opts.extra, ''] : []),
     ...(opts.welcome ? [opts.welcome, ''] : []),
     ...(opts.isFan ? ['ESTA PERSONA ES FAN FRECUENTE (comenta o escribe seguido): trátala con cariño especial, como de la casa.', ''] : []),
     ...(opts.customerNotes && opts.customerNotes.trim().length > 0
@@ -466,7 +468,7 @@ export function sanitizeButtons(raw: unknown): string[] {
  * error acá no puede dejar a alguien sin respuesta en el Instagram público,
  * y tampoco puede hacer fallar el webhook -- si el webhook no responde 200,
  * Meta reintenta y la persona termina recibiendo lo mismo dos veces. */
-export async function runInstagramAgent(input: {
+async function runAgentOnce(input: {
   incomingText: string;
   history: AgentHistoryMessage[];
   config: unknown;
@@ -484,7 +486,7 @@ export async function runInstagramAgent(input: {
   welcome?: string | null;
   /** Comenta o escribe seguido (fans frecuentes). */
   isFan?: boolean;
-}): Promise<InstagramAgentResult> {
+}, extra: string | null = null): Promise<InstagramAgentResult> {
   const config = normalizeInstagramAgentConfig(input.config);
   const channel = input.channel ?? 'instagram';
   const fallback: InstagramAgentResult = {
@@ -503,7 +505,7 @@ export async function runInstagramAgent(input: {
     const context = await buildInstagramContext(input.now ?? new Date());
     const history = toLlmMessages(input.history).slice(-config.historyLimit);
 
-    const systemPrompt = buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes, welcome: input.welcome, isFan: input.isFan });
+    const systemPrompt = buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes, welcome: input.welcome, isFan: input.isFan, extra });
     const result = await invokeLLM({
       messages: [
         { role: 'system', content: systemPrompt.stable, cache: true },
@@ -582,4 +584,29 @@ export async function runInstagramAgent(input: {
     console.error(`[${CHANNEL_NAME[channel]}] El agente no pudo responder:`, err);
     return fallback;
   }
+}
+
+
+/** "sí", "dale", "ok", "claro"...: una respuesta corta afirmativa. */
+export function isShortAffirmation(text: string): boolean {
+  const t = text.toLowerCase().normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '').replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t || t.split(' ').length > 4) return false;
+  return /^(si+|sii+|dale|ya|ok|okey|okay|claro|bueno|buena|obvio|por supuesto|me interesa|cuentame|cuenta|quiero|quiero saber|quisiera|de una|porfa|por favor|sip|sep)( .*)?$/.test(t);
+}
+
+const AFFIRMATION_RETRY = 'ATENCIÓN: la persona respondió afirmativamente ("sí", "dale", "ok"...) a la pregunta que tú le hiciste en tu mensaje anterior. Eso es interés, no una duda: continúa dándole lo que ofreciste con los datos reales del bloque de datos (1 a 3 frases, cálido y con una pregunta abierta al final). handoff=false e isPersonal=false.';
+
+/** Punto de entrada del agente. Si la primera pasada deriva o marca como
+ * personal una simple respuesta afirmativa a una pregunta del propio agente
+ * (caso real: "hola" → "¿quieres saber de nuestras fiestas?" → "si" →
+ * "dame un minutito" y pausa), se vuelve a intentar UNA vez diciéndole que
+ * siga la conversación. Si insiste, se respeta su decisión. */
+export async function runInstagramAgent(input: Parameters<typeof runAgentOnce>[0]): Promise<InstagramAgentResult> {
+  const first = await runAgentOnce(input);
+  const askedBefore = input.history.some((m) => m.direction === 'out');
+  if ((first.handoff || first.isPersonal) && askedBefore && isShortAffirmation(input.incomingText) && !input.isFinalReplyOfDay) {
+    const second = await runAgentOnce(input, AFFIRMATION_RETRY);
+    if (!second.handoff && !second.isPersonal) return second;
+  }
+  return first;
 }
