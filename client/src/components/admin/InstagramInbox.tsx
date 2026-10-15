@@ -118,6 +118,7 @@ export function InstagramInbox() {
         </TabsContent>
         <TabsContent value="ventas" className="space-y-6 pt-2">
           <AgentSalesCard />
+          <FansCard onOpen={(id) => { setTab('conversaciones'); setSelectedId(id); }} />
           <AgentCoachCard />
           <HandoffLogCard />
         </TabsContent>
@@ -358,6 +359,32 @@ function AgentSettingsCard({ agent }: { agent: AgentDraft }) {
         <div className="space-y-3 rounded-2xl border p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
+              <p className="font-medium">Bienvenida en el primer mensaje</p>
+              <p className="text-sm text-muted-foreground">
+                La primera vez que alguien te escribe, el agente le da la bienvenida estilo Playroom: si ya te sigue le
+                agradece, si no le invita a seguirte, y cierra con una pregunta de enganche de la lista de abajo.
+              </p>
+            </div>
+            <Switch
+              checked={draft.welcomeEnabled}
+              onCheckedChange={(welcomeEnabled) => setDraft({ ...draft, welcomeEnabled })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Preguntas de enganche (una por línea)</Label>
+            <Textarea
+              rows={5}
+              value={draft.hooks.join('\n')}
+              onChange={(e) => setDraft({ ...draft, hooks: e.target.value.split('\n').map((h) => h.slice(0, 160)).slice(0, 20) })}
+            />
+            <p className="text-xs text-muted-foreground">
+              Rotan sin repetirse con la misma persona. Se usan en la bienvenida y en los mensajes que salen desde un comentario.
+            </p>
+          </div>
+        </div>
+        <div className="space-y-3 rounded-2xl border p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
               <p className="font-medium">Recordatorio si no contesta</p>
               <p className="text-sm text-muted-foreground">
                 Si la persona no vuelve a escribir pasado este tiempo desde la última respuesta del bot, se le manda
@@ -552,6 +579,29 @@ function AgentCoachCard() {
 
 /** Cuánto vendió el agente: órdenes aprobadas que entraron por un botón del
  * agente (Instagram + WhatsApp), gracias a la UTM que lleva cada link. */
+/* Fans frecuentes: comentan o escriben seguido. Para cuidarlos (cortesía,
+ * invitación especial). */
+function FansCard({ onOpen }: { onOpen: (threadId: number) => void }) {
+  const { data } = trpc.instagram.fans.useQuery();
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader><CardTitle className="flex items-center gap-2">⭐ Tus fans</CardTitle></CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-xs text-muted-foreground">Quienes comentaron o te escribieron en 3 o más ocasiones en los últimos 30 días.</p>
+        {!data || data.length === 0
+          ? <p className="text-sm text-muted-foreground">Todavía no hay fans frecuentes este mes.</p>
+          : data.map((f) => (
+            <button key={f.igUserId} disabled={!f.threadId} onClick={() => f.threadId && onOpen(f.threadId)}
+              className="flex w-full items-center justify-between gap-3 rounded-xl border p-2.5 text-left text-sm disabled:cursor-default hover:enabled:border-primary/40">
+              <span className="truncate">{f.username ? `@${f.username}` : f.name ?? 'Sin conversación abierta'}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{f.interactions} interacciones{f.isCustomer ? ' · cliente' : ''}</span>
+            </button>
+          ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function AgentSalesCard() {
   const { data } = trpc.instagram.agentSales.useQuery();
   if (!data) return null;
@@ -730,6 +780,7 @@ function ThreadList({ onOpen }: { onOpen: (id: number) => void }) {
               <p className="text-sm text-muted-foreground truncate mt-1">{t.lastMessagePreview ?? ''}</p>
               {t.needsCustomerLink && <p className="text-xs text-amber-700 mt-1">Dice que ya compró · falta vincular a su ficha</p>}
               {t.origin && <p className="text-xs text-sky-700 mt-1">Llegó desde: {t.origin}</p>}
+              {t.isFan && <p className="text-xs text-amber-600 mt-1">⭐ Fan frecuente</p>}
             </div>
             <div className="text-right shrink-0">
               <p className="text-xs text-muted-foreground">{t.lastMessageAt ? formatChileDateTime(t.lastMessageAt) : ''}</p>
@@ -782,6 +833,7 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
         <div>
           <CardTitle className="text-base">{thread.username ? `@${thread.username}` : thread.name ?? thread.igUserId}</CardTitle>
           {thread.origin && <p className="text-xs text-sky-700 mt-1">Llegó desde: {thread.origin}</p>}
+          {thread.isFan && <p className="text-xs text-amber-600 mt-1">⭐ Fan frecuente</p>}
           {thread.botPaused === 1 && thread.handoffReason && (
             <p className="text-xs text-amber-600 mt-1">Bot pausado: {thread.handoffReason}</p>
           )}

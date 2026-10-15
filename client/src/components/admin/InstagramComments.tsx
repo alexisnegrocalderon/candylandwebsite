@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { MessageCircle, Check, X } from 'lucide-react';
+import { MessageCircle, Check, X, Sparkles, Loader2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -23,7 +23,7 @@ const FILTERS = [
 type Filter = (typeof FILTERS)[number]['value'];
 
 const CATEGORY_LABEL: Record<string, string> = {
-  spam: 'Spam', emoji: 'Solo emojis', praise: 'Elogio', question: 'Pregunta', sensitive: 'Delicado', other: 'Comentario',
+  spam: 'Spam', emoji: 'Solo emojis', praise: 'Elogio', question: 'Pregunta', sensitive: 'Delicado', other: 'Comentario', own: 'Tu comentario',
 };
 
 /** Qué botón acompaña al DM, en palabras simples. */
@@ -57,18 +57,20 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
 
   // Llegó desde el aviso de un comentario: lo busca, lo muestra y lo resalta.
   const [highlight, setHighlight] = useState<number | null>(null);
+  const [focusOwn, setFocusOwn] = useState<number | null>(null);
+  const target = focusOwn ?? focusId;
   const handled = useRef<number | null>(null);
   useEffect(() => {
-    if (!focusId || !comments || handled.current === focusId) return;
-    if (!comments.some((c) => c.id === focusId)) {
+    if (!target || !comments || handled.current === target) return;
+    if (!comments.some((c) => c.id === target)) {
       if (filter !== 'all') setFilter('all');
       return;
     }
-    handled.current = focusId;
-    setHighlight(focusId);
-    document.getElementById(`ig-comment-${focusId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    handled.current = target;
+    setHighlight(target);
+    document.getElementById(`ig-comment-${target}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     window.setTimeout(() => setHighlight(null), 4000);
-  }, [focusId, comments, filter]);
+  }, [target, comments, filter]);
 
   return (
     <div className="space-y-4">
@@ -92,6 +94,8 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
         </CardContent>
       </Card>
 
+      <OwnPostsCard onSuggested={(id) => { setFilter('pending'); refresh(); setFocusOwn(id); }} />
+
       <div className="flex flex-wrap gap-2">
         {FILTERS.map((f) => (
           <Button key={f.value} size="sm" variant={filter === f.value ? 'default' : 'outline'} onClick={() => setFilter(f.value)}>{f.label}</Button>
@@ -107,7 +111,7 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
             <Card key={c.id} id={`ig-comment-${c.id}`} className={highlight === c.id ? 'ring-2 ring-primary transition-shadow' : 'transition-shadow'}>
               <CardContent className="pt-4 space-y-3">
                 <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                  <span>{c.username ? `@${c.username}` : 'Instagram'} · {CATEGORY_LABEL[c.category] ?? c.category}</span>
+                  <span>{c.category === 'own' ? 'Comentario de tu cuenta' : c.username ? `@${c.username}` : 'Instagram'} · {CATEGORY_LABEL[c.category] ?? c.category}{c.isFan && c.category !== 'own' ? ' · ⭐ Fan' : ''}</span>
                   <span>{formatChileDateTime(c.createdAt)}</span>
                 </div>
                 {c.post && (
@@ -116,7 +120,9 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
                     <span className="truncate">En: {c.post.caption || 'tu publicación'}</span>
                   </a>
                 )}
-                <p className="text-sm whitespace-pre-wrap">"{c.text}"</p>
+                {c.category === 'own'
+                  ? <p className="text-xs text-muted-foreground line-clamp-2">Pie de foto: {c.text}</p>
+                  : <p className="text-sm whitespace-pre-wrap">"{c.text}"</p>}
                 {c.error ? <p className="text-xs text-destructive">{c.error}</p> : null}
                 {pending ? (
                   <>
@@ -144,5 +150,39 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
           );
         })}
     </div>
+  );
+}
+
+/* Tus publicaciones recientes: la IA sugiere un comentario de la cuenta para
+ * abrir conversación (queda en "Por aprobar"). Cada día también se sugiere
+ * solo para las publicaciones nuevas. */
+function OwnPostsCard({ onSuggested }: { onSuggested: (id: number) => void }) {
+  const utils = trpc.useUtils();
+  const { data: posts } = trpc.instagramComments.recentPosts.useQuery();
+  const suggest = trpc.instagramComments.suggestOwn.useMutation({
+    onSuccess: (r) => { void utils.instagramComments.recentPosts.invalidate(); toast.success('Comentario sugerido: revísalo en «Por aprobar»'); if (r.id) onSuggested(r.id); },
+    onError,
+  });
+  if (!posts || posts.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base flex items-center gap-2"><Sparkles className="w-4 h-4" /> Comentar en tus publicaciones</CardTitle></CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-xs text-muted-foreground">
+          Un comentario tuyo con una pregunta coqueta despierta la conversación sin esperar a que alguien comente. La IA lo escribe según el pie de foto y tú lo apruebas.
+        </p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {posts.map((p) => (
+            <div key={p.id} className="flex items-center gap-2 rounded-xl border p-2">
+              {p.thumbnail ? <img src={p.thumbnail} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover" loading="lazy" /> : <div className="h-12 w-12 shrink-0 rounded-lg bg-muted" />}
+              <p className="min-w-0 flex-1 truncate text-xs">{p.caption || '(sin pie de foto)'}</p>
+              <Button size="sm" variant="outline" disabled={suggest.isPending} onClick={() => suggest.mutate({ mediaId: p.id })}>
+                {suggest.isPending && suggest.variables?.mediaId === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : p.hasDraft ? 'Otro' : 'Sugerir'}
+              </Button>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

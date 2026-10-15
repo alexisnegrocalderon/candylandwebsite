@@ -107,7 +107,7 @@ import { refundOrder } from "./orderRefund";
 import { issueAccessCreditsForOrder, listAccessCredits, listCreditsByOrderIds, remindAccessCredit } from "./accessCredit";
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
-import { approveComment } from './instagramComments';
+import { approveComment, suggestOwnComment } from './instagramComments';
 import { getInstagramInsights } from './instagramInsights';
 import { igReferralLabel, referralUtmContent } from '../shared/igReferral';
 import { buildFunnel, normalizeLinkCode, postOrigin } from '../shared/igFunnel';
@@ -2636,9 +2636,11 @@ export const appRouter = router({
       coachWeeklyEnabled: z.boolean(),
       commentsEnabled: z.boolean().optional(),
       hideSpam: z.boolean().optional(),
+      welcomeEnabled: z.boolean().optional(),
+      hooks: z.array(z.string().max(160)).max(20).optional(),
     })).mutation(async ({ input }) => {
       const current = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
-      return db.updateSiteSettings({ instagramAgentConfig: { ...input, commentsEnabled: input.commentsEnabled ?? current.commentsEnabled, hideSpam: input.hideSpam ?? current.hideSpam, customLinkCodes: current.customLinkCodes } });
+      return db.updateSiteSettings({ instagramAgentConfig: { ...input, commentsEnabled: input.commentsEnabled ?? current.commentsEnabled, hideSpam: input.hideSpam ?? current.hideSpam, customLinkCodes: current.customLinkCodes, welcomeEnabled: input.welcomeEnabled ?? current.welcomeEnabled, hooks: input.hooks ?? current.hooks } });
     }),
     /* Cuánto vendió el agente (Instagram + WhatsApp): órdenes aprobadas
      * que entraron por un botón del agente (utm_campaign=agente...). */
@@ -2667,6 +2669,16 @@ export const appRouter = router({
       });
       for (const c of raw.commentDms) chats.push({ origin: postOrigin(c.mediaId) ?? 'agente-comentario', count: c.count });
       return buildFunnel({ chats, clicks: raw.clicks, orders: raw.orders, posts, labels });
+    }),
+    /* Fans frecuentes: 3+ comentarios o días con conversación en 30 días. */
+    fans: adminProcedure.query(async () => {
+      const counts = await db.getIgFanCounts();
+      const ids = Array.from(counts.keys());
+      const [threads, linked] = await Promise.all([db.getIgThreadsByUserIds(ids), db.listLinkedInstagramHandles()]);
+      return ids.map((id) => {
+        const t = threads.get(id);
+        return { igUserId: id, threadId: t?.id ?? null, username: t?.username ?? null, name: t?.name ?? null, interactions: counts.get(id) ?? 0, isCustomer: !!t?.username && linked.has(normalizeIgHandle(t.username)) };
+      }).sort((a, b) => b.interactions - a.interactions).slice(0, 50);
     }),
     /* Códigos propios del Kit de links (campañas). */
     setLinkCodes: adminProcedure.input(z.object({ codes: z.array(z.string().max(60)).max(50) })).mutation(async ({ input }) => {
@@ -2705,6 +2717,7 @@ export const appRouter = router({
         console.error('[instagram] no se pudo calcular "por vincular"', err);
       }
       const origins = await db.latestIgReferrals(threads.map((t) => t.igUserId));
+      const fans = await db.getIgFanCounts(threads.map((t) => t.igUserId));
       return threads.map((t) => {
         const origin = origins.get(t.igUserId);
         return {
@@ -2714,6 +2727,7 @@ export const appRouter = router({
           canReply: canReplyWithinWindow(t.lastInboundAt),
           needsCustomerLink: toLink.has(t.id),
           origin: origin ? igReferralLabel(origin) : null,
+          isFan: fans.has(t.igUserId),
         };
       });
     }),
@@ -2741,7 +2755,8 @@ export const appRouter = router({
       if (!thread) throw new TRPCError({ code: 'NOT_FOUND', message: 'Conversación no encontrada' });
       const messages = await db.getIgMessages(input.threadId, 100);
       const origin = (await db.latestIgReferrals([thread.igUserId])).get(thread.igUserId);
-      return { thread: { ...thread, canReply: canReplyWithinWindow(thread.lastInboundAt), origin: origin ? igReferralLabel(origin) : null }, messages };
+      const isFan = (await db.getIgFanCounts([thread.igUserId])).has(thread.igUserId);
+      return { thread: { ...thread, canReply: canReplyWithinWindow(thread.lastInboundAt), origin: origin ? igReferralLabel(origin) : null, isFan }, messages };
     }),
     markRead: adminProcedure.input(z.object({ threadId: z.number() })).mutation(async ({ input }) => {
       await db.markIgThreadRead(input.threadId);
@@ -2937,9 +2952,10 @@ export const appRouter = router({
       const rows = await db.listIgComments(input.status);
       // La publicación donde comentaron (miniatura y pie de foto), si está entre las recientes.
       const posts = rows.some((r) => r.mediaId) ? new Map((await getInstagramInsights()).posts.map((p) => [p.id, p])) : new Map();
+      const fans = await db.getIgFanCounts(Array.from(new Set(rows.map((r) => r.igUserId))));
       return rows.map((r) => {
         const p = r.mediaId ? posts.get(r.mediaId) : undefined;
-        return { ...r, post: p ? { caption: p.caption.slice(0, 120), thumbnail: p.thumbnail, permalink: p.permalink } : null };
+        return { ...r, isFan: fans.has(r.igUserId), post: p ? { caption: p.caption.slice(0, 120), thumbnail: p.thumbnail, permalink: p.permalink } : null };
       });
     }),
     pendingCount: adminProcedure.query(async () => db.countPendingIgComments()),
@@ -2949,6 +2965,19 @@ export const appRouter = router({
         return await approveComment(input.id, input.reply, input.dm);
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo publicar.' });
+      }
+    }),
+    /* Publicaciones recientes, para pedir un comentario propio que abra conversación. */
+    recentPosts: adminProcedure.query(async () => {
+      const posts = (await getInstagramInsights()).posts.slice(0, 9);
+      return Promise.all(posts.map(async (p) => ({ id: p.id, caption: p.caption.slice(0, 120), thumbnail: p.thumbnail, permalink: p.permalink, type: p.type, hasDraft: await db.hasOwnCommentDraft(p.id) })));
+    }),
+    suggestOwn: adminProcedure.input(z.object({ mediaId: z.string().min(1).max(64) })).mutation(async ({ input }) => {
+      try {
+        const row = await suggestOwnComment(input.mediaId);
+        return { id: row?.id ?? null };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo sugerir el comentario.' });
       }
     }),
     discard: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
@@ -2965,6 +2994,14 @@ export const appRouter = router({
     list: adminProcedure.query(() => db.listIgKeywordAutomationsWithStats()),
     /* Páginas que se pueden elegir como botón (la misma lista cerrada del agente). */
     buttonPages: adminProcedure.query(() => AGENT_SITE_PAGES.map((p) => ({ path: p.path, topic: p.topic }))),
+    setFollowersOnly: adminProcedure.input(z.object({ id: z.number(), followersOnly: z.boolean() })).mutation(async ({ input }) => {
+      try {
+        await db.setIgKeywordAutomationFollowersOnly(input.id, input.followersOnly);
+      } catch {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Falta correr la migración de "solo seguidores" en la base.' });
+      }
+      return { success: true };
+    }),
     setGiftPerPerson: adminProcedure.input(z.object({ id: z.number(), perPerson: z.boolean() })).mutation(async ({ input }) => {
       await db.setIgKeywordAutomationGiftPerPerson(input.id, input.perPerson);
       return { success: true };

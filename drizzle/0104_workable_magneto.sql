@@ -1,0 +1,1 @@
+ALTER TABLE `igKeywordAutomations` ADD `followersOnly` int DEFAULT 0 NOT NULL;

@@ -324,7 +324,7 @@ const WARM_SALES_RULES = [
  * solo en una cuenta pública. */
 function buildSystemPrompt(
   config: InstagramAgentConfig,
-  opts: { isFinalReplyOfDay?: boolean; channel?: AgentChannel; customerNotes?: string | null } = {},
+  opts: { isFinalReplyOfDay?: boolean; channel?: AgentChannel; customerNotes?: string | null; welcome?: string | null; isFan?: boolean } = {},
 ): { stable: string; volatile: string } {
   const channel = opts.channel ?? 'instagram';
   const name = CHANNEL_NAME[channel];
@@ -389,6 +389,8 @@ function buildSystemPrompt(
   ].join('\n');
 
   const volatile = [
+    ...(opts.welcome ? [opts.welcome, ''] : []),
+    ...(opts.isFan ? ['ESTA PERSONA ES FAN FRECUENTE (comenta o escribe seguido): trátala con cariño especial, como de la casa.', ''] : []),
     ...(opts.customerNotes && opts.customerNotes.trim().length > 0
       ? ['LO QUE YA SABES DE ESTA PERSONA (de conversaciones anteriores -- úsalo con naturalidad, nunca le repitas una pregunta que ya está respondida acá):', opts.customerNotes.trim()]
       : []),
@@ -478,6 +480,10 @@ export async function runInstagramAgent(input: {
   channel?: AgentChannel;
   /** Ficha guardada de la persona (igThreads/waThreads.customerNotes). */
   customerNotes?: string | null;
+  /** Instrucción de bienvenida si es el primer mensaje (shared/igEngagement.ts). */
+  welcome?: string | null;
+  /** Comenta o escribe seguido (fans frecuentes). */
+  isFan?: boolean;
 }): Promise<InstagramAgentResult> {
   const config = normalizeInstagramAgentConfig(input.config);
   const channel = input.channel ?? 'instagram';
@@ -497,7 +503,7 @@ export async function runInstagramAgent(input: {
     const context = await buildInstagramContext(input.now ?? new Date());
     const history = toLlmMessages(input.history).slice(-config.historyLimit);
 
-    const systemPrompt = buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes });
+    const systemPrompt = buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes, welcome: input.welcome, isFan: input.isFan });
     const result = await invokeLLM({
       messages: [
         { role: 'system', content: systemPrompt.stable, cache: true },

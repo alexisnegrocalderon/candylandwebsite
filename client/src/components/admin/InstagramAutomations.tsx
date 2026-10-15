@@ -112,6 +112,23 @@ function GiftQuantitySelect({ perPerson, onChange }: { perPerson: boolean; onCha
   );
 }
 
+/** Solo para seguidores: quien no sigue la cuenta recibe una invitación a
+ * seguirla y volver a escribir la palabra, sin gastar el regalo. */
+function AutomationFollowersOnly({ automation }: { automation: { id: number; followersOnly: number } }) {
+  const utils = trpc.useUtils();
+  const save = trpc.instagramAutomations.setFollowersOnly.useMutation({
+    onSuccess: () => { utils.instagramAutomations.list.invalidate(); toast.success('Guardado.'); },
+    onError,
+  });
+  return (
+    <label className="mt-2 flex items-center gap-2 text-xs">
+      <Switch checked={automation.followersOnly === 1} disabled={save.isPending}
+        onCheckedChange={(on) => save.mutate({ id: automation.id, followersOnly: on })} />
+      Solo para seguidores (si no te sigue, le pide seguirte y volver a escribir la palabra)
+    </label>
+  );
+}
+
 /** Cantidad del regalo de una automatización ya creada: se ve y se puede cambiar. */
 function AutomationGiftEditor({ automation }: { automation: { id: number; giftPerPerson: number } }) {
   const utils = trpc.useUtils();
@@ -326,6 +343,7 @@ export function InstagramAutomations() {
               {a.discountCode && <p className="text-xs mt-1">Código: <span className="font-mono">{a.discountCode}</span></p>}
               <AutomationTextEditor automation={a} />
               {a.isGift && <AutomationGiftEditor automation={a} />}
+              <AutomationFollowersOnly automation={a} />
               <AutomationButtonEditor automation={a} />
               <p className="text-muted-foreground text-xs mt-1">{a.redemptions} persona{a.redemptions === 1 ? '' : 's'} ya lo recibió</p>
             </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { finalizeCommentReply, finalizeCommentDm, buildCommentPrompt, normalizeDmButton, COMMENT_MAX_CHARS } from './instagramComments';
+import { finalizeCommentReply, finalizeCommentDm, buildCommentPrompt, buildOwnCommentPrompt, normalizeDmButton, COMMENT_MAX_CHARS } from './instagramComments';
 
 describe('finalizeCommentReply', () => {
   it('saca links, rayas largas y exclamaciones en cadena', () => {
@@ -50,5 +50,17 @@ describe('botón y DM del comentario', () => {
   });
   it('el DM nunca lleva links escritos', () => {
     expect(finalizeCommentDm('Las entradas están en https://mansionplayroom.cl/eventos/x 🔥')).not.toMatch(/https?:|mansionplayroom/);
+  });
+});
+
+describe('enganches y comentarios propios', () => {
+  it('el DM de una pregunta cierra con el enganche', () => {
+    const p = buildCommentPrompt({ brandNotes: '', styleExamples: '', recentReplies: [], category: 'question', purchaseIntent: false, hook: '¿Vendrías en pareja? 👀' });
+    expect(p).toContain('¿Vendrías en pareja? 👀');
+  });
+  it('comentario propio: corto, sin links y sin repetir', () => {
+    const p = buildOwnCommentPrompt({ brandNotes: 'X', caption: 'Fiesta de disfraces', mediaType: 'VIDEO', recent: ['¿Quién se anima? 👀'] });
+    expect(p).toContain('Sin links');
+    expect(p).toContain('¿Quién se anima? 👀');
   });
 });

@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
 import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAvailability } from "../shared/accessCredit";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
+import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
 import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
@@ -7429,9 +7430,16 @@ async function selectIgAutomations(db: NonNullable<Awaited<ReturnType<typeof get
     return await db.select().from(igKeywordAutomations).where(where);
   } catch (err) {
     console.error('[ig-automations] lectura con botones falló, uso las columnas base', err);
-    const { buttonKind: _k, buttonTarget: _t, buttonTitle: _n, giftPerPerson: _g, ...base } = getTableColumns(igKeywordAutomations);
-    const rows = await db.select(base).from(igKeywordAutomations).where(where);
-    return rows.map((r) => ({ ...r, buttonKind: 'none', buttonTarget: null, buttonTitle: null, giftPerPerson: 0 }));
+    // Primero sin solo-seguidores (migración más nueva); si igual falla, sin nada de lo opcional.
+    try {
+      const { followersOnly: _f, ...withButtons } = getTableColumns(igKeywordAutomations);
+      const rows = await db.select(withButtons).from(igKeywordAutomations).where(where);
+      return rows.map((r) => ({ ...r, followersOnly: 0 }));
+    } catch {
+      const { buttonKind: _k, buttonTarget: _t, buttonTitle: _n, giftPerPerson: _g, followersOnly: _f, ...base } = getTableColumns(igKeywordAutomations);
+      const rows = await db.select(base).from(igKeywordAutomations).where(where);
+      return rows.map((r) => ({ ...r, buttonKind: 'none', buttonTarget: null, buttonTitle: null, giftPerPerson: 0, followersOnly: 0 }));
+    }
   }
 }
 
@@ -7511,6 +7519,12 @@ export async function updateIgKeywordAutomation(id: number, input: {
     triggerSource: input.triggerSource,
     replyMessage: input.replyMessage,
   }).where(eq(igKeywordAutomations.id, id));
+}
+
+export async function setIgKeywordAutomationFollowersOnly(id: number, followersOnly: boolean): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(igKeywordAutomations).set({ followersOnly: followersOnly ? 1 : 0 }).where(eq(igKeywordAutomations.id, id));
 }
 
 export async function setIgKeywordAutomationGiftPerPerson(id: number, perPerson: boolean): Promise<void> {
@@ -8236,4 +8250,70 @@ export async function getIgFunnelCounts(since: Date): Promise<FunnelRawCounts> {
     }, [] as FunnelRawCounts['orders']),
   ]);
   return { referrals, commentDms, clicks, orders: orderRows };
+}
+
+// ---------------------------------------------------------------------------
+// Fans frecuentes de Instagram: quienes comentaron o escribieron 3+ veces en
+// 30 días (shared/igEngagement.ts). Tolerante: sin tablas, nadie es fan.
+// ---------------------------------------------------------------------------
+
+export async function getIgFanCounts(igUserIds?: string[]): Promise<Map<string, number>> {
+  if (igUserIds && igUserIds.length === 0) return new Map();
+  try {
+    const db = await getDb();
+    if (!db) return new Map();
+    const since = new Date(Date.now() - FAN_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const commentWhere = [gte(igComments.createdAt, since), ne(igComments.category, 'own')];
+    if (igUserIds) commentWhere.push(inArray(igComments.igUserId, igUserIds));
+    const messageWhere = [eq(igMessages.direction, 'in'), gte(igMessages.createdAt, since)];
+    if (igUserIds) messageWhere.push(inArray(igThreads.igUserId, igUserIds));
+    const [comments, messages] = await Promise.all([
+      db.select({ igUserId: igComments.igUserId, count: sql<number>`count(*)` }).from(igComments).where(and(...commentWhere)).groupBy(igComments.igUserId).catch(() => []),
+      // Mensajes: cuenta días distintos con conversación, no mensajes sueltos
+      // (una sola charla larga no hace a alguien fan).
+      db.select({ igUserId: igThreads.igUserId, count: sql<number>`count(distinct date(${igMessages.createdAt}))` }).from(igMessages)
+        .innerJoin(igThreads, eq(igMessages.threadId, igThreads.id)).where(and(...messageWhere)).groupBy(igThreads.igUserId),
+    ]);
+    const norm = (rows: { igUserId: string; count: number }[]) => rows.map((r) => ({ igUserId: r.igUserId, count: Number(r.count) }));
+    return computeFans([norm(comments), norm(messages)]);
+  } catch {
+    return new Map();
+  }
+}
+
+/** Borrador de comentario propio (de la cuenta) en una publicación: uno por
+ * publicación (`commentId = own-<mediaId>`); pedir otro reemplaza el texto
+ * mientras no se haya publicado. */
+export async function upsertOwnCommentDraft(input: { mediaId: string; igUserId: string; caption: string; draft: string }): Promise<IgComment | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const commentId = `own-${input.mediaId}`;
+  const [existing] = await selectIgComments(db, eq(igComments.commentId, commentId), 1);
+  if (existing) {
+    if (existing.status === 'sent') return existing;
+    await db.update(igComments).set({ draftReply: input.draft, status: 'pending', error: null }).where(eq(igComments.id, existing.id));
+    return { ...existing, draftReply: input.draft, status: 'pending', error: null };
+  }
+  return insertIgComment({ commentId, mediaId: input.mediaId, igUserId: input.igUserId, username: null, text: input.caption.slice(0, 2000) || '(sin pie de foto)', category: 'own', draftReply: input.draft });
+}
+
+export async function hasOwnCommentDraft(mediaId: string): Promise<boolean> {
+  try {
+    const db = await getDb();
+    if (!db) return true;
+    const [row] = await db.select({ id: igComments.id }).from(igComments).where(eq(igComments.commentId, `own-${mediaId}`)).limit(1);
+    return !!row;
+  } catch {
+    return true;
+  }
+}
+
+export async function getIgThreadsByUserIds(igUserIds: string[]): Promise<Map<string, IgThread>> {
+  const out = new Map<string, IgThread>();
+  if (igUserIds.length === 0) return out;
+  const db = await getDb();
+  if (!db) return out;
+  const rows = await db.select().from(igThreads).where(inArray(igThreads.igUserId, igUserIds));
+  for (const r of rows) out.set(r.igUserId, r);
+  return out;
 }
