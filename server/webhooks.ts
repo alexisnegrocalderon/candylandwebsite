@@ -899,7 +899,7 @@ async function processApprovedOrder(order: any) {
       await sendPushToAdmins('pushNewOrder', {
         title: '💳 Recarga de PlayCard',
         body: `${order.buyerName} — $${Number(order.total).toLocaleString('es-CL')}`,
-        url: '/admin',
+        url: '/admin?section=orders-web',
       });
     }
     return;
@@ -920,7 +920,7 @@ async function processApprovedOrder(order: any) {
     await sendPushToAdmins('pushNewOrder', {
       title: '🍭 Venta web nueva',
       body: `${order.buyerName} — $${Number(order.total).toLocaleString('es-CL')}`,
-      url: '/admin',
+      url: '/admin?section=orders-web',
     });
   }
 }

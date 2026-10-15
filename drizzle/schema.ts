@@ -2506,3 +2506,25 @@ export const igComments = mysqlTable("igComments", {
 }));
 
 export type IgComment = typeof igComments.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// De dónde llegó cada chat de Instagram (webhook `messaging_referral`):
+// anuncio o link ig.me con `?ref=código`. Tabla aparte y no columnas en
+// igThreads a propósito: si la migración no se corrió, la bandeja y el agente
+// siguen funcionando igual.
+// ---------------------------------------------------------------------------
+
+export const igReferrals = mysqlTable("igReferrals", {
+  id: int("id").autoincrement().primaryKey(),
+  igUserId: varchar("igUserId", { length: 64 }).notNull(),
+  // ad | link | other (shared/igReferral.ts)
+  source: varchar("source", { length: 12 }).notNull(),
+  ref: varchar("ref", { length: 120 }),
+  adTitle: varchar("adTitle", { length: 200 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  userIdx: index("ig_referrals_user_idx").on(table.igUserId),
+  createdIdx: index("ig_referrals_created_idx").on(table.createdAt),
+}));
+
+export type IgReferralRow = typeof igReferrals.$inferSelect;

@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
+import { InstagramInsightsCard } from '@/components/admin/InstagramInsightsCard';
 import { formatChileDateTime } from '@shared/chileDate';
 import { PROFILE_RUBRIC_MAX, type AuditItemScore, type AuditLevel } from '@shared/profileRubric';
 
@@ -106,6 +107,8 @@ export function ProfileAuditView() {
           No cambia nada en Instagram: tú copias lo que te sirva.
         </p>
       </div>
+
+      <InstagramInsightsCard />
 
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardHeader><CardTitle className="text-base">Tu perfil hoy</CardTitle></CardHeader>

@@ -54,7 +54,7 @@ export async function raiseCajaAlert(eventId: number, draft: CajaAlertDraft, opt
       if (isDuplicate) return false;
       throw err;
     }
-    await sendPushToAdmins("pushCajaAlerts", { title, body: draft.body.slice(0, 240), url: "/admin" });
+    await sendPushToAdmins("pushCajaAlerts", { title, body: draft.body.slice(0, 240), url: "/admin?section=caja" });
     return true;
   } catch (err) {
     console.error("[cajaAlerts] No se pudo registrar/enviar la alerta:", err);

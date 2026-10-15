@@ -298,7 +298,7 @@ export async function runSiiReminders(now: Date = new Date()) {
     }
     const subject = `🧾 SII: ${o.title} (${kind})`;
     if (await alreadySent(subject)) continue;
-    await sendPushToAdmins("siiReminders", { title: "🧾 SII", body, url: "/admin" } as any);
+    await sendPushToAdmins("siiReminders", { title: "🧾 SII", body, url: "/admin?section=sii" } as any);
     await sendEmail({
       to: ADMIN_NOTIFICATION_EMAIL, subject,
       html: buildFinanceDigestEmail({ title: `🧾 ${o.title}`, subtitle: REMINDER_TEXT[kind](o), rows, alerts, link: "https://mansionplayroom.cl/admin" }),

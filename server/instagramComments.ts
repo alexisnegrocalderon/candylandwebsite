@@ -18,6 +18,7 @@ import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
 import { cleanAiMarks } from '../shared/captionCheck';
 import { triageComment, type CommentCategory } from '../shared/commentTriage';
 import type { IgComment } from '../drizzle/schema';
+import { buildAdminUrl } from '../shared/adminDeepLink';
 
 export const COMMENT_MAX_CHARS = 300;
 const DM_BUTTON_TITLE = 'Ver entradas';
@@ -133,7 +134,7 @@ export async function handleIncomingComment(input: {
     await sendPushToAdmins('pushInstagramHandoff', {
       title: `💬 Comentario de ${input.username ? `@${input.username}` : 'Instagram'}`,
       body: `"${input.text.slice(0, 80)}" — hay un borrador para aprobar`,
-      url: '/admin?section=instagram',
+      url: buildAdminUrl({ section: 'instagram', tab: 'comentarios', comment: row.id }),
     });
   } catch (err) {
     console.error('[instagram-comments] no se pudo procesar el comentario', err);
