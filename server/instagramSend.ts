@@ -117,6 +117,31 @@ export async function sendPrivateReply(commentId: string, text: string): Promise
   return postToMessagesEndpoint({ comment_id: commentId }, { text });
 }
 
+/** Respuesta PÚBLICA a un comentario (aparece en el hilo del post/reel).
+ * Necesita el permiso `instagram_business_manage_comments`. */
+export async function replyToComment(commentId: string, text: string): Promise<{ id: string | null }> {
+  return postToCommentEndpoint(`${commentId}/replies`, { message: text });
+}
+
+/** Oculta un comentario (no lo borra: solo deja de verse para los demás). */
+export async function hideComment(commentId: string): Promise<void> {
+  await postToCommentEndpoint(commentId, { hide: true });
+}
+
+async function postToCommentEndpoint(path: string, body: Record<string, unknown>): Promise<{ id: string | null }> {
+  if (!ENV.igAccessToken) throw new InstagramApiError('Falta IG_ACCESS_TOKEN.');
+  const response = await fetch(`${GRAPH_BASE}/${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ENV.igAccessToken}` },
+    body: JSON.stringify(body),
+  });
+  const json = await response.json().catch(() => ({})) as { id?: string; error?: { message?: string; code?: number; error_subcode?: number } };
+  if (!response.ok) {
+    throw new InstagramApiError(json.error?.message ?? `Instagram respondió ${response.status}`, json.error?.code, json.error?.error_subcode);
+  }
+  return { id: json.id ?? null };
+}
+
 /** Perfil público de quien escribe (arroba y nombre), solo para que la
  * bandeja del admin no muestre un id opaco. Nunca hace fallar nada: si Meta
  * no lo entrega (la persona restringió su perfil, o el permiso todavía no

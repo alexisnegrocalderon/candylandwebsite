@@ -19,6 +19,7 @@ import {
   setIgThreadCustomerNotes,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
+import { handleIncomingComment } from './instagramComments';
 import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, sendImageMessage, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
 import { resolveInstagramBuyLink, resolveEventCardImage } from './instagramInteractive';
 import { resolvePageLink, splitIntoBubbles } from './agentLinks';
@@ -519,14 +520,18 @@ async function sendAutomationReply(
  * suscriba ese campo del webhook, esto queda funcionando sin tocar nada
  * más. Usa "Private Replies" de Meta (`sendPrivateReply`): un DM fuera de
  * cualquier hilo/ventana de 24h, dirigido al comentario, no a la persona. */
-export async function handleCommentChange(value: { id?: string; text?: string; from?: { id?: string; username?: string } } | undefined): Promise<void> {
+export async function handleCommentChange(value: { id?: string; text?: string; from?: { id?: string; username?: string }; media?: { id?: string } } | undefined): Promise<void> {
   const commentId = value?.id;
   const igUserId = value?.from?.id;
   const text = (value?.text ?? '').trim();
   if (!commentId || !igUserId || text.length === 0) return;
 
   const automation = await matchKeywordTrigger(text, igUserId, 'comment');
-  if (!automation) return;
+  if (!automation) {
+    // Sin campaña: la IA deja un borrador para que el dueño apruebe.
+    await handleIncomingComment({ commentId, mediaId: value?.media?.id ?? null, igUserId, username: value?.from?.username ?? null, text });
+    return;
+  }
 
   const extras = await resolveAutomationExtras(automation);
   await sendAutomationReply(

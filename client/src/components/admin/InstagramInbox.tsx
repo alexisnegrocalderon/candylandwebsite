@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { InstagramAutomations } from '@/components/admin/InstagramAutomations';
+import { InstagramComments } from '@/components/admin/InstagramComments';
 import { formatChileDateTime } from '@shared/chileDate';
 import { IG_MAX_REPLY_CHARS, type InstagramAgentConfig } from '@shared/instagramAgentConfig';
 
@@ -33,7 +34,7 @@ const onError = (error: unknown) => {
 /* Pestañas de la pantalla (pedido del dueño, 28/09: todo en una sola página
  * ya era demasiado largo). La elegida se recuerda en este navegador. */
 const TAB_STORAGE_KEY = 'admin-instagram-tab';
-const TABS = ['conversaciones', 'conocimiento', 'ajustes', 'ventas', 'automatizaciones'] as const;
+const TABS = ['conversaciones', 'conocimiento', 'ajustes', 'ventas', 'automatizaciones', 'comentarios'] as const;
 type InboxTab = (typeof TABS)[number];
 
 function readStoredTab(): InboxTab {
@@ -57,6 +58,7 @@ export function InstagramInbox() {
   const agent = useAgentConfigDraft(() => setTab('conocimiento'));
   const { data: pendingHandoffs } = trpc.instagram.listHandoffLog.useQuery();
   const pendingCount = pendingHandoffs?.length ?? 0;
+  const { data: pendingComments } = trpc.instagramComments.pendingCount.useQuery();
 
   return (
     <div className="space-y-6">
@@ -84,6 +86,9 @@ export function InstagramInbox() {
             )}
           </TabsTrigger>
           <TabsTrigger value="automatizaciones" className="flex-none">Automatizaciones</TabsTrigger>
+          <TabsTrigger value="comentarios" className="flex-none">
+            Comentarios{pendingComments ? ` (${pendingComments})` : ''}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="conversaciones" className="space-y-3 pt-2">
@@ -107,6 +112,9 @@ export function InstagramInbox() {
         </TabsContent>
         <TabsContent value="automatizaciones" className="pt-2">
           <InstagramAutomations />
+        </TabsContent>
+        <TabsContent value="comentarios" className="pt-2">
+          <InstagramComments />
         </TabsContent>
       </Tabs>
     </div>

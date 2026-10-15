@@ -74,6 +74,12 @@ export interface InstagramAgentConfig {
    * conversaciones de la semana y manda un reporte por correo al dueño
    * (server/agentCoach.ts). Prendido por defecto. */
   coachWeeklyEnabled: boolean;
+  /** Comentarios públicos (server/instagramComments.ts): la IA deja un
+   * borrador de respuesta y el dueño lo aprueba. Apagado por defecto, y no
+   * hace nada hasta que Meta apruebe el permiso de comentarios. */
+  commentsEnabled: boolean;
+  /** Oculta solo el spam evidente (ofertas de seguidores, links raros). */
+  hideSpam: boolean;
 }
 
 export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
@@ -96,6 +102,8 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   thanksMessage: 'Un gusto y cualquier otra cosa que necesites estamos aquí para poder ayudar',
   autoResumeHours: 24,
   coachWeeklyEnabled: true,
+  commentsEnabled: false,
+  hideSpam: true,
   salesPlaybook: [
     'TIPOS DE CLIENTE Y CÓMO ACOMPAÑAR A CADA UNO:',
     '- Primera vez, con nervios o dudas: mucha calidez y cero presión. Contarle que es un espacio seguro, con reglas claras de consentimiento, y que nadie hace nada que no quiera. Ofrecerle la guía de primera vez.',
@@ -149,6 +157,8 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.thanksMessage,
     salesPlaybook: typeof partial.salesPlaybook === 'string' ? partial.salesPlaybook : DEFAULT_INSTAGRAM_AGENT_CONFIG.salesPlaybook,
     coachWeeklyEnabled: partial.coachWeeklyEnabled !== false,
+    commentsEnabled: partial.commentsEnabled === true,
+    hideSpam: partial.hideSpam !== false,
     autoResumeHours: Number.isFinite(Number(partial.autoResumeHours)) && Number(partial.autoResumeHours) >= 0
       ? Math.min(Math.floor(Number(partial.autoResumeHours)), 720)
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.autoResumeHours,

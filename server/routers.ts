@@ -107,6 +107,7 @@ import { refundOrder } from "./orderRefund";
 import { issueAccessCreditsForOrder, listAccessCredits, listCreditsByOrderIds, remindAccessCredit } from "./accessCredit";
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
+import { approveComment } from './instagramComments';
 import { runAgentCoach } from "./agentCoach";
 import { runSalesStrategist, setSalesStrategyWeekly } from "./salesStrategist";
 import { sendEventSurveys, sendSurveyTestEmail, analyzeEventSurvey, getEventSurveyPanel } from "./eventSurvey";
@@ -2625,8 +2626,11 @@ export const appRouter = router({
       autoResumeHours: z.number().int().min(0).max(720),
       salesPlaybook: z.string().max(6000),
       coachWeeklyEnabled: z.boolean(),
+      commentsEnabled: z.boolean().optional(),
+      hideSpam: z.boolean().optional(),
     })).mutation(async ({ input }) => {
-      return db.updateSiteSettings({ instagramAgentConfig: input });
+      const current = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
+      return db.updateSiteSettings({ instagramAgentConfig: { ...input, commentsEnabled: input.commentsEnabled ?? current.commentsEnabled, hideSpam: input.hideSpam ?? current.hideSpam } });
     }),
     /* Cuánto vendió el agente (Instagram + WhatsApp): órdenes aprobadas
      * que entraron por un botón del agente (utm_campaign=agente...). */
@@ -2892,6 +2896,29 @@ export const appRouter = router({
   // `triggerSource: 'comment'`/`'both'` no hacen nada todavía en
   // producción: Meta exige un permiso aparte (`instagram_business_manage_comments`,
   // Advanced Access) que hoy no está aprobado -- ver docs/INSTAGRAM-AGENT.md.
+  instagramComments: router({
+    list: adminProcedure.input(z.object({ status: z.enum(['pending', 'sent', 'discarded', 'hidden', 'failed', 'all']) })).query(async ({ input }) => {
+      return db.listIgComments(input.status);
+    }),
+    pendingCount: adminProcedure.query(async () => db.countPendingIgComments()),
+    /* Aprobar = publicar la respuesta (editada o no) y mandar el DM si hay. */
+    approve: adminProcedure.input(z.object({ id: z.number().int(), reply: z.string().min(1).max(600) })).mutation(async ({ input }) => {
+      try {
+        return await approveComment(input.id, input.reply);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo publicar.' });
+      }
+    }),
+    discard: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
+      await db.decideIgComment(input.id, { status: 'discarded' });
+      return { success: true };
+    }),
+    setSettings: adminProcedure.input(z.object({ commentsEnabled: z.boolean(), hideSpam: z.boolean() })).mutation(async ({ input }) => {
+      const current = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
+      return db.updateSiteSettings({ instagramAgentConfig: { ...current, ...input } });
+    }),
+  }),
+
   instagramAutomations: router({
     list: adminProcedure.query(() => db.listIgKeywordAutomationsWithStats()),
     /* Páginas que se pueden elegir como botón (la misma lista cerrada del agente). */

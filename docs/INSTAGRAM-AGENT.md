@@ -276,3 +276,21 @@ Hay dos mecanismos de Meta detrás, con requisitos muy distintos:
 Migración nueva: `igKeywordAutomations` (la campaña: palabra, dónde aplica,
 mensaje, código de descuento opcional) e `igKeywordRedemptions` (quién ya
 recibió el regalo de cada campaña, para no mandarlo dos veces).
+
+## 11. Respuestas a comentarios públicos (con aprobación)
+
+Cuando llega un comentario que NO calza con ninguna campaña, la IA deja un
+borrador (`server/instagramComments.ts`) y el dueño lo aprueba en
+Instagram → Comentarios. Nada se publica solo.
+
+- Clasificación por reglas, sin costo (`shared/commentTriage.ts`): spam
+  (se oculta si "Ocultar spam" está prendido), solo emojis, elogio,
+  pregunta y delicado (sin borrador: lo escribe el dueño).
+- Pregunta de precio o compra: además del borrador público se prepara un
+  DM con botón "Ver entradas" (Private Reply con `comment_id`).
+- Publicar usa `POST /{comment-id}/replies` y ocultar `POST /{comment-id}`
+  con `hide`. Ambos requieren `instagram_business_manage_comments`
+  (misma sección 10: permiso + suscripción del campo `comments`).
+- Tabla nueva `igComments` (migración `0101`). El interruptor
+  "Preparar borradores de comentarios" arranca apagado.
+- La API de Instagram no permite dar "me gusta" a comentarios.
