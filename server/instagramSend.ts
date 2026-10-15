@@ -1,5 +1,6 @@
 import { ENV } from './_core/env';
 import { IG_MESSAGING_WINDOW_MS } from '../shared/instagramAgentConfig';
+import { trackedUrl } from './agentLinks';
 
 /* Salida hacia Meta: mandar un mensaje directo y mantener vivo el token.
  *
@@ -93,6 +94,8 @@ export async function sendButtonMessage(
   text: string,
   button: { title: string; url: string },
 ): Promise<{ mid: string | null }> {
+  // Todo botón de Instagram pasa por el contador de clics del embudo.
+  button = { ...button, url: trackedUrl(button.url) };
   return postToMessagesEndpoint(recipient, {
     attachment: {
       type: 'template',

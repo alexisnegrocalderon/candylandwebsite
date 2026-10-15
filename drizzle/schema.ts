@@ -2495,6 +2495,8 @@ export const igComments = mysqlTable("igComments", {
   draftReply: text("draftReply"),
   // DM de seguimiento (solo preguntas de compra/precio), con botón al evento.
   draftDm: text("draftDm"),
+  // Botón del DM: 'buy' (entradas) | 'page:/ruta' | 'none'.
+  dmButton: varchar("dmButton", { length: 200 }),
   finalReply: text("finalReply"),
   status: mysqlEnum("status", ["pending", "sent", "discarded", "hidden", "failed"]).default("pending").notNull(),
   error: varchar("error", { length: 300 }),
@@ -2528,3 +2530,19 @@ export const igReferrals = mysqlTable("igReferrals", {
 }));
 
 export type IgReferralRow = typeof igReferrals.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Clics en los botones que manda Instagram (agente, comentarios,
+// automatizaciones): pasan por /api/go (server/linkTracker.ts), que los
+// cuenta y redirige. `origin` = utm_content (o utm_campaign si no hay).
+// ---------------------------------------------------------------------------
+
+export const igLinkClicks = mysqlTable("igLinkClicks", {
+  id: int("id").autoincrement().primaryKey(),
+  origin: varchar("origin", { length: 100 }).notNull(),
+  path: varchar("path", { length: 300 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  originIdx: index("ig_link_clicks_origin_idx").on(table.origin),
+  createdIdx: index("ig_link_clicks_created_idx").on(table.createdAt),
+}));

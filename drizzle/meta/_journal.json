@@ -722,6 +722,13 @@
       "when": 1792039659144,
       "tag": "0102_spooky_korath",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "5",
+      "when": 1792042992674,
+      "tag": "0103_adorable_klaw",
+      "breakpoints": true
     }
   ]
 }

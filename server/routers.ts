@@ -110,6 +110,8 @@ import { normalizeIgHandle } from "../shared/igCustomerLink";
 import { approveComment } from './instagramComments';
 import { getInstagramInsights } from './instagramInsights';
 import { igReferralLabel, referralUtmContent } from '../shared/igReferral';
+import { buildFunnel, normalizeLinkCode, postOrigin } from '../shared/igFunnel';
+import { INSIGHT_TYPE_LABEL } from '../shared/instagramInsights';
 import { runAgentCoach } from "./agentCoach";
 import { runSalesStrategist, setSalesStrategyWeekly } from "./salesStrategist";
 import { sendEventSurveys, sendSurveyTestEmail, analyzeEventSurvey, getEventSurveyPanel } from "./eventSurvey";
@@ -2636,7 +2638,7 @@ export const appRouter = router({
       hideSpam: z.boolean().optional(),
     })).mutation(async ({ input }) => {
       const current = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
-      return db.updateSiteSettings({ instagramAgentConfig: { ...input, commentsEnabled: input.commentsEnabled ?? current.commentsEnabled, hideSpam: input.hideSpam ?? current.hideSpam } });
+      return db.updateSiteSettings({ instagramAgentConfig: { ...input, commentsEnabled: input.commentsEnabled ?? current.commentsEnabled, hideSpam: input.hideSpam ?? current.hideSpam, customLinkCodes: current.customLinkCodes } });
     }),
     /* Cuánto vendió el agente (Instagram + WhatsApp): órdenes aprobadas
      * que entraron por un botón del agente (utm_campaign=agente...). */
@@ -2651,10 +2653,27 @@ export const appRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar el reporte' });
       }
     }),
-    /* Chats por origen (anuncio o link ig.me con código), últimos 7 días. */
-    referralSummary: adminProcedure.query(async () => {
-      const rows = await db.countIgReferralsSince(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
-      return rows.map((r) => ({ label: igReferralLabel(r), count: r.count, utm: referralUtmContent(r) ?? null }));
+    /* Embudo por origen: chats (links, anuncios, comentarios), clics en los
+     * botones y compras, de los últimos `days` días. */
+    funnel: adminProcedure.input(z.object({ days: z.number().int().min(1).max(90) })).query(async ({ input }) => {
+      const raw = await db.getIgFunnelCounts(new Date(Date.now() - input.days * 24 * 60 * 60 * 1000));
+      const insights = await getInstagramInsights();
+      const posts = new Map(insights.posts.map((p) => [p.id, p.caption || INSIGHT_TYPE_LABEL[p.type]]));
+      const labels = new Map<string, string>();
+      const chats = raw.referrals.map((r) => {
+        const origin = referralUtmContent(r) ?? `ref-${r.source}`;
+        labels.set(origin, igReferralLabel(r).replace(/^./, (c) => c.toUpperCase()));
+        return { origin, count: r.count };
+      });
+      for (const c of raw.commentDms) chats.push({ origin: postOrigin(c.mediaId) ?? 'agente-comentario', count: c.count });
+      return buildFunnel({ chats, clicks: raw.clicks, orders: raw.orders, posts, labels });
+    }),
+    /* Códigos propios del Kit de links (campañas). */
+    setLinkCodes: adminProcedure.input(z.object({ codes: z.array(z.string().max(60)).max(50) })).mutation(async ({ input }) => {
+      const current = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
+      const codes = Array.from(new Set(input.codes.map(normalizeLinkCode).filter(Boolean)));
+      await db.updateSiteSettings({ instagramAgentConfig: { ...current, customLinkCodes: codes } });
+      return { codes };
     }),
     agentSales: adminProcedure.query(async () => {
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -2915,13 +2934,19 @@ export const appRouter = router({
   // Advanced Access) que hoy no está aprobado -- ver docs/INSTAGRAM-AGENT.md.
   instagramComments: router({
     list: adminProcedure.input(z.object({ status: z.enum(['pending', 'sent', 'discarded', 'hidden', 'failed', 'all']) })).query(async ({ input }) => {
-      return db.listIgComments(input.status);
+      const rows = await db.listIgComments(input.status);
+      // La publicación donde comentaron (miniatura y pie de foto), si está entre las recientes.
+      const posts = rows.some((r) => r.mediaId) ? new Map((await getInstagramInsights()).posts.map((p) => [p.id, p])) : new Map();
+      return rows.map((r) => {
+        const p = r.mediaId ? posts.get(r.mediaId) : undefined;
+        return { ...r, post: p ? { caption: p.caption.slice(0, 120), thumbnail: p.thumbnail, permalink: p.permalink } : null };
+      });
     }),
     pendingCount: adminProcedure.query(async () => db.countPendingIgComments()),
     /* Aprobar = publicar la respuesta (editada o no) y mandar el DM si hay. */
-    approve: adminProcedure.input(z.object({ id: z.number().int(), reply: z.string().min(1).max(600) })).mutation(async ({ input }) => {
+    approve: adminProcedure.input(z.object({ id: z.number().int(), reply: z.string().min(1).max(600), dm: z.string().max(1000).nullable().optional() })).mutation(async ({ input }) => {
       try {
-        return await approveComment(input.id, input.reply);
+        return await approveComment(input.id, input.reply, input.dm);
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo publicar.' });
       }

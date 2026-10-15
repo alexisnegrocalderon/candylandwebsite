@@ -4,7 +4,7 @@ import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
 import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAvailability } from "../shared/accessCredit";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, staffMembers, staffShifts } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -8072,19 +8072,34 @@ export async function getEventExpenseLines(eventId: number): Promise<{ category:
 // ---------------------------------------------------------------------------
 
 /** Guarda un comentario nuevo. Devuelve `null` si ya existía (Meta reintenta). */
+/** Lectura tolerante: si la columna dmButton todavía no existe, lee sin ella. */
+async function selectIgComments(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, where: ReturnType<typeof eq> | undefined, limit: number): Promise<IgComment[]> {
+  try {
+    return await db.select().from(igComments).where(where).orderBy(desc(igComments.createdAt)).limit(limit);
+  } catch {
+    const { dmButton: _b, ...base } = getTableColumns(igComments);
+    const rows = await db.select(base).from(igComments).where(where).orderBy(desc(igComments.createdAt)).limit(limit);
+    return rows.map((r) => ({ ...r, dmButton: null }));
+  }
+}
+
 export async function insertIgComment(input: {
   commentId: string; mediaId?: string | null; igUserId: string; username?: string | null; text: string;
-  category: string; draftReply?: string | null; draftDm?: string | null; status?: IgComment['status'];
+  category: string; draftReply?: string | null; draftDm?: string | null; dmButton?: string | null; status?: IgComment['status'];
 }): Promise<IgComment | null> {
   const db = await getDb();
   if (!db) return null;
+  const isDup = (err: any) => err?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(String(err?.message ?? ''));
   try {
     await db.insert(igComments).values({ ...input, status: input.status ?? 'pending' });
   } catch (err: any) {
-    if (err?.code === 'ER_DUP_ENTRY' || /duplicate entry/i.test(String(err?.message ?? ''))) return null;
-    throw err;
+    if (isDup(err)) return null;
+    // Sin la columna dmButton (migración pendiente): se guarda sin ella.
+    if (!/unknown column/i.test(String(err?.message ?? err?.cause?.message ?? ''))) throw err;
+    const { dmButton: _b, ...rest } = input;
+    try { await db.insert(igComments).values({ ...rest, status: input.status ?? 'pending' }); } catch (e2: any) { if (isDup(e2)) return null; throw e2; }
   }
-  const [row] = await db.select().from(igComments).where(eq(igComments.commentId, input.commentId)).limit(1);
+  const [row] = await selectIgComments(db, eq(igComments.commentId, input.commentId), 1);
   return row ?? null;
 }
 
@@ -8092,9 +8107,7 @@ export async function listIgComments(status: IgComment['status'] | 'all', limit 
   try {
     const db = await getDb();
     if (!db) return [];
-    const query = db.select().from(igComments);
-    const rows = await (status === 'all' ? query : query.where(eq(igComments.status, status))).orderBy(desc(igComments.createdAt)).limit(limit);
-    return rows;
+    return await selectIgComments(db, status === 'all' ? undefined : eq(igComments.status, status), limit);
   } catch {
     return [];
   }
@@ -8114,11 +8127,11 @@ export async function countPendingIgComments(): Promise<number> {
 export async function getIgComment(id: number): Promise<IgComment | null> {
   const db = await getDb();
   if (!db) return null;
-  const [row] = await db.select().from(igComments).where(eq(igComments.id, id)).limit(1);
+  const [row] = await selectIgComments(db, eq(igComments.id, id), 1);
   return row ?? null;
 }
 
-export async function decideIgComment(id: number, patch: { status: IgComment['status']; finalReply?: string | null; error?: string | null }): Promise<void> {
+export async function decideIgComment(id: number, patch: { status: IgComment['status']; finalReply?: string | null; draftDm?: string | null; error?: string | null }): Promise<void> {
   const db = await getDb();
   if (!db) return;
   await db.update(igComments).set({ ...patch, decidedAt: new Date() }).where(eq(igComments.id, id));
@@ -8179,4 +8192,48 @@ export async function countIgReferralsSince(since: Date): Promise<{ source: stri
   } catch {
     return [];
   }
+}
+
+// ---------------------------------------------------------------------------
+// Embudo de Instagram por origen: chats, clics y compras.
+// ---------------------------------------------------------------------------
+
+export async function recordIgLinkClick(origin: string, path: string | null): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await db.insert(igLinkClicks).values({ origin: origin.slice(0, 100), path: path?.slice(0, 300) ?? null });
+  } catch (err) {
+    console.warn('[Database] No se pudo registrar el clic (¿falta la tabla igLinkClicks?):', err);
+  }
+}
+
+export interface FunnelRawCounts {
+  referrals: { source: string; ref: string | null; adTitle: string | null; count: number }[];
+  commentDms: { mediaId: string | null; count: number }[];
+  clicks: { origin: string; count: number }[];
+  orders: { origin: string; count: number; revenue: number }[];
+}
+
+export async function getIgFunnelCounts(since: Date): Promise<FunnelRawCounts> {
+  const db = await getDb();
+  const empty: FunnelRawCounts = { referrals: [], commentDms: [], clicks: [], orders: [] };
+  if (!db) return empty;
+  const safe = async <T>(fn: () => Promise<T>, fallback: T): Promise<T> => { try { return await fn(); } catch { return fallback; } };
+  const [referrals, commentDms, clicks, orderRows] = await Promise.all([
+    countIgReferralsSince(since),
+    safe(async () => (await db.select({ mediaId: igComments.mediaId, count: sql<number>`count(*)` }).from(igComments)
+      .where(and(eq(igComments.status, 'sent'), isNotNull(igComments.draftDm), gte(igComments.createdAt, since)))
+      .groupBy(igComments.mediaId)).map((r) => ({ mediaId: r.mediaId, count: Number(r.count) })), [] as FunnelRawCounts['commentDms']),
+    safe(async () => (await db.select({ origin: igLinkClicks.origin, count: sql<number>`count(*)` }).from(igLinkClicks)
+      .where(gte(igLinkClicks.createdAt, since)).groupBy(igLinkClicks.origin)).map((r) => ({ origin: r.origin, count: Number(r.count) })), [] as FunnelRawCounts['clicks']),
+    safe(async () => {
+      const originExpr = sql<string>`coalesce(${orders.utmContent}, ${orders.utmCampaign})`;
+      const rows = await db.select({ origin: originExpr, count: sql<number>`count(*)`, revenue: sql<number>`sum(${orders.total})` }).from(orders)
+        .where(and(eq(orders.paymentStatus, 'approved'), eq(orders.utmSource, 'instagram'), gte(orders.createdAt, since)))
+        .groupBy(originExpr);
+      return rows.map((r) => ({ origin: r.origin ?? '(sin origen)', count: Number(r.count), revenue: Number(r.revenue ?? 0) }));
+    }, [] as FunnelRawCounts['orders']),
+  ]);
+  return { referrals, commentDms, clicks, orders: orderRows };
 }
