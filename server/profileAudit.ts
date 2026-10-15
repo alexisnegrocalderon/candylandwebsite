@@ -8,6 +8,8 @@ import { buildEventFacts } from './winback';
 import { buildPlayroomKnowledge } from './contentPlanner';
 import { EVENT_BRAND } from '../shared/eventBrand';
 import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
+import { getInstagramInsights } from './instagramInsights';
+import { insightsPromptSummary } from '../shared/instagramInsights';
 import { PROFILE_RUBRIC, scoreProfile, type AuditItemScore, type AuditLevel } from '../shared/profileRubric';
 import { cleanAiMarks, humanizeEs } from '../shared/captionCheck';
 
@@ -79,6 +81,7 @@ const clip = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slic
 export async function generateProfileAudit(input: ProfileInput, now: Date = new Date()): Promise<ProfileAuditResult> {
   const event = await getFeaturedEvent();
   const facts = event ? await buildEventFacts(event) : '(no hay un evento destacado publicado)';
+  const insightsSummary = insightsPromptSummary(await getInstagramInsights());
   const lines = [
     'PERFIL ACTUAL (lo que el dueño cargó):',
     `- Usuario: ${clip(input.username, 60) || '(no cargado)'}`,
@@ -94,6 +97,7 @@ export async function generateProfileAudit(input: ProfileInput, now: Date = new 
     facts,
     `- Dress code: ${EVENT_BRAND.dressCode}`,
     '',
+    ...(insightsSummary ? [insightsSummary, ''] : []),
     'LO QUE PLAYROOM EXPLICA EN SU SITIO (el perfil debe ser coherente con esto):',
     buildPlayroomKnowledge(),
   ];

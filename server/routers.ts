@@ -108,6 +108,8 @@ import { issueAccessCreditsForOrder, listAccessCredits, listCreditsByOrderIds, r
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
 import { approveComment } from './instagramComments';
+import { getInstagramInsights } from './instagramInsights';
+import { igReferralLabel, referralUtmContent } from '../shared/igReferral';
 import { runAgentCoach } from "./agentCoach";
 import { runSalesStrategist, setSalesStrategyWeekly } from "./salesStrategist";
 import { sendEventSurveys, sendSurveyTestEmail, analyzeEventSurvey, getEventSurveyPanel } from "./eventSurvey";
@@ -1943,7 +1945,7 @@ export const appRouter = router({
         await sendPushToAdmins('pushPartyReport', {
           title: '⚠️ Nueva denuncia en la fiesta',
           body: input.reason.trim().slice(0, 120),
-          url: '/admin',
+          url: '/admin?section=denuncias',
         });
         return { ok: true };
       }),
@@ -2425,6 +2427,10 @@ export const appRouter = router({
 
   /* "Revisar mi perfil" de Instagram: puntaje de 100 con la rúbrica de Playroom. */
   profileAudit: router({
+    /* Estadísticas reales de las últimas publicaciones (gratis, sin IA). */
+    insights: adminProcedure.input(z.object({ force: z.boolean().optional() }).optional()).query(async ({ input }) => {
+      return getInstagramInsights({ force: input?.force });
+    }),
     fetchProfile: adminProcedure.mutation(async () => {
       try {
         return await fetchOwnProfile();
@@ -2645,6 +2651,11 @@ export const appRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err instanceof Error ? err.message : 'No se pudo generar el reporte' });
       }
     }),
+    /* Chats por origen (anuncio o link ig.me con código), últimos 7 días. */
+    referralSummary: adminProcedure.query(async () => {
+      const rows = await db.countIgReferralsSince(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+      return rows.map((r) => ({ label: igReferralLabel(r), count: r.count, utm: referralUtmContent(r) ?? null }));
+    }),
     agentSales: adminProcedure.query(async () => {
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const [last7Days, total] = await Promise.all([db.getAgentSalesSummary(weekAgo), db.getAgentSalesSummary()]);
@@ -2674,13 +2685,18 @@ export const appRouter = router({
       } catch (err) {
         console.error('[instagram] no se pudo calcular "por vincular"', err);
       }
-      return threads.map((t) => ({
-        ...t,
-        // La ventana de 24 horas de Meta se calcula acá y no en el cliente
-        // para que el botón de responder no dependa del reloj del navegador.
-        canReply: canReplyWithinWindow(t.lastInboundAt),
-        needsCustomerLink: toLink.has(t.id),
-      }));
+      const origins = await db.latestIgReferrals(threads.map((t) => t.igUserId));
+      return threads.map((t) => {
+        const origin = origins.get(t.igUserId);
+        return {
+          ...t,
+          // La ventana de 24 horas de Meta se calcula acá y no en el cliente
+          // para que el botón de responder no dependa del reloj del navegador.
+          canReply: canReplyWithinWindow(t.lastInboundAt),
+          needsCustomerLink: toLink.has(t.id),
+          origin: origin ? igReferralLabel(origin) : null,
+        };
+      });
     }),
     customerLink: adminProcedure.input(z.object({ threadId: z.number() })).query(async ({ input }) => {
       const state = await getIgCustomerLinkState(input.threadId);
@@ -2705,7 +2721,8 @@ export const appRouter = router({
       const thread = await db.getIgThreadById(input.threadId);
       if (!thread) throw new TRPCError({ code: 'NOT_FOUND', message: 'Conversación no encontrada' });
       const messages = await db.getIgMessages(input.threadId, 100);
-      return { thread: { ...thread, canReply: canReplyWithinWindow(thread.lastInboundAt) }, messages };
+      const origin = (await db.latestIgReferrals([thread.igUserId])).get(thread.igUserId);
+      return { thread: { ...thread, canReply: canReplyWithinWindow(thread.lastInboundAt), origin: origin ? igReferralLabel(origin) : null }, messages };
     }),
     markRead: adminProcedure.input(z.object({ threadId: z.number() })).mutation(async ({ input }) => {
       await db.markIgThreadRead(input.threadId);
@@ -3839,7 +3856,7 @@ export const appRouter = router({
       await sendPushToAdmins('pushAmbassadorApplication', {
         title: '👑 Nueva postulación a embajador',
         body: `${nombre.value} — @${ig.value}`,
-        url: '/admin',
+        url: '/admin?section=ambassadors',
       });
 
       return { ok: true as const, alreadyPending: false as const };
@@ -3999,7 +4016,7 @@ export const appRouter = router({
       await sendPushToAdmins('pushAmbassadorApplication', {
         title: '🎂 Nueva postulación a cumpleañero',
         body: `${nombre.value} — ${event.title}`,
-        url: '/admin',
+        url: '/admin?section=birthdays',
       });
 
       return { ok: true as const, alreadyPending: false as const };

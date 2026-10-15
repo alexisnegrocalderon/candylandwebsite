@@ -31,9 +31,10 @@ self.addEventListener('push', (event) => {
   );
 });
 
-/* Tocar la notificación enfoca una pestaña de /admin ya abierta si existe,
- * en vez de siempre abrir una nueva -- en un iPad instalado como app suele
- * haber una sola, y abrir otra encima confunde más que ayuda. */
+/* Tocar la notificación lleva al lugar exacto del aviso (sección, pestaña,
+ * conversación). Si ya hay una ventana de /admin abierta, se le avisa por
+ * mensaje y se enfoca -- en un iPad instalado como app suele haber una sola
+ * y abrir otra encima confunde. Si no hay ninguna, se abre la URL. */
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const url = event.notification.data?.url || '/admin';
@@ -41,7 +42,10 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {
-        if (client.url.includes('/admin') && 'focus' in client) return client.focus();
+        if (client.url.includes('/admin') && 'focus' in client) {
+          client.postMessage({ type: 'admin-open', url });
+          return client.focus();
+        }
       }
       return self.clients.openWindow(url);
     })

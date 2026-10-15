@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp, Lightbulb } from 'lucide-react';
+import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp, Lightbulb, Link2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { useAdminDeepLink } from '@/lib/adminDeepLink';
 import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
 import { CustomerNotesCard } from '@/components/admin/CustomerNotesCard';
 import { IgCustomerLinkCard } from '@/components/admin/IgCustomerLinkCard';
@@ -18,6 +19,8 @@ import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { InstagramAutomations } from '@/components/admin/InstagramAutomations';
 import { InstagramComments } from '@/components/admin/InstagramComments';
 import { formatChileDateTime } from '@shared/chileDate';
+import { igMeLink } from '@shared/igReferral';
+import { CANDYLAND_INSTAGRAM_HANDLE } from '@shared/instagramShowcaseConfig';
 import { IG_MAX_REPLY_CHARS, type InstagramAgentConfig } from '@shared/instagramAgentConfig';
 
 /* Bandeja del agente que contesta el Instagram (server/instagram.ts).
@@ -59,6 +62,14 @@ export function InstagramInbox() {
   const { data: pendingHandoffs } = trpc.instagram.listHandoffLog.useQuery();
   const pendingCount = pendingHandoffs?.length ?? 0;
   const { data: pendingComments } = trpc.instagramComments.pendingCount.useQuery();
+  const [focusCommentId, setFocusCommentId] = useState<number | null>(null);
+  // Llegó desde un aviso push: abre la pestaña y la conversación o el
+  // comentario de ese aviso.
+  useAdminDeepLink('instagram', (link) => {
+    if (link.tab && (TABS as readonly string[]).includes(link.tab)) setTab(link.tab as InboxTab);
+    if (link.thread) { setTab('conversaciones'); setSelectedId(link.thread); }
+    if (link.comment) { setTab('comentarios'); setFocusCommentId(link.comment); }
+  });
 
   return (
     <div className="space-y-6">
@@ -107,6 +118,7 @@ export function InstagramInbox() {
         </TabsContent>
         <TabsContent value="ventas" className="space-y-6 pt-2">
           <AgentSalesCard />
+          <ReferralCard />
           <AgentCoachCard />
           <HandoffLogCard />
         </TabsContent>
@@ -114,7 +126,7 @@ export function InstagramInbox() {
           <InstagramAutomations />
         </TabsContent>
         <TabsContent value="comentarios" className="pt-2">
-          <InstagramComments />
+          <InstagramComments focusId={focusCommentId} />
         </TabsContent>
       </Tabs>
     </div>
@@ -538,6 +550,44 @@ function AgentCoachCard() {
 
 /** Cuánto vendió el agente: órdenes aprobadas que entraron por un botón del
  * agente (Instagram + WhatsApp), gracias a la UTM que lleva cada link. */
+/* De dónde llegan los chats (anuncios o links ig.me con código) y un
+ * generador de esos links para historias, bio o flyers. */
+function ReferralCard() {
+  const { data } = trpc.instagram.referralSummary.useQuery();
+  const [code, setCode] = useState('');
+  const link = igMeLink(CANDYLAND_INSTAGRAM_HANDLE, code);
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Link2 className="w-5 h-5" /> De dónde llegan los chats</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!data || data.length === 0
+          ? <p className="text-sm text-muted-foreground">En los últimos 7 días no llegó ningún chat desde un anuncio o un link con código.</p>
+          : (
+            <ul className="space-y-1 text-sm">
+              {data.map((r) => (
+                <li key={r.label} className="flex justify-between gap-3"><span>{r.label}</span><span className="font-semibold">{r.count}</span></li>
+              ))}
+            </ul>
+          )}
+        <p className="text-xs text-muted-foreground">
+          Las compras que entran por el botón del agente quedan con ese origen en «Ventas por Origen» (contenido de la campaña).
+        </p>
+        <div className="space-y-2 rounded-2xl border p-3">
+          <Label htmlFor="ig-ref-code">Crear link con código</Label>
+          <Input id="ig-ref-code" value={code} maxLength={60} placeholder="ej: flyer-halloween, bio, historia-lunes" onChange={(e) => setCode(e.target.value)} />
+          <p className="break-all text-sm">{link}</p>
+          <Button size="sm" variant="outline" onClick={() => { void navigator.clipboard?.writeText(link).then(() => toast.success('Link copiado'), () => toast.error('No se pudo copiar')); }}>
+            Copiar link
+          </Button>
+          <p className="text-xs text-muted-foreground">Quien lo toque abre un chat contigo y la conversación queda marcada con ese código.</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function AgentSalesCard() {
   const { data } = trpc.instagram.agentSales.useQuery();
   if (!data) return null;
@@ -715,6 +765,7 @@ function ThreadList({ onOpen }: { onOpen: (id: number) => void }) {
               </p>
               <p className="text-sm text-muted-foreground truncate mt-1">{t.lastMessagePreview ?? ''}</p>
               {t.needsCustomerLink && <p className="text-xs text-amber-700 mt-1">Dice que ya compró · falta vincular a su ficha</p>}
+              {t.origin && <p className="text-xs text-sky-700 mt-1">Llegó desde: {t.origin}</p>}
             </div>
             <div className="text-right shrink-0">
               <p className="text-xs text-muted-foreground">{t.lastMessageAt ? formatChileDateTime(t.lastMessageAt) : ''}</p>
@@ -766,6 +817,7 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
       <CardHeader className="flex flex-row items-center justify-between gap-3">
         <div>
           <CardTitle className="text-base">{thread.username ? `@${thread.username}` : thread.name ?? thread.igUserId}</CardTitle>
+          {thread.origin && <p className="text-xs text-sky-700 mt-1">Llegó desde: {thread.origin}</p>}
           {thread.botPaused === 1 && thread.handoffReason && (
             <p className="text-xs text-amber-600 mt-1">Bot pausado: {thread.handoffReason}</p>
           )}

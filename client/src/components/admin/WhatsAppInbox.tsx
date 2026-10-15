@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { MessageCircle, Bot, Hand, Send, Sparkles, AlertTriangle, List, Link as LinkIcon } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { useAdminDeepLink } from '@/lib/adminDeepLink';
 import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
 import { CustomerNotesCard } from '@/components/admin/CustomerNotesCard';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ const onError = (error: unknown) => {
 
 export function WhatsAppInbox() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  useAdminDeepLink('whatsapp', (link) => { if (link.thread) setSelectedId(link.thread); });
 
   return (
     <div className="space-y-6">

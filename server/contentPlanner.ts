@@ -1,3 +1,5 @@
+import { getInstagramInsights } from './instagramInsights';
+import { insightsPromptSummary } from '../shared/instagramInsights';
 import { invokeLLM, extractContent, NO_THINKING } from './_core/llm';
 import { ENV } from './_core/env';
 import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
@@ -181,9 +183,10 @@ export async function buildPlanRequest(targetEventId: number | undefined, now: D
   const settings = await getSiteSettings();
   const brand = normalizeInstagramAgentConfig((settings as any)?.instagramAgentConfig);
   const keywords = (await listActiveIgKeywordAutomations())
-    .filter((a) => a.triggerSource !== 'comment') // "comentar" no dispara nada todavía
+    .filter((a) => a.triggerSource !== 'comment') // esta lista es solo para piezas de historia
     .map((a) => a.keyword);
 
+  const insightsSummary = insightsPromptSummary(await getInstagramInsights());
   const cleanFocus = (focus ?? '').replace(/\s+/g, ' ').trim().slice(0, 500);
   const today = chileIsoDate(now);
   const weekday = (iso: string) => formatChileDate(new Date(`${iso}T15:00:00Z`), { withWeekday: true });
@@ -202,6 +205,7 @@ export async function buildPlanRequest(targetEventId: number | undefined, now: D
     'LO QUE PLAYROOM YA EXPLICA EN SU SITIO (alinea el contenido con esto; no lo contradigas):',
     buildPlayroomKnowledge(),
     '',
+    ...(insightsSummary ? [insightsSummary, ''] : []),
     `PALABRAS CLAVE ACTIVAS PARA HISTORIAS: ${keywords.length > 0 ? keywords.join(', ') : '(ninguna)'}`,
     // Lo que el dueño pide en ESTA ocasión. Va al final y marcado: tiene
     // prioridad sobre el reparto habitual, pero no sobre las reglas del sistema.

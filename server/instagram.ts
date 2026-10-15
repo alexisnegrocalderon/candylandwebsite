@@ -17,6 +17,8 @@ import {
   logAgentHandoff,
   getIgMessageByMid,
   setIgThreadCustomerNotes,
+  recordIgReferral,
+  latestIgReferrals,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
 import { handleIncomingComment } from './instagramComments';
@@ -28,6 +30,8 @@ import { normalizeInstagramAgentConfig, PERSONAL_HANDOFF_REASON } from '../share
 import type { IgKeywordAutomation } from '../drizzle/schema';
 import { resolveAutomationButton, splitAutomationLink } from './instagramAutomations';
 import { ALREADY_BOUGHT_MARKER, buildAlreadyBoughtReply, saysAlreadyBought } from '../shared/igCustomerLink';
+import { buildAdminUrl } from '../shared/adminDeepLink';
+import { parseIgReferral, referralUtmContent } from '../shared/igReferral';
 
 const OWNER_REPLIED_REASON = 'El dueño contestó directo desde Instagram';
 
@@ -102,7 +106,11 @@ type MetaMessaging = {
     // Presente cuando el mensaje es una respuesta a una historia -- mismo
     // webhook `messaging` de siempre, sin permiso nuevo que pedirle a Meta.
     reply_to?: { story?: { id?: string; url?: string } };
+    // Primer mensaje que llega desde un anuncio o un link ig.me con ?ref=.
+    referral?: unknown;
   };
+  // Evento suelto de `messaging_referral`: abrió el chat desde un link o anuncio.
+  referral?: unknown;
 };
 
 // Forma real que manda Meta para un comentario nuevo en un post/reel (campo
@@ -208,6 +216,12 @@ export function bubbleGapMs(): number {
 async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   const senderId = event.sender?.id;
   const message = event.message;
+  // De dónde llegó el chat (anuncio o link ig.me con código), suelto o
+  // pegado al primer mensaje. Se guarda aparte y no frena nada más.
+  const referral = senderId && senderId !== ENV.igUserId && !message?.is_echo
+    ? parseIgReferral(event.referral ?? message?.referral)
+    : null;
+  if (referral && senderId) await recordIgReferral({ igUserId: senderId, ...referral });
   if (!senderId || !message) return;
   if (message.is_deleted) return;
 
@@ -369,7 +383,8 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     linkButton = resolvePageLink(result.pageKey, 'instagram') ?? undefined;
   }
   if (result.action === 'buy_link' && !result.handoff) {
-    const resolved = await resolveInstagramBuyLink();
+    const origin = (await latestIgReferrals([senderId])).get(senderId) ?? null;
+    const resolved = await resolveInstagramBuyLink(new Date(), 'agente', referralUtmContent(origin));
     if (resolved) {
       linkButton = { title: 'Comprar entrada', url: resolved.url };
       try {
@@ -698,7 +713,7 @@ async function notifyHandoff(threadId: number, who: string, incoming: string, re
   await sendPushToAdmins('pushInstagramHandoff', {
     title: `📩 Instagram: ${who}`,
     body: `${reason || 'Necesita respuesta de una persona'} — "${incoming.slice(0, 80)}"`,
-    url: '/admin?section=instagram',
+    url: buildAdminUrl({ section: 'instagram', tab: 'conversaciones', thread: threadId }),
   });
 }
 

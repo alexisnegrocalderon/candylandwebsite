@@ -49,6 +49,8 @@ import { WinbackView } from '@/components/admin/WinbackView';
 import { ContentPlanView } from '@/components/admin/ContentPlanView';
 import { ProfileAuditView } from '@/components/admin/ProfileAuditView';
 import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
+import { parseAdminDeepLink } from '@shared/adminDeepLink';
+import { deliverAdminDeepLink } from '@/lib/adminDeepLink';
 
 // El Estudio trae sus propias fuentes, html-to-image y jszip: se carga recién
 // cuando se abre, para no sumarle peso al resto del panel.
@@ -11585,6 +11587,28 @@ export default function AdminDashboard() {
     window.addEventListener(OPEN_SECTION_EVENT, onOpen);
     return () => window.removeEventListener(OPEN_SECTION_EVENT, onOpen);
   });
+
+  // Aviso push tocado: la URL trae a dónde ir (?section=…&tab=…&thread=…).
+  // Al cargar se lee de la dirección; con la app ya abierta llega como
+  // mensaje del service worker (client/public/admin/sw.js).
+  useEffect(() => {
+    const go = (search: string) => {
+      const link = parseAdminDeepLink(search);
+      if (!link || !ADMIN_SECTIONS.some((s) => s.id === link.section)) return;
+      openSection(link.section as typeof ADMIN_SECTIONS[number]['id']);
+      deliverAdminDeepLink(link);
+    };
+    if (window.location.search.includes('section=')) {
+      go(window.location.search);
+      try { window.history.replaceState(null, '', window.location.pathname); } catch { /* sin history: no pasa nada */ }
+    }
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'admin-open' && typeof e.data.url === 'string') go(e.data.url);
+    };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) {
     return (

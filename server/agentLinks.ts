@@ -97,11 +97,13 @@ export const AGENT_PAGE_KEYS: string[] = AGENT_SITE_PAGES.map((p) => p.path);
 /** Marca de origen en cada link del agente -- así las ventas que entran por
  * un botón del agente aparecen solas en "Ventas por Origen" (el checkout ya
  * guarda la UTM en la orden) y en la tarjeta "Ventas del agente". */
-export function withAgentUtm(url: string, channel: AgentLinkChannel, campaign: string = 'agente'): string {
+export function withAgentUtm(url: string, channel: AgentLinkChannel, campaign: string = 'agente', content?: string): string {
   const u = new URL(url);
   u.searchParams.set('utm_source', channel);
   u.searchParams.set('utm_medium', 'dm');
   u.searchParams.set('utm_campaign', campaign);
+  // De qué anuncio o link llegó el chat (shared/igReferral.ts, referralUtmContent).
+  if (content) u.searchParams.set('utm_content', content);
   return u.toString();
 }
 

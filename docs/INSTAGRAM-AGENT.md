@@ -294,3 +294,17 @@ Instagram → Comentarios. Nada se publica solo.
 - Tabla nueva `igComments` (migración `0101`). El interruptor
   "Preparar borradores de comentarios" arranca apagado.
 - La API de Instagram no permite dar "me gusta" a comentarios.
+- Estado (15/10): permiso agregado, token regenerado y campo `comments` suscrito. Funciona en producción.
+
+## 12. Estadísticas reales y origen de los chats
+
+- **Estadísticas** (`server/instagramInsights.ts`): alcance, vistas, guardados
+  y compartidos de las últimas 20 publicaciones, en «Revisar mi perfil» y en
+  los prompts de la revisión de perfil y del Plan de contenido. Memoria de 3
+  horas, sin tabla. Requiere `instagram_business_manage_insights` en el token.
+- **Origen de los chats** (`shared/igReferral.ts`): webhook
+  `messaging_referral` (link `ig.me/m/<cuenta>?ref=código` o anuncio). Se
+  guarda en la tabla `igReferrals` (migración `0102`), se muestra en la
+  conversación y viaja como `utm_content` en el botón de compra del agente.
+- **Avisos push con destino**: la URL del aviso (`shared/adminDeepLink.ts`)
+  abre la sección, pestaña, conversación o comentario exactos.

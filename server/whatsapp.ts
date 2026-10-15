@@ -29,6 +29,7 @@ import {
 import { sendPushToAdmins } from './push';
 import { normalizeInstagramAgentConfig, PERSONAL_HANDOFF_REASON } from '../shared/instagramAgentConfig';
 import { normalizeWhatsAppAgentConfig } from '../shared/whatsappAgentConfig';
+import { buildAdminUrl } from '../shared/adminDeepLink';
 
 /* Entrada de los mensajes de WhatsApp (Cloud API, campo `messages` del
  * webhook de la cuenta de WhatsApp Business). Ver docs/WHATSAPP-AGENT.md.
@@ -452,7 +453,7 @@ async function notifyHandoff(threadId: number, who: string, incoming: string, re
   await sendPushToAdmins('pushWhatsAppHandoff', {
     title: `💬 WhatsApp: ${who}`,
     body: `${reason || 'Necesita respuesta de una persona'} — "${incoming.slice(0, 80)}"`,
-    url: '/admin?section=whatsapp',
+    url: buildAdminUrl({ section: 'whatsapp', thread: threadId }),
   });
 }
 

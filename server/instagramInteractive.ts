@@ -26,14 +26,14 @@ export function resolveEventCardImage(event: { imageUrl?: string | null } | null
  * imagen para la tarjeta. `null` si no hay ninguno (caso borde: todo
  * agotado o sin próxima fecha) -- en ese caso el llamador cae a mandar el
  * texto sin botón ni imagen. */
-export async function resolveInstagramBuyLink(now: Date = new Date(), campaign: string = 'agente'): Promise<{ url: string; eventTitle: string; imageUrl: string } | null> {
+export async function resolveInstagramBuyLink(now: Date = new Date(), campaign: string = 'agente', content?: string): Promise<{ url: string; eventTitle: string; imageUrl: string } | null> {
   const upcoming = await getUpcomingPublicEvents(now);
   const event = upcoming.find((e) => e.status !== 'soldout');
   if (!event) return null;
   // Con UTM: la venta que entra por este botón queda atribuida al agente
   // en "Ventas por Origen" y en la tarjeta "Ventas del agente".
   return {
-    url: withAgentUtm(`${APP_URL}/eventos/${event.slug}`, 'instagram', campaign),
+    url: withAgentUtm(`${APP_URL}/eventos/${event.slug}`, 'instagram', campaign, content),
     eventTitle: event.title,
     imageUrl: resolveEventCardImage(event),
   };

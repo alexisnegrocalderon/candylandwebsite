@@ -28,7 +28,7 @@ const onError = (error: unknown) => {
 };
 
 const TRIGGER_LABEL: Record<string, string> = {
-  comment: 'Comentario (⏳ pendiente de permiso de Meta)',
+  comment: 'Comentario en post o reel',
   story_reply: 'Respuesta a historia',
   both: 'Comentario + respuesta a historia',
 };
@@ -160,7 +160,7 @@ function AutomationTextEditor({ automation }: { automation: { id: number; keywor
           <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="story_reply">Respuesta a historia</SelectItem>
-            <SelectItem value="comment">Comentario (⏳ pendiente de permiso de Meta)</SelectItem>
+            <SelectItem value="comment">Comentario en post o reel</SelectItem>
             <SelectItem value="both">Las dos</SelectItem>
           </SelectContent>
         </Select>
@@ -313,9 +313,8 @@ export function InstagramAutomations() {
         <p className="text-muted-foreground text-sm">
           Cuando alguien comenta o responde a una historia con la palabra que definas acá, le llega automático el DM que
           configures -- un link, un mensaje, un código de descuento, o un producto de la Carta regalado (ya listo para
-          canjear en caja con su tarjeta, cuenta como vendido igual que cualquier venta). Las de "comentario" están
-          listas en el código pero no van a hacer nada hasta que Meta apruebe un permiso nuevo que el dueño tiene que
-          pedir en su panel.
+          canjear en caja con su tarjeta, cuenta como vendido igual que cualquier venta). Funciona en comentarios de
+          posts y reels y en respuestas a historias.
         </p>
 
         {(automations ?? []).map((a) => (
@@ -359,7 +358,7 @@ export function InstagramAutomations() {
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="story_reply">Respuesta a historia</SelectItem>
-                  <SelectItem value="comment">Comentario (⏳ pendiente de permiso de Meta)</SelectItem>
+                  <SelectItem value="comment">Comentario en post o reel</SelectItem>
                   <SelectItem value="both">Las dos</SelectItem>
                 </SelectContent>
               </Select>

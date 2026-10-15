@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { MessageCircle, Check, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
@@ -30,9 +30,9 @@ const onError = (error: unknown) => {
   toast.error(error instanceof Error ? error.message : 'No se pudo completar la acción.');
 };
 
-export function InstagramComments() {
+export function InstagramComments({ focusId = null }: { focusId?: number | null }) {
   const utils = trpc.useUtils();
-  const [filter, setFilter] = useState<Filter>('pending');
+  const [filter, setFilter] = useState<Filter | 'all'>('pending');
   const [edits, setEdits] = useState<Record<number, string>>({});
   const { data: config } = trpc.instagram.getConfig.useQuery();
   const { data: comments, isLoading } = trpc.instagramComments.list.useQuery({ status: filter });
@@ -47,6 +47,21 @@ export function InstagramComments() {
   });
   const discard = trpc.instagramComments.discard.useMutation({ onSuccess: refresh, onError });
 
+  // Llegó desde el aviso de un comentario: lo busca, lo muestra y lo resalta.
+  const [highlight, setHighlight] = useState<number | null>(null);
+  const handled = useRef<number | null>(null);
+  useEffect(() => {
+    if (!focusId || !comments || handled.current === focusId) return;
+    if (!comments.some((c) => c.id === focusId)) {
+      if (filter !== 'all') setFilter('all');
+      return;
+    }
+    handled.current = focusId;
+    setHighlight(focusId);
+    document.getElementById(`ig-comment-${focusId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(() => setHighlight(null), 4000);
+  }, [focusId, comments, filter]);
+
   return (
     <div className="space-y-4">
       <Card>
@@ -54,7 +69,7 @@ export function InstagramComments() {
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
             La IA escribe un borrador por cada comentario y tú decides: publicas, editas o descartas. Nada sale solo.
-            Para que lleguen comentarios, Meta tiene que aprobar el permiso de comentarios (ver docs/INSTAGRAM-AGENT.md).
+            Si un comentario calza con una palabra de Automatizaciones, se manda esa campaña y no aparece aquí.
           </p>
           <div className="flex items-center justify-between gap-3">
             <Label htmlFor="ig-comments-enabled">Preparar borradores de comentarios</Label>
@@ -81,7 +96,7 @@ export function InstagramComments() {
           const value = edits[c.id] ?? c.finalReply ?? c.draftReply ?? '';
           const pending = c.status === 'pending' || c.status === 'failed';
           return (
-            <Card key={c.id}>
+            <Card key={c.id} id={`ig-comment-${c.id}`} className={highlight === c.id ? 'ring-2 ring-primary transition-shadow' : 'transition-shadow'}>
               <CardContent className="pt-4 space-y-3">
                 <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
                   <span>{c.username ? `@${c.username}` : 'Instagram'} · {CATEGORY_LABEL[c.category] ?? c.category}</span>

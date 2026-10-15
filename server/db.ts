@@ -4,7 +4,7 @@ import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
 import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAvailability } from "../shared/accessCredit";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, staffMembers, staffShifts } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, staffMembers, staffShifts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -8131,6 +8131,51 @@ export async function recentSentIgReplies(limit: number): Promise<string[]> {
     if (!db) return [];
     const rows = await db.select({ finalReply: igComments.finalReply }).from(igComments).where(eq(igComments.status, 'sent')).orderBy(desc(igComments.decidedAt)).limit(limit);
     return rows.map((r) => r.finalReply ?? '').filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Origen de los chats de Instagram (igReferrals). Todo tolerante: sin la
+// migración, simplemente no hay origen.
+// ---------------------------------------------------------------------------
+
+export async function recordIgReferral(input: { igUserId: string; source: string; ref: string | null; adTitle: string | null }): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await db.insert(igReferrals).values(input);
+  } catch (err) {
+    console.warn('[Database] No se pudo guardar el origen del chat (¿falta la tabla igReferrals?):', err);
+  }
+}
+
+/** Último origen de cada persona. */
+export async function latestIgReferrals(igUserIds: string[]): Promise<Map<string, IgReferralRow>> {
+  const out = new Map<string, IgReferralRow>();
+  if (igUserIds.length === 0) return out;
+  try {
+    const db = await getDb();
+    if (!db) return out;
+    const rows = await db.select().from(igReferrals).where(inArray(igReferrals.igUserId, igUserIds)).orderBy(desc(igReferrals.createdAt));
+    for (const row of rows) if (!out.has(row.igUserId)) out.set(row.igUserId, row);
+  } catch { /* sin tabla: sin origen */ }
+  return out;
+}
+
+/** Chats por origen desde una fecha (para "Ventas y aprendizaje"). */
+export async function countIgReferralsSince(since: Date): Promise<{ source: string; ref: string | null; adTitle: string | null; count: number }[]> {
+  try {
+    const db = await getDb();
+    if (!db) return [];
+    const rows = await db.select({
+      source: igReferrals.source, ref: igReferrals.ref, adTitle: igReferrals.adTitle,
+      count: sql<number>`count(distinct ${igReferrals.igUserId})`,
+    }).from(igReferrals).where(gte(igReferrals.createdAt, since))
+      .groupBy(igReferrals.source, igReferrals.ref, igReferrals.adTitle)
+      .orderBy(desc(sql`count(distinct ${igReferrals.igUserId})`)).limit(20);
+    return rows.map((r) => ({ ...r, count: Number(r.count) }));
   } catch {
     return [];
   }
