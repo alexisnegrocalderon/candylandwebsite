@@ -632,6 +632,26 @@ describe('runInstagramAgent', () => {
     expect(result.handoff).toBe(true);
   });
 
+  // Caso real: "hola" -> "¿quieres saber de nuestras fiestas?" -> "si" -> "dame
+  // un minutito" y pausa. Una respuesta afirmativa no es una duda: reintenta.
+  it('reintenta una vez cuando deriva una simple respuesta afirmativa a su pregunta', async () => {
+    mockLlmJson({ reply: 'dame un minutito...', handoff: true, handoffReason: 'No estoy seguro' });
+    mockLlmJson({ reply: 'La próxima es el sábado 💜 ¿te tinca venir?', handoff: false, handoffReason: '' });
+    const history = [{ direction: 'in', text: 'hola' }, { direction: 'out', text: '¿quieres saber de nuestras fiestas?' }] as any;
+    const result = await runInstagramAgent({ incomingText: 'si', history, config });
+    expect(result.handoff).toBe(false);
+    expect(result.reply).toContain('sábado');
+    expect(invokeLLMMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('no reintenta si no es una respuesta afirmativa corta', async () => {
+    mockLlmJson({ reply: 'Lo derivo', handoff: true, handoffReason: 'reclamo' });
+    const history = [{ direction: 'out', text: 'hola' }] as any;
+    const result = await runInstagramAgent({ incomingText: 'me cobraron doble y quiero mi plata', history, config });
+    expect(result.handoff).toBe(true);
+    expect(invokeLLMMock).toHaveBeenCalledTimes(1);
+  });
+
   it('deriva a una persona cuando la IA devuelve algo que no es JSON', async () => {
     invokeLLMMock.mockResolvedValueOnce({ choices: [{ message: { content: 'claro que sí!' } }] } as any);
     const result = await runInstagramAgent({ incomingText: 'hola', history: [], config });
