@@ -4703,6 +4703,118 @@ function FoundersPromoCard() {
   );
 }
 
+/** Aviso continuo de venta de entradas (server/salesDrip.ts): hasta 50
+ * correos/día al evento destacado hasta el día de la fiesta; al terminar una
+ * vuelta espera N días y vuelve a empezar. Reemplaza a los avisos por tanda. */
+function SalesDripCard() {
+  const { data: status, refetch: refetchStatus } = trpc.mailing.salesDripStatus.useQuery();
+  const [showPreview, setShowPreview] = useState(false);
+  const { data: preview } = trpc.mailing.salesDripPreview.useQuery(undefined, { enabled: showPreview });
+  const [days, setDays] = useState<string>('');
+
+  const toggle = trpc.settings.update.useMutation({
+    onSuccess: () => { refetchStatus(); },
+    onError: onMutationError,
+  });
+  const runNow = trpc.mailing.salesDripRunNow.useMutation({
+    onSuccess: (result) => {
+      refetchStatus();
+      if (!result.ran) {
+        const reasons: Record<string, string> = {
+          disabled: 'Está apagado.',
+          'no-event': 'No hay ningún evento destacado ahora mismo.',
+          'event-over': 'El evento destacado ya pasó.',
+          'no-price': 'No hay entradas de acceso activas con precio.',
+          'daily-cap-reached': 'Ya se llegó al tope diario de avisos de venta.',
+          'nobody-due': 'Hoy no le toca a nadie (todos recibieron uno hace menos de los días de espera, o ya compraron).',
+        };
+        toast.info(reasons[result.reason] ?? 'No se mandó nada esta vez.');
+        return;
+      }
+      toast.success(`Mandado: ${result.sent} correo(s) (${result.failed} fallidos, ${result.skipped} ya habían comprado).`);
+    },
+    onError: onMutationError,
+  });
+
+  const enabled = !!status?.enabled;
+
+  return (
+    <Card className="rounded-2xl border-0 shadow-md shadow-black/5 bg-gradient-to-br from-primary/5 to-transparent">
+      <CardContent className="pt-6 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="font-heading text-lg">🍬 Aviso continuo de venta de entradas</h3>
+            <p className="text-sm text-muted-foreground max-w-xl">
+              Todos los días le manda hasta {status?.dailyTarget ?? 50} correos a quienes todavía no compraron el evento
+              destacado, con el precio vigente, los cupos y los días que faltan. Al terminar una vuelta espera{' '}
+              {status?.intervalDays ?? 4} días y vuelve a escribirle a quien siga sin comprar. Funciona solo para cada
+              evento nuevo y termina el día de la fiesta. Prender este apaga los avisos por tanda.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-muted-foreground">{enabled ? 'Prendido' : 'Apagado'}</span>
+            <Switch checked={enabled} onCheckedChange={(v) => toggle.mutate({ salesDripEnabled: v })} disabled={toggle.isPending} />
+          </div>
+        </div>
+
+        {status && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="rounded-xl bg-white/50 dark:bg-black/20 p-3 text-center">
+              <p className="text-2xl font-bold">{status.daysLeft ?? '—'}</p>
+              <p className="text-xs text-muted-foreground">días para {status.eventTitle ?? 'el evento'}</p>
+            </div>
+            <div className="rounded-xl bg-white/50 dark:bg-black/20 p-3 text-center">
+              <p className="text-2xl font-bold">{status.priceFrom != null ? `$${status.priceFrom.toLocaleString('es-CL')}` : '—'}</p>
+              <p className="text-xs text-muted-foreground">desde (precio más bajo)</p>
+            </div>
+            <div className="rounded-xl bg-white/50 dark:bg-black/20 p-3 text-center">
+              <p className="text-2xl font-bold">{status.dueToday} <span className="text-sm font-normal text-muted-foreground">de {status.audienceSize}</span></p>
+              <p className="text-xs text-muted-foreground">les toca hoy</p>
+            </div>
+            <div className="rounded-xl bg-white/50 dark:bg-black/20 p-3 text-center">
+              <p className="text-2xl font-bold">{status.sentToday} / {status.dailyTarget}</p>
+              <p className="text-xs text-muted-foreground">avisos de venta hoy</p>
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-sm text-muted-foreground flex items-center gap-2">
+            Esperar
+            <input
+              type="number" min={1} max={30}
+              className="w-16 rounded-lg border border-border/50 bg-white/70 dark:bg-black/30 px-2 py-1 text-sm text-foreground"
+              value={days !== '' ? days : String(status?.intervalDays ?? 4)}
+              onChange={(e) => setDays(e.target.value)}
+            />
+            días entre correos a la misma persona
+          </label>
+          <WriteButton
+            onClick={() => { toggle.mutate({ salesDripIntervalDays: Math.min(30, Math.max(1, Number(days) || 4)) }); setDays(''); }}
+            disabled={toggle.isPending || days === ''}
+            className="bg-white/70 dark:bg-black/30 text-foreground border border-border/50 hover:bg-white"
+          >
+            Guardar
+          </WriteButton>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <WriteButton onClick={() => setShowPreview((v) => !v)} className="bg-white/70 dark:bg-black/30 text-foreground border border-border/50 hover:bg-white">
+            {showPreview ? 'Ocultar preview' : 'Ver preview de hoy'}
+          </WriteButton>
+          <WriteButton onClick={() => runNow.mutate()} disabled={runNow.isPending}>
+            {runNow.isPending ? 'Mandando…' : 'Mandar la tanda de hoy ahora'}
+          </WriteButton>
+        </div>
+
+        {showPreview && preview?.html && (
+          <iframe title="Preview aviso continuo" srcDoc={preview.html} className="w-full h-96 rounded-xl border border-border/50 bg-white" />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 /** Aviso automático diario de la 2ª tanda (server/tanda2Promo.ts): hasta 50
  * correos/día a quienes todavía no compraron, con el nuevo precio. Arranca
  * apagado; prender este apaga el de primeros cupos (comparten el tope de 50). */
@@ -4972,6 +5084,7 @@ function MailingSection() {
 
       <DailyEmailUsageCard />
       <FoundersPromoCard />
+      <SalesDripCard />
       <Tanda2PromoCard />
 
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
@@ -5213,7 +5326,7 @@ function ImmediateSendBatches() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold">
-                    {b.source === 'founders-promo' ? '🍬 Aviso de primeros cupos' : b.source === 'tanda2-promo' ? '🍬 Aviso 2ª tanda' : '✉️ Envío manual'}
+                    {b.source === 'sales-drip' ? '🍬 Aviso continuo de venta' : b.source === 'founders-promo' ? '🍬 Aviso de primeros cupos' : b.source === 'tanda2-promo' ? '🍬 Aviso 2ª tanda' : '✉️ Envío manual'}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {b.label} · {new Date(b.startedAt).toLocaleString('es-CL', { timeZone: 'America/Santiago' })}

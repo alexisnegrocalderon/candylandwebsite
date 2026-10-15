@@ -134,6 +134,8 @@ import { buildVentasReportPdf, buildGastosReportPdf } from "./caja/reportsPdf";
 import { generateMailingTemplate, sendMailingBatch, getMailingEventInfo, createAutoMailingCampaign, MailingContentSchema, MAILING_BATCH_MAX } from "./mailing";
 import { getFoundersPromoStatus, runFoundersPromoDaily, buildFoundersPromoContent } from "./foundersPromo";
 import { listDriveMedia } from "./googleDrive";
+import { getSalesDripStatus, runSalesDripDaily, buildSalesDripContent } from "./salesDrip";
+import { resolveCurrentOffer } from "./tanda2Promo";
 import { getTanda2PromoStatus, runTanda2PromoDaily, buildTanda2PromoContent } from "./tanda2Promo";
 import { EMAIL_BASE_URL } from "./emailLayout";
 import { sendPendingReminders, generateReminderCopy } from "./orderReminders";
@@ -2241,12 +2243,22 @@ export const appRouter = router({
       ogImageUrl: z.string().url().nullable().optional(),
       foundersPromoEnabled: z.boolean().optional(),
       tanda2PromoEnabled: z.boolean().optional(),
+      salesDripEnabled: z.boolean().optional(),
+      salesDripIntervalDays: z.number().int().min(1).max(30).optional(),
       halloweenModeEnabled: z.boolean().optional(),
     })).mutation(async ({ input }) => {
       // Los avisos de 1ª y 2ª tanda son excluyentes: juntos sumarían 100
       // correos/día contra el límite de Resend (ver server/tanda2Promo.ts).
       if (input.tanda2PromoEnabled) input.foundersPromoEnabled = false;
       else if (input.foundersPromoEnabled) input.tanda2PromoEnabled = false;
+      // El aviso continuo reemplaza a los dos por tanda: prenderlo los apaga
+      // (comparten el tope de 50/día y mandarían doble).
+      if (input.salesDripEnabled) {
+        input.foundersPromoEnabled = false;
+        input.tanda2PromoEnabled = false;
+      } else if (input.foundersPromoEnabled || input.tanda2PromoEnabled) {
+        input.salesDripEnabled = false;
+      }
       return db.updateSiteSettings(input);
     }),
     // Mismo número que llega en el correo de las 3am (server/cronRoutes.ts),
@@ -4908,6 +4920,33 @@ export const appRouter = router({
     }),
     tanda2PromoRunNow: adminProcedure.mutation(async () => {
       return runTanda2PromoDaily();
+    }),
+
+    // Aviso continuo de venta (server/salesDrip.ts): el on/off y los días de
+    // espera viven en settings.update.
+    salesDripStatus: adminReadProcedure.query(async () => {
+      return getSalesDripStatus();
+    }),
+    salesDripPreview: adminReadProcedure.query(async () => {
+      const status = await getSalesDripStatus();
+      const event = await db.getFeaturedEvent();
+      if (!event || status.priceFrom === null) return { html: null, status };
+      const offer = await resolveCurrentOffer(event.id);
+      if (!offer) return { html: null, status };
+      return {
+        html: buildMailingBlastEmail({
+          ...buildSalesDripContent(event as any, offer),
+          buyerName: 'Camila',
+          ctaUrl: `${EMAIL_BASE_URL}/checkout/${event.slug}`,
+          eventInfo: null,
+          priceList: offer.prices,
+          remaining: offer.remaining,
+        }),
+        status,
+      };
+    }),
+    salesDripRunNow: adminProcedure.mutation(async () => {
+      return runSalesDripDaily();
     }),
   }),
 

@@ -530,6 +530,14 @@ export const siteSettings = mysqlTable("siteSettings", {
   // (ver server/tanda2Promo.ts). Excluyente con foundersPromoEnabled para no
   // sumar 100 correos/día contra el límite de Resend.
   tanda2PromoEnabled: int("tanda2PromoEnabled").default(0).notNull(),
+  // Aviso diario CONTINUO de venta de entradas (server/salesDrip.ts): reemplaza
+  // a los dos avisos por tanda. Sigue al evento destacado hasta el día de la
+  // fiesta y, al terminar una vuelta, espera `salesDripIntervalDays` días y
+  // vuelve a escribirle a quien todavía no compró. Se lee aparte de
+  // getSiteSettings (ver getSalesDripSettings) para que el sitio no dependa de
+  // que esta migración ya esté aplicada.
+  salesDripEnabled: int("salesDripEnabled").default(1).notNull(),
+  salesDripIntervalDays: int("salesDripIntervalDays").default(4).notNull(),
   // Modo Halloween (pedido explícito del dueño): con esto en 1, la portada
   // "/" se muestra con la paleta Halloween (clase `.halloween` en <html>,
   // ver client/src/pages/HalloweenHome.tsx). Se prende y apaga a mano
@@ -1414,7 +1422,10 @@ export const mailingSendLog = mysqlTable("mailingSendLog", {
   id: int("id").autoincrement().primaryKey(),
   // nanoid: agrupa las filas de una misma corrida de sendMailingBatch().
   batchId: varchar("batchId", { length: 30 }).notNull(),
-  source: mysqlEnum("source", ["founders-promo", "tanda2-promo", "manual"]).notNull(),
+  source: mysqlEnum("source", ["founders-promo", "tanda2-promo", "sales-drip", "manual"]).notNull(),
+  // Evento al que se refería el envío (solo lo llena sales-drip): permite
+  // saber cuándo fue el último aviso de ESTE evento a cada persona.
+  eventId: int("eventId"),
   // content.subject de esa tanda -- para mostrar de qué se trató sin tener
   // que ir a buscar contenido a otro lado.
   label: varchar("label", { length: 255 }).notNull(),
@@ -1427,6 +1438,7 @@ export const mailingSendLog = mysqlTable("mailingSendLog", {
 }, (table) => ({
   batchIdx: index("mailing_send_log_batch_idx").on(table.batchId),
   sentAtIdx: index("mailing_send_log_sent_at_idx").on(table.sentAt),
+  eventCustomerIdx: index("mailing_send_log_event_customer_idx").on(table.eventId, table.customerId),
 }));
 
 export type MailingSendLogRow = typeof mailingSendLog.$inferSelect;

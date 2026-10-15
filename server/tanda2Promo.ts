@@ -53,7 +53,7 @@ export type Tanda2Offer = { prices: MailingPriceRow[]; priceFrom: number; remain
  * precio general tachado, igual que la tarjeta del sitio) y, si todos
  * comparten un único cupo, cuántos quedan (mismo criterio que
  * `foundersPromo.ts`). Null si no hay accesos activos con precio. */
-export async function resolveTanda2Offer(eventId: number): Promise<Tanda2Offer | null> {
+export async function resolveCurrentOffer(eventId: number): Promise<Tanda2Offer | null> {
   const db = await getDb();
   if (!db) return null;
   const activos = await db.select().from(ticketTypes).where(and(
@@ -80,6 +80,8 @@ export async function resolveTanda2Offer(eventId: number): Promise<Tanda2Offer |
 
   return { prices, priceFrom: Math.min(...prices.map((r) => r.price)), remaining };
 }
+
+export const resolveTanda2Offer = resolveCurrentOffer;
 
 /** El copy es fijo (no se regenera con IA en cada corrida -- coherencia día a
  * día). El precio de cada acceso va en la tarjeta de precios del mail, no en
