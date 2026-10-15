@@ -23,6 +23,7 @@ import { runSalesStrategist, shouldRunSalesStrategyNow } from "./salesStrategist
 import { runSurveyDispatch } from "./eventSurvey";
 import { shouldSendWeeklyAmbassadorEmailNow } from "../shared/ambassadorProgram";
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
+import { suggestOwnCommentsForNewPosts } from './instagramComments';
 
 const CHECKIN_SUMMARY_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 
@@ -151,6 +152,14 @@ export function registerCronRoutes(app: Express) {
       console.error('[Cron] Error limpiando conversaciones viejas de WhatsApp:', err);
     }
 
+    // Comentario propio sugerido para las publicaciones nuevas (queda para aprobar).
+    let ownCommentsSuggested = 0;
+    try {
+      ownCommentsSuggested = await suggestOwnCommentsForNewPosts();
+    } catch (err) {
+      console.error('[Cron] No se pudieron sugerir comentarios propios:', err);
+    }
+
     // Seguidores/publicaciones del footer: si Meta falla queda el último número bueno.
     let instagramStats: { followers: number; posts: number } | null = null;
     try {
@@ -159,7 +168,7 @@ export function registerCronRoutes(app: Express) {
       console.error('[Cron] No se pudo actualizar los seguidores de Instagram:', err);
     }
 
-    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, igThreadsPurged, waThreadsPurged, instagramStats });
+    res.json({ success: true, partyMessagesPurgedFor, partyProfilesPurged, giftInvitationsExpired, igThreadsPurged, waThreadsPurged, instagramStats, ownCommentsSuggested });
   });
 
   /* Correo semanal de embajadores (docs: pestaña "Material" en /admin →

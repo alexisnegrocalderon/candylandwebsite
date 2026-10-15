@@ -2104,6 +2104,9 @@ export const igKeywordAutomations = mysqlTable("igKeywordAutomations", {
   // no en discountCodes a propósito: el checkout lee discountCodes en cada
   // compra y no debe depender de una columna nueva.
   giftPerPerson: int("giftPerPerson").default(0).notNull(),
+  // 1 = solo para quienes siguen la cuenta (los demás reciben una invitación
+  // a seguir y volver a escribir la palabra).
+  followersOnly: int("followersOnly").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => ({
   keywordIdx: index("ig_keyword_automations_keyword_idx").on(table.keyword),

@@ -1,3 +1,4 @@
+import { DEFAULT_HOOKS } from './igEngagement';
 /** Config del agente de IA que contesta los mensajes directos del Instagram
  * de la productora -- lo edita el dueño desde Ajustes, se guarda como JSON en
  * `siteSettings.instagramAgentConfig`.
@@ -82,6 +83,11 @@ export interface InstagramAgentConfig {
   hideSpam: boolean;
   /** Códigos propios del Kit de links (campañas), además de los canales fijos. */
   customLinkCodes: string[];
+  /** Bienvenida en el primer DM de cada persona (con o sin "gracias por
+   * seguirnos" según si sigue la cuenta). Apagada por defecto. */
+  welcomeEnabled: boolean;
+  /** Preguntas de enganche que rotan (bienvenida y DM desde comentarios). */
+  hooks: string[];
 }
 
 export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
@@ -107,6 +113,8 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   commentsEnabled: false,
   hideSpam: true,
   customLinkCodes: [],
+  welcomeEnabled: false,
+  hooks: DEFAULT_HOOKS,
   salesPlaybook: [
     'TIPOS DE CLIENTE Y CÓMO ACOMPAÑAR A CADA UNO:',
     '- Primera vez, con nervios o dudas: mucha calidez y cero presión. Contarle que es un espacio seguro, con reglas claras de consentimiento, y que nadie hace nada que no quiera. Ofrecerle la guía de primera vez.',
@@ -162,6 +170,10 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
     coachWeeklyEnabled: partial.coachWeeklyEnabled !== false,
     commentsEnabled: partial.commentsEnabled === true,
     hideSpam: partial.hideSpam !== false,
+    welcomeEnabled: partial.welcomeEnabled === true,
+    hooks: Array.isArray(partial.hooks)
+      ? partial.hooks.filter((h): h is string => typeof h === 'string').map((h) => h.trim().slice(0, 160)).filter(Boolean).slice(0, 20)
+      : DEFAULT_HOOKS,
     customLinkCodes: Array.isArray(partial.customLinkCodes)
       ? Array.from(new Set(partial.customLinkCodes.filter((c): c is string => typeof c === 'string' && /^[a-z0-9_-]{1,40}$/.test(c)))).slice(0, 50)
       : [],

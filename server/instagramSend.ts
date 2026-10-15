@@ -149,18 +149,33 @@ async function postToCommentEndpoint(path: string, body: Record<string, unknown>
  * bandeja del admin no muestre un id opaco. Nunca hace fallar nada: si Meta
  * no lo entrega (la persona restringió su perfil, o el permiso todavía no
  * está aprobado), el hilo se muestra igual con el IGSID. */
-export async function fetchInstagramProfile(igUserId: string): Promise<{ username?: string; name?: string }> {
+export async function fetchInstagramProfile(igUserId: string): Promise<{ username?: string; name?: string; isFollower?: boolean }> {
   if (!ENV.igAccessToken) return {};
-  try {
-    const response = await fetch(
-      `${GRAPH_BASE}/${igUserId}?fields=username,name&access_token=${encodeURIComponent(ENV.igAccessToken)}`,
-    );
-    if (!response.ok) return {};
-    const body = await response.json() as { username?: string; name?: string };
-    return { username: body.username, name: body.name };
-  } catch {
-    return {};
+  // Con `is_user_follow_business` se sabe si la persona sigue la cuenta (lo
+  // que usa ManyChat para la bienvenida y el "solo seguidores"). Si Meta no
+  // lo entrega, se reintenta solo con arroba y nombre.
+  for (const fields of ['username,name,is_user_follow_business', 'username,name']) {
+    try {
+      const response = await fetch(
+        `${GRAPH_BASE}/${igUserId}?fields=${fields}&access_token=${encodeURIComponent(ENV.igAccessToken)}`,
+      );
+      if (!response.ok) continue;
+      const body = await response.json() as { username?: string; name?: string; is_user_follow_business?: boolean };
+      return {
+        username: body.username,
+        name: body.name,
+        ...(typeof body.is_user_follow_business === 'boolean' ? { isFollower: body.is_user_follow_business } : {}),
+      };
+    } catch {
+      // probar con menos campos
+    }
   }
+  return {};
+}
+
+/** Publica un comentario de la propia cuenta en una publicación suya. */
+export async function commentOnOwnMedia(mediaId: string, text: string): Promise<{ id: string | null }> {
+  return postToCommentEndpoint(`${mediaId}/comments`, { message: text });
 }
 
 export interface OwnInstagramProfile {

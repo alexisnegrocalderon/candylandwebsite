@@ -19,6 +19,7 @@ import {
   setIgThreadCustomerNotes,
   recordIgReferral,
   latestIgReferrals,
+  getIgFanCounts,
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
 import { handleIncomingComment } from './instagramComments';
@@ -32,6 +33,7 @@ import { resolveAutomationButton, splitAutomationLink } from './instagramAutomat
 import { ALREADY_BOUGHT_MARKER, buildAlreadyBoughtReply, saysAlreadyBought } from '../shared/igCustomerLink';
 import { buildAdminUrl } from '../shared/adminDeepLink';
 import { parseIgReferral, referralUtmContent } from '../shared/igReferral';
+import { FOLLOWERS_ONLY_REPLY, pickHook, welcomeInstruction } from '../shared/igEngagement';
 
 const OWNER_REPLIED_REASON = 'El dueño contestó directo desde Instagram';
 
@@ -346,12 +348,21 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   // del historial -- si no, el modelo lo vería dos veces.
   const previous = history.filter((m) => m.id !== saved.id);
 
+  // Primer mensaje de la persona: bienvenida (con o sin "gracias por
+  // seguirnos") y una pregunta de enganche que no se repite.
+  const welcome = config.welcomeEnabled && previous.length === 0
+    ? welcomeInstruction(profile.isFollower, pickHook(config.hooks, []))
+    : null;
+  const isFan = (await getIgFanCounts([senderId])).has(senderId);
+
   const result = await runInstagramAgent({
     incomingText: text,
     history: previous,
     config,
     isFinalReplyOfDay,
     customerNotes: thread.customerNotes,
+    welcome,
+    isFan,
   });
 
   // Ficha de la persona: se guarda cada vez que el agente aprende algo nuevo
@@ -446,6 +457,15 @@ async function resolveAutomationExtras(automation: { discountCode: string | null
   return { link, imageUrl, productName: product?.name };
 }
 
+/** ¿La campaña es solo para seguidores y esta persona NO sigue la cuenta?
+ * Si Meta no dice si sigue (dato no disponible), se le da el regalo igual:
+ * mejor regalar de más que dejar a un seguidor real sin lo prometido. */
+async function blockedByFollowerGate(automation: { followersOnly?: number }, igUserId: string): Promise<boolean> {
+  if (automation.followersOnly !== 1) return false;
+  const profile = await fetchInstagramProfile(igUserId);
+  return profile.isFollower === false;
+}
+
 /** Respuesta a una historia con la palabra clave correcta: manda el regalo
  * configurado (link, mensaje, producto, o código de descuento) por DM
  * normal y lo registra en el hilo como cualquier mensaje saliente. Devuelve
@@ -459,6 +479,14 @@ export async function tryHandleKeywordTrigger(input: {
 }): Promise<boolean> {
   const automation = await matchKeywordTrigger(input.text, input.igUserId, input.source);
   if (!automation) return false;
+
+  // Campaña solo para seguidores: si no sigue la cuenta, se le invita a
+  // seguirla y volver a escribir la palabra (sin gastar el regalo).
+  if (await blockedByFollowerGate(automation, input.igUserId)) {
+    const { mid } = await sendInstagramMessage({ recipientId: input.igUserId, text: FOLLOWERS_ONLY_REPLY });
+    await appendIgMessage({ threadId: input.threadId, mid, direction: 'out', source: 'bot', text: FOLLOWERS_ONLY_REPLY });
+    return true;
+  }
 
   const extras = await resolveAutomationExtras(automation);
   const { text: replyText, mid, imageMid, buttonMid, buttonTitle } = await sendAutomationReply(
@@ -545,6 +573,11 @@ export async function handleCommentChange(value: { id?: string; text?: string; f
   if (!automation) {
     // Sin campaña: la IA deja un borrador para que el dueño apruebe.
     await handleIncomingComment({ commentId, mediaId: value?.media?.id ?? null, igUserId, username: value?.from?.username ?? null, text });
+    return;
+  }
+
+  if (await blockedByFollowerGate(automation, igUserId)) {
+    await sendPrivateReply(commentId, FOLLOWERS_ONLY_REPLY);
     return;
   }
 

@@ -9,7 +9,7 @@ import { ENV } from './_core/env';
 import { invokeLLM, extractContent, NO_THINKING } from './_core/llm';
 import * as db from './db';
 import { buildInstagramContext } from './instagramAgent';
-import { replyToComment, hideComment, sendButtonMessage, sendPrivateReply } from './instagramSend';
+import { replyToComment, hideComment, sendButtonMessage, sendPrivateReply, commentOnOwnMedia, fetchOwnMedia } from './instagramSend';
 import { resolveInstagramBuyLink } from './instagramInteractive';
 import { stripUrlsFromReply, resolvePageLink, AGENT_PAGE_KEYS, AGENT_SITE_PAGES } from './agentLinks';
 import { sendPushToAdmins } from './push';
@@ -19,6 +19,7 @@ import { cleanAiMarks } from '../shared/captionCheck';
 import { triageComment, type CommentCategory } from '../shared/commentTriage';
 import type { IgComment } from '../drizzle/schema';
 import { postOrigin } from '../shared/igFunnel';
+import { pickHook } from '../shared/igEngagement';
 import { buildAdminUrl } from '../shared/adminDeepLink';
 
 export const COMMENT_MAX_CHARS = 300;
@@ -56,7 +57,7 @@ export function normalizeDmButton(raw: unknown, pageKeys: string[] = AGENT_PAGE_
 }
 
 export function buildCommentPrompt(input: {
-  brandNotes: string; styleExamples: string; recentReplies: string[]; category: CommentCategory; purchaseIntent: boolean;
+  brandNotes: string; styleExamples: string; recentReplies: string[]; category: CommentCategory; purchaseIntent: boolean; hook?: string | null;
 }): string {
   const wantsDm = input.category === 'question';
   return [
@@ -68,6 +69,7 @@ export function buildCommentPrompt(input: {
     wantsDm
       ? [
         'MENSAJE PRIVADO ("dm"): 1 a 3 frases con la respuesta completa y concreta usando SOLO los datos del contexto (precios, fechas, accesos). Mismo tono cercano y coqueto, con 1 emoji. Cierra con una pregunta corta que invite a seguir conversando. Nunca escribas links: el botón se agrega solo.',
+        input.hook ? `Cierra el DM con esta pregunta de enganche (ajústala apenas si hace falta): "${input.hook}"` : '',
         'BOTÓN ("button"): "buy" si la persona quiere comprar, precios, cupos o la próxima fecha; "page:<ruta>" con una ruta exacta de la lista PÁGINAS DEL SITIO si la duda la resuelve mejor esa página; "none" si no hace falta botón.',
         `PÁGINAS DEL SITIO (ruta: tema): ${AGENT_SITE_PAGES.map((p) => `${p.path}: ${p.topic}`).join(' | ')}`,
       ].join('\n')
@@ -105,7 +107,7 @@ export async function draftCommentReply(input: {
   const context = wantsDm ? await buildInstagramContext(new Date()) : '';
   const result = await invokeLLM({
     messages: [
-      { role: 'system', content: buildCommentPrompt({ brandNotes: config.brandNotes, styleExamples: config.styleExamples, recentReplies, category: input.category, purchaseIntent: input.purchaseIntent }) },
+      { role: 'system', content: buildCommentPrompt({ brandNotes: config.brandNotes, styleExamples: config.styleExamples, recentReplies, category: input.category, purchaseIntent: input.purchaseIntent, hook: wantsDm ? pickHook(config.hooks, recentReplies) : null }) },
       { role: 'user', content: `${context ? `${context}\n\n---\n` : ''}Comentario${input.username ? ` de @${input.username}` : ''}:\n"""${input.text}"""` },
     ],
     responseFormat: { type: 'json_schema', json_schema: COMMENT_SCHEMA as any },
@@ -173,6 +175,20 @@ export async function approveComment(id: number, finalReply: string, finalDm?: s
   if (row.status === 'sent') throw new Error('Ese comentario ya se respondió.');
   const reply = finalizeCommentReply(finalReply);
   if (!reply) throw new Error('Escribe la respuesta antes de publicar.');
+
+  // Comentario propio en una publicación de la cuenta: se publica y listo.
+  if (row.category === 'own') {
+    if (!row.mediaId) throw new Error('No se sabe en qué publicación comentar.');
+    try {
+      await commentOnOwnMedia(row.mediaId, reply);
+    } catch (err) {
+      const message = err instanceof Error ? err.message.slice(0, 300) : 'No se pudo publicar';
+      await db.decideIgComment(id, { status: 'failed', finalReply: reply, error: message });
+      throw new Error(`Instagram no dejó publicar: ${message}`);
+    }
+    await db.decideIgComment(id, { status: 'sent', finalReply: reply, error: null });
+    return { dmSent: false };
+  }
   const dmText = finalDm === undefined ? (row.draftDm ?? '') : finalizeCommentDm(finalDm ?? '');
   try {
     await replyToComment(row.commentId, reply);
@@ -206,4 +222,78 @@ async function resolveCommentButton(choice: string, mediaId: string | null): Pro
   }
   if (choice.startsWith('page:')) return resolvePageLink(choice.slice(5), 'instagram', 'agente-comentario', origin);
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Comentarios propios: la cuenta comenta en sus posts y reels para abrir
+// conversación (siempre con aprobación del dueño).
+// ---------------------------------------------------------------------------
+
+export function buildOwnCommentPrompt(input: { brandNotes: string; caption: string; mediaType: string; recent: string[] }): string {
+  return [
+    'Eres quien maneja el Instagram de Mansion Playroom y vas a dejar UN comentario en una publicación propia para abrir conversación y que la gente responda.',
+    'ESTILO PLAYROOM: amable, coqueto y entretenido, con picardía elegante (nunca vulgar). 1 o 2 emojis. Español chileno natural.',
+    'Formato: una pregunta o invitación corta (máximo 120 caracteres) relacionada con el pie de foto, fácil de contestar (ej. elegir entre opciones, etiquetar a alguien, contar algo). Sin links, sin hashtags, sin precios. No suenes a marca ni a IA.',
+    AI_PHRASES_PROMPT_LINE,
+    `NOTAS DE LA MARCA:\n${input.brandNotes}`,
+    input.recent.length ? `COMENTARIOS QUE YA USASTE (no los repitas ni empieces igual):\n${input.recent.map((r) => `- ${r}`).join('\n')}` : '',
+    'Responde solo JSON con la clave "comment".',
+  ].filter(Boolean).join('\n\n');
+}
+
+const OWN_SCHEMA = {
+  name: 'comentario_propio',
+  strict: true,
+  schema: { type: 'object', properties: { comment: { type: 'string' } }, required: ['comment'], additionalProperties: false },
+};
+
+/** Sugiere (o vuelve a sugerir) el comentario propio de una publicación. */
+export async function suggestOwnComment(mediaId: string, opts: { notify?: boolean } = {}): Promise<IgComment | null> {
+  const media = (await fetchOwnMedia(25)) as { id?: string; caption?: string; media_type?: string }[];
+  const post = media.find((m) => m.id === mediaId);
+  if (!post) throw new Error('Esa publicación no está entre las 25 más recientes.');
+  const config = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
+  const recent = await db.recentSentIgReplies(8);
+  const caption = String(post.caption ?? '');
+  const result = await invokeLLM({
+    messages: [
+      { role: 'system', content: buildOwnCommentPrompt({ brandNotes: config.brandNotes, caption, mediaType: String(post.media_type ?? ''), recent }) },
+      { role: 'user', content: `Pie de foto de la publicación (${post.media_type === 'VIDEO' ? 'reel' : post.media_type === 'CAROUSEL_ALBUM' ? 'carrusel' : 'foto'}):\n"""${caption.slice(0, 1500) || '(sin pie de foto)'}"""` },
+    ],
+    responseFormat: { type: 'json_schema', json_schema: OWN_SCHEMA as any },
+    maxTokens: 200,
+    ...(ENV.anthropicApiKey ? { thinking: NO_THINKING } : {}),
+  });
+  const parsed = JSON.parse(extractContent(result.choices[0]?.message ?? { content: '' })) as { comment?: string };
+  const draft = finalizeCommentReply(parsed.comment ?? '');
+  if (!draft) throw new Error('La IA no devolvió un comentario. Intenta de nuevo.');
+  const row = await db.upsertOwnCommentDraft({ mediaId, igUserId: ENV.igUserId || 'own', caption, draft });
+  if (row && opts.notify) {
+    await sendPushToAdmins('pushInstagramHandoff', {
+      title: '✨ Comentario sugerido para tu publicación',
+      body: `"${draft.slice(0, 90)}" — apruébalo para abrir conversación`,
+      url: buildAdminUrl({ section: 'instagram', tab: 'comentarios', comment: row.id }),
+    });
+  }
+  return row;
+}
+
+/** Cron diario: sugiere un comentario propio para cada publicación de los
+ * últimos 3 días que todavía no tenga uno (máximo 3 por corrida). */
+export async function suggestOwnCommentsForNewPosts(now = Date.now()): Promise<number> {
+  const config = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
+  if (!config.commentsEnabled) return 0;
+  const media = (await fetchOwnMedia(6)) as { id?: string; timestamp?: string }[];
+  let created = 0;
+  for (const m of media) {
+    if (created >= 3 || !m.id || !m.timestamp) continue;
+    if (now - new Date(m.timestamp).getTime() > 3 * 24 * 60 * 60 * 1000) continue;
+    if (await db.hasOwnCommentDraft(m.id)) continue;
+    try {
+      if (await suggestOwnComment(m.id, { notify: true })) created++;
+    } catch (err) {
+      console.error('[instagram-comments] no se pudo sugerir el comentario propio', err);
+    }
+  }
+  return created;
 }
