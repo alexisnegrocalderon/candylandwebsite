@@ -157,6 +157,10 @@
       "schedule": "0 15 * * *"
     },
     {
+      "path": "/api/cron/sales-drip",
+      "schedule": "20 14 * * *"
+    },
+    {
       "path": "/api/cron/caja-watch",
       "schedule": "*/5 * * * *"
     },

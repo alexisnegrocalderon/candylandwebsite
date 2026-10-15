@@ -136,9 +136,9 @@ export async function sendMailingBatch(
   // (ver mailingSendLog en drizzle/schema.ts), no cambia nada del envío en
   // sí. Los dos llamadores de hoy se identifican solos: el aviso automático
   // de primeros cupos y el botón manual "Enviar a N clientes".
-  source: 'founders-promo' | 'tanda2-promo' | 'manual' = 'manual',
+  source: 'founders-promo' | 'tanda2-promo' | 'sales-drip' | 'manual' = 'manual',
   // Tarjeta de precios por acceso de la tanda vigente (aviso de 2ª tanda).
-  extras?: { priceList?: MailingPriceRow[]; remaining?: number | null }
+  extras?: { priceList?: MailingPriceRow[]; remaining?: number | null; eventId?: number | null }
 ): Promise<{ batchId: string; results: MailingSendResult[] }> {
   const allRecipients = await db.listCustomersByIds(customerIds);
   const results: MailingSendResult[] = [];
@@ -193,6 +193,7 @@ export async function sendMailingBatch(
       await db.logMailingSend({
         batchId,
         source,
+        eventId: extras?.eventId ?? null,
         label: content.subject,
         customerId: customer.id,
         email: customer.email,

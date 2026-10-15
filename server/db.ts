@@ -980,6 +980,9 @@ const SITE_SETTINGS_DEFAULTS = { instagramFollowers: 0, instagramPosts: 0, servi
  * (`getAgentCoachReport`), y el sitio no depende de que la columna exista. */
 const {
   agentCoachReport: _agentCoachReportColumn,
+  // Mismo criterio para el aviso continuo de venta (salesDrip): se lee aparte.
+  salesDripEnabled: _salesDripEnabledColumn,
+  salesDripIntervalDays: _salesDripIntervalDaysColumn,
   // Mismo criterio para el Director comercial (02/10): su estado se lee
   // aparte, así el sitio no depende de que esa columna ya esté aplicada.
   salesStrategyState: _salesStrategyStateColumn,
@@ -992,6 +995,24 @@ export async function getSiteSettings() {
   const [row] = await db.select(SITE_SETTINGS_READ_COLUMNS).from(siteSettings).limit(1);
   if (row) return row;
   return SITE_SETTINGS_DEFAULTS;
+}
+
+/** Ajustes del aviso continuo de venta de entradas (server/salesDrip.ts). Se
+ * leen aparte de getSiteSettings: si la migración todavía no está aplicada no
+ * se cae el sitio y el aviso queda APAGADO (no manda nada a ciegas). */
+export async function getSalesDripSettings(): Promise<{ enabled: boolean; intervalDays: number }> {
+  const db = await getDb();
+  if (!db) return { enabled: false, intervalDays: 4 };
+  try {
+    const [row] = await db.select({
+      enabled: siteSettings.salesDripEnabled,
+      intervalDays: siteSettings.salesDripIntervalDays,
+    }).from(siteSettings).limit(1);
+    if (!row) return { enabled: true, intervalDays: 4 };
+    return { enabled: !!row.enabled, intervalDays: Math.max(1, Number(row.intervalDays) || 4) };
+  } catch {
+    return { enabled: false, intervalDays: 4 };
+  }
 }
 
 /** Último reporte del coach semanal, o `null` si no hay (o si la columna
@@ -1025,7 +1046,7 @@ export async function getSalesStrategyState(): Promise<unknown> {
 
 export async function updateSiteSettings(data: {
   instagramFollowers?: number; instagramPosts?: number; serviceFeePercent?: number; cardFeePercent?: number; parkingVenueFeeClp?: number;
-  kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null; foundersPromoEnabled?: boolean; tanda2PromoEnabled?: boolean; halloweenModeEnabled?: boolean;
+  kitchenVendorName?: string | null; kitchenVendorEmail?: string | null; ogImageUrl?: string | null; foundersPromoEnabled?: boolean; tanda2PromoEnabled?: boolean; salesDripEnabled?: boolean; salesDripIntervalDays?: number; halloweenModeEnabled?: boolean;
   emailTemplateConfig?: EmailTemplateConfig;
   adminAlertsConfig?: AdminAlertsConfig;
   instagramAgentConfig?: import('../shared/instagramAgentConfig').InstagramAgentConfig;
@@ -1044,6 +1065,7 @@ export async function updateSiteSettings(data: {
   // boolean real, se convierte acá en el borde.
   if (data.foundersPromoEnabled !== undefined) updateData.foundersPromoEnabled = data.foundersPromoEnabled ? 1 : 0;
   if (data.tanda2PromoEnabled !== undefined) updateData.tanda2PromoEnabled = data.tanda2PromoEnabled ? 1 : 0;
+  if (data.salesDripEnabled !== undefined) updateData.salesDripEnabled = data.salesDripEnabled ? 1 : 0;
   if (data.halloweenModeEnabled !== undefined) updateData.halloweenModeEnabled = data.halloweenModeEnabled ? 1 : 0;
   // Solo el id: leer la fila entera volvería a depender de todas las
   // columnas (ver el comentario de getSiteSettings).
@@ -5721,7 +5743,8 @@ export async function getMailingCampaignRecipients(campaignId: number) {
  * cuenta para ningún presupuesto ni lo procesa ningún cron. */
 export async function logMailingSend(input: {
   batchId: string;
-  source: 'founders-promo' | 'tanda2-promo' | 'manual';
+  source: 'founders-promo' | 'tanda2-promo' | 'sales-drip' | 'manual';
+  eventId?: number | null;
   label: string;
   customerId: number;
   email: string;
@@ -5733,6 +5756,7 @@ export async function logMailingSend(input: {
   await db.insert(mailingSendLog).values({
     batchId: input.batchId,
     source: input.source,
+    eventId: input.eventId ?? null,
     label: input.label,
     customerId: input.customerId,
     email: input.email,
@@ -5751,11 +5775,31 @@ export async function countTandaPromoEmailsSentToday(now: Date = new Date()): Pr
   const [row] = await db.select({ count: sql<number>`count(*)` })
     .from(mailingSendLog)
     .where(and(
-      inArray(mailingSendLog.source, ['founders-promo', 'tanda2-promo']),
+      inArray(mailingSendLog.source, ['founders-promo', 'tanda2-promo', 'sales-drip']),
       eq(mailingSendLog.success, 1),
       gte(mailingSendLog.sentAt, startOfChileDay(now)),
     ));
   return Number(row?.count ?? 0);
+}
+
+/** Último aviso continuo (sales-drip) exitoso de ESTE evento a cada cliente:
+ * customerId → fecha. Base de la espera de N días entre mails. */
+export async function getLastSalesDripByCustomer(eventId: number): Promise<Map<number, Date>> {
+  const db = await getDb();
+  const out = new Map<number, Date>();
+  if (!db) return out;
+  const rows = await db.select({
+    customerId: mailingSendLog.customerId,
+    last: sql<Date>`MAX(${mailingSendLog.sentAt})`,
+  }).from(mailingSendLog)
+    .where(and(
+      eq(mailingSendLog.source, 'sales-drip'),
+      eq(mailingSendLog.eventId, eventId),
+      eq(mailingSendLog.success, 1),
+    ))
+    .groupBy(mailingSendLog.customerId);
+  for (const r of rows) out.set(r.customerId, new Date(r.last));
+  return out;
 }
 
 /** Últimas tandas de envíos inmediatos, agrupadas por `batchId` -- para la
@@ -5765,7 +5809,7 @@ export async function listRecentMailingSendBatches(limit = 10) {
   if (!db) return [];
   return db.select({
     batchId: mailingSendLog.batchId,
-    source: sql<'founders-promo' | 'tanda2-promo' | 'manual'>`MIN(${mailingSendLog.source})`,
+    source: sql<'founders-promo' | 'tanda2-promo' | 'sales-drip' | 'manual'>`MIN(${mailingSendLog.source})`,
     label: sql<string>`MIN(${mailingSendLog.label})`,
     startedAt: sql<Date>`MIN(${mailingSendLog.sentAt})`,
     total: sql<number>`COUNT(*)`,

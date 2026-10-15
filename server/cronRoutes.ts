@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { ENV } from "./_core/env";
 import { processMailingCronBatch } from "./mailing";
+import { runSalesDripDaily } from "./salesDrip";
 import { purgeClosedPartyPhotos, purgeOldPartyMessages, purgeOldPartyProfiles, expireOldGiftInvitations, purgeOldIgThreads, purgeOldWaThreads, getEventHappeningToday, getCajaDashboard, getHomeEvents } from "./db";
 import { sendEmail, buildCheckinSummaryEmail } from "./email";
 import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
@@ -257,6 +258,21 @@ export function registerCronRoutes(app: Express) {
       res.json({ success: true, ...result });
     } catch (err) {
       console.error('[Cron] Error en el aviso de la 2ª tanda:', err);
+      res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
+    }
+  });
+
+  /* Aviso diario CONTINUO de venta de entradas (server/salesDrip.ts): hasta 50
+   * correos/día a quienes no han comprado el evento destacado, con espera de N
+   * días entre mails a la misma persona. No se apaga solo; termina el día de la
+   * fiesta y sigue con el próximo evento destacado. */
+  app.get("/api/cron/sales-drip", async (req: Request, res: Response) => {
+    if (!requireCronSecret(req, res)) return;
+    try {
+      const result = await runSalesDripDaily();
+      res.json({ success: true, ...result });
+    } catch (err) {
+      console.error('[Cron] Error en el aviso continuo de venta:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });
     }
   });
