@@ -80,6 +80,8 @@ export interface InstagramAgentConfig {
   commentsEnabled: boolean;
   /** Oculta solo el spam evidente (ofertas de seguidores, links raros). */
   hideSpam: boolean;
+  /** Códigos propios del Kit de links (campañas), además de los canales fijos. */
+  customLinkCodes: string[];
 }
 
 export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
@@ -104,6 +106,7 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   coachWeeklyEnabled: true,
   commentsEnabled: false,
   hideSpam: true,
+  customLinkCodes: [],
   salesPlaybook: [
     'TIPOS DE CLIENTE Y CÓMO ACOMPAÑAR A CADA UNO:',
     '- Primera vez, con nervios o dudas: mucha calidez y cero presión. Contarle que es un espacio seguro, con reglas claras de consentimiento, y que nadie hace nada que no quiera. Ofrecerle la guía de primera vez.',
@@ -159,6 +162,9 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
     coachWeeklyEnabled: partial.coachWeeklyEnabled !== false,
     commentsEnabled: partial.commentsEnabled === true,
     hideSpam: partial.hideSpam !== false,
+    customLinkCodes: Array.isArray(partial.customLinkCodes)
+      ? Array.from(new Set(partial.customLinkCodes.filter((c): c is string => typeof c === 'string' && /^[a-z0-9_-]{1,40}$/.test(c)))).slice(0, 50)
+      : [],
     autoResumeHours: Number.isFinite(Number(partial.autoResumeHours)) && Number(partial.autoResumeHours) >= 0
       ? Math.min(Math.floor(Number(partial.autoResumeHours)), 720)
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.autoResumeHours,

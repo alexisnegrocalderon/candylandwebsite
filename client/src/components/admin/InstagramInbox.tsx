@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp, Lightbulb, Link2 } from 'lucide-react';
+import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp, Lightbulb } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useAdminDeepLink } from '@/lib/adminDeepLink';
 import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
@@ -18,9 +18,8 @@ import { EmptyState } from '@/components/admin/EmptyState';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { InstagramAutomations } from '@/components/admin/InstagramAutomations';
 import { InstagramComments } from '@/components/admin/InstagramComments';
+import { InstagramLinkKit } from '@/components/admin/InstagramLinkKit';
 import { formatChileDateTime } from '@shared/chileDate';
-import { igMeLink } from '@shared/igReferral';
-import { CANDYLAND_INSTAGRAM_HANDLE } from '@shared/instagramShowcaseConfig';
 import { IG_MAX_REPLY_CHARS, type InstagramAgentConfig } from '@shared/instagramAgentConfig';
 
 /* Bandeja del agente que contesta el Instagram (server/instagram.ts).
@@ -37,7 +36,7 @@ const onError = (error: unknown) => {
 /* Pestañas de la pantalla (pedido del dueño, 28/09: todo en una sola página
  * ya era demasiado largo). La elegida se recuerda en este navegador. */
 const TAB_STORAGE_KEY = 'admin-instagram-tab';
-const TABS = ['conversaciones', 'conocimiento', 'ajustes', 'ventas', 'automatizaciones', 'comentarios'] as const;
+const TABS = ['conversaciones', 'conocimiento', 'ajustes', 'ventas', 'automatizaciones', 'comentarios', 'links'] as const;
 type InboxTab = (typeof TABS)[number];
 
 function readStoredTab(): InboxTab {
@@ -100,6 +99,7 @@ export function InstagramInbox() {
           <TabsTrigger value="comentarios" className="flex-none">
             Comentarios{pendingComments ? ` (${pendingComments})` : ''}
           </TabsTrigger>
+          <TabsTrigger value="links" className="flex-none">Kit de links</TabsTrigger>
         </TabsList>
 
         <TabsContent value="conversaciones" className="space-y-3 pt-2">
@@ -118,7 +118,6 @@ export function InstagramInbox() {
         </TabsContent>
         <TabsContent value="ventas" className="space-y-6 pt-2">
           <AgentSalesCard />
-          <ReferralCard />
           <AgentCoachCard />
           <HandoffLogCard />
         </TabsContent>
@@ -127,6 +126,9 @@ export function InstagramInbox() {
         </TabsContent>
         <TabsContent value="comentarios" className="pt-2">
           <InstagramComments focusId={focusCommentId} />
+        </TabsContent>
+        <TabsContent value="links" className="pt-2">
+          <InstagramLinkKit />
         </TabsContent>
       </Tabs>
     </div>
@@ -550,44 +552,6 @@ function AgentCoachCard() {
 
 /** Cuánto vendió el agente: órdenes aprobadas que entraron por un botón del
  * agente (Instagram + WhatsApp), gracias a la UTM que lleva cada link. */
-/* De dónde llegan los chats (anuncios o links ig.me con código) y un
- * generador de esos links para historias, bio o flyers. */
-function ReferralCard() {
-  const { data } = trpc.instagram.referralSummary.useQuery();
-  const [code, setCode] = useState('');
-  const link = igMeLink(CANDYLAND_INSTAGRAM_HANDLE, code);
-  return (
-    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2"><Link2 className="w-5 h-5" /> De dónde llegan los chats</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {!data || data.length === 0
-          ? <p className="text-sm text-muted-foreground">En los últimos 7 días no llegó ningún chat desde un anuncio o un link con código.</p>
-          : (
-            <ul className="space-y-1 text-sm">
-              {data.map((r) => (
-                <li key={r.label} className="flex justify-between gap-3"><span>{r.label}</span><span className="font-semibold">{r.count}</span></li>
-              ))}
-            </ul>
-          )}
-        <p className="text-xs text-muted-foreground">
-          Las compras que entran por el botón del agente quedan con ese origen en «Ventas por Origen» (contenido de la campaña).
-        </p>
-        <div className="space-y-2 rounded-2xl border p-3">
-          <Label htmlFor="ig-ref-code">Crear link con código</Label>
-          <Input id="ig-ref-code" value={code} maxLength={60} placeholder="ej: flyer-halloween, bio, historia-lunes" onChange={(e) => setCode(e.target.value)} />
-          <p className="break-all text-sm">{link}</p>
-          <Button size="sm" variant="outline" onClick={() => { void navigator.clipboard?.writeText(link).then(() => toast.success('Link copiado'), () => toast.error('No se pudo copiar')); }}>
-            Copiar link
-          </Button>
-          <p className="text-xs text-muted-foreground">Quien lo toque abre un chat contigo y la conversación queda marcada con ese código.</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 function AgentSalesCard() {
   const { data } = trpc.instagram.agentSales.useQuery();
   if (!data) return null;

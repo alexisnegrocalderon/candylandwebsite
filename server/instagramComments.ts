@@ -11,13 +11,14 @@ import * as db from './db';
 import { buildInstagramContext } from './instagramAgent';
 import { replyToComment, hideComment, sendButtonMessage, sendPrivateReply } from './instagramSend';
 import { resolveInstagramBuyLink } from './instagramInteractive';
-import { stripUrlsFromReply } from './agentLinks';
+import { stripUrlsFromReply, resolvePageLink, AGENT_PAGE_KEYS, AGENT_SITE_PAGES } from './agentLinks';
 import { sendPushToAdmins } from './push';
 import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
 import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
 import { cleanAiMarks } from '../shared/captionCheck';
 import { triageComment, type CommentCategory } from '../shared/commentTriage';
 import type { IgComment } from '../drizzle/schema';
+import { postOrigin } from '../shared/igFunnel';
 import { buildAdminUrl } from '../shared/adminDeepLink';
 
 export const COMMENT_MAX_CHARS = 300;
@@ -40,30 +41,43 @@ export function finalizeCommentReply(raw: string): string {
 
 const CATEGORY_HINT: Record<CommentCategory, string> = {
   spam: '',
-  emoji: 'Solo dejó emojis: contesta con una reacción mínima, un emoji o dos palabras.',
-  praise: 'Es un elogio: agradece de forma simple y específica a lo que dijo, sin exagerar.',
-  question: 'Hace una pregunta: contéstala con datos reales del contexto, breve. Si no está en los datos, di que le escribes por mensaje.',
-  sensitive: 'Es un tema delicado: NO te comprometas a nada; di solo que le escribes por mensaje para verlo bien.',
-  other: 'Comentario general: responde natural y corto, o con una pregunta suave si encaja.',
+  emoji: 'Solo dejó emojis: devuélvele algo juguetón y mínimo, con emojis (ej. "👀🔥 te esperamos").',
+  praise: 'Es un elogio: agradécelo con coquetería y gracia, tomando algo concreto de lo que dijo.',
+  question: 'Hace una pregunta: en público NO la respondas completa. Di algo corto y tentador que deje con ganas a quien lee (ej. "te dejé todos los detalles por interno 😉🔥") y escribe la respuesta completa en "dm".',
+  sensitive: 'Es un tema delicado: NO te comprometas a nada; di solo que le escribes por interno para verlo bien.',
+  other: 'Comentario general: responde corto y entretenido, o con una pregunta coqueta que invite a seguir.',
 };
+
+/** Botón del DM que puede elegir la IA: entradas, una página del sitio o nada. */
+export function normalizeDmButton(raw: unknown, pageKeys: string[] = AGENT_PAGE_KEYS): string {
+  if (raw === 'buy') return 'buy';
+  if (typeof raw === 'string' && raw.startsWith('page:') && pageKeys.includes(raw.slice(5))) return raw;
+  return 'none';
+}
 
 export function buildCommentPrompt(input: {
   brandNotes: string; styleExamples: string; recentReplies: string[]; category: CommentCategory; purchaseIntent: boolean;
 }): string {
+  const wantsDm = input.category === 'question';
   return [
-    'Eres quien administra el Instagram de Mansion Playroom y contestas un comentario público de una publicación. Escribe en español chileno natural, como una persona real escribiendo desde el celular.',
-    'REGLAS: una sola frase corta (máximo 120 caracteres), a lo más un emoji, sin signos de exclamación seguidos, sin links ni direcciones exactas, sin hashtags. No digas que eres una IA ni un equipo ("estamos encantados", "gracias por tu comentario" suenan a robot). No repitas la estructura de tus respuestas anteriores. Usa algún detalle concreto de lo que escribió la persona.',
+    'Eres quien maneja el Instagram de Mansion Playroom y contestas un comentario público de una publicación. Escribe en español chileno, como una persona real desde el celular.',
+    'ESTILO PLAYROOM: amable, coqueto y entretenido, con picardía elegante (nunca vulgar ni sexual explícito). Usa 1 o 2 emojis que calcen (😉🔥💜👀😈✨🖤). La respuesta pública también la leen otras personas: que dé ganas de ir o de escribir.',
+    'REGLAS DE LA RESPUESTA PÚBLICA ("reply"): una sola frase cortita (máximo 110 caracteres), sin precios, fechas exactas, direcciones, links ni hashtags. No digas que eres una IA ni un equipo ("estamos encantados", "gracias por tu comentario" suenan a robot). No repitas cómo empezaron tus respuestas anteriores. Usa algo concreto de lo que escribió la persona.',
     AI_PHRASES_PROMPT_LINE,
     CATEGORY_HINT[input.category],
-    input.purchaseIntent
-      ? 'La persona quiere comprar o saber precio: en "reply" invítala de forma natural a revisar el mensaje que le llegó (sin dar precios en público) y en "dm" escribe 1-2 frases con la respuesta concreta (los datos están en el contexto). Un botón con el link se agrega solo, no escribas links.'
-      : 'Deja "dm" vacío.',
+    wantsDm
+      ? [
+        'MENSAJE PRIVADO ("dm"): 1 a 3 frases con la respuesta completa y concreta usando SOLO los datos del contexto (precios, fechas, accesos). Mismo tono cercano y coqueto, con 1 emoji. Cierra con una pregunta corta que invite a seguir conversando. Nunca escribas links: el botón se agrega solo.',
+        'BOTÓN ("button"): "buy" si la persona quiere comprar, precios, cupos o la próxima fecha; "page:<ruta>" con una ruta exacta de la lista PÁGINAS DEL SITIO si la duda la resuelve mejor esa página; "none" si no hace falta botón.',
+        `PÁGINAS DEL SITIO (ruta: tema): ${AGENT_SITE_PAGES.map((p) => `${p.path}: ${p.topic}`).join(' | ')}`,
+      ].join('\n')
+      : 'Deja "dm" vacío y "button" en "none".',
     `NOTAS DE LA MARCA:\n${input.brandNotes}`,
     input.styleExamples.trim() ? `ASÍ ESCRIBE EL DUEÑO (imita el tono):\n${input.styleExamples.trim()}` : '',
     input.recentReplies.length
       ? `RESPUESTAS PÚBLICAS RECIENTES DEL DUEÑO (aprende el estilo y NO las copies ni empieces igual):\n${input.recentReplies.map((r) => `- ${r}`).join('\n')}`
       : '',
-    'Responde solo JSON con las claves "reply" y "dm".',
+    'Responde solo JSON con las claves "reply", "dm" y "button".',
   ].filter(Boolean).join('\n\n');
 }
 
@@ -73,34 +87,44 @@ const COMMENT_SCHEMA = {
   schema: {
     type: 'object',
     properties: {
-      reply: { type: 'string', description: 'Respuesta pública, una frase corta.' },
-      dm: { type: 'string', description: 'Mensaje privado de seguimiento, o vacío.' },
+      reply: { type: 'string', description: 'Respuesta pública, una frase cortita con emojis.' },
+      dm: { type: 'string', description: 'Mensaje privado con la respuesta completa, o vacío.' },
+      button: { type: 'string', description: '"buy", "page:<ruta>" o "none".' },
     },
-    required: ['reply', 'dm'],
+    required: ['reply', 'dm', 'button'],
     additionalProperties: false,
   },
 };
 
 export async function draftCommentReply(input: {
   text: string; username?: string | null; category: CommentCategory; purchaseIntent: boolean;
-}): Promise<{ reply: string; dm: string }> {
+}): Promise<{ reply: string; dm: string; button: string }> {
   const config = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
   const recentReplies = await db.recentSentIgReplies(6);
-  const context = input.purchaseIntent ? await buildInstagramContext(new Date()) : '';
+  const wantsDm = input.category === 'question';
+  const context = wantsDm ? await buildInstagramContext(new Date()) : '';
   const result = await invokeLLM({
     messages: [
       { role: 'system', content: buildCommentPrompt({ brandNotes: config.brandNotes, styleExamples: config.styleExamples, recentReplies, category: input.category, purchaseIntent: input.purchaseIntent }) },
       { role: 'user', content: `${context ? `${context}\n\n---\n` : ''}Comentario${input.username ? ` de @${input.username}` : ''}:\n"""${input.text}"""` },
     ],
     responseFormat: { type: 'json_schema', json_schema: COMMENT_SCHEMA as any },
-    maxTokens: 400,
+    maxTokens: 500,
     ...(ENV.anthropicApiKey ? { thinking: NO_THINKING } : {}),
   });
-  const parsed = JSON.parse(extractContent(result.choices[0]?.message ?? { content: '' })) as { reply?: string; dm?: string };
+  const parsed = JSON.parse(extractContent(result.choices[0]?.message ?? { content: '' })) as { reply?: string; dm?: string; button?: string };
+  const dm = wantsDm ? finalizeCommentDm(parsed.dm ?? '') : '';
   return {
     reply: finalizeCommentReply(parsed.reply ?? ''),
-    dm: input.purchaseIntent ? finalizeCommentReply(parsed.dm ?? '') : '',
+    dm,
+    // Una pregunta de compra lleva siempre el botón de entradas aunque la IA lo olvide.
+    button: !dm ? 'none' : input.purchaseIntent && normalizeDmButton(parsed.button) === 'none' ? 'buy' : normalizeDmButton(parsed.button),
   };
+}
+
+/** El DM puede tener varias frases y saltos, pero nunca links. */
+export function finalizeCommentDm(raw: string): string {
+  return cleanAiMarks(stripUrlsFromReply(String(raw ?? '')).text).replace(/[¡!]{2,}/g, '!').trim().slice(0, 600);
 }
 
 /** Entrada desde el webhook, cuando ninguna campaña por palabra clave calzó.
@@ -125,11 +149,11 @@ export async function handleIncomingComment(input: {
       return;
     }
 
-    let draft = { reply: '', dm: '' };
+    let draft = { reply: '', dm: '', button: 'none' };
     if (category !== 'sensitive') {
       try { draft = await draftCommentReply({ text: input.text, username: input.username, category, purchaseIntent }); } catch { /* sin borrador: el dueño lo escribe */ }
     }
-    const row = await db.insertIgComment({ ...input, category, draftReply: draft.reply || null, draftDm: draft.dm || null });
+    const row = await db.insertIgComment({ ...input, category, draftReply: draft.reply || null, draftDm: draft.dm || null, dmButton: draft.dm ? draft.button : null });
     if (!row) return; // Meta reintentó
     await sendPushToAdmins('pushInstagramHandoff', {
       title: `💬 Comentario de ${input.username ? `@${input.username}` : 'Instagram'}`,
@@ -141,13 +165,15 @@ export async function handleIncomingComment(input: {
   }
 }
 
-/** El dueño aprobó: publica la respuesta y, si hay, manda el DM con botón. */
-export async function approveComment(id: number, finalReply: string): Promise<{ dmSent: boolean }> {
+/** El dueño aprobó: publica la respuesta y, si hay, manda el DM con su botón
+ * (el texto del DM también puede venir editado desde el panel). */
+export async function approveComment(id: number, finalReply: string, finalDm?: string | null): Promise<{ dmSent: boolean }> {
   const row = await db.getIgComment(id);
   if (!row) throw new Error('Ese comentario ya no existe.');
   if (row.status === 'sent') throw new Error('Ese comentario ya se respondió.');
   const reply = finalizeCommentReply(finalReply);
   if (!reply) throw new Error('Escribe la respuesta antes de publicar.');
+  const dmText = finalDm === undefined ? (row.draftDm ?? '') : finalizeCommentDm(finalDm ?? '');
   try {
     await replyToComment(row.commentId, reply);
   } catch (err) {
@@ -155,18 +181,29 @@ export async function approveComment(id: number, finalReply: string): Promise<{ 
     await db.decideIgComment(id, { status: 'failed', finalReply: reply, error: message });
     throw new Error(`Instagram no dejó publicar: ${message}`);
   }
-  await db.decideIgComment(id, { status: 'sent', finalReply: reply, error: null });
+  await db.decideIgComment(id, { status: 'sent', finalReply: reply, draftDm: dmText || null, error: null });
 
   let dmSent = false;
-  if (row.draftDm) {
+  if (dmText) {
     try {
-      const buy = await resolveInstagramBuyLink(new Date(), 'agente-comentario');
-      if (buy) await sendButtonMessage({ comment_id: row.commentId }, row.draftDm, { title: DM_BUTTON_TITLE, url: buy.url });
-      else await sendPrivateReply(row.commentId, row.draftDm);
+      const button = await resolveCommentButton(row.dmButton ?? (row.draftDm ? 'buy' : 'none'), row.mediaId);
+      if (button) await sendButtonMessage({ comment_id: row.commentId }, dmText, button);
+      else await sendPrivateReply(row.commentId, dmText);
       dmSent = true;
     } catch (err) {
       console.error('[instagram-comments] se publicó la respuesta pero falló el DM', err);
     }
   }
   return { dmSent };
+}
+
+/** Botón del DM, con el origen (la publicación) pegado para el embudo. */
+async function resolveCommentButton(choice: string, mediaId: string | null): Promise<{ title: string; url: string } | null> {
+  const origin = postOrigin(mediaId);
+  if (choice === 'buy') {
+    const buy = await resolveInstagramBuyLink(new Date(), 'agente-comentario', origin);
+    return buy ? { title: DM_BUTTON_TITLE, url: buy.url } : null;
+  }
+  if (choice.startsWith('page:')) return resolvePageLink(choice.slice(5), 'instagram', 'agente-comentario', origin);
+  return null;
 }

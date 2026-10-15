@@ -26,6 +26,13 @@ const CATEGORY_LABEL: Record<string, string> = {
   spam: 'Spam', emoji: 'Solo emojis', praise: 'Elogio', question: 'Pregunta', sensitive: 'Delicado', other: 'Comentario',
 };
 
+/** Qué botón acompaña al DM, en palabras simples. */
+function buttonLabel(choice: string | null): string {
+  if (!choice || choice === 'buy') return '(con botón a las entradas)';
+  if (choice.startsWith('page:')) return `(con botón a ${choice.slice(5)})`;
+  return '(sin botón)';
+}
+
 const onError = (error: unknown) => {
   toast.error(error instanceof Error ? error.message : 'No se pudo completar la acción.');
 };
@@ -34,6 +41,7 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
   const utils = trpc.useUtils();
   const [filter, setFilter] = useState<Filter | 'all'>('pending');
   const [edits, setEdits] = useState<Record<number, string>>({});
+  const [dmEdits, setDmEdits] = useState<Record<number, string>>({});
   const { data: config } = trpc.instagram.getConfig.useQuery();
   const { data: comments, isLoading } = trpc.instagramComments.list.useQuery({ status: filter });
   const refresh = () => { void utils.instagramComments.list.invalidate(); void utils.instagramComments.pendingCount.invalidate(); };
@@ -102,15 +110,27 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
                   <span>{c.username ? `@${c.username}` : 'Instagram'} · {CATEGORY_LABEL[c.category] ?? c.category}</span>
                   <span>{formatChileDateTime(c.createdAt)}</span>
                 </div>
+                {c.post && (
+                  <a href={c.post.permalink} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-xl bg-muted/50 p-1.5 text-xs text-muted-foreground">
+                    {c.post.thumbnail ? <img src={c.post.thumbnail} alt="" className="h-9 w-9 rounded-md object-cover" loading="lazy" /> : null}
+                    <span className="truncate">En: {c.post.caption || 'tu publicación'}</span>
+                  </a>
+                )}
                 <p className="text-sm whitespace-pre-wrap">"{c.text}"</p>
                 {c.error ? <p className="text-xs text-destructive">{c.error}</p> : null}
                 {pending ? (
                   <>
                     <Textarea value={value} rows={2} placeholder={c.category === 'sensitive' ? 'Tema delicado: escribe tú la respuesta' : 'Escribe la respuesta'}
                       onChange={(e) => setEdits({ ...edits, [c.id]: e.target.value })} />
-                    {c.draftDm ? <p className="text-xs text-muted-foreground">También le llegará por mensaje (con botón a las entradas): "{c.draftDm}"</p> : null}
+                    {c.draftDm ? (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground">Mensaje privado {buttonLabel(c.dmButton)}</p>
+                        <Textarea value={dmEdits[c.id] ?? c.draftDm} rows={3}
+                          onChange={(e) => setDmEdits({ ...dmEdits, [c.id]: e.target.value })} />
+                      </div>
+                    ) : null}
                     <div className="flex gap-2">
-                      <Button className="flex-1 min-h-11" disabled={!value.trim() || approve.isPending} onClick={() => approve.mutate({ id: c.id, reply: value })}>
+                      <Button className="flex-1 min-h-11" disabled={!value.trim() || approve.isPending} onClick={() => approve.mutate({ id: c.id, reply: value, ...(c.draftDm ? { dm: dmEdits[c.id] ?? c.draftDm } : {}) })}>
                         <Check className="w-4 h-4 mr-1" /> Publicar
                       </Button>
                       <Button variant="outline" className="min-h-11" disabled={discard.isPending} onClick={() => discard.mutate({ id: c.id })}>

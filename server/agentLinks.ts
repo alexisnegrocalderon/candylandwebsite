@@ -107,13 +107,27 @@ export function withAgentUtm(url: string, channel: AgentLinkChannel, campaign: s
   return u.toString();
 }
 
+/** Pasa un link del sitio por el contador de clics (`/api/go`, ver
+ * server/linkTracker.ts), que redirige al mismo destino con sus UTM. Links
+ * de otros dominios quedan igual. El origen es `utm_content` (o la campaña). */
+export function trackedUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.host !== new URL(APP_URL).host || u.pathname.startsWith('/api/go')) return url;
+    const origin = u.searchParams.get('utm_content') || u.searchParams.get('utm_campaign') || 'sin-origen';
+    return `${APP_URL}/api/go?o=${encodeURIComponent(origin)}&to=${encodeURIComponent(u.pathname + u.search)}`;
+  } catch {
+    return url;
+  }
+}
+
 /** El botón de una página del sitio que eligió el modelo, o `null` si la
  * clave no es de la lista (nunca se arma una URL con algo inventado). */
-export function resolvePageLink(pageKey: string | null | undefined, channel: AgentLinkChannel): { title: string; url: string } | null {
+export function resolvePageLink(pageKey: string | null | undefined, channel: AgentLinkChannel, campaign: string = 'agente', content?: string): { title: string; url: string } | null {
   if (!pageKey) return null;
   const page = AGENT_SITE_PAGES.find((p) => p.path === pageKey);
   if (!page) return null;
-  return { title: page.buttonLabel.slice(0, 20), url: withAgentUtm(`${APP_URL}${page.path}`, channel) };
+  return { title: page.buttonLabel.slice(0, 20), url: withAgentUtm(`${APP_URL}${page.path}`, channel, campaign, content) };
 }
 
 // http(s)://..., www...., o cualquier cosa con el dominio del sitio, con o

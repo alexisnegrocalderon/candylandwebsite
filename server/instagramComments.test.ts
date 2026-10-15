@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { finalizeCommentReply, buildCommentPrompt, COMMENT_MAX_CHARS } from './instagramComments';
+import { finalizeCommentReply, finalizeCommentDm, buildCommentPrompt, normalizeDmButton, COMMENT_MAX_CHARS } from './instagramComments';
 
 describe('finalizeCommentReply', () => {
   it('saca links, rayas largas y exclamaciones en cadena', () => {
@@ -24,11 +24,31 @@ describe('buildCommentPrompt', () => {
     expect(p).toContain('Gracias linda 💜');
     expect(p).toContain('NO las copies');
   });
-  it('pide un DM solo cuando hay intención de compra', () => {
+  it('pide el DM con botón para toda pregunta, y no para elogios', () => {
     expect(buildCommentPrompt(base)).toContain('Deja "dm" vacío');
-    expect(buildCommentPrompt({ ...base, category: 'question', purchaseIntent: true })).toContain('sin dar precios en público');
+    const q = buildCommentPrompt({ ...base, category: 'question', purchaseIntent: false });
+    expect(q).toContain('MENSAJE PRIVADO');
+    expect(q).toContain('"buy"');
+  });
+  it('estilo Playroom con emojis y sin precios en público', () => {
+    const p = buildCommentPrompt(base);
+    expect(p).toContain('coqueto');
+    expect(p).toContain('emojis');
+    expect(p).toContain('sin precios');
   });
   it('no pide hablar como IA ni como equipo', () => {
     expect(buildCommentPrompt(base)).toContain('No digas que eres una IA');
+  });
+});
+
+describe('botón y DM del comentario', () => {
+  it('solo acepta botones conocidos', () => {
+    expect(normalizeDmButton('buy')).toBe('buy');
+    expect(normalizeDmButton('page:/faq', ['/faq'])).toBe('page:/faq');
+    expect(normalizeDmButton('page:/inventada', ['/faq'])).toBe('none');
+    expect(normalizeDmButton('https://evil.com')).toBe('none');
+  });
+  it('el DM nunca lleva links escritos', () => {
+    expect(finalizeCommentDm('Las entradas están en https://mansionplayroom.cl/eventos/x 🔥')).not.toMatch(/https?:|mansionplayroom/);
   });
 });
