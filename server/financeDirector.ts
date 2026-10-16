@@ -174,7 +174,7 @@ export async function buildFinanceDataBlock(now: Date = new Date()): Promise<str
 
 export async function askFinance(question: string): Promise<string> {
   const datos = await buildFinanceDataBlock();
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "financeDirector",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: `${datos}\n\nPregunta: ${question}` },

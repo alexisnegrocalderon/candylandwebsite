@@ -130,7 +130,7 @@ export async function writeNarrative(i: SingleNarrativeInput, timeoutMs = 25_000
       ...recs.map((r: Recommendation) => `- ${r.id} | ${r.title} | ${r.area} | ${r.quality}`),
     ].join("\n");
 
-    const call = invokeLLM({
+    const call = invokeLLM({ feature: "budgetNarrative",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: data },

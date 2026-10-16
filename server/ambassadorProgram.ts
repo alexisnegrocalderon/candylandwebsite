@@ -851,7 +851,7 @@ export async function generateWeeklyMaterial(
     partesContexto.push(`Archivos disponibles en el Drive (id | nombre):\n${driveFiles.map((f) => `${f.id} | ${f.name}`).join('\n')}`);
   }
 
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "ambassadorProgram",
     messages: [
       { role: 'system', content: WEEKLY_MATERIAL_SYSTEM_PROMPT },
       { role: 'user', content: `Idea para el material de esta semana: ${idea}\n\nContexto:\n${partesContexto.join('\n')}` },

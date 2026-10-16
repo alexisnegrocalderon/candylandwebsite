@@ -159,7 +159,7 @@ export async function runAgentCoach(opts: { now?: Date; trigger?: 'cron' | 'manu
     ...transcripts,
   ].join('\n');
 
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "agentCoach",
     messages: [
       {
         role: 'system',

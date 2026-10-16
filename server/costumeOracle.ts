@@ -99,7 +99,7 @@ function normalize(raw: any): OracleResult | null {
 
 export async function generateCostumeIdeas(answers: OracleAnswers): Promise<OracleResult> {
   try {
-    const result = await invokeLLM({
+    const result = await invokeLLM({ feature: "costumeOracle",
       messages: [
         { role: 'system', content: buildSystemPrompt() },
         { role: 'user', content: buildUserPrompt(answers) },

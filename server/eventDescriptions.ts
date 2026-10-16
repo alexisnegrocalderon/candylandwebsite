@@ -52,7 +52,7 @@ export async function generateEventDescription(input: {
     input.idea?.trim() ? `Idea/tema que quiero para este evento: ${input.idea.trim()}` : null,
   ].filter(Boolean).join("\n");
 
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "eventDescriptions",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: datos },

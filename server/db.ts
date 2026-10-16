@@ -5,7 +5,7 @@ import { normalizeStatusCounts } from "../shared/ordersPagination";
 import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAvailability } from "../shared/accessCredit";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -8360,4 +8360,37 @@ export async function getIgThreadsByUserIds(igUserIds: string[]): Promise<Map<st
   const rows = await db.select().from(igThreads).where(inArray(igThreads.igUserId, igUserIds));
   for (const r of rows) out.set(r.igUserId, r);
   return out;
+}
+
+
+// Gasto de IA (aiUsage). Todo tolerante: sin la tabla, la IA sigue funcionando.
+export async function recordAiUsage(input: {
+  feature: string; model: string; inputTokens: number; outputTokens: number;
+  cacheReadTokens: number; cacheWriteTokens: number; costUsd: number;
+}): Promise<void> {
+  try {
+    const db = await getDb();
+    if (!db) return;
+    await db.insert(aiUsage).values({
+      feature: input.feature.slice(0, 60), model: input.model.slice(0, 60),
+      inputTokens: input.inputTokens, outputTokens: input.outputTokens,
+      cacheReadTokens: input.cacheReadTokens, cacheWriteTokens: input.cacheWriteTokens,
+      costMicroUsd: Math.round(input.costUsd * 1_000_000),
+    });
+  } catch (err) {
+    console.warn('[Database] No se pudo guardar el gasto de IA (¿falta la tabla aiUsage?):', err);
+  }
+}
+
+export async function listAiUsageSince(since: Date): Promise<{ feature: string; model: string; costMicroUsd: number; createdAt: Date }[]> {
+  try {
+    const db = await getDb();
+    if (!db) return [];
+    return await db.select({
+      feature: aiUsage.feature, model: aiUsage.model, costMicroUsd: aiUsage.costMicroUsd, createdAt: aiUsage.createdAt,
+    }).from(aiUsage).where(gte(aiUsage.createdAt, since));
+  } catch (err) {
+    console.warn('[Database] No se pudo leer el gasto de IA (¿falta la tabla aiUsage?):', err);
+    return [];
+  }
 }

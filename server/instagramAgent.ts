@@ -507,7 +507,7 @@ async function runAgentOnce(input: {
     const history = toLlmMessages(input.history).slice(-config.historyLimit);
 
     const systemPrompt = buildSystemPrompt(config, { isFinalReplyOfDay: input.isFinalReplyOfDay, channel, customerNotes: input.customerNotes, welcome: input.welcome, isFan: input.isFan, extra });
-    const result = await invokeLLM({
+    const result = await invokeLLM({ feature: "instagramAgent",
       messages: [
         { role: 'system', content: systemPrompt.stable, cache: true },
         ...(systemPrompt.volatile.length > 0 ? [{ role: 'system' as const, content: systemPrompt.volatile }] : []),

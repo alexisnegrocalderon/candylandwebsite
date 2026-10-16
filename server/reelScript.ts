@@ -92,7 +92,7 @@ export async function generateReelScript(input: { idea: string; targetEventId?: 
     buildPlayroomKnowledge(),
   ].join('\n');
 
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "reelScript",
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userContent },

@@ -2561,3 +2561,25 @@ export const igLinkClicks = mysqlTable("igLinkClicks", {
   originIdx: index("ig_link_clicks_origin_idx").on(table.origin),
   createdIdx: index("ig_link_clicks_created_idx").on(table.createdAt),
 }));
+
+// ---------------------------------------------------------------------------
+// Gasto de IA: una fila por llamada a Claude (server/_core/llm.ts, Estudio).
+// `feature` = qué función la pidió; el costo va en micro-dólares (US$ × 1e6).
+// ---------------------------------------------------------------------------
+
+export const aiUsage = mysqlTable("aiUsage", {
+  id: int("id").autoincrement().primaryKey(),
+  feature: varchar("feature", { length: 60 }).notNull(),
+  model: varchar("model", { length: 60 }).notNull(),
+  inputTokens: int("inputTokens").notNull().default(0),
+  outputTokens: int("outputTokens").notNull().default(0),
+  cacheReadTokens: int("cacheReadTokens").notNull().default(0),
+  cacheWriteTokens: int("cacheWriteTokens").notNull().default(0),
+  costMicroUsd: int("costMicroUsd").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  createdIdx: index("ai_usage_created_idx").on(table.createdAt),
+  featureIdx: index("ai_usage_feature_idx").on(table.feature),
+}));
+
+export type AiUsageRow = typeof aiUsage.$inferSelect;

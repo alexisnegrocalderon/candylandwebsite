@@ -46,8 +46,16 @@ export function addUsage(a: AiUsage, b: AiUsage): AiUsage {
 /** Costo en US$ de un uso. Si el modelo que respondió no está en la tabla
  * (ej. un respaldo automático), se cobra como el más caro conocido para no
  * mostrar de menos. */
+export function priceFor(model: string) {
+  if (model in AI_PRICES) return AI_PRICES[model as AiModel];
+  // Otras versiones de la misma familia (claude-sonnet-5, haiku-4-5...) se cobran como su familia.
+  if (/haiku/i.test(model)) return AI_PRICES['claude-haiku-4-5'];
+  if (/sonnet/i.test(model)) return AI_PRICES['claude-sonnet-5-5'];
+  return AI_PRICES['claude-opus-5-5'];
+}
+
 export function usageCostUsd(model: string, usage: AiUsage): number {
-  const p = AI_PRICES[model as AiModel] ?? AI_PRICES['claude-opus-5-5'];
+  const p = priceFor(model);
   const perToken = (usd: number) => usd / 1_000_000;
   return (
     usage.inputTokens * perToken(p.input) +

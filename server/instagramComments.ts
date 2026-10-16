@@ -105,7 +105,7 @@ export async function draftCommentReply(input: {
   const recentReplies = await db.recentSentIgReplies(6);
   const wantsDm = input.category === 'question';
   const context = wantsDm ? await buildInstagramContext(new Date()) : '';
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "instagramComments",
     messages: [
       { role: 'system', content: buildCommentPrompt({ brandNotes: config.brandNotes, styleExamples: config.styleExamples, recentReplies, category: input.category, purchaseIntent: input.purchaseIntent, hook: wantsDm ? pickHook(config.hooks, recentReplies) : null }) },
       { role: 'user', content: `${context ? `${context}\n\n---\n` : ''}Comentario${input.username ? ` de @${input.username}` : ''}:\n"""${input.text}"""` },
@@ -255,7 +255,7 @@ export async function suggestOwnComment(mediaId: string, opts: { notify?: boolea
   const config = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
   const recent = await db.recentSentIgReplies(8);
   const caption = String(post.caption ?? '');
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "instagramComments",
     messages: [
       { role: 'system', content: buildOwnCommentPrompt({ brandNotes: config.brandNotes, caption, mediaType: String(post.media_type ?? ''), recent }) },
       { role: 'user', content: `Pie de foto de la publicación (${post.media_type === 'VIDEO' ? 'reel' : post.media_type === 'CAROUSEL_ALBUM' ? 'carrusel' : 'foto'}):\n"""${caption.slice(0, 1500) || '(sin pie de foto)'}"""` },

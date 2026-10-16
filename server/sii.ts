@@ -327,7 +327,7 @@ export async function askSii(question: string, monthKey: string): Promise<string
     "Alertas: " + (m.alerts.map((a) => a.text).join(" | ") || "ninguna"),
     "Ruta en sii.cl: Servicios online → Impuestos mensuales → Declaración mensual (F29) → Declarar IVA → elegir período → revisar la propuesta del SII → completar/corregir casillas → enviar → pagar (PEC, tarjeta o transferencia) → guardar el folio.",
   ].filter(Boolean).join("\n");
-  const result = await invokeLLM({ messages: [{ role: "system", content: SII_PROMPT }, { role: "user", content: `${datos}\n\nPregunta: ${question}` }] });
+  const result = await invokeLLM({ feature: "sii", messages: [{ role: "system", content: SII_PROMPT }, { role: "user", content: `${datos}\n\nPregunta: ${question}` }] });
   const answer = extractContent(result.choices[0]?.message ?? { content: "" }).trim();
   if (!answer) throw new Error("La IA no devolvió ninguna respuesta. Intenta de nuevo.");
   return answer;

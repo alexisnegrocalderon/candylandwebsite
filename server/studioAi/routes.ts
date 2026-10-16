@@ -6,6 +6,7 @@ import { AI_MODELS, emptyAiDesign, usageCostUsd } from '../../shared/studioAi';
 import { createDesignTurn, editDesignTurn, type DesignerEvent } from './designer';
 import { addAiMessage, createAiDesign, listAiMessages, loadAiDesign, saveAiDesign } from './store';
 import { isAllowedAssetUrl } from './sanitize';
+import { recordAiUsage } from '../db';
 
 /* Chat del Diseñador IA del Estudio, por SSE (Server-Sent Events): el panel
  * va mostrando «Pensando el concepto…» y cada lámina apenas está lista, en
@@ -86,6 +87,7 @@ export function registerStudioAiRoutes(app: Express) {
       const result = design.slides.length === 0 ? await createDesignTurn(turn) : await editDesignTurn(turn);
       design = await saveAiDesign(designId, result.design);
       const costUsd = usageCostUsd(result.model, result.usage);
+      await recordAiUsage({ feature: 'studio-diseno-libre', model: result.model, ...result.usage, costUsd });
       const messageId = await addAiMessage({
         designId, role: 'assistant', text: result.reply, model: result.model, usage: result.usage, costUsd, snapshot: design,
       });

@@ -220,7 +220,7 @@ export async function buildPlanRequest(targetEventId: number | undefined, now: D
 export async function generateContentPlan(targetEventId: number | undefined, now: Date = new Date(), focus?: string): Promise<ContentPlan> {
   const { event, window, keywords, userContent } = await buildPlanRequest(targetEventId, now, focus);
 
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "contentPlanner",
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userContent },

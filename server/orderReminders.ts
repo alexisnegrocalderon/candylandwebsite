@@ -235,7 +235,7 @@ Responde ÚNICAMENTE con el JSON pedido, sin explicaciones.`;
 
 /** Reescribe el cuerpo del recordatorio a partir de una idea del dueño. */
 export async function generateReminderCopy(idea: string): Promise<ReminderCopy> {
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "orderReminders",
     messages: [
       { role: 'system', content: REMINDER_SYSTEM_PROMPT },
       { role: 'user', content: `Ángulo que quiero para este recordatorio: ${idea}` },

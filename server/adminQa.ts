@@ -73,7 +73,7 @@ export async function answerSalesQuestion(question: string, eventId?: number): P
 
   const datos = buildDataBlock(stats, utmSales, pnl);
 
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "adminQa",
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: `${datos}\n\nPregunta: ${question}` },
