@@ -137,7 +137,7 @@ export async function writeNarrative(i: SingleNarrativeInput, timeoutMs = 25_000
       ],
       responseFormat: { type: "json_schema", json_schema: SCHEMA as any },
       maxTokens: 1500,
-      ...(ENV.anthropicApiKey ? { model: "claude-sonnet-5", thinking: NO_THINKING } : {}),
+      ...(ENV.anthropicApiKey ? { model: "claude-haiku-4-5", thinking: NO_THINKING } : {}),
     });
     const result = await Promise.race([
       call,

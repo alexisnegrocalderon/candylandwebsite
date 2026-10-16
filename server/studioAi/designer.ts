@@ -148,7 +148,7 @@ async function callJson<T>(opts: {
         { type: 'text', text: opts.dynamic },
       ],
       messages: opts.messages,
-      output_config: { effort: 'medium', format: { type: 'json_schema', schema: opts.schema } },
+      output_config: { ...(opts.model === 'claude-haiku-4-5' ? {} : { effort: 'medium' as const }), format: { type: 'json_schema', schema: opts.schema } },
     },
     { signal: opts.signal },
   );

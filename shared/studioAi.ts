@@ -8,17 +8,19 @@
 
 import { STUDIO_SIZES, type StudioFormat } from './contentStudio';
 
-export const AI_MODELS = ['claude-sonnet-5-5', 'claude-opus-5-5'] as const;
+export const AI_MODELS = ['claude-haiku-4-5', 'claude-sonnet-5-5', 'claude-opus-5-5'] as const;
 export type AiModel = (typeof AI_MODELS)[number];
 
 export const AI_MODEL_LABEL: Record<AiModel, string> = {
-  'claude-sonnet-5-5': 'Sonnet (rápido)',
+  'claude-haiku-4-5': 'Haiku (económico)',
+  'claude-sonnet-5-5': 'Sonnet (equilibrado)',
   'claude-opus-5-5': 'Opus (mejor diseño)',
 };
 
 /** US$ por millón de tokens (API de Anthropic, octubre 2026). Escribir en
  * caché cuesta 1,25× la entrada normal. */
 export const AI_PRICES: Record<AiModel, { input: number; output: number; cacheRead: number }> = {
+  'claude-haiku-4-5': { input: 1, output: 5, cacheRead: 0.1 },
   'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.2 },
   'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.2 },
 };

@@ -39,7 +39,7 @@ const COACH_HOUR_CHILE = 10;
 // Modelo más capaz que el del chat (Haiku): corre una vez por semana y el
 // análisis es justamente lo que tiene que salir bien. Solo aplica cuando el
 // proveedor activo es Anthropic -- con otro, invokeLLM usa su default.
-const COACH_MODEL = 'claude-sonnet-5';
+const COACH_MODEL = 'claude-haiku-4-5';
 
 const COACH_SCHEMA = {
   name: 'reporte_coach_agente',

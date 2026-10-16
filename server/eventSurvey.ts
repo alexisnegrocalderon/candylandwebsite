@@ -158,7 +158,7 @@ const ANALYSIS_SCHEMA = {
 // Mismo criterio que el coach y el Director comercial: análisis puntual, el
 // modelo más capaz. Solo aplica con Anthropic; con otro proveedor se usa su
 // default.
-const ANALYSIS_MODEL = 'claude-sonnet-5';
+const ANALYSIS_MODEL = 'claude-haiku-4-5';
 const MAX_COMMENTS_FOR_ANALYSIS = 150;
 
 const ANALYSIS_SYSTEM_PROMPT = [
