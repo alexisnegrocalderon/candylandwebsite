@@ -83,7 +83,7 @@ La marca usa una paleta pastel (rosa/celeste/amarillo/lila) y emojis con moderac
 Responde ÚNICAMENTE con el JSON pedido, sin explicaciones adicionales. Usa "highlightLabel"/"highlightValue" solo si el objetivo menciona un dato concreto que valga la pena destacar en grande (un número de entradas, un precio, un premio); si no aplica, omítelos.`;
 
 export async function generateMailingTemplate(objective: string, audienceDescription: string): Promise<MailingContent> {
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "mailing",
     messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: `Objetivo del mail: ${objective}\n\nA quién se le manda: ${audienceDescription}` },

@@ -120,6 +120,8 @@ import { getWinbackOverview, draftWinbackEmail, createWinbackCampaign } from "./
 import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign } from "./contentStudio";
+import { recordAiUsage, listAiUsageSince } from "./db";
+import { summarizeAiUsage } from "../shared/aiUsage";
 import { quickBubbleDesign } from "./studioAi/quick";
 import { AI_MODELS } from "../shared/studioAi";
 import { STUDIO_FORMATS } from "../shared/contentStudio";
@@ -2499,6 +2501,14 @@ export const appRouter = router({
     }),
   }),
 
+  // Gasto de IA por función y por día (tabla aiUsage; shared/aiUsage.ts).
+  aiUsage: router({
+    summary: adminReadProcedure.input(z.object({ days: z.number().int().min(1).max(90).default(30) })).query(async ({ input }) => {
+      const rows = await listAiUsageSince(new Date(Date.now() - input.days * 86_400_000));
+      return summarizeAiUsage(rows);
+    }),
+  }),
+
   // Estudio de contenido (server/contentStudio.ts): carruseles, posts e
   // historias con las plantillas de marca. Leer es adminReadProcedure (no hay
   // datos personales); guardar, adminProcedure; borrar pide la clave, como
@@ -2539,6 +2549,7 @@ export const appRouter = router({
       try {
         const result = await quickBubbleDesign({ ...input, eventId: input.eventId ?? null });
         const id = await saveContentDesign(undefined, result.design);
+        await recordAiUsage({ feature: 'studio-rapido', model: result.model, ...result.usage, costUsd: result.costUsd });
         return { id, costUsd: result.costUsd };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear el diseño.' });

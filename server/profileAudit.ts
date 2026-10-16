@@ -105,7 +105,7 @@ export async function generateProfileAudit(input: ProfileInput, now: Date = new 
     ? [{ type: 'text' as const, text: lines.join('\n') }, { type: 'image_url' as const, image_url: { url: input.screenshotUrl } }]
     : lines.join('\n');
 
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "profileAudit",
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: userContent },

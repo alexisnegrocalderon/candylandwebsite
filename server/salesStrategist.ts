@@ -219,7 +219,7 @@ export async function runSalesStrategist(opts: { now?: Date; trigger?: 'cron' | 
   const data = await gatherStrategyData(opts.eventId, now);
   if ('error' in data) return { ran: false, reason: data.error };
 
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "salesStrategist",
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: data.dataBlock },

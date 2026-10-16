@@ -32,7 +32,7 @@ Reglas:
 - "notes": null si todo está claro, o una frase corta avisando qué revisar (ej. "el monto final está tapado por un dedo, confírmalo").
 - Responde SOLO con el JSON pedido, ningún texto extra.`;
 
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "receiptScan",
     messages: [
       { role: 'system', content: systemPrompt },
       {

@@ -190,7 +190,7 @@ export async function analyzeEventSurvey(eventId: number, now: Date = new Date()
       .map((r) => `- ${r.rating}★ | ${r.liked || '(sin comentario)'} | ${r.improve || '(sin comentario)'}`),
   ];
 
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "eventSurvey",
     messages: [
       { role: 'system', content: ANALYSIS_SYSTEM_PROMPT },
       { role: 'user', content: lines.join('\n') },

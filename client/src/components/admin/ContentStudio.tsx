@@ -36,6 +36,7 @@ import { downloadSlide, downloadZip, shareSlides, slideFileName } from './studio
 import { newSlide, starterSlides } from './studio/starters';
 import { takeQueuedDesign } from './studio/handoff';
 import { AiDesigner } from './studio/AiDesigner';
+import { AiUsageCard } from './studio/AiUsageCard';
 import { SlideFrame } from './studio/SlideFrame';
 
 /* Estudio de contenido: arma carruseles, posts e historias con las plantillas
@@ -189,6 +190,8 @@ function StudioHome({ onOpen, onOpenAi }: { onOpen: (e: Editing) => void; onOpen
           libremente con tu Design System conversando, o con las plantillas fijas de la marca.
         </p>
       </div>
+
+      <AiUsageCard />
 
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5 bg-gradient-to-br from-pink-500/5 to-sky-500/5">
         <CardContent className="pt-6 flex flex-wrap items-end gap-3">

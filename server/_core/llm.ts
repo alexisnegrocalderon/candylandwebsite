@@ -64,6 +64,8 @@ export type ToolChoice =
   | ToolChoiceExplicit;
 
 export type InvokeParams = {
+  /** Qué función pide la IA (para el panel de gasto). */
+  feature?: string;
   messages: Message[];
   tools?: Tool[];
   toolChoice?: ToolChoice;
@@ -458,6 +460,27 @@ export function buildAnthropicSystem(
 // del SDK de Anthropic, y la respuesta de vuelta a InvokeResult -- así los 6
 // llamadores de invokeLLM (instagramAgent, adminQa, mailing, etc.) no
 // necesitan saber qué proveedor está activo.
+/** Guarda el gasto de la llamada para el panel (nunca rompe la respuesta). */
+async function logUsage(
+  feature: string | undefined,
+  model: string,
+  usage: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null },
+): Promise<void> {
+  try {
+    const u = {
+      inputTokens: usage.input_tokens ?? 0,
+      outputTokens: usage.output_tokens ?? 0,
+      cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+      cacheWriteTokens: usage.cache_creation_input_tokens ?? 0,
+    };
+    const { usageCostUsd } = await import("../../shared/studioAi");
+    const { recordAiUsage } = await import("../db");
+    await recordAiUsage({ feature: feature ?? "sin-etiqueta", model, ...u, costUsd: usageCostUsd(model, u) });
+  } catch (err) {
+    console.warn("[LLM] No se pudo registrar el gasto:", err);
+  }
+}
+
 async function invokeAnthropic(params: InvokeParams): Promise<InvokeResult> {
   const { messages, model, maxTokens, max_tokens, responseFormat, response_format, outputSchema, output_schema, thinking } = params;
 
@@ -527,6 +550,8 @@ async function invokeAnthropic(params: InvokeParams): Promise<InvokeResult> {
       throw new Error(`La IA no devolvió ninguna respuesta${response.stop_reason ? ` (motivo: ${response.stop_reason})` : ""}. Intenta de nuevo.`);
     }
   }
+
+  void logUsage(params.feature, response.model, response.usage);
 
   return {
     id: response.id,

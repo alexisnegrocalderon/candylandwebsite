@@ -281,7 +281,7 @@ async function buildNightNumbers(eventId: number) {
 }
 
 async function writeAiSummary(numbers: Awaited<ReturnType<typeof buildNightNumbers>>, final: boolean): Promise<string> {
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "caja-alerts",
     messages: [
       {
         role: "system",

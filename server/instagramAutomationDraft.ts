@@ -97,7 +97,7 @@ export async function generateAutomationReplyDraft(input: {
       : []),
   ].join("\n");
 
-  const result = await invokeLLM({
+  const result = await invokeLLM({ feature: "instagramAutomationDraft",
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: datos },
