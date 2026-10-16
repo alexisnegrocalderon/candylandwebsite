@@ -298,6 +298,9 @@ async function writeAiSummary(numbers: Awaited<ReturnType<typeof buildNightNumbe
   return extractContent(result.choices[0]?.message ?? { content: "" }).trim();
 }
 
+/** Última foto de números resumida por evento (ahorra créditos de IA entre horas iguales). */
+const lastSummaryFingerprint = new Map<number, string>();
+
 export async function runCajaWatch(now: Date = new Date()) {
   const db = await getDb();
   if (!db) return { checked: 0 };
@@ -388,7 +391,13 @@ export async function runCajaWatch(now: Date = new Date()) {
           if (elapsed >= 3_600_000) {
             const [already] = await db.select({ id: cajaAlerts.id }).from(cajaAlerts).where(eq(cajaAlerts.dedupeKey, `ai_summary:${eventId}:${hourKey}`)).limit(1);
             if (!already) {
-              const text = await writeAiSummary(await buildNightNumbers(eventId), false);
+              const numbers = await buildNightNumbers(eventId);
+              // Sin cambios en ventas/stock desde el último resumen, no se gasta IA.
+              const { ultimasAlertas: _ignored, ...essential } = numbers;
+              const fingerprint = JSON.stringify(essential);
+              if (lastSummaryFingerprint.get(eventId) === fingerprint) continue;
+              lastSummaryFingerprint.set(eventId, fingerprint);
+              const text = await writeAiSummary(numbers, false);
               if (text) await raiseCajaAlert(eventId, { kind: "ai_summary", severity: "info", dedupeKey: `ai_summary:${eventId}:${hourKey}`, title: "Resumen de caja", body: text }, { isTestEvent: event.slug === "pruebas-caja" });
             }
           }

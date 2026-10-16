@@ -45,9 +45,9 @@ interface ChatMessage {
 function loadModel(): AiModel {
   try {
     const saved = window.localStorage.getItem(MODEL_KEY);
-    return (AI_MODELS as readonly string[]).includes(saved ?? '') ? (saved as AiModel) : 'claude-sonnet-5-5';
+    return (AI_MODELS as readonly string[]).includes(saved ?? '') ? (saved as AiModel) : 'claude-haiku-4-5';
   } catch {
-    return 'claude-sonnet-5-5';
+    return 'claude-haiku-4-5';
   }
 }
 

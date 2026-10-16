@@ -13,7 +13,7 @@ import { insightsPromptSummary } from '../shared/instagramInsights';
 import { PROFILE_RUBRIC, scoreProfile, type AuditItemScore, type AuditLevel } from '../shared/profileRubric';
 import { cleanAiMarks, humanizeEs } from '../shared/captionCheck';
 
-const AUDIT_MODEL = 'claude-sonnet-5';
+const AUDIT_MODEL = 'claude-haiku-4-5';
 const BIO_MAX_CHARS = 150;
 
 const AUDIT_SCHEMA = {
