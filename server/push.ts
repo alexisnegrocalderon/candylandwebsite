@@ -122,6 +122,16 @@ export async function sendPushToAdmins(alertKey: AdminAlertToggle, payload: Push
   }
 }
 
+/** Push que no depende de un interruptor (lo pidió el dueño al fijar el tope de IA). Nunca lanza. */
+export async function sendPushToAdminsAlways(payload: PushPayload): Promise<void> {
+  try {
+    if (!ensureConfigured()) return;
+    await deliverToAllSubscriptions(payload);
+  } catch (err) {
+    console.error('[Push] Error general:', err);
+  }
+}
+
 /** Push de prueba: ignora los interruptores a propósito -- es lo que usa el
  * botón "Mandar prueba" en Ajustes, para confirmar que la suscripción de
  * este dispositivo funciona antes de prender ninguna alerta real. */
