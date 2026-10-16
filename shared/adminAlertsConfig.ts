@@ -40,6 +40,13 @@ export interface AdminAlertsConfig {
   cajaLowStockUnits: number;
   /** Avisa de cualquier venta de caja por sobre este monto (CLP). */
   cajaHighSaleClp: number;
+  /** Tope mensual de gasto de IA (US$) que tiene el dueño en platform.claude.com; 0 = sin control. */
+  aiCapUsd: number;
+  /** Saldo de créditos (US$) que el dueño vio en la plataforma, y cuándo (ISO). */
+  aiBalanceUsd: number;
+  aiBalanceAt: string;
+  /** Avisos de gasto ya mandados (ej. "2026-10:80,2026-10:100"), para no repetirlos. */
+  aiAlertSent: string;
 }
 
 export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
@@ -57,6 +64,10 @@ export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
   financeWeeklyEmail: false,
   cajaLowStockUnits: 10,
   cajaHighSaleClp: 100000,
+  aiCapUsd: 0,
+  aiBalanceUsd: 0,
+  aiBalanceAt: '',
+  aiAlertSent: '',
 };
 
 /** Meta de margen válida: entre 1 y 90 %; si no, la de siempre (30 %). */
@@ -88,5 +99,9 @@ export function normalizeAdminAlertsConfig(raw: unknown): AdminAlertsConfig {
     financeWeeklyEmail: partial.financeWeeklyEmail ?? DEFAULT_ADMIN_ALERTS_CONFIG.financeWeeklyEmail,
     cajaLowStockUnits: nonNegativeNumber(partial.cajaLowStockUnits, DEFAULT_ADMIN_ALERTS_CONFIG.cajaLowStockUnits),
     cajaHighSaleClp: nonNegativeNumber(partial.cajaHighSaleClp, DEFAULT_ADMIN_ALERTS_CONFIG.cajaHighSaleClp),
+    aiCapUsd: nonNegativeNumber(partial.aiCapUsd, 0),
+    aiBalanceUsd: nonNegativeNumber(partial.aiBalanceUsd, 0),
+    aiBalanceAt: typeof partial.aiBalanceAt === 'string' ? partial.aiBalanceAt.slice(0, 40) : '',
+    aiAlertSent: typeof partial.aiAlertSent === 'string' ? partial.aiAlertSent.slice(-200) : '',
   };
 }

@@ -476,6 +476,8 @@ async function logUsage(
     const { usageCostUsd } = await import("../../shared/studioAi");
     const { recordAiUsage } = await import("../db");
     await recordAiUsage({ feature: feature ?? "sin-etiqueta", model, ...u, costUsd: usageCostUsd(model, u) });
+    const { checkAiBudgetAlert } = await import("../aiBudget");
+    await checkAiBudgetAlert();
   } catch (err) {
     console.warn("[LLM] No se pudo registrar el gasto:", err);
   }

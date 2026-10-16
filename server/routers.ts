@@ -122,6 +122,7 @@ import { generateContentPlan } from "./contentPlanner";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign } from "./contentStudio";
 import { recordAiUsage, listAiUsageSince } from "./db";
 import { summarizeAiUsage } from "../shared/aiUsage";
+import { loadAiBudget, saveAiBudget } from "./aiBudget";
 import { quickBubbleDesign } from "./studioAi/quick";
 import { AI_MODELS } from "../shared/studioAi";
 import { STUDIO_FORMATS } from "../shared/contentStudio";
@@ -2319,7 +2320,10 @@ export const appRouter = router({
       cajaLowStockUnits: z.number().int().min(0).max(10000).optional(),
       cajaHighSaleClp: z.number().int().min(0).optional(),
     })).mutation(async ({ input }) => {
-      return db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig(input) });
+      // Los datos del gasto de IA se editan en el Estudio: no se pierden al guardar Ajustes.
+      const current = normalizeAdminAlertsConfig(((await db.getSiteSettings()) as any)?.adminAlertsConfig);
+      const { aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent } = current;
+      return db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig({ ...input, aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent }) });
     }),
     // La clave pública VAPID no es secreta (viaja al navegador para armar la
     // suscripción), pero igual queda detrás de admin para no publicarla sin
@@ -2503,6 +2507,14 @@ export const appRouter = router({
 
   // Gasto de IA por función y por día (tabla aiUsage; shared/aiUsage.ts).
   aiUsage: router({
+    budget: adminReadProcedure.query(async () => loadAiBudget()),
+    setBudget: adminProcedure.input(z.object({
+      capUsd: z.number().min(0).max(100000),
+      balanceUsd: z.number().min(0).max(100000),
+    })).mutation(async ({ input }) => {
+      await saveAiBudget(input);
+      return loadAiBudget();
+    }),
     summary: adminReadProcedure.input(z.object({ days: z.number().int().min(1).max(90).default(30) })).query(async ({ input }) => {
       const rows = await listAiUsageSince(new Date(Date.now() - input.days * 86_400_000));
       return summarizeAiUsage(rows);
