@@ -11,6 +11,7 @@ import { registerSitemapRoute } from "../sitemap";
 import { appRouter } from "../routers";
 import { webhooksRouter } from "../webhooks";
 import { registerLinkTrackerRoute } from "../linkTracker";
+import { registerAppIconRoute } from "../appIcon";
 import { instagramRouter } from "../instagram";
 import { whatsappRouter } from "../whatsapp";
 import { createContext } from "./context";
@@ -62,6 +63,7 @@ export function createApp(): Express {
   registerPartyPhotoRoutes(app);
   registerSitemapRoute(app);
   registerLinkTrackerRoute(app);
+  registerAppIconRoute(app);
   // Webhooks antes de tRPC para evitar conflictos de middleware.
   app.use(webhooksRouter);
   app.use(

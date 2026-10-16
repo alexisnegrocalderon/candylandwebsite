@@ -14,7 +14,7 @@ self.addEventListener('fetch', () => {});
  * puede tumbar el service worker), se muestra un texto genérico en vez de
  * fallar en silencio -- así se nota si algo se rompió. */
 self.addEventListener('push', (event) => {
-  let data = { title: 'Mansion Playroom', body: 'Tienes una novedad en el panel.', url: '/admin' };
+  let data = { title: 'Playroom', body: 'Tienes una novedad en el panel.', url: '/admin' };
   try {
     if (event.data) data = { ...data, ...event.data.json() };
   } catch {

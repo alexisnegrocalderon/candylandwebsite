@@ -1,8 +1,9 @@
 {
-  "name": "Mansion Playroom · Admin",
-  "short_name": "Admin",
+  "name": "Playroom",
+  "short_name": "Playroom",
+  "id": "/admin/inicio",
   "description": "Panel de administración",
-  "start_url": "/admin",
+  "start_url": "/admin/inicio",
   "scope": "/admin",
   "display": "standalone",
   "orientation": "portrait",
@@ -10,19 +11,19 @@
   "theme_color": "#0d0810",
   "icons": [
     {
-      "src": "/app-icons/admin/icon-180.png?v=4",
+      "src": "/api/app-icon/admin/180.png",
       "sizes": "180x180",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/app-icons/admin/icon-192.png?v=4",
+      "src": "/api/app-icon/admin/192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/app-icons/admin/icon-512.png?v=4",
+      "src": "/api/app-icon/admin/512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"

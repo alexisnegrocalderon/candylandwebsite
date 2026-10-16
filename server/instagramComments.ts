@@ -6,6 +6,7 @@
  * Todo esto queda dormido hasta que Meta apruebe el permiso
  * `instagram_business_manage_comments` y se suscriba el webhook `comments`. */
 import { ENV } from './_core/env';
+import { clip, pushTitle } from '../shared/pushText';
 import { invokeLLM, extractContent, NO_THINKING } from './_core/llm';
 import * as db from './db';
 import { buildInstagramContext } from './instagramAgent';
@@ -158,8 +159,8 @@ export async function handleIncomingComment(input: {
     const row = await db.insertIgComment({ ...input, category, draftReply: draft.reply || null, draftDm: draft.dm || null, dmButton: draft.dm ? draft.button : null });
     if (!row) return; // Meta reintentó
     await sendPushToAdmins('pushInstagramHandoff', {
-      title: `💬 Comentario de ${input.username ? `@${input.username}` : 'Instagram'}`,
-      body: `"${input.text.slice(0, 80)}" — hay un borrador para aprobar`,
+      title: pushTitle('💬', 'Comentario', input.username ? `@${input.username}` : null),
+      body: `"${clip(input.text, 120)}"\nHay un borrador para aprobar`,
       url: buildAdminUrl({ section: 'instagram', tab: 'comentarios', comment: row.id }),
     });
   } catch (err) {
@@ -270,8 +271,8 @@ export async function suggestOwnComment(mediaId: string, opts: { notify?: boolea
   const row = await db.upsertOwnCommentDraft({ mediaId, igUserId: ENV.igUserId || 'own', caption, draft });
   if (row && opts.notify) {
     await sendPushToAdmins('pushInstagramHandoff', {
-      title: '✨ Comentario sugerido para tu publicación',
-      body: `"${draft.slice(0, 90)}" — apruébalo para abrir conversación`,
+      title: pushTitle('✨', 'Comentario sugerido'),
+      body: `"${clip(draft, 120)}"\nApruébalo para abrir conversación`,
       url: buildAdminUrl({ section: 'instagram', tab: 'comentarios', comment: row.id }),
     });
   }

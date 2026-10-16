@@ -1,5 +1,6 @@
 import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS, CAJA_DEVICE_COOKIE_NAME, ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { pushTitle } from "../shared/pushText";
 import { sdk, ADMIN_LOCAL_OPEN_ID, VIEWER_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminReadProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, router } from "./_core/trpc";
@@ -1953,7 +1954,7 @@ export const appRouter = router({
         await db.reportPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id, input.reason.trim());
         await db.blockPartyProfile(actor.profile.id, input.targetProfileId, actor.event.id);
         await sendPushToAdmins('pushPartyReport', {
-          title: '⚠️ Nueva denuncia en la fiesta',
+          title: pushTitle('⚠️', 'Denuncia en la fiesta'),
           body: input.reason.trim().slice(0, 120),
           url: '/admin?section=denuncias',
         });
@@ -3973,7 +3974,7 @@ export const appRouter = router({
       }
 
       await sendPushToAdmins('pushAmbassadorApplication', {
-        title: '👑 Nueva postulación a embajador',
+        title: pushTitle('👑', 'Postulación embajador'),
         body: `${nombre.value} — @${ig.value}`,
         url: '/admin?section=ambassadors',
       });
@@ -4133,7 +4134,7 @@ export const appRouter = router({
       }
 
       await sendPushToAdmins('pushAmbassadorApplication', {
-        title: '🎂 Nueva postulación a cumpleañero',
+        title: pushTitle('🎂', 'Postulación cumpleañero'),
         body: `${nombre.value} — ${event.title}`,
         url: '/admin?section=birthdays',
       });
