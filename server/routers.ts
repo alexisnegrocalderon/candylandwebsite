@@ -120,6 +120,9 @@ import { getWinbackOverview, draftWinbackEmail, createWinbackCampaign } from "./
 import { WINBACK_SEGMENT_KEYS } from "../shared/winback";
 import { generateContentPlan } from "./contentPlanner";
 import { listContentDesigns, getContentDesign, saveContentDesign, deleteContentDesign } from "./contentStudio";
+import { quickBubbleDesign } from "./studioAi/quick";
+import { AI_MODELS } from "../shared/studioAi";
+import { STUDIO_FORMATS } from "../shared/contentStudio";
 import { listAiMessages, loadAiDesign, restoreAiVersion, saveSlideEdit, updateAiDesignMeta } from "./studioAi/store";
 import { normalizeSalesStrategyState } from "../shared/salesStrategy";
 import { normalizeAgentCoachReport } from "../shared/agentCoach";
@@ -2523,6 +2526,22 @@ export const appRouter = router({
         return { id: await saveContentDesign(input.id, input.design) };
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el diseño.' });
+      }
+    }),
+    // Modo «Rápido»: la IA escribe los textos y la plantilla Bubble dibuja (server/studioAi/quick.ts).
+    quick: adminProcedure.input(z.object({
+      brief: z.string().trim().min(1, 'Escribe qué quieres').max(2000),
+      format: z.enum(STUDIO_FORMATS).default('carrusel'),
+      eventId: z.number().int().positive().nullable().optional(),
+      model: z.enum(AI_MODELS).default('claude-haiku-4-5'),
+      slideCount: z.number().int().min(1).max(10).default(6),
+    })).mutation(async ({ input }) => {
+      try {
+        const result = await quickBubbleDesign({ ...input, eventId: input.eventId ?? null });
+        const id = await saveContentDesign(undefined, result.design);
+        return { id, costUsd: result.costUsd };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear el diseño.' });
       }
     }),
     delete: adminPasswordProcedure.input(z.object({ id: z.number().int().positive() })).mutation(async ({ input }) => {

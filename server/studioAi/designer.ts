@@ -97,7 +97,7 @@ const FORMAT_LABEL: Record<StudioFormat, string> = {
   historia: 'historia de Instagram 9:16 (UNA sola lámina)',
 };
 
-async function eventFacts(eventId: number | null): Promise<string> {
+export async function eventFacts(eventId: number | null): Promise<string> {
   try {
     const event = eventId ? await getEventById(eventId) : await getFeaturedEvent();
     return event ? await buildEventFacts(event) : 'No hay un evento próximo cargado.';
