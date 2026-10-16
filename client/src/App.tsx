@@ -138,8 +138,6 @@ function Router() {
           <Route path="/politica-de-reembolso" component={RefundPolicy} />
           <Route path="/politica-de-privacidad" component={PrivacyPolicy} />
           <Route path="/admin" component={AdminDashboard} />
-          {/* Dirección de instalación del admin («Playroom», admin.webmanifest). */}
-          <Route path="/admin/inicio" component={AdminDashboard} />
           <Route path="/admin/print/orders" component={PrintOrders} />
           <Route path="/admin/print/customers" component={PrintCustomers} />
           <Route path="/admin/print/shifts" component={PrintShifts} />
