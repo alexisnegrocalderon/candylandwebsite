@@ -21,13 +21,14 @@ function BudgetBar() {
   const [editing, setEditing] = useState(false);
   const [cap, setCap] = useState('');
   const [balance, setBalance] = useState('');
+  const [spent, setSpent] = useState('');
   const save = trpc.aiUsage.setBudget.useMutation({
     onSuccess: () => { utils.aiUsage.budget.invalidate(); setEditing(false); toast.success('Guardado.'); },
     onError: (e) => toast.error(e.message),
   });
   if (!data) return null;
   const num = (v: string) => Number(v.replace(',', '.'));
-  const startEdit = () => { setCap(String(data.capUsd || '')); setBalance(String(data.balanceUsd || '')); setEditing(true); };
+  const startEdit = () => { setCap(String(data.capUsd || '')); setBalance(String(data.balanceUsd || '')); setSpent(data.spentMonthUsd ? data.spentMonthUsd.toFixed(2) : ''); setEditing(true); };
   const money = (n: number | null) => (n == null ? '–' : `US$${n.toFixed(2).replace('.', ',')}`);
 
   return (
@@ -62,7 +63,8 @@ function BudgetBar() {
         <div className="flex flex-wrap items-end gap-3 pt-1">
           <div className="space-y-1"><Label>Tope mensual (US$)</Label><Input inputMode="decimal" className="w-28" value={cap} onChange={(e) => setCap(e.target.value)} /></div>
           <div className="space-y-1"><Label>Saldo hoy (US$)</Label><Input inputMode="decimal" className="w-28" value={balance} onChange={(e) => setBalance(e.target.value)} /></div>
-          <Button size="sm" disabled={save.isPending} onClick={() => save.mutate({ capUsd: num(cap) || 0, balanceUsd: num(balance) || 0 })}>
+          <div className="space-y-1"><Label>Gasto del mes (US$)</Label><Input inputMode="decimal" className="w-28" value={spent} onChange={(e) => setSpent(e.target.value)} /></div>
+          <Button size="sm" disabled={save.isPending} onClick={() => save.mutate({ capUsd: num(cap) || 0, balanceUsd: num(balance) || 0, spentMonthUsd: spent.trim() ? num(spent) || 0 : undefined })}>
             {save.isPending && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />} Guardar
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancelar</Button>

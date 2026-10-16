@@ -47,6 +47,9 @@ export interface AdminAlertsConfig {
   aiBalanceAt: string;
   /** Avisos de gasto ya mandados (ej. "2026-10:80,2026-10:100"), para no repetirlos. */
   aiAlertSent: string;
+  /** Gasto del mes que el panel no vio (antes de registrar) y el mes (YYYY-MM) al que aplica. */
+  aiSpentOffsetUsd: number;
+  aiSpentOffsetMonth: string;
 }
 
 export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
@@ -68,6 +71,8 @@ export const DEFAULT_ADMIN_ALERTS_CONFIG: AdminAlertsConfig = {
   aiBalanceUsd: 0,
   aiBalanceAt: '',
   aiAlertSent: '',
+  aiSpentOffsetUsd: 0,
+  aiSpentOffsetMonth: '',
 };
 
 /** Meta de margen válida: entre 1 y 90 %; si no, la de siempre (30 %). */
@@ -102,6 +107,8 @@ export function normalizeAdminAlertsConfig(raw: unknown): AdminAlertsConfig {
     aiCapUsd: nonNegativeNumber(partial.aiCapUsd, 0),
     aiBalanceUsd: nonNegativeNumber(partial.aiBalanceUsd, 0),
     aiBalanceAt: typeof partial.aiBalanceAt === 'string' ? partial.aiBalanceAt.slice(0, 40) : '',
+    aiSpentOffsetUsd: nonNegativeNumber(partial.aiSpentOffsetUsd, 0),
+    aiSpentOffsetMonth: typeof partial.aiSpentOffsetMonth === 'string' ? partial.aiSpentOffsetMonth.slice(0, 10) : '',
     aiAlertSent: typeof partial.aiAlertSent === 'string' ? partial.aiAlertSent.slice(-200) : '',
   };
 }

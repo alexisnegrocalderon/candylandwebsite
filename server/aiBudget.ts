@@ -7,6 +7,10 @@ import { chileMonthKey, chileMonthStart, computeAiBudget, type AiBudget } from '
 
 const sum = (rows: { costMicroUsd: number }[]) => rows.reduce((t, r) => t + r.costMicroUsd, 0) / 1_000_000;
 
+async function panelSpentThisMonth(now: Date): Promise<number> {
+  return sum(await listAiUsageSince(chileMonthStart(now)));
+}
+
 export async function loadAiBudget(now = new Date()): Promise<AiBudget & { balanceAt: string; balanceUsd: number }> {
   const settings = await getSiteSettings();
   const cfg = normalizeAdminAlertsConfig((settings as any)?.adminAlertsConfig);
@@ -17,18 +21,23 @@ export async function loadAiBudget(now = new Date()): Promise<AiBudget & { balan
   const budget = computeAiBudget({
     capUsd: cfg.aiCapUsd,
     balanceUsd: cfg.aiBalanceUsd,
-    spentMonthUsd: sum(rows.filter((r) => new Date(r.createdAt) >= monthStart)),
+    spentMonthUsd: sum(rows.filter((r) => new Date(r.createdAt) >= monthStart)) + (cfg.aiSpentOffsetMonth === chileMonthKey(now) ? cfg.aiSpentOffsetUsd : 0),
     spentSinceBalanceUsd: balanceAt ? sum(rows.filter((r) => new Date(r.createdAt) >= balanceAt)) : 0,
   });
   return { ...budget, balanceAt: cfg.aiBalanceAt, balanceUsd: cfg.aiBalanceUsd };
 }
 
-export async function saveAiBudget(input: { capUsd: number; balanceUsd: number }, now = new Date()): Promise<void> {
+export async function saveAiBudget(input: { capUsd: number; balanceUsd: number; spentMonthUsd?: number }, now = new Date()): Promise<void> {
   const settings = await getSiteSettings();
   const cfg = normalizeAdminAlertsConfig((settings as any)?.adminAlertsConfig);
+  // Gasto que ve la plataforma menos lo que el panel ya registró = lo que el panel no vio.
+  const offset = input.spentMonthUsd != null
+    ? Math.max(0, input.spentMonthUsd - (await panelSpentThisMonth(now)))
+    : cfg.aiSpentOffsetMonth === chileMonthKey(now) ? cfg.aiSpentOffsetUsd : 0;
   await updateSiteSettings({
     adminAlertsConfig: normalizeAdminAlertsConfig({
       ...cfg, aiCapUsd: input.capUsd, aiBalanceUsd: input.balanceUsd, aiBalanceAt: now.toISOString(), aiAlertSent: '',
+      aiSpentOffsetUsd: offset, aiSpentOffsetMonth: chileMonthKey(now),
     }),
   });
 }
