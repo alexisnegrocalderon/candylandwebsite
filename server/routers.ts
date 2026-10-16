@@ -2322,8 +2322,8 @@ export const appRouter = router({
     })).mutation(async ({ input }) => {
       // Los datos del gasto de IA se editan en el Estudio: no se pierden al guardar Ajustes.
       const current = normalizeAdminAlertsConfig(((await db.getSiteSettings()) as any)?.adminAlertsConfig);
-      const { aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent } = current;
-      return db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig({ ...input, aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent }) });
+      const { aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent, aiSpentOffsetUsd, aiSpentOffsetMonth } = current;
+      return db.updateSiteSettings({ adminAlertsConfig: normalizeAdminAlertsConfig({ ...input, aiCapUsd, aiBalanceUsd, aiBalanceAt, aiAlertSent, aiSpentOffsetUsd, aiSpentOffsetMonth }) });
     }),
     // La clave pública VAPID no es secreta (viaja al navegador para armar la
     // suscripción), pero igual queda detrás de admin para no publicarla sin
@@ -2511,6 +2511,7 @@ export const appRouter = router({
     setBudget: adminProcedure.input(z.object({
       capUsd: z.number().min(0).max(100000),
       balanceUsd: z.number().min(0).max(100000),
+      spentMonthUsd: z.number().min(0).max(100000).optional(),
     })).mutation(async ({ input }) => {
       await saveAiBudget(input);
       return loadAiBudget();
