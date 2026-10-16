@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  ArrowDown, ArrowLeft, ArrowUp, Copy, Download, Image as ImageIcon, Loader2, Palette, Plus, Save, Share2, Sparkles, Trash2, X,
+  ArrowDown, ArrowLeft, ArrowUp, Copy, Download, Image as ImageIcon, Loader2, Palette, Plus, Save, Share2, Sparkles, Trash2, X, Zap,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { WriteButton } from '@/components/admin/WriteButton';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { ImageUploadField } from '@/components/admin/ImageUploadField';
 import { formatChileDateTime } from '@shared/chileDate';
+import { formatUsd } from '@shared/studioAi';
 import { BUBBLE_HEROES, BUBBLE_PALETTES, isBubbleHeroKey } from '@shared/studioBubble';
 import {
   DEFAULT_STUDIO_THEME,
@@ -145,6 +146,18 @@ function StudioHome({ onOpen, onOpenAi }: { onOpen: (e: Editing) => void; onOpen
   const [format, setFormat] = useState<StudioFormat>('carrusel');
   const [theme, setTheme] = useState<StudioTheme>(DEFAULT_STUDIO_THEME);
   const [opening, setOpening] = useState<number | null>(null);
+  const [quickBrief, setQuickBrief] = useState('');
+  const [quickCount, setQuickCount] = useState('6');
+  const [quickModel, setQuickModel] = useState<'claude-haiku-4-5' | 'claude-sonnet-5-5'>('claude-haiku-4-5');
+  const quick = trpc.contentStudio.quick.useMutation({
+    onSuccess: async ({ id, costUsd }) => {
+      utils.contentStudio.list.invalidate();
+      toast.success(`Listo (${formatUsd(costUsd)}). Revisa y ajusta los textos.`);
+      setQuickBrief('');
+      await open(id);
+    },
+    onError: (e) => toast.error(e.message),
+  });
   const remove = trpc.contentStudio.delete.useMutation({
     onSuccess: () => { utils.contentStudio.list.invalidate(); toast.success('Diseño eliminado.'); },
     onError: (e) => toast.error(e.message),
@@ -191,6 +204,50 @@ function StudioHome({ onOpen, onOpenAi }: { onOpen: (e: Editing) => void; onOpen
             </Select>
           </div>
           <Button onClick={() => onOpenAi({ format })}><Sparkles className="w-4 h-4 mr-2" /> Nuevo con IA</Button>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6 space-y-3">
+          <div>
+            <p className="font-medium flex items-center gap-2"><Zap className="w-4 h-4" /> Rápido (plantilla Bubble)</p>
+            <p className="text-sm text-muted-foreground">
+              Cuéntale la idea: la IA solo escribe los textos y la plantilla oficial dibuja las láminas. Cuesta una fracción
+              del diseño libre y después lo editas como cualquier plantilla.
+            </p>
+          </div>
+          <Textarea
+            value={quickBrief}
+            onChange={(e) => setQuickBrief(e.target.value)}
+            rows={3}
+            placeholder="Ej: carrusel que explique el consentimiento en la fiesta, para gente que viene por primera vez"
+          />
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1.5">
+              <Label>Láminas</Label>
+              <Select value={quickCount} onValueChange={setQuickCount}>
+                <SelectTrigger className="w-24"><SelectValue /></SelectTrigger>
+                <SelectContent>{[3, 4, 5, 6, 7, 8, 9, 10].map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Modelo</Label>
+              <Select value={quickModel} onValueChange={(v) => setQuickModel(v as typeof quickModel)}>
+                <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="claude-haiku-4-5">Haiku (económico)</SelectItem>
+                  <SelectItem value="claude-sonnet-5-5">Sonnet (mejores textos)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              disabled={quick.isPending || !quickBrief.trim()}
+              onClick={() => quick.mutate({ brief: quickBrief, format, model: quickModel, slideCount: Number(quickCount) })}
+            >
+              {quick.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Zap className="w-4 h-4 mr-2" />}
+              Crear rápido
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
