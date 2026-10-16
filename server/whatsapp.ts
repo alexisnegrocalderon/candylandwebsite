@@ -1,5 +1,6 @@
 import express, { Router, type Request, type Response } from 'express';
 import { ENV } from './_core/env';
+import { clip, pushTitle } from '../shared/pushText';
 import {
   getOrCreateWaThread,
   appendWaMessage,
@@ -451,8 +452,8 @@ async function notifyHandoff(threadId: number, who: string, incoming: string, re
     await logAgentHandoff({ channel: 'whatsapp', threadId, who, incomingText: incoming, reason: reason || 'Necesita respuesta de una persona' });
   }
   await sendPushToAdmins('pushWhatsAppHandoff', {
-    title: `💬 WhatsApp: ${who}`,
-    body: `${reason || 'Necesita respuesta de una persona'} — "${incoming.slice(0, 80)}"`,
+    title: pushTitle('💬', 'WhatsApp', who),
+    body: `"${clip(incoming, 110)}"\n${reason || 'Necesita respuesta de una persona'}`,
     url: buildAdminUrl({ section: 'whatsapp', thread: threadId }),
   });
 }

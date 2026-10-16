@@ -25,7 +25,10 @@ const outDir = join(import.meta.dirname, '..', 'dist', 'public');
 const baseHtml = readFileSync(join(outDir, 'index.html'), 'utf-8');
 
 const SCREENS = [
-  { file: 'admin.html', manifest: '/admin.webmanifest', title: 'Admin', appleTouchIcon: '/app-icons/admin/apple-touch-icon-v4.png' },
+  // «Playroom» y no «Admin»: es el nombre que iOS muestra bajo el ícono y
+  // arriba de cada notificación. Íconos servidos por /api/app-icon (URL
+  // nueva + registro de diagnóstico, ver server/appIcon.ts), uno por tamaño.
+  { file: 'admin.html', manifest: '/admin.webmanifest', title: 'Playroom', appleTouchIcons: [120, 152, 167, 180].map((s) => ({ size: s, href: `/api/app-icon/admin/${s}.png` })) },
   { file: 'caja.html', manifest: '/caja.webmanifest', title: 'Caja', appleTouchIcon: '/app-icons/caja/icon-180.png' },
   { file: 'puerta.html', manifest: '/puerta.webmanifest', title: 'Puerta', appleTouchIcon: '/app-icons/puerta/icon-180.png' },
   // Ícono propio: con las cuatro apps instaladas en la misma pantalla de
@@ -40,6 +43,7 @@ for (const screen of SCREENS) {
     `<meta name="apple-mobile-web-app-capable" content="yes" />`,
     `<meta name="apple-mobile-web-app-title" content="${screen.title}" />`,
     ...(screen.appleTouchIcon ? [`<link rel="apple-touch-icon" sizes="180x180" href="${screen.appleTouchIcon}" />`] : []),
+    ...(screen.appleTouchIcons ?? []).map((i) => `<link rel="apple-touch-icon" sizes="${i.size}x${i.size}" href="${i.href}" />`),
   ].join('\n    ');
 
   if (!baseHtml.includes('</head>')) {
@@ -48,7 +52,7 @@ for (const screen of SCREENS) {
   // Si la pantalla trae su propio apple-touch-icon, saca el genérico del
   // <head> base: dos <link rel="apple-touch-icon"> del mismo tamaño es
   // ambiguo entre navegadores, así que no alcanza con agregar el nuevo.
-  const headHtml = screen.appleTouchIcon
+  const headHtml = screen.appleTouchIcon || screen.appleTouchIcons
     ? baseHtml.replace(/\s*<link rel="apple-touch-icon"[^>]*\/>/, '')
     : baseHtml;
   // Los tags van al PRINCIPIO del <head>, justo después del viewport, no al

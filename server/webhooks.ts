@@ -1,5 +1,6 @@
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { Router, Request, Response } from 'express';
+import { clp, pushTitle } from '../shared/pushText';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
 import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid, matchLeadForOrder, getSiteSettings, creditPrepaid, isGiftPerPersonForCode } from './db';
 import { normalizeOrderEmailConfig } from '../shared/emailTemplateConfig';
@@ -897,8 +898,8 @@ async function processApprovedOrder(order: any) {
     if (topupResult.success) await db.update(orders).set({ emailSent: 1 }).where(eq(orders.id, order.id));
     if (order.channel === 'web') {
       await sendPushToAdmins('pushNewOrder', {
-        title: '💳 Recarga de PlayCard',
-        body: `${order.buyerName} — $${Number(order.total).toLocaleString('es-CL')}`,
+        title: pushTitle('💳', 'Recarga', clp(Number(order.total))),
+        body: `${order.buyerName}`,
         url: '/admin?section=orders-web',
       });
     }
@@ -918,8 +919,8 @@ async function processApprovedOrder(order: any) {
   // data migrada, no una venta nueva.
   if (order.channel === 'web') {
     await sendPushToAdmins('pushNewOrder', {
-      title: '🍭 Venta web nueva',
-      body: `${order.buyerName} — $${Number(order.total).toLocaleString('es-CL')}`,
+      title: pushTitle('🍭', 'Venta web', clp(Number(order.total))),
+      body: `${order.buyerName}`,
       url: '/admin?section=orders-web',
     });
   }

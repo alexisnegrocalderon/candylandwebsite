@@ -12,6 +12,7 @@ import { getDb, getSiteSettings } from './db';
 import { pushSubscriptions, partyPushSubscriptions } from '../drizzle/schema';
 import { eq } from 'drizzle-orm';
 import { normalizeAdminAlertsConfig, type AdminAlertsConfig } from '../shared/adminAlertsConfig';
+import { clip, PUSH_BODY_MAX, PUSH_TITLE_MAX } from '../shared/pushText';
 
 let configured = false;
 function ensureConfigured(): boolean {
@@ -68,6 +69,8 @@ async function deliverTo(subs: SubscriptionRow[], payload: PushPayload, onStale:
 }
 
 async function deliverToAllSubscriptions(payload: PushPayload): Promise<void> {
+  // Red de seguridad: ningún aviso se corta a mitad de palabra en iOS.
+  payload = { ...payload, title: clip(payload.title, PUSH_TITLE_MAX), body: clip(payload.body, PUSH_BODY_MAX) };
   const db = await getDb();
   if (!db) return;
   const subs = await db.select().from(pushSubscriptions);

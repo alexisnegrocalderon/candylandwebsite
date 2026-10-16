@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import express, { Router, type Request, type Response } from 'express';
+import { clip, pushTitle } from '../shared/pushText';
 import { ENV } from './_core/env';
 import {
   getOrCreateIgThread,
@@ -744,8 +745,8 @@ async function notifyHandoff(threadId: number, who: string, incoming: string, re
     await logAgentHandoff({ channel: 'instagram', threadId, who, incomingText: incoming, reason: reason || 'Necesita respuesta de una persona' });
   }
   await sendPushToAdmins('pushInstagramHandoff', {
-    title: `📩 Instagram: ${who}`,
-    body: `${reason || 'Necesita respuesta de una persona'} — "${incoming.slice(0, 80)}"`,
+    title: pushTitle('📩', 'IG', who),
+    body: `"${clip(incoming, 110)}"\n${reason || 'Necesita respuesta de una persona'}`,
     url: buildAdminUrl({ section: 'instagram', tab: 'conversaciones', thread: threadId }),
   });
 }
