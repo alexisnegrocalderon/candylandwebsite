@@ -1274,6 +1274,10 @@ export const appRouter = router({
     salesByOrigin: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
       return db.getSalesByUtmOrigin(input?.eventId);
     }),
+    // Curva de ventas web por día de Chile (Inicio del admin).
+    salesByDay: adminReadProcedure.input(z.object({ eventId: z.number().optional() }).optional()).query(async ({ input }) => {
+      return db.getSalesByDay(input?.eventId);
+    }),
     // Mismos filtros y mismas columnas que el CSV (server/adminRoutes.ts) --
     // alimenta la vista de impresión/PDF, para que ambos formatos muestren
     // exactamente lo mismo.

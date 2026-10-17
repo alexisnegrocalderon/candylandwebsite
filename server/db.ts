@@ -13,6 +13,7 @@ import { MAX_TOUCHES_PER_EVENT, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhoto
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { chileHourOf, startOfChileDay } from '../shared/chileDate';
+import { groupSalesByChileDay, type SalesDay } from '../shared/salesByDay';
 import { matchLeadForOrder as matchLeadForOrderImpl, syncLeadsAsMailingAudience as syncLeadsAsMailingAudienceImpl } from './leadsMailing';
 import { monthKeyFor } from '../shared/ambassadorProgram';
 import { staffTotals } from '../shared/honorarios';
@@ -2354,12 +2355,14 @@ export async function getOrderStatusCounts(channel?: 'web' | 'caja', eventId?: n
  *    contando hasta que la resuelvas. */
 export type AdminBadgeSection =
   | 'orders-web' | 'orders-caja' | 'leads' | 'customers' | 'referrals'
-  | 'ambassadors' | 'denuncias' | 'party-gifts' | 'caja';
+  | 'ambassadors' | 'denuncias' | 'party-gifts' | 'caja'
+  | 'instagram' | 'whatsapp';
 
 export async function getAdminBadgeCounts(seenAt: Partial<Record<AdminBadgeSection, Date>>): Promise<Record<AdminBadgeSection, number>> {
   const empty: Record<AdminBadgeSection, number> = {
     'orders-web': 0, 'orders-caja': 0, 'leads': 0, 'customers': 0, 'referrals': 0,
     'ambassadors': 0, 'denuncias': 0, 'party-gifts': 0, 'caja': 0,
+    'instagram': 0, 'whatsapp': 0,
   };
   const db = await getDb();
   if (!db) return empty;
@@ -2373,7 +2376,7 @@ export async function getAdminBadgeCounts(seenAt: Partial<Record<AdminBadgeSecti
   // ruido, no información.
   const since = (s: AdminBadgeSection) => seenAt[s];
 
-  const [ordersWeb, ordersCaja, newLeads, newCustomers, newReferrals, pendingApplications, openReports, unclaimedGifts, openShifts] = await Promise.all([
+  const [ordersWeb, ordersCaja, newLeads, newCustomers, newReferrals, pendingApplications, openReports, unclaimedGifts, openShifts, igUnread, waUnread] = await Promise.all([
     // Mismo criterio de canal que `getOrderStats`: "web" es todo lo que no es
     // caja (incluye las importadas). Solo aprobadas -- una orden pendiente o
     // rechazada no es una venta que valga la pena avisar.
@@ -2397,6 +2400,11 @@ export async function getAdminBadgeCounts(seenAt: Partial<Record<AdminBadgeSecti
       .where(eq(partyGifts.status, 'paid'))),
     countRows(db.select({ n: sql<number>`COUNT(*)` }).from(shifts)
       .where(eq(shifts.status, 'open'))),
+    // Conversaciones con mensajes sin leer: se limpian solas al abrir el chat.
+    countRows(db.select({ n: sql<number>`COUNT(*)` }).from(igThreads)
+      .where(gt(igThreads.unreadCount, 0))),
+    countRows(db.select({ n: sql<number>`COUNT(*)` }).from(waThreads)
+      .where(gt(waThreads.unreadCount, 0))),
   ]);
 
   return {
@@ -2409,7 +2417,22 @@ export async function getAdminBadgeCounts(seenAt: Partial<Record<AdminBadgeSecti
     'denuncias': openReports,
     'party-gifts': unclaimedGifts,
     'caja': openShifts,
+    'instagram': igUnread,
+    'whatsapp': waUnread,
   };
+}
+
+/** Ventas web aprobadas por día de Chile (gráfico de Inicio del admin).
+ * Sin evento: los últimos 30 días. Se agrupa en JS y no en SQL porque la
+ * base no tiene cargadas las zonas horarias (ver shared/chileDate.ts). */
+export async function getSalesByDay(eventId?: number): Promise<SalesDay[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [sql`${orders.channel} != 'caja'`, eq(orders.paymentStatus, 'approved')];
+  if (eventId) conditions.push(eq(orders.eventId, eventId));
+  else conditions.push(gt(orders.createdAt, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)));
+  const rows = await db.select({ createdAt: orders.createdAt, total: orders.total }).from(orders).where(and(...conditions));
+  return groupSalesByChileDay(rows);
 }
 
 /** Plata de ventas web aprobadas desde `since` -- para el correo resumen

@@ -96,3 +96,12 @@ export function startOfChileDay(now: Date = new Date()): Date {
   // más ancha que el día real, que es el lado seguro para un presupuesto.
   return new Date(Date.UTC(y, m - 1, d, 3, 0, 0));
 }
+
+/** "2026-08-08": el día calendario de Chile de un instante, como clave
+ * ordenable (para agrupar por día sin correrse a UTC). */
+export function chileDateKey(date: Date | string): string {
+  const d = date instanceof Date ? date : new Date(date);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: CHILE_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+}

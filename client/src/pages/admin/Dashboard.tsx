@@ -1,5 +1,5 @@
 import '@/admin.css';
-import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, Suspense, createContext, lazy, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { startRegistration } from '@simplewebauthn/browser';
@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones } from 'lucide-react';
+import { Home, Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
@@ -79,6 +79,7 @@ import {
 import { monthKeyFor } from '@shared/ambassadorProgram';
 import { formatChileDateTime, formatChileShortDate, formatChileTime } from '@shared/chileDate';
 import { AdminShell } from '@/components/admin/shell/AdminShell';
+import { HomeView } from '@/components/admin/HomeView';
 import type { ShellSection } from '@/components/admin/shell/nav';
 
 /* Toda escritura del admin pasa por acá: sin esto, un error del servidor
@@ -11394,7 +11395,21 @@ function ParkingReportView() {
 // es una pestaña dentro de su hub. El orden de acá es el orden de las
 // pestañas. "Evento" se llama "Resumen de la noche": es la pantalla en vivo
 // de la fiesta, distinta de "Eventos" (el CRUD de la ficha del evento).
+/** Lo que la pantalla Inicio necesita del panel (burbujas y navegación) --
+ * va por contexto porque `render` de cada sección no recibe argumentos. */
+const AdminNavContext = createContext<{ badgeCounts: Record<string, number>; openSection: (id: string) => void }>({
+  badgeCounts: {},
+  openSection: () => {},
+});
+
+function HomeSection() {
+  const { badgeCounts, openSection } = useContext(AdminNavContext);
+  return <HomeView badgeCounts={badgeCounts} onOpen={openSection} />;
+}
+
 const ADMIN_SECTIONS = [
+  { id: 'home', label: 'Inicio', hub: 'inicio', icon: Home, render: () => <HomeSection /> },
+
   { id: 'overview', label: 'Resumen de la noche', hub: 'noche', icon: LayoutDashboard, render: () => <EventOverview /> },
   { id: 'caja', label: 'Caja', hub: 'noche', icon: Store, render: () => <CajaAdminView /> },
   { id: 'flash-promo', label: 'Promo Flash', hub: 'noche', icon: Zap, render: () => <FlashPromoCard /> },
@@ -11765,7 +11780,7 @@ export default function AdminDashboard() {
   useInstallableApp('/admin/sw.js', '/admin/');
 
   const { user, loading, isAuthenticated, logout } = useAuth();
-  const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>('events');
+  const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>('home');
   const { counts: badgeCounts, markSeen } = useAdminBadges();
 
   const openSection = (id: typeof ADMIN_SECTIONS[number]['id']) => {
@@ -11832,6 +11847,12 @@ export default function AdminDashboard() {
   const isDemo = user?.role === 'viewer';
 
   const active = ADMIN_SECTIONS.find((s) => s.id === activeSection) ?? ADMIN_SECTIONS[0];
+  const navContext = {
+    badgeCounts,
+    openSection: (id: string) => {
+      if (ADMIN_SECTIONS.some((s) => s.id === id)) openSection(id as typeof ADMIN_SECTIONS[number]['id']);
+    },
+  };
 
   return (
     <AdminShell
@@ -11843,14 +11864,16 @@ export default function AdminDashboard() {
       isDemo={isDemo}
       onLogout={() => logout()}
     >
-      <motion.div
-        key={activeSection}
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35 }}
-      >
-        {active.render()}
-      </motion.div>
+      <AdminNavContext.Provider value={navContext}>
+        <motion.div
+          key={activeSection}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35 }}
+        >
+          {active.render()}
+        </motion.div>
+      </AdminNavContext.Provider>
     </AdminShell>
   );
 }
