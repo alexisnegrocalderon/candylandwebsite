@@ -415,7 +415,12 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
   const [yaCliente, setYaCliente] = useState(false);
   const [partnerChecks, setPartnerChecks] = useState({ sigoPlayroom: false, aceptaValores: false, aceptaPermanencia: false });
   const [partnerChecksError, setPartnerChecksError] = useState('');
-  const partnerAllows = (slug: string) => !isPartner || !!partner?.prices[slug];
+  // Precio de la campaña: el servidor lo entrega recién al validar email +
+  // RUT (partner.checkEligibility). Antes de eso el link no muestra ningún
+  // valor -- si alguien de Playroom lo abre, no ve el precio especial.
+  const [partnerPricing, setPartnerPricing] = useState<{ pricePerPerson: number; prices: Record<string, number> } | null>(null);
+  const [partnerCheckError, setPartnerCheckError] = useState('');
+  const partnerAllows = (slug: string) => !isPartner || !!partner?.allowedAccesos.includes(slug);
 
   /* ── "¿Cómo vienes?" (Paso 1) + acceso resuelto a partir de la respuesta ── */
   const [groupSize, setGroupSize] = useState<GroupSize | null>(() => {
@@ -460,7 +465,7 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
     if (!tt) return undefined;
     const cfg = CANDYLAND.accesos.find((a) => a.id === (tt as any).accesoSlug) ?? CANDYLAND.accesos.find((a) => a.nombre.toLowerCase() === (tt as any).name.toLowerCase());
     const generalPrice = Number((tt as any).price);
-    const partnerPrice = isPartner ? partner?.prices[(tt as any).accesoSlug] : undefined;
+    const partnerPrice = isPartner ? partnerPricing?.prices[(tt as any).accesoSlug] : undefined;
     const precio = partnerPrice != null ? partnerPrice : missionOpen ? missionDepositPrice((tt as any).accesoSlug) : generalPrice;
     return {
       id: accesoId,
@@ -473,7 +478,7 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
       exclusivoComunidad: cfg?.exclusivoComunidad ?? false,
       campos: cfg?.campos,
     };
-  }, [accesoId, useConfig, liveTickets, missionOpen, partner]);
+  }, [accesoId, useConfig, liveTickets, missionOpen, partnerPricing]);
 
   // Precio normal del acceso elegido, para mostrarlo tachado junto al de la
   // campaña aliada.
@@ -611,6 +616,9 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
   type Paso = { id: string; titulo: string; sub?: string; keys: string[] };
   const pasos: Paso[] = useMemo(() => {
     const p: Paso[] = [];
+    if (isPartner) {
+      p.push({ id: 'intro-comunidad', titulo: '🎧 Bienvenid@, comunidad electrónica', sub: partner?.headline, keys: [] });
+    }
     if (!skipVibe) {
       p.push({ id: 'vibe', titulo: `✨ ¿Cómo vienes a vivir ${EVENTO.nombre}?`, sub: 'Selecciona la opción que mejor los representa.', keys: [] });
       if (groupSize === 1 && !isPartner) {
@@ -644,7 +652,7 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
     }
     p.push({ id: 'resumen', titulo: '✨ Tu experiencia', sub: 'Revisa todo antes de continuar.', keys: [] });
     return p;
-  }, [camposAcceso, skipVibe, groupSize, requiresCommunityCode, useDbExtras, isPartner]);
+  }, [camposAcceso, skipVibe, groupSize, requiresCommunityCode, useDbExtras, isPartner, partner?.headline]);
 
   const [paso, setPaso] = useState(0);
   const total_pasos = pasos.length;
@@ -794,13 +802,17 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
     }
     // Link de la comunidad: apenas hay email + RUT, se revisa que no sea ya
     // cliente de Playroom (el servidor lo vuelve a exigir al crear la orden).
+    // Si puede comprar, esa misma respuesta trae los precios; sin respuesta
+    // no se avanza, porque sin precio no hay resumen que mostrar.
     if (isPartner && partnerSlug && pasoActual.id === 'buyer__rut') {
+      setPartnerCheckError('');
       try {
         const res = await checkPartnerEligibility.mutateAsync({ slug: partnerSlug, email: watch('buyer__email'), rut: watch('buyer__rut') || undefined });
         if (!res.eligible) { setYaCliente(true); return; }
-      } catch {
-        // Sin respuesta (límite de intentos, red): se sigue -- createOrder
-        // hace el mismo chequeo antes de cobrar.
+        setPartnerPricing(res.pricing);
+      } catch (e: any) {
+        setPartnerCheckError(e?.message || 'No pudimos validar tus datos. Revisa tu conexión e intenta de nuevo.');
+        return;
       }
     }
     setPaso((p) => Math.min(p + 1, total_pasos - 1));
@@ -926,13 +938,6 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
     );
   }
 
-  /** Precio del link de la comunidad para cada opción de "¿Cómo vienes?". */
-  const partnerVibePrice = (size: GroupSize): string | undefined => {
-    if (!isPartner || !partner) return undefined;
-    const slug = size === 1 ? 'soltera' : size === 2 ? (partner.prices.duo ? 'duo' : 'duo_mujeres') : GROUP_TO_ACCESO[size];
-    const price = partner.prices[slug];
-    return price ? formatCLP(price) : undefined;
-  };
   const vibeOptions = VIBE_OPTIONS.filter((op) => !isPartner || (
     op.size === 1 ? partnerAllows('soltera')
       : op.size === 2 ? partnerAllows('duo') || partnerAllows('duo_mujeres')
@@ -952,6 +957,28 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
           <p className="text-muted-foreground text-sm mb-8">
             Si no lo encuentras, revisa tu carpeta de <span className="font-semibold text-foreground">spam o correo no deseado</span> — dependiendo del filtro de tu correo, puede haberse ido para allá.
           </p>
+          {isPartner && partner && (
+            <div className="glass-candy rounded-2xl p-5 mb-6 text-left space-y-3">
+              <p className="text-sm font-bold">{partner.emoji} Nos vemos en la Pista Tech</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">¿Tu gente de la escena todavía no tiene entrada? Pásales este mismo link para que vengan con el acceso de la comunidad.</p>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`Yo ya voy al ${partner.headline.split('·')[0].trim()} en Playroom 🎧 Compra tu entrada con el acceso de la comunidad: ${window.location.origin}/${partnerSlug}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full inline-flex items-center justify-center gap-2 h-12 rounded-full border border-primary text-primary text-sm font-bold uppercase tracking-wide interactive"
+              >
+                <MessageCircle className="w-4 h-4" /> Compartir por WhatsApp
+              </a>
+              <a
+                href={BRAND.instagram}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full inline-flex items-center justify-center gap-2 h-12 rounded-full border border-border text-sm font-semibold interactive"
+              >
+                <Instagram className="w-4 h-4" /> Sigue a Mansion Playroom
+              </a>
+            </div>
+          )}
           <Link href="/" className="btn-jelly inline-flex h-13 items-center justify-center px-8 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm interactive">
             Volver al inicio
           </Link>
@@ -1143,12 +1170,10 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
           />
         </div>
 
-        {isPartner && partner && (
-          <div className="mb-5 rounded-2xl px-4 py-3 bg-gradient-to-br from-primary/15 via-cherry/10 to-violet-electric/15 border border-primary/25">
-            <p className="text-xs font-bold uppercase tracking-[0.15em]">{partner.emoji} {partner.label}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{partner.headline}</p>
-            <p className="text-sm font-semibold mt-1">Valor especial: {formatCLP(partner.pricePerPerson)} por persona</p>
-          </div>
+        {/* Sello discreto de la comunidad (sin precio: el valor recién se ve
+            en el resumen, después de validar los datos). */}
+        {isPartner && partner && pasoActual.id !== 'intro-comunidad' && (
+          <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{partner.emoji} Acceso {partner.label}</p>
         )}
 
         <form onSubmit={handleSubmit(onSubmit)} id="checkout-form" className="relative">
@@ -1170,6 +1195,25 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
               <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-1">{pasoActual.titulo}</h1>
               {pasoActual.sub && <p className="text-muted-foreground text-sm mb-5">{pasoActual.sub}</p>}
 
+              {/* Paso: bienvenida a la comunidad (link aliado). Sin precios. */}
+              {pasoActual.id === 'intro-comunidad' && partner && (
+                <div className="space-y-4">
+                  <div className="glass-candy rounded-2xl p-5 space-y-3">
+                    <p className="text-sm leading-relaxed">
+                      Esta invitación es para ti, que vienes de la escena electrónica y quizás nunca has estado en una fiesta de Playroom. Te contamos lo importante:
+                    </p>
+                    <ul className="space-y-2.5 text-sm leading-relaxed text-muted-foreground">
+                      <li className="flex gap-2"><span aria-hidden>🎧</span><span><span className="text-foreground font-semibold">Pista Tech</span> con el B2B toda la noche, y una segunda pista de reggaetón.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🛡️</span><span><span className="text-foreground font-semibold">Un espacio seguro:</span> respeto y consentimiento son la regla. Nadie te va a incomodar y nada es obligatorio.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🛝</span><span>Playground y Kink Room existen, pero son <span className="text-foreground font-semibold">100% opcionales</span>: puedes venir solo a bailar.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🎭</span><span>Es Halloween y nuestro aniversario: <span className="text-foreground font-semibold">el disfraz es obligatorio</span>.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🪪</span><span>Evento +{CANDYLAND.edadMinima}: trae tu carnet o pasaporte.</span></li>
+                    </ul>
+                  </div>
+                  <p className="text-xs text-center text-muted-foreground">Tu acceso especial de comunidad se aplica al final de la compra.</p>
+                </div>
+              )}
+
               {/* Paso: ¿Cómo vienes? */}
               {pasoActual.id === 'vibe' && (
                 <div className="grid grid-cols-2 gap-3">
@@ -1178,7 +1222,6 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
                       key={op.size}
                       image={op.image}
                       titulo={op.label}
-                      sub={partnerVibePrice(op.size)}
                       fallbackEmoji={op.emoji}
                       activo={groupSize === op.size}
                       onClick={() => chooseVibe(op.size)}
@@ -1212,7 +1255,7 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
                       key={op.tipo}
                       image={op.image}
                       titulo={op.label}
-                      sub={isPartner ? `${op.tipo === 'dos_mujeres' ? 'Soltera doble' : 'Dúo'} · ${formatCLP(partner?.prices[op.tipo === 'dos_mujeres' ? 'duo_mujeres' : 'duo'] ?? 0)}` : op.sub}
+                      sub={isPartner ? (op.tipo === 'dos_mujeres' ? 'Soltera doble' : 'Dúo') : op.sub}
                       fallbackEmoji={op.emoji}
                       activo={duoComposicion === op.tipo}
                       onClick={() => choosePareja(op.tipo)}
@@ -1263,6 +1306,10 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
                     </>
                   )}
                 </div>
+              )}
+
+              {partnerCheckError && pasoActual.id === 'buyer__rut' && (
+                <p className="text-sm text-destructive mb-3" role="alert">{partnerCheckError}</p>
               )}
 
               {/* Pasos de un solo campo (datos / contacto / extra del acceso) */}
@@ -1499,11 +1546,11 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
               {/* Paso final: resumen */}
               {pasoActual.id === 'resumen' && (
                 <div className="space-y-4">
-                  {isPartner && partner && (
+                  {isPartner && partner && partnerPricing && (
                     <div className="rounded-2xl p-4 bg-gradient-to-br from-primary/15 via-cherry/10 to-violet-electric/15 border border-primary/20">
                       <p className="text-sm font-bold mb-1">{partner.emoji} Precio especial {partner.label}</p>
                       <p className="text-xs text-muted-foreground leading-relaxed">
-                        {formatCLP(partner.pricePerPerson)} por persona
+                        {formatCLP(partnerPricing.pricePerPerson)} por persona
                         {partnerRegularPrice && acceso && partnerRegularPrice > acceso.precio && <> · valor normal <span className="line-through">{formatCLP(partnerRegularPrice)}</span></>}
                       </p>
                     </div>
@@ -1586,9 +1633,14 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
             <button
               type="button"
               onClick={continuar}
+              disabled={checkPartnerEligibility.isPending}
               className="btn-jelly flex-1 h-13 py-3.5 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 interactive"
             >
-              Continuar <ArrowRight className="w-4 h-4" />
+              {checkPartnerEligibility.isPending
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Validando…</>
+                : pasoActual.id === 'intro-comunidad'
+                  ? <>¡Quiero ir! <ArrowRight className="w-4 h-4" /></>
+                  : <>Continuar <ArrowRight className="w-4 h-4" /></>}
             </button>
           ) : null}
         </div>

@@ -3310,7 +3310,8 @@ export const appRouter = router({
     get: publicProcedure.input(z.object({ slug: z.string().max(50) })).query(async ({ input }) => {
       return partnerSvc.getPublicPartnerCampaign(input.slug);
     }),
-    /* ¿Puede comprar por el link? (no si ya es cliente de Playroom). Con
+    /* ¿Puede comprar por el link? (no si ya es cliente de Playroom) -- y si
+     * puede, recién acá recibe los precios de la campaña. Con
      * límite por IP: dice algo sobre si un email/RUT ya compró, así que no
      * puede quedar abierto para probar listas enteras. */
     checkEligibility: publicProcedure.input(z.object({
@@ -3322,9 +3323,14 @@ export const appRouter = router({
       if (!(await db.checkIpRateLimit(ipKey))) {
         throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Prueba de nuevo en un rato.' });
       }
-      await db.recordIpAttempt(ipKey, 20, 30 * 60 * 1000);
+      // 60 cada 30 min: holgado para un grupo comprando desde la misma red
+      // (datos móviles comparten IP), y aún así frena probar listas enteras.
+      await db.recordIpAttempt(ipKey, 60, 30 * 60 * 1000);
+      const campaign = await partnerSvc.getPartnerCampaignBySlug(input.slug);
+      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND', message: 'Este link no está disponible.' });
       const existing = await partnerSvc.isExistingPlayroomCustomer({ email: input.email, rut: input.rut, campaignSlug: input.slug });
-      return { eligible: !existing };
+      // El precio especial viaja SOLO en esta respuesta y solo si puede comprar.
+      return existing ? { eligible: false as const } : { eligible: true as const, pricing: partnerSvc.getPartnerPricing(campaign) };
     }),
     adminGet: adminReadProcedure.input(z.object({ slug: z.string().max(50) }).optional()).query(async ({ input }) => {
       return partnerSvc.getPartnerCampaignForAdmin(input?.slug ?? partnerSvc.ELECTRONICA_SLUG);

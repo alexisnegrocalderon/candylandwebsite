@@ -134,8 +134,9 @@ export async function tagCustomerForPartnerOrder(orderId: number, buyerEmail: st
   }).where(eq(customers.id, customer.id));
 }
 
-/** Lo que ve el link público: precios por acceso, textos y si está abierto.
- * A propósito sin contadores (ni ventas ni cupos restantes exactos). */
+/** Lo que ve el link público al abrirse: textos, accesos disponibles y si
+ * está abierto. A propósito SIN precios (ver getPartnerPricing) ni contadores:
+ * cualquiera puede abrir el link, también alguien que ya es cliente. */
 export async function getPublicPartnerCampaign(slug: string) {
   const campaign = await getPartnerCampaignBySlug(slug);
   if (!campaign) return null;
@@ -153,13 +154,23 @@ export async function getPublicPartnerCampaign(slug: string) {
     label: campaign.label,
     emoji: campaign.emoji,
     headline: campaign.headline || PARTNER_DEFAULT_HEADLINE,
-    pricePerPerson: campaign.pricePerPerson,
-    prices: Object.fromEntries(allowed.map((s) => [s, partnerAccessPrice(campaign.pricePerPerson, s)!])) as Record<string, number>,
-    personas: Object.fromEntries(allowed.map((s) => [s, PARTNER_PERSONAS[s]])) as Record<string, number>,
+    allowedAccesos: allowed,
     rules: partnerRulesList(campaign.rulesText),
     eventSlug: event.slug,
     eventName: event.name,
     status: !campaign.isActive ? 'closed' as const : full ? 'full' as const : 'open' as const,
+  };
+}
+
+/** Precios de la campaña: solo se entregan después de validar email + RUT
+ * (partner.checkEligibility), así quien ya es cliente de Playroom nunca ve el
+ * valor especial, ni en pantalla ni en las respuestas del servidor. */
+export function getPartnerPricing(campaign: PartnerCampaign) {
+  const allowed = partnerAllowedAccesos(campaign.allowedAccesoSlugs);
+  return {
+    pricePerPerson: campaign.pricePerPerson,
+    prices: Object.fromEntries(allowed.map((s) => [s, partnerAccessPrice(campaign.pricePerPerson, s)!])) as Record<string, number>,
+    personas: Object.fromEntries(allowed.map((s) => [s, PARTNER_PERSONAS[s]])) as Record<string, number>,
   };
 }
 
