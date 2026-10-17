@@ -10,11 +10,11 @@ import { clip, pushTitle } from '../shared/pushText';
 import { invokeLLM, extractContent, NO_THINKING } from './_core/llm';
 import * as db from './db';
 import { buildInstagramContext } from './instagramAgent';
-import { replyToComment, hideComment, sendButtonMessage, sendPrivateReply, commentOnOwnMedia, fetchOwnMedia } from './instagramSend';
+import { replyToComment, hideComment, unhideComment, sendButtonMessage, sendPrivateReply, commentOnOwnMedia, fetchOwnMedia } from './instagramSend';
 import { resolveInstagramBuyLink } from './instagramInteractive';
 import { stripUrlsFromReply, resolvePageLink, AGENT_PAGE_KEYS, AGENT_SITE_PAGES } from './agentLinks';
 import { sendPushToAdmins } from './push';
-import { normalizeInstagramAgentConfig } from '../shared/instagramAgentConfig';
+import { normalizeInstagramAgentConfig, normalizeIgUsername } from '../shared/instagramAgentConfig';
 import { AI_PHRASES_PROMPT_LINE } from '../shared/aiPhrasesEs';
 import { cleanAiMarks } from '../shared/captionCheck';
 import { triageComment, type CommentCategory } from '../shared/commentTriage';
@@ -140,7 +140,8 @@ export async function handleIncomingComment(input: {
     if (!config.commentsEnabled) return;
     if (ENV.igUserId && input.igUserId === ENV.igUserId) return; // comentario propio
 
-    const { category, purchaseIntent } = triageComment(input.text);
+    const trusted = config.trustedAccounts.includes(normalizeIgUsername(input.username));
+    const { category, purchaseIntent } = triageComment(input.text, { trusted });
 
     if (category === 'spam') {
       if (!config.hideSpam) return;
@@ -166,6 +167,37 @@ export async function handleIncomingComment(input: {
   } catch (err) {
     console.error('[instagram-comments] no se pudo procesar el comentario', err);
   }
+}
+
+/** "No es spam": lo vuelve a mostrar en Instagram, suma a la persona a las
+ * cuentas de confianza (para que no se repita) y lo deja en "Por aprobar"
+ * con un borrador, como cualquier comentario normal. */
+export async function restoreSpamComment(id: number): Promise<{ trustedAdded: string | null }> {
+  const row = await db.getIgComment(id);
+  if (!row) throw new Error('Ese comentario ya no existe.');
+  if (row.status !== 'hidden' && !(row.status === 'failed' && row.category === 'spam')) {
+    throw new Error('Ese comentario no está marcado como spam.');
+  }
+  // Si nunca se llegó a ocultar en Instagram (falló), no hay nada que mostrar.
+  if (row.status === 'hidden') {
+    try { await unhideComment(row.commentId); } catch (err) {
+      throw new Error(`Instagram no dejó volver a mostrarlo: ${err instanceof Error ? err.message.slice(0, 200) : 'error'}`);
+    }
+  }
+
+  const username = normalizeIgUsername(row.username);
+  const config = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
+  if (username && !config.trustedAccounts.includes(username)) {
+    await db.updateSiteSettings({ instagramAgentConfig: { ...config, trustedAccounts: [...config.trustedAccounts, username] } });
+  }
+
+  const { category, purchaseIntent } = triageComment(row.text, { trusted: true });
+  let draft = { reply: '', dm: '', button: 'none' };
+  if (category !== 'sensitive') {
+    try { draft = await draftCommentReply({ text: row.text, username: row.username, category, purchaseIntent }); } catch { /* sin borrador: el dueño lo escribe */ }
+  }
+  await db.restoreIgComment(id, { category, draftReply: draft.reply || null, draftDm: draft.dm || null, dmButton: draft.dm ? draft.button : null });
+  return { trustedAdded: username && !config.trustedAccounts.includes(username) ? username : null };
 }
 
 /** El dueño aprobó: publica la respuesta y, si hay, manda el DM con su botón

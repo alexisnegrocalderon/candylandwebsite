@@ -47,10 +47,11 @@ const PRAISE = [
 
 const EMOJI_RE = new RegExp(String.raw`[\p{Extended_Pictographic}\p{Emoji_Component}‍️]`, 'gu');
 
-export function triageComment(raw: string): CommentTriage {
+/** `trusted`: cuenta de confianza (ver `trustedAccounts`) -- nunca es spam. */
+export function triageComment(raw: string, opts: { trusted?: boolean } = {}): CommentTriage {
   const text = norm(raw);
   const purchaseIntent = PURCHASE.some((r) => r.test(text));
-  if (SPAM.some((r) => r.test(text))) return { category: 'spam', purchaseIntent: false };
+  if (!opts.trusted && SPAM.some((r) => r.test(text))) return { category: 'spam', purchaseIntent: false };
   if (SENSITIVE.some((r) => r.test(text))) return { category: 'sensitive', purchaseIntent: false };
 
   const stripped = raw.replace(EMOJI_RE, '').replace(/@[\w.]+/g, '').replace(/[\s.,!¡?¿\-_*+~]+/g, '');

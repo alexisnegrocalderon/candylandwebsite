@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { MessageCircle, Check, X, Sparkles, Loader2 } from 'lucide-react';
+import { MessageCircle, Check, X, Sparkles, Loader2, ShieldCheck, Undo2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { formatChileDateTime } from '@shared/chileDate';
@@ -54,6 +55,16 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
     onError: (e) => { onError(e); refresh(); },
   });
   const discard = trpc.instagramComments.discard.useMutation({ onSuccess: refresh, onError });
+  const notSpam = trpc.instagramComments.notSpam.useMutation({
+    onSuccess: (r) => {
+      toast.success(r.trustedAdded
+        ? `Visible de nuevo y @${r.trustedAdded} quedó como cuenta de confianza`
+        : 'Visible de nuevo en Instagram; quedó en "Por aprobar"');
+      refresh();
+      void utils.instagram.getConfig.invalidate();
+    },
+    onError: (e) => { onError(e); refresh(); },
+  });
 
   // Llegó desde el aviso de un comentario: lo busca, lo muestra y lo resalta.
   const [highlight, setHighlight] = useState<number | null>(null);
@@ -91,6 +102,7 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
             <Switch id="ig-comments-spam" checked={config?.hideSpam ?? true} disabled={!config || settings.isPending}
               onCheckedChange={(hideSpam) => settings.mutate({ commentsEnabled: config?.commentsEnabled ?? false, hideSpam })} />
           </div>
+          <TrustedAccounts accounts={config?.trustedAccounts ?? []} disabled={!config} />
         </CardContent>
       </Card>
 
@@ -106,7 +118,8 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
         : !comments || comments.length === 0 ? <EmptyState icon={MessageCircle} title="Sin comentarios aquí" description="Cuando lleguen, aparecerán con un borrador para aprobar." />
         : comments.map((c) => {
           const value = edits[c.id] ?? c.finalReply ?? c.draftReply ?? '';
-          const pending = c.status === 'pending' || c.status === 'failed';
+          const isSpam = c.category === 'spam' && (c.status === 'hidden' || c.status === 'failed');
+          const pending = !isSpam && (c.status === 'pending' || c.status === 'failed');
           return (
             <Card key={c.id} id={`ig-comment-${c.id}`} className={highlight === c.id ? 'ring-2 ring-primary transition-shadow' : 'transition-shadow'}>
               <CardContent className="pt-4 space-y-3">
@@ -124,7 +137,12 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
                   ? <p className="text-xs text-muted-foreground line-clamp-2">Pie de foto: {c.text}</p>
                   : <p className="text-sm whitespace-pre-wrap">"{c.text}"</p>}
                 {c.error ? <p className="text-xs text-destructive">{c.error}</p> : null}
-                {pending ? (
+                {isSpam ? (
+                  <Button variant="outline" className="min-h-11 w-full sm:w-auto" disabled={notSpam.isPending}
+                    onClick={() => notSpam.mutate({ id: c.id })}>
+                    <Undo2 className="w-4 h-4 mr-1" /> No es spam{c.username ? ` (confiar en @${c.username})` : ''}
+                  </Button>
+                ) : pending ? (
                   <>
                     <Textarea value={value} rows={2} placeholder={c.category === 'sensitive' ? 'Tema delicado: escribe tú la respuesta' : 'Escribe la respuesta'}
                       onChange={(e) => setEdits({ ...edits, [c.id]: e.target.value })} />
@@ -149,6 +167,48 @@ export function InstagramComments({ focusId = null }: { focusId?: number | null 
             </Card>
           );
         })}
+    </div>
+  );
+}
+
+/** Cuentas cuyos comentarios nunca se ocultan como spam (ej. la otra
+ * organizadora). "No es spam" en un comentario también la suma acá. */
+function TrustedAccounts({ accounts, disabled }: { accounts: string[]; disabled: boolean }) {
+  const utils = trpc.useUtils();
+  const [value, setValue] = useState('');
+  const save = trpc.instagramComments.setTrustedAccounts.useMutation({
+    onSuccess: () => { setValue(''); void utils.instagram.getConfig.invalidate(); },
+    onError,
+  });
+  const add = () => {
+    const name = value.trim().replace(/^@+/, '').toLowerCase();
+    if (!/^[a-z0-9._]{1,30}$/.test(name)) { toast.error('Escribe un usuario de Instagram válido, ej. @otra.organizadora'); return; }
+    if (accounts.includes(name)) { setValue(''); return; }
+    save.mutate({ accounts: [...accounts, name] });
+  };
+  return (
+    <div className="space-y-2 border-t border-border/60 pt-3">
+      <p className="text-sm font-medium flex items-center gap-1.5"><ShieldCheck className="w-4 h-4" /> Cuentas de confianza</p>
+      <p className="text-xs text-muted-foreground">Sus comentarios nunca se ocultan como spam, aunque traigan links o números.</p>
+      {accounts.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {accounts.map((a) => (
+            <span key={a} className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm">
+              @{a}
+              <button type="button" aria-label={`Quitar @${a}`} disabled={save.isPending}
+                onClick={() => save.mutate({ accounts: accounts.filter((x) => x !== a) })}
+                className="rounded-full p-0.5 text-muted-foreground hover:text-foreground">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-2">
+        <Input value={value} placeholder="@usuario" disabled={disabled || save.isPending}
+          onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); }} />
+        <Button variant="outline" disabled={disabled || save.isPending || !value.trim()} onClick={add}>Agregar</Button>
+      </div>
     </div>
   );
 }

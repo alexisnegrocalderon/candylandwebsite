@@ -109,7 +109,7 @@ import { refundOrder } from "./orderRefund";
 import { issueAccessCreditsForOrder, listAccessCredits, listCreditsByOrderIds, remindAccessCredit } from "./accessCredit";
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
-import { approveComment, suggestOwnComment } from './instagramComments';
+import { approveComment, restoreSpamComment, suggestOwnComment } from './instagramComments';
 import { getInstagramInsights } from './instagramInsights';
 import { igReferralLabel, referralUtmContent } from '../shared/igReferral';
 import { buildFunnel, normalizeLinkCode, postOrigin } from '../shared/igFunnel';
@@ -2710,7 +2710,7 @@ export const appRouter = router({
       hooks: z.array(z.string().max(160)).max(20).optional(),
     })).mutation(async ({ input }) => {
       const current = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
-      return db.updateSiteSettings({ instagramAgentConfig: { ...input, commentsEnabled: input.commentsEnabled ?? current.commentsEnabled, hideSpam: input.hideSpam ?? current.hideSpam, customLinkCodes: current.customLinkCodes, welcomeEnabled: input.welcomeEnabled ?? current.welcomeEnabled, hooks: input.hooks ?? current.hooks } });
+      return db.updateSiteSettings({ instagramAgentConfig: { ...input, commentsEnabled: input.commentsEnabled ?? current.commentsEnabled, hideSpam: input.hideSpam ?? current.hideSpam, customLinkCodes: current.customLinkCodes, trustedAccounts: current.trustedAccounts, welcomeEnabled: input.welcomeEnabled ?? current.welcomeEnabled, hooks: input.hooks ?? current.hooks } });
     }),
     /* Cuánto vendió el agente (Instagram + WhatsApp): órdenes aprobadas
      * que entraron por un botón del agente (utm_campaign=agente...). */
@@ -3059,6 +3059,21 @@ export const appRouter = router({
     setSettings: adminProcedure.input(z.object({ commentsEnabled: z.boolean(), hideSpam: z.boolean() })).mutation(async ({ input }) => {
       const current = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
       return db.updateSiteSettings({ instagramAgentConfig: { ...current, ...input } });
+    }),
+    /* "No es spam": lo muestra de nuevo en Instagram y confía en esa cuenta. */
+    notSpam: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
+      try {
+        return await restoreSpamComment(input.id);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo recuperar el comentario.' });
+      }
+    }),
+    /* Cuentas de confianza: sus comentarios nunca se ocultan como spam. */
+    setTrustedAccounts: adminProcedure.input(z.object({ accounts: z.array(z.string().max(40)).max(100) })).mutation(async ({ input }) => {
+      const current = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
+      const config = normalizeInstagramAgentConfig({ ...current, trustedAccounts: input.accounts });
+      await db.updateSiteSettings({ instagramAgentConfig: config });
+      return { trustedAccounts: config.trustedAccounts };
     }),
   }),
 
