@@ -8263,6 +8263,14 @@ export async function decideIgComment(id: number, patch: { status: IgComment['st
   await db.update(igComments).set({ ...patch, decidedAt: new Date() }).where(eq(igComments.id, id));
 }
 
+/** Un comentario que se había ocultado como spam vuelve a "Por aprobar" con
+ * su nueva categoría y borrador (instagramComments.restoreSpamComment). */
+export async function restoreIgComment(id: number, patch: { category: string; draftReply: string | null; draftDm: string | null; dmButton: string | null }): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(igComments).set({ ...patch, status: 'pending', error: null, decidedAt: null }).where(eq(igComments.id, id));
+}
+
 /** Respuestas públicas ya publicadas, para dar variedad y ejemplos de estilo. */
 export async function recentSentIgReplies(limit: number): Promise<string[]> {
   try {

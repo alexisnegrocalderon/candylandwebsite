@@ -81,6 +81,10 @@ export interface InstagramAgentConfig {
   commentsEnabled: boolean;
   /** Oculta solo el spam evidente (ofertas de seguidores, links raros). */
   hideSpam: boolean;
+  /** Cuentas de confianza (usuario sin @, en minúscula): sus comentarios
+   * nunca se tratan como spam aunque traigan links o números -- ej. la otra
+   * organizadora. Se suma sola al marcar "No es spam" en el panel. */
+  trustedAccounts: string[];
   /** Códigos propios del Kit de links (campañas), además de los canales fijos. */
   customLinkCodes: string[];
   /** Bienvenida en el primer DM de cada persona (con o sin "gracias por
@@ -112,6 +116,7 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   coachWeeklyEnabled: true,
   commentsEnabled: false,
   hideSpam: true,
+  trustedAccounts: [],
   customLinkCodes: [],
   welcomeEnabled: false,
   hooks: DEFAULT_HOOKS,
@@ -170,6 +175,9 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
     coachWeeklyEnabled: partial.coachWeeklyEnabled !== false,
     commentsEnabled: partial.commentsEnabled === true,
     hideSpam: partial.hideSpam !== false,
+    trustedAccounts: Array.isArray(partial.trustedAccounts)
+      ? Array.from(new Set(partial.trustedAccounts.map(normalizeIgUsername).filter(Boolean))).slice(0, 100)
+      : [],
     welcomeEnabled: partial.welcomeEnabled === true,
     hooks: Array.isArray(partial.hooks)
       ? partial.hooks.filter((h): h is string => typeof h === 'string').map((h) => h.trim().slice(0, 160)).filter(Boolean).slice(0, 20)
@@ -181,6 +189,14 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
       ? Math.min(Math.floor(Number(partial.autoResumeHours)), 720)
       : DEFAULT_INSTAGRAM_AGENT_CONFIG.autoResumeHours,
   };
+}
+
+/** "@Otra.Organizadora " → "otra.organizadora"; vacío si no es un usuario
+ * válido de Instagram (letras, números, punto y guion bajo, hasta 30). */
+export function normalizeIgUsername(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const name = raw.trim().replace(/^@+/, '').toLowerCase();
+  return /^[a-z0-9._]{1,30}$/.test(name) ? name : '';
 }
 
 /** Tope duro de caracteres de una respuesta. Instagram corta los mensajes

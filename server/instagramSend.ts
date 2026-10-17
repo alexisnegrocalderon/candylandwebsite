@@ -131,6 +131,10 @@ export async function hideComment(commentId: string): Promise<void> {
   await postToCommentEndpoint(commentId, { hide: true });
 }
 
+export async function unhideComment(commentId: string): Promise<void> {
+  await postToCommentEndpoint(commentId, { hide: false });
+}
+
 async function postToCommentEndpoint(path: string, body: Record<string, unknown>): Promise<{ id: string | null }> {
   if (!ENV.igAccessToken) throw new InstagramApiError('Falta IG_ACCESS_TOKEN.');
   const response = await fetch(`${GRAPH_BASE}/${path}`, {

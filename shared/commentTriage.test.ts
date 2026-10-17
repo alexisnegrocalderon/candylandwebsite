@@ -30,3 +30,19 @@ describe('triageComment', () => {
     expect(triageComment('nos vemos el sábado entonces').category).toBe('other');
   });
 });
+
+describe('triageComment con cuenta de confianza', () => {
+  const promo = 'Este sábado también en https://otrafiesta.cl escríbeme al whatsapp +56912345678 🔥';
+
+  it('el mismo texto es spam si la cuenta no es de confianza', () => {
+    expect(triageComment(promo).category).toBe('spam');
+  });
+
+  it('nunca es spam si la cuenta es de confianza', () => {
+    expect(triageComment(promo, { trusted: true }).category).not.toBe('spam');
+  });
+
+  it('lo delicado sigue siendo delicado aunque sea de confianza', () => {
+    expect(triageComment('me cobraron doble, quiero reembolso', { trusted: true }).category).toBe('sensitive');
+  });
+});
