@@ -1841,7 +1841,10 @@ function LineupSection() {
             return (
               <div
                 key={pista.nombre}
-                className={`candy-perspective transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${
+                // min-w-0: sin esto el ancho mínimo del texto (nombres del
+                // line-up, título) le gana al flex y la tarjeta tocada no se
+                // expande en celular.
+                className={`candy-perspective min-w-0 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] ${
                   isActive ? 'flex-[2]' : isDimmed ? 'flex-[0.75] opacity-70' : 'flex-1'
                 }`}
               >
@@ -1900,12 +1903,14 @@ function LineupSection() {
                   </span>
 
                   {/* Contenido */}
-                  <div className="relative h-full flex flex-col justify-end p-4 md:p-6">
+                  <div className="relative h-full flex flex-col justify-end p-3.5 md:p-6">
                     <p className="text-[10px] md:text-xs uppercase tracking-[0.25em] text-foreground/60 mb-0.5">{pista.nombre}</p>
-                    <h3 className="font-heading font-extrabold text-xl md:text-4xl text-gradient-candy leading-none mb-1 whitespace-nowrap">
+                    <h3 className="font-heading font-extrabold text-[clamp(1rem,4.6vw,1.5rem)] md:text-4xl text-gradient-candy leading-none mb-1 whitespace-nowrap">
+                      {/* En celular el emoji va arriba: al lado, "PERREO" no cabía
+                          en pantallas angostas. */}
                       <motion.span
                         aria-hidden
-                        className="inline-block"
+                        className="block w-fit mb-1 md:mb-0 md:inline-block"
                         animate={isActive ? { scale: [1, 1.28, 1], rotate: [0, -10, 8, 0] } : { scale: 1, rotate: 0 }}
                         transition={{ duration: 0.55 }}
                       >
@@ -1926,7 +1931,10 @@ function LineupSection() {
                       const djs = CANDYLAND.lineup.filter((dj) => dj.pista === pista.genero);
                       const esB2b = djs.some((dj) => dj.formato === 'B2B');
                       return (
-                        <div>
+                        // La tarjeta achicada (la otra está tocada) solo deja el
+                        // título: los nombres se desvanecen como la descripción
+                        // en vez de partirse letra por letra.
+                        <div className={`transition-opacity duration-300 ${isDimmed ? 'opacity-0 whitespace-nowrap' : 'opacity-100'}`}>
                           <span className={`inline-flex items-center gap-1 mb-1.5 px-2 py-0.5 rounded-full text-[10px] md:text-xs font-extrabold uppercase tracking-widest ${esB2b ? 'bg-primary text-primary-foreground' : 'border border-primary/40 text-primary'}`}>
                             <Music2 className="w-3 h-3" /> {esB2b ? 'B2B · Line-up' : 'Line-up'}
                           </span>
