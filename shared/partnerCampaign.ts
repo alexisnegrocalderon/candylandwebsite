@@ -35,11 +35,20 @@ export function partnerAllowedAccesos(configured: unknown): string[] {
   return list.filter((s): s is string => typeof s === 'string' && s in PARTNER_PERSONAS);
 }
 
-/** Precio de UN acceso dentro de la campaña: precio por persona × personas. */
-export function partnerAccessPrice(pricePerPerson: number, accesoSlug: string | null | undefined): number | null {
+/** Precios fijos por acceso que NO siguen el "precio por persona" de la
+ * campaña (decisión del dueño): la Soltera doble va a $10.000 sin importar
+ * cuánto valga la persona. Ganan sobre el cálculo de partnerAccessPrice. */
+export const PARTNER_PRICE_OVERRIDES: Record<string, Record<string, number>> = {
+  electronica: { duo_mujeres: 10000 },
+};
+
+/** Precio de UN acceso dentro de la campaña: precio por persona × personas,
+ * salvo que la campaña tenga un precio fijo para ese acceso. */
+export function partnerAccessPrice(pricePerPerson: number, accesoSlug: string | null | undefined, campaignSlug?: string): number | null {
   const personas = accesoSlug ? PARTNER_PERSONAS[accesoSlug] : undefined;
   if (!personas) return null;
-  return pricePerPerson * personas;
+  const fixed = campaignSlug && accesoSlug ? PARTNER_PRICE_OVERRIDES[campaignSlug]?.[accesoSlug] : undefined;
+  return fixed ?? pricePerPerson * personas;
 }
 
 /** Tag que queda en `customers.tags` de quien compra por la campaña. */
@@ -90,6 +99,8 @@ export function partnerRulesList(rulesText: string | null | undefined): string[]
 }
 
 export type PartnerCampaignConfig = {
+  /** Para los precios fijos de PARTNER_PRICE_OVERRIDES. */
+  slug?: string;
   isActive: number | boolean;
   pricePerPerson: number;
   allowedAccesoSlugs: unknown;
@@ -124,7 +135,7 @@ export function priceForPartnerOrder(
       continue;
     }
     const slug = line.accesoSlug ?? '';
-    const price = allowed.includes(slug) ? partnerAccessPrice(campaign.pricePerPerson, slug) : null;
+    const price = allowed.includes(slug) ? partnerAccessPrice(campaign.pricePerPerson, slug, campaign.slug) : null;
     if (price == null) throw new Error('Este tipo de acceso no está disponible en el link de la comunidad.');
     unitPrices.set(line.ticketTypeId, price);
     personas += PARTNER_PERSONAS[slug] * line.quantity;

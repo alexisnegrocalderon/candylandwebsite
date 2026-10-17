@@ -1995,7 +1995,7 @@ export function buildPartnerReminderEmail(data: {
       ${card(`
         <p style="color:${INK};font-size:16px;font-weight:800;margin:0 0 6px;">${esc(data.headline)}</p>
         ${data.setTimeText ? `<p style="color:${ACCENT.pink.text};font-size:15px;font-weight:700;margin:0;">🕐 ${esc(data.setTimeText)}</p>` : ''}
-        <p style="color:${MUTED};font-size:13px;margin:10px 0 0;">Y en la segunda pista, reggaetón y perreo toda la noche.</p>
+        <p style="color:${MUTED};font-size:13px;margin:10px 0 0;">Y en la Pista 2, el mejor perreo y bailable para no parar en toda la noche.</p>
       `, { glow: 'pink' })}
 
       ${sectionTitle('📝', 'Antes de venir')}

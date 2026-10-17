@@ -16,6 +16,12 @@ describe('partnerAccessPrice', () => {
     expect(partnerAccessPrice(5000, 'grupo')).toBe(20000);
   });
 
+  it('respeta el precio fijo de la Soltera doble en la comunidad electrónica', () => {
+    expect(partnerAccessPrice(6000, 'duo_mujeres', 'electronica')).toBe(10000);
+    expect(partnerAccessPrice(6000, 'duo', 'electronica')).toBe(12000);
+    expect(priceForPartnerOrder({ ...campaign, slug: 'electronica', pricePerPerson: 6000 }, [line(1, 'duo_mujeres')], 0).unitPrices.get(1)).toBe(10000);
+  });
+
   it('no tiene precio para Soltero ni accesos desconocidos', () => {
     expect(partnerAccessPrice(5000, 'soltero')).toBeNull();
     expect(partnerAccessPrice(5000, 'cumpleaneros')).toBeNull();
