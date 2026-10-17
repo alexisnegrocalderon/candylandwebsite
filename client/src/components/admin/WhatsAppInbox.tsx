@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { MessageCircle, Bot, Hand, Send, Sparkles, AlertTriangle, List, Link as LinkIcon } from 'lucide-react';
+import { MessageCircle, Bot, Hand, Send, Sparkles, AlertTriangle, List, Link as LinkIcon, Info, Settings2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useAdminDeepLink } from '@/lib/adminDeepLink';
 import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
@@ -12,6 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { SplitInbox, InboxList, ThreadRow, InboxTag, ChatHeader, ChatMessages, ChatBubble, ChatComposer, chatTime, inboxTime } from '@/components/admin/inbox/SplitInbox';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
 import { formatChileDateTime } from '@shared/chileDate';
@@ -30,26 +32,48 @@ const onError = (error: unknown) => {
 
 export function WhatsAppInbox() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [agentOpen, setAgentOpen] = useState(false);
   useAdminDeepLink('whatsapp', (link) => { if (link.thread) setSelectedId(link.thread); });
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="font-heading text-2xl flex items-center gap-2"><MessageCircle className="w-6 h-6" /> WhatsApp</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Mensajes del WhatsApp de la productora y el agente de IA que los contesta (el mismo del Instagram).
-        </p>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Las conversaciones sin actividad por más de 30 días se borran solas.
-        </p>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="mr-auto flex items-center gap-2 font-heading text-2xl"><MessageCircle className="h-6 w-6" /> WhatsApp</h2>
+        <button type="button" onClick={() => setAgentOpen(true)}
+          className="admin-tab flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium">
+          <Settings2 className="h-4 w-4" /> Agente
+        </button>
       </div>
 
       <ConnectionCard />
-      <AgentConfigCard />
 
-      {selectedId === null
-        ? <ThreadList onOpen={setSelectedId} />
-        : <ThreadDetail threadId={selectedId} onBack={() => setSelectedId(null)} />}
+      <SplitInbox
+        hasSelection={selectedId !== null}
+        list={<ThreadList selectedId={selectedId} onOpen={setSelectedId} />}
+        detail={selectedId !== null && <ThreadDetail key={selectedId} threadId={selectedId} onBack={() => setSelectedId(null)} />}
+        empty={(
+          <div className="space-y-3 text-muted-foreground">
+            <MessageCircle className="mx-auto h-12 w-12 opacity-60" />
+            <p className="font-heading text-lg text-foreground">Tus mensajes</p>
+            <p className="text-sm">Elige una conversación de la lista para leerla y responder.</p>
+            <p className="text-xs">Las conversaciones sin actividad por más de 30 días se borran solas.</p>
+          </div>
+        )}
+      />
+
+      {/* El conocimiento (notas de marca, tono, derivación) se edita en el
+          agente de Instagram y lo comparten los dos canales. */}
+      <Sheet open={agentOpen} onOpenChange={setAgentOpen}>
+        <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-0 sm:max-w-2xl">
+          <SheetHeader className="border-b border-white/10 px-5 py-4">
+            <SheetTitle className="flex items-center gap-2 font-heading text-xl"><Bot className="h-5 w-5" /> Agente de WhatsApp</SheetTitle>
+            <SheetDescription>El mismo agente del Instagram: su conocimiento y tono se editan allá.</SheetDescription>
+          </SheetHeader>
+          <div className="px-5 py-4">
+            <AgentConfigCard />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
@@ -257,46 +281,40 @@ function threadTitle(t: { profileName: string | null; waId: string }) {
   return t.profileName ? `${t.profileName} · +${t.waId}` : `+${t.waId}`;
 }
 
-function ThreadList({ onOpen }: { onOpen: (id: number) => void }) {
+function ThreadList({ selectedId, onOpen }: { selectedId: number | null; onOpen: (id: number) => void }) {
   const { data: threads, isLoading } = trpc.whatsapp.listThreads.useQuery(undefined, { refetchInterval: 30_000 });
+  const [search, setSearch] = useState('');
 
-  if (isLoading) return <p className="text-sm text-muted-foreground">Cargando conversaciones...</p>;
-  if (!threads || threads.length === 0) {
-    return (
-      <EmptyState
-        icon={MessageCircle}
-        title="Todavía no hay mensajes"
-        description="Cuando alguien le escriba al WhatsApp de la productora, la conversación va a aparecer acá."
-      />
-    );
-  }
+  const q = search.trim().toLowerCase();
+  const visible = (threads ?? []).filter((t) => !q
+    || `${t.profileName ?? ''} ${t.waId} ${t.lastMessagePreview ?? ''}`.toLowerCase().includes(q));
 
   return (
-    <div className="space-y-3">
-      {threads.map((t) => (
-        <button
+    <InboxList search={search} onSearch={setSearch}>
+      {isLoading && <p className="p-4 text-sm text-muted-foreground">Cargando conversaciones...</p>}
+      {!isLoading && (threads ?? []).length === 0 && (
+        <EmptyState
+          icon={MessageCircle}
+          title="Todavía no hay mensajes"
+          description="Cuando alguien le escriba al WhatsApp de la productora, la conversación va a aparecer acá."
+        />
+      )}
+      {!isLoading && (threads ?? []).length > 0 && visible.length === 0 && (
+        <p className="p-4 text-center text-sm text-muted-foreground">Nada coincide con “{search}”.</p>
+      )}
+      {visible.map((t) => (
+        <ThreadRow
           key={t.id}
+          title={threadTitle(t)}
+          preview={t.lastMessagePreview ?? ''}
+          time={inboxTime(t.lastMessageAt)}
+          unread={t.unreadCount}
+          active={t.id === selectedId}
           onClick={() => onOpen(t.id)}
-          className="w-full text-left p-4 rounded-2xl border border-border/60 bg-card hover:border-primary/40 transition-colors"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="font-semibold truncate">
-                {threadTitle(t)}
-                {t.unreadCount > 0 && <span className="ml-2 text-xs rounded-full bg-primary text-primary-foreground px-2 py-0.5">{t.unreadCount}</span>}
-              </p>
-              <p className="text-sm text-muted-foreground truncate mt-1">{t.lastMessagePreview ?? ''}</p>
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-xs text-muted-foreground">{t.lastMessageAt ? formatChileDateTime(t.lastMessageAt) : ''}</p>
-              {t.botPaused === 1 && (
-                <p className="text-xs text-amber-600 mt-1 flex items-center gap-1 justify-end"><Hand className="w-3 h-3" /> esperando al equipo</p>
-              )}
-            </div>
-          </div>
-        </button>
+          tags={t.botPaused === 1 && <InboxTag tone="warn"><Hand className="h-3 w-3" /> Esperando al equipo</InboxTag>}
+        />
       ))}
-    </div>
+    </InboxList>
   );
 }
 
@@ -334,6 +352,7 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.whatsapp.getThread.useQuery({ threadId }, { refetchInterval: 20_000 });
   const [text, setText] = useState('');
+  const [showInfo, setShowInfo] = useState(false);
 
   const markRead = trpc.whatsapp.markRead.useMutation({
     onSuccess: () => { utils.whatsapp.listThreads.invalidate(); },
@@ -357,80 +376,76 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
 
   useEffect(() => { markRead.mutate({ threadId }); }, [threadId]);
 
-  if (isLoading || !data) return <p className="text-sm text-muted-foreground">Cargando conversación...</p>;
+  if (isLoading || !data) return <p className="p-6 text-sm text-muted-foreground">Cargando conversación...</p>;
 
   const { thread, messages } = data;
 
   return (
-    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-      <CardHeader className="flex flex-row items-center justify-between gap-3">
-        <div>
-          <CardTitle className="text-base">{threadTitle(thread)}</CardTitle>
-          {thread.botPaused === 1 && thread.handoffReason && (
-            <p className="text-xs text-amber-600 mt-1">Bot pausado: {thread.handoffReason}</p>
-          )}
+    <>
+      <ChatHeader
+        title={threadTitle(thread)}
+        onBack={onBack}
+        subtitle={thread.botPaused === 1
+          ? <span className="text-amber-200">Bot pausado{thread.handoffReason ? `: ${thread.handoffReason}` : ''}</span>
+          : <span>La IA responde</span>}
+        actions={(
+          <>
+            <label className="hidden items-center gap-2 rounded-full bg-white/5 px-3 py-1.5 text-xs sm:flex" title="Respuesta automática en esta conversación">
+              <Bot className="h-3.5 w-3.5" /> IA
+              <Switch checked={thread.botPaused === 0} onCheckedChange={(on) => setPaused.mutate({ threadId, paused: !on })} />
+            </label>
+            <Button variant="ghost" size="icon" className="rounded-full" onClick={() => setShowInfo((v) => !v)} aria-label="Ficha de la persona" aria-pressed={showInfo}>
+              <Info className="h-5 w-5" />
+            </Button>
+            <ConfirmDeleteButton
+              description={`Vas a eliminar toda la conversación con ${threadTitle(thread)}.`}
+              onConfirm={(adminPassword) => deleteThread.mutateAsync({ threadId, adminPassword })}
+            />
+          </>
+        )}
+      />
+
+      {showInfo && (
+        <div className="max-h-[45%] shrink-0 space-y-3 overflow-y-auto border-b border-white/10 bg-black/20 p-3 md:p-4">
+          <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 p-3">
+            <div className="text-sm">
+              <p className="font-medium">Respuesta automática en esta conversación</p>
+              <p className="text-xs text-muted-foreground">
+                Se pausa sola apenas contestas a mano, desde este panel o desde la app del teléfono.
+              </p>
+            </div>
+            <Switch checked={thread.botPaused === 0} onCheckedChange={(on) => setPaused.mutate({ threadId, paused: !on })} />
+          </div>
           {thread.botPaused === 1 && (
             <AgentAutoResumeNote botPausedAt={thread.botPausedAt} handoffReason={thread.handoffReason} />
           )}
+          <CustomerNotesCard channel="whatsapp" threadId={threadId} notes={thread.customerNotes} />
         </div>
-        <div className="flex items-center gap-2">
-          <ConfirmDeleteButton
-            description={`Vas a eliminar toda la conversación con ${threadTitle(thread)}.`}
-            onConfirm={(adminPassword) => deleteThread.mutateAsync({ threadId, adminPassword })}
-          />
-          <Button variant="ghost" size="sm" onClick={onBack}>Volver</Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <CustomerNotesCard channel="whatsapp" threadId={threadId} notes={thread.customerNotes} />
-        <div className="flex items-center justify-between gap-4 rounded-2xl border p-3">
-          <div className="text-sm">
-            <p className="font-medium">Respuesta automática en esta conversación</p>
-            <p className="text-muted-foreground text-xs">
-              Se pausa sola apenas contestas a mano, desde este panel o desde la app del teléfono.
-            </p>
-          </div>
-          <Switch
-            checked={thread.botPaused === 0}
-            onCheckedChange={(on) => setPaused.mutate({ threadId, paused: !on })}
-          />
-        </div>
+      )}
 
-        <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
-          {messages.map((m) => (
-            <div key={m.id} className={`flex ${m.direction === 'in' ? 'justify-start' : 'justify-end'}`}>
-              <div className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${m.direction === 'in' ? 'bg-muted' : 'bg-primary/10'}`}>
-                <p className="whitespace-pre-wrap break-words">{m.text ?? '[adjunto]'}</p>
-                <InteractiveSummary value={m.interactive} />
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  {SOURCE_LABEL[m.source] ?? ''}
-                  {formatChileDateTime(m.createdAt)}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
+      <ChatMessages count={messages.length}>
+        {messages.map((m) => (
+          <ChatBubble key={m.id} outgoing={m.direction !== 'in'} meta={`${SOURCE_LABEL[m.source] ?? ''}${chatTime(m.createdAt)}`}>
+            <p className="whitespace-pre-wrap break-words">{m.text ?? '[adjunto]'}</p>
+            <InteractiveSummary value={m.interactive} />
+          </ChatBubble>
+        ))}
+      </ChatMessages>
 
-        {thread.canReply ? (
-          <div className="flex gap-2">
-            <Input
-              value={text}
-              maxLength={WA_MAX_REPLY_CHARS}
-              placeholder="Escribe tu respuesta..."
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && text.trim()) reply.mutate({ threadId, text: text.trim() }); }}
-            />
-            <WriteButton onClick={() => reply.mutate({ threadId, text: text.trim() })} disabled={reply.isPending || text.trim().length === 0}>
-              <Send className="w-4 h-4" />
-            </WriteButton>
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground rounded-2xl border p-3">
-            Pasaron más de 24 horas desde su último mensaje: WhatsApp solo deja escribirle con una plantilla aprobada.
-            Contéstale desde la app WhatsApp Business del teléfono.
-          </p>
-        )}
-      </CardContent>
-    </Card>
+      {thread.canReply ? (
+        <ChatComposer
+          value={text}
+          onChange={setText}
+          onSend={() => reply.mutate({ threadId, text: text.trim() })}
+          sending={reply.isPending}
+          maxLength={WA_MAX_REPLY_CHARS}
+        />
+      ) : (
+        <p className="shrink-0 border-t border-white/10 p-3 text-center text-sm text-muted-foreground">
+          Pasaron más de 24 horas desde su último mensaje: WhatsApp solo deja escribirle con una plantilla aprobada.
+          Contéstale desde la app WhatsApp Business del teléfono.
+        </p>
+      )}
+    </>
   );
 }

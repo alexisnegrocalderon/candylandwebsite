@@ -438,3 +438,17 @@ html[data-admin-theme="dark-glass"] body {
 [data-admin-theme="dark-glass"] .bg-white:not(iframe, img, canvas) { background-color: rgba(255, 255, 255, 0.08); }
 [data-admin-theme="dark-glass"] :is(.bg-white\/30, .bg-white\/50, .bg-white\/70) { background-color: rgba(255, 255, 255, 0.05); }
 [data-admin-theme="dark-glass"] :is(.hover\:bg-white, .hover\:bg-white\/40):hover { background-color: rgba(255, 255, 255, 0.12); }
+
+/* Chat a pantalla completa en el celular (inbox/SplitInbox.tsx): fondo
+ * sólido sin vidrio y sin la barra inferior del panel encima. */
+@media (max-width: 767px) {
+  [data-admin-theme="dark-glass"] .admin-clay.admin-chat-fullscreen {
+    background: var(--admin-surface-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  html.admin-chat-open .admin-tabbar { display: none; }
+}
