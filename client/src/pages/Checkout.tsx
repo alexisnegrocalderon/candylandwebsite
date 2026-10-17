@@ -108,6 +108,15 @@ const PAREJA_OPTIONS: { tipo: DuoComposicion; image: string; label: string; sub:
 
 const GROUP_TO_ACCESO: Record<3 | 4, string> = { 3: 'trio', 4: 'grupo' };
 
+/* Explicación corta de cada opción en el link de la comunidad: gente que no
+ * conoce Playroom y no sabe qué acceso le corresponde. */
+const PARTNER_VIBE_SUB: Record<GroupSize, string> = {
+  1: 'Soltera · mujer sola',
+  2: 'Dúo pareja o soltera doble',
+  3: '3 personas · grupo mixto',
+  4: '4 personas · grupo mixto',
+};
+
 /* Accesos que se eligen fuera del flujo conversacional (link directo desde
  * un CTA específico) y por eso saltan la pregunta "¿Cómo vienes?" */
 const SPECIAL_SKIP_VIBE = ['soltero', 'cumpleaneros'];
@@ -1220,8 +1229,8 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
                       Esta invitación es para ti, que vienes de la escena electrónica y quizás nunca has estado en una fiesta de Playroom. Te contamos lo importante:
                     </p>
                     <ul className="space-y-2.5 text-sm leading-relaxed text-muted-foreground">
-                      <li className="flex gap-2"><span aria-hidden>🎧</span><span><span className="text-foreground font-semibold">Pista 1 · Tech:</span> el B2B toda la noche, house y techno.</span></li>
-                      <li className="flex gap-2"><span aria-hidden>🔥</span><span><span className="text-foreground font-semibold">Pista 2 · Perreo:</span> reggaetón y perreo sin pausa.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🎧</span><span><span className="text-foreground font-semibold">Pista 1 · Tech:</span> el B2B de Aldo Medel y German Courtin, toda la noche.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🔥</span><span><span className="text-foreground font-semibold">Pista 2:</span> el mejor perreo y bailable para no parar en toda la noche.</span></li>
                       <li className="flex gap-2"><span aria-hidden>🚗</span><span><span className="text-foreground font-semibold">Estacionamiento privado</span> dentro del recinto, con cupos limitados: lo puedes reservar al final de la compra.</span></li>
                       <li className="flex gap-2"><span aria-hidden>🍔</span><span>Stand de comida, tiendas y barra completa para toda la noche.</span></li>
                       <li className="flex gap-2"><span aria-hidden>🛡️</span><span><span className="text-foreground font-semibold">Un espacio seguro:</span> respeto y consentimiento son la regla. Nadie te va a incomodar y nada es obligatorio.</span></li>
@@ -1241,12 +1250,16 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
                       key={op.size}
                       image={op.image}
                       titulo={op.label}
+                      sub={isPartner ? PARTNER_VIBE_SUB[op.size] : undefined}
                       fallbackEmoji={op.emoji}
                       activo={groupSize === op.size}
                       onClick={() => chooseVibe(op.size)}
                     />
                   ))}
                 </div>
+              )}
+              {pasoActual.id === 'vibe' && isPartner && (
+                <p className="text-xs text-center text-muted-foreground mt-4">En Playroom no hay acceso para hombres solos ni grupos solo de hombres.</p>
               )}
 
               {/* Paso: solo/a → ¿ella o él? */}
@@ -1274,7 +1287,7 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
                       key={op.tipo}
                       image={op.image}
                       titulo={op.label}
-                      sub={isPartner ? (op.tipo === 'dos_mujeres' ? 'Soltera doble' : 'Dúo') : op.sub}
+                      sub={isPartner ? (op.tipo === 'dos_mujeres' ? 'Soltera doble · 2 mujeres' : 'Dúo · exclusivo para parejas') : op.sub}
                       fallbackEmoji={op.emoji}
                       activo={duoComposicion === op.tipo}
                       onClick={() => choosePareja(op.tipo)}

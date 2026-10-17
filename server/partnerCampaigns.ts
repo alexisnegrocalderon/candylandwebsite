@@ -191,7 +191,7 @@ export function getPartnerPricing(campaign: PartnerCampaign) {
   const allowed = partnerAllowedAccesos(campaign.allowedAccesoSlugs);
   return {
     pricePerPerson: campaign.pricePerPerson,
-    prices: Object.fromEntries(allowed.map((s) => [s, partnerAccessPrice(campaign.pricePerPerson, s)!])) as Record<string, number>,
+    prices: Object.fromEntries(allowed.map((s) => [s, partnerAccessPrice(campaign.pricePerPerson, s, campaign.slug)!])) as Record<string, number>,
     personas: Object.fromEntries(allowed.map((s) => [s, PARTNER_PERSONAS[s]])) as Record<string, number>,
   };
 }

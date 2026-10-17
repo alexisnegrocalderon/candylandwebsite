@@ -23,6 +23,7 @@ import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Pe
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
+import { partnerAccessPrice, PARTNER_PRICE_OVERRIDES } from '@shared/partnerCampaign';
 import { ordersOutsideFilter } from '@shared/ordersOutsideFilter';
 import { DEFAULT_REFUND_PERCENT, REFUND_DEADLINE_DAYS, isPastRefundDeadline, refundAmountForPercent, refundPercentForAmount } from '@shared/orderRefund';
 import { ORDERS_PAGE_SIZE, ORDERS_REMINDERS_PAGE_SIZE, nextEventId, pageCount, pageRange } from '@shared/ordersPagination';
@@ -1726,7 +1727,7 @@ function PartnerCampaignView() {
               <Label>Precio por persona</Label>
               <Input type="number" inputMode="numeric" value={form.pricePerPerson} onChange={(e) => setForm({ ...form, pricePerPerson: e.target.value })} className="mt-1" />
               <p className="text-xs text-muted-foreground mt-1">
-                {campaign.allowedAccesoSlugs.map((slug: string) => `${PARTNER_ACCESO_LABEL[slug] ?? slug} ${clp(Number(form.pricePerPerson || 0) * ({ soltera: 1, duo_mujeres: 2, duo: 2, trio: 3, grupo: 4 } as Record<string, number>)[slug])}`).join(' · ')}. Más el cargo por servicio. Sin Soltero.
+                {campaign.allowedAccesoSlugs.map((slug: string) => `${PARTNER_ACCESO_LABEL[slug] ?? slug} ${clp(partnerAccessPrice(Number(form.pricePerPerson || 0), slug, campaign.slug) ?? 0)}${PARTNER_PRICE_OVERRIDES[campaign.slug]?.[slug] ? ' (fijo)' : ''}`).join(' · ')}. Más el cargo por servicio. Sin Soltero.
               </p>
             </div>
             <div>
