@@ -1529,7 +1529,7 @@ function ExperienceSection() {
                 <div
                   onPointerMove={pointerFine ? handleCandyTilt : undefined}
                   onPointerLeave={pointerFine ? resetCandyTilt : undefined}
-                  className="candy-pass glass-candy rounded-2xl p-6 md:p-7 flex items-center gap-3 hover:border-primary/40 transition-colors"
+                  className="candy-pass glass-candy rounded-2xl p-4 sm:p-6 md:p-7 h-full flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3 hover:border-primary/40 transition-colors"
                 >
                   <motion.span
                     whileHover={{ rotate: [0, -12, 10, -6, 0] }}
@@ -1538,7 +1538,9 @@ function ExperienceSection() {
                   >
                     <Icon className="w-7 h-7 md:w-8 md:h-8 text-primary" />
                   </motion.span>
-                  <span className="text-base md:text-lg font-medium">{a.texto}</span>
+                  {/* En celular el ícono va arriba del texto: al lado no
+                      cabía "Estacionamiento" y se salía de la tarjeta. */}
+                  <span className="min-w-0 text-[15px] sm:text-base md:text-lg font-medium leading-snug [overflow-wrap:anywhere]">{a.texto}</span>
                   <div aria-hidden className="candy-sheen" />
                   <div aria-hidden className="candy-holo" />
                 </div>
@@ -1830,7 +1832,7 @@ function LineupSection() {
         </motion.div>
 
         {/* Split de energía: la pista activa se expande, la otra respira */}
-        <motion.div {...reveal} className="flex gap-2 md:gap-3 h-56 md:h-64">
+        <motion.div {...reveal} className="flex gap-2 md:gap-3 h-72 md:h-80">
           {CANDYLAND.pistas.map((pista) => {
             const skin = PISTA_SKINS[pista.genero] ?? PISTA_SKINS.PERREO;
             const isActive = activa === pista.genero;
@@ -1900,7 +1902,7 @@ function LineupSection() {
                   {/* Contenido */}
                   <div className="relative h-full flex flex-col justify-end p-4 md:p-6">
                     <p className="text-[10px] md:text-xs uppercase tracking-[0.25em] text-foreground/60 mb-0.5">{pista.nombre}</p>
-                    <h3 className="font-heading font-extrabold text-2xl md:text-4xl text-gradient-candy leading-none mb-1">
+                    <h3 className="font-heading font-extrabold text-xl md:text-4xl text-gradient-candy leading-none mb-1 whitespace-nowrap">
                       <motion.span
                         aria-hidden
                         className="inline-block"
@@ -1911,24 +1913,35 @@ function LineupSection() {
                       </motion.span>{' '}
                       {pista.genero}
                     </h3>
-                  <p className={`text-foreground/70 text-xs md:text-sm transition-opacity duration-300 ${isDimmed ? 'opacity-0' : 'opacity-100'}`}>
+                  {/* Con artistas confirmados, los nombres son lo importante: la
+                      descripción de la pista queda solo en pantallas grandes. */}
+                  <p className={`text-foreground/70 text-xs md:text-sm transition-opacity duration-300 ${CANDYLAND.lineup.some((dj) => dj.pista === pista.genero) ? 'hidden md:block' : ''} ${isDimmed ? 'opacity-0' : 'opacity-100'}`}>
                     {pista.descripcion}
                   </p>
 
                   <div className="mt-2 space-y-1">
                     {/* Por pista: con un artista confirmado en una sola pista, la
                         otra sigue mostrando "Por anunciar" en vez de quedar vacía. */}
-                    {CANDYLAND.lineup.some((dj) => dj.pista === pista.genero) ? (
-                      CANDYLAND.lineup
-                        .filter((dj) => dj.pista === pista.genero)
-                        .map((dj) => (
-                          <div key={dj.nombre} className="flex items-center gap-2 text-xs md:text-sm">
-                            <Music2 className="w-3.5 h-3.5 text-primary shrink-0" />
-                            <span className="font-semibold">{dj.nombre}</span>
-                            {dj.horario && <span className="text-muted-foreground">{dj.horario}</span>}
-                          </div>
-                        ))
-                    ) : (
+                    {CANDYLAND.lineup.some((dj) => dj.pista === pista.genero) ? (() => {
+                      const djs = CANDYLAND.lineup.filter((dj) => dj.pista === pista.genero);
+                      const esB2b = djs.some((dj) => dj.formato === 'B2B');
+                      return (
+                        <div>
+                          <span className={`inline-flex items-center gap-1 mb-1.5 px-2 py-0.5 rounded-full text-[10px] md:text-xs font-extrabold uppercase tracking-widest ${esB2b ? 'bg-primary text-primary-foreground' : 'border border-primary/40 text-primary'}`}>
+                            <Music2 className="w-3 h-3" /> {esB2b ? 'B2B · Line-up' : 'Line-up'}
+                          </span>
+                          {djs.map((dj, i) => (
+                            <div key={dj.nombre}>
+                              {esB2b && i > 0 && <p className="font-heading text-[11px] md:text-sm font-bold text-primary leading-none my-0.5">b2b</p>}
+                              <p className="font-heading font-extrabold uppercase text-[15px] md:text-2xl leading-tight tracking-tight text-foreground drop-shadow-sm">
+                                {dj.nombre}
+                                {dj.horario && <span className="ml-2 text-xs font-medium normal-case text-muted-foreground">{dj.horario}</span>}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })() : (
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-primary/30 text-[10px] md:text-xs text-primary transition-opacity duration-300 ${isDimmed ? 'opacity-0' : 'opacity-100'}`}>
                         <Sparkles className="w-3 h-3" /> Por anunciar
                       </span>
