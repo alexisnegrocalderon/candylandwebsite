@@ -229,7 +229,7 @@ describe("buildMailingBlastEmail", () => {
     expect(html).toContain("259/300 ya confirmados");
     expect(html).toContain("$10.000 por persona mientras dure la Misión 300");
     expect(html).toContain("¿Qué encontrarás?");
-    for (const item of ["Estacionamiento privado", "Guardarropía", "Terraza Bar Lounge", "PlayBites para recargar energía", "Dos pistas de baile (Tech + Reggaetón)", "Playground XXL", "Kink Room", "Zona de fumadores"]) {
+    for (const item of ["Estacionamiento privado", "Guardarropía", "Terraza Bar Lounge", "PlayBites para recargar energía", "Dos pistas de baile (Tech + Reggaetón)", "Playground XXL", "Zona de fumadores"]) {
       expect(html).toContain(item);
     }
   });

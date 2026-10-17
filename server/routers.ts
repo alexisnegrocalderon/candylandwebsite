@@ -78,6 +78,7 @@ import { deleteCustomerProfile, getCustomerProfile, updateCustomerProfile } from
 import { computeCustomerLevel } from "../shared/customerInsights";
 import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftClosed, listCajaAlerts } from "./caja/alerts";
 import { BRAND } from "../shared/eventBrand";
+import * as partnerSvc from "./partnerCampaigns";
 import * as staffSvc from "./staff";
 import * as siiSvc from "./sii";
 import * as cashSvc from "./cash";
@@ -1195,6 +1196,9 @@ export const appRouter = router({
       utmMedium: z.string().max(100).optional(),
       utmCampaign: z.string().max(100).optional(),
       utmContent: z.string().max(100).optional(),
+      // Link de campaña aliada (/electronica), ver server/partnerCampaigns.ts.
+      partnerSlug: z.string().max(50).optional(),
+      partnerRef: z.string().max(32).optional(),
     })).mutation(async ({ input }) => {
       const result = await db.createOrder(input);
       // Descuento del 100%: la orden ya quedó aprobada en createOrder (sin
@@ -1224,18 +1228,24 @@ export const appRouter = router({
       channel: z.enum(['web', 'caja']).optional(),
       eventId: z.number().optional(),
       search: z.string().max(100).optional(),
+      // Solo las ventas de una campaña aliada (filtro 🎧 de Ventas Web).
+      partnerCampaignId: z.number().optional(),
     }).optional()).query(async ({ input }) => {
-      const result = await db.getAllOrders(input ?? {});
+      const { partnerCampaignId, ...filters } = input ?? {};
+      const onlyOrderIds = partnerCampaignId ? await partnerSvc.getPartnerOrderIds(partnerCampaignId) : undefined;
+      const result = await db.getAllOrders({ ...filters, onlyOrderIds });
       // Solicitudes de "pasar a Trío" pendientes de pago, para la etiqueta de la
       // fila. Sin el link de pago: la lista también la ve el rol demo.
       const ids = result.orders.map((o) => o.id);
       const pending = await getPendingUpgradesByOrderIds(ids);
       const pendingAddons = await getPendingAddonsByOrderIds(ids);
       const credits = await listCreditsByOrderIds(ids);
+      const partnerBadges = await partnerSvc.getPartnerBadgesByOrderIds(ids);
       return {
         ...result,
         orders: result.orders.map((o) => ({
           ...o,
+          partnerBadge: partnerBadges.get(o.id) ?? null,
           pendingUpgrade: pending.get(o.id) ?? null,
           pendingAddons: pendingAddons.get(o.id) ?? null,
           credits: credits.filter((c) => c.originOrderId === o.id).map((c) => ({ id: c.id, code: c.code, availability: c.availability })),
@@ -3290,6 +3300,73 @@ export const appRouter = router({
     delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const result = await db.deleteCommunityCode(input.id);
       await db.recordAdminAudit({ action: 'communityCodes.delete', targetType: 'communityCode', targetId: input.id, ip: clientIp(ctx) });
+      return result;
+    }),
+  }),
+
+  // Campañas aliadas: link privado con precio especial por persona (hoy
+  // /electronica, la comunidad del B2B Aldo Medel x German Courtin).
+  partner: router({
+    /* Lo que necesita el link público: precios, textos y si está abierto. */
+    get: publicProcedure.input(z.object({ slug: z.string().max(50) })).query(async ({ input }) => {
+      return partnerSvc.getPublicPartnerCampaign(input.slug);
+    }),
+    /* ¿Puede comprar por el link? (no si ya es cliente de Playroom) -- y si
+     * puede, recién acá recibe los precios de la campaña. Con
+     * límite por IP: dice algo sobre si un email/RUT ya compró, así que no
+     * puede quedar abierto para probar listas enteras. */
+    checkEligibility: publicProcedure.input(z.object({
+      slug: z.string().max(50),
+      email: z.string().email(),
+      rut: z.string().max(20).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const ipKey = `partner-eligibility:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Prueba de nuevo en un rato.' });
+      }
+      // 60 cada 30 min: holgado para un grupo comprando desde la misma red
+      // (datos móviles comparten IP), y aún así frena probar listas enteras.
+      await db.recordIpAttempt(ipKey, 60, 30 * 60 * 1000);
+      const campaign = await partnerSvc.getPartnerCampaignBySlug(input.slug);
+      if (!campaign) throw new TRPCError({ code: 'NOT_FOUND', message: 'Este link no está disponible.' });
+      const existing = await partnerSvc.isExistingPlayroomCustomer({ email: input.email, rut: input.rut, campaignSlug: input.slug });
+      // El precio especial viaja SOLO en esta respuesta y solo si puede comprar.
+      return existing ? { eligible: false as const } : { eligible: true as const, pricing: partnerSvc.getPartnerPricing(campaign) };
+    }),
+    adminGet: adminReadProcedure.input(z.object({ slug: z.string().max(50) }).optional()).query(async ({ input }) => {
+      return partnerSvc.getPartnerCampaignForAdmin(input?.slug ?? partnerSvc.ELECTRONICA_SLUG);
+    }),
+    adminUpdate: adminProcedure.input(z.object({
+      slug: z.string().max(50).optional(),
+      isActive: z.boolean().optional(),
+      pricePerPerson: z.number().int().min(0).max(1_000_000).optional(),
+      maxPersons: z.number().int().min(1).max(100_000).nullable().optional(),
+      headline: z.string().max(255).nullable().optional(),
+      rulesText: z.string().max(5000).nullable().optional(),
+      label: z.string().max(100).optional(),
+      setTimeText: z.string().max(120).nullable().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const { slug, ...patch } = input;
+      const result = await partnerSvc.updatePartnerCampaign(slug ?? partnerSvc.ELECTRONICA_SLUG, patch);
+      await db.recordAdminAudit({ action: 'partner.update', targetType: 'partnerCampaign', targetId: result?.id ?? 0, ip: clientIp(ctx) });
+      return result;
+    }),
+    /* Recordatorio previo a la fiesta a toda la comunidad (una vez por compra). */
+    sendReminder: adminProcedure.input(z.object({ slug: z.string().max(50).optional() }).optional()).mutation(async ({ input, ctx }) => {
+      const slug = input?.slug ?? partnerSvc.ELECTRONICA_SLUG;
+      const result = await partnerSvc.sendPartnerReminders(slug);
+      await db.recordAdminAudit({ action: 'partner.sendReminder', targetType: 'partnerCampaign', targetId: slug, payload: result, ip: clientIp(ctx) });
+      return result;
+    }),
+    /* Agradecimiento post-fiesta con beneficio, solo a quienes entraron. */
+    sendThanks: adminProcedure.input(z.object({
+      slug: z.string().max(50).optional(),
+      discountCode: z.string().trim().min(1).max(50),
+      benefitText: z.string().trim().min(1).max(300),
+    })).mutation(async ({ input, ctx }) => {
+      const slug = input.slug ?? partnerSvc.ELECTRONICA_SLUG;
+      const result = await partnerSvc.sendPartnerThanks(slug, input);
+      await db.recordAdminAudit({ action: 'partner.sendThanks', targetType: 'partnerCampaign', targetId: slug, payload: result, ip: clientIp(ctx) });
       return result;
     }),
   }),

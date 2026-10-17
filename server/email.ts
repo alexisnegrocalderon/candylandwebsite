@@ -125,7 +125,6 @@ const CONTENT = {
     { emoji: '🍔', label: 'PlayBites para recargar energía' },
     { emoji: '🎧', label: 'Dos pistas de baile (Tech + Reggaetón)' },
     { emoji: '🛝', label: 'Playground XXL' },
-    { emoji: '⛓️', label: 'Kink Room' },
     { emoji: '🚬', label: 'Zona de fumadores' },
   ],
   antesDeVenir: [
@@ -138,7 +137,7 @@ const CONTENT = {
     { q: '¿Puedo llegar más tarde?', a: 'Sí.' },
     { q: '¿Puedo ir solo/a?', a: 'Claro. Muchas personas vienen solas y nuestro ambiente está pensado para conocer gente.' },
     { q: '¿Puedo salir y volver a entrar?', a: 'No. Una vez validado el ingreso, las salidas son definitivas.' },
-    { q: '¿Tengo que entrar al Playground o al Kink Room?', a: 'No. Todos los espacios son completamente opcionales.' },
+    { q: '¿Tengo que entrar al Playground?', a: 'No. Todos los espacios son completamente opcionales.' },
   ],
 };
 
@@ -150,6 +149,12 @@ const CONTENT = {
 function attendeeNamesList(names: string[]): string {
   if (names.length === 0) return '';
   return names.map(n => `<p style="color:${INK};font-size:15px;font-weight:600;margin:2px 0;">👤 ${n}</p>`).join('');
+}
+
+/** El texto de las reglas lo escribe el dueño desde el admin: se escapa antes
+ * de meterlo en el HTML del correo. */
+function escapeEmailText(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 export function buildOrderEmail(data: {
@@ -179,6 +184,10 @@ export function buildOrderEmail(data: {
   extras?: { name: string; quantity: number; codes: string[] }[];
   /** Textos + interruptores por sección editados desde el admin (shared/emailTemplateConfig.ts). */
   templateConfig?: OrderEmailConfig;
+  /** Compra por el link de una campaña aliada (/electronica): gente que
+   * viene por primera vez, así que el correo repite los valores y el derecho
+   * de permanencia que aceptaron en el checkout. */
+  partnerWelcome?: { label: string; emoji: string; rules: string[] };
 }) {
   const cfg = data.templateConfig ?? DEFAULT_ORDER_EMAIL_CONFIG;
   const ticketNames = data.items.map(i => i.name).join(', ');
@@ -264,6 +273,17 @@ export function buildOrderEmail(data: {
         </div>
         ${!data.ticketReady ? `<p style="color:${FAINT};font-size:12px;margin:14px 0 0;">La dirección exacta será enviada unos días antes del evento.</p>` : ''}
       `, { glow: 'blue' })}
+
+      <!-- BIENVENIDA COMUNIDAD ALIADA -->
+      ${data.partnerWelcome ? `
+      ${sectionTitle(escapeEmailText(data.partnerWelcome.emoji), `Bienvenid@ a Playroom, ${escapeEmailText(data.partnerWelcome.label)}`)}
+      ${card(`
+        <p style="color:${INK};font-size:15px;font-weight:700;margin:0 0 10px;">Es tu primera vez con nosotros: así cuidamos la fiesta entre todos.</p>
+        <p style="color:${MUTED};font-size:13px;margin:0 0 14px;">Nuestros pilares: ${CONTENT.valores.join(' · ')}</p>
+        ${data.partnerWelcome.rules.map(r => `<p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">• ${escapeEmailText(r)}</p>`).join('')}
+        <p style="color:${ACCENT.pink.text};font-size:13px;font-weight:700;margin:12px 0 0;">Al comprar aceptaste estas reglas y el derecho de permanencia.</p>
+      `, { glow: 'pink' })}
+      ` : ''}
 
       <!-- MISIÓN 300 -->
       ${data.isMissionDeposit ? `
@@ -1936,5 +1956,97 @@ export function buildFinanceDigestEmail(data: {
     ${tips ? card(`<p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px;">Cómo subir el margen</p>${tips}`, { bg: '#F9FAFB', borderColor: REPORT_BORDER }) : ''}
     <p style="margin:16px 0 0;"><a href="${data.link}" style="color:#D6336C;font-weight:700;font-size:14px;">Abrir Finanzas →</a></p>
   </div>`,
+  });
+}
+
+/** Recordatorio previo a la fiesta, solo para la comunidad de una campaña
+ * aliada (Admin → Comunidad Electrónica). Gente que viene por primera vez:
+ * horario del set, disfraz, estacionamiento y las reglas, sin vueltas. */
+export function buildPartnerReminderEmail(data: {
+  buyerName: string;
+  emoji: string;
+  label: string;
+  headline: string;
+  setTimeText?: string | null;
+  eventTitle: string;
+  eventDate: string;
+  dressCode: string;
+  rules: string[];
+  ticketCode?: string;
+}) {
+  const esc = escapeEmailText;
+  const ticketUrl = data.ticketCode ? `${EMAIL_BASE_URL}/verificar/${data.ticketCode}` : EMAIL_BASE_URL;
+  return emailShell({
+    preheader: `${data.headline} -- todo lo que necesitas para la noche.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'pink',
+      heroBg: DISCO_HERO_BG,
+      emoji: `${esc(data.emoji)}🎃`,
+      title: `Ya casi, ${esc(data.buyerName)}`,
+      subtitle: `${esc(data.eventTitle)} · ${esc(data.eventDate)}`,
+      cta: { href: ticketUrl, label: 'Ver mi entrada' },
+      anniversary: true,
+      costume: true,
+      ctaStyle: 'pastel',
+    }),
+    body: `
+      ${sectionTitle('🎧', 'Pista Tech')}
+      ${card(`
+        <p style="color:${INK};font-size:16px;font-weight:800;margin:0 0 6px;">${esc(data.headline)}</p>
+        ${data.setTimeText ? `<p style="color:${ACCENT.pink.text};font-size:15px;font-weight:700;margin:0;">🕐 ${esc(data.setTimeText)}</p>` : ''}
+        <p style="color:${MUTED};font-size:13px;margin:10px 0 0;">Y en la segunda pista, reggaetón y perreo toda la noche.</p>
+      `, { glow: 'pink' })}
+
+      ${sectionTitle('📝', 'Antes de venir')}
+      ${card(`
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">🎭 <strong>Disfraz obligatorio.</strong> ${esc(data.dressCode)}</p>
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">🪪 Trae tu carnet o pasaporte: evento +18.</p>
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">🚗 Hay estacionamiento privado con cupos limitados: si no lo reservaste, llega temprano.</p>
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0;">🎟️ Tu QR está en el correo de tu compra y en <a href="${ticketUrl}" style="color:${ACCENT.pink.text};">tu entrada online</a>.</p>
+      `, { glow: 'blue' })}
+
+      ${sectionTitle('💜', 'Cómo cuidamos la fiesta')}
+      ${card(`
+        ${data.rules.map(r => `<p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">• ${esc(r)}</p>`).join('')}
+      `, { glow: 'gold' })}
+    `,
+  });
+}
+
+/** Agradecimiento después de la fiesta, con un beneficio para la próxima --
+ * para que la comunidad que vino por primera vez vuelva. */
+export function buildPartnerThanksEmail(data: {
+  buyerName: string;
+  emoji: string;
+  label: string;
+  eventTitle: string;
+  discountCode: string;
+  benefitText: string;
+}) {
+  const esc = escapeEmailText;
+  return emailShell({
+    preheader: `Gracias por venir a ${data.eventTitle}. Te dejamos un regalo para la próxima.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'pink',
+      heroBg: DISCO_HERO_BG,
+      emoji: `${esc(data.emoji)}💜`,
+      title: `Gracias por venir, ${esc(data.buyerName)}`,
+      subtitle: `Fue un honor tener a la ${esc(data.label)} en ${esc(data.eventTitle)}.`,
+      cta: { href: EMAIL_BASE_URL, label: 'Ver próximas fiestas' },
+      ctaStyle: 'pastel',
+    }),
+    body: `
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Esperamos que la noche haya sido tan buena como la sentimos nosotros. Ya eres parte de Playroom, y queremos verte de nuevo.
+      </p>
+      ${card(`
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;text-align:center;">Tu beneficio para la próxima fiesta</p>
+        <p style="color:${INK};font-size:15px;line-height:1.6;margin:0 0 14px;text-align:center;">${esc(data.benefitText)}</p>
+        <p style="color:${ACCENT.gold.text};font-size:28px;font-weight:800;font-family:monospace;letter-spacing:2px;margin:0;text-align:center;user-select:all;">${esc(data.discountCode)}</p>
+        <p style="color:${MUTED};font-size:12px;margin:12px 0 0;text-align:center;">Escríbelo en el paso «¿Tienes un código?» al comprar en ${EMAIL_BASE_URL.replace(/^https?:\/\//, '')}</p>
+      `, { glow: 'gold' })}
+    `,
   });
 }

@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { motion } from 'framer-motion';
 import { useRoute, useSearch, Link } from 'wouter';
-import { ArrowLeft, ArrowRight, Tag, Loader2, Check, ShieldCheck, Minus, Plus, MessageCircle, Lock } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Tag, Loader2, Check, ShieldCheck, Minus, Plus, MessageCircle, Lock, Instagram } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { PaymentBrick } from '@/components/PaymentBrick';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,8 @@ import { dropSupersededTickets } from '@shared/liveTickets';
 import { useSeo } from '@/hooks/useSeo';
 import { getStoredUtmParams } from '@/lib/utm';
 import { getStoredAmbassadorRef } from '@/lib/ambassadorRef';
+import { BRAND } from '@shared/eventBrand';
+import { PARTNER_EXISTING_CUSTOMER_MESSAGE } from '@shared/partnerCampaign';
 import './Checkout.walletPreview.css';
 
 /** Mini vista previa de la Tarjeta Playroom, mostrada justo donde se pide el
@@ -315,17 +317,53 @@ function SingleFieldInput({
   );
 }
 
-export default function Checkout() {
+/** Pasos con varias casillas propias (no campos del formulario): el paso
+ * "Bienvenid@ a Playroom" del link de una campaña aliada. */
+const PARTNER_CHECKS: { key: 'sigoPlayroom' | 'aceptaValores' | 'aceptaPermanencia'; label: string }[] = [
+  { key: 'sigoPlayroom', label: 'Sigo a Mansion Playroom en Instagram' },
+  { key: 'aceptaValores', label: 'Acepto los valores de Playroom: respeto y consentimiento, siempre' },
+  { key: 'aceptaPermanencia', label: 'Acepto el derecho de permanencia: si mi estado o mi conducta incomoda al resto, me pedirán retirarme y no podré volver a ninguna fiesta de Playroom' },
+];
+
+/** `partnerSlug`: checkout del link privado de una campaña aliada
+ * (/electronica, ver shared/partnerCampaign.ts) -- mismos accesos y mismo
+ * flujo, pero con el precio por persona de la campaña, sin códigos, sin
+ * Soltero, y con el paso obligatorio de valores + derecho de permanencia. */
+export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {}) {
   const [, params] = useRoute('/checkout/:eventSlug');
-  const eventSlug = params?.eventSlug ?? CANDYLAND.slug;
+  const isPartner = !!partnerSlug;
+  const { data: partner, isLoading: partnerLoading } = trpc.partner.get.useQuery(
+    { slug: partnerSlug ?? '' },
+    { enabled: isPartner, retry: false },
+  );
+  const eventSlug = (isPartner ? partner?.eventSlug : params?.eventSlug) ?? CANDYLAND.slug;
+  // Borrador aparte: un borrador de la compra normal no puede arrastrarse al
+  // link de la comunidad (ni al revés).
+  const storageKey = isPartner ? `${STORAGE_KEY}_${partnerSlug}` : STORAGE_KEY;
+  // Firma del DJ que compartió el link (`?dj=aldo`): se recuerda en el
+  // navegador por si la persona vuelve después sin el parámetro. El servidor
+  // la valida contra las firmas conocidas (PARTNER_REFS).
+  const [partnerRef] = useState<string | undefined>(() => {
+    if (!isPartner) return undefined;
+    const refKey = `playroom_partner_ref_${partnerSlug}`;
+    const fromUrl = new URLSearchParams(window.location.search).get('dj')?.trim().toLowerCase() || '';
+    try {
+      if (fromUrl) { window.localStorage.setItem(refKey, fromUrl); return fromUrl; }
+      return window.localStorage.getItem(refKey) || undefined;
+    } catch {
+      return fromUrl || undefined;
+    }
+  });
   useSeo({
     title: 'Completa tu compra — Mansion Playroom',
     description: 'Checkout de entradas para eventos de Mansion Playroom.',
-    path: `/checkout/${eventSlug}`,
+    path: isPartner ? `/${partnerSlug}` : `/checkout/${eventSlug}`,
     noindex: true,
   });
   const search = useSearch();
-  const itemsParam = new URLSearchParams(search).get('items') || '';
+  // El link de la comunidad no acepta preselección por URL (?items=soltero
+  // saltaría la regla de no vender Soltero).
+  const itemsParam = isPartner ? '' : new URLSearchParams(search).get('items') || '';
   const initialFromUrl = itemsParam.split(',')[0]?.split(':')[0] || '';
   const initialQtyFromUrl = Math.max(1, Number(itemsParam.split(',')[0]?.split(':')[1]) || 1);
   const skipVibe = SPECIAL_SKIP_VIBE.includes(initialFromUrl);
@@ -385,6 +423,18 @@ export default function Checkout() {
   const validateCode = trpc.orders.validateCode.useMutation();
   const validateCommunityCode = trpc.communityCodes.validate.useMutation();
   const createOrder = trpc.orders.create.useMutation();
+  const checkPartnerEligibility = trpc.partner.checkEligibility.useMutation();
+  // Ya es cliente de Playroom: el link de la comunidad no es para esta
+  // persona -- se le muestra la salida a la compra normal.
+  const [yaCliente, setYaCliente] = useState(false);
+  const [partnerChecks, setPartnerChecks] = useState({ sigoPlayroom: false, aceptaValores: false, aceptaPermanencia: false });
+  const [partnerChecksError, setPartnerChecksError] = useState('');
+  // Precio de la campaña: el servidor lo entrega recién al validar email +
+  // RUT (partner.checkEligibility). Antes de eso el link no muestra ningún
+  // valor -- si alguien de Playroom lo abre, no ve el precio especial.
+  const [partnerPricing, setPartnerPricing] = useState<{ pricePerPerson: number; prices: Record<string, number> } | null>(null);
+  const [partnerCheckError, setPartnerCheckError] = useState('');
+  const partnerAllows = (slug: string) => !isPartner || !!partner?.allowedAccesos.includes(slug);
 
   /* ── "¿Cómo vienes?" (Paso 1) + acceso resuelto a partir de la respuesta ── */
   const [groupSize, setGroupSize] = useState<GroupSize | null>(() => {
@@ -420,7 +470,7 @@ export default function Checkout() {
   // valor general — igual que hace createOrder en el servidor. Se calcula acá
   // también para que el checkout MUESTRE el precio real que se va a cobrar,
   // en vez del valor general que confundiría a la hora de pagar.
-  const missionOpen = !useConfig && !!event?.eventDate && isMissionActiveForEvent(event);
+  const missionOpen = !isPartner && !useConfig && !!event?.eventDate && isMissionActiveForEvent(event);
 
   const acceso: Acceso | undefined = useMemo(() => {
     if (!accesoId) return undefined;
@@ -429,7 +479,8 @@ export default function Checkout() {
     if (!tt) return undefined;
     const cfg = CANDYLAND.accesos.find((a) => a.id === (tt as any).accesoSlug) ?? CANDYLAND.accesos.find((a) => a.nombre.toLowerCase() === (tt as any).name.toLowerCase());
     const generalPrice = Number((tt as any).price);
-    const precio = missionOpen ? missionDepositPrice((tt as any).accesoSlug) : generalPrice;
+    const partnerPrice = isPartner ? partnerPricing?.prices[(tt as any).accesoSlug] : undefined;
+    const precio = partnerPrice != null ? partnerPrice : missionOpen ? missionDepositPrice((tt as any).accesoSlug) : generalPrice;
     return {
       id: accesoId,
       nombre: (tt as any).name,
@@ -441,7 +492,15 @@ export default function Checkout() {
       exclusivoComunidad: cfg?.exclusivoComunidad ?? false,
       campos: cfg?.campos,
     };
-  }, [accesoId, useConfig, liveTickets, missionOpen]);
+  }, [accesoId, useConfig, liveTickets, missionOpen, partnerPricing]);
+
+  // Precio normal del acceso elegido, para mostrarlo tachado junto al de la
+  // campaña aliada.
+  const partnerRegularPrice = useMemo(() => {
+    if (!isPartner || !accesoId || useConfig) return null;
+    const tt = accesoTickets.find((t: any) => String(t.id) === accesoId);
+    return tt ? Number((tt as any).price) : null;
+  }, [isPartner, accesoId, useConfig, liveTickets]);
 
   const missionGeneralPrice = useMemo(() => {
     if (!missionOpen || !accesoId || useConfig) return null;
@@ -464,6 +523,11 @@ export default function Checkout() {
 
   const chooseVibe = (size: GroupSize) => {
     // Solo/a → resuelve en el paso "quien". Pareja → resuelve en "pareja-composicion".
+    // En el link de la comunidad, solo/a es siempre Soltera (sin Soltero).
+    if (isPartner && size === 1) {
+      if (!avisarSiNoHayEntrada('soltera')) return;
+      setAccesoSlug('soltera');
+    }
     if (size === 3 || size === 4) {
       const slug = GROUP_TO_ACCESO[size];
       if (!avisarSiNoHayEntrada(slug)) return;
@@ -489,7 +553,7 @@ export default function Checkout() {
   };
 
   /* Dúo Dos Hombres necesita el mismo código de comunidad que Soltero. */
-  const requiresCommunityCode = accesoSlug === 'soltero' || (accesoSlug === 'duo' && duoComposicion === 'dos_hombres');
+  const requiresCommunityCode = !isPartner && (accesoSlug === 'soltero' || (accesoSlug === 'duo' && duoComposicion === 'dos_hombres'));
 
   /* ── Extras / códigos ────────────────────────────────────── */
   const [dbExtraQty, setDbExtraQty] = useState<Record<number, number>>({});
@@ -566,9 +630,12 @@ export default function Checkout() {
   type Paso = { id: string; titulo: string; sub?: string; keys: string[] };
   const pasos: Paso[] = useMemo(() => {
     const p: Paso[] = [];
+    if (isPartner) {
+      p.push({ id: 'intro-comunidad', titulo: '🎧 Bienvenid@, comunidad electrónica', sub: partner?.headline, keys: [] });
+    }
     if (!skipVibe) {
       p.push({ id: 'vibe', titulo: `✨ ¿Cómo vienes a vivir ${EVENTO.nombre}?`, sub: 'Selecciona la opción que mejor los representa.', keys: [] });
-      if (groupSize === 1) {
+      if (groupSize === 1 && !isPartner) {
         p.push({ id: 'quien', titulo: 'Perfecto.', sub: 'Cuéntanos cómo vienes.', keys: [] });
       }
       if (groupSize === 2) {
@@ -590,12 +657,18 @@ export default function Checkout() {
       p.push({ id: 'codigo-comunidad', titulo: 'Tu código de comunidad', sub: 'Lo necesitas para completar esta compra.', keys: ['acceso__codigo_acceso'] });
     }
     if (useDbExtras) {
-      p.push({ id: 'extras-db', titulo: '✨ ¿Agregamos algo más?', sub: 'Estacionamiento, covers y otros extras — todo opcional.', keys: [] });
+      p.push(isPartner
+        ? { id: 'extras-db', titulo: '🚗 Asegura tu estacionamiento', sub: 'Los cupos son limitados y en la puerta no hay garantía de lugar. También puedes dejar listos tus tragos y extras — todo opcional.', keys: [] }
+        : { id: 'extras-db', titulo: '✨ ¿Agregamos algo más?', sub: 'Estacionamiento, covers y otros extras — todo opcional.', keys: [] });
     }
-    p.push({ id: 'codigos', titulo: '🎟️ ¿Tienes un código?', sub: 'De descuento o de quien te invitó — o sáltalo no más.', keys: [] });
+    if (isPartner) {
+      p.push({ id: 'bienvenida-playroom', titulo: '💜 Bienvenid@ a Playroom', sub: 'Es tu primera vez con nosotros: así cuidamos la fiesta entre todos. Léelo y confirma para continuar.', keys: [] });
+    } else {
+      p.push({ id: 'codigos', titulo: '🎟️ ¿Tienes un código?', sub: 'De descuento o de quien te invitó — o sáltalo no más.', keys: [] });
+    }
     p.push({ id: 'resumen', titulo: '✨ Tu experiencia', sub: 'Revisa todo antes de continuar.', keys: [] });
     return p;
-  }, [camposAcceso, skipVibe, groupSize, requiresCommunityCode, useDbExtras]);
+  }, [camposAcceso, skipVibe, groupSize, requiresCommunityCode, useDbExtras, isPartner, partner?.headline]);
 
   const [paso, setPaso] = useState(0);
   const total_pasos = pasos.length;
@@ -612,7 +685,7 @@ export default function Checkout() {
 
   /* Restaurar borrador (persistencia ante cierres accidentales) */
   const draft = useMemo(() => {
-    try { return JSON.parse(sessionStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; }
+    try { return JSON.parse(sessionStorage.getItem(storageKey) || '{}'); } catch { return {}; }
   }, []);
 
   const { register, handleSubmit, trigger, setValue, watch, formState: { errors } } = useForm({
@@ -630,7 +703,7 @@ export default function Checkout() {
 
   useEffect(() => {
     const sub = watch((values) => {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ values, accesoSlug, groupSize, qty }));
+      sessionStorage.setItem(storageKey, JSON.stringify({ values, accesoSlug, groupSize, qty }));
     });
     return () => sub.unsubscribe();
   }, [watch, accesoSlug, groupSize, qty]);
@@ -697,7 +770,7 @@ export default function Checkout() {
   // vez aplicado, tocar "Aplicar" de nuevo no vuelve a dispararse por el
   // guard de `codeResult` en el botón).
   useEffect(() => {
-    if (!event?.id || code.trim()) return;
+    if (isPartner || !event?.id || code.trim()) return;
     const stored = getStoredAmbassadorRef() || new URLSearchParams(search).get('code') || '';
     if (!stored) return;
     setCode(stored);
@@ -737,6 +810,27 @@ export default function Checkout() {
       const ok = await trigger(pasoActual.keys as any, { shouldFocus: true });
       if (!ok) return;
     }
+    if (isPartner && pasoActual.id === 'bienvenida-playroom') {
+      if (!PARTNER_CHECKS.every((c) => partnerChecks[c.key])) {
+        setPartnerChecksError('Marca las tres casillas para continuar.');
+        return;
+      }
+    }
+    // Link de la comunidad: apenas hay email + RUT, se revisa que no sea ya
+    // cliente de Playroom (el servidor lo vuelve a exigir al crear la orden).
+    // Si puede comprar, esa misma respuesta trae los precios; sin respuesta
+    // no se avanza, porque sin precio no hay resumen que mostrar.
+    if (isPartner && partnerSlug && pasoActual.id === 'buyer__rut') {
+      setPartnerCheckError('');
+      try {
+        const res = await checkPartnerEligibility.mutateAsync({ slug: partnerSlug, email: watch('buyer__email'), rut: watch('buyer__rut') || undefined });
+        if (!res.eligible) { setYaCliente(true); return; }
+        setPartnerPricing(res.pricing);
+      } catch (e: any) {
+        setPartnerCheckError(e?.message || 'No pudimos validar tus datos. Revisa tu conexión e intenta de nuevo.');
+        return;
+      }
+    }
     setPaso((p) => Math.min(p + 1, total_pasos - 1));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -761,6 +855,9 @@ export default function Checkout() {
       acceso: acceso?.nombre, cantidad: qty, grupoTipo: accesoSlug,
       extras: extrasElegidos,
       campos: values,
+      // Aceptaciones del paso "Bienvenid@ a Playroom", con fecha: quedan
+      // guardadas en la orden (ver hasPartnerAcceptance en el servidor).
+      ...(isPartner ? { partner: { slug: partnerSlug, ...partnerChecks, aceptadoEn: new Date().toISOString() } } : {}),
     });
 
     if (useConfig) {
@@ -785,15 +882,17 @@ export default function Checkout() {
         // matchea (createOrder para descuento, referredByCode/atribución
         // para embajador) -- así funciona aunque la persona nunca haya
         // apretado "Aplicar".
-        discountCode: code.trim() || undefined,
-        ambassadorCode: code.trim() || undefined,
+        discountCode: isPartner ? undefined : code.trim() || undefined,
+        ambassadorCode: isPartner ? undefined : code.trim() || undefined,
+        partnerSlug,
+        partnerRef,
         communityCode: requiresCommunityCode ? values['acceso__codigo_acceso'] : undefined,
         attendeeData,
         // Atribución UTM (ver client/src/lib/utm.ts) -- vacío si nunca entró
         // por un link etiquetado, y el server lo trata como "sin UTM".
         ...getStoredUtmParams(),
       });
-      sessionStorage.removeItem(STORAGE_KEY);
+      sessionStorage.removeItem(storageKey);
       setIsProcessing(false);
       setOrdenPago({ orderNumber: result.orderNumber, total: result.total });
       if (result.isFree) {
@@ -810,6 +909,7 @@ export default function Checkout() {
       // en el próximo render, con este orderNumber/total ya guardados.
     } catch (err: any) {
       setIsProcessing(false);
+      if (isPartner && err?.message === PARTNER_EXISTING_CUSTOMER_MESSAGE) { setYaCliente(true); return; }
       alert(err.message || 'Error al procesar la orden');
     }
   };
@@ -822,6 +922,48 @@ export default function Checkout() {
   const soloField = soloFieldKey ? allFields.find((x) => x.key === soloFieldKey)?.field : undefined;
   const isAutoAdvance = pasoActual.id === 'vibe' || pasoActual.id === 'quien' || pasoActual.id === 'pareja-composicion' || soloField?.type === 'checkbox';
 
+  // Link de la comunidad cerrado, lleno, inexistente o comprador que ya es
+  // cliente: en vez del wizard, una salida clara a la compra normal.
+  const partnerBlock: { emoji: string; titulo: string; texto: string } | null = !isPartner || ordenPago ? null
+    : partnerLoading ? null
+    : !partner ? { emoji: '🔒', titulo: 'Este link no está disponible', texto: 'Puede que haya cambiado. Puedes comprar tu entrada en la web de Mansion Playroom.' }
+    : partner.status === 'closed' ? { emoji: '🔒', titulo: 'El acceso especial de la comunidad ya cerró', texto: 'Igual te esperamos: puedes comprar tu entrada en la web de Mansion Playroom.' }
+    : partner.status === 'full' ? { emoji: '🎧', titulo: 'Se agotaron los cupos de la comunidad', texto: 'Fue un éxito. Todavía puedes comprar tu entrada en la web de Mansion Playroom.' }
+    : yaCliente ? { emoji: '💜', titulo: 'Ya eres parte de Playroom', texto: 'Este link es solo para quienes vienen por primera vez con la comunidad. Tu entrada la compras en la web normal, como siempre.' }
+    : null;
+
+  if (isPartner && partnerLoading) {
+    return (
+      <div className="min-h-dvh pt-24 pb-16 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" aria-label="Cargando" />
+      </div>
+    );
+  }
+
+  if (partnerBlock) {
+    return (
+      <div className="min-h-dvh pt-24 pb-16 flex items-center justify-center">
+        <div className="container max-w-md text-center">
+          <div className="w-16 h-16 rounded-full glass-candy flex items-center justify-center mx-auto mb-5 text-3xl">{partnerBlock.emoji}</div>
+          <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-2">{partnerBlock.titulo}</h1>
+          <p className="text-muted-foreground text-sm mb-8">{partnerBlock.texto}</p>
+          <Link href={`/checkout/${eventSlug}`} className="btn-jelly inline-flex h-13 items-center justify-center px-8 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm interactive">
+            Comprar en la web
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const vibeOptions = VIBE_OPTIONS.filter((op) => !isPartner || (
+    op.size === 1 ? partnerAllows('soltera')
+      : op.size === 2 ? partnerAllows('duo') || partnerAllows('duo_mujeres')
+      : partnerAllows(GROUP_TO_ACCESO[op.size as 3 | 4])
+  ));
+  const parejaOptions = PAREJA_OPTIONS.filter((op) => !isPartner || (
+    op.tipo === 'mixta' ? partnerAllows('duo') : op.tipo === 'dos_mujeres' ? partnerAllows('duo_mujeres') : false
+  ));
+
   if (ordenPago && pagoResultado === 'approved') {
     return (
       <div className="min-h-dvh pt-24 pb-16 flex items-center justify-center">
@@ -832,6 +974,28 @@ export default function Checkout() {
           <p className="text-muted-foreground text-sm mb-8">
             Si no lo encuentras, revisa tu carpeta de <span className="font-semibold text-foreground">spam o correo no deseado</span> — dependiendo del filtro de tu correo, puede haberse ido para allá.
           </p>
+          {isPartner && partner && (
+            <div className="glass-candy rounded-2xl p-5 mb-6 text-left space-y-3">
+              <p className="text-sm font-bold">{partner.emoji} Nos vemos en la Pista Tech</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">¿Tu gente de la escena todavía no tiene entrada? Pásales este mismo link para que vengan con el acceso de la comunidad.</p>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`Yo ya voy al ${partner.headline.split('·')[0].trim()} en Playroom 🎧 Compra tu entrada con el acceso de la comunidad: ${window.location.origin}/${partnerSlug}${partnerRef ? `?dj=${encodeURIComponent(partnerRef)}` : ''}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full inline-flex items-center justify-center gap-2 h-12 rounded-full border border-primary text-primary text-sm font-bold uppercase tracking-wide interactive"
+              >
+                <MessageCircle className="w-4 h-4" /> Compartir por WhatsApp
+              </a>
+              <a
+                href={BRAND.instagram}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full inline-flex items-center justify-center gap-2 h-12 rounded-full border border-border text-sm font-semibold interactive"
+              >
+                <Instagram className="w-4 h-4" /> Sigue a Mansion Playroom
+              </a>
+            </div>
+          )}
           <Link href="/" className="btn-jelly inline-flex h-13 items-center justify-center px-8 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm interactive">
             Volver al inicio
           </Link>
@@ -1023,6 +1187,12 @@ export default function Checkout() {
           />
         </div>
 
+        {/* Sello discreto de la comunidad (sin precio: el valor recién se ve
+            en el resumen, después de validar los datos). */}
+        {isPartner && partner && pasoActual.id !== 'intro-comunidad' && (
+          <p className="mb-4 text-[11px] font-bold uppercase tracking-[0.15em] text-primary">{partner.emoji} Acceso {partner.label}</p>
+        )}
+
         <form onSubmit={handleSubmit(onSubmit)} id="checkout-form" className="relative">
           {/* Antes esto usaba AnimatePresence con mode="popLayout" para animar
            * también la salida del paso anterior — pero eso es un bug
@@ -1042,10 +1212,31 @@ export default function Checkout() {
               <h1 className="font-heading font-extrabold text-2xl md:text-3xl tracking-tight mb-1">{pasoActual.titulo}</h1>
               {pasoActual.sub && <p className="text-muted-foreground text-sm mb-5">{pasoActual.sub}</p>}
 
+              {/* Paso: bienvenida a la comunidad (link aliado). Sin precios. */}
+              {pasoActual.id === 'intro-comunidad' && partner && (
+                <div className="space-y-4">
+                  <div className="glass-candy rounded-2xl p-5 space-y-3">
+                    <p className="text-sm leading-relaxed">
+                      Esta invitación es para ti, que vienes de la escena electrónica y quizás nunca has estado en una fiesta de Playroom. Te contamos lo importante:
+                    </p>
+                    <ul className="space-y-2.5 text-sm leading-relaxed text-muted-foreground">
+                      <li className="flex gap-2"><span aria-hidden>🎧</span><span><span className="text-foreground font-semibold">Pista 1 · Tech:</span> el B2B toda la noche, house y techno.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🔥</span><span><span className="text-foreground font-semibold">Pista 2 · Perreo:</span> reggaetón y perreo sin pausa.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🚗</span><span><span className="text-foreground font-semibold">Estacionamiento privado</span> dentro del recinto, con cupos limitados: lo puedes reservar al final de la compra.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🍔</span><span>Stand de comida, tiendas y barra completa para toda la noche.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🛡️</span><span><span className="text-foreground font-semibold">Un espacio seguro:</span> respeto y consentimiento son la regla. Nadie te va a incomodar y nada es obligatorio.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🎭</span><span>Es Halloween y nuestro aniversario: <span className="text-foreground font-semibold">el disfraz es obligatorio</span>.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🪪</span><span>Evento +{CANDYLAND.edadMinima}: trae tu carnet o pasaporte.</span></li>
+                    </ul>
+                  </div>
+                  <p className="text-xs text-center text-muted-foreground">Tu acceso especial de comunidad se aplica al final de la compra.</p>
+                </div>
+              )}
+
               {/* Paso: ¿Cómo vienes? */}
               {pasoActual.id === 'vibe' && (
                 <div className="grid grid-cols-2 gap-3">
-                  {VIBE_OPTIONS.map((op) => (
+                  {vibeOptions.map((op) => (
                     <SquareImageOption
                       key={op.size}
                       image={op.image}
@@ -1077,13 +1268,13 @@ export default function Checkout() {
 
               {/* Paso: pareja → ¿cómo es la pareja? */}
               {pasoActual.id === 'pareja-composicion' && (
-                <div className="grid grid-cols-3 gap-2 md:gap-3">
-                  {PAREJA_OPTIONS.map((op) => (
+                <div className={`grid ${parejaOptions.length === 2 ? 'grid-cols-2' : 'grid-cols-3'} gap-2 md:gap-3`}>
+                  {parejaOptions.map((op) => (
                     <SquareImageOption
                       key={op.tipo}
                       image={op.image}
                       titulo={op.label}
-                      sub={op.sub}
+                      sub={isPartner ? (op.tipo === 'dos_mujeres' ? 'Soltera doble' : 'Dúo') : op.sub}
                       fallbackEmoji={op.emoji}
                       activo={duoComposicion === op.tipo}
                       onClick={() => choosePareja(op.tipo)}
@@ -1134,6 +1325,10 @@ export default function Checkout() {
                     </>
                   )}
                 </div>
+              )}
+
+              {partnerCheckError && pasoActual.id === 'buyer__rut' && (
+                <p className="text-sm text-destructive mb-3" role="alert">{partnerCheckError}</p>
               )}
 
               {/* Pasos de un solo campo (datos / contacto / extra del acceso) */}
@@ -1199,7 +1394,9 @@ export default function Checkout() {
                                       {/* Aviso de escasez SOLO para cupos de verdad limitados (ej. una
                                           mesa VIP de 6) -- pedido explícito del dueño: nada de
                                           tragos, aunque su stock configurado también sea chico. */}
-                                      {t.totalStock <= 10 && (
+                                      {/* En el link de la comunidad también el estacionamiento:
+                                          es gente que no conoce el lugar y el cupo es real. */}
+                                      {(t.totalStock <= 10 || (isPartner && /estacionamiento/i.test(t.name))) && (
                                         <p className="text-[10.5px] font-semibold text-amber-600 mt-0.5">Quedan {Math.max(0, remaining)} cupos</p>
                                       )}
                                     </div>
@@ -1278,6 +1475,43 @@ export default function Checkout() {
                 </div>
               )}
 
+              {/* Paso: valores + derecho de permanencia (link de la comunidad) */}
+              {pasoActual.id === 'bienvenida-playroom' && partner && (
+                <div className="space-y-4">
+                  <div className="glass-candy rounded-2xl p-5">
+                    <p className="text-xs font-bold uppercase tracking-[0.15em] text-primary mb-2">Nuestros pilares</p>
+                    <p className="text-sm font-semibold mb-4">{BRAND.valores.join(' · ')}</p>
+                    <ul className="space-y-2.5">
+                      {partner.rules.map((r, i) => (
+                        <li key={i} className="text-sm leading-relaxed text-muted-foreground flex gap-2"><span aria-hidden className="text-primary">•</span><span>{r}</span></li>
+                      ))}
+                    </ul>
+                  </div>
+                  <a
+                    href={BRAND.instagram}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full inline-flex items-center justify-center gap-2 h-12 rounded-full border border-primary text-primary text-sm font-bold uppercase tracking-wide interactive"
+                  >
+                    <Instagram className="w-4 h-4" /> Seguir a Mansion Playroom
+                  </a>
+                  <div className="space-y-2">
+                    {PARTNER_CHECKS.map((c) => (
+                      <label key={c.key} className={`flex items-start gap-3 rounded-xl border p-3.5 cursor-pointer transition-colors ${partnerChecks[c.key] ? 'border-primary bg-primary/10' : 'border-border/50'}`}>
+                        <input
+                          type="checkbox"
+                          checked={partnerChecks[c.key]}
+                          onChange={(e) => { setPartnerChecks((prev) => ({ ...prev, [c.key]: e.target.checked })); setPartnerChecksError(''); }}
+                          className="mt-0.5 w-5 h-5 accent-[oklch(0.70_0.19_340)] shrink-0"
+                        />
+                        <span className="text-sm leading-snug">{c.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {partnerChecksError && <p className="text-sm text-destructive" role="alert">{partnerChecksError}</p>}
+                </div>
+              )}
+
               {/* Paso: códigos */}
               {pasoActual.id === 'codigos' && (
                 <div className="space-y-4">
@@ -1333,6 +1567,15 @@ export default function Checkout() {
               {/* Paso final: resumen */}
               {pasoActual.id === 'resumen' && (
                 <div className="space-y-4">
+                  {isPartner && partner && partnerPricing && (
+                    <div className="rounded-2xl p-4 bg-gradient-to-br from-primary/15 via-cherry/10 to-violet-electric/15 border border-primary/20">
+                      <p className="text-sm font-bold mb-1">{partner.emoji} Precio especial {partner.label}</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {formatCLP(partnerPricing.pricePerPerson)} por persona
+                        {partnerRegularPrice && acceso && partnerRegularPrice > acceso.precio && <> · valor normal <span className="line-through">{formatCLP(partnerRegularPrice)}</span></>}
+                      </p>
+                    </div>
+                  )}
                   {missionOpen && missionGeneralPrice && (
                     <div className="rounded-2xl p-4 bg-gradient-to-br from-primary/15 via-cherry/10 to-violet-electric/15 border border-primary/20">
                       <p className="text-sm font-bold mb-1">🍬 Estás pagando el abono de Misión 300</p>
@@ -1411,9 +1654,14 @@ export default function Checkout() {
             <button
               type="button"
               onClick={continuar}
+              disabled={checkPartnerEligibility.isPending}
               className="btn-jelly flex-1 h-13 py-3.5 rounded-full bg-primary text-primary-foreground font-bold uppercase tracking-wide text-sm inline-flex items-center justify-center gap-2 interactive"
             >
-              Continuar <ArrowRight className="w-4 h-4" />
+              {checkPartnerEligibility.isPending
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Validando…</>
+                : pasoActual.id === 'intro-comunidad'
+                  ? <>¡Quiero ir! <ArrowRight className="w-4 h-4" /></>
+                  : <>Continuar <ArrowRight className="w-4 h-4" /></>}
             </button>
           ) : null}
         </div>

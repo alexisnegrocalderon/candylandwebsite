@@ -34,6 +34,8 @@ import { hashPin, verifyPin } from './caja/auth';
 import { normalizeEventDates } from './eventDates';
 import { PLAYMATCH_TEST_SLUG, PLAYMATCH_TEST_TITLE, clampTestGuestCount, isTestTicketCode, testEventWindow, testTicketCode } from '../shared/playmatchTest';
 import { isTopupProduct, topupChargeForLines } from '../shared/prepaid';
+import { hasPartnerAcceptance, normalizePartnerRef, priceForPartnerOrder, PARTNER_EXISTING_CUSTOMER_MESSAGE } from '../shared/partnerCampaign';
+import { getPartnerBadgesByOrderIds, getPartnerCampaignBySlug, getPartnerCampaignStats, isExistingPlayroomCustomer, recordPartnerOrder } from './partnerCampaigns';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1291,12 +1293,30 @@ export async function createOrder(input: {
   utmMedium?: string;
   utmCampaign?: string;
   utmContent?: string;
+  /** Link de campaña aliada (ej. 'electronica'): reprecia los accesos al
+   * precio por persona de la campaña, ver shared/partnerCampaign.ts. */
+  partnerSlug?: string;
+  /** Firma del DJ que compartió el link (`?dj=aldo`), ver PARTNER_REFS. */
+  partnerRef?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const event = await getEventBySlug(input.eventSlug);
   if (!event) throw new Error("Event not found");
+
+  // Campaña aliada (/electronica): el precio especial existe SOLO si la orden
+  // trae el slug, con las aceptaciones del paso "Bienvenid@ a Playroom" y un
+  // comprador que no sea ya cliente -- el checkout ya lo chequea en vivo,
+  // esto es la barrera de verdad.
+  const partnerCampaign = input.partnerSlug ? await getPartnerCampaignBySlug(input.partnerSlug) : null;
+  if (input.partnerSlug) {
+    if (!partnerCampaign || partnerCampaign.eventId !== event.id) throw new Error('Este link de la comunidad no es válido para esta fiesta.');
+    if (!hasPartnerAcceptance(input.attendeeData)) throw new Error('Para continuar debes aceptar los valores y el derecho de permanencia de Playroom.');
+    if (await isExistingPlayroomCustomer({ email: input.buyerEmail, rut: parseBuyerRut(input.attendeeData), campaignSlug: partnerCampaign.slug })) {
+      throw new Error(PARTNER_EXISTING_CUSTOMER_MESSAGE);
+    }
+  }
 
   // Lista de bloqueo: si el RUT del comprador o de algún acompañante
   // coincide (exacto, normalizado), la compra se rechaza acá -- antes de
@@ -1316,13 +1336,24 @@ export async function createOrder(input: {
   // ($10.000/persona), no al precio general — el resto (diferencia hasta el
   // 60% si no se junta la meta, o nada si se junta) se resuelve después, ver
   // evaluateMission300() y el webhook de Mercado Pago.
-  const missionOpen = isMissionActiveForEvent(event);
+  // La campaña aliada paga su precio completo de una: no entra al abono.
+  const missionOpen = isMissionActiveForEvent(event) && !partnerCampaign;
   let missionDeposit = false;
 
   // Calculate totals — separa el subtotal de accesos (a lo que aplica el
   // descuento) del de extras (parking/covers/etc, category="extra"), que
   // siempre se cobran completos.
   const tts = await getTicketTypesByEventId(event.id);
+  const partnerPricing = partnerCampaign
+    ? priceForPartnerOrder(
+      partnerCampaign,
+      input.items.map((i) => {
+        const tt = tts.find((t) => t.id === i.ticketTypeId);
+        return { ticketTypeId: i.ticketTypeId, category: tt?.category, accesoSlug: tt?.accesoSlug, quantity: i.quantity };
+      }),
+      partnerCampaign.maxPersons != null ? (await getPartnerCampaignStats(partnerCampaign.id)).personas : 0,
+    )
+    : null;
   let subtotal = 0;
   let accesoSubtotal = 0;
   const unitPrices = new Map<number, number>();
@@ -1337,7 +1368,8 @@ export async function createOrder(input: {
     const available = tt.totalStock - tt.soldCount;
     if (item.quantity > available) throw new Error(`Not enough stock for ${tt.name}`);
     const useDeposit = missionOpen && tt.category === 'acceso';
-    const unitPrice = useDeposit ? missionDepositPrice(tt.accesoSlug) : Number(tt.price);
+    const partnerPrice = partnerPricing?.unitPrices.get(item.ticketTypeId);
+    const unitPrice = partnerPrice != null ? partnerPrice : useDeposit ? missionDepositPrice(tt.accesoSlug) : Number(tt.price);
     if (useDeposit) missionDeposit = true;
     unitPrices.set(item.ticketTypeId, unitPrice);
     const lineTotal = unitPrice * item.quantity;
@@ -1371,7 +1403,10 @@ export async function createOrder(input: {
   // Crédito de acceso ("1 Acceso Dúo" que quedó vigente de otra fiesta): va
   // antes que los códigos de descuento porque es otra cosa -- vale UNA unidad
   // de ese acceso, no un monto ni un % del carrito.
-  const creditHit = input.discountCode ? await findAccessCreditByCode(input.discountCode) : null;
+  // Por el link de una campaña aliada no se suman códigos: el precio especial
+  // ya es el descuento.
+  const codeForDiscount = partnerCampaign ? undefined : input.discountCode;
+  const creditHit = codeForDiscount ? await findAccessCreditByCode(codeForDiscount) : null;
   let accessCreditId: number | undefined;
   if (creditHit) {
     if (creditHit.availability !== 'available') throw new Error('Este crédito ya fue usado.');
@@ -1384,8 +1419,8 @@ export async function createOrder(input: {
     if (!(await claimAccessCredit(creditHit.credit))) throw new Error('Este crédito ya fue usado.');
     accessCreditId = creditHit.credit.id;
     discountAmount = credit.amount;
-  } else if (input.discountCode) {
-    const validation = await validateDiscountCode(input.discountCode, event.id);
+  } else if (codeForDiscount) {
+    const validation = await validateDiscountCode(codeForDiscount, event.id);
     if (validation.valid && validation.discount) {
       const disc = validation.discount;
       discountCodeId = disc.id;
@@ -1449,7 +1484,7 @@ export async function createOrder(input: {
   const orderNumber = `MP-${Date.now().toString(36).toUpperCase()}-${nanoid(4).toUpperCase()}`;
   // El checkout manda el mismo código en discountCode y ambassadorCode: si era un
   // crédito, no es un código de embajador y no debe quedar como atribución.
-  const ambassadorCodeForOrder = creditHit && input.ambassadorCode && normalizeCreditCode(input.ambassadorCode) === creditHit.credit.code ? undefined : input.ambassadorCode;
+  const ambassadorCodeForOrder = partnerCampaign || (creditHit && input.ambassadorCode && normalizeCreditCode(input.ambassadorCode) === creditHit.credit.code) ? undefined : input.ambassadorCode;
 
   // Create order
   const [orderResult] = await db.insert(orders).values({
@@ -1479,6 +1514,7 @@ export async function createOrder(input: {
 
   const orderId = orderResult.insertId;
   if (accessCreditId) await attachAccessCreditToOrder(accessCreditId, orderId);
+  if (partnerCampaign) await recordPartnerOrder(orderId, partnerCampaign.id, normalizePartnerRef(partnerCampaign.slug, input.partnerRef));
 
   // Create order items. soldCount (y con él, el contador de Misión 300) NO se
   // toca acá — la orden todavía está "pending", nadie pagó nada. Se
@@ -1936,9 +1972,13 @@ export async function getAllOrders(opts: {
   channel?: 'web' | 'caja';
   eventId?: number;
   search?: string;
+  /** Acota a estas órdenes (filtro de campaña aliada en Ventas Web). Lista
+   * vacía = ninguna orden, no "sin filtro". */
+  onlyOrderIds?: number[];
 } = {}) {
   const db = await getDb();
   if (!db) return { orders: [], total: 0 };
+  if (opts.onlyOrderIds && opts.onlyOrderIds.length === 0) return { orders: [], total: 0 };
 
   const { page = 1, status, channel, eventId } = opts;
   // Antes el tope por defecto era 50 y la pantalla nunca pedía más: una orden
@@ -1955,6 +1995,7 @@ export async function getAllOrders(opts: {
   // Sin este filtro, Ventas Web y Ventas Caja mezclaban las órdenes de todas
   // las fiestas en una sola lista.
   if (eventId) conditions.push(eq(orders.eventId, eventId));
+  if (opts.onlyOrderIds) conditions.push(inArray(orders.id, opts.onlyOrderIds));
   // Búsqueda en el servidor: comprador, email, número de orden y attendeeData
   // (el JSON donde viven los nombres y RUT de los acompañantes). Una sola
   // letra traería casi todo, así que se pide al menos 2.
@@ -2887,6 +2928,9 @@ export async function getCajaSnapshot(eventId: number) {
     for (const c of matchingCustomers) rutByEmail.set(c.email, c.rut);
   }
 
+  // Sello de campaña aliada para la puerta ("🎧 primera vez, comunidad
+  // electrónica"): el equipo sabe a quién darle la bienvenida y las reglas.
+  const partnerBadges = await getPartnerBadgesByOrderIds(orderIds);
   const attendees = approvedOrders.map((o: any) => {
     const ts = ticketsByOrder.get(o.id) ?? [];
     // Titular + acompañantes con nombre Y rut propios: es lo que el
@@ -2901,6 +2945,7 @@ export async function getCajaSnapshot(eventId: number) {
       buyerName: o.buyerName,
       buyerEmail: o.buyerEmail,
       buyerPhone: o.buyerPhone,
+      partnerBadge: partnerBadges.get(o.id) ?? null,
       attendees: parsedAttendees.length > 0
         ? parsedAttendees
         : [{ name: o.buyerName, rut: parseBuyerRut(o.attendeeData) ?? rutByEmail.get((o.buyerEmail || '').trim().toLowerCase()) ?? null, docType: 'rut' as const }],

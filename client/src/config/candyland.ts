@@ -316,6 +316,8 @@ export const CANDYLAND = {
   lineup: [
     // Agrega artistas aquí cuando estén confirmados:
     // { nombre: 'DJ NOMBRE', pista: 'TECH', horario: '23:00', imagen: '/candyland/dj.webp' },
+    // B2B especial del aniversario: primera vez en Playroom.
+    { nombre: 'Aldo Medel b2b German Courtin', pista: 'TECH' },
   ] as { nombre: string; pista: string; horario?: string; imagen?: string }[],
 
   // ── Amenities (del afiche oficial) ─────────────────────────
@@ -324,7 +326,6 @@ export const CANDYLAND = {
     { icono: 'Car', texto: 'Estacionamiento privado' },
     { icono: 'Shirt', texto: 'Guardarropía' },
     { icono: 'Gamepad2', texto: 'Playground XXL' },
-    { icono: 'VenetianMask', texto: 'Kink Room' },
     { icono: 'Martini', texto: 'Barra completa' },
     { icono: 'Cigarette', texto: 'Zona fumadores techada' },
     { icono: 'ShieldCheck', texto: 'Ambiente seguro' },
@@ -376,7 +377,7 @@ export const CANDYLAND = {
     },
     {
       q: '¿Qué incluye cada acceso?',
-      a: 'Todos los accesos dan entrada a todas las zonas del recinto: las dos pistas, el Playground XXL, la Kink Room, la barra y la zona de fumadores. La diferencia entre ellos es a cuántas personas cubre cada uno y su valor.',
+      a: 'Todos los accesos dan entrada a todas las zonas del recinto: las dos pistas, el Playground XXL, la barra y la zona de fumadores. La diferencia entre ellos es a cuántas personas cubre cada uno y su valor.',
     },
     {
       q: '¿Qué pasa si llego tarde?',
@@ -391,8 +392,8 @@ export const CANDYLAND = {
       a: 'Hay barra completa dentro del recinto y se paga aparte de la entrada. Considera llevar un medio de pago aunque hayas comprado todo por la web.',
     },
     {
-      q: '¿Qué son el Playground XXL y la Kink Room?',
-      a: 'Son zonas del recinto separadas de las pistas de baile, con una propuesta más íntima. Entrar a ellas es siempre una decisión tuya: puedes pasar toda la noche solo en las pistas y en la barra, y mucha gente lo hace, sobre todo la primera vez.',
+      q: '¿Qué es el Playground XXL?',
+      a: 'Es una zona del recinto separada de las pistas de baile, con una propuesta más íntima. Entrar es siempre una decisión tuya: puedes pasar toda la noche solo en las pistas y en la barra, y mucha gente lo hace, sobre todo la primera vez.',
     },
     {
       q: '¿Se puede comprar la entrada en la puerta?',

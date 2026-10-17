@@ -1,7 +1,7 @@
 import type { Article } from '../types';
 
 /* Se apoya en `CANDYLAND.valores` (Respeto, Consentimiento, Libertad), en las
- * amenities reales (2 pistas, Playground XXL, Kink Room, barra, guardarropía,
+ * amenities reales (2 pistas, Playground XXL, barra, guardarropía,
  * zona de fumadores, ambiente seguro) y en la FAQ. Es el artículo que responde
  * la duda que más frena a alguien nuevo. */
 

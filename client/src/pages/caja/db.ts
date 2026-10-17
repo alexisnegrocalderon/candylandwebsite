@@ -21,6 +21,9 @@ export interface CajaAttendee {
   attendees: { name: string; rut: string | null; docType: 'rut' | 'passport' }[];
   access: { ticketCode: string; status: string; typeName: string; accesoSlug: string | null; groupSize: number | null }[];
   extras: { displayCode: string | null; status: string; typeName: string }[];
+  /** Compra por el link de una campaña aliada (ej. comunidad electrónica):
+   * gente que viene por primera vez. Opcional: snapshots viejos no lo traen. */
+  partnerBadge?: { label: string; emoji: string; refLabel: string | null } | null;
 }
 
 export interface CajaCatalogItem {
