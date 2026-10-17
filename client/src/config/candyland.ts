@@ -316,6 +316,8 @@ export const CANDYLAND = {
   lineup: [
     // Agrega artistas aquí cuando estén confirmados:
     // { nombre: 'DJ NOMBRE', pista: 'TECH', horario: '23:00', imagen: '/candyland/dj.webp' },
+    // B2B especial del aniversario: primera vez en Playroom.
+    { nombre: 'Aldo Medel b2b German Courtin', pista: 'TECH' },
   ] as { nombre: string; pista: string; horario?: string; imagen?: string }[],
 
   // ── Amenities (del afiche oficial) ─────────────────────────

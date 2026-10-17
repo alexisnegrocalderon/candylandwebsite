@@ -24,6 +24,8 @@ import { getUpgradeById, settleUpgrade } from './orderUpgrade';
 import { parseUpgradeReference } from '../shared/upgrade';
 import { getAddonById, settleAddon } from './orderAddon';
 import { parseAddonReference } from '../shared/addon';
+import { getPartnerCampaignForOrder, tagCustomerForPartnerOrder } from './partnerCampaigns';
+import { partnerRulesList } from '../shared/partnerCampaign';
 
 export const webhooksRouter = Router();
 
@@ -472,6 +474,7 @@ async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boo
 
   const extras = await getOrderExtras(order.id);
   const templateConfig = normalizeOrderEmailConfig((await getSiteSettings()).emailTemplateConfig as any);
+  const partner = await getPartnerCampaignForOrder(order.id);
 
   const html = buildOrderEmail({
     buyerName: order.buyerName,
@@ -493,6 +496,7 @@ async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boo
     attendeeNames: parseAttendeeNames(order.attendeeData),
     extras,
     templateConfig,
+    partnerWelcome: partner ? { label: partner.label, emoji: partner.emoji, rules: partnerRulesList(partner.rulesText) } : undefined,
   });
 
   const result = await sendEmail({
@@ -728,6 +732,10 @@ async function processApprovedOrder(order: any) {
   const priorCustomer = await getCustomerForAttribution(order.buyerEmail);
 
   await upsertCustomerFromOrder(order, orderAccesoSlugs);
+  // Compra por el link de una campaña aliada (/electronica): la ficha del
+  // cliente queda con el tag de la comunidad. Nunca bloquea la aprobación.
+  await tagCustomerForPartnerOrder(order.id, order.buyerEmail).catch((err) =>
+    console.error('[partnerCampaigns] No se pudo etiquetar al cliente de la campaña:', err));
   // Si esta compra la hizo alguien que antes dejó su correo como lead
   // ("avísame antes de que suba el precio"), lo marca convertido -- nunca
   // lanza, no puede bloquear la confirmación de una compra real.

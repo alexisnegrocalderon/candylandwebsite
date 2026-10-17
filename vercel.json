@@ -38,7 +38,7 @@
       "destination": "/fiesta.html"
     },
     {
-      "source": "/(cocina|guardarropia|checkout|pago)(/.*)?",
+      "source": "/(cocina|guardarropia|checkout|pago|electronica)(/.*)?",
       "destination": "/index.html"
     },
     {

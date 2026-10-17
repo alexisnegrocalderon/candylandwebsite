@@ -152,6 +152,12 @@ function attendeeNamesList(names: string[]): string {
   return names.map(n => `<p style="color:${INK};font-size:15px;font-weight:600;margin:2px 0;">👤 ${n}</p>`).join('');
 }
 
+/** El texto de las reglas lo escribe el dueño desde el admin: se escapa antes
+ * de meterlo en el HTML del correo. */
+function escapeEmailText(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 export function buildOrderEmail(data: {
   buyerName: string;
   eventTitle: string;
@@ -179,6 +185,10 @@ export function buildOrderEmail(data: {
   extras?: { name: string; quantity: number; codes: string[] }[];
   /** Textos + interruptores por sección editados desde el admin (shared/emailTemplateConfig.ts). */
   templateConfig?: OrderEmailConfig;
+  /** Compra por el link de una campaña aliada (/electronica): gente que
+   * viene por primera vez, así que el correo repite los valores y el derecho
+   * de permanencia que aceptaron en el checkout. */
+  partnerWelcome?: { label: string; emoji: string; rules: string[] };
 }) {
   const cfg = data.templateConfig ?? DEFAULT_ORDER_EMAIL_CONFIG;
   const ticketNames = data.items.map(i => i.name).join(', ');
@@ -264,6 +274,17 @@ export function buildOrderEmail(data: {
         </div>
         ${!data.ticketReady ? `<p style="color:${FAINT};font-size:12px;margin:14px 0 0;">La dirección exacta será enviada unos días antes del evento.</p>` : ''}
       `, { glow: 'blue' })}
+
+      <!-- BIENVENIDA COMUNIDAD ALIADA -->
+      ${data.partnerWelcome ? `
+      ${sectionTitle(escapeEmailText(data.partnerWelcome.emoji), `Bienvenid@ a Playroom, ${escapeEmailText(data.partnerWelcome.label)}`)}
+      ${card(`
+        <p style="color:${INK};font-size:15px;font-weight:700;margin:0 0 10px;">Es tu primera vez con nosotros: así cuidamos la fiesta entre todos.</p>
+        <p style="color:${MUTED};font-size:13px;margin:0 0 14px;">Nuestros pilares: ${CONTENT.valores.join(' · ')}</p>
+        ${data.partnerWelcome.rules.map(r => `<p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">• ${escapeEmailText(r)}</p>`).join('')}
+        <p style="color:${ACCENT.pink.text};font-size:13px;font-weight:700;margin:12px 0 0;">Al comprar aceptaste estas reglas y el derecho de permanencia.</p>
+      `, { glow: 'pink' })}
+      ` : ''}
 
       <!-- MISIÓN 300 -->
       ${data.isMissionDeposit ? `

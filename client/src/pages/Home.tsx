@@ -1802,7 +1802,6 @@ function EqBars({ barClass, active, live, reducedMotion }: { barClass: string; a
 }
 
 function LineupSection() {
-  const hayLineup = CANDYLAND.lineup.length > 0;
   const sound = useSound();
   // El hover (solo con mouse) es puramente visual. El sonido se activa con el
   // toque/click/teclado, que es lo que elige la pista: en celular el
@@ -1917,7 +1916,9 @@ function LineupSection() {
                   </p>
 
                   <div className="mt-2 space-y-1">
-                    {hayLineup ? (
+                    {/* Por pista: con un artista confirmado en una sola pista, la
+                        otra sigue mostrando "Por anunciar" en vez de quedar vacía. */}
+                    {CANDYLAND.lineup.some((dj) => dj.pista === pista.genero) ? (
                       CANDYLAND.lineup
                         .filter((dj) => dj.pista === pista.genero)
                         .map((dj) => (

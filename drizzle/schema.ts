@@ -436,6 +436,47 @@ export const communityCodes = mysqlTable("communityCodes", {
 export type CommunityCode = typeof communityCodes.$inferSelect;
 export type InsertCommunityCode = typeof communityCodes.$inferInsert;
 
+// Campañas aliadas (ver shared/partnerCampaign.ts): un link privado que vende
+// los accesos de siempre a un precio por persona especial, para traer a la
+// comunidad de un aliado. El precio solo existe acá y en el servidor -- la
+// web normal no lo ve.
+export const partnerCampaigns = mysqlTable("partnerCampaigns", {
+  id: int("id").autoincrement().primaryKey(),
+  slug: varchar("slug", { length: 50 }).notNull().unique(),
+  eventId: int("eventId").notNull(),
+  label: varchar("label", { length: 100 }).notNull(),
+  emoji: varchar("emoji", { length: 16 }).default("🎧").notNull(),
+  // Línea de cabecera del link (el B2B, la pista). null = texto por defecto.
+  headline: varchar("headline", { length: 255 }),
+  pricePerPerson: int("pricePerPerson").notNull(),
+  // string[] de accesoSlug vendibles; null = todos menos Soltero.
+  allowedAccesoSlugs: json("allowedAccesoSlugs"),
+  // Tope de PERSONAS (no órdenes) con pago aprobado; null = sin tope.
+  maxPersons: int("maxPersons"),
+  isActive: int("isActive").default(1).notNull(),
+  // Valores + derecho de permanencia, una regla por línea. null = borrador
+  // por defecto (PARTNER_DEFAULT_RULES).
+  rulesText: text("rulesText"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PartnerCampaign = typeof partnerCampaigns.$inferSelect;
+
+// Qué órdenes entraron por una campaña aliada (el sello 🎧 en Ventas Web y el
+// conteo de personas de esa comunidad). Tabla aparte y no una columna en
+// `orders` a propósito: `orders` se lee con select() completo en todo el
+// sitio, y una columna nueva sin migrar botaría todas las ventas -- así, si
+// la migración se atrasa, solo falla el link de la campaña.
+export const partnerOrders = mysqlTable("partnerOrders", {
+  id: int("id").autoincrement().primaryKey(),
+  orderId: int("orderId").notNull().unique(),
+  campaignId: int("campaignId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => [
+  index("partner_orders_campaign_idx").on(t.campaignId),
+]);
+
 // Leads: alguien que dejó su contacto sin comprar todavía (hoy el único
 // gancho es "avisame antes de que suba el precio" en UrgencySection, ver
 // LeadCaptureInline en Home.tsx). Sin esto, cualquiera que visite el sitio

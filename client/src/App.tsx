@@ -107,7 +107,10 @@ function Router() {
           <Route path="/halloween">{() => <HalloweenHome force />}</Route>
           <Route path="/eventos" component={Events} />
           <Route path="/eventos/:slug" component={EventDetail} />
-          <Route path="/checkout/:eventSlug" component={Checkout} />
+          <Route path="/checkout/:eventSlug">{() => <Checkout />}</Route>
+          {/* Link privado de la comunidad electrónica (B2B Aldo Medel x German
+              Courtin): precio especial, ver shared/partnerCampaign.ts. */}
+          <Route path="/electronica">{() => <Checkout partnerSlug="electronica" />}</Route>
           <Route path="/pago/exito" component={PaymentSuccess} />
           <Route path="/pago/error" component={PaymentFailure} />
           <Route path="/nosotros" component={About} />

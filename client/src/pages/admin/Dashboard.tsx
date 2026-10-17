@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw } from 'lucide-react';
+import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
@@ -1599,6 +1599,121 @@ function DiscountsManager() {
           </Card>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Nombre de cada acceso para el desglose de la campaña aliada. */
+const PARTNER_ACCESO_LABEL: Record<string, string> = {
+  soltera: 'Soltera', duo_mujeres: 'Soltera doble (Dúo Mujeres)', duo: 'Dúo', trio: 'Trío', grupo: 'Grupo 4',
+};
+
+/** Campaña aliada «Comunidad Electrónica» (link privado /electronica, ver
+ * shared/partnerCampaign.ts): abrir/cerrar el link, precio, tope y textos,
+ * con el conteo de personas que trajo la comunidad. */
+function PartnerCampaignView() {
+  const { data: campaign, refetch, error } = trpc.partner.adminGet.useQuery(undefined, { refetchInterval: 60_000 });
+  const update = trpc.partner.adminUpdate.useMutation({
+    onSuccess: () => { refetch(); toast.success('Guardado'); },
+    onError: onMutationError,
+  });
+  const [form, setForm] = useState<{ pricePerPerson: string; maxPersons: string; headline: string; rulesText: string } | null>(null);
+  useEffect(() => {
+    if (campaign && !form) {
+      setForm({
+        pricePerPerson: String(campaign.pricePerPerson),
+        maxPersons: campaign.maxPersons != null ? String(campaign.maxPersons) : '',
+        headline: campaign.headlineEffective,
+        rulesText: campaign.rulesEffective,
+      });
+    }
+  }, [campaign, form]);
+
+  if (error) {
+    return (
+      <div className="space-y-2">
+        <h2 className="font-heading text-2xl">Comunidad Electrónica</h2>
+        <p className="text-sm text-destructive">No se pudo cargar la campaña: {error.message}. Si recién se publicó, falta aplicar la migración 0107 en la base.</p>
+      </div>
+    );
+  }
+  if (!campaign || !form) return <div className="py-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
+
+  const link = `${window.location.origin}/${campaign.slug}`;
+  const copyLink = async () => {
+    try { await navigator.clipboard.writeText(link); toast.success('Link copiado'); }
+    catch { toast.error('No se pudo copiar. Copia el link manualmente.'); }
+  };
+  const save = () => {
+    const price = Number(form.pricePerPerson);
+    if (!Number.isInteger(price) || price < 0) { toast.error('Revisa el precio por persona'); return; }
+    const max = form.maxPersons.trim() ? Number(form.maxPersons) : null;
+    if (max !== null && (!Number.isInteger(max) || max < 1)) { toast.error('El tope tiene que ser un número entero, o vacío para sin tope'); return; }
+    update.mutate({ pricePerPerson: price, maxPersons: max, headline: form.headline, rulesText: form.rulesText });
+  };
+  const s = campaign.stats;
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-heading text-2xl">{campaign.emoji} {campaign.label}</h2>
+        <p className="text-muted-foreground text-sm mt-1">
+          Link privado para la comunidad de Aldo Medel (Love Carpet) y German Courtin (Casa Nostra). La web normal no muestra este precio.
+          {campaign.eventName && <> Evento: <span className="font-semibold">{campaign.eventName}</span>.</>}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Personas (pagadas)</p><p className="font-heading text-3xl tabular-nums">{s.personas}{campaign.maxPersons != null && <span className="text-base text-muted-foreground"> / {campaign.maxPersons}</span>}</p></CardContent></Card>
+        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Compras aprobadas</p><p className="font-heading text-3xl tabular-nums">{s.orders}</p></CardContent></Card>
+        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Recaudado</p><p className="font-heading text-3xl tabular-nums">{clp(s.revenue)}</p></CardContent></Card>
+        <Card><CardContent className="pt-4"><p className="text-xs text-muted-foreground">Sin pagar</p><p className="font-heading text-3xl tabular-nums">{s.pendingOrders}</p></CardContent></Card>
+      </div>
+      {Object.keys(s.byAcceso).length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {Object.entries(s.byAcceso).map(([slug, n]) => `${PARTNER_ACCESO_LABEL[slug] ?? slug}: ${n}`).join(' · ')} personas
+        </p>
+      )}
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6 space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold">Link {campaign.isActive ? 'abierto' : 'cerrado'}</p>
+              <p className="text-sm text-muted-foreground">Cerrado, el link muestra «el acceso especial ya cerró» y manda a la compra normal.</p>
+            </div>
+            <Switch checked={!!campaign.isActive} onCheckedChange={(v) => update.mutate({ isActive: v })} aria-label="Abrir o cerrar el link" />
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input readOnly value={link} className="font-mono" onFocus={(e) => e.currentTarget.select()} />
+            <Button variant="outline" className="interactive shrink-0" onClick={copyLink}><Copy className="w-4 h-4 mr-2" /> Copiar link</Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>Precio por persona</Label>
+              <Input type="number" inputMode="numeric" value={form.pricePerPerson} onChange={(e) => setForm({ ...form, pricePerPerson: e.target.value })} className="mt-1" />
+              <p className="text-xs text-muted-foreground mt-1">
+                {campaign.allowedAccesoSlugs.map((slug: string) => `${PARTNER_ACCESO_LABEL[slug] ?? slug} ${clp(Number(form.pricePerPerson || 0) * ({ soltera: 1, duo_mujeres: 2, duo: 2, trio: 3, grupo: 4 } as Record<string, number>)[slug])}`).join(' · ')}. Más el cargo por servicio. Sin Soltero.
+              </p>
+            </div>
+            <div>
+              <Label>Tope de personas (vacío = sin tope)</Label>
+              <Input type="number" inputMode="numeric" value={form.maxPersons} onChange={(e) => setForm({ ...form, maxPersons: e.target.value })} className="mt-1" placeholder="Sin tope" />
+              <p className="text-xs text-muted-foreground mt-1">Al llegar al tope, el link muestra «cupos agotados» y manda a la compra normal.</p>
+            </div>
+          </div>
+          <div>
+            <Label>Texto de cabecera del link</Label>
+            <Input value={form.headline} onChange={(e) => setForm({ ...form, headline: e.target.value })} className="mt-1" maxLength={255} />
+          </div>
+          <div>
+            <Label>Valores y derecho de permanencia (una regla por línea)</Label>
+            <Textarea value={form.rulesText} onChange={(e) => setForm({ ...form, rulesText: e.target.value })} className="mt-1 min-h-48" />
+            <p className="text-xs text-muted-foreground mt-1">Se muestra en el paso obligatorio antes de pagar y se repite en el email con el QR.</p>
+          </div>
+          <WriteButton onClick={save} disabled={update.isPending}>Guardar cambios</WriteButton>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -3238,9 +3353,13 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
   const listEventId = searching ? undefined : eventId;
   const listStatus = searching || statusFilter === 'all' ? undefined : statusFilter;
   const pageSize = !searching && statusFilter === 'pending' ? ORDERS_REMINDERS_PAGE_SIZE : ORDERS_PAGE_SIZE;
+  // Sello 🎧 de la campaña aliada (/electronica): contador + filtro "solo comunidad".
+  const { data: partnerCampaign } = trpc.partner.adminGet.useQuery(undefined, { enabled: channel === 'web', retry: false });
+  const [partnerOnly, setPartnerOnly] = useState(false);
+  const partnerFilterId = channel === 'web' && partnerOnly && partnerCampaign ? partnerCampaign.id : undefined;
 
   const { data: ordersData, isLoading: ordersLoading, refetch: refetchOrders } = trpc.orders.listAll.useQuery(
-    { status: listStatus, channel, eventId: listEventId, search: search || undefined, page, limit: pageSize },
+    { status: listStatus, channel, eventId: listEventId, search: search || undefined, page, limit: pageSize, partnerCampaignId: partnerFilterId },
     // Mantiene la lista anterior en pantalla mientras llega la nueva, para que
     // la tabla no parpadee con cada búsqueda.
     { placeholderData: (prev) => prev, enabled: eventReady },
@@ -3311,9 +3430,9 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
 
   // Al cambiar de filtro la selección deja de tener sentido (y podría arrastrar
   // ids de órdenes que ya no están en pantalla).
-  useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, channel, search, eventFilter, page]);
+  useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, channel, search, eventFilter, page, partnerOnly]);
   // Cambiar evento, estado o búsqueda vuelve a la primera página.
-  useEffect(() => { setPage(1); }, [statusFilter, channel, search, eventFilter]);
+  useEffect(() => { setPage(1); }, [statusFilter, channel, search, eventFilter, partnerOnly]);
 
   const filterParams = () => {
     const params = new URLSearchParams();
@@ -3357,6 +3476,27 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
       </div>
 
       {channel === 'web' && <PendingCreditsCard />}
+
+      {channel === 'web' && partnerCampaign && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-3">
+          <span className="text-sm">
+            <span className="font-semibold">{partnerCampaign.emoji} {partnerCampaign.label}:</span>{' '}
+            {partnerCampaign.stats.personas.toLocaleString('es-CL')} personas
+            {partnerCampaign.maxPersons != null && ` de ${partnerCampaign.maxPersons.toLocaleString('es-CL')}`}
+            {' '}· {partnerCampaign.stats.orders.toLocaleString('es-CL')} compras · {clp(partnerCampaign.stats.revenue)}
+            {!partnerCampaign.isActive && <span className="text-[var(--admin-muted)]"> · link cerrado</span>}
+          </span>
+          <Button
+            size="sm"
+            variant={partnerOnly ? 'default' : 'outline'}
+            className="rounded-full ml-auto"
+            aria-pressed={partnerOnly}
+            onClick={() => setPartnerOnly((v) => !v)}
+          >
+            {partnerOnly ? 'Ver todas las ventas' : `Solo ${partnerCampaign.label}`}
+          </Button>
+        </div>
+      )}
 
       {searching ? (
         <p className="text-sm text-[var(--admin-muted)]">Buscando en todos los eventos y estados.</p>
@@ -3550,6 +3690,11 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                           <td className="py-2.5 px-3 font-mono text-sm">{order.orderNumber}</td>
                           <td className="py-2.5 px-3">
                             {order.buyerName}<br/><span className="text-[var(--admin-muted)] text-sm">{order.buyerEmail}</span>
+                            {order.partnerBadge && (
+                              <span className="mt-1 block w-fit rounded-full bg-cyan-500/15 px-2 py-0.5 text-xs font-semibold text-cyan-700">
+                                {order.partnerBadge.emoji} {order.partnerBadge.label}
+                              </span>
+                            )}
                             {order.pendingAddons && (
                               <button
                                 type="button"
@@ -3781,6 +3926,11 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                       <p className="font-mono text-sm text-[var(--admin-muted)]">{order.orderNumber}</p>
                       <p className="font-medium truncate">{order.buyerName}</p>
                       <p className="text-sm text-[var(--admin-muted)] truncate">{order.buyerEmail}</p>
+                      {order.partnerBadge && (
+                        <span className="mt-1 block w-fit rounded-full bg-cyan-500/15 px-2 py-0.5 text-xs font-semibold text-cyan-700">
+                          {order.partnerBadge.emoji} {order.partnerBadge.label}
+                        </span>
+                      )}
                       {order.pendingAddons && (
                         <button
                           type="button"
@@ -11193,6 +11343,7 @@ const ADMIN_SECTIONS = [
   { id: 'event-survey', label: 'Encuestas', group: 'Eventos', icon: Star, render: () => <EventSurveyView /> },
   { id: 'discounts', label: 'Descuentos', group: 'Eventos', icon: Percent, render: () => <DiscountsManager /> },
   { id: 'community', label: 'Códigos Comunidad', group: 'Eventos', icon: Users, render: () => <CommunityCodesManager /> },
+  { id: 'partner-electronica', label: 'Comunidad Electrónica', group: 'Eventos', icon: Headphones, render: () => <PartnerCampaignView /> },
 
   { id: 'customers', label: 'Clientes', group: 'Clientes', icon: Contact, render: () => <CustomersView /> },
   { id: 'leads', label: 'Leads', group: 'Clientes', icon: UserPlus, render: () => <LeadsView /> },
