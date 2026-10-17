@@ -108,7 +108,7 @@ export default function Prices() {
               <h2 className="font-heading text-xl mb-3">Todos los accesos incluyen lo mismo</h2>
               <p className="text-muted-foreground leading-relaxed text-sm">
                 Cualquier acceso te da entrada a todas las zonas del recinto: las dos pistas de
-                baile, el Playground XXL, la Kink Room, la barra completa y la zona de fumadores
+                baile, el Playground XXL, la barra completa y la zona de fumadores
                 techada. La diferencia entre uno y otro es a cuántas personas cubre y su valor,
                 no a qué puedes entrar.
               </p>

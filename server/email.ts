@@ -125,7 +125,6 @@ const CONTENT = {
     { emoji: '🍔', label: 'PlayBites para recargar energía' },
     { emoji: '🎧', label: 'Dos pistas de baile (Tech + Reggaetón)' },
     { emoji: '🛝', label: 'Playground XXL' },
-    { emoji: '⛓️', label: 'Kink Room' },
     { emoji: '🚬', label: 'Zona de fumadores' },
   ],
   antesDeVenir: [
@@ -138,7 +137,7 @@ const CONTENT = {
     { q: '¿Puedo llegar más tarde?', a: 'Sí.' },
     { q: '¿Puedo ir solo/a?', a: 'Claro. Muchas personas vienen solas y nuestro ambiente está pensado para conocer gente.' },
     { q: '¿Puedo salir y volver a entrar?', a: 'No. Una vez validado el ingreso, las salidas son definitivas.' },
-    { q: '¿Tengo que entrar al Playground o al Kink Room?', a: 'No. Todos los espacios son completamente opcionales.' },
+    { q: '¿Tengo que entrar al Playground?', a: 'No. Todos los espacios son completamente opcionales.' },
   ],
 };
 
@@ -191,10 +190,6 @@ export function buildOrderEmail(data: {
   partnerWelcome?: { label: string; emoji: string; rules: string[] };
 }) {
   const cfg = data.templateConfig ?? DEFAULT_ORDER_EMAIL_CONFIG;
-  // Comunidad aliada (aniversario): esta fiesta no tiene Kink Room, y a gente
-  // que viene por primera vez no se le menciona.
-  const encontraras = data.partnerWelcome ? CONTENT.encontraras.filter(x => !/kink/i.test(x.label)) : CONTENT.encontraras;
-  const faq = data.partnerWelcome ? CONTENT.faq.filter(f => !/kink/i.test(f.q)) : CONTENT.faq;
   const ticketNames = data.items.map(i => i.name).join(', ');
   const ticketUrl = data.ticketCode ? `${EMAIL_BASE_URL}/verificar/${data.ticketCode}` : '';
   const calendarUrl = data.ticketCode ? `${EMAIL_BASE_URL}/api/calendar/${data.ticketCode}.ics` : '';
@@ -350,7 +345,7 @@ export function buildOrderEmail(data: {
       <!-- QUÉ ENCONTRARÁS -->
       ${cfg.sections.encontraras ? `
       ${sectionTitle('🛝', '¿Qué encontrarás?')}
-      ${grid(encontraras.map(x => `
+      ${grid(CONTENT.encontraras.map(x => `
         <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(150,110,255,0.18);border-radius:16px;padding:14px;">
           <p style="font-size:22px;margin:0 0 4px;">${x.emoji}</p>
           <p style="color:${INK};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
@@ -402,7 +397,7 @@ export function buildOrderEmail(data: {
       <!-- FAQ -->
       ${cfg.sections.faq ? `
       ${sectionTitle('❓', 'Preguntas rápidas')}
-      ${card(faq.map((f, i) => `
+      ${card(CONTENT.faq.map((f, i) => `
         <div style="${i > 0 ? `border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;margin-top:12px;` : ''}">
           <p style="color:${INK};font-size:14px;font-weight:700;margin:0 0 4px;">${f.q}</p>
           <p style="color:${MUTED};font-size:13px;margin:0;">${f.a}</p>

@@ -2256,7 +2256,7 @@ export default function Home() {
   // búsqueda, repartiendo la fuerza en vez de concentrarla.
   useSeo({
     title: 'Mansion Playroom — Fiesta Liberal en Viña del Mar | +18',
-    description: 'La fiesta liberal más grande de la V Región: 2 pistas, Playground XXL y Kink Room. Comunidad, consentimiento y una noche para salir a bailar en Viña del Mar y Valparaíso. Evento +18.',
+    description: 'La fiesta liberal más grande de la V Región: 2 pistas, Playground XXL y barra completa. Comunidad, consentimiento y una noche para salir a bailar en Viña del Mar y Valparaíso. Evento +18.',
     path: '/',
     jsonLd: [
       faqSchema(CANDYLAND.faqs),
