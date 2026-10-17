@@ -340,6 +340,20 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
   // Borrador aparte: un borrador de la compra normal no puede arrastrarse al
   // link de la comunidad (ni al revés).
   const storageKey = isPartner ? `${STORAGE_KEY}_${partnerSlug}` : STORAGE_KEY;
+  // Firma del DJ que compartió el link (`?dj=aldo`): se recuerda en el
+  // navegador por si la persona vuelve después sin el parámetro. El servidor
+  // la valida contra las firmas conocidas (PARTNER_REFS).
+  const [partnerRef] = useState<string | undefined>(() => {
+    if (!isPartner) return undefined;
+    const refKey = `playroom_partner_ref_${partnerSlug}`;
+    const fromUrl = new URLSearchParams(window.location.search).get('dj')?.trim().toLowerCase() || '';
+    try {
+      if (fromUrl) { window.localStorage.setItem(refKey, fromUrl); return fromUrl; }
+      return window.localStorage.getItem(refKey) || undefined;
+    } catch {
+      return fromUrl || undefined;
+    }
+  });
   useSeo({
     title: 'Completa tu compra — Mansion Playroom',
     description: 'Checkout de entradas para eventos de Mansion Playroom.',
@@ -643,7 +657,9 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
       p.push({ id: 'codigo-comunidad', titulo: 'Tu código de comunidad', sub: 'Lo necesitas para completar esta compra.', keys: ['acceso__codigo_acceso'] });
     }
     if (useDbExtras) {
-      p.push({ id: 'extras-db', titulo: '✨ ¿Agregamos algo más?', sub: 'Estacionamiento, covers y otros extras — todo opcional.', keys: [] });
+      p.push(isPartner
+        ? { id: 'extras-db', titulo: '🚗 Asegura tu estacionamiento', sub: 'Los cupos son limitados y en la puerta no hay garantía de lugar. También puedes dejar listos tus tragos y extras — todo opcional.', keys: [] }
+        : { id: 'extras-db', titulo: '✨ ¿Agregamos algo más?', sub: 'Estacionamiento, covers y otros extras — todo opcional.', keys: [] });
     }
     if (isPartner) {
       p.push({ id: 'bienvenida-playroom', titulo: '💜 Bienvenid@ a Playroom', sub: 'Es tu primera vez con nosotros: así cuidamos la fiesta entre todos. Léelo y confirma para continuar.', keys: [] });
@@ -869,6 +885,7 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
         discountCode: isPartner ? undefined : code.trim() || undefined,
         ambassadorCode: isPartner ? undefined : code.trim() || undefined,
         partnerSlug,
+        partnerRef,
         communityCode: requiresCommunityCode ? values['acceso__codigo_acceso'] : undefined,
         attendeeData,
         // Atribución UTM (ver client/src/lib/utm.ts) -- vacío si nunca entró
@@ -962,7 +979,7 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
               <p className="text-sm font-bold">{partner.emoji} Nos vemos en la Pista Tech</p>
               <p className="text-xs text-muted-foreground leading-relaxed">¿Tu gente de la escena todavía no tiene entrada? Pásales este mismo link para que vengan con el acceso de la comunidad.</p>
               <a
-                href={`https://wa.me/?text=${encodeURIComponent(`Yo ya voy al ${partner.headline.split('·')[0].trim()} en Playroom 🎧 Compra tu entrada con el acceso de la comunidad: ${window.location.origin}/${partnerSlug}`)}`}
+                href={`https://wa.me/?text=${encodeURIComponent(`Yo ya voy al ${partner.headline.split('·')[0].trim()} en Playroom 🎧 Compra tu entrada con el acceso de la comunidad: ${window.location.origin}/${partnerSlug}${partnerRef ? `?dj=${encodeURIComponent(partnerRef)}` : ''}`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full inline-flex items-center justify-center gap-2 h-12 rounded-full border border-primary text-primary text-sm font-bold uppercase tracking-wide interactive"
@@ -1203,9 +1220,11 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
                       Esta invitación es para ti, que vienes de la escena electrónica y quizás nunca has estado en una fiesta de Playroom. Te contamos lo importante:
                     </p>
                     <ul className="space-y-2.5 text-sm leading-relaxed text-muted-foreground">
-                      <li className="flex gap-2"><span aria-hidden>🎧</span><span><span className="text-foreground font-semibold">Pista Tech</span> con el B2B toda la noche, y una segunda pista de reggaetón.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🎧</span><span><span className="text-foreground font-semibold">Pista 1 · Tech:</span> el B2B toda la noche, house y techno.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🔥</span><span><span className="text-foreground font-semibold">Pista 2 · Perreo:</span> reggaetón y perreo sin pausa.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🚗</span><span><span className="text-foreground font-semibold">Estacionamiento privado</span> dentro del recinto, con cupos limitados: lo puedes reservar al final de la compra.</span></li>
+                      <li className="flex gap-2"><span aria-hidden>🍔</span><span>Stand de comida, tiendas y barra completa para toda la noche.</span></li>
                       <li className="flex gap-2"><span aria-hidden>🛡️</span><span><span className="text-foreground font-semibold">Un espacio seguro:</span> respeto y consentimiento son la regla. Nadie te va a incomodar y nada es obligatorio.</span></li>
-                      <li className="flex gap-2"><span aria-hidden>🛝</span><span>Playground y Kink Room existen, pero son <span className="text-foreground font-semibold">100% opcionales</span>: puedes venir solo a bailar.</span></li>
                       <li className="flex gap-2"><span aria-hidden>🎭</span><span>Es Halloween y nuestro aniversario: <span className="text-foreground font-semibold">el disfraz es obligatorio</span>.</span></li>
                       <li className="flex gap-2"><span aria-hidden>🪪</span><span>Evento +{CANDYLAND.edadMinima}: trae tu carnet o pasaporte.</span></li>
                     </ul>
@@ -1375,7 +1394,9 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
                                       {/* Aviso de escasez SOLO para cupos de verdad limitados (ej. una
                                           mesa VIP de 6) -- pedido explícito del dueño: nada de
                                           tragos, aunque su stock configurado también sea chico. */}
-                                      {t.totalStock <= 10 && (
+                                      {/* En el link de la comunidad también el estacionamiento:
+                                          es gente que no conoce el lugar y el cupo es real. */}
+                                      {(t.totalStock <= 10 || (isPartner && /estacionamiento/i.test(t.name))) && (
                                         <p className="text-[10.5px] font-semibold text-amber-600 mt-0.5">Quedan {Math.max(0, remaining)} cupos</p>
                                       )}
                                     </div>

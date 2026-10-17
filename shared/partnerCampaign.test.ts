@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  PARTNER_DEFAULT_RULES, hasPartnerAcceptance, partnerAccessPrice, partnerAllowedAccesos, partnerRulesList,
+  PARTNER_DEFAULT_RULES, hasPartnerAcceptance, normalizePartnerRef, partnerAccessPrice, partnerAllowedAccesos, partnerRulesList,
   priceForPartnerOrder, type PartnerCampaignConfig,
 } from './partnerCampaign';
 
@@ -83,5 +83,19 @@ describe('partnerRulesList', () => {
 
   it('separa por línea y descarta las vacías', () => {
     expect(partnerRulesList('Uno\n\n  Dos  \n')).toEqual(['Uno', 'Dos']);
+  });
+});
+
+describe('normalizePartnerRef', () => {
+  it('acepta las firmas conocidas sin importar mayúsculas', () => {
+    expect(normalizePartnerRef('electronica', 'Aldo')).toBe('aldo');
+    expect(normalizePartnerRef('electronica', ' german ')).toBe('german');
+  });
+
+  it('descarta firmas desconocidas o vacías', () => {
+    expect(normalizePartnerRef('electronica', 'otro')).toBeNull();
+    expect(normalizePartnerRef('electronica', '')).toBeNull();
+    expect(normalizePartnerRef('electronica', undefined)).toBeNull();
+    expect(normalizePartnerRef('otra-campana', 'aldo')).toBeNull();
   });
 });

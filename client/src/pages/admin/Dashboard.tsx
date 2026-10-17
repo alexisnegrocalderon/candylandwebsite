@@ -1617,7 +1617,22 @@ function PartnerCampaignView() {
     onSuccess: () => { refetch(); toast.success('Guardado'); },
     onError: onMutationError,
   });
-  const [form, setForm] = useState<{ pricePerPerson: string; maxPersons: string; headline: string; rulesText: string } | null>(null);
+  const sendReminder = trpc.partner.sendReminder.useMutation({
+    onSuccess: (r) => {
+      refetch();
+      toast.success(`Recordatorio enviado a ${r.sent} compras${r.failed ? ` · ${r.failed} fallaron` : ''}${r.remaining ? ` · faltan ${r.remaining}, vuelve a apretar` : ''}`);
+    },
+    onError: onMutationError,
+  });
+  const sendThanks = trpc.partner.sendThanks.useMutation({
+    onSuccess: (r) => {
+      refetch();
+      toast.success(`Agradecimiento enviado a ${r.sent}${r.failed ? ` · ${r.failed} fallaron` : ''}${r.remaining ? ` · faltan ${r.remaining}, vuelve a apretar` : ''}${r.notAttended ? ` · ${r.notAttended} compras sin ingreso registrado (no se les manda)` : ''}`);
+    },
+    onError: onMutationError,
+  });
+  const [form, setForm] = useState<{ pricePerPerson: string; maxPersons: string; headline: string; rulesText: string; setTimeText: string } | null>(null);
+  const [thanks, setThanks] = useState({ discountCode: '', benefitText: '20% de descuento en tu próxima entrada a Mansion Playroom.' });
   useEffect(() => {
     if (campaign && !form) {
       setForm({
@@ -1625,6 +1640,7 @@ function PartnerCampaignView() {
         maxPersons: campaign.maxPersons != null ? String(campaign.maxPersons) : '',
         headline: campaign.headlineEffective,
         rulesText: campaign.rulesEffective,
+        setTimeText: campaign.setTimeText ?? '',
       });
     }
   }, [campaign, form]);
@@ -1640,8 +1656,8 @@ function PartnerCampaignView() {
   if (!campaign || !form) return <div className="py-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
 
   const link = `${window.location.origin}/${campaign.slug}`;
-  const copyLink = async () => {
-    try { await navigator.clipboard.writeText(link); toast.success('Link copiado'); }
+  const copyLink = async (value: string = link) => {
+    try { await navigator.clipboard.writeText(value); toast.success('Link copiado'); }
     catch { toast.error('No se pudo copiar. Copia el link manualmente.'); }
   };
   const save = () => {
@@ -1649,7 +1665,7 @@ function PartnerCampaignView() {
     if (!Number.isInteger(price) || price < 0) { toast.error('Revisa el precio por persona'); return; }
     const max = form.maxPersons.trim() ? Number(form.maxPersons) : null;
     if (max !== null && (!Number.isInteger(max) || max < 1)) { toast.error('El tope tiene que ser un número entero, o vacío para sin tope'); return; }
-    update.mutate({ pricePerPerson: price, maxPersons: max, headline: form.headline, rulesText: form.rulesText });
+    update.mutate({ pricePerPerson: price, maxPersons: max, headline: form.headline, rulesText: form.rulesText, setTimeText: form.setTimeText });
   };
   const s = campaign.stats;
 
@@ -1675,6 +1691,27 @@ function PartnerCampaignView() {
         </p>
       )}
 
+      {/* Un link por DJ: mismo precio, solo cambia a quién se le cuenta la venta. */}
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6 space-y-3">
+          <p className="font-semibold">Links por DJ</p>
+          {[...campaign.refs, { key: '', label: 'Link sin firma' }].map((r: { key: string; label: string }) => {
+            const refLink = r.key ? `${link}?dj=${r.key}` : link;
+            const st = s.byRef[r.key];
+            return (
+              <div key={r.key || 'none'} className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div className="sm:w-56 shrink-0">
+                  <p className="text-sm font-medium">{r.label}</p>
+                  <p className="text-xs text-muted-foreground">{st ? `${st.personas} personas · ${st.orders} compras` : 'Sin ventas aún'}</p>
+                </div>
+                <Input readOnly value={refLink} className="font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
+                <Button variant="outline" size="sm" className="interactive shrink-0" onClick={() => copyLink(refLink)}><Copy className="w-3 h-3 mr-1" /> Copiar</Button>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardContent className="pt-6 space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1683,10 +1720,6 @@ function PartnerCampaignView() {
               <p className="text-sm text-muted-foreground">Cerrado, el link muestra «el acceso especial ya cerró» y manda a la compra normal.</p>
             </div>
             <Switch checked={!!campaign.isActive} onCheckedChange={(v) => update.mutate({ isActive: v })} aria-label="Abrir o cerrar el link" />
-          </div>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Input readOnly value={link} className="font-mono" onFocus={(e) => e.currentTarget.select()} />
-            <Button variant="outline" className="interactive shrink-0" onClick={copyLink}><Copy className="w-4 h-4 mr-2" /> Copiar link</Button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -1711,7 +1744,52 @@ function PartnerCampaignView() {
             <Textarea value={form.rulesText} onChange={(e) => setForm({ ...form, rulesText: e.target.value })} className="mt-1 min-h-48" />
             <p className="text-xs text-muted-foreground mt-1">Se muestra en el paso obligatorio antes de pagar y se repite en el email con el QR.</p>
           </div>
+          <div>
+            <Label>Horario del set (para el recordatorio)</Label>
+            <Input value={form.setTimeText} onChange={(e) => setForm({ ...form, setTimeText: e.target.value })} className="mt-1" maxLength={120} placeholder="Ej: B2B desde la 01:00 hasta el cierre" />
+          </div>
           <WriteButton onClick={save} disabled={update.isPending}>Guardar cambios</WriteButton>
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardContent className="pt-6 space-y-6">
+          <div className="space-y-2">
+            <p className="font-semibold">📩 Recordatorio antes de la fiesta</p>
+            <p className="text-sm text-muted-foreground">
+              Solo a la comunidad: horario del set, disfraz obligatorio, estacionamiento y las reglas. Se manda una vez por compra
+              {s.reminderPending > 0 ? ` · ${s.reminderPending} pendientes` : ' · todas las compras ya lo recibieron'}. Guarda el horario del set antes de enviarlo.
+            </p>
+            <WriteButton
+              disabled={sendReminder.isPending || s.reminderPending === 0}
+              onClick={() => { if (window.confirm(`¿Enviar el recordatorio a ${s.reminderPending} compras de la comunidad?`)) sendReminder.mutate(); }}
+            >
+              {sendReminder.isPending ? 'Enviando…' : `Enviar recordatorio (${s.reminderPending})`}
+            </WriteButton>
+          </div>
+          <div className="space-y-2 border-t border-border/40 pt-5">
+            <p className="font-semibold">💜 Agradecimiento después de la fiesta</p>
+            <p className="text-sm text-muted-foreground">
+              Solo a quienes entraron (QR escaneado en la puerta), con un beneficio para que vuelvan. Primero crea el código en Descuentos (ej. 20% para el próximo evento) y escríbelo acá.
+              {s.thanksSent > 0 && ` Ya enviado a ${s.thanksSent}.`}
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <Label>Código de descuento</Label>
+                <Input value={thanks.discountCode} onChange={(e) => setThanks({ ...thanks, discountCode: e.target.value.toUpperCase() })} className="mt-1 font-mono" placeholder="VUELVE20" />
+              </div>
+              <div className="md:col-span-2">
+                <Label>Texto del beneficio</Label>
+                <Input value={thanks.benefitText} onChange={(e) => setThanks({ ...thanks, benefitText: e.target.value })} className="mt-1" maxLength={300} />
+              </div>
+            </div>
+            <WriteButton
+              disabled={sendThanks.isPending || !thanks.discountCode.trim() || !thanks.benefitText.trim()}
+              onClick={() => { if (window.confirm('¿Enviar el agradecimiento a quienes asistieron?')) sendThanks.mutate(thanks); }}
+            >
+              {sendThanks.isPending ? 'Enviando…' : 'Enviar agradecimiento'}
+            </WriteButton>
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -3692,7 +3770,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                             {order.buyerName}<br/><span className="text-[var(--admin-muted)] text-sm">{order.buyerEmail}</span>
                             {order.partnerBadge && (
                               <span className="mt-1 block w-fit rounded-full bg-cyan-500/15 px-2 py-0.5 text-xs font-semibold text-cyan-700">
-                                {order.partnerBadge.emoji} {order.partnerBadge.label}
+                                {order.partnerBadge.emoji} {order.partnerBadge.label}{order.partnerBadge.refLabel ? ` · ${order.partnerBadge.refLabel.split(' · ')[0]}` : ''}
                               </span>
                             )}
                             {order.pendingAddons && (
@@ -3928,7 +4006,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                       <p className="text-sm text-[var(--admin-muted)] truncate">{order.buyerEmail}</p>
                       {order.partnerBadge && (
                         <span className="mt-1 block w-fit rounded-full bg-cyan-500/15 px-2 py-0.5 text-xs font-semibold text-cyan-700">
-                          {order.partnerBadge.emoji} {order.partnerBadge.label}
+                          {order.partnerBadge.emoji} {order.partnerBadge.label}{order.partnerBadge.refLabel ? ` · ${order.partnerBadge.refLabel.split(' · ')[0]}` : ''}
                         </span>
                       )}
                       {order.pendingAddons && (

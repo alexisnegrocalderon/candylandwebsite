@@ -7,13 +7,16 @@
  * son de la campaña (Ventas Web, el email, el webhook) nunca tira: si la
  * migración 0107 todavía no está aplicada, esas pantallas siguen funcionando
  * igual que antes, solo sin el sello. */
-import { and, asc, eq, gte, inArray, or, sql } from 'drizzle-orm';
-import { customers, events, orderItems, orders, partnerCampaigns, partnerOrders, ticketTypes, type PartnerCampaign } from '../drizzle/schema';
+import { and, asc, eq, gte, inArray, isNull, or, sql } from 'drizzle-orm';
+import { customers, discountCodes, events, orderItems, orders, partnerCampaigns, partnerOrders, ticketTypes, tickets, type PartnerCampaign } from '../drizzle/schema';
 import { getDb } from './db';
+import { buildPartnerReminderEmail, buildPartnerThanksEmail, sendEmail } from './email';
+import { EVENT_BRAND } from '../shared/eventBrand';
+import { formatChileDate } from '../shared/chileDate';
 import { normalizeRut } from '../shared/rut';
 import { personasForAccesoSlug } from '../shared/mission300';
 import {
-  PARTNER_DEFAULT_HEADLINE, PARTNER_PERSONAS, partnerAccessPrice, partnerAllowedAccesos, partnerCustomerTag,
+  PARTNER_DEFAULT_HEADLINE, PARTNER_PERSONAS, PARTNER_REFS, partnerAccessPrice, partnerAllowedAccesos, partnerCustomerTag,
   partnerRulesList,
 } from '../shared/partnerCampaign';
 
@@ -32,19 +35,37 @@ export async function getPartnerCampaignBySlug(slug: string): Promise<PartnerCam
  * el contador del admin). Cuenta por acceso, no por orden: un Grupo son 4. */
 export async function getPartnerCampaignStats(campaignId: number) {
   const db = await getDb();
-  const empty = { orders: 0, personas: 0, revenue: 0, pendingOrders: 0, byAcceso: {} as Record<string, number> };
+  const empty = {
+    orders: 0, personas: 0, revenue: 0, pendingOrders: 0,
+    byAcceso: {} as Record<string, number>,
+    /** Personas por DJ que firmó el link (`?dj=`); '' = link sin firma. */
+    byRef: {} as Record<string, { personas: number; orders: number }>,
+    /** Pendientes de cada correo de la campaña (para los botones del admin). */
+    reminderPending: 0,
+    thanksSent: 0,
+  };
   if (!db) return empty;
-  const orderRows = await db.select({ id: orders.id, total: orders.total, paymentStatus: orders.paymentStatus })
+  const orderRows = await db.select({
+    id: orders.id, total: orders.total, paymentStatus: orders.paymentStatus,
+    ref: partnerOrders.ref, reminderSentAt: partnerOrders.reminderSentAt, thanksSentAt: partnerOrders.thanksSentAt,
+  })
     .from(partnerOrders)
     .innerJoin(orders, eq(partnerOrders.orderId, orders.id))
     .where(eq(partnerOrders.campaignId, campaignId));
   const approved = orderRows.filter((o) => o.paymentStatus === 'approved');
-  const stats = { ...empty, byAcceso: {} as Record<string, number> };
+  const stats = { ...empty, byAcceso: {} as Record<string, number>, byRef: {} as Record<string, { personas: number; orders: number }> };
+  stats.reminderPending = approved.filter((o) => !o.reminderSentAt).length;
+  stats.thanksSent = approved.filter((o) => o.thanksSentAt).length;
+  const refByOrder = new Map(approved.map((o) => [o.id, o.ref ?? '']));
+  for (const o of approved) {
+    const r = (stats.byRef[o.ref ?? ''] ??= { personas: 0, orders: 0 });
+    r.orders += 1;
+  }
   stats.orders = approved.length;
   stats.pendingOrders = orderRows.filter((o) => o.paymentStatus === 'pending').length;
   stats.revenue = approved.reduce((s, o) => s + Number(o.total), 0);
   if (approved.length === 0) return stats;
-  const items = await db.select({ quantity: orderItems.quantity, accesoSlug: ticketTypes.accesoSlug })
+  const items = await db.select({ orderId: orderItems.orderId, quantity: orderItems.quantity, accesoSlug: ticketTypes.accesoSlug })
     .from(orderItems)
     .innerJoin(ticketTypes, eq(orderItems.ticketTypeId, ticketTypes.id))
     .where(and(inArray(orderItems.orderId, approved.map((o) => o.id)), eq(ticketTypes.category, 'acceso')));
@@ -53,6 +74,7 @@ export async function getPartnerCampaignStats(campaignId: number) {
     stats.personas += personas;
     const key = it.accesoSlug ?? 'otro';
     stats.byAcceso[key] = (stats.byAcceso[key] ?? 0) + personas;
+    stats.byRef[refByOrder.get(it.orderId) ?? ''].personas += personas;
   }
   return stats;
 }
@@ -75,10 +97,10 @@ export async function isExistingPlayroomCustomer(params: { email: string; rut?: 
   return rows.some((c) => c.totalOrders > 0 && !(Array.isArray(c.tags) && (c.tags as unknown[]).includes(tag)));
 }
 
-export async function recordPartnerOrder(orderId: number, campaignId: number) {
+export async function recordPartnerOrder(orderId: number, campaignId: number, ref: string | null) {
   const db = await getDb();
   if (!db) return;
-  await db.insert(partnerOrders).values({ orderId, campaignId });
+  await db.insert(partnerOrders).values({ orderId, campaignId, ref });
 }
 
 /** Campaña de una orden, o null. Nunca tira (ver comentario de arriba). */
@@ -99,16 +121,16 @@ export async function getPartnerCampaignForOrder(orderId: number): Promise<Partn
 }
 
 /** Sello por orden para la lista de Ventas Web: orderId → {label, emoji}. */
-export async function getPartnerBadgesByOrderIds(orderIds: number[]): Promise<Map<number, { label: string; emoji: string }>> {
-  const out = new Map<number, { label: string; emoji: string }>();
+export async function getPartnerBadgesByOrderIds(orderIds: number[]): Promise<Map<number, { label: string; emoji: string; refLabel: string | null }>> {
+  const out = new Map<number, { label: string; emoji: string; refLabel: string | null }>();
   const db = await getDb();
   if (!db || orderIds.length === 0) return out;
   try {
-    const rows = await db.select({ orderId: partnerOrders.orderId, label: partnerCampaigns.label, emoji: partnerCampaigns.emoji })
+    const rows = await db.select({ orderId: partnerOrders.orderId, label: partnerCampaigns.label, emoji: partnerCampaigns.emoji, slug: partnerCampaigns.slug, ref: partnerOrders.ref })
       .from(partnerOrders)
       .innerJoin(partnerCampaigns, eq(partnerOrders.campaignId, partnerCampaigns.id))
       .where(inArray(partnerOrders.orderId, orderIds));
-    for (const r of rows) out.set(r.orderId, { label: r.label, emoji: r.emoji });
+    for (const r of rows) out.set(r.orderId, { label: r.label, emoji: r.emoji, refLabel: r.ref ? PARTNER_REFS[r.slug]?.[r.ref] ?? r.ref : null });
   } catch (error) {
     console.warn('[partnerCampaigns] Sin sellos de campaña (¿falta la migración 0107?):', error);
   }
@@ -202,6 +224,7 @@ export async function getPartnerCampaignForAdmin(slug: string) {
     rulesEffective: partnerRulesList(campaign.rulesText).join('\n'),
     eventName: eventRows[0]?.name ?? null,
     eventSlug: eventRows[0]?.slug ?? null,
+    refs: Object.entries(PARTNER_REFS[campaign.slug] ?? {}).map(([key, label]) => ({ key, label })),
     stats,
   };
 }
@@ -213,6 +236,7 @@ export async function updatePartnerCampaign(slug: string, patch: {
   headline?: string | null;
   rulesText?: string | null;
   label?: string;
+  setTimeText?: string | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
@@ -225,6 +249,7 @@ export async function updatePartnerCampaign(slug: string, patch: {
     ...(patch.headline !== undefined ? { headline: patch.headline?.trim() || null } : {}),
     ...(patch.rulesText !== undefined ? { rulesText: patch.rulesText?.trim() || null } : {}),
     ...(patch.label !== undefined && patch.label.trim() ? { label: patch.label.trim() } : {}),
+    ...(patch.setTimeText !== undefined ? { setTimeText: patch.setTimeText?.trim() || null } : {}),
   }).where(eq(partnerCampaigns.id, campaign.id));
   return getPartnerCampaignForAdmin(slug);
 }
@@ -235,4 +260,101 @@ export async function getPartnerOrderIds(campaignId: number): Promise<number[]> 
   if (!db) return [];
   const rows = await db.select({ orderId: partnerOrders.orderId }).from(partnerOrders).where(eq(partnerOrders.campaignId, campaignId));
   return rows.map((r) => r.orderId);
+}
+
+/** Tope de correos por clic: cada envío es una llamada a Resend, y la función
+ * de Vercel tiene tiempo máximo. Si quedan más, el botón se vuelve a apretar
+ * y sigue donde quedó (los ya enviados quedan marcados). */
+const PARTNER_EMAIL_BATCH = 60;
+
+async function campaignEventInfo(campaign: PartnerCampaign) {
+  const db = await getDb();
+  if (!db) return null;
+  const [event] = await db.select().from(events).where(eq(events.id, campaign.eventId)).limit(1);
+  return event ?? null;
+}
+
+/** Recordatorio antes de la fiesta, solo a la comunidad: horario del set,
+ * disfraz, estacionamiento y las reglas. Una vez por orden aprobada. */
+export async function sendPartnerReminders(slug: string) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  const campaign = await getPartnerCampaignBySlug(slug);
+  if (!campaign) throw new Error('Campaña no encontrada');
+  const event = await campaignEventInfo(campaign);
+  if (!event) throw new Error('Evento no encontrado');
+  const pending = await db.select({ orderId: orders.id, buyerName: orders.buyerName, buyerEmail: orders.buyerEmail })
+    .from(partnerOrders)
+    .innerJoin(orders, eq(partnerOrders.orderId, orders.id))
+    .where(and(eq(partnerOrders.campaignId, campaign.id), eq(orders.paymentStatus, 'approved'), isNull(partnerOrders.reminderSentAt)));
+  const rules = partnerRulesList(campaign.rulesText);
+  let sent = 0;
+  let failed = 0;
+  for (const row of pending.slice(0, PARTNER_EMAIL_BATCH)) {
+    const [ticket] = await db.select({ ticketCode: tickets.ticketCode }).from(tickets).where(eq(tickets.orderId, row.orderId)).limit(1);
+    const html = buildPartnerReminderEmail({
+      buyerName: row.buyerName,
+      emoji: campaign.emoji,
+      label: campaign.label,
+      headline: campaign.headline || PARTNER_DEFAULT_HEADLINE,
+      setTimeText: campaign.setTimeText,
+      eventTitle: event.title,
+      eventDate: formatChileDate(new Date(event.eventDate)),
+      dressCode: EVENT_BRAND.dressCode,
+      rules,
+      ticketCode: ticket?.ticketCode,
+    });
+    const result = await sendEmail({ to: row.buyerEmail, subject: `${campaign.emoji} Ya casi: tu noche en ${event.title}`, html });
+    if (result.success) {
+      sent += 1;
+      await db.update(partnerOrders).set({ reminderSentAt: new Date() }).where(eq(partnerOrders.orderId, row.orderId));
+    } else {
+      failed += 1;
+    }
+  }
+  return { sent, failed, remaining: Math.max(0, pending.length - sent) };
+}
+
+/** Agradecimiento después de la fiesta, con un beneficio para volver: solo a
+ * quienes entraron de verdad (al menos un ticket escaneado en la puerta). El
+ * código de descuento se crea antes en Admin → Descuentos. */
+export async function sendPartnerThanks(slug: string, input: { discountCode: string; benefitText: string }) {
+  const db = await getDb();
+  if (!db) throw new Error('Database not available');
+  const campaign = await getPartnerCampaignBySlug(slug);
+  if (!campaign) throw new Error('Campaña no encontrada');
+  const event = await campaignEventInfo(campaign);
+  if (!event) throw new Error('Evento no encontrado');
+  const code = input.discountCode.trim().toUpperCase();
+  const [discount] = await db.select({ id: discountCodes.id, isActive: discountCodes.isActive }).from(discountCodes).where(eq(discountCodes.code, code)).limit(1);
+  if (!discount || !discount.isActive) throw new Error(`No existe un código de descuento activo «${code}». Créalo primero en Descuentos.`);
+  const pending = await db.select({ orderId: orders.id, buyerName: orders.buyerName, buyerEmail: orders.buyerEmail })
+    .from(partnerOrders)
+    .innerJoin(orders, eq(partnerOrders.orderId, orders.id))
+    .where(and(eq(partnerOrders.campaignId, campaign.id), eq(orders.paymentStatus, 'approved'), isNull(partnerOrders.thanksSentAt)));
+  const usedRows = pending.length
+    ? await db.select({ orderId: tickets.orderId }).from(tickets).where(and(inArray(tickets.orderId, pending.map((p) => p.orderId)), eq(tickets.status, 'used')))
+    : [];
+  const attended = new Set(usedRows.map((r) => r.orderId));
+  const targets = pending.filter((p) => attended.has(p.orderId));
+  let sent = 0;
+  let failed = 0;
+  for (const row of targets.slice(0, PARTNER_EMAIL_BATCH)) {
+    const html = buildPartnerThanksEmail({
+      buyerName: row.buyerName,
+      emoji: campaign.emoji,
+      label: campaign.label,
+      eventTitle: event.title,
+      discountCode: code,
+      benefitText: input.benefitText,
+    });
+    const result = await sendEmail({ to: row.buyerEmail, subject: `${campaign.emoji} Gracias por venir a ${event.title}`, html });
+    if (result.success) {
+      sent += 1;
+      await db.update(partnerOrders).set({ thanksSentAt: new Date() }).where(eq(partnerOrders.orderId, row.orderId));
+    } else {
+      failed += 1;
+    }
+  }
+  return { sent, failed, remaining: Math.max(0, targets.length - sent), notAttended: pending.length - targets.length };
 }

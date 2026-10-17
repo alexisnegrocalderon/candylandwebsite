@@ -141,3 +141,20 @@ export function priceForPartnerOrder(
  * ofrece el botón a la compra normal. */
 export const PARTNER_EXISTING_CUSTOMER_MESSAGE =
   'Ya eres parte de Playroom 💜 Este link es solo para quienes vienen por primera vez con la comunidad. Tu entrada la puedes comprar en la web normal.';
+
+/** Firmas de cada DJ por campaña: `/electronica?dj=aldo` cuenta la venta para
+ * Aldo. Mismo link y mismo precio para todos; solo cambia la atribución. */
+export const PARTNER_REFS: Record<string, Record<string, string>> = {
+  electronica: {
+    aldo: 'Aldo Medel · Love Carpet',
+    german: 'German Courtin · Casa Nostra',
+  },
+};
+
+/** Normaliza la firma `?dj=` contra las conocidas de la campaña; cualquier
+ * otra cosa (o nada) queda como venta sin firma. */
+export function normalizePartnerRef(campaignSlug: string, ref: string | null | undefined): string | null {
+  const key = ref?.trim().toLowerCase();
+  if (!key) return null;
+  return PARTNER_REFS[campaignSlug]?.[key] ? key : null;
+}

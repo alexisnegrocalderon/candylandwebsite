@@ -1198,6 +1198,7 @@ export const appRouter = router({
       utmContent: z.string().max(100).optional(),
       // Link de campaña aliada (/electronica), ver server/partnerCampaigns.ts.
       partnerSlug: z.string().max(50).optional(),
+      partnerRef: z.string().max(32).optional(),
     })).mutation(async ({ input }) => {
       const result = await db.createOrder(input);
       // Descuento del 100%: la orden ya quedó aprobada en createOrder (sin
@@ -3343,10 +3344,29 @@ export const appRouter = router({
       headline: z.string().max(255).nullable().optional(),
       rulesText: z.string().max(5000).nullable().optional(),
       label: z.string().max(100).optional(),
+      setTimeText: z.string().max(120).nullable().optional(),
     })).mutation(async ({ input, ctx }) => {
       const { slug, ...patch } = input;
       const result = await partnerSvc.updatePartnerCampaign(slug ?? partnerSvc.ELECTRONICA_SLUG, patch);
       await db.recordAdminAudit({ action: 'partner.update', targetType: 'partnerCampaign', targetId: result?.id ?? 0, ip: clientIp(ctx) });
+      return result;
+    }),
+    /* Recordatorio previo a la fiesta a toda la comunidad (una vez por compra). */
+    sendReminder: adminProcedure.input(z.object({ slug: z.string().max(50).optional() }).optional()).mutation(async ({ input, ctx }) => {
+      const slug = input?.slug ?? partnerSvc.ELECTRONICA_SLUG;
+      const result = await partnerSvc.sendPartnerReminders(slug);
+      await db.recordAdminAudit({ action: 'partner.sendReminder', targetType: 'partnerCampaign', targetId: slug, payload: result, ip: clientIp(ctx) });
+      return result;
+    }),
+    /* Agradecimiento post-fiesta con beneficio, solo a quienes entraron. */
+    sendThanks: adminProcedure.input(z.object({
+      slug: z.string().max(50).optional(),
+      discountCode: z.string().trim().min(1).max(50),
+      benefitText: z.string().trim().min(1).max(300),
+    })).mutation(async ({ input, ctx }) => {
+      const slug = input.slug ?? partnerSvc.ELECTRONICA_SLUG;
+      const result = await partnerSvc.sendPartnerThanks(slug, input);
+      await db.recordAdminAudit({ action: 'partner.sendThanks', targetType: 'partnerCampaign', targetId: slug, payload: result, ip: clientIp(ctx) });
       return result;
     }),
   }),

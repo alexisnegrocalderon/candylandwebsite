@@ -81,6 +81,9 @@ export type MetaOverrides = {
   twitterDescription?: string;
   twitterImage?: string;
   canonical?: string;
+  /** Reemplaza el `<meta name="robots">` del template (ej. "noindex" para
+   * links privados que igual necesitan vista previa al compartirlos). */
+  robots?: string;
   /** Se agrega COMO EXTRA antes de `</head>` -- no reemplaza el JSON-LD
    * global (NightClub) que ya trae el template estático, ambos conviven. */
   jsonLd?: unknown[];
@@ -90,6 +93,7 @@ export function injectMeta(html: string, overrides: MetaOverrides): string {
   let out = html;
   if (overrides.title) out = setTitle(out, overrides.title);
   if (overrides.description) out = setMetaContent(out, "name", "description", overrides.description);
+  if (overrides.robots) out = setMetaContent(out, "name", "robots", overrides.robots);
   if (overrides.ogTitle) out = setMetaContent(out, "property", "og:title", overrides.ogTitle);
   if (overrides.ogDescription) out = setMetaContent(out, "property", "og:description", overrides.ogDescription);
   if (overrides.ogUrl) out = setMetaContent(out, "property", "og:url", overrides.ogUrl);

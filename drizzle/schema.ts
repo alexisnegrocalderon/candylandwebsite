@@ -457,6 +457,9 @@ export const partnerCampaigns = mysqlTable("partnerCampaigns", {
   // Valores + derecho de permanencia, una regla por línea. null = borrador
   // por defecto (PARTNER_DEFAULT_RULES).
   rulesText: text("rulesText"),
+  // Horario del set para el recordatorio previo a la fiesta (ej. "B2B desde
+  // la 01:00"). Texto libre; null = el recordatorio no lo menciona.
+  setTimeText: varchar("setTimeText", { length: 120 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -472,6 +475,12 @@ export const partnerOrders = mysqlTable("partnerOrders", {
   id: int("id").autoincrement().primaryKey(),
   orderId: int("orderId").notNull().unique(),
   campaignId: int("campaignId").notNull(),
+  // Qué DJ trajo la venta (`?dj=aldo` en el link, ver PARTNER_REFS). null =
+  // link sin firma.
+  ref: varchar("ref", { length: 32 }),
+  // Correos propios de la campaña, uno por orden como mucho.
+  reminderSentAt: timestamp("reminderSentAt"),
+  thanksSentAt: timestamp("thanksSentAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => [
   index("partner_orders_campaign_idx").on(t.campaignId),

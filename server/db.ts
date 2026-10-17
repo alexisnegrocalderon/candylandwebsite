@@ -34,8 +34,8 @@ import { hashPin, verifyPin } from './caja/auth';
 import { normalizeEventDates } from './eventDates';
 import { PLAYMATCH_TEST_SLUG, PLAYMATCH_TEST_TITLE, clampTestGuestCount, isTestTicketCode, testEventWindow, testTicketCode } from '../shared/playmatchTest';
 import { isTopupProduct, topupChargeForLines } from '../shared/prepaid';
-import { hasPartnerAcceptance, priceForPartnerOrder, PARTNER_EXISTING_CUSTOMER_MESSAGE } from '../shared/partnerCampaign';
-import { getPartnerCampaignBySlug, getPartnerCampaignStats, isExistingPlayroomCustomer, recordPartnerOrder } from './partnerCampaigns';
+import { hasPartnerAcceptance, normalizePartnerRef, priceForPartnerOrder, PARTNER_EXISTING_CUSTOMER_MESSAGE } from '../shared/partnerCampaign';
+import { getPartnerBadgesByOrderIds, getPartnerCampaignBySlug, getPartnerCampaignStats, isExistingPlayroomCustomer, recordPartnerOrder } from './partnerCampaigns';
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1296,6 +1296,8 @@ export async function createOrder(input: {
   /** Link de campaña aliada (ej. 'electronica'): reprecia los accesos al
    * precio por persona de la campaña, ver shared/partnerCampaign.ts. */
   partnerSlug?: string;
+  /** Firma del DJ que compartió el link (`?dj=aldo`), ver PARTNER_REFS. */
+  partnerRef?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1512,7 +1514,7 @@ export async function createOrder(input: {
 
   const orderId = orderResult.insertId;
   if (accessCreditId) await attachAccessCreditToOrder(accessCreditId, orderId);
-  if (partnerCampaign) await recordPartnerOrder(orderId, partnerCampaign.id);
+  if (partnerCampaign) await recordPartnerOrder(orderId, partnerCampaign.id, normalizePartnerRef(partnerCampaign.slug, input.partnerRef));
 
   // Create order items. soldCount (y con él, el contador de Misión 300) NO se
   // toca acá — la orden todavía está "pending", nadie pagó nada. Se
@@ -2926,6 +2928,9 @@ export async function getCajaSnapshot(eventId: number) {
     for (const c of matchingCustomers) rutByEmail.set(c.email, c.rut);
   }
 
+  // Sello de campaña aliada para la puerta ("🎧 primera vez, comunidad
+  // electrónica"): el equipo sabe a quién darle la bienvenida y las reglas.
+  const partnerBadges = await getPartnerBadgesByOrderIds(orderIds);
   const attendees = approvedOrders.map((o: any) => {
     const ts = ticketsByOrder.get(o.id) ?? [];
     // Titular + acompañantes con nombre Y rut propios: es lo que el
@@ -2940,6 +2945,7 @@ export async function getCajaSnapshot(eventId: number) {
       buyerName: o.buyerName,
       buyerEmail: o.buyerEmail,
       buyerPhone: o.buyerPhone,
+      partnerBadge: partnerBadges.get(o.id) ?? null,
       attendees: parsedAttendees.length > 0
         ? parsedAttendees
         : [{ name: o.buyerName, rut: parseBuyerRut(o.attendeeData) ?? rutByEmail.get((o.buyerEmail || '').trim().toLowerCase()) ?? null, docType: 'rut' as const }],

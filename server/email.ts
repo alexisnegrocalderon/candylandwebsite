@@ -191,6 +191,10 @@ export function buildOrderEmail(data: {
   partnerWelcome?: { label: string; emoji: string; rules: string[] };
 }) {
   const cfg = data.templateConfig ?? DEFAULT_ORDER_EMAIL_CONFIG;
+  // Comunidad aliada (aniversario): esta fiesta no tiene Kink Room, y a gente
+  // que viene por primera vez no se le menciona.
+  const encontraras = data.partnerWelcome ? CONTENT.encontraras.filter(x => !/kink/i.test(x.label)) : CONTENT.encontraras;
+  const faq = data.partnerWelcome ? CONTENT.faq.filter(f => !/kink/i.test(f.q)) : CONTENT.faq;
   const ticketNames = data.items.map(i => i.name).join(', ');
   const ticketUrl = data.ticketCode ? `${EMAIL_BASE_URL}/verificar/${data.ticketCode}` : '';
   const calendarUrl = data.ticketCode ? `${EMAIL_BASE_URL}/api/calendar/${data.ticketCode}.ics` : '';
@@ -346,7 +350,7 @@ export function buildOrderEmail(data: {
       <!-- QUÉ ENCONTRARÁS -->
       ${cfg.sections.encontraras ? `
       ${sectionTitle('🛝', '¿Qué encontrarás?')}
-      ${grid(CONTENT.encontraras.map(x => `
+      ${grid(encontraras.map(x => `
         <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(150,110,255,0.18);border-radius:16px;padding:14px;">
           <p style="font-size:22px;margin:0 0 4px;">${x.emoji}</p>
           <p style="color:${INK};font-size:12px;font-weight:700;margin:0;">${x.label}</p>
@@ -398,7 +402,7 @@ export function buildOrderEmail(data: {
       <!-- FAQ -->
       ${cfg.sections.faq ? `
       ${sectionTitle('❓', 'Preguntas rápidas')}
-      ${card(CONTENT.faq.map((f, i) => `
+      ${card(faq.map((f, i) => `
         <div style="${i > 0 ? `border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;margin-top:12px;` : ''}">
           <p style="color:${INK};font-size:14px;font-weight:700;margin:0 0 4px;">${f.q}</p>
           <p style="color:${MUTED};font-size:13px;margin:0;">${f.a}</p>
@@ -1957,5 +1961,97 @@ export function buildFinanceDigestEmail(data: {
     ${tips ? card(`<p style="color:${REPORT_FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 4px;">Cómo subir el margen</p>${tips}`, { bg: '#F9FAFB', borderColor: REPORT_BORDER }) : ''}
     <p style="margin:16px 0 0;"><a href="${data.link}" style="color:#D6336C;font-weight:700;font-size:14px;">Abrir Finanzas →</a></p>
   </div>`,
+  });
+}
+
+/** Recordatorio previo a la fiesta, solo para la comunidad de una campaña
+ * aliada (Admin → Comunidad Electrónica). Gente que viene por primera vez:
+ * horario del set, disfraz, estacionamiento y las reglas, sin vueltas. */
+export function buildPartnerReminderEmail(data: {
+  buyerName: string;
+  emoji: string;
+  label: string;
+  headline: string;
+  setTimeText?: string | null;
+  eventTitle: string;
+  eventDate: string;
+  dressCode: string;
+  rules: string[];
+  ticketCode?: string;
+}) {
+  const esc = escapeEmailText;
+  const ticketUrl = data.ticketCode ? `${EMAIL_BASE_URL}/verificar/${data.ticketCode}` : EMAIL_BASE_URL;
+  return emailShell({
+    preheader: `${data.headline} -- todo lo que necesitas para la noche.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'pink',
+      heroBg: DISCO_HERO_BG,
+      emoji: `${esc(data.emoji)}🎃`,
+      title: `Ya casi, ${esc(data.buyerName)}`,
+      subtitle: `${esc(data.eventTitle)} · ${esc(data.eventDate)}`,
+      cta: { href: ticketUrl, label: 'Ver mi entrada' },
+      anniversary: true,
+      costume: true,
+      ctaStyle: 'pastel',
+    }),
+    body: `
+      ${sectionTitle('🎧', 'Pista Tech')}
+      ${card(`
+        <p style="color:${INK};font-size:16px;font-weight:800;margin:0 0 6px;">${esc(data.headline)}</p>
+        ${data.setTimeText ? `<p style="color:${ACCENT.pink.text};font-size:15px;font-weight:700;margin:0;">🕐 ${esc(data.setTimeText)}</p>` : ''}
+        <p style="color:${MUTED};font-size:13px;margin:10px 0 0;">Y en la segunda pista, reggaetón y perreo toda la noche.</p>
+      `, { glow: 'pink' })}
+
+      ${sectionTitle('📝', 'Antes de venir')}
+      ${card(`
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">🎭 <strong>Disfraz obligatorio.</strong> ${esc(data.dressCode)}</p>
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">🪪 Trae tu carnet o pasaporte: evento +18.</p>
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">🚗 Hay estacionamiento privado con cupos limitados: si no lo reservaste, llega temprano.</p>
+        <p style="color:${INK};font-size:14px;line-height:1.6;margin:0;">🎟️ Tu QR está en el correo de tu compra y en <a href="${ticketUrl}" style="color:${ACCENT.pink.text};">tu entrada online</a>.</p>
+      `, { glow: 'blue' })}
+
+      ${sectionTitle('💜', 'Cómo cuidamos la fiesta')}
+      ${card(`
+        ${data.rules.map(r => `<p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">• ${esc(r)}</p>`).join('')}
+      `, { glow: 'gold' })}
+    `,
+  });
+}
+
+/** Agradecimiento después de la fiesta, con un beneficio para la próxima --
+ * para que la comunidad que vino por primera vez vuelva. */
+export function buildPartnerThanksEmail(data: {
+  buyerName: string;
+  emoji: string;
+  label: string;
+  eventTitle: string;
+  discountCode: string;
+  benefitText: string;
+}) {
+  const esc = escapeEmailText;
+  return emailShell({
+    preheader: `Gracias por venir a ${data.eventTitle}. Te dejamos un regalo para la próxima.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'pink',
+      heroBg: DISCO_HERO_BG,
+      emoji: `${esc(data.emoji)}💜`,
+      title: `Gracias por venir, ${esc(data.buyerName)}`,
+      subtitle: `Fue un honor tener a la ${esc(data.label)} en ${esc(data.eventTitle)}.`,
+      cta: { href: EMAIL_BASE_URL, label: 'Ver próximas fiestas' },
+      ctaStyle: 'pastel',
+    }),
+    body: `
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">
+        Esperamos que la noche haya sido tan buena como la sentimos nosotros. Ya eres parte de Playroom, y queremos verte de nuevo.
+      </p>
+      ${card(`
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;text-align:center;">Tu beneficio para la próxima fiesta</p>
+        <p style="color:${INK};font-size:15px;line-height:1.6;margin:0 0 14px;text-align:center;">${esc(data.benefitText)}</p>
+        <p style="color:${ACCENT.gold.text};font-size:28px;font-weight:800;font-family:monospace;letter-spacing:2px;margin:0;text-align:center;user-select:all;">${esc(data.discountCode)}</p>
+        <p style="color:${MUTED};font-size:12px;margin:12px 0 0;text-align:center;">Escríbelo en el paso «¿Tienes un código?» al comprar en ${EMAIL_BASE_URL.replace(/^https?:\/\//, '')}</p>
+      `, { glow: 'gold' })}
+    `,
   });
 }

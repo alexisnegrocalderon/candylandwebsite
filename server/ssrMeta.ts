@@ -4,6 +4,9 @@ import { eventSchema, breadcrumbSchema } from "../shared/structuredData";
 import { getIndexHtmlTemplate, injectMeta } from "./_core/htmlTemplate";
 import { eventImage, absoluteImageUrl, isBlockedBlobUrl } from "../shared/eventImage";
 import { dropSupersededTickets } from "../shared/liveTickets";
+import { getPartnerCampaignBySlug } from "./partnerCampaigns";
+import { PARTNER_DEFAULT_HEADLINE } from "../shared/partnerCampaign";
+import { EVENT_BRAND } from "../shared/eventBrand";
 
 /* Inyección de metaetiquetas del lado del servidor (pedido explícito del
  * dueño, 02-03/09) -- el fix real para que WhatsApp/Facebook/Twitter
@@ -144,6 +147,32 @@ export function registerSsrMetaRoutes(app: Express) {
       sendHtml(res, html);
     } catch (err) {
       console.error("[ssrMeta] /eventos/:slug falló, sirviendo template sin inyectar:", err);
+      sendHtml(res, template);
+    }
+  });
+
+  // Link privado de la comunidad electrónica: vista previa propia al
+  // compartirlo (el B2B, la fecha) -- SIN precio, que recién se ve al final de
+  // la compra -- y fuera de los buscadores.
+  app.get("/electronica", async (_req: Request, res: Response) => {
+    const template = loadTemplateOrFail(res);
+    if (!template) return;
+    try {
+      const campaign = await getPartnerCampaignBySlug("electronica").catch(() => null);
+      const headline = campaign?.headline || PARTNER_DEFAULT_HEADLINE;
+      const title = `${campaign?.emoji ?? "🎧"} ${headline.split("·")[0].trim()} · Mansion Playroom`;
+      const description = `${headline}. ${EVENT_BRAND.fechaTexto}, ${EVENT_BRAND.horarioTexto}. Acceso especial para la comunidad electrónica.`;
+      const image = await resolveDefaultOgImage();
+      const url = `${SITE_URL}/electronica`;
+      sendHtml(res, injectMeta(template, {
+        title, description,
+        ogTitle: title, ogDescription: description, ogUrl: url, ogImage: image,
+        twitterTitle: title, twitterDescription: description, twitterImage: image,
+        canonical: url,
+        robots: "noindex, nofollow",
+      }));
+    } catch (err) {
+      console.error("[ssrMeta] /electronica falló, sirviendo template sin inyectar:", err);
       sendHtml(res, template);
     }
   });

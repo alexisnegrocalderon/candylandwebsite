@@ -36,6 +36,8 @@ type Ficha = {
   attendees: { name: string; rut: string | null; docType: 'rut' | 'passport' }[];
   extras: { typeName: string; status: string }[];
   buyerName: string;
+  /** Entró por el link de una campaña aliada: primera vez en Playroom. */
+  partnerBadge?: { label: string; emoji: string; refLabel: string | null } | null;
 };
 
 function newOpId() {
@@ -205,6 +207,7 @@ function Scanner({ operatorName }: { operatorName: string }) {
       attendees: attendee.attendees?.length ? attendee.attendees : [{ name: attendee.buyerName, rut: null, docType: 'rut' as const }],
       extras: attendee.extras.map((e) => ({ typeName: e.typeName, status: e.status })),
       buyerName: attendee.buyerName,
+      partnerBadge: attendee.partnerBadge ?? null,
     };
   }, []);
 
@@ -374,6 +377,15 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
               <p className="font-heading font-extrabold text-4xl tracking-tight pr-12 leading-[1.05]">{ficha.typeName}</p>
               <p className="text-sm text-white/60 mt-1.5">{personas} {personas === 1 ? 'persona' : 'personas'}</p>
             </div>
+
+            {/* Comunidad aliada: vienen por primera vez a Playroom. */}
+            {ficha.partnerBadge && (
+              <div className="rounded-3xl p-4 mb-4 bg-cyan-400/15 border border-cyan-300/40">
+                <p className="font-bold text-lg">{ficha.partnerBadge.emoji} Primera vez · {ficha.partnerBadge.label}</p>
+                {ficha.partnerBadge.refLabel && <p className="text-sm text-white/70">Invitados de {ficha.partnerBadge.refLabel}</p>}
+                <p className="text-sm text-white/80 mt-1.5">Dales la bienvenida y recuérdales lo básico: respeto, consentimiento y cuidar su estado.</p>
+              </div>
+            )}
 
             {/* Cada persona del acceso con SU nombre y SU RUT -- no solo el
              * titular -- porque el anfitrión compara a cada una contra su

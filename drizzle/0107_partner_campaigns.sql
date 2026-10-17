@@ -10,6 +10,7 @@ CREATE TABLE `partnerCampaigns` (
 	`maxPersons` int,
 	`isActive` int NOT NULL DEFAULT 1,
 	`rulesText` text,
+	`setTimeText` varchar(120),
 	`createdAt` timestamp NOT NULL DEFAULT (now()),
 	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
 	CONSTRAINT `partnerCampaigns_id` PRIMARY KEY(`id`),
@@ -19,6 +20,9 @@ CREATE TABLE `partnerOrders` (
 	`id` int AUTO_INCREMENT NOT NULL,
 	`orderId` int NOT NULL,
 	`campaignId` int NOT NULL,
+	`ref` varchar(32),
+	`reminderSentAt` timestamp,
+	`thanksSentAt` timestamp,
 	`createdAt` timestamp NOT NULL DEFAULT (now()),
 	CONSTRAINT `partnerOrders_id` PRIMARY KEY(`id`),
 	CONSTRAINT `partnerOrders_orderId_unique` UNIQUE(`orderId`)
