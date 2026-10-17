@@ -76,7 +76,7 @@ export function SwipeToDeleteCard({
         </ConfirmDeleteButton>
       </div>
       <div
-        className="relative bg-white touch-pan-y"
+        className="relative bg-white touch-pan-y dark:bg-[var(--admin-surface-solid)]"
         style={{ transform: `translateX(${swipeX}px)`, transition: dragging ? 'none' : 'transform 150ms ease' }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}

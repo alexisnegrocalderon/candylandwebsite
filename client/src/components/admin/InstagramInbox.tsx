@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp, Lightbulb, Link2 } from 'lucide-react';
+import { Instagram, Bot, Hand, Send, Sparkles, AlertTriangle, X, GraduationCap, TrendingUp, Lightbulb, Link2, Info, Settings2 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useAdminDeepLink } from '@/lib/adminDeepLink';
 import { AgentAutoResumeNote } from '@/components/admin/AgentAutoResumeNote';
@@ -13,6 +13,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { SplitInbox, InboxList, ThreadRow, InboxTag, ChatHeader, ChatMessages, ChatBubble, ChatComposer, chatTime, inboxTime } from '@/components/admin/inbox/SplitInbox';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { ConfirmDeleteButton } from '@/components/admin/ConfirmDeleteButton';
@@ -33,106 +35,138 @@ const onError = (error: unknown) => {
   toast.error(error instanceof Error ? error.message : 'No se pudo completar la acción.');
 };
 
-/* Pestañas de la pantalla (pedido del dueño, 28/09: todo en una sola página
- * ya era demasiado largo). La elegida se recuerda en este navegador. */
+/* Pantalla al estilo del chat de Instagram: las conversaciones al frente
+ * (lista + chat), Comentarios al lado, y todo lo que configura al agente
+ * (conocimiento, ajustes, ventas, automatizaciones, kit de links) en el panel
+ * "Agente" que se abre con el engranaje -- antes eran 7 pestañas seguidas y
+ * el chat quedaba escondido entre configuraciones. La vista elegida se
+ * recuerda en este navegador. */
 const TAB_STORAGE_KEY = 'admin-instagram-tab';
-const TABS = ['conversaciones', 'conocimiento', 'ajustes', 'ventas', 'automatizaciones', 'comentarios', 'links'] as const;
-type InboxTab = (typeof TABS)[number];
+const VIEWS = ['conversaciones', 'comentarios'] as const;
+type InboxView = (typeof VIEWS)[number];
+const AGENT_TABS = ['conocimiento', 'ajustes', 'ventas', 'automatizaciones', 'links'] as const;
+type AgentTab = (typeof AGENT_TABS)[number];
 
-function readStoredTab(): InboxTab {
+function readStoredView(): InboxView {
   try {
     const stored = window.localStorage.getItem(TAB_STORAGE_KEY);
-    if (stored && (TABS as readonly string[]).includes(stored)) return stored as InboxTab;
-  } catch { /* sin localStorage (modo privado): pestaña por defecto */ }
+    if (stored && (VIEWS as readonly string[]).includes(stored)) return stored as InboxView;
+  } catch { /* sin localStorage (modo privado): vista por defecto */ }
   return 'conversaciones';
 }
 
 export function InstagramInbox() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [tab, setTabState] = useState<InboxTab>(readStoredTab);
-  const setTab = (next: InboxTab) => {
-    setTabState(next);
+  const [view, setViewState] = useState<InboxView>(readStoredView);
+  const setView = (next: InboxView) => {
+    setViewState(next);
     try { window.localStorage.setItem(TAB_STORAGE_KEY, next); } catch { /* ídem */ }
   };
+  const [agentTab, setAgentTab] = useState<AgentTab | null>(null);
   // El borrador vive acá arriba y no dentro de cada pestaña: las pestañas se
   // desmontan al cambiar, y "Conocimiento" y "Ajustes" editan la misma
-  // config -- cambiar de pestaña no puede perder lo escrito sin guardar.
-  const agent = useAgentConfigDraft(() => setTab('conocimiento'));
+  // config -- cambiar de pestaña (o cerrar el panel) no puede perder lo
+  // escrito sin guardar.
+  const agent = useAgentConfigDraft(() => setAgentTab('conocimiento'));
   const { data: pendingHandoffs } = trpc.instagram.listHandoffLog.useQuery();
   const pendingCount = pendingHandoffs?.length ?? 0;
   const { data: pendingComments } = trpc.instagramComments.pendingCount.useQuery();
   const [focusCommentId, setFocusCommentId] = useState<number | null>(null);
-  // Llegó desde un aviso push: abre la pestaña y la conversación o el
+  const openThread = (id: number) => { setView('conversaciones'); setSelectedId(id); setAgentTab(null); };
+  // Llegó desde un aviso push: abre la vista y la conversación o el
   // comentario de ese aviso.
   useAdminDeepLink('instagram', (link) => {
-    if (link.tab && (TABS as readonly string[]).includes(link.tab)) setTab(link.tab as InboxTab);
-    if (link.thread) { setTab('conversaciones'); setSelectedId(link.thread); }
-    if (link.comment) { setTab('comentarios'); setFocusCommentId(link.comment); }
+    if (link.tab && (AGENT_TABS as readonly string[]).includes(link.tab)) setAgentTab(link.tab as AgentTab);
+    if (link.tab && (VIEWS as readonly string[]).includes(link.tab)) setView(link.tab as InboxView);
+    if (link.thread) openThread(link.thread);
+    if (link.comment) { setView('comentarios'); setFocusCommentId(link.comment); }
   });
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="font-heading text-2xl flex items-center gap-2"><Instagram className="w-6 h-6" /> Instagram</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Mensajes directos de @mansionplayroom y el agente de IA que los contesta.
-        </p>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="mr-auto flex items-center gap-2 font-heading text-2xl"><Instagram className="h-6 w-6" /> Instagram</h2>
+        <div className="order-last flex w-full rounded-full border border-white/10 bg-white/5 p-1 sm:order-none sm:w-auto" role="tablist">
+          <button type="button" role="tab" aria-selected={view === 'conversaciones'} onClick={() => setView('conversaciones')}
+            className={`flex-1 rounded-full px-4 py-1.5 text-sm font-medium sm:flex-none ${view === 'conversaciones' ? 'admin-tab-active' : 'text-muted-foreground'}`}>
+            Chats
+          </button>
+          <button type="button" role="tab" aria-selected={view === 'comentarios'} onClick={() => setView('comentarios')}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium sm:flex-none ${view === 'comentarios' ? 'admin-tab-active' : 'text-muted-foreground'}`}>
+            Comentarios
+            {!!pendingComments && <span className="admin-badge">{pendingComments}</span>}
+          </button>
+        </div>
+        <button type="button" onClick={() => setAgentTab('conocimiento')}
+          className="admin-tab relative flex h-10 items-center gap-2 rounded-full px-4 text-sm font-medium">
+          <Settings2 className="h-4 w-4" /> Agente
+          {pendingCount > 0 && <span className="admin-badge">{pendingCount}</span>}
+          {agent.dirty && <span className="h-2 w-2 rounded-full bg-amber-400" aria-label="Cambios sin guardar" />}
+        </button>
       </div>
 
       <ConnectionCard />
       <AgentMasterSwitch agent={agent} />
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as InboxTab)}>
-        <TabsList className="h-auto w-full flex-wrap justify-start">
-          <TabsTrigger value="conversaciones" className="flex-none">Conversaciones</TabsTrigger>
-          <TabsTrigger value="conocimiento" className="flex-none">
-            Conocimiento y tono{agent.dirty ? ' •' : ''}
-          </TabsTrigger>
-          <TabsTrigger value="ajustes" className="flex-none">Ajustes del agente</TabsTrigger>
-          <TabsTrigger value="ventas" className="flex-none">
-            Ventas y aprendizaje
-            {pendingCount > 0 && (
-              <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 text-[10px] font-semibold text-white">{pendingCount}</span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="automatizaciones" className="flex-none">Automatizaciones</TabsTrigger>
-          <TabsTrigger value="comentarios" className="flex-none">
-            Comentarios{pendingComments ? ` (${pendingComments})` : ''}
-          </TabsTrigger>
-          <TabsTrigger value="links" className="flex-none">Kit de links</TabsTrigger>
-        </TabsList>
+      {view === 'conversaciones' ? (
+        <SplitInbox
+          hasSelection={selectedId !== null}
+          list={<ThreadList selectedId={selectedId} onOpen={setSelectedId} />}
+          detail={selectedId !== null && <ThreadDetail key={selectedId} threadId={selectedId} onBack={() => setSelectedId(null)} />}
+          empty={(
+            <div className="space-y-3 text-muted-foreground">
+              <Instagram className="mx-auto h-12 w-12 opacity-60" />
+              <p className="font-heading text-lg text-foreground">Tus mensajes</p>
+              <p className="text-sm">Elige una conversación de la lista para leerla y responder.</p>
+              <p className="text-xs">Las conversaciones sin actividad por más de 30 días se borran solas.</p>
+            </div>
+          )}
+        />
+      ) : (
+        <InstagramComments focusId={focusCommentId} />
+      )}
 
-        <TabsContent value="conversaciones" className="space-y-3 pt-2">
-          <p className="text-xs text-muted-foreground">
-            Las conversaciones sin actividad por más de 30 días se borran solas. Puedes borrar una antes con el ícono de tacho al abrirla.
-          </p>
-          {selectedId === null
-            ? <ThreadList onOpen={setSelectedId} />
-            : <ThreadDetail threadId={selectedId} onBack={() => setSelectedId(null)} />}
-        </TabsContent>
-        <TabsContent value="conocimiento" className="pt-2">
-          <AgentKnowledgeCard agent={agent} />
-        </TabsContent>
-        <TabsContent value="ajustes" className="space-y-6 pt-2">
-          <AgentSettingsCard agent={agent} />
-          <AgentButtonsCard />
-        </TabsContent>
-        <TabsContent value="ventas" className="space-y-6 pt-2">
-          <AgentSalesCard />
-          <FansCard onOpen={(id) => { setTab('conversaciones'); setSelectedId(id); }} />
-          <AgentCoachCard />
-          <HandoffLogCard />
-        </TabsContent>
-        <TabsContent value="automatizaciones" className="pt-2">
-          <InstagramAutomations />
-        </TabsContent>
-        <TabsContent value="comentarios" className="pt-2">
-          <InstagramComments focusId={focusCommentId} />
-        </TabsContent>
-        <TabsContent value="links" className="pt-2">
-          <InstagramLinkKit />
-        </TabsContent>
-      </Tabs>
+      <Sheet open={agentTab !== null} onOpenChange={(open) => { if (!open) setAgentTab(null); }}>
+        <SheetContent side="right" className="w-full gap-0 overflow-y-auto p-0 sm:max-w-2xl lg:max-w-3xl">
+          <SheetHeader className="border-b border-white/10 px-5 py-4">
+            <SheetTitle className="flex items-center gap-2 font-heading text-xl"><Bot className="h-5 w-5" /> Agente de Instagram</SheetTitle>
+            <SheetDescription>Lo que sabe, cómo habla, cómo vende y sus automatizaciones.</SheetDescription>
+          </SheetHeader>
+          <Tabs value={agentTab ?? 'conocimiento'} onValueChange={(v) => setAgentTab(v as AgentTab)} className="px-5 py-4">
+            <TabsList className="h-auto w-full flex-wrap justify-start">
+              <TabsTrigger value="conocimiento" className="flex-none">Conocimiento y tono{agent.dirty ? ' •' : ''}</TabsTrigger>
+              <TabsTrigger value="ajustes" className="flex-none">Ajustes</TabsTrigger>
+              <TabsTrigger value="ventas" className="flex-none">
+                Ventas y aprendizaje
+                {pendingCount > 0 && (
+                  <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 text-[10px] font-semibold text-white">{pendingCount}</span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="automatizaciones" className="flex-none">Automatizaciones</TabsTrigger>
+              <TabsTrigger value="links" className="flex-none">Kit de links</TabsTrigger>
+            </TabsList>
+            <TabsContent value="conocimiento" className="pt-3">
+              <AgentKnowledgeCard agent={agent} />
+            </TabsContent>
+            <TabsContent value="ajustes" className="space-y-6 pt-3">
+              <AgentSettingsCard agent={agent} />
+              <AgentButtonsCard />
+            </TabsContent>
+            <TabsContent value="ventas" className="space-y-6 pt-3">
+              <AgentSalesCard />
+              <FansCard onOpen={openThread} />
+              <AgentCoachCard />
+              <HandoffLogCard />
+            </TabsContent>
+            <TabsContent value="automatizaciones" className="pt-3">
+              <InstagramAutomations />
+            </TabsContent>
+            <TabsContent value="links" className="pt-3">
+              <InstagramLinkKit />
+            </TabsContent>
+          </Tabs>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
@@ -200,21 +234,19 @@ function AgentMasterSwitch({ agent }: { agent: AgentDraft }) {
   const { draft, config, setDraft, save } = agent;
   if (!draft || !config) return <AgentConfigLoadState agent={agent} />;
   return (
-    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-      <CardContent className="flex items-start justify-between gap-4 pt-6">
-        <div>
-          <p className="font-medium flex items-center gap-2"><Bot className="w-5 h-5" /> Contestar automáticamente</p>
-          <p className="text-sm text-muted-foreground">
-            Apagado, los mensajes igual llegan a esta bandeja: simplemente nadie recibe respuesta automática.
-          </p>
-        </div>
-        <Switch
-          checked={draft.enabled}
-          disabled={save.isPending}
-          onCheckedChange={(enabled) => { setDraft({ ...draft, enabled }); save.mutate({ ...config, enabled }); }}
-        />
-      </CardContent>
-    </Card>
+    <div className="admin-clay-sm flex items-center justify-between gap-4 border border-white/10 bg-white/5 px-4 py-3">
+      <div className="min-w-0">
+        <p className="flex items-center gap-2 font-medium"><Bot className="h-5 w-5 shrink-0" /> Contestar automáticamente</p>
+        <p className="hidden text-sm text-muted-foreground sm:block">
+          Apagado, los mensajes igual llegan a esta bandeja: simplemente nadie recibe respuesta automática.
+        </p>
+      </div>
+      <Switch
+        checked={draft.enabled}
+        disabled={save.isPending}
+        onCheckedChange={(enabled) => { setDraft({ ...draft, enabled }); save.mutate({ ...config, enabled }); }}
+      />
+    </div>
   );
 }
 
@@ -769,57 +801,58 @@ function StyleExamplesField({ value, onChange }: { value: string; onChange: (val
   );
 }
 
-function ThreadList({ onOpen }: { onOpen: (id: number) => void }) {
+function ThreadList({ selectedId, onOpen }: { selectedId: number | null; onOpen: (id: number) => void }) {
   // Refresco periódico: el webhook escribe en la base desde otra invocación,
   // así que esta pantalla no se entera por sí sola de un mensaje nuevo.
   const { data: threads, isLoading } = trpc.instagram.listThreads.useQuery(undefined, { refetchInterval: 30_000 });
+  const [search, setSearch] = useState('');
 
-  if (isLoading) return <p className="text-sm text-muted-foreground">Cargando conversaciones...</p>;
-  if (!threads || threads.length === 0) {
-    return (
-      <EmptyState
-        icon={Instagram}
-        title="Todavía no hay mensajes"
-        description="Cuando alguien le escriba al Instagram de la productora, la conversación va a aparecer acá."
-      />
-    );
-  }
+  const q = search.trim().toLowerCase();
+  const visible = (threads ?? []).filter((t) => !q
+    || `${t.username ?? ''} ${t.name ?? ''} ${t.lastMessagePreview ?? ''}`.toLowerCase().includes(q));
+  const toLink = (threads ?? []).filter((t) => t.needsCustomerLink).length;
 
-  const toLink = threads.filter((t) => t.needsCustomerLink).length;
   return (
-    <div className="space-y-3">
-      {toLink > 0 && (
-        <p className="text-sm rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-300/60 p-3">
+    <InboxList
+      search={search}
+      onSearch={setSearch}
+      banner={toLink > 0 && (
+        <p className="rounded-xl border border-amber-300/30 bg-amber-400/10 p-2.5 text-xs text-amber-100">
           {toLink === 1 ? '1 conversación dice' : `${toLink} conversaciones dicen`} que ya compraron y no están vinculadas a una ficha de cliente. Ábrelas para vincularlas.
         </p>
       )}
-      {threads.map((t) => (
-        <button
+    >
+      {isLoading && <p className="p-4 text-sm text-muted-foreground">Cargando conversaciones...</p>}
+      {!isLoading && (threads ?? []).length === 0 && (
+        <EmptyState
+          icon={Instagram}
+          title="Todavía no hay mensajes"
+          description="Cuando alguien le escriba al Instagram de la productora, la conversación va a aparecer acá."
+        />
+      )}
+      {!isLoading && (threads ?? []).length > 0 && visible.length === 0 && (
+        <p className="p-4 text-center text-sm text-muted-foreground">Nada coincide con “{search}”.</p>
+      )}
+      {visible.map((t) => (
+        <ThreadRow
           key={t.id}
+          title={t.username ? `@${t.username}` : t.name ?? t.igUserId}
+          preview={t.lastMessagePreview ?? ''}
+          time={inboxTime(t.lastMessageAt)}
+          unread={t.unreadCount}
+          active={t.id === selectedId}
           onClick={() => onOpen(t.id)}
-          className="w-full text-left p-4 rounded-2xl border border-border/60 bg-card hover:border-primary/40 transition-colors"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="font-semibold truncate">
-                {t.username ? `@${t.username}` : t.name ?? t.igUserId}
-                {t.unreadCount > 0 && <span className="ml-2 text-xs rounded-full bg-primary text-primary-foreground px-2 py-0.5">{t.unreadCount}</span>}
-              </p>
-              <p className="text-sm text-muted-foreground truncate mt-1">{t.lastMessagePreview ?? ''}</p>
-              {t.needsCustomerLink && <p className="text-xs text-amber-700 mt-1">Dice que ya compró · falta vincular a su ficha</p>}
-              {t.origin && <p className="text-xs text-sky-700 mt-1">Llegó desde: {t.origin}</p>}
-              {t.isFan && <p className="text-xs text-amber-600 mt-1">⭐ Fan frecuente</p>}
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-xs text-muted-foreground">{t.lastMessageAt ? formatChileDateTime(t.lastMessageAt) : ''}</p>
-              {t.botPaused === 1 && (
-                <p className="text-xs text-amber-600 mt-1 flex items-center gap-1 justify-end"><Hand className="w-3 h-3" /> esperando al equipo</p>
-              )}
-            </div>
-          </div>
-        </button>
+          tags={(t.botPaused === 1 || t.needsCustomerLink || t.isFan || t.origin) && (
+            <>
+              {t.botPaused === 1 && <InboxTag tone="warn"><Hand className="h-3 w-3" /> Esperando al equipo</InboxTag>}
+              {t.needsCustomerLink && <InboxTag tone="warn">Falta vincular ficha</InboxTag>}
+              {t.isFan && <InboxTag>⭐ Fan</InboxTag>}
+              {t.origin && <InboxTag tone="info">{t.origin}</InboxTag>}
+            </>
+          )}
+        />
       ))}
-    </div>
+    </InboxList>
   );
 }
 
@@ -827,6 +860,7 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.instagram.getThread.useQuery({ threadId }, { refetchInterval: 20_000 });
   const [text, setText] = useState('');
+  const [showInfo, setShowInfo] = useState(false);
 
   const markRead = trpc.instagram.markRead.useMutation({
     onSuccess: () => { utils.instagram.listThreads.invalidate(); },
@@ -851,86 +885,85 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
   // Abrir la conversación ya cuenta como haberla visto.
   useEffect(() => { markRead.mutate({ threadId }); }, [threadId]);
 
-  if (isLoading || !data) return <p className="text-sm text-muted-foreground">Cargando conversación...</p>;
+  if (isLoading || !data) return <p className="p-6 text-sm text-muted-foreground">Cargando conversación...</p>;
 
   const { thread, messages } = data;
+  const title = thread.username ? `@${thread.username}` : thread.name ?? thread.igUserId;
 
   return (
-    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-      <CardHeader className="flex flex-row items-center justify-between gap-3">
-        <div>
-          <CardTitle className="text-base">{thread.username ? `@${thread.username}` : thread.name ?? thread.igUserId}</CardTitle>
-          {thread.origin && <p className="text-xs text-sky-700 mt-1">Llegó desde: {thread.origin}</p>}
-          {thread.isFan && <p className="text-xs text-amber-600 mt-1">⭐ Fan frecuente</p>}
-          {thread.botPaused === 1 && thread.handoffReason && (
-            <p className="text-xs text-amber-600 mt-1">Bot pausado: {thread.handoffReason}</p>
-          )}
+    <>
+      <ChatHeader
+        title={title}
+        onBack={onBack}
+        subtitle={thread.botPaused === 1
+          ? <span className="text-amber-200">Bot pausado{thread.handoffReason ? `: ${thread.handoffReason}` : ''}</span>
+          : <span>{thread.isFan ? '⭐ Fan frecuente · ' : ''}{thread.origin ? `Llegó desde: ${thread.origin} · ` : ''}La IA responde</span>}
+        actions={(
+          <>
+            <label className="hidden items-center gap-2 rounded-full bg-white/5 px-3 py-1.5 text-xs sm:flex" title="Respuesta automática en esta conversación">
+              <Bot className="h-3.5 w-3.5" /> IA
+              <Switch checked={thread.botPaused === 0} onCheckedChange={(on) => setPaused.mutate({ threadId, paused: !on })} />
+            </label>
+            <Button variant="ghost" size="icon" className="rounded-full" onClick={() => setShowInfo((v) => !v)} aria-label="Ficha de la persona" aria-pressed={showInfo}>
+              <Info className="h-5 w-5" />
+            </Button>
+            <ConfirmDeleteButton
+              description={`Vas a eliminar toda la conversación con ${title}.`}
+              onConfirm={(adminPassword) => deleteThread.mutateAsync({ threadId, adminPassword })}
+            />
+          </>
+        )}
+      />
+
+      {showInfo && (
+        <div className="max-h-[45%] shrink-0 space-y-3 overflow-y-auto border-b border-white/10 bg-black/20 p-3 md:p-4">
+          <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 p-3">
+            <div className="text-sm">
+              <p className="font-medium">Respuesta automática en esta conversación</p>
+              <p className="text-xs text-muted-foreground">
+                Se pausa sola apenas mandas un mensaje a mano. Usa este switch para pausarla antes de contestar, o para
+                que el agente vuelva a responder este hilo.
+              </p>
+            </div>
+            <Switch checked={thread.botPaused === 0} onCheckedChange={(on) => setPaused.mutate({ threadId, paused: !on })} />
+          </div>
           {thread.botPaused === 1 && (
             <AgentAutoResumeNote botPausedAt={thread.botPausedAt} handoffReason={thread.handoffReason} />
           )}
+          <CustomerNotesCard channel="instagram" threadId={threadId} notes={thread.customerNotes} />
+          <IgCustomerLinkCard threadId={threadId} />
         </div>
-        <div className="flex items-center gap-2">
-          <ConfirmDeleteButton
-            description={`Vas a eliminar toda la conversación con ${thread.username ? `@${thread.username}` : thread.name ?? thread.igUserId}.`}
-            onConfirm={(adminPassword) => deleteThread.mutateAsync({ threadId, adminPassword })}
-          />
-          <Button variant="ghost" size="sm" onClick={onBack}>Volver</Button>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <CustomerNotesCard channel="instagram" threadId={threadId} notes={thread.customerNotes} />
-        <IgCustomerLinkCard threadId={threadId} />
-        <div className="flex items-center justify-between gap-4 rounded-2xl border p-3">
-          <div className="text-sm">
-            <p className="font-medium">Respuesta automática en esta conversación</p>
-            <p className="text-muted-foreground text-xs">
-              Se pausa sola apenas mandas un mensaje a mano. Usa este switch para pausarla antes de contestar, o para
-              que el agente vuelva a responder este hilo.
-            </p>
-          </div>
-          <Switch
-            checked={thread.botPaused === 0}
-            onCheckedChange={(on) => setPaused.mutate({ threadId, paused: !on })}
-          />
-        </div>
+      )}
 
-        <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
-          {messages.map((m) => (
-            <div key={m.id} className={`flex ${m.direction === 'in' ? 'justify-start' : 'justify-end'}`}>
-              <div className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${m.direction === 'in' ? 'bg-muted' : 'bg-primary/10'}`}>
-                <p className="whitespace-pre-wrap break-words">{m.text ?? '[adjunto]'}</p>
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  {m.source === 'bot' ? 'IA · ' : m.source === 'admin' ? 'Equipo · ' : ''}
-                  {formatChileDateTime(m.createdAt)}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
+      <ChatMessages count={messages.length}>
+        {messages.map((m) => (
+          <ChatBubble
+            key={m.id}
+            outgoing={m.direction !== 'in'}
+            meta={`${m.source === 'bot' ? 'IA · ' : m.source === 'admin' ? 'Equipo · ' : ''}${chatTime(m.createdAt)}`}
+          >
+            <p className="whitespace-pre-wrap break-words">{m.text ?? '[adjunto]'}</p>
+          </ChatBubble>
+        ))}
+      </ChatMessages>
 
-        {thread.canReply ? (
-          <div className="flex gap-2">
-            <Input
-              value={text}
-              maxLength={IG_MAX_REPLY_CHARS}
-              placeholder="Escribe tu respuesta..."
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && text.trim()) reply.mutate({ threadId, text: text.trim() }); }}
-            />
-            <WriteButton onClick={() => reply.mutate({ threadId, text: text.trim() })} disabled={reply.isPending || text.trim().length === 0}>
-              <Send className="w-4 h-4" />
-            </WriteButton>
-          </div>
-        ) : (
-          /* Regla de Meta, no nuestra: pasadas 24 horas del último mensaje de
-           * la persona, la API rechaza cualquier respuesta. Mejor decirlo acá
-           * que dejar escribir un mensaje que se va a perder. */
-          <p className="text-sm text-muted-foreground rounded-2xl border p-3">
-            Pasaron más de 24 horas desde su último mensaje: Instagram ya no permite responder por acá. Hay que
-            contestarle desde la app de Instagram.
-          </p>
-        )}
-      </CardContent>
-    </Card>
+      {thread.canReply ? (
+        <ChatComposer
+          value={text}
+          onChange={setText}
+          onSend={() => reply.mutate({ threadId, text: text.trim() })}
+          sending={reply.isPending}
+          maxLength={IG_MAX_REPLY_CHARS}
+        />
+      ) : (
+        /* Regla de Meta, no nuestra: pasadas 24 horas del último mensaje de
+         * la persona, la API rechaza cualquier respuesta. Mejor decirlo acá
+         * que dejar escribir un mensaje que se va a perder. */
+        <p className="shrink-0 border-t border-white/10 p-3 text-center text-sm text-muted-foreground">
+          Pasaron más de 24 horas desde su último mensaje: Instagram ya no permite responder por acá. Hay que
+          contestarle desde la app de Instagram.
+        </p>
+      )}
+    </>
   );
 }

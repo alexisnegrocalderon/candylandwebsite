@@ -178,3 +178,277 @@
   backdrop-filter: var(--admin-glass-blur);
   -webkit-backdrop-filter: var(--admin-glass-blur);
 }
+
+/* ── /admin "vidrio oscuro" (rediseño inmersivo) ───────────────────────────
+ * Fondo casi negro con ondas de luz en los colores de marca, y todo el
+ * chrome/tarjetas en vidrio esmerilado. `data-admin-theme="dark-glass"` va
+ * en el shell Y en <html> mientras el panel está montado (AdminShell.tsx):
+ * así también los portales de Radix (diálogos, selects, menús) heredan los
+ * tokens. Redefinir los `--color-*` de theme.css acá re-tiñe de una vez las
+ * ~38 secciones (Card, Input, Select, Table…) sin reescribirlas. */
+[data-admin-theme="dark-glass"] {
+  color-scheme: dark;
+
+  --color-background: oklch(0.155 0.03 318);
+  --color-foreground: oklch(0.965 0.008 330);
+  --color-card: oklch(1 0 0 / 0.055);
+  --color-card-foreground: oklch(0.965 0.008 330);
+  --color-popover: oklch(0.2 0.035 318);
+  --color-popover-foreground: oklch(0.965 0.008 330);
+  --color-primary: oklch(0.72 0.2 342);
+  --color-primary-foreground: oklch(0.99 0.005 340);
+  --color-secondary: oklch(0.72 0.13 230);
+  --color-secondary-foreground: oklch(0.16 0.03 318);
+  --color-muted: oklch(1 0 0 / 0.07);
+  --color-muted-foreground: oklch(0.79 0.03 320);
+  --color-accent: oklch(1 0 0 / 0.09);
+  --color-accent-foreground: oklch(0.985 0.005 330);
+  --color-destructive: oklch(0.64 0.21 22);
+  --color-border: oklch(1 0 0 / 0.12);
+  --color-input: oklch(1 0 0 / 0.16);
+  --color-ring: oklch(0.72 0.2 342);
+
+  --admin-text: oklch(0.965 0.008 330);
+  --admin-muted: oklch(0.79 0.03 320);
+  --admin-body-size: 16px;
+  --admin-radius: 22px;
+  --admin-radius-sm: 14px;
+  --admin-shadow-clay: 0 24px 60px -18px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --admin-shadow-clay-sm: 0 12px 30px -12px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --admin-glass-bg: rgba(255, 255, 255, 0.055);
+  --admin-glass-bg-solid: rgba(24, 15, 34, 0.94);
+  --admin-glass-border: rgba(255, 255, 255, 0.12);
+  --admin-glass-blur: blur(22px) saturate(150%);
+  --admin-surface-solid: #1b1226;
+
+  --admin-success-bg: rgba(34, 197, 94, 0.16);   --admin-success-text: #86efac;
+  --admin-warning-bg: rgba(245, 158, 11, 0.16);  --admin-warning-text: #fcd34d;
+  --admin-danger-bg: rgba(239, 68, 68, 0.16);    --admin-danger-text: #fca5a5;
+  --admin-mail-bg: rgba(14, 165, 233, 0.16);     --admin-mail-text: #7dd3fc;
+  --admin-wa-bg: rgba(34, 197, 94, 0.16);        --admin-wa-text: #86efac;
+  --admin-ticket-bg: rgba(236, 72, 153, 0.18);   --admin-ticket-text: #f9a8d4;
+  --admin-send-bg: rgba(139, 92, 246, 0.18);     --admin-send-text: #c4b5fd;
+
+  color: var(--admin-text);
+}
+html[data-admin-theme="dark-glass"],
+html[data-admin-theme="dark-glass"] body {
+  background: #0b0612;
+}
+.admin-shell[data-admin-theme="dark-glass"] {
+  font-size: var(--admin-body-size);
+}
+
+/* Fondo: dos "planetas" de luz (como la referencia) en rosa/violeta y azul
+ * de marca + bruma radial. Fijo y sin animación: barato de pintar. */
+.admin-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 600px at 85% -10%, oklch(0.55 0.25 320 / 0.45), transparent 60%),
+    radial-gradient(700px 500px at -10% 40%, oklch(0.45 0.2 300 / 0.35), transparent 60%),
+    radial-gradient(900px 700px at 60% 120%, oklch(0.5 0.2 260 / 0.45), transparent 60%),
+    #0b0612;
+}
+.admin-backdrop::before,
+.admin-backdrop::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+}
+.admin-backdrop::before {
+  width: 1600px;
+  height: 1600px;
+  right: -900px;
+  top: -1150px;
+  background: radial-gradient(circle at 30% 80%, oklch(0.32 0.16 315), oklch(0.12 0.04 310) 70%);
+  box-shadow: 0 0 0 1.5px oklch(0.8 0.2 330 / 0.75), 0 0 60px 8px oklch(0.65 0.25 330 / 0.45);
+  opacity: 0.85;
+}
+.admin-backdrop::after {
+  width: 2200px;
+  height: 2200px;
+  left: -500px;
+  top: 55vh;
+  background: radial-gradient(circle at 50% 10%, oklch(0.34 0.17 262), oklch(0.16 0.07 265) 45%, oklch(0.1 0.03 280) 70%);
+  box-shadow: 0 0 0 1.5px oklch(0.82 0.13 240 / 0.7), 0 0 70px 10px oklch(0.6 0.2 250 / 0.4);
+  opacity: 0.7;
+}
+
+/* Paneles del chrome (sidebar, topbar, barra inferior). Sin backdrop-filter
+ * a propósito: ver la nota de Safari en `.admin-clay-shell` (light-pro) --
+ * el chrome se re-renderiza en cada navegación. Casi opaco + brillo interno. */
+.admin-glass-panel {
+  background: linear-gradient(180deg, rgba(40, 26, 56, 0.86), rgba(20, 13, 30, 0.9));
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 28px;
+  box-shadow: 0 30px 70px -25px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.admin-glass-panel-sm { border-radius: 20px; }
+.admin-glass-sheet {
+  background: linear-gradient(180deg, rgba(40, 26, 56, 0.97), rgba(18, 11, 27, 0.98)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--admin-text);
+}
+.admin-divider { height: 1px; background: rgba(255, 255, 255, 0.09); }
+.admin-brand-text {
+  background: linear-gradient(90deg, oklch(0.8 0.17 340), oklch(0.75 0.15 280), oklch(0.78 0.12 230));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 800;
+}
+.admin-avatar {
+  background: linear-gradient(135deg, var(--color-primary), oklch(0.6 0.2 290));
+  color: white;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+.admin-collapse-btn {
+  background: rgba(40, 26, 56, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.5);
+  transition: transform 0.15s ease;
+}
+.admin-collapse-btn:hover { transform: scale(1.08); }
+
+.admin-nav-item,
+.admin-tabbar-item,
+.admin-tab,
+.admin-tile,
+.admin-search-btn {
+  color: rgba(255, 255, 255, 0.82);
+  border: 1px solid transparent;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.admin-nav-item:hover,
+.admin-tab:hover,
+.admin-tile:hover,
+.admin-search-btn:hover { background: rgba(255, 255, 255, 0.06); color: white; }
+.admin-nav-item-danger:hover { background: rgba(239, 68, 68, 0.12); color: #fca5a5; }
+.admin-search-btn,
+.admin-tab,
+.admin-tile { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.08); }
+
+/* Activo: píldora de vidrio con borde luminoso (la del "Friends" de la referencia). */
+.admin-nav-item-active,
+.admin-tab-active,
+.admin-tabbar-item-active {
+  color: white !important;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 8px 24px -10px oklch(0.65 0.22 335 / 0.6);
+}
+.admin-tabbar-item-active svg { color: oklch(0.82 0.15 340); }
+
+.admin-badge {
+  display: inline-flex;
+  min-width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: white;
+  color: #160c20;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.admin-badge-dot {
+  height: 8px;
+  width: 8px;
+  border-radius: 999px;
+  background: oklch(0.75 0.2 340);
+  box-shadow: 0 0 0 2px rgba(24, 15, 34, 1);
+}
+.admin-tabs-scroller {
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, black 12px, black calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, black 12px, black calc(100% - 24px), transparent 100%);
+}
+.admin-tabs-scroller::-webkit-scrollbar { display: none; }
+@media (min-width: 768px) {
+  .admin-tabs-scroller { -webkit-mask-image: none; mask-image: none; }
+  .admin-tabs-scroller > div { flex-wrap: wrap; width: auto; }
+}
+
+/* Tarjetas de las secciones: vidrio real (con blur) -- se re-montan al
+ * cambiar de sección, así que no pisan el bug de Safari del chrome. */
+[data-admin-theme="dark-glass"] .admin-clay,
+[data-admin-theme="dark-glass"] [data-slot="card"] {
+  background-color: var(--admin-glass-bg);
+  backdrop-filter: var(--admin-glass-blur);
+  -webkit-backdrop-filter: var(--admin-glass-blur);
+  border: 1px solid var(--admin-glass-border);
+  border-radius: var(--admin-radius);
+  box-shadow: var(--admin-shadow-clay);
+}
+[data-admin-theme="dark-glass"] .admin-clay-shell {
+  background: var(--admin-glass-bg-solid);
+  border: 1px solid var(--admin-glass-border);
+  border-radius: var(--admin-radius);
+  box-shadow: var(--admin-shadow-clay);
+}
+[data-admin-theme="dark-glass"] .admin-clay-sm {
+  border-radius: var(--admin-radius-sm);
+  box-shadow: var(--admin-shadow-clay-sm);
+}
+[data-admin-theme="dark-glass"] .admin-clay-solid {
+  background: var(--admin-surface-solid);
+}
+/* Dentro de un diálogo (ya opaco) las tarjetas no necesitan otro blur. */
+[data-admin-theme="dark-glass"] [role="dialog"] [data-slot="card"] {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+[data-admin-theme="dark-glass"] [data-slot="dialog-content"],
+[data-admin-theme="dark-glass"] [data-slot="alert-dialog-content"],
+[data-admin-theme="dark-glass"] [data-slot="sheet-content"] {
+  background: linear-gradient(180deg, rgba(36, 23, 50, 0.98), rgba(20, 13, 30, 0.99));
+  border-color: rgba(255, 255, 255, 0.12);
+}
+[data-admin-theme="dark-glass"] [data-slot="select-content"],
+[data-admin-theme="dark-glass"] [data-slot="dropdown-menu-content"] {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+[data-admin-theme="dark-glass"] table thead tr { background: rgba(255, 255, 255, 0.03); }
+
+/* Colores fijos pensados para fondo claro (texto -600/-700/-800, superficies
+ * blancas o negras al 5%): en oscuro quedan ilegibles o invisibles. Se
+ * re-mapean acá en vez de tocar cada una de las ~150 clases del panel. */
+[data-admin-theme="dark-glass"] :is(.text-red-600, .text-red-700, .text-red-800) { color: #fca5a5; }
+[data-admin-theme="dark-glass"] :is(.text-green-600, .text-green-700, .text-green-800) { color: #86efac; }
+[data-admin-theme="dark-glass"] :is(.text-emerald-600, .text-emerald-700, .text-emerald-800) { color: #6ee7b7; }
+[data-admin-theme="dark-glass"] :is(.text-amber-600, .text-amber-700, .text-amber-800) { color: #fcd34d; }
+[data-admin-theme="dark-glass"] :is(.text-yellow-600, .text-yellow-700, .text-yellow-800) { color: #fde68a; }
+[data-admin-theme="dark-glass"] :is(.text-orange-600, .text-orange-700, .text-orange-800) { color: #fdba74; }
+[data-admin-theme="dark-glass"] :is(.text-sky-600, .text-sky-700, .text-sky-800) { color: #7dd3fc; }
+[data-admin-theme="dark-glass"] :is(.text-blue-600, .text-blue-700, .text-blue-800) { color: #93c5fd; }
+[data-admin-theme="dark-glass"] :is(.text-cyan-600, .text-cyan-700, .text-cyan-800) { color: #67e8f9; }
+[data-admin-theme="dark-glass"] :is(.text-purple-600, .text-purple-700, .text-violet-600, .text-violet-700) { color: #c4b5fd; }
+[data-admin-theme="dark-glass"] :is(.text-pink-600, .text-pink-700) { color: #f9a8d4; }
+[data-admin-theme="dark-glass"] :is(.bg-amber-50, .bg-red-100) { background-color: rgba(255, 255, 255, 0.06); }
+[data-admin-theme="dark-glass"] :is(.border-amber-300, .border-red-300, .border-green-300) { border-color: rgba(255, 255, 255, 0.18); }
+[data-admin-theme="dark-glass"] .bg-black\/5 { background-color: rgba(255, 255, 255, 0.06); }
+[data-admin-theme="dark-glass"] :is(.hover\:bg-black\/5, .hover\:bg-black\/10):hover { background-color: rgba(255, 255, 255, 0.1); }
+[data-admin-theme="dark-glass"] .bg-white:not(iframe, img, canvas) { background-color: rgba(255, 255, 255, 0.08); }
+[data-admin-theme="dark-glass"] :is(.bg-white\/30, .bg-white\/50, .bg-white\/70) { background-color: rgba(255, 255, 255, 0.05); }
+[data-admin-theme="dark-glass"] :is(.hover\:bg-white, .hover\:bg-white\/40):hover { background-color: rgba(255, 255, 255, 0.12); }
+
+/* Chat a pantalla completa en el celular (inbox/SplitInbox.tsx): fondo
+ * sólido sin vidrio y sin la barra inferior del panel encima. */
+@media (max-width: 767px) {
+  [data-admin-theme="dark-glass"] .admin-clay.admin-chat-fullscreen {
+    background: var(--admin-surface-solid);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  html.admin-chat-open .admin-tabbar { display: none; }
+}

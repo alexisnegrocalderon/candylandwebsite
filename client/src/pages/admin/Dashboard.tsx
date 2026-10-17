@@ -1,5 +1,5 @@
 import '@/admin.css';
-import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, Suspense, createContext, lazy, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { startRegistration } from '@simplewebauthn/browser';
@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones } from 'lucide-react';
+import { Home, Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
@@ -78,12 +78,9 @@ import {
 } from '@shared/eventBudget';
 import { monthKeyFor } from '@shared/ambassadorProgram';
 import { formatChileDateTime, formatChileShortDate, formatChileTime } from '@shared/chileDate';
-import {
-  SidebarProvider, Sidebar, SidebarContent, SidebarHeader, SidebarFooter,
-  SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuBadge, SidebarInset, SidebarTrigger,
-  SidebarGroup, SidebarSeparator, useSidebar,
-} from '@/components/ui/sidebar';
-import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { AdminShell } from '@/components/admin/shell/AdminShell';
+import { HomeView } from '@/components/admin/HomeView';
+import type { ShellSection } from '@/components/admin/shell/nav';
 
 /* Toda escritura del admin pasa por acá: sin esto, un error del servidor
  * (típicamente "Database not available" si falta DATABASE_URL) fallaba en
@@ -11392,63 +11389,78 @@ function ParkingReportView() {
   );
 }
 
-// Agrupado por lo que el dueño realmente hace con cada sección (rediseño
-// visual, sin tocar ningún `id` -- las burbujas/`localStorage` de
-// useAdminBadges siguen funcionando igual). "Evento" pasó a llamarse
-// "Resumen de la noche": es la pantalla en vivo de la fiesta, y así deja de
-// confundirse con "Eventos" (el CRUD de la ficha del evento), que quedó en
-// el grupo de abajo.
-const ADMIN_SECTION_GROUPS = ['Dinero', 'Hoy', 'Ventas', 'Eventos', 'Clientes', 'Marketing', 'Negocio'] as const;
+// Las secciones de siempre (mismos `id`: deep links push, burbujas de
+// useAdminBadges y `localStorage` siguen igual), ahora colgadas de un "hub"
+// (components/admin/shell/nav.ts): el menú muestra los hubs y cada sección
+// es una pestaña dentro de su hub. El orden de acá es el orden de las
+// pestañas. "Evento" se llama "Resumen de la noche": es la pantalla en vivo
+// de la fiesta, distinta de "Eventos" (el CRUD de la ficha del evento).
+/** Lo que la pantalla Inicio necesita del panel (burbujas y navegación) --
+ * va por contexto porque `render` de cada sección no recibe argumentos. */
+const AdminNavContext = createContext<{ badgeCounts: Record<string, number>; openSection: (id: string) => void }>({
+  badgeCounts: {},
+  openSection: () => {},
+});
+
+function HomeSection() {
+  const { badgeCounts, openSection } = useContext(AdminNavContext);
+  return <HomeView badgeCounts={badgeCounts} onOpen={openSection} />;
+}
 
 const ADMIN_SECTIONS = [
-  { id: 'finanzas', label: 'Finanzas', group: 'Dinero', icon: Banknote, render: () => <FinanzasView /> },
-  { id: 'sii', label: 'SII', group: 'Dinero', icon: Landmark, render: () => <SiiView /> },
-  { id: 'overview', label: 'Resumen de la noche', group: 'Hoy', icon: LayoutDashboard, render: () => <EventOverview /> },
-  { id: 'caja', label: 'Caja', group: 'Hoy', icon: Store, render: () => <CajaAdminView /> },
-  { id: 'flash-promo', label: 'Promo Flash', group: 'Hoy', icon: Zap, render: () => <FlashPromoCard /> },
-  { id: 'denuncias', label: 'Denuncias', group: 'Hoy', icon: ShieldAlert, render: () => <DenunciasView /> },
-  { id: 'playmatch-test', label: 'Probar Playmatch', group: 'Hoy', icon: FlaskConical, render: () => <PlaymatchTestView /> },
-  { id: 'party-gifts', label: 'Tragos de la Fiesta', group: 'Hoy', icon: Martini, render: () => <PartyGiftsView /> },
+  { id: 'home', label: 'Inicio', hub: 'inicio', icon: Home, render: () => <HomeSection /> },
 
-  { id: 'orders-web', label: 'Ventas Web', group: 'Ventas', icon: Ticket, render: () => <OrdersView channel="web" /> },
-  { id: 'orders-caja', label: 'Ventas Caja', group: 'Ventas', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
-  { id: 'sales-origin', label: 'Ventas por Origen', group: 'Ventas', icon: Compass, render: () => <SalesByOriginView /> },
-  { id: 'sales-strategy', label: 'Director comercial', group: 'Ventas', icon: Sparkles, render: () => <SalesStrategyView /> },
-  { id: 'manual-access', label: 'Accesos Manuales', group: 'Ventas', icon: Gift, render: () => <ManualAccessSection /> },
-  { id: 'parking', label: 'Estacionamiento', group: 'Ventas', icon: Car, render: () => <ParkingReportView /> },
+  { id: 'overview', label: 'Resumen de la noche', hub: 'noche', icon: LayoutDashboard, render: () => <EventOverview /> },
+  { id: 'caja', label: 'Caja', hub: 'noche', icon: Store, render: () => <CajaAdminView /> },
+  { id: 'flash-promo', label: 'Promo Flash', hub: 'noche', icon: Zap, render: () => <FlashPromoCard /> },
+  { id: 'party-gifts', label: 'Tragos de la Fiesta', hub: 'noche', icon: Martini, render: () => <PartyGiftsView /> },
+  { id: 'denuncias', label: 'Denuncias', hub: 'noche', icon: ShieldAlert, render: () => <DenunciasView /> },
+  { id: 'playmatch-test', label: 'Probar Playmatch', hub: 'noche', icon: FlaskConical, render: () => <PlaymatchTestView /> },
 
-  { id: 'events', label: 'Eventos', group: 'Eventos', icon: Calendar, render: () => <EventsManager /> },
-  { id: 'carta', label: 'Carta de la Fiesta', group: 'Eventos', icon: Martini, render: () => <CartaManager /> },
-  { id: 'event-survey', label: 'Encuestas', group: 'Eventos', icon: Star, render: () => <EventSurveyView /> },
-  { id: 'discounts', label: 'Descuentos', group: 'Eventos', icon: Percent, render: () => <DiscountsManager /> },
-  { id: 'community', label: 'Códigos Comunidad', group: 'Eventos', icon: Users, render: () => <CommunityCodesManager /> },
-  { id: 'partner-electronica', label: 'Comunidad Electrónica', group: 'Eventos', icon: Headphones, render: () => <PartnerCampaignView /> },
+  { id: 'orders-web', label: 'Ventas Web', hub: 'ventas', icon: Ticket, render: () => <OrdersView channel="web" /> },
+  { id: 'orders-caja', label: 'Ventas Caja', hub: 'ventas', icon: ShoppingBag, render: () => <OrdersView channel="caja" /> },
+  { id: 'sales-origin', label: 'Ventas por Origen', hub: 'ventas', icon: Compass, render: () => <SalesByOriginView /> },
+  { id: 'sales-strategy', label: 'Director comercial', hub: 'ventas', icon: Sparkles, render: () => <SalesStrategyView /> },
+  { id: 'manual-access', label: 'Accesos Manuales', hub: 'ventas', icon: Gift, render: () => <ManualAccessSection /> },
+  { id: 'parking', label: 'Estacionamiento', hub: 'ventas', icon: Car, render: () => <ParkingReportView /> },
 
-  { id: 'customers', label: 'Clientes', group: 'Clientes', icon: Contact, render: () => <CustomersView /> },
-  { id: 'leads', label: 'Leads', group: 'Clientes', icon: UserPlus, render: () => <LeadsView /> },
-  { id: 'blocked-customers', label: 'Bloqueo de Clientes', group: 'Clientes', icon: Ban, render: () => <BlockedCustomersManager /> },
+  { id: 'events', label: 'Eventos', hub: 'eventos', icon: Calendar, render: () => <EventsManager /> },
+  { id: 'carta', label: 'Carta de la Fiesta', hub: 'eventos', icon: Martini, render: () => <CartaManager /> },
+  { id: 'event-survey', label: 'Encuestas', hub: 'eventos', icon: Star, render: () => <EventSurveyView /> },
+  { id: 'discounts', label: 'Descuentos', hub: 'eventos', icon: Percent, render: () => <DiscountsManager /> },
+  { id: 'community', label: 'Códigos Comunidad', hub: 'eventos', icon: Users, render: () => <CommunityCodesManager /> },
+  { id: 'partner-electronica', label: 'Comunidad Electrónica', hub: 'eventos', icon: Headphones, render: () => <PartnerCampaignView /> },
 
-  { id: 'instagram', label: 'Instagram', group: 'Marketing', icon: Instagram, render: () => <InstagramInbox /> },
-  { id: 'whatsapp', label: 'WhatsApp', group: 'Marketing', icon: MessageCircle, render: () => <WhatsAppInbox /> },
-  { id: 'mailing', label: 'Mailing', group: 'Marketing', icon: Mail, render: () => <MailingSection /> },
-  { id: 'mailing-history', label: 'Historial de Mailing', group: 'Marketing', icon: History, render: () => <MailingHistoryView /> },
-  { id: 'winback', label: 'Reactivar clientes', group: 'Marketing', icon: Users, render: () => <WinbackView /> },
-  { id: 'content-plan', label: 'Plan de contenido', group: 'Marketing', icon: Calendar, render: () => <ContentPlanView /> },
-  { id: 'profile-audit', label: 'Revisar mi perfil', group: 'Marketing', icon: UserCheck, render: () => <ProfileAuditView /> },
-  { id: 'studio', label: 'Estudio', group: 'Marketing', icon: Palette, render: () => (
+  { id: 'customers', label: 'Clientes', hub: 'clientes', icon: Contact, render: () => <CustomersView /> },
+  { id: 'leads', label: 'Leads', hub: 'clientes', icon: UserPlus, render: () => <LeadsView /> },
+  { id: 'winback', label: 'Reactivar clientes', hub: 'clientes', icon: Users, render: () => <WinbackView /> },
+  { id: 'birthdays', label: 'Cumpleañeros', hub: 'clientes', icon: Cake, render: () => <BirthdaysView /> },
+  { id: 'blocked-customers', label: 'Bloqueo de Clientes', hub: 'clientes', icon: Ban, render: () => <BlockedCustomersManager /> },
+
+  { id: 'instagram', label: 'Instagram', hub: 'mensajes', icon: Instagram, render: () => <InstagramInbox /> },
+  { id: 'whatsapp', label: 'WhatsApp', hub: 'mensajes', icon: MessageCircle, render: () => <WhatsAppInbox /> },
+  { id: 'mailing', label: 'Mailing', hub: 'mensajes', icon: Mail, render: () => <MailingSection /> },
+  { id: 'mailing-history', label: 'Historial de Mailing', hub: 'mensajes', icon: History, render: () => <MailingHistoryView /> },
+  { id: 'email-templates', label: 'Plantillas de correo', hub: 'mensajes', icon: Send, render: () => <EmailTemplatesManager /> },
+
+  { id: 'content-plan', label: 'Plan de contenido', hub: 'contenido', icon: Calendar, render: () => <ContentPlanView /> },
+  { id: 'studio', label: 'Estudio', hub: 'contenido', icon: Palette, render: () => (
     <Suspense fallback={<div className="py-12 flex justify-center"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>}>
       <ContentStudio />
     </Suspense>
   ) },
-  { id: 'email-templates', label: 'Plantillas de correo', group: 'Marketing', icon: Send, render: () => <EmailTemplatesManager /> },
-  { id: 'referrals', label: 'Referidos', group: 'Marketing', icon: Trophy, render: () => <ReferralsView /> },
-  { id: 'ambassadors', label: 'Embajadores VIP', group: 'Marketing', icon: Crown, render: () => <AmbassadorsView /> },
-  { id: 'birthdays', label: 'Cumpleañeros', group: 'Marketing', icon: Cake, render: () => <BirthdaysView /> },
+  { id: 'profile-audit', label: 'Revisar mi perfil', hub: 'contenido', icon: UserCheck, render: () => <ProfileAuditView /> },
 
-  { id: 'gastos', label: 'Gastos y P&L', group: 'Negocio', icon: Receipt, render: () => <GastosView /> },
-  { id: 'event-budget', label: 'Simulador de Evento', group: 'Negocio', icon: Calculator, render: () => <EventBudgetSimulatorView /> },
-  { id: 'settings', label: 'Ajustes', group: 'Negocio', icon: SettingsIcon, render: () => <SettingsManager /> },
-] as const;
+  { id: 'referrals', label: 'Referidos', hub: 'comunidad', icon: Trophy, render: () => <ReferralsView /> },
+  { id: 'ambassadors', label: 'Embajadores VIP', hub: 'comunidad', icon: Crown, render: () => <AmbassadorsView /> },
+
+  { id: 'finanzas', label: 'Finanzas', hub: 'finanzas', icon: Banknote, render: () => <FinanzasView /> },
+  { id: 'gastos', label: 'Gastos y P&L', hub: 'finanzas', icon: Receipt, render: () => <GastosView /> },
+  { id: 'sii', label: 'SII', hub: 'finanzas', icon: Landmark, render: () => <SiiView /> },
+  { id: 'event-budget', label: 'Simulador de Evento', hub: 'finanzas', icon: Calculator, render: () => <EventBudgetSimulatorView /> },
+
+  { id: 'settings', label: 'Ajustes', hub: 'ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },
+] as const satisfies readonly (ShellSection & { render: () => ReactNode })[];
 
 /** Denuncias que la gente hace desde Playmatch durante la fiesta.
  *
@@ -11759,150 +11771,6 @@ function PartyGiftsView() {
   );
 }
 
-/** Menú lateral agrupado y desplegable -- pedido del dueño: con las 6 secciones
- * (Hoy/Ventas/Eventos/Clientes/Marketing/Negocio) siempre abiertas de una, el
- * menú se veía largo. Ahora cada grupo se abre/cierra tocando su título, y
- * arranca abierto SOLO el grupo de la sección activa -- los demás quedan
- * plegados hasta que se necesiten.
- *
- * Aparte como componente propio (no inline en AdminDashboard) porque necesita
- * `useSidebar()`, que solo funciona DENTRO del árbol de `SidebarProvider` --
- * llamarlo en el mismo componente que renderiza el Provider no sirve, todavía
- * no existe el contexto en ese punto del render. */
-function AdminSidebarNav({
-  activeSection,
-  openSection,
-  badgeCounts,
-}: {
-  activeSection: typeof ADMIN_SECTIONS[number]['id'];
-  openSection: (id: typeof ADMIN_SECTIONS[number]['id']) => void;
-  badgeCounts: Record<string, number>;
-}) {
-  // Con el menú colapsado a solo íconos, no tiene sentido plegar/desplegar
-  // grupos -- ya se ve todo compacto, así que se ignora el estado y se
-  // muestran todos los ítems (mismo criterio que ya usa cada `<span>` de
-  // texto con `group-data-[collapsible=icon]:hidden`).
-  const { state: sidebarState } = useSidebar();
-  const iconOnly = sidebarState === 'collapsed';
-
-  const activeGroup = ADMIN_SECTIONS.find((s) => s.id === activeSection)?.group;
-  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(activeGroup ? [activeGroup] : []));
-
-  const toggleGroup = (group: string) => {
-    setOpenGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(group)) next.delete(group); else next.add(group);
-      return next;
-    });
-  };
-
-  return (
-    <>
-      {ADMIN_SECTION_GROUPS.map((group, groupIndex) => {
-        const isOpen = iconOnly || openGroups.has(group);
-        const sections = ADMIN_SECTIONS.filter((s) => s.group === group);
-        const hasBadge = sections.some((s) => (badgeCounts[s.id] ?? 0) > 0);
-        return (
-          <Fragment key={group}>
-            {/* Con el menú colapsado, el título de cada grupo desaparece sin
-                dejar rastro (ver `group-data-[collapsible=icon]:hidden` más
-                abajo) -- este separador marca el corte de sección, como la
-                línea entre apps fijas y recientes en el Dock de macOS. */}
-            {groupIndex > 0 && (
-              <SidebarSeparator className="mx-auto hidden w-6 opacity-50 group-data-[collapsible=icon]:block" />
-            )}
-            <SidebarGroup className="py-1">
-            <button
-              type="button"
-              onClick={() => toggleGroup(group)}
-              aria-expanded={isOpen}
-              className="flex w-full items-center justify-between rounded-md px-2 h-8 text-[13px] font-medium tracking-wide text-sidebar-foreground/70 hover:text-sidebar-foreground transition-colors group-data-[collapsible=icon]:hidden"
-            >
-              <span className="flex items-center gap-1.5">
-                {group}
-                {!isOpen && hasBadge && <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />}
-              </span>
-              <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {isOpen && (
-              <SidebarMenu>
-                {sections.map((section) => {
-                  const count = badgeCounts[section.id] ?? 0;
-                  return (
-                    <SidebarMenuItem key={section.id}>
-                      <SidebarMenuButton
-                        isActive={activeSection === section.id}
-                        onClick={() => openSection(section.id)}
-                        tooltip={count > 0 ? `${section.label} (${count})` : section.label}
-                        className="h-10 rounded-xl text-[15px] data-[active=true]:bg-gradient-to-r data-[active=true]:from-primary/15 data-[active=true]:to-secondary/15 data-[active=true]:text-primary data-[active=true]:font-semibold group-data-[collapsible=icon]:data-[active=true]:bg-transparent"
-                      >
-                        {/* El ícono va como hijo DIRECTO del botón a propósito:
-                            sidebarMenuButtonVariants lo dimensiona con `[&>svg]` y
-                            envolverlo en un span rompe el tamaño en modo colapsado. */}
-                        <section.icon className="h-4 w-4" />
-                        <span>{section.label}</span>
-                      </SidebarMenuButton>
-                      {activeSection === section.id && (
-                        /* Con la franja de gradiente apagada en modo colapsado
-                           (arriba), este puntito -- como el indicador de app
-                           abierta en el Dock de macOS -- es lo único que marca
-                           cuál sección está activa. */
-                        <span className="pointer-events-none absolute -bottom-0.5 left-1/2 hidden h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-gradient-to-r from-primary to-secondary group-data-[collapsible=icon]:block" aria-hidden="true" />
-                      )}
-                      {count > 0 && (
-                        <>
-                          <SidebarMenuBadge className="bg-primary/15 text-primary font-bold">
-                            {count > 99 ? '99+' : count}
-                          </SidebarMenuBadge>
-                          {/* Con el menú colapsado a íconos, SidebarMenuBadge se
-                              esconde solo (sidebar.tsx) -- sin este puntito no se
-                              vería ninguna alerta. Va sobre el <li> (que es
-                              `relative`) y no dentro del botón, porque el botón
-                              tiene `overflow-hidden` y lo recortaría. */}
-                          <span className="pointer-events-none absolute left-6 top-1.5 hidden h-2 w-2 rounded-full bg-primary ring-2 ring-sidebar group-data-[collapsible=icon]:block" />
-                        </>
-                      )}
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            )}
-            </SidebarGroup>
-          </Fragment>
-        );
-      })}
-    </>
-  );
-}
-
-/** Igual que `AdminSidebarNav`: separado en su propio componente porque
- * necesita `useSidebar()`, y ese hook solo funciona dentro del árbol de
- * `SidebarProvider` (no en el mismo componente que lo renderiza). Con el
- * menú colapsado, el resto de los íconos muestra su tooltip al hover --
- * este es el único que no lo tenía. */
-function AdminSidebarFooter({ onLogout }: { onLogout: () => void }) {
-  const { state, isMobile } = useSidebar();
-
-  const button = (
-    <button
-      onClick={onLogout}
-      className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive group-data-[collapsible=icon]:justify-center"
-    >
-      <LogOut className="h-4 w-4 shrink-0" />
-      <span className="group-data-[collapsible=icon]:hidden">Cerrar sesión</span>
-    </button>
-  );
-
-  return (
-    <UiTooltip>
-      <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent side="right" align="center" hidden={state !== 'collapsed' || isMobile}>
-        Cerrar sesión
-      </TooltipContent>
-    </UiTooltip>
-  );
-}
-
 export default function AdminDashboard() {
   // El panel nunca debe aparecer en Google. robots.txt no basta -- ademas
   // publica la ruta a quien lo lea; la etiqueta noindex es lo que de verdad
@@ -11912,7 +11780,7 @@ export default function AdminDashboard() {
   useInstallableApp('/admin/sw.js', '/admin/');
 
   const { user, loading, isAuthenticated, logout } = useAuth();
-  const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>('events');
+  const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>('home');
   const { counts: badgeCounts, markSeen } = useAdminBadges();
 
   const openSection = (id: typeof ADMIN_SECTIONS[number]['id']) => {
@@ -11979,58 +11847,33 @@ export default function AdminDashboard() {
   const isDemo = user?.role === 'viewer';
 
   const active = ADMIN_SECTIONS.find((s) => s.id === activeSection) ?? ADMIN_SECTIONS[0];
+  const navContext = {
+    badgeCounts,
+    openSection: (id: string) => {
+      if (ADMIN_SECTIONS.some((s) => s.id === id)) openSection(id as typeof ADMIN_SECTIONS[number]['id']);
+    },
+  };
 
   return (
-    <SidebarProvider data-admin-theme="light-pro">
-      <Sidebar collapsible="icon" className="border-r-0 bg-transparent">
-        <div className="admin-clay-shell flex h-full w-full flex-col m-3 mr-0 group-data-[collapsible=icon]:mr-3">
-          <SidebarHeader className="h-16 justify-center px-3 group-data-[collapsible=icon]:px-0">
-            <div className="flex w-full items-center gap-2 group-data-[collapsible=icon]:justify-center">
-              <img
-                src="/candyland/logo-isotipo-transparent.png"
-                alt="Mansion Playroom"
-                className="h-9 w-9 shrink-0 object-contain transition-transform duration-150 ease-out group-data-[collapsible=icon]:hover:scale-110"
-              />
-              <span className="font-heading text-lg tracking-tight group-data-[collapsible=icon]:hidden">
-                {isDemo ? 'Invitado (demo)' : 'Mansion Playroom'}
-              </span>
-            </div>
-          </SidebarHeader>
-          <SidebarContent className="px-2 py-2">
-            <AdminSidebarNav activeSection={activeSection} openSection={openSection} badgeCounts={badgeCounts} />
-          </SidebarContent>
-          <SidebarFooter className="p-3">
-            <AdminSidebarFooter onLogout={() => logout()} />
-          </SidebarFooter>
-        </div>
-      </Sidebar>
-
-      <SidebarInset className="bg-transparent">
-        <div className="p-3 pb-0">
-          <header className="admin-clay-shell admin-clay-sm flex items-center gap-3 h-16 px-6">
-            <SidebarTrigger className="rounded-lg" />
-            <h1 className="font-heading text-2xl">{active.label}</h1>
-            {isDemo && (
-              <span className="ml-auto flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-600">
-                <Eye className="h-3.5 w-3.5" />
-                Modo demo — solo lectura
-              </span>
-            )}
-          </header>
-        </div>
-        <main className="p-6">
-          <div className="max-w-[1400px] mx-auto">
-            <motion.div
-              key={activeSection}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35 }}
-            >
-              {active.render()}
-            </motion.div>
-          </div>
-        </main>
-      </SidebarInset>
-    </SidebarProvider>
+    <AdminShell
+      sections={ADMIN_SECTIONS as unknown as ShellSection[]}
+      activeSection={active.id}
+      onOpenSection={(id) => openSection(id as typeof ADMIN_SECTIONS[number]['id'])}
+      badgeCounts={badgeCounts}
+      userName={isDemo ? 'Invitado (demo)' : (user?.name?.trim() || 'Mansion Playroom')}
+      isDemo={isDemo}
+      onLogout={() => logout()}
+    >
+      <AdminNavContext.Provider value={navContext}>
+        <motion.div
+          key={activeSection}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35 }}
+        >
+          {active.render()}
+        </motion.div>
+      </AdminNavContext.Provider>
+    </AdminShell>
   );
 }
