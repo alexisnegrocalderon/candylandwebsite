@@ -33,9 +33,12 @@
 .playmore-serif { font-family: 'Cormorant Garamond Variable', 'Cormorant Garamond', Georgia, serif; }
 
 /* Texto en foil dorado con un brillo que lo recorre. */
+/* El degradado empieza y termina en el mismo tono y se mueve exactamente
+ * su propio ancho (200% de tamaño → 200% de posición), así el loop no deja
+ * un corte visible en las letras. */
 .playmore-gold {
-  background: var(--pm-gold);
-  background-size: 220% 100%;
+  background: linear-gradient(100deg, #9c7630 0%, #c9a24c 12%, #f7e7a8 25%, #d6b25e 37%, #7a5a22 50%, #c9a24c 62%, #f7e7a8 75%, #d6b25e 87%, #9c7630 100%);
+  background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -43,7 +46,7 @@
 }
 @keyframes pm-sheen {
   from { background-position: 0% 50%; }
-  to { background-position: 220% 50%; }
+  to { background-position: 200% 50%; }
 }
 
 .playmore-gold-line { background: var(--pm-gold); }

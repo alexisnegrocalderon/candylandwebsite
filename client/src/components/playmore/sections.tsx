@@ -11,6 +11,10 @@ import { CANDYLAND } from '@/config/candyland';
 
 export const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
 export const DALMORE_INSTAGRAM = 'https://instagram.com/dalmore.pro';
+/** Logo de Dalmore para fondo negro (cuernos oro, letras crema). Se usan
+ * mientras no se suba otro logo en Configuración. */
+export const DALMORE_MARK = '/playmore/dalmore-mark.png';
+export const DALMORE_LOGO = '/playmore/dalmore-logo.png';
 
 const reveal = {
   initial: { opacity: 0, y: 28 },
@@ -45,8 +49,8 @@ function Eyebrow({ children }: { children: ReactNode }) {
 }
 
 /** Logo de la otra productora; sin logo, monograma dorado + nombre espaciado. */
-export function PartnerMark({ logoUrl, name, className = '' }: { logoUrl: string; name: string; className?: string }) {
-  if (logoUrl) return <img src={logoUrl} alt={name} className={`object-contain ${className}`} />;
+export function PartnerMark({ logoUrl, name, className = '', imgClassName }: { logoUrl: string; name: string; className?: string; imgClassName?: string }) {
+  if (logoUrl) return <img src={logoUrl} alt={name} className={`object-contain ${imgClassName ?? className}`} />;
   return (
     <span className={`flex flex-col items-center justify-center ${className}`}>
       <span className="playmore-serif playmore-gold text-[1em] italic leading-none">{name.trim()[0]?.toUpperCase() ?? 'D'}</span>
@@ -74,8 +78,10 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, minPrice 
   const ref = useRef<HTMLElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] });
   // Al bajar, los dos logos se acercan hasta fundirse en el centro.
-  const leftX = useTransform(scrollYProgress, [0, 0.45], [-90, 0]);
-  const rightX = useTransform(scrollYProgress, [0, 0.45], [90, 0]);
+  // En celular parten más juntos para que no se salgan de la pantalla.
+  const spread = typeof window !== 'undefined' && window.innerWidth < 640 ? 36 : 90;
+  const leftX = useTransform(scrollYProgress, [0, 0.45], [-spread, 0]);
+  const rightX = useTransform(scrollYProgress, [0, 0.45], [spread, 0]);
   const crossOpacity = useTransform(scrollYProgress, [0, 0.35], [1, 0]);
   const fuseGlow = useTransform(scrollYProgress, [0.3, 0.5], [0, 1]);
   const bgY = useTransform(scrollYProgress, [0, 1], ['0%', '25%']);
@@ -106,7 +112,7 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, minPrice 
             className="relative h-20 w-20 object-contain sm:h-24 sm:w-24" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.2 }} />
           <motion.span style={{ opacity: crossOpacity }} className="playmore-serif relative mx-2 text-3xl italic text-[var(--pm-sand)]">×</motion.span>
           <motion.div style={{ x: rightX }} className="relative" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.35 }}>
-            <PartnerMark logoUrl={landing.partnerLogoUrl} name={partnerName} className="h-20 w-20 text-[5.5rem] sm:h-24 sm:w-24 sm:text-[6.5rem]" />
+            <PartnerMark logoUrl={landing.partnerLogoUrl} name={partnerName} className="h-20 w-20 text-[5.5rem] sm:h-24 sm:w-24 sm:text-[6.5rem]" imgClassName="h-16 w-28 sm:h-24 sm:w-40" />
           </motion.div>
         </div>
 
@@ -219,7 +225,9 @@ export function TwoWorlds({ landing, partnerName }: { landing: CoproductionLandi
         <motion.article style={{ x: rightX }}
           className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[radial-gradient(120%_90%_at_100%_0%,rgba(150,21,157,0.4),transparent_60%),#120c12] p-8 text-right sm:p-10 md:rounded-l-none">
           <div className="mb-6 flex justify-end">
-            <PartnerMark logoUrl={landing.partnerLogoUrl} name={partnerName} className="h-16 w-16 text-[4.2rem]" />
+            {/* El logo completo (con "DALMORE") luce mejor acá que el isotipo. */}
+            <PartnerMark logoUrl={landing.partnerLogoUrl === DALMORE_MARK ? DALMORE_LOGO : landing.partnerLogoUrl} name={partnerName}
+              className="h-16 w-16 text-[4.2rem]" imgClassName="h-20 w-auto max-w-[11rem]" />
           </div>
           <p className="text-[11px] font-semibold tracking-[0.4em] text-[var(--pm-orchid)]">{partnerName.toUpperCase()}</p>
           <h3 className="playmore-sans mt-2 text-3xl font-extrabold">El código</h3>
@@ -375,7 +383,7 @@ export function PlaymoreFooter({ landing, partnerName }: { landing: Coproduction
       <div className="mb-6 flex items-center justify-center gap-4">
         <img src="/candyland/logo-isotipo-transparent.png" alt="Playroom" className="h-12 w-12 object-contain" />
         <span className="playmore-serif text-2xl italic text-[var(--pm-sand)]">×</span>
-        <PartnerMark logoUrl={landing.partnerLogoUrl} name={partnerName} className="h-12 w-12 text-[3rem]" />
+        <PartnerMark logoUrl={landing.partnerLogoUrl} name={partnerName} className="h-12 w-12 text-[3rem]" imgClassName="h-12 w-20" />
       </div>
       <p className="playmore-sans playmore-gold text-3xl font-extrabold tracking-[-0.02em]">{landing.eventName}</p>
       <p className="mt-2 text-xs tracking-[0.3em] text-[var(--pm-sand)]/70">{landing.dateText.toUpperCase()} · {landing.venueText.toUpperCase()} · SOLO +18</p>

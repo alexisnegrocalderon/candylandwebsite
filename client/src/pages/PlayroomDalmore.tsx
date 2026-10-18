@@ -7,7 +7,7 @@ import { useSeo } from '@/hooks/useSeo';
 import { CHILE_TZ } from '@shared/chileDate';
 import '@/components/playmore/playmore.css';
 import {
-  Accesos, BuyButton, CodeAndFaq, Experience, Gallery, PlaymoreFooter, PlaymoreHero, PlaymoreMarquee, TwoWorlds, clp,
+  Accesos, BuyButton, CodeAndFaq, DALMORE_MARK, Experience, Gallery, PlaymoreFooter, PlaymoreHero, PlaymoreMarquee, TwoWorlds, clp,
 } from '@/components/playmore/sections';
 import { startMusic, stopMusic } from '@/components/playmore/playmoreAudio';
 
@@ -38,7 +38,8 @@ export default function PlayroomDalmore() {
     try { return new URLSearchParams(window.location.search).get('preview') ?? undefined; } catch { return undefined; }
   }, []);
   const { data, isLoading } = trpc.coproduction.publicGet.useQuery({ slug: SLUG, preview }, { retry: false });
-  const landing = data?.landing;
+  // Sin logo subido en Configuración se usa el de Dalmore que viene con la página.
+  const landing = data?.landing && { ...data.landing, partnerLogoUrl: data.landing.partnerLogoUrl || DALMORE_MARK };
   const full = !!data && (data.isLive || data.preview);
   const checkoutHref = data?.event ? `/checkout/${data.event.slug}` : null;
   // En la vista previa se ve todo, pero la compra recién se abre al activar
