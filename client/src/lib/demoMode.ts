@@ -4,7 +4,14 @@ import { trpc } from "@/lib/trpc";
  * mirar: el servidor le bloquea toda escritura y le enmascara los datos
  * personales (server/privacy.ts), así que acá alcanza con dejarlo pasar. */
 export function canOpenAdmin(role: string | null | undefined): boolean {
-  return role === "admin" || role === "viewer";
+  return role === "admin" || role === "viewer" || role === "partner";
+}
+
+/** Socio de una co-producción (ej. Dalmore): el panel le muestra SOLO esa
+ * co-producción. Igual que con el demo, la protección real es del servidor
+ * (`partnerProcedure`); esto solo arma la vista. */
+export function isPartnerRole(role: string | null | undefined): boolean {
+  return role === "partner";
 }
 
 export const DEMO_TOOLTIP = "Modo demo — solo lectura";

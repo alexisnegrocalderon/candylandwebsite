@@ -19,6 +19,9 @@ export function AdminLoginForm() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [ticket, setTicket] = useState<string | null>(null);
+  // La clave era la del socio de una co-producción (ej. Dalmore): mismo
+  // flujo de dos pasos, pero contra su propio segundo factor.
+  const [isPartner, setIsPartner] = useState(false);
   const [setup, setSetup] = useState<{ secret: string; qrImageUrl: string } | null>(null);
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
   const [webauthnSupported, setWebauthnSupported] = useState(false);
@@ -73,35 +76,46 @@ export function AdminLoginForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [webauthnSupported]);
 
-  const setupTotp = trpc.auth.adminSetupTotp.useMutation({
-    onSuccess: (r) => setSetup(r),
-    onError: (e) => setError(e.message),
-  });
+  const setupHandlers = {
+    onSuccess: (r: { secret: string; qrImageUrl: string }) => setSetup(r),
+    onError: (e: { message: string }) => setError(e.message),
+  };
+  const adminSetupTotp = trpc.auth.adminSetupTotp.useMutation(setupHandlers);
+  const partnerSetupTotp = trpc.auth.partnerSetupTotp.useMutation(setupHandlers);
+  const setupTotp = isPartner ? partnerSetupTotp : adminSetupTotp;
 
   const login = trpc.auth.adminLogin.useMutation({
     onSuccess: (r) => {
       setError('');
       if (r.skipped2fa) { entrar(); return; }
+      const partner = 'partner' in r && r.partner === true;
+      setIsPartner(partner);
       setTicket(r.ticket);
-      if (r.needsSetup) setupTotp.mutate({ ticket: r.ticket });
+      if (r.needsSetup) (partner ? partnerSetupTotp : adminSetupTotp).mutate({ ticket: r.ticket });
     },
     onError: (e) => setError(e.message),
   });
 
-  const confirmTotp = trpc.auth.adminConfirmTotp.useMutation({
-    onSuccess: (r) => { setError(''); setBackupCodes(r.backupCodes); },
-    onError: (e) => { setError(e.message); setCode(''); },
-  });
+  const confirmHandlers = {
+    onSuccess: (r: { backupCodes: string[] }) => { setError(''); setBackupCodes(r.backupCodes); },
+    onError: (e: { message: string }) => { setError(e.message); setCode(''); },
+  };
+  const adminConfirmTotp = trpc.auth.adminConfirmTotp.useMutation(confirmHandlers);
+  const partnerConfirmTotp = trpc.auth.partnerConfirmTotp.useMutation(confirmHandlers);
+  const confirmTotp = isPartner ? partnerConfirmTotp : adminConfirmTotp;
 
-  const verify = trpc.auth.adminVerifyCode.useMutation({
-    onSuccess: (r) => {
+  const verifyHandlers = {
+    onSuccess: (r: { backupCodeUsed?: boolean; backupCodesLeft?: number }) => {
       if (r.backupCodeUsed) {
         alert(`Entraste con un código de respaldo. Te quedan ${r.backupCodesLeft}.`);
       }
       entrar();
     },
-    onError: (e) => { setError(e.message); setCode(''); },
-  });
+    onError: (e: { message: string }) => { setError(e.message); setCode(''); },
+  };
+  const adminVerify = trpc.auth.adminVerifyCode.useMutation(verifyHandlers);
+  const partnerVerify = trpc.auth.partnerVerifyCode.useMutation(verifyHandlers);
+  const verify = isPartner ? partnerVerify : adminVerify;
 
   // Los códigos de respaldo se muestran UNA sola vez: después solo queda
   // su hash guardado, y ni el sistema puede recuperarlos.
@@ -189,7 +203,7 @@ export function AdminLoginForm() {
             {verify.isPending ? 'Verificando…' : 'Entrar'}
           </Button>
           <button
-            onClick={() => { setTicket(null); setCode(''); setPassword(''); setError(''); }}
+            onClick={() => { setTicket(null); setIsPartner(false); setCode(''); setPassword(''); setError(''); }}
             className="text-xs text-muted-foreground mt-4 underline"
           >
             Volver
@@ -234,7 +248,7 @@ export function AdminLoginForm() {
                 <div className="h-px flex-1 bg-border" /> o <div className="h-px flex-1 bg-border" />
               </div>
             )}
-            <p className="text-muted-foreground mb-4">Ingresa la contraseña de administrador.</p>
+            <p className="text-muted-foreground mb-4">Ingresa tu contraseña.</p>
             <Input
               type="password"
               value={password}

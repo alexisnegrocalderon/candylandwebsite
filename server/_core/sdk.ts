@@ -6,6 +6,8 @@ import type { Request } from "express";
 import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
+import { getCoproductionBySlug } from "../coproduction";
+import { parsePartnerOpenId } from "../../shared/coproduction";
 import { ENV } from "./env";
 import type {
   ExchangeTokenRequest,
@@ -299,6 +301,18 @@ class SDKServer {
       return buildLocalUser(VIEWER_LOCAL_OPEN_ID, "Invitado (demo)", "viewer");
     }
 
+    // Socio de una co-producción (ej. Dalmore): sintético como el invitado,
+    // pero se valida contra su fila en cada pedido -- si el dueño cambia o
+    // revoca la clave, `sessionVersion` ya no calza y la sesión muere.
+    const partner = parsePartnerOpenId(session.openId);
+    if (partner) {
+      const cp = await getCoproductionBySlug(partner.slug);
+      if (!cp || !cp.passwordHash || !cp.totpConfirmedAt || cp.sessionVersion !== partner.sessionVersion) {
+        throw ForbiddenError("Partner session revoked");
+      }
+      return { ...buildLocalUser(session.openId, cp.partnerName, "partner"), coproductionId: cp.id };
+    }
+
     const sessionUserId = session.openId;
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
@@ -371,11 +385,13 @@ function buildLocalUser(openId: string, name: string, role: AppRole): Authentica
  * hace falta migrar la columna `users.role` -- que en esta base es una
  * operación cara, porque drizzle-kit no puede correr contra el SSL de
  * TiDB Serverless y hay que aplicarla a mano. */
-export type AppRole = User["role"] | "viewer";
+export type AppRole = User["role"] | "viewer" | "partner";
 
 /** Result of `sdk.authenticateRequest`. Cron callbacks set `isCron=true` and `taskUid`; see `references/periodic-updates.md`. */
 export type AuthenticatedUser = Omit<User, "role"> & {
   role: AppRole;
+  /** Solo con role `partner`: la co-producción a la que pertenece. */
+  coproductionId?: number;
   taskUid?: string;
   isCron?: boolean;
 };

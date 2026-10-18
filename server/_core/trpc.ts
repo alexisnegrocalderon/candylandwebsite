@@ -70,6 +70,31 @@ export const adminReadProcedure = t.procedure.use(
   }),
 );
 
+/** Panel de una co-producción (ej. Playroom × Dalmore): lo abren el dueño
+ * (`admin`) y el socio (`partner`). Al socio se le fija SU co-producción
+ * desde la sesión -- nunca desde el input -- así no puede pedir otra ni ver
+ * nada de Playroom. Todo lo demás del panel sigue en `adminProcedure` /
+ * `adminReadProcedure`, que rechazan al socio. */
+export const partnerProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+    if (!ctx.user || (ctx.user.role !== 'admin' && ctx.user.role !== 'partner')) {
+      throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
+    }
+    if (ctx.user.role === 'partner' && !ctx.user.coproductionId) {
+      throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
+    }
+    return next({
+      ctx: {
+        ...ctx,
+        user: ctx.user,
+        /** null = el dueño (elige la co-producción por input). */
+        partnerCoproductionId: ctx.user.role === 'partner' ? ctx.user.coproductionId! : null,
+      },
+    });
+  }),
+);
+
 // Requiere un dispositivo enrolado (pedido explícito del usuario) -- antes
 // de siquiera ver la pantalla de PIN, la tablet debe haber canjeado un
 // código de enrolamiento generado por un admin. Ver server/caja/deviceAuth.ts.

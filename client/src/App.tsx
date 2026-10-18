@@ -29,6 +29,7 @@ const CustomCursor = lazy(() => import("./components/CustomCursor"));
 const SmoothScroll = lazy(() => import("./components/SmoothScroll"));
 const Events = lazy(() => import("./pages/Events"));
 const EventDetail = lazy(() => import("./pages/EventDetail"));
+const PlayroomDalmore = lazy(() => import("./pages/PlayroomDalmore"));
 const Checkout = lazy(() => import("./pages/Checkout"));
 const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess"));
 const PaymentFailure = lazy(() => import("./pages/PaymentFailure"));
@@ -111,6 +112,9 @@ function Router() {
           {/* Link privado de la comunidad electrónica (B2B Aldo Medel x German
               Courtin): precio especial, ver shared/partnerCampaign.ts. */}
           <Route path="/electronica">{() => <Checkout partnerSlug="electronica" />}</Route>
+          {/* Co-producción con Dalmore: "Próximamente" hasta que el dueño la
+              active (ver server/coproduction.ts). */}
+          <Route path="/playroomdalmore" component={PlayroomDalmore} />
           <Route path="/pago/exito" component={PaymentSuccess} />
           <Route path="/pago/error" component={PaymentFailure} />
           <Route path="/nosotros" component={About} />
@@ -187,6 +191,9 @@ function App() {
   // entrada en mano), por eso también esconde la navbar.
   const isTicket = location.startsWith('/verificar') || location.startsWith('/recargar');
   const isPoster = location === '/playmatch/afiche';
+  // La landing de la co-producción con Dalmore tiene su propio botón de
+  // compra: la navbar ("Comprar entradas" del evento de Playroom) confundiría.
+  const isCoproLanding = location === '/playroomdalmore';
   const hideChrome = isPoster || isCaja || isAdmin || isParty || isPuerta || isCocina || isGuardarropia || isGastos || isTicket;
   // Ni el cursor ni el scroll suave hacen nada en touch (ver isFinePointer),
   // así que en celular no se pide su chunk -- antes se importaban eager en
@@ -214,7 +221,7 @@ function App() {
               <CustomCursor />
             </Suspense>
           )}
-          {!hideChrome && <Navbar />}
+          {!hideChrome && !isCoproLanding && <Navbar />}
           {/* top-center a propósito: /gastos y /caja tienen un botón de acción
               fijo abajo de la pantalla, y el toast por defecto (abajo) quedaba
               superpuesto con ese botón -- se veía como texto roto/mezclado. */}

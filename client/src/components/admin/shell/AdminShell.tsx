@@ -44,6 +44,8 @@ interface AdminShellProps {
   onOpenSection: (id: string) => void;
   badgeCounts: Record<string, number>;
   userName: string;
+  /** Texto bajo el nombre; por defecto "Super Admin" o el del demo. */
+  roleLabel?: string;
   isDemo: boolean;
   onLogout: () => void;
   children: ReactNode;
@@ -52,7 +54,7 @@ interface AdminShellProps {
 /** Chrome del panel: sidebar de vidrio (desktop), pestañas del hub, barra
  * inferior + "Más" (celular) y buscador Ctrl+K. No sabe nada de lo que
  * renderiza cada sección -- solo de ids, hubs y burbujas. */
-export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts, userName, isDemo, onLogout, children }: AdminShellProps) {
+export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts, userName, roleLabel: roleLabelProp, isDemo, onLogout, children }: AdminShellProps) {
   useDarkGlassDocument();
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -94,7 +96,11 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
 
   // Un hub sin secciones (todavía) no se muestra.
   const hubs = ADMIN_HUBS.filter((h) => sections.some((s) => s.hub === h.id));
-  const roleLabel = isDemo ? 'Invitado · solo lectura' : 'Super Admin';
+  const roleLabel = roleLabelProp ?? (isDemo ? 'Invitado · solo lectura' : 'Super Admin');
+  const hasSettings = sections.some((s) => s.hub === 'ajustes');
+  // Con un solo hub (el panel del socio), la barra inferior del celular
+  // muestra directamente sus pestañas en vez de hubs.
+  const singleHub = hubs.length === 1 && !hasSettings;
   const mobileHubs = hubs.filter((h) => h.mobile);
   const moreBadge = allHubs
     .filter((h) => !h.mobile)
@@ -157,9 +163,11 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent side="right" align="start" className="w-56">
-              <DropdownMenuItem onClick={() => openHub('ajustes')}>
-                <SettingsIcon className="h-4 w-4" /> Ajustes
-              </DropdownMenuItem>
+              {hasSettings && (
+                <DropdownMenuItem onClick={() => openHub('ajustes')}>
+                  <SettingsIcon className="h-4 w-4" /> Ajustes
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={onLogout} className="text-destructive focus:text-destructive">
                 <LogOut className="h-4 w-4" /> Cerrar sesión
               </DropdownMenuItem>
@@ -187,13 +195,15 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
 
           <div className="admin-divider mx-4" />
           <div className="space-y-1 px-3 py-3">
-            <HubButton
-              hub={{ id: 'ajustes', label: 'Ajustes', icon: SettingsIcon }}
-              active={activeHub === 'ajustes'}
-              collapsed={collapsed}
-              badge={0}
-              onClick={() => openHub('ajustes')}
-            />
+            {hasSettings && (
+              <HubButton
+                hub={{ id: 'ajustes', label: 'Ajustes', icon: SettingsIcon }}
+                active={activeHub === 'ajustes'}
+                collapsed={collapsed}
+                badge={0}
+                onClick={() => openHub('ajustes')}
+              />
+            )}
             <HubButton
               hub={{ id: 'ajustes', label: 'Cerrar sesión', icon: LogOut }}
               active={false}
@@ -265,7 +275,17 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
       {/* ── Barra inferior (celular) ── */}
       <nav className="admin-tabbar fixed inset-x-0 bottom-0 z-40 px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] md:hidden">
         <div className="admin-glass-panel flex items-stretch justify-around px-1 py-1.5">
-          {mobileHubs.map((hub) => (
+          {singleHub && hubSections.slice(0, 5).map((s) => (
+            <TabBarButton
+              key={s.id}
+              icon={s.icon}
+              label={s.label}
+              active={s.id === activeSection}
+              badge={badgeCounts[s.id] ?? 0}
+              onClick={() => onOpenSection(s.id)}
+            />
+          ))}
+          {!singleHub && mobileHubs.map((hub) => (
             <TabBarButton
               key={hub.id}
               icon={hub.icon}
@@ -277,9 +297,9 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
           ))}
           <TabBarButton
             icon={MoreHorizontal}
-            label="Más"
-            active={!mobileHubs.some((h) => h.id === activeHub)}
-            badge={moreBadge}
+            label={singleHub ? 'Cuenta' : 'Más'}
+            active={!singleHub && !mobileHubs.some((h) => h.id === activeHub)}
+            badge={singleHub ? 0 : moreBadge}
             onClick={() => setMoreOpen(true)}
           />
         </div>

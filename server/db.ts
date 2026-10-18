@@ -4188,7 +4188,9 @@ function toPnlExpense(r: any): PnlExpense {
 /** Resultado completo de un evento: de la plata que entró a la utilidad neta,
  * pasando por IVA, costo de mercadería, gastos directos, la parte que le toca
  * de los gastos fijos del mes, y las comisiones de embajadores. */
-export async function getEventPnl(eventId: number) {
+/** `excludeGeneral`: sin la prorrata de gastos generales de Playroom (la usa
+ * el reparto de una co-producción: los gastos de la empresa no son del socio). */
+export async function getEventPnl(eventId: number, opts: { excludeGeneral?: boolean } = {}) {
   const db = await getDb();
   if (!db) return null;
 
@@ -4254,7 +4256,7 @@ export async function getEventPnl(eventId: number) {
     eq(expenses.excludeFromPnl, 0),
     eq(expenses.recurrence, 'none'),
   ));
-  const generalRows = await db.select().from(expenses).where(and(
+  const generalRows = opts.excludeGeneral ? [] : await db.select().from(expenses).where(and(
     eq(expenses.scope, 'general'),
     eq(expenses.periodMonth, monthKey),
     eq(expenses.excludeFromPnl, 0),

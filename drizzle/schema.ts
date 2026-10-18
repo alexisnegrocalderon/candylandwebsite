@@ -2633,3 +2633,74 @@ export const aiUsage = mysqlTable("aiUsage", {
 }));
 
 export type AiUsageRow = typeof aiUsage.$inferSelect;
+
+// Co-producción con otra productora (ej. "Playroom × Dalmore"): un evento que
+// se organiza a medias. La otra productora entra al /admin con SU clave (rol
+// sintético `partner`, ver server/_core/sdk.ts) y ve solo lo de este evento.
+// La landing pública (/playroom<slug>) queda en "Próximamente" hasta `isLive`.
+export const coproductions = mysqlTable("coproductions", {
+  id: int("id").autoincrement().primaryKey(),
+  slug: varchar("slug", { length: 50 }).notNull().unique(),
+  partnerName: varchar("partnerName", { length: 100 }).notNull(),
+  // null hasta que el dueño enlaza el evento (que crea en Eventos como siempre).
+  eventId: int("eventId"),
+  // Porcentaje de la utilidad que le toca a la otra productora (50 = 50/50).
+  splitPercentPartner: int("splitPercentPartner").default(50).notNull(),
+  isLive: int("isLive").default(0).notNull(),
+  // Link de vista previa de la landing antes de activarla (?preview=...).
+  previewToken: varchar("previewToken", { length: 64 }).notNull(),
+  // Clave del socio (scrypt, ver server/caja/auth.ts hashPin). null = sin acceso.
+  passwordHash: varchar("passwordHash", { length: 200 }),
+  // Segundo factor del socio: mismo esquema que adminTotp.
+  totpSecret: varchar("totpSecret", { length: 64 }),
+  totpConfirmedAt: timestamp("totpConfirmedAt"),
+  totpBackupCodes: json("totpBackupCodes"),
+  totpLastUsedStep: int("totpLastUsedStep"),
+  // Sube al cambiar o revocar la clave: invalida las sesiones abiertas.
+  sessionVersion: int("sessionVersion").default(1).notNull(),
+  // Textos e imágenes de la landing (shared/coproduction.ts CoproductionLanding).
+  landing: json("landing"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Coproduction = typeof coproductions.$inferSelect;
+
+// Cortesías creadas para una co-producción y quién las creó (el reparto y la
+// lista de asistentes las muestran aparte de las compras).
+export const coproductionInvites = mysqlTable("coproductionInvites", {
+  id: int("id").autoincrement().primaryKey(),
+  coproductionId: int("coproductionId").notNull(),
+  orderId: int("orderId").notNull().unique(),
+  createdBy: mysqlEnum("createdBy", ["playroom", "partner"]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  coproductionIdx: index("coproduction_invites_coproduction_idx").on(table.coproductionId),
+}));
+
+// Gastos que carga la otra productora. Viven acá (y NO en `expenses`) hasta
+// que el dueño los aprueba: así un gasto sin revisar nunca toca los reportes
+// de Playroom. Al aprobar se crea el gasto real en `expenses` (scope evento)
+// y se guarda su id.
+export const coproductionExpenses = mysqlTable("coproductionExpenses", {
+  id: int("id").autoincrement().primaryKey(),
+  coproductionId: int("coproductionId").notNull(),
+  submittedBy: mysqlEnum("submittedBy", ["playroom", "partner"]).notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "rejected"]).default("pending").notNull(),
+  category: varchar("category", { length: 20 }).notNull(),
+  description: varchar("description", { length: 255 }).notNull(),
+  supplier: varchar("supplier", { length: 160 }),
+  documentType: varchar("documentType", { length: 20 }).notNull(),
+  amountTotal: int("amountTotal").notNull(),
+  expenseDate: timestamp("expenseDate").notNull(),
+  receiptUrl: text("receiptUrl"),
+  rejectReason: varchar("rejectReason", { length: 255 }),
+  // Gasto real creado al aprobar (expenses.id).
+  expenseId: int("expenseId"),
+  reviewedAt: timestamp("reviewedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  coproductionIdx: index("coproduction_expenses_coproduction_idx").on(table.coproductionId),
+}));
+
+export type CoproductionExpense = typeof coproductionExpenses.$inferSelect;
