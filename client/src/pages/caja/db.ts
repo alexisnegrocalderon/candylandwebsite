@@ -113,10 +113,16 @@ export type QueuedOp =
 export interface CajaOpRecord {
   opId: string;
   op: QueuedOp;
+  /** 'error' = el servidor la rechazó (ej. catálogo desactualizado): queda
+   * guardada para rehacerla o descartarla a mano, no se borra sola. */
   status: 'pending' | 'synced' | 'error';
   result?: string;
   conflictNote?: string;
   createdAt: number;
+  /** Evento contra el que se hizo (real o de pruebas). Se sincroniza contra
+   * ESE evento aunque la tablet haya cambiado de evento entremedio. Las ops
+   * viejas (sin el campo) usan el evento actual, como antes. */
+  eventId?: number;
 }
 
 interface CajaMetaRow {
@@ -163,7 +169,7 @@ export async function saveSnapshot(snapshot: {
   staffComps?: { displayCode: string; productName: string; staffName: string; status: string }[];
   serverTime: string;
 }) {
-  await cajaDB.transaction('rw', [cajaDB.attendees, cajaDB.codes, cajaDB.catalog, cajaDB.gifts, cajaDB.staffComps, cajaDB.meta], async () => {
+  await cajaDB.transaction('rw', [cajaDB.attendees, cajaDB.codes, cajaDB.catalog, cajaDB.gifts, cajaDB.staffComps, cajaDB.meta, cajaDB.opsQueue], async () => {
     await cajaDB.attendees.clear();
     await cajaDB.codes.clear();
     await cajaDB.catalog.clear();
@@ -186,6 +192,15 @@ export async function saveSnapshot(snapshot: {
     // servidor para corregir clientAt en cada operación (ver correctedNow()).
     await cajaDB.meta.put({ key: 'serverTimeOffsetMs', value: new Date(snapshot.serverTime).getTime() - Date.now() });
     await cajaDB.meta.put({ key: 'lastSnapshotAt', value: Date.now() });
+
+    // El snapshot llega del servidor SIN lo que esta tablet todavía no
+    // sincronizó: sin esto, un código recién canjeado volvía a "válido" (y se
+    // podía canjear dos veces) y el stock vendido sin señal se reseteaba.
+    // Se vuelven a aplicar los efectos locales de lo pendiente del mismo evento.
+    const pending = await cajaDB.opsQueue.where('status').equals('pending').toArray();
+    for (const rec of pending) {
+      if (rec.eventId === undefined || rec.eventId === snapshot.event.id) await applyOptimistic(rec.op);
+    }
   });
 }
 
@@ -283,9 +298,15 @@ export async function getLocalCatalog(): Promise<CajaCatalogItem[]> {
 
 /** Encola una operación offline y actualiza el estado local al instante
  * (UI optimista, §6.3) -- la cajera nunca espera a la red. */
-export async function enqueueOp(op: QueuedOp) {
-  await cajaDB.opsQueue.add({ opId: op.opId, op, status: 'pending', createdAt: Date.now() });
+export async function enqueueOp(op: QueuedOp, eventId?: number) {
+  await cajaDB.opsQueue.add({ opId: op.opId, op, status: 'pending', createdAt: Date.now(), eventId });
+  await applyOptimistic(op);
+}
 
+/** Efecto local de una operación (código usado, entrada marcada, stock
+ * vendido). Se aplica al encolar y otra vez después de cada snapshot
+ * mientras la operación siga pendiente. */
+async function applyOptimistic(op: QueuedOp) {
   if (op.type === 'redeem') {
     const code = op.displayCode.toUpperCase();
 
@@ -362,6 +383,19 @@ export async function getPendingOps(): Promise<CajaOpRecord[]> {
 
 export async function markOpSynced(opId: string, result: string, conflictNote?: string) {
   await cajaDB.opsQueue.update(opId, { status: 'synced', result, conflictNote });
+}
+
+/** El servidor rechazó la operación: queda como 'error' para rehacerla. */
+export async function markOpRejected(opId: string, conflictNote?: string) {
+  await cajaDB.opsQueue.update(opId, { status: 'error', result: 'rejected', conflictNote });
+}
+
+export async function getRejectedOps(): Promise<CajaOpRecord[]> {
+  return cajaDB.opsQueue.where('status').equals('error').sortBy('createdAt');
+}
+
+export async function discardOp(opId: string) {
+  await cajaDB.opsQueue.delete(opId);
 }
 
 export async function clearSyncedOps() {

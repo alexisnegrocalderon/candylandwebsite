@@ -1,4 +1,5 @@
 import { NOT_ADMIN_ERR_MSG, UNAUTHED_ERR_MSG } from '@shared/const';
+import { canUseCaja } from "@shared/cajaRoles";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import type { TrpcContext } from "./context";
@@ -186,15 +187,43 @@ export const guardarropiaProcedure = t.procedure.use(
   }),
 );
 
+/** Id del evento de pruebas de caja (slug fijo 'pruebas-caja'), cacheado
+ * una vez encontrado: no cambia mientras el servidor vive. */
+let cajaTestEventId: number | null = null;
+async function isCajaTestEvent(eventId: number): Promise<boolean> {
+  if (cajaTestEventId === null) {
+    const { getEventBySlug } = await import("../db");
+    const test = await getEventBySlug("pruebas-caja");
+    if (test) cajaTestEventId = test.id;
+  }
+  return cajaTestEventId === eventId;
+}
+
 // Requiere una sesión de operador de /caja válida (login por PIN, no admin)
 // EN un dispositivo enrolado -- ambos, no solo uno. Una sesión de operador
 // robada no sirve de nada sin también tener el dispositivo enrolado.
+//
+// Además:
+// - Rol: solo caja/barra/supervisor/admin. Puerta, cocina y guardarropía
+//   usan la MISMA cookie de sesión, y sin esto podían vender desde una
+//   tablet de caja.
+// - Evento: si el pedido trae `eventId`, tiene que ser el evento del
+//   dispositivo o el de pruebas (`activeEvent` usa ese fuera de horario).
+//   Antes se aceptaba cualquier id que mandara el cliente.
 export const operatorProcedure = deviceProcedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 
     if (!ctx.operator) {
       throw new TRPCError({ code: "UNAUTHORIZED", message: "Sesión de caja requerida" });
+    }
+    if (!canUseCaja(ctx.operator.role)) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Tu usuario no usa la caja" });
+    }
+    const raw = await opts.getRawInput();
+    const eventId = raw && typeof raw === "object" ? (raw as { eventId?: unknown }).eventId : undefined;
+    if (typeof eventId === "number" && eventId !== ctx.device?.eventId && !(await isCajaTestEvent(eventId))) {
+      throw new TRPCError({ code: "FORBIDDEN", message: "Este evento no corresponde a esta caja" });
     }
 
     return next({

@@ -26,7 +26,7 @@ const baseHtml = readFileSync(join(outDir, 'index.html'), 'utf-8');
 
 const SCREENS = [
   { file: 'admin.html', manifest: '/admin.webmanifest', title: 'Admin', appleTouchIcon: '/app-icons/admin/apple-touch-icon-v4.png' },
-  { file: 'caja.html', manifest: '/caja.webmanifest', title: 'Caja', appleTouchIcon: '/app-icons/caja/icon-180.png' },
+  { file: 'caja.html', manifest: '/caja.webmanifest', title: 'Caja', appleTouchIcon: '/app-icons/caja/icon-180.png', themeColor: '#0b0612', statusBar: 'black-translucent' },
   { file: 'puerta.html', manifest: '/puerta.webmanifest', title: 'Puerta', appleTouchIcon: '/app-icons/puerta/icon-180.png' },
   // Ícono propio: con las cuatro apps instaladas en la misma pantalla de
   // inicio, el isotipo genérico las hacía indistinguibles a simple vista.

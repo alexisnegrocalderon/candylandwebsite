@@ -5,9 +5,9 @@
   "start_url": "/caja",
   "scope": "/caja",
   "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#0a0a0a",
-  "theme_color": "#0a0a0a",
+  "orientation": "any",
+  "background_color": "#0b0612",
+  "theme_color": "#0b0612",
   "icons": [
     {
       "src": "/app-icons/caja/icon-180.png",
@@ -26,6 +26,12 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/app-icons/caja/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

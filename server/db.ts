@@ -13,6 +13,7 @@ import { MAX_TOUCHES_PER_EVENT, PRESENCE_WINDOW_MS, SWIPE_DECK_SIZE, canSeePhoto
 import { playcoinsEarnedForPurchase, clampRedeemAmount } from '../shared/playcoins';
 import { isEventToday } from '../shared/eventDay';
 import { chileHourOf, startOfChileDay } from '../shared/chileDate';
+import { salesByChileHour } from '../shared/cajaStats';
 import { groupSalesByChileDay, type SalesDay } from '../shared/salesByDay';
 import { matchLeadForOrder as matchLeadForOrderImpl, syncLeadsAsMailingAudience as syncLeadsAsMailingAudienceImpl } from './leadsMailing';
 import { monthKeyFor } from '../shared/ambassadorProgram';
@@ -3323,6 +3324,8 @@ export async function getCajaDashboard(eventId: number) {
     expectedCount,
     topProducts,
     recentSales,
+    // Para el gráfico "ventas por hora" del resumen en la caja.
+    salesByHour: salesByChileHour(cajaOrders.map((o: any) => ({ createdAt: o.createdAt, total: Number(o.total) }))),
   };
 }
 

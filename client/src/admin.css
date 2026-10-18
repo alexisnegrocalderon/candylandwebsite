@@ -463,3 +463,15 @@ html[data-admin-theme="dark-glass"] body {
   from { transform: scaleX(1); }
   to { transform: scaleX(0); }
 }
+
+/* Caja: el carrito queda como panel de vidrio fijo al costado en tablet
+ * horizontal / computador (en celular es una hoja que se abre aparte). */
+@media (min-width: 900px) and (orientation: landscape) {
+  [data-admin-theme="dark-glass"] .caja-cart-panel {
+    background-color: var(--admin-glass-bg);
+    backdrop-filter: var(--admin-glass-blur);
+    -webkit-backdrop-filter: var(--admin-glass-blur);
+    border: 1px solid var(--admin-glass-border);
+    box-shadow: var(--admin-shadow-clay);
+  }
+}
