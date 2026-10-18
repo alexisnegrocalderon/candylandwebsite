@@ -6,8 +6,8 @@
   "scope": "/gastos",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0d0810",
-  "theme_color": "#0d0810",
+  "background_color": "#0b0612",
+  "theme_color": "#0b0612",
   "icons": [
     {
       "src": "/gastos/icon-192.png",

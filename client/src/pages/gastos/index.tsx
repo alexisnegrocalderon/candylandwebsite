@@ -1,455 +1,97 @@
 import '@/admin.css';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
-import { Check, ChevronDown, Repeat, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { ListChecks, Plus } from 'lucide-react';
 import { canOpenAdmin } from '@/lib/demoMode';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { AdminLoginForm } from '@/components/admin/AdminLoginForm';
-import { CameraCaptureField } from '@/components/admin/CameraCaptureField';
-import {
-  EXPENSE_CATEGORIES, EXPENSE_DOCUMENT_TYPES, EXPENSE_PAYMENT_METHODS,
-  deriveAmounts, categoryLabel,
-  type ExpenseCategory, type ExpenseDocumentType, type ExpensePaymentMethod,
-} from '@shared/expenses';
-import { getRecentCategories, pushRecentCategory } from './recent';
+import { useDarkGlassDocument } from '@/components/admin/shell/AdminShell';
+import { ExpenseTerminal } from '@/components/admin/expenses/ExpenseTerminal';
+import { ExpensesToday } from '@/components/admin/expenses/ExpensesToday';
 
-/* Carga rápida de gastos desde el celular. Es la misma sesión de admin que
- * /admin (misma cookie, mismo TOTP una sola vez), pero con una pantalla
- * pensada para cargar una compra en cinco toques mientras se está de pie en
- * una ferretería, no para analizar números -- eso vive en /admin → Gastos.
+/* Carga rápida de gastos desde el celular, como app instalable. Es la misma
+ * sesión de admin que /admin (misma cookie, mismo TOTP una sola vez) y el
+ * mismo terminal que el hub "Gastos" del panel (ExpenseTerminal), con el
+ * vidrio oscuro del panel pero sin su barra de navegación.
  *
  * Instalable en la pantalla de inicio (ver useInstallableApp). Va
  * online-only a propósito: no lleva la cola offline de /caja porque los
- * gastos se cargan con señal, no a oscuras en la pista.
- *
- * Todo en un archivo, mismo criterio que client/src/pages/caja/index.tsx. */
+ * gastos se cargan con señal, no a oscuras en la pista. */
 
 export default function GastosApp() {
   useSeo({ title: 'Gastos — Mansion Playroom', description: '', path: '/gastos', noindex: true });
   // El SW es network-only (no cachea nada): existe únicamente porque Chrome
   // no ofrece "instalar" sin uno. iOS instala solo con el manifest.
   useInstallableApp('/gastos/sw.js', '/gastos/');
+  // Fondo del documento y barra de estado oscuros, igual que el panel.
+  useDarkGlassDocument();
 
   const { data: user, isLoading } = trpc.auth.me.useQuery();
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
+      <Frame>
+        <div className="flex min-h-[60dvh] items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      </Frame>
     );
   }
   if (!user) return <AdminLoginForm />;
   if (!canOpenAdmin(user.role)) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-6 text-center">
-        <p className="text-muted-foreground">Esta pantalla es solo para el administrador.</p>
-      </div>
+      <Frame>
+        <div className="admin-clay mx-auto mt-10 max-w-sm p-6 text-center">
+          <p className="text-muted-foreground">Esta pantalla es solo para el administrador.</p>
+        </div>
+      </Frame>
     );
   }
-
-  return <ExpenseCapture />;
+  return <GastosScreens />;
 }
 
-/** Formatea mientras se escribe: 45000 -> "45.000". */
-function formatAmount(value: number): string {
-  return value > 0 ? value.toLocaleString('es-CL') : '';
-}
-
-function ExpenseCapture() {
-  const utils = trpc.useUtils();
-  const { data: eventsData } = trpc.events.listAll.useQuery();
-  const events = eventsData ?? [];
-
-  const [amount, setAmount] = useState(0);
-  const [category, setCategory] = useState<ExpenseCategory>('produccion');
-  const [documentType, setDocumentType] = useState<ExpenseDocumentType>('boleta');
-  const [paymentMethod, setPaymentMethod] = useState<ExpensePaymentMethod>('transferencia');
-  const [target, setTarget] = useState<string>('');       // id del evento, o 'general'
-  const [description, setDescription] = useState('');
-  const [supplier, setSupplier] = useState('');
-  const [showOptional, setShowOptional] = useState(false);
-  const [showAllTargets, setShowAllTargets] = useState(false);
-
-  // Por defecto, el próximo evento publicado: es el caso del 95% de las
-  // compras. Si no hay ninguno, cae al más reciente.
-  const defaultEventId = useMemo(() => {
-    const now = Date.now();
-    const upcoming = [...events]
-      .filter((e: any) => e.status === 'published' && new Date(e.eventDate).getTime() >= now)
-      .sort((a: any, b: any) => new Date(a.eventDate).getTime() - new Date(b.eventDate).getTime())[0];
-    return String(upcoming?.id ?? events[0]?.id ?? '');
-  }, [events]);
-
-  useEffect(() => { if (!target && defaultEventId) setTarget(defaultEventId); }, [defaultEventId, target]);
-
-  // Las categorías más usadas primero: en la práctica se repiten siempre las
-  // mismas tres o cuatro, y así quedan sin scroll.
-  const orderedCategories = useMemo(() => {
-    const recent = getRecentCategories();
-    return [...EXPENSE_CATEGORIES].sort((a, b) => {
-      const ia = recent.indexOf(a.value), ib = recent.indexOf(b.value);
-      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
-    });
-  }, []);
-
-  const todayKey = new Date().toISOString().slice(0, 10);
-  const monthKey = todayKey.slice(0, 7);
-  // Viene ordenada por fecha descendente (server/db.ts): el primer elemento
-  // es siempre el último gasto cargado, sin importar el día.
-  const { data: allExpenses, refetch } = trpc.expenses.listAll.useQuery({});
-  const today = (allExpenses ?? []).filter((e: any) => String(e.expenseDate).slice(0, 10) === todayKey);
-  const todayTotal = today.reduce((s: number, e: any) => s + e.amountTotal, 0);
-  const monthTotal = (allExpenses ?? [])
-    .filter((e: any) => String(e.expenseDate).slice(0, 7) === monthKey)
-    .reduce((s: number, e: any) => s + e.amountTotal, 0);
-  const lastExpense = allExpenses?.[0];
-
-  const scanReceipt = trpc.expenses.scanReceipt.useMutation({
-    onSuccess: (result) => {
-      if (!result.isReceipt) {
-        toast.error('No pudimos leer la foto como boleta o factura -- completa a mano.');
-        return;
-      }
-      if (result.amountTotal) setAmount(result.amountTotal);
-      if (result.category) setCategory(result.category);
-      if (result.documentType) setDocumentType(result.documentType);
-      if (result.description) setDescription(result.description);
-      if (result.supplier) setSupplier(result.supplier);
-      if (result.description || result.supplier) setShowOptional(true);
-      if (result.confidence !== 'alta' || result.notes) {
-        toast.warning(result.notes || 'Revisa los datos leídos antes de guardar.');
-      } else {
-        toast.success('Boleta leída -- revisa y guarda.');
-      }
-    },
-    onError: (e) => toast.error(e.message),
-  });
-  const handleScan = (imageUrl: string) => {
-    if ((amount > 0 || description.trim() || supplier.trim())
-      && !window.confirm('Ya hay datos cargados -- esto los va a reemplazar con lo que lea la foto. ¿Continuar?')) {
-      return;
-    }
-    scanReceipt.mutate({ imageUrl });
-  };
-
-  const create = trpc.expenses.create.useMutation({
-    onSuccess: () => {
-      toast.success(`Gasto de $${amount.toLocaleString('es-CL')} guardado`);
-      pushRecentCategory(category);
-      setAmount(0); setDescription(''); setSupplier(''); setShowOptional(false);
-      refetch();
-      utils.cajaReports.eventPnl.invalidate();
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  // Borrar un gasto pide la clave de admin, igual que en /admin (pedido
-  // explícito del dueño: nada se borra solo con la sesión abierta). Acá pesa
-  // más todavía: este teléfono anda de pie en una ferretería y la sesión
-  // dura una semana.
-  const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [deletePassword, setDeletePassword] = useState('');
-  const remove = trpc.expenses.delete.useMutation({
-    onSuccess: () => {
-      refetch();
-      toast.success('Gasto eliminado');
-      setDeletingId(null);
-      setDeletePassword('');
-    },
-    onError: (e) => toast.error(e.message),
-  });
-
-  const preview = deriveAmounts({ amountTotal: amount, documentType });
-  const canSave = amount > 0 && !!target;
-
-  // Atajo para compras que se repiten (el mismo proveedor, el mismo monto):
-  // llena el formulario con la última carga y deja el monto a un toque de
-  // "Guardar". No lo guarda solo: el monto puede haber cambiado.
-  const amountInputRef = useRef<HTMLInputElement>(null);
-  const repeatLast = () => {
-    if (!lastExpense) return;
-    setAmount(lastExpense.amountTotal);
-    setCategory(lastExpense.category);
-    setDocumentType(lastExpense.documentType);
-    setPaymentMethod(lastExpense.paymentMethod);
-    setDescription(lastExpense.description ?? '');
-    setSupplier(lastExpense.supplier ?? '');
-    if (lastExpense.description || lastExpense.supplier) setShowOptional(true);
-    amountInputRef.current?.focus();
-    amountInputRef.current?.select();
-  };
-
-  const handleSave = () => {
-    const isGeneral = target === 'general';
-    create.mutate({
-      scope: isGeneral ? 'general' : 'evento',
-      eventId: isGeneral ? null : Number(target),
-      expenseDate: new Date().toISOString(),
-      category,
-      description: description.trim() || categoryLabel(category),
-      supplier: supplier.trim() || undefined,
-      documentType,
-      paymentMethod,
-      amountTotal: amount,
-    });
-  };
-
-  const targetLabel = target === 'general'
-    ? 'Productora (gasto general)'
-    : events.find((e: any) => String(e.id) === target)?.title ?? 'Elegir destino';
-
+function GastosScreens() {
+  const [tab, setTab] = useState<'cargar' | 'hoy'>('cargar');
   return (
-    <div className="min-h-dvh bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white pb-32">
-      <div className="max-w-lg mx-auto px-4 pt-6 space-y-5">
-        <div className="flex items-center justify-between gap-2">
-          <h1 className="font-heading text-xl opacity-90">Nuevo gasto</h1>
-          {(todayTotal > 0 || monthTotal > 0) && (
-            <p className="text-xs text-white/50 text-right leading-tight">
-              Hoy ${todayTotal.toLocaleString('es-CL')}
-              <br />Mes ${monthTotal.toLocaleString('es-CL')}
-            </p>
-          )}
-        </div>
-
-        {/* 0. Escanear -- opcional, antes que todo: si hay foto, la IA
-         * precarga el resto y ahorra los 5 toques de siempre. */}
-        <div className="flex justify-center">
-          <CameraCaptureField
-            label="Escanear boleta o factura"
-            pathPrefix="expenses"
-            onScanned={handleScan}
-            analyzing={scanReceipt.isPending}
-            buttonClassName="border-white/15 bg-white/5 text-white hover:bg-white/10"
-          />
-        </div>
-
-        {/* 1. Monto -- lo primero porque es lo único que siempre cambia. */}
-        <div className="text-center">
-          <Input
-            ref={amountInputRef}
-            value={formatAmount(amount)}
-            onChange={(e) => setAmount(Number(e.target.value.replace(/\D/g, '')) || 0)}
-            inputMode="numeric"
-            placeholder="0"
-            autoFocus
-            aria-label="Monto total pagado"
-            className="h-20 text-center text-4xl font-heading font-black bg-white/5 border-white/15 rounded-2xl"
-          />
-          {documentType === 'factura' && amount > 0 && (
-            <p className="text-xs text-white/60 mt-2">
-              Neto ${preview.netAmount.toLocaleString('es-CL')} · IVA ${preview.ivaAmount.toLocaleString('es-CL')} (crédito fiscal)
-            </p>
-          )}
-          {lastExpense && (
-            <button
-              type="button"
-              onClick={repeatLast}
-              className="mt-3 inline-flex items-center gap-1.5 text-xs text-white/50 hover:text-white/80"
-            >
-              <Repeat className="w-3.5 h-3.5" />
-              Repetir "{lastExpense.description}" (${lastExpense.amountTotal.toLocaleString('es-CL')})
-            </button>
-          )}
-        </div>
-
-        {/* 2. Categoría */}
-        <div>
-          <p className="text-xs uppercase tracking-wide text-white/50 mb-2">Categoría</p>
-          <div className="grid grid-cols-3 gap-2">
-            {orderedCategories.map((c) => (
-              <button
-                key={c.value}
-                type="button"
-                onClick={() => setCategory(c.value)}
-                className={`rounded-xl py-3 px-1 text-xs font-semibold transition-colors ${
-                  category === c.value ? 'bg-primary text-primary-foreground' : 'bg-white/5 text-white/75 hover:bg-white/10'
-                }`}
-              >
-                <span className="block text-lg leading-none mb-1">{c.emoji}</span>
-                {c.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* 3. Documento */}
-        <Segmented
-          label="Documento"
-          options={EXPENSE_DOCUMENT_TYPES.map((d) => ({ value: d.value, label: d.short }))}
-          value={documentType}
-          onChange={(v) => setDocumentType(v as ExpenseDocumentType)}
-        />
-
-        {/* 4. Forma de pago */}
-        <Segmented
-          label="Pago"
-          options={EXPENSE_PAYMENT_METHODS.map((p) => ({ value: p.value, label: p.label }))}
-          value={paymentMethod}
-          onChange={(v) => setPaymentMethod(v as ExpensePaymentMethod)}
-        />
-
-        {/* 5. Destino: preseleccionado, un toque para cambiarlo. */}
-        <div>
-          <p className="text-xs uppercase tracking-wide text-white/50 mb-2">¿A qué va?</p>
-          <button
-            type="button"
-            onClick={() => setShowAllTargets(!showAllTargets)}
-            className="w-full flex items-center justify-between rounded-xl bg-white/5 px-4 py-3 text-sm"
-          >
-            <span className="truncate">{targetLabel}</span>
-            <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${showAllTargets ? 'rotate-180' : ''}`} />
-          </button>
-          {showAllTargets && (
-            <div className="mt-2 space-y-1.5">
-              {events.map((e: any) => (
-                <button
-                  key={e.id}
-                  type="button"
-                  onClick={() => { setTarget(String(e.id)); setShowAllTargets(false); }}
-                  className={`w-full text-left rounded-lg px-4 py-2.5 text-sm ${target === String(e.id) ? 'bg-primary/25' : 'bg-white/5'}`}
-                >
-                  {e.title}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => { setTarget('general'); setShowAllTargets(false); }}
-                className={`w-full text-left rounded-lg px-4 py-2.5 text-sm ${target === 'general' ? 'bg-primary/25' : 'bg-white/5'}`}
-              >
-                Productora (se reparte entre los eventos del mes)
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Opcionales, colapsados: casi nunca hacen falta en el momento. */}
-        <button
-          type="button"
-          onClick={() => setShowOptional(!showOptional)}
-          className="text-xs text-white/50 underline"
-        >
-          {showOptional ? 'Ocultar detalles' : 'Agregar detalle o proveedor'}
-        </button>
-        {showOptional && (
-          <div className="space-y-3">
-            <Input
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="¿Qué compraste?"
-              className="bg-white/5 border-white/15 h-12"
-            />
-            <Input
-              value={supplier}
-              onChange={(e) => setSupplier(e.target.value)}
-              placeholder="Proveedor"
-              className="bg-white/5 border-white/15 h-12"
-            />
-          </div>
-        )}
-
-        {/* Lo cargado hoy, para saber que quedó guardado. */}
-        {today.length > 0 && (
-          <div className="pt-2">
-            <p className="text-xs uppercase tracking-wide text-white/50 mb-2">
-              Hoy · ${todayTotal.toLocaleString('es-CL')}
-            </p>
-            <div className="space-y-1.5">
-              {today.map((e: any) => (
-                <div key={e.id} className="rounded-lg bg-white/5 px-3 py-2 text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate">{e.description}</span>
-                    <span className="flex items-center gap-2 shrink-0">
-                      <span className="tabular-nums">${e.amountTotal.toLocaleString('es-CL')}</span>
-                      <button
-                        type="button"
-                        onClick={() => { setDeletingId(deletingId === e.id ? null : e.id); setDeletePassword(''); }}
-                        aria-label={`Eliminar ${e.description}`}
-                        className="text-white/40 hover:text-destructive"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </span>
-                  </div>
-                  {deletingId === e.id && (
-                    <div className="mt-2 space-y-2">
-                      <p className="text-xs text-white/50">Escribe tu clave de admin para eliminar este gasto.</p>
-                      <Input
-                        type="password"
-                        autoFocus
-                        value={deletePassword}
-                        onChange={(ev) => setDeletePassword(ev.target.value)}
-                        placeholder="Clave de admin"
-                        className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
-                      />
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline" size="sm" className="flex-1 border-white/15 text-white"
-                          onClick={() => { setDeletingId(null); setDeletePassword(''); }}
-                        >
-                          Cancelar
-                        </Button>
-                        <Button
-                          variant="destructive" size="sm" className="flex-1"
-                          disabled={!deletePassword || remove.isPending}
-                          onClick={() => remove.mutate({ id: e.id, adminPassword: deletePassword })}
-                        >
-                          {remove.isPending ? 'Eliminando…' : 'Eliminar'}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+    <Frame tabs={
+      <div className="mt-2 flex gap-1.5" role="tablist" aria-label="Gastos">
+        <TabChip active={tab === 'cargar'} onClick={() => setTab('cargar')} icon={<Plus className="h-4 w-4" />}>Cargar gasto</TabChip>
+        <TabChip active={tab === 'hoy'} onClick={() => setTab('hoy')} icon={<ListChecks className="h-4 w-4" />}>Hoy</TabChip>
       </div>
+    }>
+      {tab === 'cargar' ? <ExpenseTerminal /> : <ExpensesToday onAdd={() => setTab('cargar')} />}
+    </Frame>
+  );
+}
 
-      {/* Guardar siempre a mano, sobre el borde inferior. */}
-      <div className="fixed bottom-0 inset-x-0 p-4 bg-gradient-to-t from-[#0d0810] via-[#0d0810]/95 to-transparent">
-        <div className="max-w-lg mx-auto">
-          <Button
-            onClick={handleSave}
-            disabled={!canSave || create.isPending}
-            className="w-full h-14 text-base font-bold rounded-2xl"
-          >
-            <Check className="w-5 h-5 mr-2" />
-            {create.isPending ? 'Guardando…' : 'Guardar gasto'}
-          </Button>
-        </div>
+/** Mismo chrome que el encabezado del panel (AdminShell): vidrio oscuro,
+ * logo, título y pestañas, respetando la muesca del iPhone. */
+function Frame({ tabs, children }: { tabs?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div data-admin-theme="dark-glass" className="admin-shell dark relative min-h-dvh">
+      <div className="admin-backdrop" aria-hidden="true" />
+      <div className="relative z-10">
+        <header className="sticky top-0 z-30 px-3 pt-[max(env(safe-area-inset-top),0.75rem)]">
+          <div className="admin-glass-panel admin-glass-panel-sm mx-auto flex max-w-lg items-center gap-3 px-4 py-3">
+            <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-7 w-7 shrink-0 object-contain" />
+            <h1 className="min-w-0 flex-1 truncate font-heading text-xl">Gastos</h1>
+            <a href="/admin" className="admin-search-btn flex h-9 shrink-0 items-center rounded-xl px-3 text-xs text-muted-foreground">Panel</a>
+          </div>
+          {tabs && <div className="mx-auto max-w-lg">{tabs}</div>}
+        </header>
+        <main className="px-3 pb-6 pt-4">{children}</main>
       </div>
     </div>
   );
 }
 
-function Segmented({ label, options, value, onChange }: {
-  label: string;
-  options: { value: string; label: string }[];
-  value: string;
-  onChange: (v: string) => void;
-}) {
+function TabChip({ active, onClick, icon, children }: { active: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div>
-      <p className="text-xs uppercase tracking-wide text-white/50 mb-2">{label}</p>
-      <div className="flex gap-2">
-        {options.map((o) => (
-          <button
-            key={o.value}
-            type="button"
-            onClick={() => onChange(o.value)}
-            className={`flex-1 rounded-xl py-3 text-xs font-semibold transition-colors ${
-              value === o.value ? 'bg-primary text-primary-foreground' : 'bg-white/5 text-white/75 hover:bg-white/10'
-            }`}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-    </div>
+    <button type="button" role="tab" aria-selected={active} onClick={onClick}
+      className={`admin-tab flex h-9 shrink-0 items-center gap-2 rounded-full px-3.5 text-sm font-medium ${active ? 'admin-tab-active' : ''}`}>
+      {icon}
+      {children}
+    </button>
   );
 }

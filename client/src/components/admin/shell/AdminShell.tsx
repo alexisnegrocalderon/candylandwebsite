@@ -21,7 +21,7 @@ const formatBadge = (n: number) => (n > 99 ? '99+' : String(n));
 /** El tema va en <html> y no solo en el shell: los diálogos, selects y menús
  * de Radix se montan en un portal directo en <body>, fuera del shell, y sin
  * esto saldrían claros sobre el panel oscuro. Se quita al salir del panel. */
-function useDarkGlassDocument() {
+export function useDarkGlassDocument() {
   useEffect(() => {
     const root = document.documentElement;
     const prevTheme = root.dataset.adminTheme;

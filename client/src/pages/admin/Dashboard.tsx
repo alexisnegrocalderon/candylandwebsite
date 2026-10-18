@@ -19,7 +19,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Home, Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Smartphone, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones } from 'lucide-react';
+import { Home, Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones, ListChecks, Image as ImageIcon } from 'lucide-react';
+import { ExpenseTerminal } from '@/components/admin/expenses/ExpenseTerminal';
+import { ExpensesToday } from '@/components/admin/expenses/ExpensesToday';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { whatsappLinkFor, instagramLinkFor } from '@shared/ambassadorApplication';
 import { isValidRut, formatRutLive } from '@shared/rut';
@@ -8305,6 +8307,12 @@ function ExpensesList({ events, refreshKey, onChanged }: { events: any[]; refres
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="font-semibold tabular-nums">${r.amountTotal.toLocaleString('es-CL')}</span>
+                    {r.receiptUrl && (
+                      <a href={r.receiptUrl} target="_blank" rel="noreferrer" aria-label={`Ver boleta de ${r.description}`} title="Ver boleta"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--admin-muted)] hover:bg-white/5 hover:text-white">
+                        <ImageIcon className="h-4 w-4" />
+                      </a>
+                    )}
                     {!coarse && (
                       <ConfirmDeleteButton description={`Vas a eliminar el gasto "${r.description}".`} onConfirm={(adminPassword) => remove.mutateAsync({ id: r.id, adminPassword })} />
                     )}
@@ -8552,6 +8560,7 @@ function AdminAiQaPanel({ eventId }: { eventId: number | null }) {
 }
 
 function GastosView() {
+  const { openSection } = useContext(AdminNavContext);
   const { data: eventsData } = trpc.events.listAll.useQuery();
   const events = eventsData ?? [];
   const [eventId, setEventId] = useState<number | null>(null);
@@ -8563,20 +8572,17 @@ function GastosView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
           <h2 className="font-heading text-2xl">Gastos y P&amp;L</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Cuánto entró, cuánto salió y cuánto quedó en cada fiesta.</p>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Atajo a la pantalla de carga rápida (/gastos): misma sesión de
-             admin, pensada para cargar una compra desde el celular en vez de
-             analizar números acá. */}
-          <a href="/gastos" target="_blank" rel="noopener noreferrer">
-            <Button variant="outline" size="sm" className="interactive">
-              <Smartphone className="w-4 h-4 mr-2" /> Cargar gasto (celular)
-            </Button>
-          </a>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Atajo al terminal de carga rápida (hub "Gastos"), dentro del
+             mismo panel. /gastos sigue existiendo como app instalable. */}
+          <Button size="sm" className="interactive rounded-full" onClick={() => openSection('cargar-gasto')}>
+            <Plus className="w-4 h-4 mr-2" /> Cargar gasto
+          </Button>
           {events.length > 0 && (
             <Select value={String(activeEventId)} onValueChange={(v) => setEventId(Number(v))}>
               <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
@@ -11406,6 +11412,11 @@ const AdminNavContext = createContext<{ badgeCounts: Record<string, number>; ope
   openSection: () => {},
 });
 
+function ExpensesTodaySection() {
+  const { openSection } = useContext(AdminNavContext);
+  return <ExpensesToday onAdd={() => openSection('cargar-gasto')} />;
+}
+
 function HomeSection() {
   const { badgeCounts, openSection } = useContext(AdminNavContext);
   return <HomeView badgeCounts={badgeCounts} onOpen={openSection} />;
@@ -11462,6 +11473,9 @@ const ADMIN_SECTIONS = [
   { id: 'gastos', label: 'Gastos y P&L', hub: 'finanzas', icon: Receipt, render: () => <GastosView /> },
   { id: 'sii', label: 'SII', hub: 'finanzas', icon: Landmark, render: () => <SiiView /> },
   { id: 'event-budget', label: 'Simulador de Evento', hub: 'finanzas', icon: Calculator, render: () => <EventBudgetSimulatorView /> },
+
+  { id: 'cargar-gasto', label: 'Cargar gasto', hub: 'gastos', icon: Plus, render: () => <ExpenseTerminal inShell /> },
+  { id: 'gastos-hoy', label: 'Hoy', hub: 'gastos', icon: ListChecks, render: () => <ExpensesTodaySection /> },
 
   { id: 'copro-resumen', label: 'Resumen', hub: 'coproduccion', icon: LayoutDashboard, render: () => <CoproResumen /> },
   { id: 'copro-asistentes', label: 'Asistentes', hub: 'coproduccion', icon: Users, render: () => <CoproAsistentes /> },

@@ -20,6 +20,7 @@
 @source "./pages/Party.tsx";
 @source "./pages/Puerta.tsx";
 @source "./pages/Cocina.tsx";
+@source "./pages/gastos/**";
 @source "./components/admin/**";
 @source "./components/party/**";
 @source "./components/QrScanner.tsx";
@@ -451,4 +452,14 @@ html[data-admin-theme="dark-glass"] body {
     box-shadow: none;
   }
   html.admin-chat-open .admin-tabbar { display: none; }
+}
+
+/* Cuenta regresiva de la tarjeta de éxito del terminal de gastos. */
+.admin-countdown-bar {
+  transform-origin: left;
+  animation: admin-countdown linear forwards;
+}
+@keyframes admin-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
 }

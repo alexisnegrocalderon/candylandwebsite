@@ -4166,6 +4166,13 @@ export async function updateExpense(id: number, input: any) {
   return { success: true };
 }
 
+export async function getExpenseById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(expenses).where(eq(expenses.id, id)).limit(1);
+  return row ?? null;
+}
+
 export async function deleteExpense(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
