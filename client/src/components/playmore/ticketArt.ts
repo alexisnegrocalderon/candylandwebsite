@@ -300,7 +300,14 @@ export function drawLogoFusion(
   }
   ctx.globalAlpha = 0.95;
   if (partnerLogo) {
-    ctx.drawImage(partnerLogo, c - size / 2 + offset, c - size / 2, size, size);
+    // Respeta la proporción: un logo ancho (los cuernos de Dalmore) queda
+    // un poco más arriba, coronando al otro cuando se juntan.
+    const ar = partnerLogo.naturalWidth / partnerLogo.naturalHeight || 1;
+    let pw = size * 1.3;
+    let ph = pw / ar;
+    if (ph > size) { ph = size; pw = ph * ar; }
+    const lift = ar > 1.3 ? size * 0.12 : 0;
+    ctx.drawImage(partnerLogo, c - pw / 2 + offset, c - ph / 2 - lift, pw, ph);
   } else {
     // Monograma provisorio hasta tener el logo de la otra productora.
     const g = ctx.createLinearGradient(c - size / 2, 0, c + size / 2, 0);
