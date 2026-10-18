@@ -75,22 +75,22 @@ export function SalesHistory({ eventId, registerId, isOnline, compact = false }:
   };
 
   return (
-    <div className={`flex flex-col bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden ${compact ? 'shrink-0 max-h-72' : 'h-full min-h-0'}`}>
+    <div className={`flex flex-col admin-clay admin-clay-sm rounded-2xl overflow-hidden ${compact ? 'shrink-0 max-h-72' : 'h-full min-h-0'}`}>
       <div className="shrink-0 px-3 pt-3 pb-2 space-y-2">
         <div className="flex items-center gap-2">
           <p className="text-xs uppercase tracking-wide text-white/50 flex-1">{compact ? 'Ventas de la noche' : 'Historial de ventas'}</p>
           {!isOnline && <span className="text-[11px] text-amber-300">Sin señal: puede estar desactualizado</span>}
         </div>
         <div className="relative">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/60" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar cliente, n° orden, producto o cajera"
-            className="pl-9 h-10 bg-white/5 border-white/10 text-white placeholder:text-white/30"
+            className="pl-9 h-10 bg-white/5 border-white/10 text-white placeholder:text-white/50"
           />
           {search && (
-            <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-white/40" aria-label="Limpiar búsqueda">
+            <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-white/60" aria-label="Limpiar búsqueda">
               <X className="w-4 h-4" />
             </button>
           )}
@@ -120,8 +120,8 @@ export function SalesHistory({ eventId, registerId, isOnline, compact = false }:
         )}
         {sales.length > 0 && (
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-[#150d13]">
-              <tr className="text-left text-white/40 text-xs">
+            <thead className="sticky top-0 bg-[var(--admin-surface-solid)]">
+              <tr className="text-left text-white/60 text-xs">
                 <th className="px-3 py-1.5 font-medium">Hora</th>
                 <th className="px-3 py-1.5 font-medium">Cliente</th>
                 <th className="px-3 py-1.5 font-medium">Cobró</th>
@@ -134,11 +134,11 @@ export function SalesHistory({ eventId, registerId, isOnline, compact = false }:
               {sales.map((s) => {
                 const voided = s.status === 'refunded';
                 return (
-                  <tr key={s.id} onClick={() => setOpenOrder(s.orderNumber)} className={`border-t border-white/5 cursor-pointer active:bg-white/10 ${voided ? 'text-white/40' : ''}`}>
+                  <tr key={s.id} onClick={() => setOpenOrder(s.orderNumber)} className={`border-t border-white/5 cursor-pointer active:bg-white/10 ${voided ? 'text-white/60' : ''}`}>
                     <td className="px-3 py-2 whitespace-nowrap text-white/60">{timeOf(s.createdAt)}</td>
                     <td className="px-3 py-2 max-w-[150px]">
                       <p className={`truncate ${voided ? 'line-through' : ''}`}>{s.buyerName}</p>
-                      <p className="truncate text-[11px] font-mono text-white/40">{s.orderNumber}</p>
+                      <p className="truncate text-[11px] font-mono text-white/60">{s.orderNumber}</p>
                     </td>
                     <td className="px-3 py-2 truncate max-w-[110px]">{s.operatorName}</td>
                     <td className="px-3 py-2 hidden md:table-cell max-w-[220px] truncate text-white/60">{s.items.join(', ')}</td>
@@ -153,7 +153,7 @@ export function SalesHistory({ eventId, registerId, isOnline, compact = false }:
             </tbody>
           </table>
         )}
-        {query.isFetchingNextPage && <p className="px-4 py-2 text-xs text-white/40">Cargando más…</p>}
+        {query.isFetchingNextPage && <p className="px-4 py-2 text-xs text-white/60">Cargando más…</p>}
       </div>
 
       {openOrder && (
@@ -208,7 +208,7 @@ function SaleDetailModal({ eventId, registerId, isOnline, orderNumber, onClose }
 
   return (
     <div className="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-6" onClick={onClose}>
-      <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto bg-[#150d13] border border-white/10 rounded-t-3xl sm:rounded-3xl p-5 space-y-4 text-white" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto admin-glass-sheet rounded-t-3xl sm:rounded-3xl p-5 space-y-4 text-white" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
             <p className="font-mono text-sm text-white/50">{orderNumber}</p>
@@ -254,7 +254,7 @@ function SaleDetailModal({ eventId, registerId, isOnline, orderNumber, onClose }
               )}
               <div className="flex justify-between px-3 py-2 font-bold text-base">
                 <span>Total</span>
-                <span className={sale.status === 'refunded' ? 'line-through text-white/40' : ''}>{money(sale.total)}</span>
+                <span className={sale.status === 'refunded' ? 'line-through text-white/60' : ''}>{money(sale.total)}</span>
               </div>
             </div>
 
@@ -273,9 +273,9 @@ function SaleDetailModal({ eventId, registerId, isOnline, orderNumber, onClose }
               <div className="space-y-3 rounded-2xl border border-red-500/30 bg-red-500/5 p-3">
                 <p className="text-sm font-semibold text-red-300">Anular {money(sale.total)} — requiere clave de admin</p>
                 <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Motivo (ej: cobro duplicado, cliente se arrepintió)"
-                  className="h-11 bg-white/5 border-white/10 text-white placeholder:text-white/30" maxLength={300} />
+                  className="h-11 bg-white/5 border-white/10 text-white placeholder:text-white/50" maxLength={300} />
                 <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Clave de admin"
-                  autoComplete="off" className="h-11 bg-white/5 border-white/10 text-white placeholder:text-white/30"
+                  autoComplete="off" className="h-11 bg-white/5 border-white/10 text-white placeholder:text-white/50"
                   onKeyDown={(e) => { if (e.key === 'Enter') submitVoid(); }} />
                 <p className="text-xs text-white/50">
                   Se devuelven stock, Playcoins, saldo y código de descuento. La plata cobrada en máquina o efectivo hay que devolverla a mano. Queda registrado y se avisa al dueño.
@@ -297,8 +297,8 @@ function SaleDetailModal({ eventId, registerId, isOnline, orderNumber, onClose }
 
 function Info({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-xl bg-white/[0.04] border border-white/10 px-3 py-2 min-w-0">
-      <p className="text-[11px] text-white/40">{label}</p>
+    <div className="rounded-xl admin-clay admin-clay-sm px-3 py-2 min-w-0">
+      <p className="text-[11px] text-white/60">{label}</p>
       <div className="truncate">{value}</div>
     </div>
   );

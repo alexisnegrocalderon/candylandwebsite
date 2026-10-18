@@ -1,7 +1,9 @@
 import '@/admin.css';
+import { useDarkGlassDocument } from '@/components/admin/shell/AdminShell';
+import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Camera, X, ShoppingCart, Search, LayoutDashboard, AlertTriangle, LogOut, Receipt } from 'lucide-react';
+import { Camera, Check, Delete, X, ShoppingCart, Search, LayoutDashboard, AlertTriangle, LogOut, Receipt } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { Button } from '@/components/ui/button';
@@ -36,7 +38,29 @@ function newOpId() {
 
 type View = 'menu' | 'sheet' | 'sale' | 'history' | 'dashboard' | 'conflicts' | 'rejected';
 
+/** Marco de toda la caja con el mismo vidrio oscuro del panel: tema en
+ * <html> (diálogos y selects en portal también), fondo de planetas y barra
+ * de estado oscura. Cada pantalla de abajo es `fixed inset-0` y transparente
+ * para que se vea este fondo. */
+function CajaFrame({ children }: { children: React.ReactNode }) {
+  useDarkGlassDocument();
+  return (
+    <div data-admin-theme="dark-glass" className="admin-shell caja-shell dark">
+      <div className="admin-backdrop" aria-hidden="true" />
+      {children}
+    </div>
+  );
+}
+
 export default function CajaApp() {
+  return (
+    <CajaFrame>
+      <CajaGate />
+    </CajaFrame>
+  );
+}
+
+function CajaGate() {
   // Fuera del indice de Google: robots.txt solo lo pide, noindex lo asegura.
   useSeo({ title: 'Caja — Mansion Playroom', description: '', path: '/caja', noindex: true });
 
@@ -55,7 +79,7 @@ export default function CajaApp() {
 
   if (loadingDevice) {
     return (
-      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] flex items-center justify-center">
+      <div className="fixed inset-0 overscroll-none bg-transparent flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -71,7 +95,7 @@ export default function CajaApp() {
 
 function OfflineFirstRun() {
   return (
-    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-3 p-6 text-center">
+    <div className="fixed inset-0 overscroll-none bg-transparent text-white flex flex-col items-center justify-center gap-3 p-6 text-center">
       <h1 className="text-xl font-bold">Sin conexión</h1>
       <p className="text-white/70 text-sm max-w-xs">La primera vez la caja necesita internet para activarse y entrar. Después funciona aunque se corte la señal.</p>
       <button type="button" onClick={() => window.location.reload()} className="mt-2 text-sm underline text-white/80">Reintentar</button>
@@ -91,14 +115,14 @@ function DeviceEnroll() {
   });
 
   return (
-    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
+    <div className="fixed inset-0 overscroll-none bg-transparent text-white flex flex-col items-center justify-center gap-6 p-6">
       <h1 className="text-xl font-bold">Enrolar este dispositivo</h1>
       <p className="text-white/60 text-sm text-center max-w-xs">Pide el código de enrolamiento a un administrador (Panel Admin → Caja → Dispositivos).</p>
       <Input
         value={code}
         onChange={(e) => setCode(e.target.value.toUpperCase())}
         placeholder="XXXX-XXXX"
-        className="h-14 text-center text-lg font-mono bg-white/[0.04] backdrop-blur-sm border-white/10 text-white placeholder:text-white/40 max-w-xs"
+        className="h-14 text-center text-lg font-mono max-w-xs"
       />
       <Button className="w-full max-w-xs h-12 bg-primary hover:bg-primary/90" disabled={!code.trim() || enroll.isPending} onClick={() => enroll.mutate({ code: code.trim() })}>
         {enroll.isPending ? 'Enrolando…' : 'Enrolar dispositivo'}
@@ -113,7 +137,7 @@ function OperatorGate() {
 
   if (isLoading) {
     return (
-      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] flex items-center justify-center">
+      <div className="fixed inset-0 overscroll-none bg-transparent flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -203,7 +227,7 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
   // denominaciones: si hay turno abierto, pedirlo sería el bug de nuevo.
   if (registerId !== undefined && !shiftStarted && shiftLoading) {
     return (
-      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex items-center justify-center">
+      <div className="fixed inset-0 overscroll-none bg-transparent text-white flex items-center justify-center">
         <p className="text-white/60 text-sm">Revisando si hay un turno abierto…</p>
       </div>
     );
@@ -235,12 +259,12 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
   }
 
   return (
-    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
+    <div className="fixed inset-0 overscroll-none bg-transparent text-white flex flex-col items-center justify-center gap-6 p-6">
       <h1 className="text-xl font-bold">Hola, {operator.name} 👋</h1>
       <p className="text-white/60 text-sm">Elige tu caja para este turno</p>
       <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
         {(registersList ?? []).map((r: any) => (
-          <button key={r.id} onClick={() => chooseRegister(r.id)} className="h-20 rounded-3xl bg-white/[0.04] backdrop-blur-sm border border-white/10 text-lg font-semibold active:scale-95 transition-transform hover:border-primary/40">
+          <button key={r.id} onClick={() => chooseRegister(r.id)} className="h-20 rounded-3xl admin-clay admin-clay-sm text-lg font-semibold active:scale-95 transition-transform hover:border-primary/40">
             {r.name}
           </button>
         ))}
@@ -305,10 +329,12 @@ function DenominationCounter({ initialQuantities, onComplete, onExit, finalLabel
     else setStep((s) => s - 1);
   };
 
+  // Fondo propio y opaco: al cerrar turno este contador se abre ENCIMA de
+  // la caja, y transparente se leía lo de atrás.
   return (
-    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
-      <button onClick={back} className="text-white/50 text-sm self-start">← Volver</button>
-      <p className="text-white/40 text-xs uppercase tracking-wide">Paso {step + 1} de {DENOMINATIONS.length}</p>
+    <div className="fixed inset-0 z-20 overscroll-none bg-[#0b0612]/95 backdrop-blur-xl text-white flex flex-col items-center justify-center gap-6 p-6">
+      <button onClick={back} className="text-white/60 text-sm self-start">← Volver</button>
+      <p className="text-white/60 text-xs uppercase tracking-wide">Paso {step + 1} de {DENOMINATIONS.length}</p>
       <h1 className="text-xl font-bold text-center">{denom.label}</h1>
       <p className="text-white/60 text-sm">¿Cuántas hay?</p>
       <input
@@ -320,9 +346,9 @@ function DenominationCounter({ initialQuantities, onComplete, onExit, finalLabel
         onChange={(e) => setQty(e.target.value)}
         placeholder="0"
         autoFocus
-        className="w-full max-w-xs h-16 text-center text-2xl font-bold rounded-3xl bg-white/[0.04] backdrop-blur-sm border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
+        className="w-full max-w-xs h-16 text-center text-2xl font-bold rounded-3xl admin-clay admin-clay-sm text-white placeholder:text-white/50 focus:outline-none focus:border-primary/40"
       />
-      <div className="w-full max-w-xs p-3 rounded-2xl bg-white/[0.04] border border-white/10 flex justify-between text-sm">
+      <div className="w-full max-w-xs p-3 rounded-2xl admin-clay admin-clay-sm flex justify-between text-sm">
         <span className="text-white/50">Total acumulado</span>
         <span className="font-bold">${total.toLocaleString('es-CL')}</span>
       </div>
@@ -385,7 +411,7 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
 
   return (
     <div className="fixed inset-0 z-20 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 space-y-5">
+      <div className="w-full max-w-sm admin-glass-sheet rounded-3xl p-6 space-y-5">
         <div>
           <h2 className="text-lg font-bold">Cuadre de caja</h2>
           <p className="text-white/60 text-sm mt-1">Efectivo contado: <b>${countedCash.toLocaleString('es-CL')}</b>. Ahora anota los totales de los vouchers de las máquinas.</p>
@@ -410,7 +436,7 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
             <input
               type="number" inputMode="numeric" min={0} value={debit} onChange={(e) => setDebit(e.target.value)}
               placeholder="$0" autoFocus
-              className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
+              className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl admin-clay admin-clay-sm text-white placeholder:text-white/50 focus:outline-none focus:border-primary/40"
             />
           </div>
           <div>
@@ -418,7 +444,7 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
             <input
               type="number" inputMode="numeric" min={0} value={credit} onChange={(e) => setCredit(e.target.value)}
               placeholder="$0"
-              className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
+              className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl admin-clay admin-clay-sm text-white placeholder:text-white/50 focus:outline-none focus:border-primary/40"
             />
           </div>
           <div>
@@ -426,7 +452,7 @@ function ShiftCloseForm({ onSubmit, onCancel, loading }: {
             <input
               type="number" inputMode="numeric" min={0} value={qr} onChange={(e) => setQr(e.target.value)}
               placeholder="$0"
-              className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl bg-white/[0.04] border border-white/10 text-white placeholder:text-white/30 focus:outline-none focus:border-primary/40"
+              className="w-full h-14 mt-1 text-center text-xl font-bold rounded-2xl admin-clay admin-clay-sm text-white placeholder:text-white/50 focus:outline-none focus:border-primary/40"
             />
           </div>
         </div>
@@ -460,17 +486,21 @@ function PinLogin() {
 
   if (!selected) {
     return (
-      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-8 p-6">
-        <h1 className="text-2xl font-bold tracking-tight">Mansion Playroom · Caja</h1>
-        <p className="text-white/60 text-sm -mt-6">Toca tu nombre</p>
+      <div className="fixed inset-0 overscroll-none bg-transparent text-white flex flex-col items-center justify-center gap-8 p-6">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-14 w-14 object-contain" />
+          <h1 className="font-heading text-2xl tracking-tight"><span className="admin-brand-text">MANSION PLAYROOM</span> · Caja</h1>
+          <p className="text-white/70 text-sm">Toca tu nombre</p>
+        </div>
         <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
           {(operators ?? []).map((op) => (
             <button
               key={op.id}
               onClick={() => setSelected({ id: op.id, name: op.name })}
-              className="h-20 rounded-3xl bg-white/[0.04] backdrop-blur-sm border border-white/10 text-lg font-semibold active:scale-95 transition-transform hover:border-primary/40"
+              className="admin-tile flex h-20 flex-col items-center justify-center rounded-3xl text-lg font-semibold active:scale-95 transition-transform"
             >
               {op.name}
+              <span className="text-xs font-normal text-white/60">{OPERATOR_ROLE_LABELS[op.role] ?? op.role}</span>
             </button>
           ))}
           {operators && operators.length === 0 && (
@@ -487,10 +517,10 @@ function PinLogin() {
   const submit = (finalPin: string) => login.mutate({ operatorId: selected.id, pin: finalPin });
 
   return (
-    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-6 p-6">
+    <div className="fixed inset-0 overscroll-none bg-transparent text-white flex flex-col items-center justify-center gap-6 p-6">
       <button onClick={() => { setSelected(null); setPin(''); }} className="text-white/50 text-sm">← Cambiar de operador</button>
       <h1 className="text-xl font-bold">{selected.name}</h1>
-      <div className="flex gap-3">
+      <div className="flex gap-3" role="status" aria-label={`${digits.length} de 6 dígitos ingresados`}>
         {[0, 1, 2, 3, 4, 5].map((i) => (
           <div key={i} className={`w-4 h-4 rounded-full border-2 transition-all ${i < digits.length ? 'bg-primary border-primary shadow-[0_0_10px_-2px_var(--color-primary)]' : 'border-white/15'}`} />
         ))}
@@ -505,8 +535,12 @@ function PinLogin() {
               if (!k) return;
               const next = (pin + k).slice(0, 6);
               setPin(next);
+              // Con 6 dígitos entra solo. Con 4 o 5 se usa "Entrar": probar
+              // a ciegas al 4º dígito gastaría intentos del bloqueo por PIN.
+              if (next.length === 6) submit(next);
             }}
-            className={`h-16 rounded-full text-xl font-semibold active:scale-95 transition-transform ${k ? 'bg-white/[0.04] backdrop-blur-sm border border-white/10' : 'invisible'}`}
+            aria-label={k === '⌫' ? 'Borrar último dígito' : k || undefined}
+            className={`h-16 rounded-full text-xl font-semibold active:scale-95 transition-transform focus-visible:ring-2 focus-visible:ring-primary ${k ? 'admin-tile' : 'invisible'}`}
           >
             {k}
           </button>
@@ -715,7 +749,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
 
   if (!localEvent) {
     return (
-      <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex items-center justify-center p-6 text-center">
+      <div className="fixed inset-0 overscroll-none bg-transparent text-white flex items-center justify-center p-6 text-center">
         <p className="text-white/60">{isOnline ? 'Cargando evento…' : 'Sin conexión y sin datos guardados todavía. Conéctate una vez para descargar el evento.'}</p>
       </div>
     );
@@ -745,13 +779,16 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   // (grilla, ventas recientes, carrito) evitan que ESAS regiones encadenen
   // el rebote hacia afuera al llegar a su propio borde.
   return (
-    <div className="fixed inset-0 overflow-hidden overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col">
-      <header className="shrink-0 z-10 bg-[#150d13]/80 backdrop-blur-xl border-b border-white/10 px-4 py-3 flex items-center justify-between">
-        <div>
-          <p className="font-bold leading-tight">{localEvent.title}</p>
-          <p className="text-xs text-white/50">{operator.name} · {operator.role}</p>
+    <div className="fixed inset-0 overflow-hidden overscroll-none bg-transparent text-white flex flex-col">
+      <header className="shrink-0 z-10 px-3 pt-[max(env(safe-area-inset-top),0.75rem)] pb-2">
+        <div className="admin-glass-panel admin-glass-panel-sm flex items-center gap-3 px-4 py-2.5">
+          <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-7 w-7 shrink-0 object-contain" />
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-heading text-lg leading-tight">{localEvent.title}</p>
+            <p className="truncate text-xs text-white/60">{operator.name} · {OPERATOR_ROLE_LABELS[operator.role] ?? operator.role}</p>
+          </div>
+          <SyncBadge online={isOnline} pending={pending} />
         </div>
-        <SyncBadge online={isOnline} pending={pending} />
       </header>
 
       {/* Fuera del horario real del evento, el servidor cambia solo a un
@@ -771,7 +808,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
       )}
 
       {scanning && (
-        <div className="fixed inset-0 z-50 bg-[#0d0810] flex flex-col">
+        <div className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex items-center justify-between p-4 shrink-0">
             <p className="font-semibold">Escanea el QR de la entrada</p>
             <button onClick={() => setScanning(false)} className="p-2 text-white/50" aria-label="Cerrar"><X className="w-6 h-6" /></button>
@@ -817,13 +854,13 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         />
       )}
 
-      <div className="flex-1 flex min-h-0">
+      <div className="flex-1 flex flex-col-reverse min-h-0 md:flex-row">
         <CajaSidebar view={view} setView={setView} setSelectedOrderId={setSelectedOrderId} isSupervisor={isSupervisor} onCerrarTurno={onCerrarTurno} closingTurno={shiftClose.isPending} />
 
         {/* "Nueva venta" (view === 'sale') usa el ancho completo -- el resto de
             las vistas son listas/formularios angostos que se mantienen
             centrados con su propio max-w-lg, en vez de angostar todo por igual. */}
-        <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain p-4">
+        <main className="flex-1 min-w-0 min-h-0 overflow-y-auto overscroll-contain px-3 pb-3 pt-1 md:p-4">
         {view === 'menu' && (
           <div className="max-w-lg mx-auto space-y-6">
             <div>
@@ -831,7 +868,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Buscar por nombre, email o teléfono…"
-                className="h-14 text-base bg-white/[0.04] backdrop-blur-sm border-white/10 text-white placeholder:text-white/50"
+                className="h-14 text-base"
               />
               {query.trim().length >= 2 && (
                 <div className="mt-2 space-y-2">
@@ -840,7 +877,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
                     <button
                       key={r.orderId}
                       onClick={() => { setSelectedOrderId(r.orderId); setView('sheet'); }}
-                      className="w-full text-left p-4 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/10 active:scale-[0.99] transition-transform"
+                      className="w-full text-left p-4 rounded-2xl admin-clay admin-clay-sm active:scale-[0.99] transition-transform"
                     >
                       <p className="font-semibold">{r.buyerName}</p>
                       <p className="text-sm text-white/50">{r.buyerEmail}{r.buyerPhone ? ` · ${r.buyerPhone}` : ''}</p>
@@ -871,7 +908,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
                 value={manualCode}
                 onChange={(e) => setManualCode(e.target.value.toUpperCase())}
                 placeholder="Código de canje (PIS-XXXX-XXXX)"
-                className="h-12 bg-white/[0.04] backdrop-blur-sm border-white/10 text-white placeholder:text-white/50 font-mono"
+                className="h-12 font-mono"
               />
               <Button className="h-12 bg-primary hover:bg-primary/90" disabled={!manualCode.trim()} onClick={redeemManual}>
                 Canjear
@@ -890,8 +927,8 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
               <button onClick={() => setView('sale')} className="h-24 rounded-3xl bg-primary/10 border border-primary/30 text-primary font-semibold active:scale-95 transition-transform shadow-[0_0_24px_-8px_var(--color-primary)]">
                 🛒 Nueva venta
               </button>
-              <button onClick={() => setView('dashboard')} className="h-24 rounded-3xl bg-white/[0.04] backdrop-blur-sm border border-white/10 font-semibold active:scale-95 transition-transform">
-                📊 Dashboard
+              <button onClick={() => setView('dashboard')} className="h-24 rounded-3xl admin-clay admin-clay-sm font-semibold active:scale-95 transition-transform">
+                📊 Resumen
               </button>
               {isSupervisor && (
                 <button onClick={() => setView('conflicts')} className="h-24 rounded-3xl bg-amber-500/10 border border-amber-500/30 text-amber-300 font-semibold active:scale-95 transition-transform col-span-2 shadow-[0_0_24px_-8px_rgba(245,158,11,0.6)]">
@@ -951,17 +988,13 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
               const confirms: typeof postSaleConfirms = [];
               if (kitchenTicketNumber) confirms.push({ kind: 'kitchen', number: kitchenTicketNumber, name: customerName || kitchenTicketNumber, offline: !isOnline });
               if (lockerTag) confirms.push({ kind: 'locker', number: lockerTag, name: lockerCustomerName || lockerTag, offline: !isOnline });
+              // Sin comanda/percha, NewSale muestra su propia confirmación grande.
               if (confirms.length > 0) setPostSaleConfirms(confirms);
-              else toast.success('Venta registrada ✅');
               refreshPending();
               runSync();
-              // Con favoritos cargados, la cajera se queda directo en "Nueva
-              // venta" lista para la próxima -- volver al menú entre cada
-              // venta era fricción innecesaria en un local de alto volumen.
-              // NewSale ya resetea su propio carrito/tab a Favoritos en su
-              // confirm(); sin favoritos, se mantiene el comportamiento de
-              // siempre (volver al menú).
-              if (getFavoriteIds().length === 0) setView('menu');
+              // La cajera se queda en "Nueva venta" lista para la próxima (con
+              // la confirmación grande encima): volver al menú entre cada
+              // venta era fricción en un local de alto volumen.
             }}
           />
         )}
@@ -989,10 +1022,10 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         const isKitchen = c.kind === 'kitchen';
         return (
           <div className="fixed inset-0 z-30 bg-black/85 backdrop-blur-sm flex items-center justify-center p-6">
-            <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-4">
+            <div className="w-full max-w-sm admin-glass-sheet rounded-3xl p-6 text-center space-y-4">
               <p className="text-sm text-white/60 uppercase tracking-wide">{isKitchen ? 'Nombre del pedido' : '🧥 Percha asignada'}</p>
               <p className="font-heading font-extrabold text-5xl tracking-tight text-primary">{isKitchen ? c.name : c.number}</p>
-              <p className="text-xs text-white/40 font-mono">{isKitchen ? `Comanda ${c.number}` : c.name}</p>
+              <p className="text-xs text-white/60 font-mono">{isKitchen ? `Comanda ${c.number}` : c.name}</p>
               <p className="text-white/70">
                 {isKitchen
                   ? 'Díctale su nombre a la persona -- lo va a necesitar para retirar en cocina.'
@@ -1027,45 +1060,52 @@ function CajaSidebar({ view, setView, setSelectedOrderId, isSupervisor, onCerrar
   closingTurno: boolean;
 }) {
   const go = (v: View) => { setSelectedOrderId(null); setView(v); };
-  const items: { view: View; label: string; icon: typeof ShoppingCart }[] = [
-    { view: 'sale', label: 'Nueva venta', icon: ShoppingCart },
+  const items: { view: View; label: string; short?: string; icon: typeof ShoppingCart }[] = [
+    { view: 'sale', label: 'Nueva venta', short: 'Vender', icon: ShoppingCart },
     { view: 'menu', label: 'Buscar', icon: Search },
     { view: 'history', label: 'Ventas', icon: Receipt },
-    { view: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { view: 'dashboard', label: 'Resumen', icon: LayoutDashboard },
     ...(isSupervisor ? [{ view: 'conflicts' as View, label: 'Conflictos', icon: AlertTriangle }] : []),
   ];
   // La ficha de un cliente (view === 'sheet') se llega desde una búsqueda o
   // un escaneo, no es un destino propio del sidebar -- se resalta "Buscar"
   // mientras se está ahí, para que el ícono activo nunca quede "apagado".
   const activeView = view === 'sheet' ? 'menu' : view;
+  // Celular: barra inferior de vidrio (como el panel). Tablet: columna
+  // lateral con etiquetas. Mismo "pill" luminoso para lo activo.
   return (
-    <nav className="w-16 md:w-20 shrink-0 border-r border-white/10 flex flex-col items-center py-4 gap-1">
-      <img src="/candyland/logo-isotipo.webp" alt="" aria-hidden className="h-8 w-8 rounded-lg mb-3" />
-      {items.map((it) => {
-        const Icon = it.icon;
-        const active = activeView === it.view;
-        return (
-          <button
-            key={it.view}
-            onClick={() => go(it.view)}
-            className={`w-12 md:w-16 flex flex-col items-center gap-1 py-2 rounded-xl transition-colors ${active ? 'bg-primary/20 text-primary' : 'text-white/50 hover:text-white/80'}`}
-            aria-label={it.label}
-          >
-            <Icon className="w-5 h-5" />
-            <span className="text-[10px] font-medium leading-none text-center hidden md:block">{it.label}</span>
-          </button>
-        );
-      })}
-      <div className="flex-1" />
-      <button
-        onClick={onCerrarTurno}
-        disabled={closingTurno}
-        className="w-12 md:w-16 flex flex-col items-center gap-1 py-2 rounded-xl text-white/50 hover:text-red-300 disabled:opacity-40"
-        aria-label="Cerrar turno"
-      >
-        <LogOut className="w-5 h-5" />
-        <span className="text-[10px] font-medium leading-none text-center hidden md:block">Cerrar turno</span>
-      </button>
+    <nav aria-label="Secciones de la caja" className="shrink-0 px-3 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1 md:px-0 md:pb-3 md:pl-3 md:pt-0">
+      <div className="admin-glass-panel flex items-stretch justify-around gap-1 px-1 py-1.5 md:h-full md:w-20 md:flex-col md:justify-start md:px-1.5 md:py-3">
+        {items.map((it) => {
+          const Icon = it.icon;
+          const active = activeView === it.view;
+          return (
+            <button
+              key={it.view}
+              type="button"
+              onClick={() => go(it.view)}
+              aria-current={active ? 'page' : undefined}
+              aria-label={it.label}
+              className={`admin-tabbar-item flex min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl px-1 py-2 md:flex-none ${active ? 'admin-tabbar-item-active' : ''}`}
+            >
+              <Icon className="h-5 w-5" />
+              <span className="max-w-full truncate text-[11px] font-medium leading-none md:hidden">{it.short ?? it.label}</span>
+              <span className="hidden max-w-full text-center text-[11px] font-medium leading-tight md:inline">{it.label}</span>
+            </button>
+          );
+        })}
+        <div className="hidden md:block md:flex-1" />
+        <button
+          type="button"
+          onClick={onCerrarTurno}
+          disabled={closingTurno}
+          className="admin-tabbar-item admin-nav-item-danger flex min-w-0 flex-1 flex-col items-center gap-1 rounded-2xl px-1 py-2 disabled:opacity-40 md:flex-none"
+          aria-label="Cerrar turno"
+        >
+          <LogOut className="h-5 w-5" />
+          <span className="max-w-full truncate text-[11px] font-medium leading-none md:whitespace-normal md:text-center md:leading-tight"><span className="md:hidden">Cerrar</span><span className="hidden md:inline">Cerrar turno</span></span>
+        </button>
+      </div>
     </nav>
   );
 }
@@ -1105,15 +1145,15 @@ function CustomerSheet({ orderId, onRedeem, onCheckIn, canVoid, onVoid, voiding 
       <div>
         <h2 className="text-xl font-bold">{sheet.buyerName}</h2>
         <p className="text-sm text-white/50">{sheet.buyerEmail}{sheet.buyerPhone ? ` · ${sheet.buyerPhone}` : ''}</p>
-        <p className="text-xs text-white/40 mt-1">Orden {sheet.orderNumber}</p>
+        <p className="text-xs text-white/60 mt-1">Orden {sheet.orderNumber}</p>
       </div>
 
       <div>
         <p className="text-xs uppercase tracking-wide text-white/50 mb-2">Acceso</p>
         <div className="space-y-2">
-          {sheet.access.length === 0 && <p className="text-sm text-white/40">Sin accesos en esta orden.</p>}
+          {sheet.access.length === 0 && <p className="text-sm text-white/60">Sin accesos en esta orden.</p>}
           {sheet.access.map((a, i) => (
-            <div key={i} className="p-3 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/10 flex items-center justify-between gap-3">
+            <div key={i} className="p-3 rounded-2xl admin-clay admin-clay-sm flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium">{a.typeName}</p>
                 <p className="text-xs text-white/50 font-mono truncate">{a.ticketCode}</p>
@@ -1134,7 +1174,7 @@ function CustomerSheet({ orderId, onRedeem, onCheckIn, canVoid, onVoid, voiding 
           <p className="text-xs uppercase tracking-wide text-white/50 mb-2">Extras</p>
           <div className="space-y-2">
             {sheet.extras.map((e, i) => (
-              <div key={i} className="p-3 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/10">
+              <div key={i} className="p-3 rounded-2xl admin-clay admin-clay-sm">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium">{e.typeName}</p>
@@ -1211,7 +1251,24 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
 }) {
   const [catalog, setCatalog] = useState<CajaCatalogItem[]>([]);
   const [cart, setCart] = useState<Record<number, number>>({});
-  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito' | 'qr' | 'saldo'>('debito');
+  // Arranca con el último medio usado en ESTA tablet (en barra se repite
+  // casi siempre el mismo); 'saldo' nunca, porque exige datos del cliente.
+  const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'debito' | 'credito' | 'qr' | 'saldo'>(() => {
+    const last = localStorage.getItem('caja_last_payment');
+    return last === 'efectivo' || last === 'debito' || last === 'credito' || last === 'qr' ? last : 'debito';
+  });
+  useEffect(() => { if (paymentMethod !== 'saldo') localStorage.setItem('caja_last_payment', paymentMethod); }, [paymentMethod]);
+  // Celular/tablet vertical: el carrito es una hoja que se abre desde la
+  // barra de total; en horizontal ancho queda fijo al costado.
+  const [cartOpen, setCartOpen] = useState(false);
+  // Confirmación grande de la venta recién registrada (sin comanda/percha,
+  // que tienen su propia pantalla con el número).
+  const [lastSale, setLastSale] = useState<{ total: number; method: string; change: number | null } | null>(null);
+  useEffect(() => {
+    if (!lastSale) return;
+    const id = window.setTimeout(() => setLastSale(null), 2200);
+    return () => window.clearTimeout(id);
+  }, [lastSale]);
   // Venta en curso: bloquea el botón de confirmar hasta que la venta quedó
   // encolada, para que un doble toque no registre la misma venta dos veces.
   const [confirming, setConfirming] = useState(false);
@@ -1478,6 +1535,11 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
       );
       return;
     }
+    if (!kitchenTicketNumber && !lockerTag) {
+      const given = Number(cashGiven || 0);
+      setLastSale({ total, method, change: method === 'efectivo' && given >= total ? given - total : null });
+    }
+    setCartOpen(false);
     setCart({});
     setBuyerEmail('');
     setBalance(null);
@@ -1536,7 +1598,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
       {catalog.length === 0 ? (
         <p className="text-white/50 text-sm">Todavía no hay productos cargados para este evento. Se cargan desde Admin → Carta de la Fiesta.</p>
       ) : (
-        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-5">
+        <div className="flex-1 min-h-0 flex flex-col gap-5 min-[900px]:landscape:flex-row">
           <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-5">
             {/* Categorías como círculos, en fila -- con scroll horizontal si no caben. */}
             <div className="shrink-0 flex gap-4 overflow-x-auto pb-1">
@@ -1559,7 +1621,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
             </div>
 
             {/* Grilla de productos -- tocar suma una unidad; el stepper +/- ahora vive en el carrito, no acá (ver panel derecho). Ocupa TODO el espacio restante de la columna, con scroll propio si no caben todos, en vez de empujar "Ventas recientes" fuera de la pantalla. */}
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain grid grid-cols-2 sm:grid-cols-3 gap-3 content-start">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 min-[900px]:landscape:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
               {productsInTab.map((p) => {
                 const left = p.totalStock - p.soldCount;
                 const noStock = left <= 0;
@@ -1613,7 +1675,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                       </span>
                     )}
                     {p.description && (
-                      <span className="absolute bottom-2 right-2 text-[10px] text-white/30" aria-hidden>ⓘ</span>
+                      <span className="absolute bottom-2 right-2 text-[10px] text-white/50" aria-hidden>ⓘ</span>
                     )}
                     <div className="flex items-center gap-2">
                       <span className="text-3xl leading-none">{p.emoji || CATEGORY_META[p.category]?.emoji || '🛍️'}</span>
@@ -1638,8 +1700,30 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
             </div>
 
             {/* Ventas de la noche (pedido explícito del dueño): con nombre del cliente, quién cobró, buscador y scroll propio; tocar una fila abre el detalle y la anulación con clave admin. Alto acotado: nunca empuja el resto de la pantalla. */}
-            <SalesHistory compact eventId={eventId} registerId={registerId} isOnline={isOnline} />
+            <div className="hidden min-[900px]:landscape:block">
+              <SalesHistory compact eventId={eventId} registerId={registerId} isOnline={isOnline} />
+            </div>
+
+            {/* Barra de total (celular y tablet vertical): abre el carrito. */}
+            <div className="shrink-0 min-[900px]:landscape:hidden">
+              <button type="button" onClick={() => setCartOpen(true)} disabled={!hasItems}
+                className="admin-glass-panel flex w-full items-center gap-3 px-4 py-3 text-left disabled:opacity-60">
+                <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10">
+                  <ShoppingCart className="h-5 w-5" />
+                  {hasItems && <span className="admin-badge absolute -right-1.5 -top-1.5">{cartLines.reduce((n, p) => n + cart[p.id], 0)}</span>}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs text-white/60">{hasItems ? 'Total' : 'Toca un producto para agregarlo'}</span>
+                  <span className="block text-2xl font-bold tabular-nums">${total.toLocaleString('es-CL')}</span>
+                </span>
+                {hasItems && <span className="shrink-0 rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground">Cobrar</span>}
+              </button>
+            </div>
           </div>
+
+          {cartOpen && (
+            <div className="fixed inset-0 z-20 bg-black/60 backdrop-blur-sm min-[900px]:landscape:hidden" onClick={() => setCartOpen(false)} aria-hidden="true" />
+          )}
 
           {/* Panel de carrito persistente al costado -- antes era una barra pegada abajo, ahora siempre visible mientras se arma la venta. */}
           {/* `max-h-[48vh] lg:max-h-none` -- por debajo de `lg:` este panel
@@ -1652,7 +1736,11 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
               `overflow-y-auto`) y la grilla recupera la mitad de la
               pantalla. `lg:` en adelante (tablet en horizontal/desktop) usa
               `self-stretch` de siempre, sin cambios. */}
-          <aside className="w-full max-h-[48vh] lg:max-h-none lg:w-96 shrink-0 min-h-0 lg:self-stretch flex flex-col overflow-y-auto overscroll-contain bg-white/[0.04] backdrop-blur-sm border border-white/10 rounded-3xl p-4 space-y-4">
+          <aside aria-label="Carrito" className={`${cartOpen ? 'fixed inset-x-0 bottom-0 z-30 flex max-h-[88dvh] rounded-t-3xl admin-glass-sheet pb-[max(env(safe-area-inset-bottom),1rem)]' : 'hidden'} flex-col overflow-y-auto overscroll-contain p-4 space-y-4 min-[900px]:landscape:static min-[900px]:landscape:z-auto min-[900px]:landscape:flex min-[900px]:landscape:max-h-none min-[900px]:landscape:w-96 min-[900px]:landscape:shrink-0 min-[900px]:landscape:self-stretch min-[900px]:landscape:rounded-3xl min-[900px]:landscape:pb-4 caja-cart-panel`}>
+            <div className="flex items-center justify-between min-[900px]:landscape:hidden">
+              <p className="font-heading text-lg">Carrito</p>
+              <button type="button" onClick={() => setCartOpen(false)} aria-label="Cerrar carrito" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
+            </div>
             {/* Tarjeta de cliente: lo que el carrito necesite en este momento -- guardarropía/cocina (si aplica) y Playcoins. */}
             <div className="rounded-2xl bg-white/[0.03] border border-white/10 p-3 space-y-3">
               <p className="text-xs uppercase tracking-wide text-white/45">Cliente</p>
@@ -1666,9 +1754,9 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                     value={lockerCustomerName}
                     onChange={(e) => setLockerCustomerName(e.target.value)}
                     placeholder="Nombre de la persona"
-                    className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                    className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/60"
                   />
-                  <p className="text-xs text-white/40">El número de percha se asigna solo al confirmar.</p>
+                  <p className="text-xs text-white/60">El número de percha se asigna solo al confirmar.</p>
                   {tooManyLockers && <p className="text-xs text-red-400">Cobra los abrigos de a uno para poder asignar un número a cada uno.</p>}
                 </div>
               )}
@@ -1682,7 +1770,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
                     placeholder="Cualquier nombre, para que cocina lo llame"
-                    className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                    className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/60"
                   />
                 </div>
               )}
@@ -1694,10 +1782,10 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                       value={customerSearch}
                       onChange={(e) => setCustomerSearch(e.target.value)}
                       placeholder="🔍 Buscar cliente (Playcoins)"
-                      className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                      className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/60"
                     />
                     {customerSearchResults.length > 0 && (
-                      <div className="absolute z-10 mt-1 w-full bg-[#1a1017] border border-white/15 rounded-xl overflow-hidden shadow-xl max-h-48 overflow-y-auto">
+                      <div className="absolute z-10 mt-1 w-full bg-[var(--admin-surface-solid)] border border-white/15 rounded-xl overflow-hidden shadow-xl max-h-48 overflow-y-auto">
                         {customerSearchResults.map((a) => (
                           <button
                             key={a.orderId}
@@ -1705,13 +1793,13 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                             className="w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/10 border-b border-white/5 last:border-0"
                           >
                             <span className="font-medium">{a.buyerName}</span>
-                            <span className="block text-xs text-white/40">{a.buyerEmail}</span>
+                            <span className="block text-xs text-white/60">{a.buyerEmail}</span>
                           </button>
                         ))}
                       </div>
                     )}
                     {customerSearch.trim() && customerSearchResults.length === 0 && (
-                      <p className="text-xs text-white/40 mt-1">Nadie que ya haya entrado coincide con "{customerSearch.trim()}".</p>
+                      <p className="text-xs text-white/60 mt-1">Nadie que ya haya entrado coincide con "{customerSearch.trim()}".</p>
                     )}
                   </div>
                   <div className="flex items-center gap-3 flex-wrap">
@@ -1730,7 +1818,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                     value={buyerEmail}
                     onChange={(e) => { setBuyerEmail(e.target.value); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
                     placeholder="email@cliente.cl"
-                    className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                    className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/60"
                   />
                   {paymentMethod === 'saldo' && (
                     <Input
@@ -1738,7 +1826,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                       value={cardPin}
                       onChange={(e) => setCardPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
                       placeholder="PIN de la tarjeta (4 dígitos)"
-                      className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40 tracking-[0.3em] text-center"
+                      className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/60 tracking-[0.3em] text-center"
                     />
                   )}
                   <div className="flex items-center gap-3">
@@ -1748,7 +1836,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                     {paymentMethod !== 'saldo' && (
                       <button
                         onClick={() => { setShowEmailStep(false); setBuyerEmail(''); setBalance(null); setRedeemInput(''); setAssociatedName(null); }}
-                        className="text-xs text-white/40 underline"
+                        className="text-xs text-white/60 underline"
                       >
                         Omitir
                       </button>
@@ -1762,11 +1850,11 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                           type="number" inputMode="numeric" min={0} max={Math.min(balance, total)}
                           value={redeemInput} onChange={(e) => setRedeemInput(e.target.value)}
                           placeholder="Canjear cuántos Playcoins"
-                          className="h-9 mt-1 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                          className="h-9 mt-1 bg-white/10 border-white/15 text-white placeholder:text-white/60"
                         />
                       </div>
                     ) : (
-                      <p className="text-xs text-white/40">Saldo: {balance} Playcoins (mínimo {PLAYCOINS_MIN_REDEEM_BALANCE} para canjear)</p>
+                      <p className="text-xs text-white/60">Saldo: {balance} Playcoins (mínimo {PLAYCOINS_MIN_REDEEM_BALANCE} para canjear)</p>
                     )
                   )}
                 </div>
@@ -1781,9 +1869,10 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                   key={m}
                   disabled={m === 'saldo' && !isOnline}
                   onClick={() => { setPaymentMethod(m); if (m === 'saldo') setShowEmailStep(true); }}
-                  className={`h-11 rounded-xl text-xs font-semibold capitalize transition-colors ${paymentMethod === m ? 'bg-primary text-white' : 'bg-white/5 text-white/50'} disabled:opacity-30`}
+                  aria-pressed={paymentMethod === m}
+                  className={`admin-tab h-12 rounded-xl text-xs font-semibold capitalize disabled:opacity-30 ${paymentMethod === m ? 'admin-tab-active' : ''}`}
                 >
-                  {m === 'qr' ? '📲 QR' : m === 'saldo' ? '💳 Saldo' : m}
+                  {m === 'qr' ? '📲 QR' : m === 'saldo' ? '💳 Saldo' : m === 'efectivo' ? '💵 Efectivo' : m === 'debito' ? 'Débito' : 'Crédito'}
                 </button>
               ))}
             </div>
@@ -1797,16 +1886,16 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                 <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
                   <div className="min-w-0">
                     <p className="truncate">{p.emoji ? `${p.emoji} ` : ''}{p.name}</p>
-                    <p className="text-xs text-white/40">${(p.price * cart[p.id]).toLocaleString('es-CL')}</p>
+                    <p className="text-xs text-white/60">${(p.price * cart[p.id]).toLocaleString('es-CL')}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => remove(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">−</button>
-                    <span className="font-bold w-4 text-center">{cart[p.id]}</span>
-                    <button onClick={() => add(p.id)} className="w-7 h-7 rounded-full bg-white/10 text-white">+</button>
+                    <button onClick={() => remove(p.id)} aria-label={`Quitar un ${p.name}`} className="admin-tile w-11 h-11 rounded-full text-xl leading-none">−</button>
+                    <span className="font-bold w-6 text-center tabular-nums">{cart[p.id]}</span>
+                    <button onClick={() => add(p.id)} aria-label={`Agregar un ${p.name}`} className="admin-tile w-11 h-11 rounded-full text-xl leading-none">+</button>
                   </div>
                 </div>
               )) : (
-                <p className="text-sm text-white/40 text-center py-3">Carrito vacío -- toca un producto para agregarlo.</p>
+                <p className="text-sm text-white/60 text-center py-3">Carrito vacío -- toca un producto para agregarlo.</p>
               )}
             </div>
 
@@ -1824,7 +1913,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
                       value={discountCode}
                       onChange={(e) => { setDiscountCode(e.target.value.toUpperCase()); setDiscountResult(null); }}
                       placeholder="Código de descuento"
-                      className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/40"
+                      className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/60"
                     />
                     <Button size="sm" variant="outline" className="border-white/15 text-white shrink-0" disabled={!discountCode.trim() || validateDiscount.isPending} onClick={applyDiscount}>
                       {validateDiscount.isPending ? '…' : 'Aplicar'}
@@ -1846,7 +1935,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
             </div>
 
             <Button
-              className="w-full h-12 bg-primary hover:bg-primary/90"
+              className="w-full h-14 rounded-2xl text-base font-bold"
               disabled={!hasItems || tooManyLockers || (paymentMethod === 'saldo' && !isOnline) || (confirming && paymentMethod === 'saldo')}
               onClick={startCheckout}
             >
@@ -1861,8 +1950,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
 
       {paymentStep === 'card' && (
         <div className="fixed inset-0 z-30 bg-black/90 backdrop-blur-sm flex items-center justify-center p-6">
-          <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-4">
-            <p className="text-xs uppercase tracking-widest text-white/40">Cobrar con máquina</p>
+          <div className="w-full max-w-sm admin-glass-sheet rounded-3xl p-6 text-center space-y-4">
+            <p className="text-xs uppercase tracking-widest text-white/60">Cobrar con máquina</p>
             <p className="font-heading font-extrabold text-5xl">${total.toLocaleString('es-CL')}</p>
             <p className="text-white/60 text-sm">Pasa la tarjeta en el POS y espera la aprobación.</p>
             {/* La noche de Candyland cerró con CERO ventas anotadas como
@@ -1871,7 +1960,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
              * Por eso acá no se confirma con un botón genérico -- se elige
              * el tipo de tarjeta en el mismo momento en que se ve en el POS,
              * que es el único instante en que la cajera realmente lo sabe. */}
-            <p className="text-white/40 text-xs">¿Con qué pagó? Tiene que calzar con el voucher.</p>
+            <p className="text-white/60 text-xs">¿Con qué pagó? Tiene que calzar con el voucher.</p>
             <div className="grid grid-cols-2 gap-2">
               {(['debito', 'credito'] as const).map((m) => (
                 <Button
@@ -1891,43 +1980,33 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
         </div>
       )}
 
-      {paymentStep === 'cash' && (() => {
-        const given = Number(cashGiven || 0);
-        const change = given - total;
-        const validAmount = cashGiven.trim() !== '' && given >= total;
-        return (
-          <div className="fixed inset-0 z-30 bg-black/90 backdrop-blur-sm flex items-center justify-center p-6">
-            <div className="w-full max-w-sm bg-[#150d13] border border-white/10 rounded-3xl p-6 text-center space-y-4">
-              <p className="text-xs uppercase tracking-widest text-white/40">Cobro en efectivo</p>
-              <p className="font-heading font-extrabold text-5xl">${total.toLocaleString('es-CL')}</p>
-              <div className="text-left">
-                <p className="text-xs text-white/50 mb-1">Monto entregado por el cliente</p>
-                <Input
-                  type="number" inputMode="numeric" autoFocus min={0}
-                  value={cashGiven} onChange={(e) => setCashGiven(e.target.value)}
-                  placeholder="$"
-                  className="h-12 bg-white/10 border-white/15 text-white text-xl text-center"
-                />
-              </div>
-              {cashGiven.trim() !== '' && (
-                given < total ? (
-                  <p className="text-red-400 text-sm">Falta ${(total - given).toLocaleString('es-CL')}</p>
-                ) : (
-                  <p className="text-white/80">Vuelto: <span className="font-bold text-2xl">${change.toLocaleString('es-CL')}</span></p>
-                )
-              )}
-              <div className="space-y-2 pt-2">
-                <Button className="w-full h-12 bg-primary hover:bg-primary/90" disabled={!validAmount || confirming} onClick={confirm}>
-                  {confirming ? 'Registrando…' : 'Confirmar venta'}
-                </Button>
-                <Button variant="outline" className="w-full h-11 border-white/15 text-white/70" onClick={() => setPaymentStep(null)}>
-                  Cancelar y volver
-                </Button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {paymentStep === 'cash' && (
+        <CashPayment
+          total={total}
+          value={cashGiven}
+          onChange={setCashGiven}
+          confirming={confirming}
+          onConfirm={confirm}
+          onCancel={() => setPaymentStep(null)}
+        />
+      )}
+
+      {lastSale && (
+        <button type="button" onClick={() => setLastSale(null)}
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm" aria-live="polite">
+          <span className="admin-glass-sheet flex w-full max-w-sm flex-col items-center gap-2 rounded-3xl p-8 text-center">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--admin-success-bg)] text-[var(--admin-success-text)] shadow-[0_0_40px_rgba(34,197,94,0.35)]">
+              <Check className="h-8 w-8" strokeWidth={3} />
+            </span>
+            <span className="mt-2 text-sm text-white/70">Venta registrada · {PAYMENT_LABEL[lastSale.method] ?? lastSale.method}</span>
+            <span className="text-5xl font-bold tracking-tight tabular-nums">${lastSale.total.toLocaleString('es-CL')}</span>
+            {lastSale.change !== null && lastSale.change > 0 && (
+              <span className="mt-1 rounded-full bg-white/10 px-4 py-1.5 text-lg">Vuelto <b className="tabular-nums">${lastSale.change.toLocaleString('es-CL')}</b></span>
+            )}
+            {!isOnline && <span className="text-xs text-amber-300">Sin señal: se sincroniza solo al volver la conexión.</span>}
+          </span>
+        </button>
+      )}
 
       {scanningCustomer && (
         <div className="fixed inset-0 z-30 bg-black flex flex-col">
@@ -1962,19 +2041,75 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   );
 }
 
+const PAYMENT_LABEL: Record<string, string> = { efectivo: 'Efectivo', debito: 'Débito', credito: 'Crédito', qr: 'QR', saldo: 'Saldo' };
+
+/** Cobro en efectivo con teclado propio (no `type=number`: en tablet abre
+ * un teclado distinto según el sistema y deja escribir signos). Billetes
+ * rápidos arriba de lo que se cobra, y el vuelto en grande. */
+function CashPayment({ total, value, onChange, confirming, onConfirm, onCancel }: {
+  total: number; value: string; onChange: (v: string) => void; confirming: boolean; onConfirm: () => void; onCancel: () => void;
+}) {
+  const given = Number(value || 0);
+  const enough = value !== '' && given >= total;
+  // Billetes que alcanzan para pagar (los primeros 3), además de "Exacto".
+  const quick = [5000, 10000, 20000, 30000, 40000, 50000].filter((b) => b > total).slice(0, 3);
+  const press = (k: string) => {
+    if (k === 'del') { onChange(value.slice(0, -1)); return; }
+    const next = (value + k).replace(/^0+/, '');
+    if (next.length <= 7) onChange(next);
+  };
+  return (
+    <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/80 backdrop-blur-sm sm:items-center sm:p-6" role="dialog" aria-label="Cobro en efectivo">
+      <div className="admin-glass-sheet w-full max-w-sm space-y-4 rounded-t-3xl p-5 pb-[max(env(safe-area-inset-bottom),1.25rem)] sm:rounded-3xl">
+        <div className="flex items-baseline justify-between">
+          <p className="text-xs uppercase tracking-widest text-white/60">Cobro en efectivo</p>
+          <p className="text-2xl font-bold tabular-nums">${total.toLocaleString('es-CL')}</p>
+        </div>
+        <div className="rounded-2xl bg-white/5 p-4 text-center">
+          <p className="text-xs text-white/60">Entregó</p>
+          <p className="text-4xl font-bold tabular-nums">{value ? `$${given.toLocaleString('es-CL')}` : <span className="text-white/40">$0</span>}</p>
+          <p className={`mt-1 text-lg font-semibold tabular-nums ${value === '' ? 'text-white/40' : enough ? 'text-[var(--admin-success-text)]' : 'text-[var(--admin-danger-text)]'}`}>
+            {value === '' ? 'Ingresa lo que entregó' : enough ? `Vuelto $${(given - total).toLocaleString('es-CL')}` : `Falta $${(total - given).toLocaleString('es-CL')}`}
+          </p>
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          <button type="button" onClick={() => onChange(String(total))} className="admin-tab h-11 rounded-xl text-sm font-semibold">Exacto</button>
+          {quick.map((b) => (
+            <button key={b} type="button" onClick={() => onChange(String(b))} className="admin-tab h-11 rounded-xl text-sm font-semibold tabular-nums">${b / 1000}k</button>
+          ))}
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {['1', '2', '3', '4', '5', '6', '7', '8', '9', '000', '0', 'del'].map((k) => (
+            <button key={k} type="button" onClick={() => press(k)} aria-label={k === 'del' ? 'Borrar' : k}
+              className="admin-tile flex h-14 items-center justify-center rounded-2xl text-xl font-semibold active:scale-95">
+              {k === 'del' ? <Delete className="h-5 w-5" /> : k}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="outline" className="h-12 rounded-2xl" onClick={onCancel} disabled={confirming}>Volver</Button>
+          <Button className="h-12 rounded-2xl font-bold" disabled={!enough || confirming} onClick={onConfirm}>
+            {confirming ? 'Registrando…' : 'Confirmar'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CajaDashboard({ eventId }: { eventId: number }) {
   const { data } = trpc.caja.dashboard.useQuery({ eventId });
   if (!data) return <p className="text-white/50">Cargando… (requiere conexión)</p>;
 
   return (
     <div className="space-y-5">
-      <h2 className="text-xl font-bold">Dashboard de caja</h2>
+      <h2 className="font-heading text-xl">Resumen del turno</h2>
       <div className="grid grid-cols-2 gap-3">
-        <div className="p-4 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/10">
+        <div className="p-4 rounded-2xl admin-clay admin-clay-sm">
           <p className="text-xs text-white/50">Ventas en caja</p>
           <p className="text-2xl font-bold">${data.totalSales.toLocaleString('es-CL')}</p>
         </div>
-        <div className="p-4 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/10">
+        <div className="p-4 rounded-2xl admin-clay admin-clay-sm">
           <p className="text-xs text-white/50"># Ventas</p>
           <p className="text-2xl font-bold">{data.salesCount}</p>
         </div>
@@ -1982,10 +2117,10 @@ function CajaDashboard({ eventId }: { eventId: number }) {
           <p className="text-xs text-white/60">Personas adentro ahora</p>
           <p className="text-3xl font-bold">
             {data.insideCount}
-            <span className="text-base font-normal text-white/40"> / {data.expectedCount}</span>
+            <span className="text-base font-normal text-white/60"> / {data.expectedCount}</span>
           </p>
         </div>
-        <div className="p-4 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/10 col-span-2">
+        <div className="p-4 rounded-2xl admin-clay admin-clay-sm col-span-2">
           <p className="text-xs text-white/50">Extras canjeados (total evento)</p>
           <p className="text-2xl font-bold">{data.redeemedCount}</p>
         </div>
@@ -1996,7 +2131,7 @@ function CajaDashboard({ eventId }: { eventId: number }) {
           <p className="text-xs uppercase tracking-wide text-white/50 mb-2">Top productos</p>
           <div className="space-y-2">
             {data.topProducts.map((p: any, i: number) => (
-              <div key={i} className="flex justify-between p-3 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/10 text-sm">
+              <div key={i} className="flex justify-between p-3 rounded-2xl admin-clay admin-clay-sm text-sm">
                 <span>{p.name}</span>
                 <span className="font-semibold">{p.quantity}</span>
               </div>
@@ -2010,7 +2145,7 @@ function CajaDashboard({ eventId }: { eventId: number }) {
           <p className="text-xs uppercase tracking-wide text-white/50 mb-2">Últimas ventas</p>
           <div className="space-y-2">
             {data.recentSales.map((s: any, i: number) => (
-              <div key={i} className="flex justify-between p-3 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-white/10 text-sm">
+              <div key={i} className="flex justify-between p-3 rounded-2xl admin-clay admin-clay-sm text-sm">
                 <span className="font-mono text-white/60">{s.orderNumber}</span>
                 <span className="font-semibold">${s.total.toLocaleString('es-CL')}</span>
               </div>
@@ -2038,7 +2173,7 @@ function ConflictQueue({ eventId }: { eventId: number }) {
       {!isLoading && (conflicts ?? []).length === 0 && <p className="text-white/50 text-sm">Sin conflictos pendientes ✅</p>}
       <div className="space-y-2">
         {(conflicts ?? []).map((c: any) => (
-          <div key={c.opId} className="p-4 rounded-2xl bg-white/[0.04] backdrop-blur-sm border border-amber-500/30">
+          <div key={c.opId} className="p-4 rounded-2xl admin-clay admin-clay-sm !border-amber-400/40">
             <p className="font-mono text-sm">{c.displayCode}</p>
             <p className="text-xs text-white/50 mt-1">{c.operatorName} · {formatChileDateTime(c.serverAt)}</p>
             <p className="text-xs text-amber-300 mt-1">{c.conflictNote}</p>
