@@ -326,3 +326,7 @@ export function computePnl(input: PnlInput): PnlResult {
     marginPercent: netIncome > 0 ? Math.round((netProfit / netIncome) * 1000) / 10 : null,
   };
 }
+
+/** Plazo para "Deshacer" un gasto recién cargado en el terminal sin pedir la
+ * clave de admin (expenses.undoCreate). Pasado esto se borra desde la lista. */
+export const UNDO_EXPENSE_WINDOW_MS = 2 * 60 * 1000;

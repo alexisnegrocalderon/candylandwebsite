@@ -17,8 +17,12 @@ import { useDemoProps } from '@/lib/demoMode';
  * - Expone `analyzing` (controlado por quien lo usa) para mostrar el paso
  *   "leyendo la foto…" después de que terminó de subir. */
 export function CameraCaptureField({
-  label, pathPrefix, onScanned, analyzing, buttonClassName,
-}: { label: string; pathPrefix: string; onScanned: (url: string) => void; analyzing?: boolean; buttonClassName?: string }) {
+  label, pathPrefix, onScanned, analyzing, buttonClassName, hidePreview,
+}: {
+  label: string; pathPrefix: string; onScanned: (url: string) => void; analyzing?: boolean; buttonClassName?: string;
+  /** Quien lo usa muestra su propia miniatura (ej. el terminal de gastos). */
+  hidePreview?: boolean;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -77,7 +81,7 @@ export function CameraCaptureField({
           <><Camera className="w-3.5 h-3.5 mr-2" /> {label}</>
         )}
       </Button>
-      {previewUrl && (
+      {previewUrl && !hidePreview && (
         <img src={previewUrl} alt="" className="w-10 h-10 rounded-lg object-cover border border-border/50" />
       )}
     </div>

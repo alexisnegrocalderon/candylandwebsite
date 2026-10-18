@@ -30,7 +30,9 @@ const SCREENS = [
   { file: 'puerta.html', manifest: '/puerta.webmanifest', title: 'Puerta', appleTouchIcon: '/app-icons/puerta/icon-180.png' },
   // Ícono propio: con las cuatro apps instaladas en la misma pantalla de
   // inicio, el isotipo genérico las hacía indistinguibles a simple vista.
-  { file: 'gastos.html', manifest: '/gastos.webmanifest', title: 'Gastos', appleTouchIcon: '/gastos/icon-180.png' },
+  // Vidrio oscuro como el panel: barra de estado oscura desde el primer
+  // cuadro (antes salía rosada/clara hasta que cargaba el JS).
+  { file: 'gastos.html', manifest: '/gastos.webmanifest', title: 'Gastos', appleTouchIcon: '/gastos/icon-180.png', themeColor: '#0b0612', statusBar: 'black-translucent' },
   { file: 'fiesta.html', manifest: '/fiesta.webmanifest', title: 'Playmatch', appleTouchIcon: '/app-icons/fiesta/icon-180.png' },
 ];
 
@@ -39,6 +41,7 @@ for (const screen of SCREENS) {
     `<link rel="manifest" href="${screen.manifest}" />`,
     `<meta name="apple-mobile-web-app-capable" content="yes" />`,
     `<meta name="apple-mobile-web-app-title" content="${screen.title}" />`,
+    ...(screen.statusBar ? [`<meta name="apple-mobile-web-app-status-bar-style" content="${screen.statusBar}" />`] : []),
     ...(screen.appleTouchIcon ? [`<link rel="apple-touch-icon" sizes="180x180" href="${screen.appleTouchIcon}" />`] : []),
   ].join('\n    ');
 
@@ -48,9 +51,12 @@ for (const screen of SCREENS) {
   // Si la pantalla trae su propio apple-touch-icon, saca el genérico del
   // <head> base: dos <link rel="apple-touch-icon"> del mismo tamaño es
   // ambiguo entre navegadores, así que no alcanza con agregar el nuevo.
-  const headHtml = screen.appleTouchIcon
+  let headHtml = screen.appleTouchIcon
     ? baseHtml.replace(/\s*<link rel="apple-touch-icon"[^>]*\/>/, '')
     : baseHtml;
+  if (screen.themeColor) {
+    headHtml = headHtml.replace(/<meta name="theme-color" content="[^"]*"\s*\/?>/, `<meta name="theme-color" content="${screen.themeColor}" />`);
+  }
   // Los tags van al PRINCIPIO del <head>, justo después del viewport, no al
   // final: "Agregar a Inicio" de iOS lee el ícono mientras parsea el
   // documento, y al final quedaban detrás de los scripts y hojas de estilo

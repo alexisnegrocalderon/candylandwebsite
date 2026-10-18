@@ -18,6 +18,7 @@ import { redeemDisplayCode } from "./caja/redeem";
 import { checkInTicket } from "./caja/checkin";
 import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
+import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
 import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
@@ -3738,6 +3739,22 @@ export const appRouter = router({
       const result = await db.deleteExpense(input.id);
       await db.recordAdminAudit({ action: 'expenses.delete', targetType: 'expense', targetId: input.id, ip: clientIp(ctx) });
       return result;
+    }),
+    // "Deshacer" de la pantalla de éxito del terminal de gastos: borra sin
+    // pedir la clave (a diferencia de `delete`) pero SOLO el gasto que esta
+    // misma persona acaba de crear, dentro de 2 minutos. Pasado eso, o si lo
+    // creó otro, hay que borrarlo con clave desde la lista.
+    undoCreate: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
+      const expense = await db.getExpenseById(input.id);
+      if (!expense) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ese gasto ya no existe.' });
+      const createdAt = new Date(expense.createdAt).getTime();
+      const fresh = Date.now() - createdAt <= UNDO_EXPENSE_WINDOW_MS;
+      if (expense.createdByUserId !== ctx.user.id || !fresh) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Ya no se puede deshacer: bórralo desde la lista con tu clave.' });
+      }
+      await db.deleteExpense(input.id);
+      await db.recordAdminAudit({ action: 'expenses.undo', targetType: 'expense', targetId: input.id, ip: clientIp(ctx) });
+      return { success: true };
     }),
     // Lee una foto de boleta/factura con IA para precargar el formulario de
     // arriba -- nunca guarda nada por sí solo, el admin siempre revisa y

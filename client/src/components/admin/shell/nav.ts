@@ -1,5 +1,5 @@
 import {
-  Home, Radio, Ticket, Calendar, Users, MessagesSquare, Palette, Crown, Banknote, Handshake,
+  Home, Radio, Ticket, Calendar, Users, MessagesSquare, Palette, Crown, Banknote, Handshake, Receipt,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -10,7 +10,7 @@ import {
 
 export type AdminHubId =
   | 'inicio' | 'noche' | 'ventas' | 'eventos' | 'clientes'
-  | 'mensajes' | 'contenido' | 'comunidad' | 'finanzas' | 'coproduccion' | 'ajustes';
+  | 'mensajes' | 'contenido' | 'comunidad' | 'finanzas' | 'gastos' | 'coproduccion' | 'ajustes';
 
 export interface AdminHub {
   id: AdminHubId;
@@ -32,6 +32,8 @@ export const ADMIN_HUBS: AdminHub[] = [
   { id: 'contenido', label: 'Contenido', icon: Palette },
   { id: 'comunidad', label: 'Comunidad', icon: Crown },
   { id: 'finanzas', label: 'Finanzas', icon: Banknote },
+  // Terminal para cargar gastos desde el celular (también en /gastos).
+  { id: 'gastos', label: 'Gastos', icon: Receipt },
 ];
 
 /** Lo que necesita el shell de cada sección (sin su `render`). */
@@ -83,6 +85,8 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   gastos: 'gastos p&l costos boletas',
   sii: 'impuestos iva f29 boletas',
   'event-budget': 'presupuesto simulador costos',
+  'cargar-gasto': 'gasto cargar nuevo boleta factura escanear terminal compra',
+  'gastos-hoy': 'gastos hoy cargados lista boletas',
   settings: 'ajustes configuracion alertas push seguridad',
   'copro-resumen': 'dalmore playmore coproduccion socio hipodromo',
   'copro-asistentes': 'dalmore asistentes lista',
