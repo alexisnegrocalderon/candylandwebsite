@@ -1,0 +1,152 @@
+/* Estilos de la landing PLAYMORE (/playroomdalmore). Se importa solo desde
+ * esa página (lazy), así sus fuentes y animaciones no viajan al resto del
+ * sitio. Paleta "Noir Privé": negro cálido de Dalmore, magenta y orquídea,
+ * oro, y brillos fucsia/celeste de Playroom. */
+@import '@fontsource-variable/montserrat';
+@import '@fontsource-variable/cormorant-garamond';
+
+/* La itálica no trae CSS propio en el paquete: se declara acá (solo latin). */
+@font-face {
+  font-family: 'Cormorant Garamond Variable';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url('../../../../node_modules/@fontsource-variable/cormorant-garamond/files/cormorant-garamond-latin-wght-italic.woff2') format('woff2-variations');
+}
+
+.playmore {
+  --pm-ink: #0c0908;
+  --pm-ink-2: #141210;
+  --pm-cream: #f4efe6;
+  --pm-sand: #e9d9b0;
+  --pm-magenta: #96159d;
+  --pm-orchid: #e477ea;
+  --pm-fuchsia: #f472b6;
+  --pm-sky: #7dd3fc;
+  --pm-gold: linear-gradient(100deg, #7a5a22 0%, #c9a24c 22%, #f7e7a8 45%, #d6b25e 60%, #9c7630 82%, #e9cf85 100%);
+  background: var(--pm-ink);
+  color: var(--pm-cream);
+  font-family: 'Montserrat Variable', Montserrat, system-ui, sans-serif;
+}
+
+.playmore-sans { font-family: 'Montserrat Variable', Montserrat, system-ui, sans-serif; }
+.playmore-serif { font-family: 'Cormorant Garamond Variable', 'Cormorant Garamond', Georgia, serif; }
+
+/* Texto en foil dorado con un brillo que lo recorre. */
+.playmore-gold {
+  background: var(--pm-gold);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: pm-sheen 6s linear infinite;
+}
+@keyframes pm-sheen {
+  from { background-position: 0% 50%; }
+  to { background-position: 220% 50%; }
+}
+
+.playmore-gold-line { background: var(--pm-gold); }
+
+/* Grano de película sobre fondos negros. */
+.playmore-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  opacity: 0.09;
+  mix-blend-mode: overlay;
+}
+
+/* Terciopelo animado: placeholder del video del hero. */
+.playmore-velvet {
+  background:
+    radial-gradient(60% 50% at 20% 30%, rgba(150, 21, 157, 0.55), transparent 70%),
+    radial-gradient(50% 45% at 80% 70%, rgba(228, 119, 234, 0.28), transparent 70%),
+    radial-gradient(40% 40% at 70% 20%, rgba(125, 211, 252, 0.14), transparent 70%),
+    radial-gradient(70% 60% at 40% 90%, rgba(244, 114, 182, 0.18), transparent 70%),
+    #0c0908;
+  background-size: 160% 160%;
+  animation: pm-velvet 22s ease-in-out infinite alternate;
+}
+@keyframes pm-velvet {
+  0% { background-position: 0% 0%; }
+  50% { background-position: 100% 40%; }
+  100% { background-position: 30% 100%; }
+}
+
+/* Haces de luz que barren el hero. */
+.playmore-beams::before,
+.playmore-beams::after {
+  content: '';
+  position: absolute;
+  top: -20%;
+  width: 40%;
+  height: 140%;
+  background: linear-gradient(90deg, transparent, rgba(247, 231, 168, 0.07), transparent);
+  filter: blur(8px);
+  transform: rotate(18deg);
+  animation: pm-beam 9s ease-in-out infinite;
+}
+.playmore-beams::after {
+  animation-delay: -4.5s;
+  background: linear-gradient(90deg, transparent, rgba(228, 119, 234, 0.08), transparent);
+}
+@keyframes pm-beam {
+  0% { left: -40%; }
+  100% { left: 110%; }
+}
+
+/* Marquesina infinita. */
+.playmore-marquee {
+  display: flex;
+  width: max-content;
+  animation: pm-marquee 38s linear infinite;
+}
+.playmore-marquee.reverse { animation-direction: reverse; animation-duration: 46s; }
+@keyframes pm-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.playmore-outline {
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(214, 178, 94, 0.55);
+}
+
+.playmore-hint { animation: pm-hint 2.4s ease-in-out infinite; }
+@keyframes pm-hint {
+  0%, 100% { opacity: 0.55; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* Versión liviana del ticket: flota suave. */
+.playmore-lite-ticket { animation: pm-float 6s ease-in-out infinite; filter: drop-shadow(0 30px 60px rgba(0, 0, 0, 0.7)); }
+@keyframes pm-float {
+  0%, 100% { transform: translateY(0) rotateX(4deg); }
+  50% { transform: translateY(-8px) rotateX(-2deg); }
+}
+.playmore-lite-ticket.rotate-90 { animation: none; }
+
+/* Tarjetas tipo ticket de los accesos. */
+.playmore-ticket-card {
+  position: relative;
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(150, 21, 157, 0.22), transparent 60%),
+    linear-gradient(180deg, #16110f, #0c0908);
+  border: 1px solid rgba(214, 178, 94, 0.35);
+}
+.playmore-ticket-card::before,
+.playmore-ticket-card::after {
+  content: '';
+  position: absolute;
+  right: 92px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--pm-ink);
+  border: 1px solid rgba(214, 178, 94, 0.35);
+}
+.playmore-ticket-card::before { top: -12px; }
+.playmore-ticket-card::after { bottom: -12px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .playmore-gold, .playmore-velvet, .playmore-marquee, .playmore-hint, .playmore-lite-ticket,
+  .playmore-beams::before, .playmore-beams::after { animation: none !important; }
+}
