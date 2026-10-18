@@ -62,7 +62,10 @@ export function SalesHistory({ eventId, registerId, isOnline, compact = false }:
       status: status === 'all' ? undefined : status,
       limit: compact ? 20 : 40,
     },
-    { getNextPageParam: (last) => last.nextCursor ?? undefined, refetchInterval: 15_000 },
+    // Lo propio se refresca al sincronizar (CajaHome invalida la consulta);
+    // el intervalo solo trae lo de las OTRAS cajas, así que alcanza con
+    // menos frecuencia que los 15 s de antes (y menos aún en la lista chica).
+    { getNextPageParam: (last) => last.nextCursor ?? undefined, refetchInterval: compact ? 60_000 : 30_000 },
   );
   const sales = query.data?.pages.flatMap((p) => p.sales) ?? [];
   const filtering = !!debouncedSearch || !!method || status !== 'all';

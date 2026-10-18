@@ -1,7 +1,7 @@
 import '@/admin.css';
 import { useDarkGlassDocument } from '@/components/admin/shell/AdminShell';
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Camera, Check, Delete, X, ShoppingCart, Search, LayoutDashboard, AlertTriangle, LogOut, Receipt } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
@@ -617,8 +617,9 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   // de `syncMutation` (un objeto nuevo en cada render), así que cada tecla
   // en el buscador re-creaba el intervalo y volvía a leer IndexedDB.
   const syncingRef = useRef(false);
-  const syncLatest = useRef({ isOnline, localEvent, registerId, mutateAsync: syncMutation.mutateAsync, refreshPending });
-  syncLatest.current = { isOnline, localEvent, registerId, mutateAsync: syncMutation.mutateAsync, refreshPending };
+  const invalidateHistory = () => { utils.caja.salesHistory.invalidate(); };
+  const syncLatest = useRef({ isOnline, localEvent, registerId, mutateAsync: syncMutation.mutateAsync, refreshPending, invalidateHistory });
+  syncLatest.current = { isOnline, localEvent, registerId, mutateAsync: syncMutation.mutateAsync, refreshPending, invalidateHistory };
   const [rejectedCount, setRejectedCount] = useState(0);
   const refreshRejected = useCallback(() => { getRejectedOps().then((r) => setRejectedCount(r.length)); }, []);
   useEffect(() => { refreshRejected(); }, [refreshRejected]);
@@ -667,6 +668,9 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
       refresh();
       refreshRejected();
       setSheetVersion((v) => v + 1);
+      // El historial ya no se refresca solo cada 15 s: se actualiza cuando
+      // de verdad entró algo nuevo.
+      syncLatest.current.invalidateHistory();
     } catch {
       // Sin red real (aunque navigator.onLine diga que sí) o error del servidor -- se reintenta en el próximo tick.
     } finally {
@@ -680,13 +684,19 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
   }, [runSync]);
   useEffect(() => { if (isOnline) runSync(); }, [isOnline, runSync]);
 
-  // Búsqueda 100% local (funciona offline, <50ms).
+  // Búsqueda 100% local (funciona offline, <50ms). Con una pausa de 150 ms
+  // al escribir: sin ella recorría todos los asistentes en cada letra, y en
+  // una tablet lenta con cientos de entradas se notaba al tipear.
   useEffect(() => {
     const q = query.trim();
     if (q.length < 2) { setResults([]); setStaffCompResults([]); return; }
-    searchLocal(q).then(setResults);
-    // Consumos gratis de staff: tampoco pertenecen a una orden con asistentes.
-    searchStaffCompsLocal(q).then((cs) => setStaffCompResults(cs.filter((c) => c.status !== 'used')));
+    let cancelled = false;
+    const id = window.setTimeout(() => {
+      searchLocal(q).then((r) => { if (!cancelled) setResults(r); });
+      // Consumos gratis de staff: tampoco pertenecen a una orden con asistentes.
+      searchStaffCompsLocal(q).then((cs) => { if (!cancelled) setStaffCompResults(cs.filter((c) => c.status !== 'used')); });
+    }, 150);
+    return () => { cancelled = true; window.clearTimeout(id); };
   }, [query, sheetVersion]);
 
   // Freno al doble toque: cada toque generaba un opId nuevo y el segundo
@@ -1443,9 +1453,94 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     const item = catalog.find((p) => (p.groupName || p.category) === t);
     return CATEGORY_META[item?.category ?? '']?.color ?? '#f472b6';
   };
-  const productsInTab = tab === FAVORITES_TAB
+  const productsInTab = useMemo(() => (tab === FAVORITES_TAB
     ? catalog.filter((p) => favorites.includes(p.id))
-    : catalog.filter((p) => (p.groupName || p.category) === tab);
+    : catalog.filter((p) => (p.groupName || p.category) === tab)), [catalog, favorites, tab]);
+
+  // La grilla solo se redibuja cuando cambia algo que muestra (productos,
+  // cantidades, favoritos, promo). Escribir el nombre del cliente o el
+  // código de descuento ya no redibuja todas las tarjetas. Los handlers usan
+  // refs y setters de estado, así que no importa que sean de otro render.
+  const productGrid = useMemo(() => (
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 min-[900px]:landscape:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
+              {productsInTab.map((p) => {
+                const left = p.totalStock - p.soldCount;
+                const noStock = left <= 0;
+                const isFavorite = favorites.includes(p.id);
+                // Botón de emergencia de cocina (o el admin): bloqueo REAL, a
+                // diferencia del aviso suave de "Sin stock" de arriba (que
+                // avisa pero deja vender igual, por discrepancias normales de
+                // inventario -- ver server/caja/sale.ts).
+                const soldOut = p.status === 'soldout';
+                const isFlashPromo = flashPromoActive && flashPromo!.ticketTypeIds.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    disabled={soldOut && !editingFavorites}
+                    onClick={() => {
+                      if (longPressed.current) { longPressed.current = false; return; }
+                      editingFavorites ? onToggleFavorite(p.id) : add(p.id);
+                    }}
+                    onPointerDown={(e) => startLongPress(p, e)}
+                    onPointerUp={cancelLongPress}
+                    onPointerLeave={cancelLongPress}
+                    onPointerCancel={cancelLongPress}
+                    onContextMenu={(e) => e.preventDefault()}
+                    className="relative select-none rounded-3xl p-4 min-h-[88px] text-left border active:scale-95 transition-transform backdrop-blur-sm disabled:active:scale-100"
+                    style={{
+                      backgroundColor: (p.color || '#f472b6') + '14', borderColor: (p.color || '#f472b6') + '50', boxShadow: `0 0 20px -10px ${p.color || '#f472b6'}`,
+                      WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: 'manipulation',
+                      filter: soldOut ? 'grayscale(1)' : undefined,
+                    }}
+                  >
+                    {soldOut && (
+                      <div className="absolute inset-0 z-10 overflow-hidden rounded-3xl pointer-events-none">
+                        <div className="absolute left-[-15%] right-[-15%] top-1/2 -translate-y-1/2 -rotate-[10deg] bg-red-600 text-white text-[11px] font-extrabold uppercase tracking-widest text-center py-1 shadow-lg">
+                          Agotado
+                        </div>
+                      </div>
+                    )}
+                    {editingFavorites && (
+                      <span className={`absolute top-2 right-2 text-lg leading-none ${isFavorite ? '' : 'opacity-30'}`}>
+                        {isFavorite ? '⭐' : '☆'}
+                      </span>
+                    )}
+                    {isFlashPromo && !soldOut && (
+                      <span className="absolute top-2 left-2 text-[10px] font-bold uppercase tracking-wide bg-amber-500 text-black px-2 py-0.5 rounded-full">
+                        🔥 Promo Flash
+                      </span>
+                    )}
+                    {!editingFavorites && !soldOut && noStock && (
+                      <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide bg-red-500/90 text-white px-2 py-0.5 rounded-full">
+                        Sin stock
+                      </span>
+                    )}
+                    {p.description && (
+                      <span className="absolute bottom-2 right-2 text-[10px] text-white/50" aria-hidden>ⓘ</span>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <span className="text-3xl leading-none">{p.emoji || CATEGORY_META[p.category]?.emoji || '🛍️'}</span>
+                      <div className="min-w-0">
+                        <p className="font-semibold break-words">{p.name}</p>
+                        <p className="text-sm text-white/60">${p.price.toLocaleString('es-CL')}</p>
+                      </div>
+                    </div>
+                    {!editingFavorites && cart[p.id] > 0 && (
+                      <span className="absolute top-2 right-2 w-6 h-6 rounded-full bg-primary text-white text-xs font-bold grid place-items-center">
+                        {cart[p.id]}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+              {productsInTab.length === 0 && (
+                <p className="col-span-full text-white/50 text-sm">
+                  {tab === FAVORITES_TAB ? 'Todavía no marcaste ningún favorito.' : 'Nada cargado en esta sección todavía.'}
+                </p>
+              )}
+            </div>
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ), [productsInTab, cart, favorites, editingFavorites, flashPromoActive, flashPromo, tab]);
 
   const checkBalance = async () => {
     if (!buyerEmail.trim()) return;
@@ -1621,83 +1716,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
             </div>
 
             {/* Grilla de productos -- tocar suma una unidad; el stepper +/- ahora vive en el carrito, no acá (ver panel derecho). Ocupa TODO el espacio restante de la columna, con scroll propio si no caben todos, en vez de empujar "Ventas recientes" fuera de la pantalla. */}
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 min-[900px]:landscape:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
-              {productsInTab.map((p) => {
-                const left = p.totalStock - p.soldCount;
-                const noStock = left <= 0;
-                const isFavorite = favorites.includes(p.id);
-                // Botón de emergencia de cocina (o el admin): bloqueo REAL, a
-                // diferencia del aviso suave de "Sin stock" de arriba (que
-                // avisa pero deja vender igual, por discrepancias normales de
-                // inventario -- ver server/caja/sale.ts).
-                const soldOut = p.status === 'soldout';
-                const isFlashPromo = flashPromoActive && flashPromo!.ticketTypeIds.includes(p.id);
-                return (
-                  <button
-                    key={p.id}
-                    disabled={soldOut && !editingFavorites}
-                    onClick={() => {
-                      if (longPressed.current) { longPressed.current = false; return; }
-                      editingFavorites ? onToggleFavorite(p.id) : add(p.id);
-                    }}
-                    onPointerDown={(e) => startLongPress(p, e)}
-                    onPointerUp={cancelLongPress}
-                    onPointerLeave={cancelLongPress}
-                    onPointerCancel={cancelLongPress}
-                    onContextMenu={(e) => e.preventDefault()}
-                    className="relative select-none rounded-3xl p-4 min-h-[88px] text-left border active:scale-95 transition-transform backdrop-blur-sm disabled:active:scale-100"
-                    style={{
-                      backgroundColor: (p.color || '#f472b6') + '14', borderColor: (p.color || '#f472b6') + '50', boxShadow: `0 0 20px -10px ${p.color || '#f472b6'}`,
-                      WebkitUserSelect: 'none', WebkitTouchCallout: 'none', touchAction: 'manipulation',
-                      filter: soldOut ? 'grayscale(1)' : undefined,
-                    }}
-                  >
-                    {soldOut && (
-                      <div className="absolute inset-0 z-10 overflow-hidden rounded-3xl pointer-events-none">
-                        <div className="absolute left-[-15%] right-[-15%] top-1/2 -translate-y-1/2 -rotate-[10deg] bg-red-600 text-white text-[11px] font-extrabold uppercase tracking-widest text-center py-1 shadow-lg">
-                          Agotado
-                        </div>
-                      </div>
-                    )}
-                    {editingFavorites && (
-                      <span className={`absolute top-2 right-2 text-lg leading-none ${isFavorite ? '' : 'opacity-30'}`}>
-                        {isFavorite ? '⭐' : '☆'}
-                      </span>
-                    )}
-                    {isFlashPromo && !soldOut && (
-                      <span className="absolute top-2 left-2 text-[10px] font-bold uppercase tracking-wide bg-amber-500 text-black px-2 py-0.5 rounded-full">
-                        🔥 Promo Flash
-                      </span>
-                    )}
-                    {!editingFavorites && !soldOut && noStock && (
-                      <span className="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide bg-red-500/90 text-white px-2 py-0.5 rounded-full">
-                        Sin stock
-                      </span>
-                    )}
-                    {p.description && (
-                      <span className="absolute bottom-2 right-2 text-[10px] text-white/50" aria-hidden>ⓘ</span>
-                    )}
-                    <div className="flex items-center gap-2">
-                      <span className="text-3xl leading-none">{p.emoji || CATEGORY_META[p.category]?.emoji || '🛍️'}</span>
-                      <div className="min-w-0">
-                        <p className="font-semibold break-words">{p.name}</p>
-                        <p className="text-sm text-white/60">${p.price.toLocaleString('es-CL')}</p>
-                      </div>
-                    </div>
-                    {!editingFavorites && cart[p.id] > 0 && (
-                      <span className="absolute top-2 right-2 w-6 h-6 rounded-full bg-primary text-white text-xs font-bold grid place-items-center">
-                        {cart[p.id]}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-              {productsInTab.length === 0 && (
-                <p className="col-span-full text-white/50 text-sm">
-                  {tab === FAVORITES_TAB ? 'Todavía no marcaste ningún favorito.' : 'Nada cargado en esta sección todavía.'}
-                </p>
-              )}
-            </div>
+            {productGrid}
 
             {/* Ventas de la noche (pedido explícito del dueño): con nombre del cliente, quién cobró, buscador y scroll propio; tocar una fila abre el detalle y la anulación con clave admin. Alto acotado: nunca empuja el resto de la pantalla. */}
             <div className="hidden min-[900px]:landscape:block">
@@ -2098,60 +2117,99 @@ function CashPayment({ total, value, onChange, confirming, onConfirm, onCancel }
 }
 
 function CajaDashboard({ eventId }: { eventId: number }) {
-  const { data } = trpc.caja.dashboard.useQuery({ eventId });
-  if (!data) return <p className="text-white/50">Cargando… (requiere conexión)</p>;
+  // Se actualiza solo cada 30 s mientras está abierto (antes había que salir
+  // y volver a entrar para ver números nuevos).
+  const { data, dataUpdatedAt, isFetching } = trpc.caja.dashboard.useQuery({ eventId }, { refetchInterval: 30_000 });
+  if (!data) return <p className="text-white/60">Cargando… (requiere conexión)</p>;
+
+  const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+  const kclp = (n: number) => (n >= 1000 ? `$${Math.round(n / 1000)}k` : clp(n));
+  const hours: { hour: number; total: number; count: number }[] = (data as any).salesByHour ?? [];
+  const maxHour = Math.max(1, ...hours.map((h) => h.total));
+  const occupancy = data.expectedCount > 0 ? Math.min(1, data.insideCount / data.expectedCount) : 0;
+  const maxQty = Math.max(1, ...data.topProducts.map((p: any) => p.quantity));
+  const updated = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : '';
 
   return (
-    <div className="space-y-5">
-      <h2 className="font-heading text-xl">Resumen del turno</h2>
+    <div className="space-y-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="font-heading text-xl">Resumen del turno</h2>
+        <p className="text-xs text-white/60">{isFetching ? 'Actualizando…' : `Actualizado ${updated}`}</p>
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
-        <div className="p-4 rounded-2xl admin-clay admin-clay-sm">
-          <p className="text-xs text-white/50">Ventas en caja</p>
-          <p className="text-2xl font-bold">${data.totalSales.toLocaleString('es-CL')}</p>
+        <div className="admin-clay p-4">
+          <p className="text-xs text-white/60">Ventas en caja</p>
+          <p className="text-2xl font-bold tabular-nums">{clp(data.totalSales)}</p>
         </div>
-        <div className="p-4 rounded-2xl admin-clay admin-clay-sm">
-          <p className="text-xs text-white/50"># Ventas</p>
-          <p className="text-2xl font-bold">{data.salesCount}</p>
+        <div className="admin-clay p-4">
+          <p className="text-xs text-white/60">Ventas</p>
+          <p className="text-2xl font-bold tabular-nums">{data.salesCount}</p>
         </div>
-        <div className="p-4 rounded-2xl bg-primary/10 backdrop-blur-sm border border-primary/25 col-span-2">
-          <p className="text-xs text-white/60">Personas adentro ahora</p>
-          <p className="text-3xl font-bold">
+        <div className="admin-clay col-span-2 p-4">
+          <div className="flex items-baseline justify-between">
+            <p className="text-xs text-white/60">Personas adentro ahora</p>
+            <p className="text-xs text-white/60 tabular-nums">{Math.round(occupancy * 100)}% del esperado</p>
+          </div>
+          <p className="text-3xl font-bold tabular-nums">
             {data.insideCount}
             <span className="text-base font-normal text-white/60"> / {data.expectedCount}</span>
           </p>
-        </div>
-        <div className="p-4 rounded-2xl admin-clay admin-clay-sm col-span-2">
-          <p className="text-xs text-white/50">Extras canjeados (total evento)</p>
-          <p className="text-2xl font-bold">{data.redeemedCount}</p>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10" aria-hidden="true">
+            <div className="h-full rounded-full bg-primary" style={{ width: `${occupancy * 100}%` }} />
+          </div>
         </div>
       </div>
 
-      {data.topProducts.length > 0 && (
-        <div>
-          <p className="text-xs uppercase tracking-wide text-white/50 mb-2">Top productos</p>
-          <div className="space-y-2">
-            {data.topProducts.map((p: any, i: number) => (
-              <div key={i} className="flex justify-between p-3 rounded-2xl admin-clay admin-clay-sm text-sm">
-                <span>{p.name}</span>
-                <span className="font-semibold">{p.quantity}</span>
+      {hours.length > 0 && (
+        <section className="admin-clay p-4">
+          <p className="mb-3 text-xs uppercase tracking-wide text-white/60">Ventas por hora</p>
+          <div className="flex h-36 items-end gap-2" role="img" aria-label={`Ventas por hora: ${hours.map((h) => `${h.hour}:00 ${clp(h.total)}`).join(', ')}`}>
+            {hours.map((h) => (
+              <div key={h.hour} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1">
+                <span className="text-[11px] font-semibold tabular-nums text-white/80">{kclp(h.total)}</span>
+                <div className="w-full max-w-12 rounded-t-lg bg-primary/80" style={{ height: `${Math.max(4, (h.total / maxHour) * 100)}%` }} title={`${h.count} ventas`} />
+                <span className="text-[11px] tabular-nums text-white/60">{String(h.hour).padStart(2, '0')}h</span>
               </div>
             ))}
           </div>
-        </div>
+        </section>
+      )}
+
+      <div className="admin-clay flex items-center justify-between p-4">
+        <p className="text-sm text-white/70">Extras canjeados (total evento)</p>
+        <p className="text-2xl font-bold tabular-nums">{data.redeemedCount}</p>
+      </div>
+
+      {data.topProducts.length > 0 && (
+        <section className="admin-clay p-4">
+          <p className="mb-3 text-xs uppercase tracking-wide text-white/60">Más vendidos</p>
+          <div className="space-y-2.5">
+            {data.topProducts.map((p: any) => (
+              <div key={p.name}>
+                <div className="flex justify-between text-sm">
+                  <span className="truncate">{p.name}</span>
+                  <span className="font-semibold tabular-nums">{p.quantity}</span>
+                </div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10" aria-hidden="true">
+                  <div className="h-full rounded-full bg-primary/70" style={{ width: `${(p.quantity / maxQty) * 100}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {data.recentSales.length > 0 && (
-        <div>
-          <p className="text-xs uppercase tracking-wide text-white/50 mb-2">Últimas ventas</p>
-          <div className="space-y-2">
-            {data.recentSales.map((s: any, i: number) => (
-              <div key={i} className="flex justify-between p-3 rounded-2xl admin-clay admin-clay-sm text-sm">
-                <span className="font-mono text-white/60">{s.orderNumber}</span>
-                <span className="font-semibold">${s.total.toLocaleString('es-CL')}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <section className="admin-clay divide-y divide-white/10 p-0">
+          <p className="px-4 pb-2 pt-4 text-xs uppercase tracking-wide text-white/60">Últimas ventas</p>
+          {data.recentSales.map((s: any) => (
+            <div key={s.orderNumber} className="flex justify-between px-4 py-2.5 text-sm">
+              <span className="font-mono text-white/70">{s.orderNumber}</span>
+              <span className="font-semibold tabular-nums">{clp(s.total)}</span>
+            </div>
+          ))}
+        </section>
       )}
     </div>
   );

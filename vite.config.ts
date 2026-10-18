@@ -62,7 +62,9 @@ export default defineConfig(() => {
       workbox: {
         // Solo el shell de la app (JS/CSS/HTML) -- los datos (snapshot del
         // evento) viven en IndexedDB vía Dexie, no en la cache de Workbox.
-        globPatterns: ["**/*.{js,css,html}"],
+        // + las dos fuentes y el logo del encabezado (~150 KB): sin señal la
+        // caja abría con letra del sistema y el logo roto.
+        globPatterns: ["**/*.{js,css,html}", "fonts/*.woff2", "candyland/logo-isotipo-transparent.png"],
         // Los service workers de las otras pantallas instalables NO se
         // precachean acá: un SW servido desde la caché de otro SW puede
         // quedar pegado en una versión vieja, y ninguna de esas pantallas
