@@ -125,7 +125,6 @@
   0%, 100% { transform: translateY(0) rotateX(4deg); }
   50% { transform: translateY(-8px) rotateX(-2deg); }
 }
-.playmore-lite-ticket.rotate-90 { animation: none; }
 
 /* Tarjetas tipo ticket de los accesos. */
 .playmore-ticket-card {

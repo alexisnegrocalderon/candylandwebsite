@@ -117,6 +117,7 @@ export default function PlayroomDalmore() {
                   venueText: landing.venueText,
                   daysLeft,
                 }}
+                countdownIso={landing.countdownIso}
                 partnerLogoUrl={landing.partnerLogoUrl}
                 soundOn={soundOn}
                 onToggleSound={toggleSound}

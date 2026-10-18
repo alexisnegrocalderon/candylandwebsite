@@ -6,11 +6,16 @@ import {
   type TicketArtData,
 } from './ticketArt';
 import { playRip } from './playmoreAudio';
+import { useCountdown } from './sections';
 
 /* Intro cinematográfico de PLAYMORE: un ticket negro y oro aparece desde la
  * oscuridad aleteando como papel, se acomoda al centro y la persona arranca
  * el talón para entrar. Al arrancarlo, el ticket vuela hacia la cámara con un
  * destello magenta y se abre la landing (`onEnter`).
+ *
+ * El ticket es siempre horizontal, igual en todas las pantallas. En celular
+ * vertical ocupa todo el ancho con una leve inclinación, y arriba y abajo se
+ * arma la escena (invitación, cuenta regresiva, pista y botón Entrar).
  *
  * Es 3D real (three.js, cargado solo en esta página). Sin WebGL o con
  * "reducir movimiento" se usa la versión liviana (`FallbackTicket`) con el
@@ -18,6 +23,7 @@ import { playRip } from './playmoreAudio';
 
 interface Props {
   data: TicketArtData;
+  countdownIso: string;
   partnerLogoUrl: string;
   soundOn: boolean;
   onToggleSound: () => void;
@@ -122,17 +128,61 @@ export function TicketIntro(props: Props) {
   return mode === 'webgl' ? <WebGLTicket {...props} /> : <FallbackTicket {...props} />;
 }
 
-/** Controles comunes (sonido, saltar, entrar, pista). */
-function IntroChrome({ ready, soundOn, onToggleSound, onEnterClick, onSkip }: {
-  ready: boolean; soundOn: boolean; onToggleSound: () => void; onEnterClick: () => void; onSkip: () => void;
+/** Pantalla vertical (celular): el ticket va a todo el ancho y la escena se
+ * arma arriba y abajo. Pantalla baja (celular acostado): controles compactos. */
+const isPortrait = () => typeof window !== 'undefined' && window.innerWidth / window.innerHeight < 0.85;
+const isShort = () => typeof window !== 'undefined' && window.innerHeight < 520;
+/** Fracción del ancho que ocupa el ticket en vertical (lo usan la escena 3D,
+ * la versión liviana y el espacio que deja la escena para el ticket). */
+const PORTRAIT_FILL = 0.92;
+
+function useViewport() {
+  const [vp, setVp] = useState(() => ({ portrait: isPortrait(), short: isShort() }));
+  useEffect(() => {
+    const on = () => setVp({ portrait: isPortrait(), short: isShort() });
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
+  return vp;
+}
+
+function MiniCountdown({ iso }: { iso: string }) {
+  const c = useCountdown(iso);
+  if (c.over) return null;
+  const cells: [number, string][] = [[c.days, 'DÍAS'], [c.hours, 'HRS'], [c.minutes, 'MIN'], [c.seconds, 'SEG']];
+  return (
+    <div className="flex items-start justify-center gap-3" aria-label="Cuenta regresiva">
+      {cells.map(([n, l], i) => (
+        <div key={l} className="flex items-start gap-3">
+          {i > 0 && <span className="playmore-serif pt-1 text-xl italic text-[#d6b25e]/50">·</span>}
+          <div className="flex min-w-[2.6rem] flex-col items-center">
+            <span className="playmore-sans playmore-gold text-[1.7rem] font-extrabold leading-none tabular-nums">{String(n).padStart(2, '0')}</span>
+            <span className="mt-1.5 text-[9px] font-semibold tracking-[0.3em] text-[#e9d9b0]/60">{l}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Controles comunes (sonido, saltar, entrar, pista) y, en vertical, la escena. */
+function IntroChrome({ ready, soundOn, onToggleSound, onEnterClick, onSkip, countdownIso }: {
+  ready: boolean; soundOn: boolean; onToggleSound: () => void; onEnterClick: () => void; onSkip: () => void; countdownIso: string;
 }) {
+  const { portrait, short } = useViewport();
+  const enterBtn = (
+    <button type="button" onClick={onEnterClick}
+      className="pointer-events-auto rounded-full bg-gradient-to-r from-[#7a5a22] via-[#f7e7a8] to-[#9c7630] px-9 py-3.5 text-sm font-bold tracking-[0.3em] text-[#141210] shadow-[0_10px_40px_-10px_rgba(247,231,168,0.6)] transition active:scale-[0.98]">
+      ENTRAR
+    </button>
+  );
   return (
     <>
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between gap-3 p-4 sm:p-6">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-3 p-4 pt-[max(env(safe-area-inset-top),1rem)] sm:p-6">
         <span className="playmore-sans text-[10px] font-semibold tracking-[0.25em] text-[#e9d9b0]/70 sm:text-[11px] sm:tracking-[0.4em]">PLAYROOM × DALMORE</span>
         <div className="pointer-events-auto flex items-center gap-2">
           <button type="button" onClick={onToggleSound} aria-label={soundOn ? 'Silenciar' : 'Activar sonido'} aria-pressed={soundOn}
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-[#d6b25e]/40 text-[#e9d9b0] transition hover:bg-white/5">
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#d6b25e]/40 text-[#e9d9b0] transition hover:bg-white/5">
             {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </button>
           <button type="button" onClick={onSkip} className="h-10 rounded-full border border-[#d6b25e]/40 whitespace-nowrap px-4 text-[11px] font-semibold tracking-[0.15em] text-[#e9d9b0] transition hover:bg-white/5 sm:text-xs sm:tracking-[0.2em]">
@@ -140,21 +190,34 @@ function IntroChrome({ ready, soundOn, onToggleSound, onEnterClick, onSkip }: {
           </button>
         </div>
       </div>
-      <div className={`absolute inset-x-0 bottom-0 flex flex-col items-center gap-4 p-6 pb-[max(env(safe-area-inset-bottom),1.5rem)] text-center transition-opacity duration-700 ${ready ? 'opacity-100' : 'pointer-events-none opacity-0'}`}>
-        <p className="playmore-hint text-sm tracking-[0.25em] text-[#e9d9b0]/80">
-          <span className="hidden sm:inline">ARRASTRA EL TALÓN PARA ENTRAR</span>
-          <span className="sm:hidden">DESLIZA EL TALÓN PARA ENTRAR</span>
-        </p>
-        <button type="button" onClick={onEnterClick}
-          className="rounded-full bg-gradient-to-r from-[#7a5a22] via-[#f7e7a8] to-[#9c7630] px-8 py-3 text-sm font-bold tracking-[0.3em] text-[#141210] shadow-[0_10px_40px_-10px_rgba(247,231,168,0.6)] transition active:scale-[0.98]">
-          ENTRAR
-        </button>
-      </div>
+
+      {portrait ? (
+        // Escena vertical: invitación + cuenta regresiva / (ticket) / pista + Entrar.
+        <div className={`pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-6 text-center transition-opacity duration-700 ${ready ? 'opacity-100' : 'opacity-0'}`}>
+          <div className="flex flex-col items-center gap-5">
+            <p className="text-[10px] font-semibold tracking-[0.5em] text-[var(--pm-orchid,#e477ea)]">TU INVITACIÓN</p>
+            <p className="playmore-serif -mt-2 text-[1.65rem] italic leading-tight text-[#f4efe6]/90">Una noche. Dos mundos.</p>
+            <MiniCountdown iso={countdownIso} />
+          </div>
+          <div aria-hidden="true" style={{ height: `calc(${PORTRAIT_FILL * 100}vw / 3 + 5.5rem)` }} />
+          <div className="flex flex-col items-center gap-5 pb-[env(safe-area-inset-bottom)]">
+            <p className="playmore-hint text-xs tracking-[0.3em] text-[#e9d9b0]/80">DESLIZA EL TALÓN <span aria-hidden="true">→</span></p>
+            {enterBtn}
+          </div>
+        </div>
+      ) : (
+        <div className={`pointer-events-none absolute inset-x-0 bottom-0 flex flex-col items-center gap-4 p-6 text-center transition-opacity duration-700 ${short ? 'pb-[max(env(safe-area-inset-bottom),0.75rem)]' : 'pb-[max(env(safe-area-inset-bottom),1.5rem)]'} ${ready ? 'opacity-100' : 'opacity-0'}`}>
+          {!short && (
+            <p className="playmore-hint text-sm tracking-[0.25em] text-[#e9d9b0]/80">ARRASTRA EL TALÓN PARA ENTRAR</p>
+          )}
+          {enterBtn}
+        </div>
+      )}
     </>
   );
 }
 
-function WebGLTicket({ data, partnerLogoUrl, soundOn, onToggleSound, onEnter }: Props) {
+function WebGLTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleSound, onEnter }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const flashRef = useRef<HTMLDivElement>(null);
   const tearRef = useRef<(() => void) | null>(null);
@@ -204,7 +267,9 @@ function WebGLTicket({ data, partnerLogoUrl, soundOn, onToggleSound, onEnter }: 
 
       // ── Escena ────────────────────────────────────────────────────────
       const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      // En celular 1.75x ya se ve nítido y cuida la batería y la fluidez.
+      const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, coarse ? 1.75 : 2));
       renderer.setClearColor(0x000000, 0);
       mount.appendChild(renderer.domElement);
       renderer.domElement.style.touchAction = 'none';
@@ -240,11 +305,12 @@ function WebGLTicket({ data, partnerLogoUrl, soundOn, onToggleSound, onEnter }: 
 
       const ticket = new THREE.Group();
       ticket.add(body, stubPivot);
-      const holder = new THREE.Group(); // gira 90° en vertical
-      holder.add(ticket);
-      scene.add(holder);
+      scene.add(ticket);
 
       // ── Tamaño / orientación ──────────────────────────────────────────
+      // Siempre horizontal. La cámara se aleja lo justo para que el ticket
+      // ocupe ~92% del ancho en vertical y deje aire para los controles en
+      // pantallas anchas o bajas.
       let portrait = false;
       const resize = () => {
         const w = mount.clientWidth, h = mount.clientHeight;
@@ -254,11 +320,10 @@ function WebGLTicket({ data, partnerLogoUrl, soundOn, onToggleSound, onEnter }: 
         const aspect = w / h;
         camera.aspect = aspect;
         portrait = aspect < 0.85;
-        holder.rotation.z = portrait ? -Math.PI / 2 : 0;
         const tanH = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-        const needW = (portrait ? H_WORLD / 0.82 : TOTAL_W / 0.8);
-        const needH = (portrait ? TOTAL_W / 0.72 : H_WORLD / 0.5);
-        camera.position.z = Math.max(needH / (2 * tanH), needW / (2 * tanH * aspect));
+        const fillW = portrait ? PORTRAIT_FILL : 0.8;
+        const fillH = h < 520 ? 0.42 : 0.5;
+        camera.position.z = Math.max(H_WORLD / fillH / (2 * tanH), TOTAL_W / fillW / (2 * tanH * aspect));
         camera.updateProjectionMatrix();
       };
       resize();
@@ -281,16 +346,21 @@ function WebGLTicket({ data, partnerLogoUrl, soundOn, onToggleSound, onEnter }: 
         const r = renderer.domElement.getBoundingClientRect();
         return new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
       };
+      // En pantallas táctiles el talón es chico: también vale tomar el
+      // ticket desde su último tercio, junto a la perforación.
       const hitsStub = (e: PointerEvent) => {
         ray.setFromCamera(ndc(e), camera);
-        return ray.intersectObject(stub).length > 0;
+        if (ray.intersectObject(stub).length > 0) return true;
+        if (e.pointerType !== 'touch') return false;
+        const hit = ray.intersectObject(body)[0];
+        return !!hit?.uv && hit.uv.x > 0.66;
       };
       const tear = () => {
         if (phase !== 'idle' && phase !== 'enter') return;
         phase = 'torn';
         phaseStart = performance.now();
         // El talón sale hacia afuera y cae girando.
-        stubVel.set(portrait ? 0.4 : 1.1, portrait ? -0.6 : 0.5, 0.6);
+        stubVel.set(portrait ? 0.7 : 1.1, portrait ? 0.3 : 0.5, 0.6);
         stubSpin = (Math.random() > 0.5 ? 1 : -1) * 2.4;
         if (soundRef.current) playRip();
         setReady(false);
@@ -305,12 +375,14 @@ function WebGLTicket({ data, partnerLogoUrl, soundOn, onToggleSound, onEnter }: 
           renderer.domElement.setPointerCapture(e.pointerId);
         }
       };
+      let lastMouse = 0;
       const onMove = (e: PointerEvent) => {
         const p = ndc(e);
-        pointer.copy(p);
+        if (e.pointerType === 'mouse') { pointer.copy(p); lastMouse = performance.now(); }
         if (dragging && dragStart) {
           const dist = Math.hypot(e.clientX - dragStart.x, e.clientY - dragStart.y);
-          tearAmount = clamp01(dist / 160);
+          // En celular el gesto es más corto (pantalla más chica).
+          tearAmount = clamp01(dist / (e.pointerType === 'touch' ? 110 : 160));
           if (tearAmount >= 1) { dragging = false; tear(); }
         } else if (phase === 'idle') {
           renderer.domElement.style.cursor = hitsStub(e) ? 'grab' : 'default';
@@ -369,9 +441,14 @@ function WebGLTicket({ data, partnerLogoUrl, soundOn, onToggleSound, onEnter }: 
           ticket.position.y = Math.sin(time * 1.1) * 0.035;
           ticket.position.x = 0;
           ticket.position.z = 0;
-          ticket.rotation.x = lerp(ticket.rotation.x, 0.06 - pointer.y * 0.12, 0.05);
-          ticket.rotation.y = lerp(ticket.rotation.y, -0.1 + pointer.x * 0.2, 0.05);
-          ticket.rotation.z = lerp(ticket.rotation.z, 0.02, 0.05);
+          // Sin mouse (celular) el ticket se mece solo, suave, para que el
+          // brillo y la inclinación sigan vivos.
+          if (now - lastMouse > 2500) pointer.set(Math.sin(time * 0.55) * 0.55, Math.cos(time * 0.43) * 0.4);
+          // En vertical va un poco más inclinado: se ve más grande y en 3D.
+          const tilt = portrait ? 1.6 : 1;
+          ticket.rotation.x = lerp(ticket.rotation.x, (0.06 - pointer.y * 0.12) * tilt, 0.05);
+          ticket.rotation.y = lerp(ticket.rotation.y, (-0.1 + pointer.x * 0.2) * tilt, 0.05);
+          ticket.rotation.z = lerp(ticket.rotation.z, portrait ? 0.035 : 0.02, 0.05);
           shared.uFlutter.value = 0.025;
           if (!dragging) tearAmount = lerp(tearAmount, 0, 0.15);
           // El talón cede al arrastrarlo (se despega desde la perforación).
@@ -432,17 +509,18 @@ function WebGLTicket({ data, partnerLogoUrl, soundOn, onToggleSound, onEnter }: 
         onToggleSound={onToggleSound}
         onEnterClick={() => tearRef.current?.()}
         onSkip={onEnter}
+        countdownIso={countdownIso}
       />
     </div>
   );
 }
 
 /** Versión liviana: el mismo arte en canvas 2D, con CSS 3D. */
-function FallbackTicket({ data, partnerLogoUrl, soundOn, onToggleSound, onEnter }: Props) {
+function FallbackTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleSound, onEnter }: Props) {
   const bodyRef = useRef<HTMLCanvasElement>(null);
   const stubRef = useRef<HTMLCanvasElement>(null);
   const [torn, setTorn] = useState(false);
-  const [portrait, setPortrait] = useState(() => typeof window !== 'undefined' && window.innerWidth / window.innerHeight < 0.85);
+  const { portrait } = useViewport();
 
   useEffect(() => {
     let cancelled = false;
@@ -460,9 +538,7 @@ function FallbackTicket({ data, partnerLogoUrl, soundOn, onToggleSound, onEnter 
       drawLogoFusion(logo, 0.7, playroomLogo, partnerLogo, data.partnerName);
       bodyRef.current.getContext('2d')!.drawImage(logo, LOGO_BOX.x, LOGO_BOX.y, LOGO_BOX.size, LOGO_BOX.size);
     })();
-    const onResize = () => setPortrait(window.innerWidth / window.innerHeight < 0.85);
-    window.addEventListener('resize', onResize);
-    return () => { cancelled = true; window.removeEventListener('resize', onResize); };
+    return () => { cancelled = true; };
   }, [data, partnerLogoUrl]);
 
   const tear = () => {
@@ -476,8 +552,8 @@ function FallbackTicket({ data, partnerLogoUrl, soundOn, onToggleSound, onEnter 
     <div className="playmore-intro fixed inset-0 z-[60] flex items-center justify-center overflow-hidden bg-[#0c0908]" role="dialog" aria-label="Intro: tu ticket para PLAYMORE">
       <div className="playmore-grain pointer-events-none absolute inset-0" aria-hidden="true" />
       <div
-        className={`playmore-lite-ticket relative flex ${portrait ? 'rotate-90' : ''} transition-all duration-700 ${torn ? 'scale-125 opacity-0' : ''}`}
-        style={{ width: portrait ? '150vh' : 'min(88vw, 1100px)', maxWidth: portrait ? '76vh' : undefined }}
+        className={`playmore-lite-ticket relative flex transition-all duration-700 ${torn ? 'scale-125 opacity-0' : ''}`}
+        style={{ width: portrait ? `${PORTRAIT_FILL * 100}vw` : 'min(80vw, 1100px, 120vh)' }}
       >
         <canvas ref={bodyRef} className="h-auto" style={{ width: `${(TICKET.bodyW / (TICKET.bodyW + TICKET.stubW)) * 100}%` }} />
         <button type="button" onClick={tear} aria-label="Arrancar el talón"
@@ -486,7 +562,7 @@ function FallbackTicket({ data, partnerLogoUrl, soundOn, onToggleSound, onEnter 
           <canvas ref={stubRef} className="h-auto w-full" />
         </button>
       </div>
-      <IntroChrome ready={!torn} soundOn={soundOn} onToggleSound={onToggleSound} onEnterClick={tear} onSkip={onEnter} />
+      <IntroChrome ready={!torn} soundOn={soundOn} onToggleSound={onToggleSound} onEnterClick={tear} onSkip={onEnter} countdownIso={countdownIso} />
     </div>
   );
 }
