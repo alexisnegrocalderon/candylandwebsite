@@ -10,14 +10,16 @@ import { QrScanner } from '@/components/QrScanner';
 import { parseTicketCodeFromQr } from '@shared/qr';
 import {
   saveSnapshot, getLocalEvent, searchLocal, searchStaffCompsLocal, searchInsideAttendeesLocal, getLocalAttendee, getLocalCatalog,
-  enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, clearSyncedOps, correctedNow,
+  enqueueOp, pendingOpsCount, getPendingOps, markOpSynced, markOpRejected, getRejectedOps, discardOp, clearSyncedOps, correctedNow,
   nextKitchenTicketNumber, nextLockerTagNumber,
   type CajaAttendee, type CajaCatalogItem, type CajaStaffComp, type QueuedOp,
 } from './db';
+import { forgetOffline, useOfflineFallback } from './offlineGate';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { formatChileDateTime } from '@shared/chileDate';
 import { getFavoriteIds, toggleFavorite } from './favorites';
 import { SalesHistory } from './SalesHistory';
+import { RejectedOps } from './RejectedOps';
 
 /* Módulo /caja (docs/ARQUITECTURA-CAJA.md Fase 3) -- offline-first: la
  * búsqueda, la ficha y el catálogo se leen siempre de IndexedDB (Dexie), no
@@ -32,14 +34,14 @@ function newOpId() {
   return crypto.randomUUID();
 }
 
-type View = 'menu' | 'sheet' | 'sale' | 'history' | 'dashboard' | 'conflicts';
+type View = 'menu' | 'sheet' | 'sale' | 'history' | 'dashboard' | 'conflicts' | 'rejected';
 
 export default function CajaApp() {
   // Fuera del indice de Google: robots.txt solo lo pide, noindex lo asegura.
   useSeo({ title: 'Caja — Mansion Playroom', description: '', path: '/caja', noindex: true });
 
   // Registro manual del service worker (solo en build de producción -- en
-  // dev vite-plugin-pwa no genera un SW real). Scope acotado a /caja/ para
+  // dev vite-plugin-pwa no genera un SW real). Scope acotado a /caja para
   // no tocar el resto del sitio (checkout con Mercado Pago, admin).
   useEffect(() => {
     if (!import.meta.env.PROD) return;
@@ -48,7 +50,8 @@ export default function CajaApp() {
       .catch(() => {});
   }, []);
 
-  const { data: deviceStatus, isLoading: loadingDevice } = trpc.caja.deviceStatus.useQuery();
+  const deviceQuery = trpc.caja.deviceStatus.useQuery();
+  const { data: deviceStatus, waiting: loadingDevice } = useOfflineFallback('device', deviceQuery);
 
   if (loadingDevice) {
     return (
@@ -58,8 +61,22 @@ export default function CajaApp() {
     );
   }
 
-  if (!deviceStatus?.enrolled) return <DeviceEnroll />;
+  // Sin señal y sin nada guardado (tablet que nunca entró): no se puede
+  // enrolar ni loguear offline, así que se explica en vez de mostrar el
+  // formulario de enrolamiento como si la tablet no estuviera activada.
+  if (!deviceStatus) return <OfflineFirstRun />;
+  if (!deviceStatus.enrolled) return <DeviceEnroll />;
   return <OperatorGate />;
+}
+
+function OfflineFirstRun() {
+  return (
+    <div className="fixed inset-0 overscroll-none bg-gradient-to-b from-[#150d13] via-[#0d0810] to-[#150d13] text-white flex flex-col items-center justify-center gap-3 p-6 text-center">
+      <h1 className="text-xl font-bold">Sin conexión</h1>
+      <p className="text-white/70 text-sm max-w-xs">La primera vez la caja necesita internet para activarse y entrar. Después funciona aunque se corte la señal.</p>
+      <button type="button" onClick={() => window.location.reload()} className="mt-2 text-sm underline text-white/80">Reintentar</button>
+    </div>
+  );
 }
 
 /** Enrolamiento de dispositivo (pedido explícito del usuario): sin esto ni
@@ -91,7 +108,8 @@ function DeviceEnroll() {
 }
 
 function OperatorGate() {
-  const { data: operator, isLoading } = trpc.caja.me.useQuery();
+  const meQuery = trpc.caja.me.useQuery();
+  const { data: operator, waiting: isLoading } = useOfflineFallback('me', meQuery);
 
   if (isLoading) {
     return (
@@ -112,35 +130,47 @@ function OperatorGate() {
  * medio de un turno que ya se abrió" -- en ese segundo caso no hay que
  * volver a pedir el efectivo inicial. */
 function ShiftGate({ operator }: { operator: { operatorId: number; name: string; role: string } }) {
-  const { data: registersList } = trpc.caja.listRegisters.useQuery();
-  const { data: event } = trpc.caja.activeEvent.useQuery();
+  const { data: registersList } = useOfflineFallback('registers', trpc.caja.listRegisters.useQuery());
+  const { data: event } = useOfflineFallback('event', trpc.caja.activeEvent.useQuery());
   const shiftOpen = trpc.caja.shiftOpen.useMutation();
+  // En localStorage (no sessionStorage): la PWA de la tablet se reinicia
+  // cuando queda bloqueada un rato, y sin señal no hay forma de volver a
+  // preguntar al servidor qué caja era. Se borra al cerrar el turno.
   const [registerId, setRegisterId] = useState<number | null | undefined>(() => {
-    const saved = sessionStorage.getItem('caja_register_id');
-    return saved ? Number(saved) : undefined;
+    const saved = localStorage.getItem('caja_register_id');
+    return saved === null ? undefined : saved === 'none' ? null : Number(saved);
   });
-  const [shiftStarted, setShiftStarted] = useState(() => sessionStorage.getItem('caja_shift_opened') === '1');
+  const [shiftStarted, setShiftStarted] = useState(() => localStorage.getItem('caja_shift_opened') === '1');
 
   // El servidor manda: si ya hay un turno abierto para esta caja, se entra a
-  // vender sin volver a pedir el efectivo inicial, aunque `sessionStorage`
+  // vender sin volver a pedir el efectivo inicial, aunque `localStorage`
   // esté vacío (la PWA se reinició, se cerró la pestaña, la tablet estuvo
-  // bloqueada). `sessionStorage` queda solo como caché optimista para que la
+  // bloqueada). `localStorage` queda solo como caché optimista para que la
   // pantalla no parpadee y para funcionar sin conexión.
-  const { data: serverShift, isLoading: shiftLoading } = trpc.caja.currentShift.useQuery(
-    { registerId: registerId ?? undefined },
-    { enabled: registerId !== undefined, refetchOnWindowFocus: true },
+  // Mismo evento que shiftOpen/shiftClose (el de activeEvent, que fuera de
+  // horario es el de pruebas): antes miraba el evento real y en modo prueba
+  // nunca encontraba el turno.
+  const shiftQuery = trpc.caja.currentShift.useQuery(
+    { eventId: event?.id, registerId: registerId ?? undefined },
+    { enabled: registerId !== undefined && !!event, refetchOnWindowFocus: true },
   );
+  const serverShift = shiftQuery.data;
+  const shiftLoading = shiftQuery.isLoading && shiftQuery.fetchStatus !== 'paused';
   useEffect(() => {
     if (serverShift && !shiftStarted) {
-      sessionStorage.setItem('caja_shift_opened', '1');
+      localStorage.setItem('caja_shift_opened', '1');
       setShiftStarted(true);
     }
   }, [serverShift, shiftStarted]);
 
   const chooseRegister = (id: number | null) => {
     setRegisterId(id);
-    if (id !== null) sessionStorage.setItem('caja_register_id', String(id));
-    else sessionStorage.removeItem('caja_register_id');
+    localStorage.setItem('caja_register_id', id === null ? 'none' : String(id));
+  };
+  const forgetRegister = () => {
+    localStorage.removeItem('caja_register_id');
+    localStorage.removeItem('caja_shift_opened');
+    setRegisterId(undefined);
   };
 
   const openWithCash = async (openingCash: number) => {
@@ -160,7 +190,7 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
           { duration: 10000 },
         );
       }
-      sessionStorage.setItem('caja_shift_opened', '1');
+      localStorage.setItem('caja_shift_opened', '1');
       setShiftStarted(true);
     } catch (err: any) {
       // Sin esto el turno fallaba en silencio y la cajera seguía en la
@@ -185,9 +215,10 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
         operator={operator}
         registerId={registerId}
         onCloseShift={() => {
-          sessionStorage.removeItem('caja_shift_opened');
+          // Turno cerrado: la próxima persona elige su caja de nuevo (antes
+          // heredaba la caja anterior e iba directo a su conteo de fondo).
+          forgetRegister();
           setShiftStarted(false);
-          setRegisterId(undefined);
         }}
       />
     );
@@ -198,7 +229,7 @@ function ShiftGate({ operator }: { operator: { operatorId: number; name: string;
       <OpeningCashPrompt
         loading={shiftOpen.isPending}
         onSubmit={openWithCash}
-        onBack={() => { sessionStorage.removeItem('caja_register_id'); setRegisterId(undefined); }}
+        onBack={forgetRegister}
       />
     );
   }
@@ -498,7 +529,7 @@ function SyncBadge({ online, pending }: { online: boolean; pending: number }) {
 function CajaHome({ operator, registerId, onCloseShift }: { operator: { operatorId: number; name: string; role: string }; registerId: number | null; onCloseShift: () => void }) {
   const utils = trpc.useUtils();
   const { data: remoteEvent } = trpc.caja.activeEvent.useQuery();
-  const logout = trpc.caja.logout.useMutation({ onSuccess: () => utils.caja.me.invalidate() });
+  const logout = trpc.caja.logout.useMutation({ onSuccess: () => { forgetOffline('me'); utils.caja.me.invalidate(); } });
   const snapshotQuery = trpc.caja.snapshot.useQuery({ eventId: remoteEvent?.id ?? 0 }, { enabled: !!remoteEvent, refetchInterval: 60_000 });
   const syncMutation = trpc.caja.sync.useMutation();
   const shiftClose = trpc.caja.shiftClose.useMutation();
@@ -547,9 +578,20 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
 
   // Cola de sincronización: cada 5s, si hay conexión y ops pendientes,
   // manda un lote al servidor (§7) -- idempotente, reintentable sin límite.
+  //
+  // Todo lo que cambia entre renders va por refs: antes `runSync` dependía
+  // de `syncMutation` (un objeto nuevo en cada render), así que cada tecla
+  // en el buscador re-creaba el intervalo y volvía a leer IndexedDB.
   const syncingRef = useRef(false);
+  const syncLatest = useRef({ isOnline, localEvent, registerId, mutateAsync: syncMutation.mutateAsync, refreshPending });
+  syncLatest.current = { isOnline, localEvent, registerId, mutateAsync: syncMutation.mutateAsync, refreshPending };
+  const [rejectedCount, setRejectedCount] = useState(0);
+  const refreshRejected = useCallback(() => { getRejectedOps().then((r) => setRejectedCount(r.length)); }, []);
+  useEffect(() => { refreshRejected(); }, [refreshRejected]);
+
   const runSync = useCallback(async () => {
-    if (syncingRef.current || !isOnline || !localEvent) return;
+    const { isOnline: online, localEvent: ev, registerId: reg, mutateAsync, refreshPending: refresh } = syncLatest.current;
+    if (syncingRef.current || !online || !ev) return;
     // La cola es compartida con /puerta (mismo IndexedDB, distinto origen de
     // operaciones) -- 'parking_paid' es exclusivo de la puerta, así que
     // /caja lo deja pasar de largo en vez de mandarlo a un endpoint que no
@@ -558,34 +600,51 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
     if (opsToSync.length === 0) return;
     syncingRef.current = true;
     try {
-      const results = await syncMutation.mutateAsync({
-        eventId: localEvent.id, registerId: registerId ?? undefined,
-        ops: opsToSync.slice(0, 50).map((o) => o.op) as Exclude<QueuedOp, { type: 'parking_paid' }>[],
-      });
-      for (const [opId, res] of Object.entries(results)) {
-        await markOpSynced(opId, res.result, res.conflictNote);
-        if (res.result === 'conflict') toast.warning(`Conflicto al sincronizar: ${res.conflictNote || 'revisar con supervisor'}`);
-        // 'rejected' significa que la venta NUNCA se aplicó en el servidor
-        // (ej. catálogo desactualizado en la tablet) -- sin este aviso
-        // desaparecía en silencio de la cola y la cajera nunca se enteraba
-        // de que había que rehacerla.
-        if (res.result === 'rejected') toast.error(`Venta rechazada al sincronizar: ${res.conflictNote || 'error desconocido'} -- hay que rehacerla`, { duration: 15000 });
+      // Cada op se aplica contra el evento en que se hizo (real o de
+      // pruebas), aunque la tablet haya cambiado de evento entremedio.
+      const byEvent = new Map<number, typeof opsToSync>();
+      for (const o of opsToSync) {
+        const id = o.eventId ?? ev.id;
+        byEvent.set(id, [...(byEvent.get(id) ?? []), o]);
+      }
+      let rejected = 0;
+      for (const [eventId, group] of Array.from(byEvent)) {
+        const results = await mutateAsync({
+          eventId, registerId: reg ?? undefined,
+          ops: group.slice(0, 50).map((o) => o.op) as Exclude<QueuedOp, { type: 'parking_paid' }>[],
+        });
+        for (const [opId, res] of Object.entries(results)) {
+          if (res.result === 'rejected') {
+            // 'rejected' = la venta NUNCA se aplicó en el servidor (ej.
+            // catálogo desactualizado). Antes se borraba de la cola con un
+            // aviso que se iba solo; ahora queda en "Por rehacer".
+            await markOpRejected(opId, res.conflictNote);
+            rejected++;
+            continue;
+          }
+          await markOpSynced(opId, res.result, res.conflictNote);
+          if (res.result === 'conflict') toast.warning(`Conflicto al sincronizar: ${res.conflictNote || 'revisar con supervisor'}`);
+        }
+      }
+      if (rejected > 0) {
+        toast.error(`${rejected === 1 ? 'Una venta fue rechazada' : `${rejected} ventas fueron rechazadas`} al sincronizar -- revísalas en "Por rehacer".`, { duration: 10000 });
       }
       await clearSyncedOps();
-      refreshPending();
+      refresh();
+      refreshRejected();
       setSheetVersion((v) => v + 1);
     } catch {
       // Sin red real (aunque navigator.onLine diga que sí) o error del servidor -- se reintenta en el próximo tick.
     } finally {
       syncingRef.current = false;
     }
-  }, [isOnline, localEvent, syncMutation, refreshPending, registerId]);
+  }, [refreshRejected]);
 
   useEffect(() => {
     const interval = setInterval(runSync, 5000);
-    if (isOnline) runSync();
     return () => clearInterval(interval);
-  }, [runSync, isOnline]);
+  }, [runSync]);
+  useEffect(() => { if (isOnline) runSync(); }, [isOnline, runSync]);
 
   // Búsqueda 100% local (funciona offline, <50ms).
   useEffect(() => {
@@ -596,23 +655,33 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
     searchStaffCompsLocal(q).then((cs) => setStaffCompResults(cs.filter((c) => c.status !== 'used')));
   }, [query, sheetVersion]);
 
-  const doRedeem = async (displayCode: string) => {
-    await enqueueOp({ opId: newOpId(), type: 'redeem', displayCode, clientAt: (await correctedNow()).toISOString() });
+  // Freno al doble toque: cada toque generaba un opId nuevo y el segundo
+  // terminaba como conflicto en el servidor. Mientras un código se está
+  // procesando, los toques repetidos sobre ese mismo código se ignoran.
+  const inFlight = useRef(new Set<string>());
+  const once = async (key: string, fn: () => Promise<void>) => {
+    if (inFlight.current.has(key)) return;
+    inFlight.current.add(key);
+    try { await fn(); } finally { window.setTimeout(() => inFlight.current.delete(key), 1500); }
+  };
+
+  const doRedeem = (displayCode: string) => once(`redeem:${displayCode.toUpperCase()}`, async () => {
+    await enqueueOp({ opId: newOpId(), type: 'redeem', displayCode, clientAt: (await correctedNow()).toISOString() }, localEvent?.id);
     toast.success('Código canjeado ✅');
     refreshPending();
     setSheetVersion((v) => v + 1);
     runSync();
-  };
+  });
 
   // Marcar la entrada en la puerta. Va por la misma cola offline que el
   // canje, así que la fila avanza aunque la tablet esté sin señal.
-  const doCheckIn = async (ticketCode: string) => {
-    await enqueueOp({ opId: newOpId(), type: 'checkin', ticketCode, clientAt: (await correctedNow()).toISOString() });
+  const doCheckIn = (ticketCode: string) => once(`checkin:${ticketCode.toUpperCase()}`, async () => {
+    await enqueueOp({ opId: newOpId(), type: 'checkin', ticketCode, clientAt: (await correctedNow()).toISOString() }, localEvent?.id);
     toast.success('Entrada marcada ✅');
     refreshPending();
     setSheetVersion((v) => v + 1);
     runSync();
-  };
+  });
 
   const redeemManual = () => {
     if (!manualCode.trim()) return;
@@ -657,6 +726,13 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
     // sincronizar -- se resuelve en la UI, no en el servidor.
     const stillPending = await pendingOpsCount();
     if (stillPending > 0) { toast.error(`Todavía hay ${stillPending} operación${stillPending > 1 ? 'es' : ''} sin sincronizar. Espera a que termine.`); return; }
+    // Una venta rechazada nunca entró al servidor: si se cierra igual, el
+    // cuadre queda corto por ese monto. Se avisa antes de contar la caja.
+    const rejectedNow = (await getRejectedOps()).length;
+    if (rejectedNow > 0 && !window.confirm(`Hay ${rejectedNow} venta${rejectedNow > 1 ? 's' : ''} rechazada${rejectedNow > 1 ? 's' : ''} sin rehacer: no están en el sistema y el cuadre va a quedar corto. ¿Cerrar igual?`)) {
+      setView('rejected');
+      return;
+    }
     setShowCloseForm(true);
   };
 
@@ -686,6 +762,12 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
         <div className="shrink-0 z-10 bg-amber-500 text-black text-xs font-bold text-center py-1.5 px-4">
           🧪 Modo prueba -- estas ventas NO son reales
         </div>
+      )}
+      {rejectedCount > 0 && view !== 'rejected' && (
+        <button type="button" onClick={() => setView('rejected')}
+          className="shrink-0 z-10 bg-red-500/90 text-white text-sm font-bold text-center py-2 px-4">
+          ⚠️ {rejectedCount === 1 ? '1 venta' : `${rejectedCount} ventas`} por rehacer -- tocar para revisar
+        </button>
       )}
 
       {scanning && (
@@ -864,7 +946,7 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
                 await enqueueOp({
                   opId, type: 'sale', items, paymentMethod, buyerEmail, redeemPlaycoins,
                   discountCode, lockerTag, lockerCustomerName, kitchenTicketNumber, customerName, clientAt,
-                });
+                }, localEvent.id);
               }
               const confirms: typeof postSaleConfirms = [];
               if (kitchenTicketNumber) confirms.push({ kind: 'kitchen', number: kitchenTicketNumber, name: customerName || kitchenTicketNumber, offline: !isOnline });
@@ -882,6 +964,10 @@ function CajaHome({ operator, registerId, onCloseShift }: { operator: { operator
               if (getFavoriteIds().length === 0) setView('menu');
             }}
           />
+        )}
+
+        {view === 'rejected' && (
+          <RejectedOps eventId={localEvent.id} onChanged={() => { refreshRejected(); refreshPending(); runSync(); }} />
         )}
 
         {view === 'history' && (

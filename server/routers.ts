@@ -19,6 +19,7 @@ import { checkInTicket } from "./caja/checkin";
 import { sellParkingAtDoor } from "./caja/parkingPaid";
 import { MAX_TEST_GUESTS, MIN_TEST_GUESTS } from "../shared/playmatchTest";
 import { UNDO_EXPENSE_WINDOW_MS } from "../shared/expenses";
+import { canUseCaja } from "../shared/cajaRoles";
 import { AVATARS_PER_GENDER, PARTY_GENDERS, PARTY_ZONES, partyEntryDenial, sanitizeAlias, sanitizeGiftMessage, sanitizeMessage, isPartyWindowOpen, validatePhotoBytes } from "../shared/party";
 import * as ambassadorProgram from "./ambassadorProgram";
 import { monthKeyFor } from "../shared/ambassadorProgram";
@@ -4618,7 +4619,10 @@ export const appRouter = router({
     // dispositivo enrolado (deviceProcedure), y solo muestra operadores del
     // mismo evento al que el dispositivo fue enrolado.
     listOperators: deviceProcedure.query(async ({ ctx }) => {
-      return db.listActiveOperatorsPublic(ctx.device.eventId);
+      // Solo quienes usan la caja: acceso/cocina/guardarropía tienen su
+      // propia pantalla (y el login de acá los rechaza igual).
+      const all = await db.listActiveOperatorsPublic(ctx.device.eventId);
+      return all.filter((o) => canUseCaja(o.role));
     }),
     login: deviceProcedure.input(z.object({ operatorId: z.number(), pin: z.string().min(4).max(8) })).mutation(async ({ input, ctx }) => {
       const operator = await verifyOperatorPinOrThrow(ctx, input.operatorId, input.pin);
@@ -4627,6 +4631,9 @@ export const appRouter = router({
       // otro evento en este dispositivo.
       if (operator.eventId !== ctx.device.eventId) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Este operador no pertenece al evento de este dispositivo' });
+      }
+      if (!canUseCaja(operator.role)) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Este usuario no usa la caja (es de otra pantalla)' });
       }
       const sessionToken = await signOperatorSession({ operatorId: operator.id, role: operator.role, name: operator.name });
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -4741,11 +4748,17 @@ export const appRouter = router({
     // primer plano, pestaña cerrada) -- y ahí le volvía a pedir el efectivo
     // inicial a la cajera aunque el turno siguiera abierto en la base. Ese
     // era el bug que reportó el dueño del evento pasado.
+    //
+    // `eventId` es el MISMO que usan shiftOpen/shiftClose (el de activeEvent,
+    // que fuera de horario es el de pruebas). Antes miraba siempre el evento
+    // real del dispositivo: en modo prueba nunca encontraba el turno abierto,
+    // volvía a pedir el fondo al recargar y a veces no dejaba cerrar.
     currentShift: operatorProcedure.input(z.object({
+      eventId: z.number().optional(),
       registerId: z.number().optional(),
     })).query(async ({ input, ctx }) => {
       if (!ctx.device) throw new TRPCError({ code: 'FORBIDDEN', message: 'Este dispositivo no está enrolado' });
-      const shift = await db.getOpenShift(ctx.device.eventId, input.registerId);
+      const shift = await db.getOpenShift(input.eventId ?? ctx.device.eventId, input.registerId);
       if (!shift) return null;
       return {
         shiftId: shift.id,

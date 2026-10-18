@@ -2,6 +2,9 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { defineConfig } from "vite";
+
+/** Revisión de caja.html en el precache de /caja: cambia en cada build. */
+const CAJA_HTML_REVISION = String(Date.now());
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig(() => {
@@ -37,7 +40,10 @@ export default defineConfig(() => {
       // corregido en el código, sin ninguna forma de salir solo. "autoUpdate"
       // activa la versión nueva y recarga la página apenas está lista.
       registerType: "autoUpdate",
-      scope: "/caja/",
+      // "/caja" y no "/caja/": la app se abre en /caja (start_url del
+      // manifest) y un alcance con barra final NO controla esa dirección --
+      // la tablet sin señal nunca llegaba al service worker.
+      scope: "/caja",
       // `manifest: false` A PROPÓSITO -- antes este plugin generaba
       // manifest.webmanifest de Caja E INYECTABA su <link rel="manifest">
       // en el ÚNICO index.html que comparte TODA la SPA, en tiempo de
@@ -63,8 +69,16 @@ export default defineConfig(() => {
         // (gastos, puerta, admin) quiere caché de Workbox -- necesitan datos
         // siempre frescos del servidor.
         globIgnores: ["**/gastos/sw.js", "**/puerta/sw.js", "**/admin/sw.js"],
-        navigateFallback: "/caja",
-        navigateFallbackDenylist: [/^\/api\//, /^\/(?!caja)/],
+        // caja.html (manifest y barra de estado propios) se genera DESPUÉS
+        // del build (scripts/generate-pwa-html.mjs), así que no lo ve el
+        // glob: se agrega a mano con una revisión por build para que nunca
+        // quede una versión vieja. Antes el fallback era "/caja", que no
+        // estaba en el precache: Workbox fallaba al instalar y la caja no
+        // abría sin internet.
+        additionalManifestEntries: [{ url: "/caja.html", revision: CAJA_HTML_REVISION }],
+        navigateFallback: "/caja.html",
+        navigateFallbackAllowlist: [/^\/caja(\/|$)/],
+        navigateFallbackDenylist: [/^\/api\//],
       },
     }),
   ];
