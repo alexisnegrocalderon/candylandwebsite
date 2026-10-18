@@ -3741,6 +3741,18 @@ export const appRouter = router({
       await db.recordAdminAudit({ action: 'expenses.delete', targetType: 'expense', targetId: input.id, ip: clientIp(ctx) });
       return result;
     }),
+    // Aviso de doble conteo de mercadería (P&L): el dueño decide gasto por
+    // gasto si es lo mismo que ya está costeado en la carta. Pide la clave
+    // porque cambia el resultado del evento.
+    reviewCogs: adminPasswordProcedure.input(z.object({
+      id: z.number(), decision: z.enum(['same', 'different', 'reset']),
+    })).mutation(async ({ input, ctx }) => {
+      const expense = await db.getExpenseById(input.id);
+      if (!expense) throw new TRPCError({ code: 'NOT_FOUND', message: 'Ese gasto ya no existe.' });
+      const result = await db.setExpenseCogsDecision(input.id, input.decision);
+      await db.recordAdminAudit({ action: 'expenses.reviewCogs', targetType: 'expense', targetId: input.id, eventId: expense.eventId ?? null, payload: { decision: input.decision }, ip: clientIp(ctx) });
+      return result;
+    }),
     // "Deshacer" de la pantalla de éxito del terminal de gastos: borra sin
     // pedir la clave (a diferencia de `delete`) pero SOLO el gasto que esta
     // misma persona acaba de crear, dentro de 2 minutos. Pasado eso, o si lo

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar } from 'recharts';
 import { Banknote, Landmark, Pencil, Download, Sparkles, Activity, AlertTriangle, Lightbulb, Loader2, Plus, Trash2, TrendingUp, Users, Wallet, Receipt, Target } from 'lucide-react';
+import { PnlWarnings } from '@/components/admin/PnlWarnings';
 import { trpc } from '@/lib/trpc';
 import { formatChileTime, formatChileShortDate } from '@shared/chileDate';
 import { honorariosBreakdown } from '@shared/honorarios';
@@ -1203,12 +1204,7 @@ export default function FinanzasView() {
             <BentoTile><StatTile icon={Target} tone="count" value={rep.result.breakevenTickets != null ? rep.result.breakevenTickets.toLocaleString('es-CL') : '—'} label={`Entradas para no perder (vendidas: ${rep.ticketsSold})`} /></BentoTile>
           </BentoGrid>
 
-          {(p.warnings?.length ?? 0) > 0 && (
-            <div className="admin-clay-sm bg-[var(--admin-warning-bg)] p-4 space-y-1">
-              <p className="text-sm font-semibold text-[var(--admin-warning-text)]">Ojo con estos números</p>
-              {p.warnings.map((w: string, i: number) => <p key={i} className="text-sm text-[var(--admin-warning-text)]">{w}</p>)}
-            </div>
-          )}
+          <PnlWarnings warnings={p.warnings} merchCheck={(p as any).merchCheck} />
 
           <EventCostsCard eventId={eventId} eventDate={new Date(rep.pnl.eventDate as any).toISOString()} costs={rep.costs} />
 
