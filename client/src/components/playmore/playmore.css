@@ -119,6 +119,13 @@
   50% { opacity: 1; transform: translateY(-3px); }
 }
 
+/* Destello del ticket que se desvanece al empezar el video puente. */
+.playmore-flash-out { animation: pm-flash-out 0.9s ease-out forwards; }
+@keyframes pm-flash-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
 /* Versión liviana del ticket: flota suave. */
 .playmore-lite-ticket { animation: pm-float 6s ease-in-out infinite; filter: drop-shadow(0 30px 60px rgba(0, 0, 0, 0.7)); }
 @keyframes pm-float {

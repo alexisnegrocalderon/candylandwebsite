@@ -21,6 +21,9 @@ export interface CoproductionLanding {
   heroImageUrl: string;
   /** Video de fondo del hero (mp4 https). Vacío = terciopelo animado. */
   heroVideoUrl: string;
+  /** Video que corre una vez entre el ticket y la portada (mp4 https).
+   * Vacío = el video incluido en la página. */
+  trailerUrl: string;
   partnerLogoUrl: string;
   /** Nombre propio de la noche (grande en el ticket y el hero). */
   eventName: string;
@@ -49,6 +52,7 @@ export const DEFAULT_LANDING: CoproductionLanding = {
   capacity: 800,
   heroImageUrl: '',
   heroVideoUrl: '',
+  trailerUrl: '',
   partnerLogoUrl: '',
   eventName: 'PLAYMORE',
   timeText: '23:00',
@@ -104,6 +108,7 @@ export function normalizeLanding(raw: unknown): CoproductionLanding {
     capacity: Number.isInteger(Number(p.capacity)) && Number(p.capacity) > 0 ? Math.min(Number(p.capacity), 100000) : d.capacity,
     heroImageUrl: isSafeImageUrl(heroImageUrl) ? heroImageUrl : '',
     heroVideoUrl: /^https:\/\/\S+$/.test(str(p.heroVideoUrl, 500, '')) ? str(p.heroVideoUrl, 500, '') : '',
+    trailerUrl: /^https:\/\/\S+$/.test(str(p.trailerUrl, 500, '')) ? str(p.trailerUrl, 500, '') : '',
     partnerLogoUrl: isSafeImageUrl(partnerLogoUrl) ? partnerLogoUrl : '',
     eventName: str(p.eventName, 40, d.eventName) || d.eventName,
     timeText: str(p.timeText, 20, d.timeText),
