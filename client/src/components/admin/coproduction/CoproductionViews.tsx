@@ -662,6 +662,11 @@ export function CoproConfig() {
             <Input className="mt-1" value={d.landing.heroVideoUrl} placeholder="https://…/video.mp4" onChange={(e) => editLanding({ heroVideoUrl: e.target.value })} />
             <p className="mt-1 text-xs text-muted-foreground">Sin video se muestra un terciopelo animado. Ideal: 10-20 s en loop, menos de 8 MB.</p>
           </div>
+          <div className="sm:col-span-2">
+            <Label>Video del intro (entre el ticket y la portada)</Label>
+            <Input className="mt-1" value={d.landing.trailerUrl} placeholder="https://…/video.mp4" onChange={(e) => editLanding({ trailerUrl: e.target.value })} />
+            <p className="mt-1 text-xs text-muted-foreground">Corre una vez al arrancar el talón. Vacío = el video PLAYROOM × DALMORE que ya trae la página. Ideal: mp4 horizontal, menos de 10 s.</p>
+          </div>
           <div>
             <Label>Logo de {d.partnerName}</Label>
             <div className="mt-1 space-y-2">

@@ -27,7 +27,12 @@ interface Props {
   partnerLogoUrl: string;
   soundOn: boolean;
   onToggleSound: () => void;
+  /** Talón arrancado: termina el intro (la página sigue con el video puente). */
   onEnter: () => void;
+  /** "Saltar intro": directo a la portada. */
+  onSkip: () => void;
+  /** El ticket llegó a reposo: buen momento para precargar el video. */
+  onReady?: () => void;
 }
 
 const H_WORLD = 1;
@@ -217,15 +222,17 @@ function IntroChrome({ ready, soundOn, onToggleSound, onEnterClick, onSkip, coun
   );
 }
 
-function WebGLTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleSound, onEnter }: Props) {
+function WebGLTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleSound, onEnter, onSkip, onReady }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const flashRef = useRef<HTMLDivElement>(null);
   const tearRef = useRef<(() => void) | null>(null);
   const soundRef = useRef(soundOn);
   const onEnterRef = useRef(onEnter);
+  const onReadyRef = useRef(onReady);
   const [ready, setReady] = useState(false);
   soundRef.current = soundOn;
   onEnterRef.current = onEnter;
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -436,7 +443,7 @@ function WebGLTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleSoun
           ticket.rotation.set(lerp(1.15, 0.06, k), lerp(-1.5, -0.1, k), lerp(0.9, 0.02, k));
           shared.uFlutter.value = lerp(0.3, 0.03, k);
           shared.uCurl.value = lerp(0.95, 0, k);
-          if (since >= ENTER_MS) { phase = 'idle'; phaseStart = now; setReady(true); }
+          if (since >= ENTER_MS) { phase = 'idle'; phaseStart = now; setReady(true); onReadyRef.current?.(); }
         } else if (phase === 'idle') {
           ticket.position.y = Math.sin(time * 1.1) * 0.035;
           ticket.position.x = 0;
@@ -508,7 +515,7 @@ function WebGLTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleSoun
         soundOn={soundOn}
         onToggleSound={onToggleSound}
         onEnterClick={() => tearRef.current?.()}
-        onSkip={onEnter}
+        onSkip={onSkip}
         countdownIso={countdownIso}
       />
     </div>
@@ -516,7 +523,7 @@ function WebGLTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleSoun
 }
 
 /** Versión liviana: el mismo arte en canvas 2D, con CSS 3D. */
-function FallbackTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleSound, onEnter }: Props) {
+function FallbackTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleSound, onEnter, onSkip }: Props) {
   const bodyRef = useRef<HTMLCanvasElement>(null);
   const stubRef = useRef<HTMLCanvasElement>(null);
   const [torn, setTorn] = useState(false);
@@ -562,7 +569,7 @@ function FallbackTicket({ data, countdownIso, partnerLogoUrl, soundOn, onToggleS
           <canvas ref={stubRef} className="h-auto w-full" />
         </button>
       </div>
-      <IntroChrome ready={!torn} soundOn={soundOn} onToggleSound={onToggleSound} onEnterClick={tear} onSkip={onEnter} countdownIso={countdownIso} />
+      <IntroChrome ready={!torn} soundOn={soundOn} onToggleSound={onToggleSound} onEnterClick={tear} onSkip={onSkip} countdownIso={countdownIso} />
     </div>
   );
 }

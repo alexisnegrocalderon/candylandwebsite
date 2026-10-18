@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Volume2, VolumeX } from 'lucide-react';
@@ -10,6 +10,7 @@ import {
   Accesos, BuyButton, CodeAndFaq, DALMORE_MARK, Experience, Gallery, PlaymoreFooter, PlaymoreHero, PlaymoreMarquee, TwoWorlds, clp,
 } from '@/components/playmore/sections';
 import { startMusic, stopMusic } from '@/components/playmore/playmoreAudio';
+import { TrailerBridge, shouldPlayTrailer } from '@/components/playmore/TrailerBridge';
 
 // El 3D (three.js) se descarga aparte y solo si se ve el intro.
 const TicketIntro = lazy(() => import('@/components/playmore/TicketIntro').then((m) => ({ default: m.TicketIntro })));
@@ -23,6 +24,9 @@ const TicketIntro = lazy(() => import('@/components/playmore/TicketIntro').then(
  * `?preview=<token>` (Configuración → Vista previa) se ve completa. */
 
 const SLUG = 'dalmore';
+/** Video puente incluido en la página (se reemplaza desde Configuración). */
+const DEFAULT_TRAILER = '/playmore/playmore-trailer.mp4';
+const TRAILER_POSTER = '/playmore/playmore-trailer.jpg';
 
 /** "04 DIC 2026" en hora de Chile, para el ticket. */
 function ticketDate(iso: string): string {
@@ -46,11 +50,19 @@ export default function PlayroomDalmore() {
   // (el servidor igual rechaza órdenes de un evento sin activar).
   const buyHref = data?.isLive && checkoutHref ? checkoutHref : null;
 
-  const [entered, setEntered] = useState(false);
+  // intro (ticket) → trailer (video puente, una vez) → site (portada y secciones).
+  const [stage, setStage] = useState<'intro' | 'trailer' | 'site'>('intro');
+  const entered = stage === 'site';
+  const [preload, setPreload] = useState(false);
   const [soundOn, setSoundOn] = useState(false);
+  const soundRef = useRef(soundOn);
+  soundRef.current = soundOn;
+  const stageRef = useRef(stage);
+  stageRef.current = stage;
   const toggleSound = useCallback(() => {
     setSoundOn((on) => {
-      if (on) stopMusic(); else startMusic();
+      // Durante el video suena el video: el beat espera a la portada.
+      if (on) stopMusic(); else if (stageRef.current !== 'trailer') startMusic();
       return !on;
     });
   }, []);
@@ -71,10 +83,21 @@ export default function PlayroomDalmore() {
       if (meta && prevColor !== undefined) meta.content = prevColor;
     };
   }, []);
-  const enter = useCallback(() => {
-    setEntered(true);
+  const toSite = useCallback(() => {
+    setStage('site');
+    if (soundRef.current) startMusic();
     window.scrollTo(0, 0);
   }, []);
+  // Talón arrancado: pasa por el video si corresponde; "Saltar intro" va
+  // directo a la portada.
+  const afterTicket = useCallback(() => {
+    if (shouldPlayTrailer()) {
+      stopMusic();
+      setStage('trailer');
+    } else {
+      toSite();
+    }
+  }, [toSite]);
 
   useSeo({
     title: landing ? `${landing.eventName} · Playroom × Dalmore · ${full ? landing.dateText : 'Próximamente'}` : 'Playroom × Dalmore',
@@ -105,7 +128,7 @@ export default function PlayroomDalmore() {
   return (
     <div className="playmore relative min-h-dvh overflow-x-hidden">
       <AnimatePresence>
-        {!entered && (
+        {stage === 'intro' && (
           <motion.div key="intro" exit={{ opacity: 0 }} transition={{ duration: 0.6 }}>
             <Suspense fallback={<div className="fixed inset-0 z-[60] bg-[#0c0908]" />}>
               <TicketIntro
@@ -121,9 +144,25 @@ export default function PlayroomDalmore() {
                 partnerLogoUrl={landing.partnerLogoUrl}
                 soundOn={soundOn}
                 onToggleSound={toggleSound}
-                onEnter={enter}
+                onEnter={afterTicket}
+                onSkip={toSite}
+                onReady={() => setPreload(true)}
               />
             </Suspense>
+            {/* Precarga del video mientras la persona mira el ticket. */}
+            {preload && shouldPlayTrailer() && (
+              <video src={landing.trailerUrl || DEFAULT_TRAILER} preload="auto" muted playsInline className="hidden" aria-hidden="true" />
+            )}
+          </motion.div>
+        )}
+        {stage === 'trailer' && (
+          <motion.div key="trailer" exit={{ opacity: 0 }} transition={{ duration: 0.8 }}>
+            <TrailerBridge
+              src={landing.trailerUrl || DEFAULT_TRAILER}
+              poster={landing.trailerUrl ? undefined : TRAILER_POSTER}
+              soundOn={soundOn}
+              onDone={toSite}
+            />
           </motion.div>
         )}
       </AnimatePresence>
