@@ -78,8 +78,10 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, minPrice 
   const ref = useRef<HTMLElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start start', 'end start'] });
   // Al bajar, los dos logos se acercan hasta fundirse en el centro.
-  const leftX = useTransform(scrollYProgress, [0, 0.45], [-90, 0]);
-  const rightX = useTransform(scrollYProgress, [0, 0.45], [90, 0]);
+  // En celular parten más juntos para que no se salgan de la pantalla.
+  const spread = typeof window !== 'undefined' && window.innerWidth < 640 ? 36 : 90;
+  const leftX = useTransform(scrollYProgress, [0, 0.45], [-spread, 0]);
+  const rightX = useTransform(scrollYProgress, [0, 0.45], [spread, 0]);
   const crossOpacity = useTransform(scrollYProgress, [0, 0.35], [1, 0]);
   const fuseGlow = useTransform(scrollYProgress, [0.3, 0.5], [0, 1]);
   const bgY = useTransform(scrollYProgress, [0, 1], ['0%', '25%']);
@@ -110,7 +112,7 @@ export function PlaymoreHero({ landing, partnerName, buyHref, preview, minPrice 
             className="relative h-20 w-20 object-contain sm:h-24 sm:w-24" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.2 }} />
           <motion.span style={{ opacity: crossOpacity }} className="playmore-serif relative mx-2 text-3xl italic text-[var(--pm-sand)]">×</motion.span>
           <motion.div style={{ x: rightX }} className="relative" initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 1, delay: 0.35 }}>
-            <PartnerMark logoUrl={landing.partnerLogoUrl} name={partnerName} className="h-20 w-20 text-[5.5rem] sm:h-24 sm:w-24 sm:text-[6.5rem]" imgClassName="h-20 w-32 sm:h-24 sm:w-40" />
+            <PartnerMark logoUrl={landing.partnerLogoUrl} name={partnerName} className="h-20 w-20 text-[5.5rem] sm:h-24 sm:w-24 sm:text-[6.5rem]" imgClassName="h-16 w-28 sm:h-24 sm:w-40" />
           </motion.div>
         </div>
 
