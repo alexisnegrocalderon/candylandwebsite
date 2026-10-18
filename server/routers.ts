@@ -3,7 +3,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { pushTitle } from "../shared/pushText";
 import { sdk, ADMIN_LOCAL_OPEN_ID, VIEWER_LOCAL_OPEN_ID } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, adminReadProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, adminReadProcedure, partnerProcedure, operatorProcedure, supervisorProcedure, deviceProcedure, doorProcedure, kitchenProcedure, guardarropiaProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { nanoid } from "nanoid";
@@ -110,6 +110,9 @@ import { issueAccessCreditsForOrder, listAccessCredits, listCreditsByOrderIds, r
 import { AUTOMATION_BUTTON_KINDS, AUTOMATION_BUTTON_TITLE_MAX, isAllowedCustomButtonUrl } from "../shared/automationButton";
 import { normalizeIgHandle } from "../shared/igCustomerLink";
 import { approveComment, restoreSpamComment, suggestOwnComment } from './instagramComments';
+import * as coproductionSvc from './coproduction';
+import { partnerOpenId, normalizeLanding } from '../shared/coproduction';
+import type { Coproduction } from '../drizzle/schema';
 import { getInstagramInsights } from './instagramInsights';
 import { igReferralLabel, referralUtmContent } from '../shared/igReferral';
 import { buildFunnel, normalizeLinkCode, postOrigin } from '../shared/igFunnel';
@@ -571,6 +574,31 @@ async function issueViewerSession(ctx: any) {
   ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: VIEWER_SESSION_MS });
 }
 
+/** Vale del paso 2 del login del socio: lleva la co-producción y la versión
+ * de sesión, así una clave cambiada a mitad del login no sirve. */
+async function signPartnerStepTicket(cp: Coproduction): Promise<string> {
+  return sdk.signSession({ openId: `partner-step:${cp.slug}:${cp.sessionVersion}`, appId: 'candyland-admin-2fa', name: 'partner-step1' }, { expiresInMs: 5 * 60 * 1000 });
+}
+
+async function requirePartnerStepTicket(ticket: string): Promise<Coproduction> {
+  const payload = await sdk.verifySession(ticket).catch(() => null);
+  const m = /^partner-step:([a-z0-9-]{1,50}):(\d+)$/.exec(payload?.openId ?? '');
+  const cp = m ? await coproductionSvc.getCoproductionBySlug(m[1]) : null;
+  if (!m || !cp || !cp.passwordHash || cp.sessionVersion !== Number(m[2])) {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Vuelve a ingresar tu contraseña' });
+  }
+  return cp;
+}
+
+async function issuePartnerSession(ctx: any, cp: Coproduction) {
+  const sessionToken = await sdk.signSession(
+    { openId: partnerOpenId(cp.slug, cp.sessionVersion), appId: 'candyland-admin', name: cp.partnerName },
+    { expiresInMs: ADMIN_SESSION_MS },
+  );
+  const cookieOptions = getSessionCookieOptions(ctx.req);
+  ctx.res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ADMIN_SESSION_MS });
+}
+
 async function issueAdminSession(ctx: any) {
   await db.upsertUser({ openId: ADMIN_LOCAL_OPEN_ID, name: 'Admin', role: 'admin', lastSignedIn: new Date() });
   const sessionToken = await sdk.signSession({ openId: ADMIN_LOCAL_OPEN_ID, appId: 'candyland-admin', name: 'Admin' }, { expiresInMs: ADMIN_SESSION_MS });
@@ -598,6 +626,27 @@ const automationButtonSchema = z.object({
     buttonTitle: b.buttonKind === 'none' ? null : (b.buttonTitle?.trim() || null),
   };
 });
+
+/* ── Co-producción: alcance ─────────────────────────────────────────────── */
+const coproductionScopeBase = z.object({ slug: z.string().max(50).optional() });
+const coproductionScopeInput = coproductionScopeBase.optional().default({});
+
+async function requireCoproduction(slug: string): Promise<Coproduction> {
+  const cp = await coproductionSvc.getCoproductionBySlug(slug);
+  if (!cp) throw new TRPCError({ code: 'NOT_FOUND', message: 'Co-producción no encontrada (¿falta aplicar la migración 0108?)' });
+  return cp;
+}
+
+/** El socio SIEMPRE obtiene su propia co-producción (de la sesión); el slug
+ * del input solo lo puede elegir el dueño. */
+async function scopedCoproduction(ctx: { partnerCoproductionId: number | null }, input: { slug?: string } | undefined): Promise<Coproduction> {
+  if (ctx.partnerCoproductionId != null) {
+    const cp = await coproductionSvc.getCoproductionById(ctx.partnerCoproductionId);
+    if (!cp) throw new TRPCError({ code: 'FORBIDDEN', message: 'Tu acceso ya no está activo.' });
+    return cp;
+  }
+  return requireCoproduction(input?.slug ?? 'dalmore');
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -633,6 +682,15 @@ export const appRouter = router({
           await db.resetIpRateLimit(ipKey);
           await issueViewerSession(ctx);
           return { ticket: '', needsSetup: false, skipped2fa: true, viewer: true } as const;
+        }
+
+        // Clave de un socio de co-producción (ej. Dalmore): entra a SU
+        // panel, siempre con segundo factor propio.
+        const partnerCp = await coproductionSvc.findCoproductionByPassword(input.password);
+        if (partnerCp) {
+          await db.resetIpRateLimit(ipKey);
+          const ticket = await signPartnerStepTicket(partnerCp);
+          return { ticket, needsSetup: !partnerCp.totpConfirmedAt, partner: true } as const;
         }
 
         await db.recordIpFailedAttempt(ipKey);
@@ -732,6 +790,56 @@ export const appRouter = router({
           message: res.reason === 'reusado' ? 'Ese código ya se usó. Espera al siguiente.' : 'Código incorrecto',
         });
       }),
+
+    // --- Segundo factor del socio de una co-producción ---
+    // Mismo flujo que el del dueño, pero contra el secreto guardado en SU
+    // fila de `coproductions`. Configurar la primera vez, después código.
+    partnerSetupTotp: publicProcedure.input(z.object({ ticket: z.string() })).mutation(async ({ input }) => {
+      const cp = await requirePartnerStepTicket(input.ticket);
+      if (cp.totpConfirmedAt) throw new TRPCError({ code: 'FORBIDDEN', message: 'El segundo factor ya está configurado' });
+      const secret = cp.totpSecret ?? createTotpSecret();
+      if (!cp.totpSecret) await coproductionSvc.setPartnerTotp(cp.id, { totpSecret: secret });
+      const qrImageUrl = await QRCode.toDataURL(totpUri(secret, `${cp.partnerName} · Playroom`), { width: 320, margin: 2 });
+      return { secret, qrImageUrl } as const;
+    }),
+    partnerConfirmTotp: publicProcedure.input(z.object({ ticket: z.string(), code: z.string() })).mutation(async ({ input, ctx }) => {
+      const cp = await requirePartnerStepTicket(input.ticket);
+      if (cp.totpConfirmedAt) throw new TRPCError({ code: 'FORBIDDEN', message: 'Ya está configurado' });
+      if (!cp.totpSecret) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Primero escanea el código QR' });
+      const res = verifyTotp({ secret: cp.totpSecret, token: input.code });
+      if (!res.ok) {
+        await db.recordIpFailedAttempt(adminIpKey(ctx));
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Ese código no coincide. Revisa que el reloj de tu teléfono esté en hora.' });
+      }
+      const { plain, hashed } = generateBackupCodes();
+      await coproductionSvc.setPartnerTotp(cp.id, { totpConfirmedAt: new Date(), totpBackupCodes: hashed, totpLastUsedStep: res.timeStep });
+      await issuePartnerSession(ctx, cp);
+      return { backupCodes: plain } as const;
+    }),
+    partnerVerifyCode: publicProcedure.input(z.object({ ticket: z.string(), code: z.string() })).mutation(async ({ input, ctx }) => {
+      const ipKey = adminIpKey(ctx);
+      if (!(await db.checkIpRateLimit(ipKey))) {
+        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+      }
+      const cp = await requirePartnerStepTicket(input.ticket);
+      if (!cp.totpConfirmedAt || !cp.totpSecret) throw new TRPCError({ code: 'BAD_REQUEST', message: 'El segundo factor no está configurado' });
+      const res = verifyTotp({ secret: cp.totpSecret, token: input.code, lastUsedStep: cp.totpLastUsedStep });
+      if (res.ok) {
+        await coproductionSvc.setPartnerTotp(cp.id, { totpLastUsedStep: res.timeStep });
+        await db.resetIpRateLimit(ipKey);
+        await issuePartnerSession(ctx, cp);
+        return { success: true } as const;
+      }
+      const backup = consumeBackupCode(parseBackupCodes(cp.totpBackupCodes), input.code);
+      if (backup.ok) {
+        await coproductionSvc.setPartnerTotp(cp.id, { totpBackupCodes: backup.remaining });
+        await db.resetIpRateLimit(ipKey);
+        await issuePartnerSession(ctx, cp);
+        return { success: true, backupCodeUsed: true, backupCodesLeft: backup.remaining.length } as const;
+      }
+      await db.recordIpFailedAttempt(ipKey);
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: res.reason === 'reusado' ? 'Ese código ya se usó. Espera al siguiente.' : 'Código incorrecto' });
+    }),
 
     // --- Passkeys (Face ID / Touch ID / Windows Hello) ---
     // Adicionales al login de arriba, no lo reemplazan. Registro: requiere
@@ -870,12 +978,17 @@ export const appRouter = router({
     listForHome: publicProcedure.query(async () => {
       return db.getHomeEvents();
     }),
-    getBySlug: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input }) => {
-      return db.getEventBySlug(input.slug);
+    // Un evento de co-producción sin activar no existe para el público (ni
+    // por link directo); el dueño sí lo ve para revisarlo.
+    getBySlug: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input, ctx }) => {
+      const event = await db.getEventBySlug(input.slug);
+      if (event && ctx.user?.role !== 'admin' && await coproductionSvc.isEventHiddenByCoproduction(event.id)) return undefined;
+      return event;
     }),
-    getTicketTypes: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input }) => {
+    getTicketTypes: publicProcedure.input(z.object({ slug: z.string() })).query(async ({ input, ctx }) => {
       const event = await db.getEventBySlug(input.slug);
       if (!event) return [];
+      if (ctx.user?.role !== 'admin' && await coproductionSvc.isEventHiddenByCoproduction(event.id)) return [];
       // Cualquier visitante viendo precios dispara el chequeo de avance
       // automático de tanda (por fecha o cupo agotado) -- ver
       // server/tandaAutoAdvance.ts. Home.tsx ya hace polling de esta misma
@@ -1200,6 +1313,10 @@ export const appRouter = router({
       partnerSlug: z.string().max(50).optional(),
       partnerRef: z.string().max(32).optional(),
     })).mutation(async ({ input }) => {
+      const target = await db.getEventBySlug(input.eventSlug);
+      if (target && await coproductionSvc.isEventHiddenByCoproduction(target.id)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Las entradas de este evento todavía no están a la venta.' });
+      }
       const result = await db.createOrder(input);
       // Descuento del 100%: la orden ya quedó aprobada en createOrder (sin
       // pasar por Mercado Pago) — acá solo falta el email de bienvenida+QR.
@@ -3074,6 +3191,151 @@ export const appRouter = router({
       const config = normalizeInstagramAgentConfig({ ...current, trustedAccounts: input.accounts });
       await db.updateSiteSettings({ instagramAgentConfig: config });
       return { trustedAccounts: config.trustedAccounts };
+    }),
+  }),
+
+  // Co-producción con otra productora (ej. Playroom × Dalmore), ver
+  // server/coproduction.ts. `partnerProcedure`: al socio se le fija SU
+  // co-producción desde la sesión; el dueño la elige por `slug`.
+  coproduction: router({
+    me: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
+      const cp = await scopedCoproduction(ctx, input);
+      const event = cp.eventId ? await db.getEventById(cp.eventId) : null;
+      return {
+        slug: cp.slug, partnerName: cp.partnerName, isLive: cp.isLive === 1, splitPercentPartner: cp.splitPercentPartner,
+        capacity: normalizeLanding(cp.landing).capacity,
+        viewer: ctx.user.role === 'partner' ? 'partner' as const : 'playroom' as const,
+        event: event ? { id: event.id, title: event.title, slug: event.slug, eventDate: event.eventDate, status: event.status } : null,
+      };
+    }),
+    overview: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
+      return coproductionSvc.getCoproductionOverview(await scopedCoproduction(ctx, input));
+    }),
+    attendees: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
+      return coproductionSvc.getCoproductionAttendees(await scopedCoproduction(ctx, input));
+    }),
+    createInvite: partnerProcedure.input(coproductionScopeBase.extend({
+      buyerName: z.string().trim().min(1).max(255),
+      buyerEmail: z.string().trim().email(),
+      buyerPhone: z.string().trim().max(20).optional(),
+      ticketTypeId: z.number().int(),
+      quantity: z.number().int().min(1).max(20),
+    })).mutation(async ({ input, ctx }) => {
+      const cp = await scopedCoproduction(ctx, input);
+      try {
+        const result = await coproductionSvc.createCoproductionInvite(cp, input, ctx.user.role === 'partner' ? 'partner' : 'playroom');
+        await confirmFreeOrder(result.orderNumber);
+        return { orderNumber: result.orderNumber };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo crear la cortesía.' });
+      }
+    }),
+    expenses: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
+      return coproductionSvc.listCoproductionExpenses(await scopedCoproduction(ctx, input));
+    }),
+    createExpense: partnerProcedure.input(coproductionScopeBase.extend({
+      category: z.enum(coproductionSvc.COPRODUCTION_EXPENSE_CATEGORIES),
+      description: z.string().trim().min(1).max(255),
+      supplier: z.string().trim().max(160).optional(),
+      documentType: z.enum(coproductionSvc.COPRODUCTION_DOCUMENT_TYPES),
+      amountTotal: z.number().int().min(1).max(500_000_000),
+      expenseDate: z.coerce.date(),
+      receiptUrl: z.string().url().max(500).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const cp = await scopedCoproduction(ctx, input);
+      try {
+        return await coproductionSvc.createCoproductionExpense(cp, input, ctx.user.role === 'partner' ? 'partner' : 'playroom');
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar el gasto.' });
+      }
+    }),
+    split: partnerProcedure.input(coproductionScopeInput).query(async ({ input, ctx }) => {
+      return coproductionSvc.getCoproductionSplit(await scopedCoproduction(ctx, input));
+    }),
+
+    // Solo el dueño.
+    list: adminReadProcedure.query(async () => {
+      return (await coproductionSvc.listCoproductions()).map((cp) => ({ slug: cp.slug, partnerName: cp.partnerName, isLive: cp.isLive === 1 }));
+    }),
+    setupGet: adminReadProcedure.input(z.object({ slug: z.string().max(50) })).query(async ({ input }) => {
+      const cp = await coproductionSvc.getCoproductionBySlug(input.slug);
+      if (!cp) return null;
+      return {
+        slug: cp.slug, partnerName: cp.partnerName, eventId: cp.eventId, splitPercentPartner: cp.splitPercentPartner,
+        isLive: cp.isLive === 1, previewToken: cp.previewToken, hasPassword: !!cp.passwordHash,
+        partnerTotpConfigured: !!cp.totpConfirmedAt, landing: normalizeLanding(cp.landing),
+      };
+    }),
+    setupUpdate: adminProcedure.input(z.object({
+      slug: z.string().max(50),
+      eventId: z.number().int().nullable().optional(),
+      splitPercentPartner: z.number().int().min(0).max(100).optional(),
+      partnerName: z.string().trim().min(1).max(100).optional(),
+      landing: z.record(z.string(), z.unknown()).optional(),
+    })).mutation(async ({ input }) => {
+      const cp = await requireCoproduction(input.slug);
+      try {
+        await coproductionSvc.updateCoproductionSetup(cp.id, { ...input, landing: input.landing as any });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar.' });
+      }
+      return { success: true };
+    }),
+    resetPartnerPassword: adminPasswordProcedure.input(z.object({ slug: z.string().max(50), adminPassword: z.string() })).mutation(async ({ input }) => {
+      const cp = await requireCoproduction(input.slug);
+      return { password: await coproductionSvc.resetPartnerPassword(cp.id) };
+    }),
+    revokePartnerAccess: adminProcedure.input(z.object({ slug: z.string().max(50) })).mutation(async ({ input }) => {
+      await coproductionSvc.revokePartnerAccess((await requireCoproduction(input.slug)).id);
+      return { success: true };
+    }),
+    rotatePreviewToken: adminProcedure.input(z.object({ slug: z.string().max(50) })).mutation(async ({ input }) => {
+      return { previewToken: await coproductionSvc.rotatePreviewToken((await requireCoproduction(input.slug)).id) };
+    }),
+    setLive: adminProcedure.input(z.object({ slug: z.string().max(50), live: z.boolean() })).mutation(async ({ input }) => {
+      try {
+        await coproductionSvc.setCoproductionLive((await requireCoproduction(input.slug)).id, input.live);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo cambiar.' });
+      }
+      return { success: true };
+    }),
+    approveExpense: adminProcedure.input(z.object({ slug: z.string().max(50), id: z.number().int() })).mutation(async ({ input }) => {
+      try {
+        await coproductionSvc.approveCoproductionExpense(await requireCoproduction(input.slug), input.id);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo aprobar.' });
+      }
+      return { success: true };
+    }),
+    rejectExpense: adminProcedure.input(z.object({ slug: z.string().max(50), id: z.number().int(), reason: z.string().max(255).default('') })).mutation(async ({ input }) => {
+      try {
+        await coproductionSvc.rejectCoproductionExpense(await requireCoproduction(input.slug), input.id, input.reason);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo rechazar.' });
+      }
+      return { success: true };
+    }),
+
+    // Landing pública: sin activar solo muestra "Próximamente", salvo con el
+    // link de vista previa. Nunca expone la clave ni nada del panel.
+    publicGet: publicProcedure.input(z.object({ slug: z.string().max(50), preview: z.string().max(64).optional() })).query(async ({ input, ctx }) => {
+      const cp = await coproductionSvc.getCoproductionBySlug(input.slug);
+      if (!cp) return null;
+      const isLive = cp.isLive === 1;
+      const previewOk = !isLive && !!input.preview && safeCompare(input.preview, cp.previewToken);
+      const full = isLive || previewOk || ctx.user?.role === 'admin';
+      const landing = normalizeLanding(cp.landing);
+      if (!full) {
+        return { isLive: false, preview: false, partnerName: cp.partnerName, landing: { ...landing, galleryUrls: [], faq: [] }, event: null, ticketTypes: [] };
+      }
+      const event = cp.eventId ? await db.getEventById(cp.eventId) : null;
+      const types = event ? await db.getTicketTypesByEventId(event.id) : [];
+      return {
+        isLive, preview: !isLive, partnerName: cp.partnerName, landing,
+        event: event ? { slug: event.slug, title: event.title, eventDate: event.eventDate, imageUrl: event.imageUrl } : null,
+        ticketTypes: types.filter((t: any) => t.status !== 'hidden').map((t: any) => ({ id: t.id, name: t.name, price: Number(t.price), status: t.status, accesoSlug: t.accesoSlug })),
+      };
     }),
   }),
 

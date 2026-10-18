@@ -5,6 +5,8 @@ import { getIndexHtmlTemplate, injectMeta } from "./_core/htmlTemplate";
 import { eventImage, absoluteImageUrl, isBlockedBlobUrl } from "../shared/eventImage";
 import { dropSupersededTickets } from "../shared/liveTickets";
 import { getPartnerCampaignBySlug } from "./partnerCampaigns";
+import { getCoproductionBySlug } from "./coproduction";
+import { normalizeLanding } from "../shared/coproduction";
 import { PARTNER_DEFAULT_HEADLINE } from "../shared/partnerCampaign";
 import { EVENT_BRAND } from "../shared/eventBrand";
 
@@ -173,6 +175,34 @@ export function registerSsrMetaRoutes(app: Express) {
       }));
     } catch (err) {
       console.error("[ssrMeta] /electronica falló, sirviendo template sin inyectar:", err);
+      sendHtml(res, template);
+    }
+  });
+
+  // Landing de la co-producción con Dalmore. Mientras no esté activa queda
+  // fuera de los buscadores; al activarla sí se indexa.
+  app.get("/playroomdalmore", async (_req: Request, res: Response) => {
+    const template = loadTemplateOrFail(res);
+    if (!template) return;
+    try {
+      const cp = await getCoproductionBySlug("dalmore").catch(() => null);
+      const landing = normalizeLanding(cp?.landing);
+      const live = cp?.isLive === 1;
+      const title = `${landing.title} · ${live ? landing.dateText : "Próximamente"}`;
+      const description = live
+        ? `${landing.headline} ${landing.venueText}. ${landing.capacityText}.`
+        : `${landing.title}: muy pronto. ${landing.venueText}.`;
+      const image = landing.heroImageUrl.startsWith("https://") ? landing.heroImageUrl : await resolveDefaultOgImage();
+      const url = `${SITE_URL}/playroomdalmore`;
+      sendHtml(res, injectMeta(template, {
+        title, description,
+        ogTitle: title, ogDescription: description, ogUrl: url, ogImage: image,
+        twitterTitle: title, twitterDescription: description, twitterImage: image,
+        canonical: url,
+        ...(live ? {} : { robots: "noindex, nofollow" }),
+      }));
+    } catch (err) {
+      console.error("[ssrMeta] /playroomdalmore falló, sirviendo template sin inyectar:", err);
       sendHtml(res, template);
     }
   });

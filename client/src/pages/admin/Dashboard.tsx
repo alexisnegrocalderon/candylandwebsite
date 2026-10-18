@@ -6,7 +6,7 @@ import { startRegistration } from '@simplewebauthn/browser';
 import { signalAcceptedCredentials } from '@/lib/passkeySignals';
 import { useAuth } from '@/_core/hooks/useAuth';
 import { NOT_ADMIN_ERR_MSG } from '@shared/const';
-import { canOpenAdmin, useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
+import { canOpenAdmin, isPartnerRole, useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
 import { Switch } from '@/components/ui/switch';
 import { trpc } from '@/lib/trpc';
@@ -80,6 +80,7 @@ import { monthKeyFor } from '@shared/ambassadorProgram';
 import { formatChileDateTime, formatChileShortDate, formatChileTime } from '@shared/chileDate';
 import { AdminShell } from '@/components/admin/shell/AdminShell';
 import { HomeView } from '@/components/admin/HomeView';
+import { CoproResumen, CoproAsistentes, CoproCortesias, CoproGastos, CoproReparto, CoproConfig } from '@/components/admin/coproduction/CoproductionViews';
 import type { ShellSection } from '@/components/admin/shell/nav';
 
 /* Toda escritura del admin pasa por acá: sin esto, un error del servidor
@@ -211,7 +212,9 @@ function writeSeenMap(map: Record<string, string>) {
   try { localStorage.setItem(BADGE_SEEN_KEY, JSON.stringify(map)); } catch { /* no pasa nada, se pierde la marca */ }
 }
 
-function useAdminBadges() {
+/** `enabled` en false para el socio de una co-producción: las burbujas son
+ * de Playroom y el servidor igual le respondería FORBIDDEN. */
+function useAdminBadges(enabled = true) {
   const [seenAt, setSeenAt] = useState<Record<string, string>>(() => {
     const stored = readSeenMap();
     // Primera vez en este dispositivo: se marca todo como visto AHORA. Si no,
@@ -227,6 +230,7 @@ function useAdminBadges() {
   });
 
   const { data } = trpc.adminBadges.counts.useQuery({ seenAt }, {
+    enabled,
     refetchInterval: 60_000,
     // Sin esto, el panel abierto de fondo en el iPad le pega al servidor toda
     // la noche sin que nadie lo esté mirando (mismo criterio que Home.tsx).
@@ -11459,6 +11463,13 @@ const ADMIN_SECTIONS = [
   { id: 'sii', label: 'SII', hub: 'finanzas', icon: Landmark, render: () => <SiiView /> },
   { id: 'event-budget', label: 'Simulador de Evento', hub: 'finanzas', icon: Calculator, render: () => <EventBudgetSimulatorView /> },
 
+  { id: 'copro-resumen', label: 'Resumen', hub: 'coproduccion', icon: LayoutDashboard, render: () => <CoproResumen /> },
+  { id: 'copro-asistentes', label: 'Asistentes', hub: 'coproduccion', icon: Users, render: () => <CoproAsistentes /> },
+  { id: 'copro-cortesias', label: 'Cortesías', hub: 'coproduccion', icon: Gift, render: () => <CoproCortesias /> },
+  { id: 'copro-gastos', label: 'Gastos', hub: 'coproduccion', icon: Receipt, render: () => <CoproGastos /> },
+  { id: 'copro-reparto', label: 'Reparto', hub: 'coproduccion', icon: DollarSign, render: () => <CoproReparto /> },
+  { id: 'copro-config', label: 'Configuración', hub: 'coproduccion', icon: SettingsIcon, render: () => <CoproConfig /> },
+
   { id: 'settings', label: 'Ajustes', hub: 'ajustes', icon: SettingsIcon, render: () => <SettingsManager /> },
 ] as const satisfies readonly (ShellSection & { render: () => ReactNode })[];
 
@@ -11780,8 +11791,15 @@ export default function AdminDashboard() {
   useInstallableApp('/admin/sw.js', '/admin/');
 
   const { user, loading, isAuthenticated, logout } = useAuth();
+  // El socio de una co-producción (ej. Dalmore) ve SOLO su co-producción,
+  // sin la Configuración (que es del dueño). El servidor igual le rechaza
+  // todo lo demás (`partnerProcedure`); esto solo arma su vista.
+  const isPartner = isPartnerRole(user?.role);
+  const sections = isPartner
+    ? ADMIN_SECTIONS.filter((s) => s.hub === 'coproduccion' && s.id !== 'copro-config')
+    : ADMIN_SECTIONS;
   const [activeSection, setActiveSection] = useState<typeof ADMIN_SECTIONS[number]['id']>('home');
-  const { counts: badgeCounts, markSeen } = useAdminBadges();
+  const { counts: badgeCounts, markSeen } = useAdminBadges(!!user && !isPartner);
 
   const openSection = (id: typeof ADMIN_SECTIONS[number]['id']) => {
     setActiveSection(id);
@@ -11846,21 +11864,22 @@ export default function AdminDashboard() {
 
   const isDemo = user?.role === 'viewer';
 
-  const active = ADMIN_SECTIONS.find((s) => s.id === activeSection) ?? ADMIN_SECTIONS[0];
+  const active = sections.find((s) => s.id === activeSection) ?? sections[0];
   const navContext = {
     badgeCounts,
     openSection: (id: string) => {
-      if (ADMIN_SECTIONS.some((s) => s.id === id)) openSection(id as typeof ADMIN_SECTIONS[number]['id']);
+      if (sections.some((s) => s.id === id)) openSection(id as typeof ADMIN_SECTIONS[number]['id']);
     },
   };
 
   return (
     <AdminShell
-      sections={ADMIN_SECTIONS as unknown as ShellSection[]}
+      sections={sections as unknown as ShellSection[]}
       activeSection={active.id}
       onOpenSection={(id) => openSection(id as typeof ADMIN_SECTIONS[number]['id'])}
       badgeCounts={badgeCounts}
       userName={isDemo ? 'Invitado (demo)' : (user?.name?.trim() || 'Mansion Playroom')}
+      roleLabel={isPartner ? 'Socio · Playroom × Dalmore' : undefined}
       isDemo={isDemo}
       onLogout={() => logout()}
     >

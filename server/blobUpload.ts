@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { requireAdmin } from "./adminRoutes";
+import { sdk } from "./_core/sdk";
 
 /* Subida de flyers/imagen OG a Vercel Blob (pedido explícito del dueño,
  * 02-03/09) -- el navegador sube directo al storage, sin pasar el archivo
@@ -64,6 +65,37 @@ export function registerBlobUploadRoutes(app: Express) {
         },
       });
 
+      res.json(jsonResponse);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : "No se pudo autorizar la subida." });
+    }
+  });
+
+  // Boletas de gastos de una co-producción: la puede usar el socio (rol
+  // `partner`) además del dueño. Solo imágenes y solo bajo `coproduction/`,
+  // así el socio no puede pisar ni subir nada fuera de su carpeta.
+  app.post("/api/partner/blob/upload", async (req: Request, res: Response) => {
+    let role: string | null = null;
+    try { role = (await sdk.authenticateRequest(req)).role; } catch { /* sin sesión */ }
+    if (role !== "admin" && role !== "partner") {
+      res.status(403).json({ error: "Acceso no permitido" });
+      return;
+    }
+    try {
+      const jsonResponse = await handleUpload({
+        body: req.body as HandleUploadBody,
+        request: req,
+        token: blobToken(),
+        onBeforeGenerateToken: async (pathname) => {
+          if (!pathname.startsWith("coproduction/")) throw new Error("Ruta de subida no permitida.");
+          return {
+            allowedContentTypes: ALLOWED_CONTENT_TYPES.filter((t) => t.startsWith("image/")),
+            maximumSizeInBytes: MAX_UPLOAD_BYTES,
+            addRandomSuffix: true,
+          };
+        },
+        onUploadCompleted: async () => { /* ver arriba: el cliente guarda la URL */ },
+      });
       res.json(jsonResponse);
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : "No se pudo autorizar la subida." });

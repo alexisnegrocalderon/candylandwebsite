@@ -17,8 +17,12 @@ import { useDemoProps } from '@/lib/demoMode';
  * una URL de otro lado sigue funcionando para quien ya tenga la imagen
  * alojada en otro sitio. */
 export function ImageUploadField({
-  value, onChange, pathPrefix,
-}: { value: string; onChange: (url: string) => void; pathPrefix: string }) {
+  value, onChange, pathPrefix, uploadUrl = '/api/admin/blob/upload',
+}: {
+  value: string; onChange: (url: string) => void; pathPrefix: string;
+  /** El panel del socio de una co-producción sube por su propia ruta. */
+  uploadUrl?: string;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -38,7 +42,7 @@ export function ImageUploadField({
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
       const blob = await upload(`${pathPrefix}/${Date.now()}-${safeName}`, file, {
         access: 'public',
-        handleUploadUrl: '/api/admin/blob/upload',
+        handleUploadUrl: uploadUrl,
       });
       onChange(blob.url);
       toast.success('Imagen subida');

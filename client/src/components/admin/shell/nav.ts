@@ -1,5 +1,5 @@
 import {
-  Home, Radio, Ticket, Calendar, Users, MessagesSquare, Palette, Crown, Banknote,
+  Home, Radio, Ticket, Calendar, Users, MessagesSquare, Palette, Crown, Banknote, Handshake,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -10,7 +10,7 @@ import {
 
 export type AdminHubId =
   | 'inicio' | 'noche' | 'ventas' | 'eventos' | 'clientes'
-  | 'mensajes' | 'contenido' | 'comunidad' | 'finanzas' | 'ajustes';
+  | 'mensajes' | 'contenido' | 'comunidad' | 'finanzas' | 'coproduccion' | 'ajustes';
 
 export interface AdminHub {
   id: AdminHubId;
@@ -26,6 +26,7 @@ export const ADMIN_HUBS: AdminHub[] = [
   { id: 'noche', label: 'Noche en vivo', icon: Radio, mobile: true },
   { id: 'ventas', label: 'Ventas', icon: Ticket, mobile: true },
   { id: 'eventos', label: 'Eventos', icon: Calendar },
+  { id: 'coproduccion', label: 'Playroom × Dalmore', icon: Handshake },
   { id: 'clientes', label: 'Clientes', icon: Users },
   { id: 'mensajes', label: 'Mensajes', icon: MessagesSquare, mobile: true },
   { id: 'contenido', label: 'Contenido', icon: Palette },
@@ -83,6 +84,12 @@ export const SECTION_KEYWORDS: Record<string, string> = {
   sii: 'impuestos iva f29 boletas',
   'event-budget': 'presupuesto simulador costos',
   settings: 'ajustes configuracion alertas push seguridad',
+  'copro-resumen': 'dalmore playmore coproduccion socio hipodromo',
+  'copro-asistentes': 'dalmore asistentes lista',
+  'copro-cortesias': 'dalmore cortesias invitaciones',
+  'copro-gastos': 'dalmore gastos aprobar boletas',
+  'copro-reparto': 'dalmore reparto utilidad 50/50',
+  'copro-config': 'dalmore configuracion landing clave activar lanzar',
 };
 
 /** Normaliza para buscar sin tildes ni mayúsculas. */
