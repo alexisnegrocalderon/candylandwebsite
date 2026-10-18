@@ -19,7 +19,20 @@ export interface CoproductionLanding {
   /** Aforo en personas (la barra de avance del panel). */
   capacity: number;
   heroImageUrl: string;
+  /** Video de fondo del hero (mp4 https). Vacío = terciopelo animado. */
+  heroVideoUrl: string;
   partnerLogoUrl: string;
+  /** Nombre propio de la noche (grande en el ticket y el hero). */
+  eventName: string;
+  /** Hora en el ticket ("23:00"). */
+  timeText: string;
+  /** Instante al que cuenta la cuenta regresiva (ISO con zona). */
+  countdownIso: string;
+  /** "Dos mundos, una noche": quién es cada productora. */
+  playroomBlurb: string;
+  partnerBlurb: string;
+  /** Código de vestimenta de la noche. */
+  dressCode: string;
   galleryUrls: string[];
   highlights: string[];
   rules: string[];
@@ -35,7 +48,15 @@ export const DEFAULT_LANDING: CoproductionLanding = {
   capacityText: 'Aforo para 800 personas',
   capacity: 800,
   heroImageUrl: '',
+  heroVideoUrl: '',
   partnerLogoUrl: '',
+  eventName: 'PLAYMORE',
+  timeText: '23:00',
+  // 4 de diciembre, 23:00 en Chile (verano, UTC-3).
+  countdownIso: '2026-12-04T23:00:00-03:00',
+  playroomBlurb: 'La productora que convirtió la noche liberal en un juego: fiestas temáticas, zonas para jugar y una comunidad que llega a pasarlo increíble, sin miedo y con respeto.',
+  partnerBlurb: 'Una experiencia privada que no es para todos. Música electrónica, estética y un código propio: Dalmore no es una fiesta masiva, es un punto de encuentro cuidado en cada detalle.',
+  dressCode: 'Elegante, atrevido y a tu medida: negro, terciopelo, encaje, cuero o brillo. Ven como quieras que te recuerden.',
   galleryUrls: [],
   highlights: [
     'Salón principal gigante, iluminación y sonido de festival',
@@ -82,7 +103,14 @@ export function normalizeLanding(raw: unknown): CoproductionLanding {
     capacityText: str(p.capacityText, 80, d.capacityText),
     capacity: Number.isInteger(Number(p.capacity)) && Number(p.capacity) > 0 ? Math.min(Number(p.capacity), 100000) : d.capacity,
     heroImageUrl: isSafeImageUrl(heroImageUrl) ? heroImageUrl : '',
+    heroVideoUrl: /^https:\/\/\S+$/.test(str(p.heroVideoUrl, 500, '')) ? str(p.heroVideoUrl, 500, '') : '',
     partnerLogoUrl: isSafeImageUrl(partnerLogoUrl) ? partnerLogoUrl : '',
+    eventName: str(p.eventName, 40, d.eventName) || d.eventName,
+    timeText: str(p.timeText, 20, d.timeText),
+    countdownIso: typeof p.countdownIso === 'string' && !Number.isNaN(Date.parse(p.countdownIso)) ? p.countdownIso.slice(0, 40) : d.countdownIso,
+    playroomBlurb: str(p.playroomBlurb, 500, d.playroomBlurb),
+    partnerBlurb: str(p.partnerBlurb, 500, d.partnerBlurb),
+    dressCode: str(p.dressCode, 300, d.dressCode),
     galleryUrls: strList(p.galleryUrls, 500, 12, d.galleryUrls).filter(isSafeImageUrl),
     highlights: strList(p.highlights, 160, 8, d.highlights),
     rules: strList(p.rules, 200, 10, d.rules),

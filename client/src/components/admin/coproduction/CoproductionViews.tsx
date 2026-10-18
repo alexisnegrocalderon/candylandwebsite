@@ -516,6 +516,17 @@ export function CoproReparto() {
 
 const lines = (v: string) => v.split('\n').map((l) => l.trim()).filter(Boolean);
 
+/** ISO con zona → valor de <input type="datetime-local"> en hora de Chile. */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '00';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour') === '24' ? '00' : get('hour')}:${get('minute')}`;
+}
+
 export function CoproConfig() {
   const utils = trpc.useUtils();
   const slug = 'dalmore';
@@ -624,7 +635,16 @@ export function CoproConfig() {
       <section className="admin-clay space-y-4 p-5">
         <p className="font-semibold">Landing /playroomdalmore</p>
         <div className="grid gap-3 sm:grid-cols-2">
-          <div><Label>Título</Label><Input className="mt-1" value={d.landing.title} onChange={(e) => editLanding({ title: e.target.value })} /></div>
+          <div><Label>Nombre de la noche (ticket y portada)</Label><Input className="mt-1" value={d.landing.eventName} onChange={(e) => editLanding({ eventName: e.target.value })} /></div>
+          <div><Label>Título de la pestaña del navegador</Label><Input className="mt-1" value={d.landing.title} onChange={(e) => editLanding({ title: e.target.value })} /></div>
+          <div><Label>Hora (ticket)</Label><Input className="mt-1" value={d.landing.timeText} onChange={(e) => editLanding({ timeText: e.target.value })} /></div>
+          <div>
+            <Label>Cuenta regresiva hasta</Label>
+            <Input className="mt-1" type="datetime-local"
+              value={toLocalInput(d.landing.countdownIso)}
+              onChange={(e) => e.target.value && editLanding({ countdownIso: `${e.target.value}:00-03:00` })} />
+            <p className="mt-1 text-xs text-muted-foreground">Hora de Chile. También define la fecha que sale en el ticket.</p>
+          </div>
           <div><Label>Fecha (texto)</Label><Input className="mt-1" value={d.landing.dateText} onChange={(e) => editLanding({ dateText: e.target.value })} /></div>
           <div><Label>Lugar</Label><Input className="mt-1" value={d.landing.venueText} onChange={(e) => editLanding({ venueText: e.target.value })} /></div>
           <div><Label>Aforo (texto)</Label><Input className="mt-1" value={d.landing.capacityText} onChange={(e) => editLanding({ capacityText: e.target.value })} /></div>
@@ -636,6 +656,11 @@ export function CoproConfig() {
               <ImageUploadField value={d.landing.heroImageUrl} onChange={(url) => editLanding({ heroImageUrl: url })} pathPrefix="coproduction/landing" />
               <Input value={d.landing.heroImageUrl} placeholder="https://…" onChange={(e) => editLanding({ heroImageUrl: e.target.value })} />
             </div>
+          </div>
+          <div className="sm:col-span-2">
+            <Label>Video de fondo de la portada (mp4, opcional)</Label>
+            <Input className="mt-1" value={d.landing.heroVideoUrl} placeholder="https://…/video.mp4" onChange={(e) => editLanding({ heroVideoUrl: e.target.value })} />
+            <p className="mt-1 text-xs text-muted-foreground">Sin video se muestra un terciopelo animado. Ideal: 10-20 s en loop, menos de 8 MB.</p>
           </div>
           <div>
             <Label>Logo de {d.partnerName}</Label>
@@ -657,6 +682,9 @@ export function CoproConfig() {
             </div>
             <div className="mt-2"><ImageUploadField value="" onChange={(url) => editLanding({ galleryUrls: [...d.landing.galleryUrls, url] })} pathPrefix="coproduction/landing" /></div>
           </div>
+          <div className="sm:col-span-2"><Label>Dos mundos · texto de Playroom</Label><Textarea className="mt-1" rows={3} value={d.landing.playroomBlurb} onChange={(e) => editLanding({ playroomBlurb: e.target.value })} /></div>
+          <div className="sm:col-span-2"><Label>Dos mundos · texto de {d.partnerName}</Label><Textarea className="mt-1" rows={3} value={d.landing.partnerBlurb} onChange={(e) => editLanding({ partnerBlurb: e.target.value })} /></div>
+          <div className="sm:col-span-2"><Label>Dress code</Label><Textarea className="mt-1" rows={2} value={d.landing.dressCode} onChange={(e) => editLanding({ dressCode: e.target.value })} /></div>
           <div className="sm:col-span-2"><Label>Lo que vas a vivir (una idea por línea)</Label><Textarea className="mt-1" rows={4} value={d.landing.highlights.join('\n')} onChange={(e) => editLanding({ highlights: lines(e.target.value) })} /></div>
           <div className="sm:col-span-2"><Label>Reglas (una por línea)</Label><Textarea className="mt-1" rows={4} value={d.landing.rules.join('\n')} onChange={(e) => editLanding({ rules: lines(e.target.value) })} /></div>
           <div className="sm:col-span-2">
