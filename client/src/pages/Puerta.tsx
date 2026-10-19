@@ -1,7 +1,7 @@
 import '@/admin.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { AlertTriangle, Banknote, Camera, Car, Check, CreditCard, Flashlight, ListChecks, LogOut, ScanLine, Search, ShoppingBag, Ticket, Users, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, Banknote, Camera, Car, Check, ChevronRight, CreditCard, Flashlight, ListChecks, LogOut, ScanLine, Search, ShoppingBag, Ticket, Users, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
@@ -664,11 +664,22 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, parkingInfo, onCobrarEs
             <div className="admin-tile mb-3 rounded-2xl p-4">
               <p className="mb-1 text-xs uppercase tracking-widest text-white/50">Estacionamiento</p>
               <p className="mb-3 text-base font-semibold text-white/80">🅿️ Sin estacionamiento pagado</p>
+              {/* Ícono en su recuadro (con aire alrededor), título y precios en
+                  dos líneas alineadas, y la flecha de "abrir". */}
               <button
                 onClick={() => setCobrandoAbierto(true)}
-                className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary text-base font-bold text-primary-foreground active:scale-[0.99]"
+                className="flex w-full items-center gap-2.5 rounded-2xl bg-primary px-3 py-3 text-left text-primary-foreground shadow-[0_8px_24px_-8px_rgba(236,72,153,0.7)] active:scale-[0.99]"
               >
-                <Car className="h-5 w-5" /> Cobrar estacionamiento{parkingInfo && parkingInfo.options.length > 0 ? ` · ${parkingInfo.options.map((o) => money(o.priceClp)).join(' / ')}` : ''}
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-black/20"><Car className="h-6 w-6" /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-base font-bold leading-tight min-[380px]:text-[17px]">Cobrar estacionamiento</span>
+                  {parkingInfo && parkingInfo.options.length > 0 && (
+                    <span className="block text-sm font-medium opacity-85">
+                      {parkingInfo.options.map((o) => (o.isVip ? `VIP ${money(o.priceClp)}` : money(o.priceClp))).join(' · ')}
+                    </span>
+                  )}
+                </span>
+                <ChevronRight className="hidden h-5 w-5 shrink-0 opacity-80 min-[380px]:block" />
               </button>
             </div>
           )}
@@ -894,7 +905,7 @@ function ParkingSheet({ nombre, options, onCobrar, onClose }: {
           <button
             onClick={confirmar}
             disabled={!puedeConfirmar}
-            className="h-16 w-full rounded-full bg-emerald-500 text-lg font-bold text-black shadow-[0_0_24px_-6px_rgba(16,185,129,0.9)] active:scale-[0.99] disabled:opacity-35 disabled:shadow-none"
+            className="min-h-16 w-full rounded-full bg-emerald-500 px-5 py-2 text-center text-lg font-bold leading-tight text-balance text-black shadow-[0_0_24px_-6px_rgba(16,185,129,0.9)] active:scale-[0.99] disabled:opacity-35 disabled:shadow-none"
           >
             {enviando ? 'Registrando…'
               : debeElegir && !opcion ? 'Elige el estacionamiento'
