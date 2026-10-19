@@ -125,8 +125,8 @@ export function AdminShell({ sections, activeSection, onOpenSection, badgeCounts
             <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-8 w-8 shrink-0 object-contain" />
             {!collapsed && (
               <span className="min-w-0 leading-none">
-                <span className="admin-brand-text block font-heading text-lg tracking-[0.08em]">MANSION</span>
-                <span className="mt-1 block text-[10px] font-semibold tracking-[0.42em] text-muted-foreground">PLAYROOM</span>
+                <span className="block text-[10px] font-semibold tracking-[0.42em] text-muted-foreground">MANSION</span>
+                <span className="admin-brand-text mt-1 block font-heading text-base tracking-[0.06em]">PLAYROOM</span>
               </span>
             )}
           </div>
