@@ -10,7 +10,7 @@ import { TerminalFrame, TerminalLogin, TerminalSpinner, loginErrorToast, playTon
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
 import { parseTicketCodeFromQr } from '@shared/qr';
 import { personasForTicket } from '@shared/mission300';
-import { cashChange, summarizeDoorParking, type DoorParkingCharge, type DoorParkingMethod } from '@shared/parking';
+import { cashChange, doorParkingScript, summarizeDoorParking, type DoorParkingCharge, type DoorParkingMethod, type DoorParkingOption } from '@shared/parking';
 import {
   saveSnapshot, getLocalEvent, searchLocal, enqueueOp, getPendingOps,
   markOpSynced, clearSyncedOps, pendingOpsCount, correctedNow, countCheckedInPersonas, getLocalParking,
@@ -68,7 +68,9 @@ type ParkingRecord = DoorParkingCharge & {
 
 type SyncOp =
   | { type: 'checkin'; opId: string; ticketCode: string; clientAt: string }
-  | { type: 'parking_paid'; opId: string; ticketCode: string; paymentMethod: DoorParkingMethod; clientAt: string };
+  | { type: 'parking_paid'; opId: string; ticketCode: string; paymentMethod: DoorParkingMethod; ticketTypeId?: number; clientAt: string };
+
+type ParkingInfo = { options: DoorParkingOption[]; venueFeePerCarClp: number };
 
 const METHOD_LABEL: Record<DoorParkingMethod, string> = { efectivo: 'Efectivo', debito: 'Débito', credito: 'Crédito' };
 const money = (n: number | null) => (n == null ? '—' : `$${Math.round(n).toLocaleString('es-CL')}`);
@@ -149,7 +151,7 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
   const [flash, setFlash] = useState<{ names: string; personas: number } | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
-  const [parkingInfo, setParkingInfo] = useState<{ priceClp: number | null; venueFeePerCarClp: number } | null>(null);
+  const [parkingInfo, setParkingInfo] = useState<ParkingInfo | null>(null);
   const [parkingRecords, setParkingRecords] = useState<ParkingRecord[]>([]);
   const [reviewing, setReviewing] = useState(false);
   const recentRef = useRef<{ code: string; until: number }>({ code: '', until: 0 });
@@ -335,13 +337,13 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
   // Efectivo: el anfitrión recibe la plata física. Débito/crédito: se cobra
   // con la máquina. En los tres casos queda registrado con el medio de pago
   // y pasa al registro de estacionamientos (descuento del local) al sincronizar.
-  const cobrarEstacionamiento = async (f: Ficha, metodo: DoorParkingMethod): Promise<ParkingRecord> => {
+  const cobrarEstacionamiento = async (f: Ficha, opcion: DoorParkingOption | null, metodo: DoorParkingMethod): Promise<ParkingRecord> => {
     const opId = newOpId();
     const at = (await correctedNow()).toISOString();
-    await enqueueOp({ opId, type: 'parking_paid', ticketCode: f.ticketCode, paymentMethod: metodo, clientAt: at });
+    await enqueueOp({ opId, type: 'parking_paid', ticketCode: f.ticketCode, paymentMethod: metodo, ticketTypeId: opcion?.ticketTypeId, clientAt: at });
     const record: ParkingRecord = {
       opId, ticketCode: f.ticketCode, name: f.attendees[0]?.name || f.buyerName || f.ticketCode,
-      method: metodo, amount: parkingInfo?.priceClp ?? null, status: 'pendiente', at,
+      method: metodo, optionName: opcion?.name, amount: opcion?.priceClp ?? null, status: 'pendiente', at,
     };
     setParkingRecords((prev) => {
       const next = [record, ...prev];
@@ -351,7 +353,7 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
     });
     refreshPending();
     setFicha((prev) => (prev && prev.ticketCode === f.ticketCode)
-      ? { ...prev, extras: [...prev.extras, { typeName: 'Estacionamiento', status: 'used' }] }
+      ? { ...prev, extras: [...prev.extras, { typeName: opcion?.name ?? 'Estacionamiento', status: 'used' }] }
       : prev);
     return record;
   };
@@ -509,7 +511,7 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
           onAceptar={() => darAcceso(ficha)}
           onCerrar={cerrar}
           parkingInfo={parkingInfo}
-          onCobrarEstacionamiento={(metodo) => cobrarEstacionamiento(ficha, metodo)}
+          onCobrarEstacionamiento={(opcion, metodo) => cobrarEstacionamiento(ficha, opcion, metodo)}
         />
       )}
 
@@ -530,8 +532,8 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, parkingInfo, onCobrarEs
   ficha: Ficha;
   onAceptar: () => void;
   onCerrar: () => void;
-  parkingInfo: { priceClp: number | null; venueFeePerCarClp: number } | null;
-  onCobrarEstacionamiento: (metodo: DoorParkingMethod) => Promise<ParkingRecord>;
+  parkingInfo: ParkingInfo | null;
+  onCobrarEstacionamiento: (opcion: DoorParkingOption | null, metodo: DoorParkingMethod) => Promise<ParkingRecord>;
 }) {
   const personas = personasForTicket(ficha.groupSize, ficha.accesoSlug);
   const puedeEntrar = ficha.status === 'valid';
@@ -666,7 +668,7 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, parkingInfo, onCobrarEs
                 onClick={() => setCobrandoAbierto(true)}
                 className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary text-base font-bold text-primary-foreground active:scale-[0.99]"
               >
-                <Car className="h-5 w-5" /> Cobrar estacionamiento{parkingInfo?.priceClp != null ? ` ${money(parkingInfo.priceClp)}` : ''}
+                <Car className="h-5 w-5" /> Cobrar estacionamiento{parkingInfo && parkingInfo.options.length > 0 ? ` · ${parkingInfo.options.map((o) => money(o.priceClp)).join(' / ')}` : ''}
               </button>
             </div>
           )}
@@ -698,8 +700,7 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, parkingInfo, onCobrarEs
       {cobrandoAbierto && (
         <ParkingSheet
           nombre={ficha.attendees[0]?.name || ficha.buyerName}
-          price={parkingInfo?.priceClp ?? null}
-          unavailable={!!parkingInfo && parkingInfo.priceClp == null}
+          options={parkingInfo?.options ?? null}
           onCobrar={onCobrarEstacionamiento}
           onClose={() => setCobrandoAbierto(false)}
         />
@@ -715,29 +716,35 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, parkingInfo, onCobrarEs
  * botón final de confirmar -- un toque suelto nunca cobra. Al confirmar
  * queda registrado con su medio de pago y pasa al registro de
  * estacionamientos (de ahí sale lo que le corresponde al local). */
-function ParkingSheet({ nombre, price, unavailable, onCobrar, onClose }: {
+function ParkingSheet({ nombre, options, onCobrar, onClose }: {
   nombre: string;
-  price: number | null;
-  /** El evento no tiene un único producto "Estacionamiento": no se puede cobrar. */
-  unavailable: boolean;
-  onCobrar: (metodo: DoorParkingMethod) => Promise<ParkingRecord>;
+  /** Estacionamientos del evento (normal y VIP). `null` si el celular todavía
+   * no los bajó: se cobra el estacionamiento estándar sin monto a la vista. */
+  options: DoorParkingOption[] | null;
+  onCobrar: (opcion: DoorParkingOption | null, metodo: DoorParkingMethod) => Promise<ParkingRecord>;
   onClose: () => void;
 }) {
+  const unavailable = !!options && options.length === 0;
+  // Con una sola opción no se pregunta: queda elegida de entrada.
+  const [opcion, setOpcion] = useState<DoorParkingOption | null>(options && options.length === 1 ? options[0] : null);
   const [metodo, setMetodo] = useState<DoorParkingMethod | null>(null);
   const [recibido, setRecibido] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [recibo, setRecibo] = useState<{ record: ParkingRecord; recibido: number | null } | null>(null);
 
+  const price = opcion?.priceClp ?? null;
+  const debeElegir = !!options && options.length > 1;
+  const frase = options ? doorParkingScript(options) : '';
   const recibidoNum = recibido ? parseInt(recibido, 10) : null;
   const vuelto = metodo === 'efectivo' && recibidoNum != null ? cashChange(recibidoNum, price) : null;
   const faltaPlata = metodo === 'efectivo' && recibidoNum != null && price != null && recibidoNum < price;
-  const puedeConfirmar = !!metodo && !unavailable && !enviando && !faltaPlata;
+  const puedeConfirmar = !!metodo && !unavailable && !enviando && !faltaPlata && (!debeElegir || !!opcion);
 
   const confirmar = async () => {
     if (!metodo) return;
     setEnviando(true);
     try {
-      const record = await onCobrar(metodo);
+      const record = await onCobrar(opcion, metodo);
       setRecibo({ record, recibido: metodo === 'efectivo' ? recibidoNum : null });
       playTone('ok');
       vibrateAlert(60);
@@ -755,7 +762,7 @@ function ParkingSheet({ nombre, price, unavailable, onCobrar, onClose }: {
       <div role="dialog" aria-label="Estacionamiento cobrado" className="fixed inset-0 z-[60] flex flex-col bg-[#0b0612] bg-gradient-to-b from-emerald-600/45 to-transparent p-5">
         <div className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center text-center">
           <span className="mb-4 grid h-20 w-20 place-items-center rounded-full bg-emerald-400 text-black"><Check className="h-12 w-12" /></span>
-          <h1 className="font-heading text-3xl font-extrabold tracking-tight">Estacionamiento cobrado</h1>
+          <h1 className="font-heading text-3xl font-extrabold tracking-tight">{r.optionName ?? 'Estacionamiento'} cobrado</h1>
           <p className="mt-3 font-heading text-6xl font-extrabold tabular-nums">{money(r.amount)}</p>
           <p className="mt-3 text-xl font-semibold text-white/90">{METHOD_LABEL[r.method]}</p>
           <p className="mt-1 text-base text-white/70">{r.name}</p>
@@ -784,19 +791,52 @@ function ParkingSheet({ nombre, price, unavailable, onCobrar, onClose }: {
     <div role="dialog" aria-label="Cobrar estacionamiento" className="fixed inset-0 z-[60] flex flex-col bg-black/70 backdrop-blur-sm" onClick={onClose}>
       <div className="mt-auto max-h-[92dvh] overflow-y-auto overscroll-contain rounded-t-3xl bg-[#140c1f] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
         <div className="mx-auto w-full max-w-lg">
-          <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="mb-3 flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs uppercase tracking-widest text-white/50">Cobrar estacionamiento</p>
-              <p className="font-heading text-5xl font-extrabold leading-tight tabular-nums">{money(price)}</p>
               {nombre && <p className="truncate text-sm text-white/70">{nombre}</p>}
+              {opcion && <p className="mt-1 font-heading text-5xl font-extrabold leading-tight tabular-nums">{money(opcion.priceClp)}</p>}
             </div>
             <button onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/70 active:bg-white/10" aria-label="Cerrar"><X className="h-6 w-6" /></button>
           </div>
 
           {unavailable && (
             <p className="mb-4 rounded-2xl border border-red-500/40 bg-red-500/12 p-3 text-sm text-red-200">
-              Este evento no tiene un único producto "Estacionamiento" configurado, así que no se puede cobrar acá. Avisa a un admin.
+              Este evento no tiene un producto "Estacionamiento" configurado, así que no se puede cobrar acá. Avisa a un admin.
             </p>
+          )}
+
+          {/* La frase exacta que el anfitrión le dice al cliente. */}
+          {frase && (
+            <div className="mb-4 rounded-2xl border border-primary/40 bg-primary/10 p-4">
+              <p className="mb-1 text-xs font-semibold uppercase tracking-widest text-primary">Dile al cliente</p>
+              <p className="text-xl font-semibold leading-snug">“{frase}”</p>
+            </div>
+          )}
+
+          {debeElegir && options && (
+            <>
+              <p className="mb-2 text-xs uppercase tracking-widest text-white/50">¿Cuál estacionamiento quiere?</p>
+              <div className="mb-4 grid gap-2">
+                {options.map((o) => (
+                  <button
+                    key={o.ticketTypeId}
+                    onClick={() => setOpcion(o)}
+                    aria-pressed={opcion?.ticketTypeId === o.ticketTypeId}
+                    className={`flex min-h-[4.5rem] items-center gap-3 rounded-2xl border px-4 py-3 text-left active:scale-[0.99] ${opcion?.ticketTypeId === o.ticketTypeId ? (o.isVip ? 'border-amber-300/70 bg-amber-300/15' : 'border-primary/60 bg-primary/20') : 'border-white/10 bg-white/5'}`}
+                  >
+                    <span className="text-2xl">{o.isVip ? '⭐' : '🅿️'}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className={`block text-lg font-bold ${o.isVip ? 'text-amber-300' : ''}`}>{o.name}</span>
+                    </span>
+                    <span className="font-heading text-2xl font-extrabold tabular-nums">{money(o.priceClp)}</span>
+                    <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 ${opcion?.ticketTypeId === o.ticketTypeId ? 'border-primary bg-primary text-primary-foreground' : 'border-white/30'}`}>
+                      {opcion?.ticketTypeId === o.ticketTypeId && <Check className="h-4 w-4" />}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
           )}
 
           <p className="mb-2 text-xs uppercase tracking-widest text-white/50">¿Cómo paga?</p>
@@ -857,6 +897,7 @@ function ParkingSheet({ nombre, price, unavailable, onCobrar, onClose }: {
             className="h-16 w-full rounded-full bg-emerald-500 text-lg font-bold text-black shadow-[0_0_24px_-6px_rgba(16,185,129,0.9)] active:scale-[0.99] disabled:opacity-35 disabled:shadow-none"
           >
             {enviando ? 'Registrando…'
+              : debeElegir && !opcion ? 'Elige el estacionamiento'
               : !metodo ? 'Elige cómo paga'
               : metodo === 'efectivo' ? `Recibí el efectivo — confirmar ${money(price)}`
               : `Ya cobré en la máquina — confirmar ${money(price)}`}
@@ -895,7 +936,7 @@ function RechazadosPanel({ records, onSeen, onClose }: {
           <div key={r.opId} className="admin-tile mb-3 rounded-2xl p-4">
             <p className="text-lg font-bold">{r.name}</p>
             <p className="font-mono text-xs text-white/50">{r.ticketCode}</p>
-            <p className="mt-1 text-base">{METHOD_LABEL[r.method]} · <span className="font-bold tabular-nums">{money(r.amount)}</span> · {new Date(r.at).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })}</p>
+            <p className="mt-1 text-base">{r.optionName ? `${r.optionName} · ` : ''}{METHOD_LABEL[r.method]} · <span className="font-bold tabular-nums">{money(r.amount)}</span> · {new Date(r.at).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })}</p>
             <p className="mt-2 rounded-xl bg-red-500/15 p-2.5 text-sm text-red-100">{r.note || 'El servidor no lo registró.'}</p>
             <button onClick={() => onSeen(r.opId)} className="mt-3 h-12 w-full rounded-full bg-white/12 text-sm font-bold active:scale-[0.99]">Lo vi · avisaré a un admin</button>
           </div>
@@ -1025,6 +1066,16 @@ function IngresosPanel({ history, pendingIds, parking, venueFee }: {
             <p className="text-base"><span className="font-heading text-3xl font-extrabold tabular-nums">{resumen.cars}</span> {resumen.cars === 1 ? 'auto cobrado' : 'autos cobrados'}</p>
             <p className="font-heading text-2xl font-bold tabular-nums">{money(resumen.total)}</p>
           </div>
+          {resumen.byOption.length > 1 && (
+            <div className="space-y-1">
+              {resumen.byOption.map((o) => (
+                <div key={o.name} className="flex items-center justify-between text-sm">
+                  <span className="text-white/80">{/vip/i.test(o.name) ? '⭐' : '🅿️'} {o.name} · {o.count} {o.count === 1 ? 'auto' : 'autos'}</span>
+                  <span className="font-semibold tabular-nums">{money(o.total)}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-2 text-center">
             {(['efectivo', 'debito', 'credito'] as const).map((m) => (
               <div key={m} className="rounded-xl bg-white/5 px-2 py-2">
@@ -1052,7 +1103,7 @@ function IngresosPanel({ history, pendingIds, parking, venueFee }: {
               <div key={r.opId} className={`admin-tile flex items-center gap-3 rounded-2xl px-3 py-3 ${r.status === 'rechazado' ? '!border-red-500/50' : ''}`}>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-base font-semibold">{r.name}</p>
-                  <p className="truncate text-xs text-white/60">{METHOD_LABEL[r.method]} · {money(r.amount)}</p>
+                  <p className="truncate text-xs text-white/60">{r.optionName ? `${r.optionName} · ` : ''}{METHOD_LABEL[r.method]} · {money(r.amount)}</p>
                   {r.status === 'rechazado' && <p className="mt-0.5 text-xs text-red-300">{r.note || 'No se registró'}</p>}
                 </div>
                 <div className="shrink-0 text-right">

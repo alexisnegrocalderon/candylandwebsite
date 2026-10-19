@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, cashChange, pickDoorParkingProduct, summarizeDoorParking, type DoorParkingCharge } from "./parking";
+import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, cashChange, listDoorParkingOptions, doorParkingScript, summarizeDoorParking, type DoorParkingCharge } from "./parking";
 
 describe("isParkingTicketType", () => {
   it("reconoce Estacionamiento y Parking, ignorando mayúsculas", () => {
@@ -76,17 +76,29 @@ describe("summarizeParkingCounts", () => {
 });
 
 
-describe('pickDoorParkingProduct', () => {
-  const tt = (name: string, category = 'extra') => ({ name, category, price: 5000 });
-  it('devuelve el único "Estacionamiento", sin contar el VIP', () => {
-    expect(pickDoorParkingProduct([tt('Estacionamiento'), tt('Estacionamiento VIP'), tt('Cover')])?.name).toBe('Estacionamiento');
+describe('listDoorParkingOptions', () => {
+  const tt = (id: number, name: string, price: number, category = 'extra', status = 'active') => ({ id, name, category, price, status });
+  it('devuelve el normal y el VIP, del más barato al más caro', () => {
+    const out = listDoorParkingOptions([tt(2, 'Estacionamiento VIP', 10000), tt(1, 'Estacionamiento', 5000), tt(3, 'Cover', 3000)]);
+    expect(out).toEqual([
+      { ticketTypeId: 1, name: 'Estacionamiento', priceClp: 5000, isVip: false },
+      { ticketTypeId: 2, name: 'Estacionamiento VIP', priceClp: 10000, isVip: true },
+    ]);
   });
-  it('null si no hay ninguno o hay más de uno', () => {
-    expect(pickDoorParkingProduct([tt('Cover')])).toBeNull();
-    expect(pickDoorParkingProduct([tt('Estacionamiento'), tt('Parking')])).toBeNull();
+  it('ignora los ocultos y los que no son extras; precio como texto de la base', () => {
+    expect(listDoorParkingOptions([tt(1, 'Estacionamiento', 5000, 'extra', 'hidden'), tt(2, 'Estacionamiento', 5000, 'acceso')])).toEqual([]);
+    expect(listDoorParkingOptions([{ id: 1, name: 'Parking', category: 'extra', price: '5000', status: 'active' }])[0].priceClp).toBe(5000);
   });
-  it('ignora los que no son extras', () => {
-    expect(pickDoorParkingProduct([tt('Estacionamiento', 'acceso')])).toBeNull();
+});
+
+describe('doorParkingScript', () => {
+  it('con dos opciones: la frase exacta para el cliente', () => {
+    expect(doorParkingScript([{ name: 'Estacionamiento', priceClp: 5000 }, { name: 'Estacionamiento VIP', priceClp: 10000 }]))
+      .toBe('Tenemos dos estacionamientos: Estacionamiento $5.000 y Estacionamiento VIP $10.000. ¿Cuál prefiere?');
+  });
+  it('con una sola no pregunta; sin ninguna, vacío', () => {
+    expect(doorParkingScript([{ name: 'Estacionamiento', priceClp: 5000 }])).toBe('El Estacionamiento cuesta $5.000.');
+    expect(doorParkingScript([])).toBe('');
   });
 });
 
@@ -111,8 +123,18 @@ describe('summarizeDoorParking', () => {
   });
 
   it('sin cobros todo en cero; monto desconocido cuenta el auto pero no suma pesos', () => {
-    expect(summarizeDoorParking([], 3000)).toMatchObject({ cars: 0, total: 0, cashToHandOver: 0, venueShare: 0 });
+    expect(summarizeDoorParking([], 3000)).toMatchObject({ cars: 0, total: 0, cashToHandOver: 0, venueShare: 0, byOption: [] });
     expect(summarizeDoorParking([c('efectivo', null)], 3000)).toMatchObject({ cars: 1, total: 0, venueShare: 3000 });
+  });
+});
+
+describe('summarizeDoorParking por tipo', () => {
+  it('separa normal y VIP, cada uno suma al local ($3.000 por auto)', () => {
+    const ch = (optionName: string, amount: number): DoorParkingCharge => ({ method: 'efectivo', optionName, amount, status: 'ok' });
+    const s = summarizeDoorParking([ch('Estacionamiento', 5000), ch('Estacionamiento', 5000), ch('Estacionamiento VIP', 10000)], 3000);
+    expect(s.byOption).toEqual([{ name: 'Estacionamiento', count: 2, total: 10000 }, { name: 'Estacionamiento VIP', count: 1, total: 10000 }]);
+    expect(s.total).toBe(20000);
+    expect(s.venueShare).toBe(9000);
   });
 });
 

@@ -1788,6 +1788,9 @@ export const appRouter = router({
         z.object({ type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string() }),
         z.object({
           type: z.literal('parking_paid'), opId: z.string(), ticketCode: z.string(),
+          // Qué estacionamiento se cobró (normal o VIP). Opcional: los cobros
+          // anotados antes de que existiera esta elección no lo traen.
+          ticketTypeId: z.number().optional(),
           paymentMethod: z.enum(['efectivo', 'debito', 'credito']), clientAt: z.string(),
         }),
       ])).max(50),
@@ -1806,7 +1809,7 @@ export const appRouter = router({
           } else {
             results[op.opId] = await sellParkingAtDoor(rawDb, {
               opId: op.opId, ticketCode: op.ticketCode, eventId: input.eventId,
-              paymentMethod: op.paymentMethod, operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
+              paymentMethod: op.paymentMethod, ticketTypeId: op.ticketTypeId, operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
             });
           }
         } catch (err) {

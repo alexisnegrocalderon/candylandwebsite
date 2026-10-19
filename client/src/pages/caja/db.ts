@@ -2,6 +2,7 @@ import Dexie, { type Table } from 'dexie';
 import { formatKitchenTicketNumber } from '@shared/kitchen';
 import { formatLockerTagNumber } from '@shared/locker';
 import { personasForTicket } from '@shared/mission300';
+import type { DoorParkingOption } from '@shared/parking';
 
 /* Snapshot local + cola de operaciones para el modo offline de /caja
  * (docs/ARQUITECTURA-CAJA.md §6.2-§6.3). Todo lo que la tablet necesita para
@@ -87,7 +88,7 @@ export interface CajaStaffComp {
 export type QueuedOp =
   | { opId: string; type: 'redeem'; displayCode: string; clientAt: string }
   | { opId: string; type: 'checkin'; ticketCode: string; clientAt: string }
-  | { opId: string; type: 'parking_paid'; ticketCode: string; paymentMethod: 'efectivo' | 'debito' | 'credito'; clientAt: string }
+  | { opId: string; type: 'parking_paid'; ticketCode: string; paymentMethod: 'efectivo' | 'debito' | 'credito'; ticketTypeId?: number; clientAt: string }
   | {
       opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number }[];
       paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr'; clientAt: string;
@@ -168,8 +169,9 @@ export async function saveSnapshot(snapshot: {
   catalog: CajaCatalogItem[];
   gifts?: { displayCode: string; drinkName: string; toAlias: string; fromAlias: string; eventId: number }[];
   staffComps?: { displayCode: string; productName: string; staffName: string; status: string }[];
-  /** Solo la puerta lo trae: precio del estacionamiento y lo del local por auto. */
-  parking?: { priceClp: number | null; venueFeePerCarClp: number };
+  /** Solo la puerta lo trae: los estacionamientos del evento (normal y VIP,
+   * con su precio) y lo del local por auto. */
+  parking?: { options: DoorParkingOption[]; venueFeePerCarClp: number };
   serverTime: string;
 }) {
   await cajaDB.transaction('rw', [cajaDB.attendees, cajaDB.codes, cajaDB.catalog, cajaDB.gifts, cajaDB.staffComps, cajaDB.meta, cajaDB.opsQueue], async () => {
@@ -208,11 +210,13 @@ export async function saveSnapshot(snapshot: {
   });
 }
 
-/** Precio del estacionamiento y lo del local por auto, del último snapshot
- * de la puerta (`null` si todavía no se bajó o la caja nunca lo pidió). */
-export async function getLocalParking(): Promise<{ priceClp: number | null; venueFeePerCarClp: number } | null> {
+/** Estacionamientos del evento (con su precio) y lo del local por auto, del
+ * último snapshot de la puerta (`null` si todavía no se bajó o la caja nunca
+ * lo pidió, o si es un dato viejo sin las opciones). */
+export async function getLocalParking(): Promise<{ options: DoorParkingOption[]; venueFeePerCarClp: number } | null> {
   const row = await cajaDB.meta.get('parking');
-  return (row?.value as any) ?? null;
+  const value = row?.value as any;
+  return value && Array.isArray(value.options) ? value : null;
 }
 
 export async function getLocalEvent(): Promise<{ id: number; title: string; slug: string } | null> {

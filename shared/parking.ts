@@ -64,13 +64,39 @@ export function summarizeParkingCounts(origins: ParkingOrigin[]) {
   return { online, puerta, staff, totalPaid: online + puerta, totalCars: online + puerta + staff };
 }
 
-/** El único producto "Estacionamiento" (sin VIP) del evento: el que se le
- * cobra a quien llega sin estacionamiento pagado. `null` si no hay ninguno o
- * hay más de uno (ambiguo) -- igual criterio que resolveParkingCharge en
- * server/caja/parkingPaid.ts. */
-export function pickDoorParkingProduct<T extends { category: string; name: string }>(types: T[]): T | null {
-  const found = types.filter((t) => t.category === 'extra' && isParkingTicketType(t.name));
-  return found.length === 1 ? found[0] : null;
+/** Una opción de estacionamiento que se puede cobrar en la puerta (el normal
+ * y el VIP son productos distintos, con precio distinto). */
+export interface DoorParkingOption {
+  ticketTypeId: number;
+  name: string;
+  priceClp: number;
+  isVip: boolean;
+}
+
+/** Los estacionamientos del evento que la puerta puede cobrar: extras cuyo
+ * nombre es "Estacionamiento"/"Parking" (VIP incluido), sin los ocultos, del
+ * más barato al más caro. */
+export function listDoorParkingOptions(
+  types: { id: number; name: string; category: string; price: number | string; status?: string | null }[],
+): DoorParkingOption[] {
+  return types
+    .filter((t) => t.category === 'extra' && isAnyParkingTicketType(t.name) && t.status !== 'hidden')
+    .map((t) => ({ ticketTypeId: t.id, name: t.name, priceClp: Number(t.price), isVip: /vip/i.test(t.name) }))
+    .sort((a, b) => a.priceClp - b.priceClp || a.name.localeCompare(b.name));
+}
+
+const clp = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+
+/** La frase exacta que el anfitrión le dice al cliente antes de cobrar. Los
+ * nombres y precios salen de los productos del evento, así que si cambian en
+ * el admin la frase se actualiza sola. Con una sola opción no se pregunta. */
+export function doorParkingScript(options: Pick<DoorParkingOption, 'name' | 'priceClp'>[]): string {
+  if (options.length === 0) return '';
+  if (options.length === 1) return `El ${options[0].name} cuesta ${clp(options[0].priceClp)}.`;
+  const lista = options.map((o) => `${o.name} ${clp(o.priceClp)}`);
+  const ultimo = lista.pop();
+  const cuantos = options.length === 2 ? 'dos' : String(options.length);
+  return `Tenemos ${cuantos} estacionamientos: ${lista.join(', ')} y ${ultimo}. ¿Cuál prefiere?`;
 }
 
 export type DoorParkingMethod = 'efectivo' | 'debito' | 'credito';
@@ -78,6 +104,8 @@ export type DoorParkingMethod = 'efectivo' | 'debito' | 'credito';
 /** Un cobro de estacionamiento hecho en la puerta desde este celular. */
 export interface DoorParkingCharge {
   method: DoorParkingMethod;
+  /** Qué estacionamiento se cobró ("Estacionamiento", "Estacionamiento VIP"). */
+  optionName?: string;
   /** Monto cobrado; `null` si el celular todavía no conocía el precio. */
   amount: number | null;
   /** `pendiente`: aún no llega al servidor. `ok`: registrado. `rechazado`: el
@@ -93,16 +121,24 @@ export function summarizeDoorParking(charges: DoorParkingCharge[], venueFeePerCa
   const byMethod: Record<DoorParkingMethod, { count: number; total: number }> = {
     efectivo: { count: 0, total: 0 }, debito: { count: 0, total: 0 }, credito: { count: 0, total: 0 },
   };
+  const byOption = new Map<string, { count: number; total: number }>();
   let rejected = 0;
   for (const c of charges) {
     if (c.status === 'rechazado') { rejected++; continue; }
     byMethod[c.method].count++;
     byMethod[c.method].total += c.amount ?? 0;
+    const key = c.optionName ?? 'Estacionamiento';
+    const cur = byOption.get(key) ?? { count: 0, total: 0 };
+    cur.count++;
+    cur.total += c.amount ?? 0;
+    byOption.set(key, cur);
   }
   const cars = byMethod.efectivo.count + byMethod.debito.count + byMethod.credito.count;
   const total = byMethod.efectivo.total + byMethod.debito.total + byMethod.credito.total;
   return {
     cars, total, byMethod, rejected,
+    /** Autos y pesos por tipo de estacionamiento (normal / VIP), del más cobrado al menos. */
+    byOption: Array.from(byOption, ([name, v]) => ({ name, ...v })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
     cashToHandOver: byMethod.efectivo.total,
     venueShare: cars * venueFeePerCarClp,
   };
