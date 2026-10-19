@@ -1,6 +1,8 @@
 import Dexie, { type Table } from 'dexie';
 import { formatKitchenTicketNumber } from '@shared/kitchen';
 import { formatLockerTagNumber } from '@shared/locker';
+import { personasForTicket } from '@shared/mission300';
+import type { DoorParkingOption } from '@shared/parking';
 
 /* Snapshot local + cola de operaciones para el modo offline de /caja
  * (docs/ARQUITECTURA-CAJA.md §6.2-§6.3). Todo lo que la tablet necesita para
@@ -86,7 +88,7 @@ export interface CajaStaffComp {
 export type QueuedOp =
   | { opId: string; type: 'redeem'; displayCode: string; clientAt: string }
   | { opId: string; type: 'checkin'; ticketCode: string; clientAt: string }
-  | { opId: string; type: 'parking_paid'; ticketCode: string; paymentMethod: 'efectivo' | 'debito' | 'credito'; clientAt: string }
+  | { opId: string; type: 'parking_paid'; ticketCode: string; paymentMethod: 'efectivo' | 'debito' | 'credito'; ticketTypeId?: number; clientAt: string }
   | {
       opId: string; type: 'sale'; items: { ticketTypeId: number; quantity: number }[];
       paymentMethod: 'efectivo' | 'debito' | 'credito' | 'qr'; clientAt: string;
@@ -167,6 +169,9 @@ export async function saveSnapshot(snapshot: {
   catalog: CajaCatalogItem[];
   gifts?: { displayCode: string; drinkName: string; toAlias: string; fromAlias: string; eventId: number }[];
   staffComps?: { displayCode: string; productName: string; staffName: string; status: string }[];
+  /** Solo la puerta lo trae: los estacionamientos del evento (normal y VIP,
+   * con su precio) y lo del local por auto. */
+  parking?: { options: DoorParkingOption[]; venueFeePerCarClp: number };
   serverTime: string;
 }) {
   await cajaDB.transaction('rw', [cajaDB.attendees, cajaDB.codes, cajaDB.catalog, cajaDB.gifts, cajaDB.staffComps, cajaDB.meta, cajaDB.opsQueue], async () => {
@@ -192,6 +197,7 @@ export async function saveSnapshot(snapshot: {
     // servidor para corregir clientAt en cada operación (ver correctedNow()).
     await cajaDB.meta.put({ key: 'serverTimeOffsetMs', value: new Date(snapshot.serverTime).getTime() - Date.now() });
     await cajaDB.meta.put({ key: 'lastSnapshotAt', value: Date.now() });
+    if (snapshot.parking) await cajaDB.meta.put({ key: 'parking', value: snapshot.parking });
 
     // El snapshot llega del servidor SIN lo que esta tablet todavía no
     // sincronizó: sin esto, un código recién canjeado volvía a "válido" (y se
@@ -202,6 +208,15 @@ export async function saveSnapshot(snapshot: {
       if (rec.eventId === undefined || rec.eventId === snapshot.event.id) await applyOptimistic(rec.op);
     }
   });
+}
+
+/** Estacionamientos del evento (con su precio) y lo del local por auto, del
+ * último snapshot de la puerta (`null` si todavía no se bajó o la caja nunca
+ * lo pidió, o si es un dato viejo sin las opciones). */
+export async function getLocalParking(): Promise<{ options: DoorParkingOption[]; venueFeePerCarClp: number } | null> {
+  const row = await cajaDB.meta.get('parking');
+  const value = row?.value as any;
+  return value && Array.isArray(value.options) ? value : null;
 }
 
 export async function getLocalEvent(): Promise<{ id: number; title: string; slug: string } | null> {
@@ -270,6 +285,24 @@ export async function searchLocal(query: string): Promise<CajaAttendee[]> {
   return all
     .filter((a) => a.buyerName.toLowerCase().includes(needle) || a.buyerEmail.toLowerCase().includes(needle) || (a.buyerPhone && a.buyerPhone.includes(q)))
     .slice(0, 20);
+}
+
+/** Personas que ya entraron y personas esperadas (accesos válidos o usados,
+ * sin los anulados), según el snapshot local. Incluye al instante los
+ * check-in de este mismo celular que todavía no se sincronizan. */
+export async function countCheckedInPersonas(): Promise<{ entered: number; expected: number }> {
+  const all = await cajaDB.attendees.toArray();
+  let entered = 0;
+  let expected = 0;
+  for (const a of all) {
+    for (const acc of a.access) {
+      if (acc.status !== 'valid' && acc.status !== 'used') continue;
+      const n = personasForTicket(acc.groupSize, acc.accesoSlug);
+      expected += n;
+      if (acc.status === 'used') entered += n;
+    }
+  }
+  return { entered, expected };
 }
 
 export async function getLocalAttendee(orderId: number): Promise<CajaAttendee | undefined> {

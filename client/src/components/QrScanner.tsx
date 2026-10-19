@@ -13,6 +13,8 @@ export function QrScanner({
   paused = false,
   onDecode,
   onError,
+  torch = false,
+  onTorchSupport,
   className = '',
   children,
 }: {
@@ -21,6 +23,10 @@ export function QrScanner({
   paused?: boolean;
   onDecode: (raw: string) => void;
   onError?: (message: string) => void;
+  /** Linterna del celular (solo donde el navegador deja controlarla, ej.
+   * Chrome en Android). `onTorchSupport` avisa si esta cámara la tiene. */
+  torch?: boolean;
+  onTorchSupport?: (supported: boolean) => void;
   className?: string;
   /** Overlay encima del video (marco de puntería, texto de ayuda). */
   children?: React.ReactNode;
@@ -28,6 +34,9 @@ export function QrScanner({
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const trackRef = useRef<MediaStreamTrack | null>(null);
+  const onTorchSupportRef = useRef(onTorchSupport);
+  useEffect(() => { onTorchSupportRef.current = onTorchSupport; }, [onTorchSupport]);
   const rafRef = useRef<number>(0);
   const [camError, setCamError] = useState<string | null>(null);
 
@@ -35,6 +44,13 @@ export function QrScanner({
   useEffect(() => { pausedRef.current = paused; }, [paused]);
   const onDecodeRef = useRef(onDecode);
   useEffect(() => { onDecodeRef.current = onDecode; }, [onDecode]);
+
+  // Enciende/apaga la linterna cuando cambia `torch` (si la cámara la tiene).
+  useEffect(() => {
+    const track = trackRef.current as any;
+    if (!track?.getCapabilities?.().torch) return;
+    track.applyConstraints({ advanced: [{ torch }] }).catch(() => { /* el navegador la rechazó */ });
+  }, [torch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,6 +62,9 @@ export function QrScanner({
         });
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
         streamRef.current = stream;
+        const track = stream.getVideoTracks()[0] ?? null;
+        trackRef.current = track;
+        try { onTorchSupportRef.current?.(!!(track as any)?.getCapabilities?.().torch); } catch { onTorchSupportRef.current?.(false); }
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();

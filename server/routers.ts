@@ -1729,6 +1729,13 @@ export const appRouter = router({
         return { id: operator.id, name: operator.name, role: operator.role };
       }),
 
+    // Cerrar sesión / cambiar de persona en el mismo celular.
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(CAJA_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+
     me: publicProcedure.query(({ ctx }) => ctx.operator),
 
     /* El evento sale del operador que inició sesión (`operators.eventId`),
@@ -1748,7 +1755,11 @@ export const appRouter = router({
     // Mismo snapshot que la caja: la puerta lo guarda en el mismo IndexedDB
     // y por eso funciona sin señal.
     snapshot: doorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
-      return db.getCajaSnapshot(input.eventId);
+      const snapshot = await db.getCajaSnapshot(input.eventId);
+      if (!snapshot) return snapshot;
+      // Precio del estacionamiento y lo del local por auto: la puerta cobra
+      // estacionamiento y tiene que mostrar el monto antes de cobrar.
+      return { ...snapshot, parking: await db.getParkingPricing(input.eventId) };
     }),
 
     checkin: doorProcedure.input(z.object({
@@ -1777,6 +1788,9 @@ export const appRouter = router({
         z.object({ type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string() }),
         z.object({
           type: z.literal('parking_paid'), opId: z.string(), ticketCode: z.string(),
+          // Qué estacionamiento se cobró (normal o VIP). Opcional: los cobros
+          // anotados antes de que existiera esta elección no lo traen.
+          ticketTypeId: z.number().optional(),
           paymentMethod: z.enum(['efectivo', 'debito', 'credito']), clientAt: z.string(),
         }),
       ])).max(50),
@@ -1795,7 +1809,7 @@ export const appRouter = router({
           } else {
             results[op.opId] = await sellParkingAtDoor(rawDb, {
               opId: op.opId, ticketCode: op.ticketCode, eventId: input.eventId,
-              paymentMethod: op.paymentMethod, operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
+              paymentMethod: op.paymentMethod, ticketTypeId: op.ticketTypeId, operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
             });
           }
         } catch (err) {

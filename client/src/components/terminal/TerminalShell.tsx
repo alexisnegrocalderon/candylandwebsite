@@ -44,9 +44,38 @@ export function beep() {
   }
 }
 
+/** Sonido de resultado: `ok` (dos notas que suben), `warn` (dos pitidos
+ * graves) y `error` (zumbido largo) -- para reaccionar sin mirar la
+ * pantalla. */
+export function playTone(kind: 'ok' | 'warn' | 'error') {
+  try {
+    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+    const ctx = new Ctx();
+    const notes: { freq: number; at: number; len: number; type: OscillatorType }[] =
+      kind === 'ok' ? [{ freq: 660, at: 0, len: 0.12, type: 'sine' }, { freq: 990, at: 0.12, len: 0.2, type: 'sine' }]
+      : kind === 'warn' ? [{ freq: 420, at: 0, len: 0.16, type: 'triangle' }, { freq: 420, at: 0.24, len: 0.16, type: 'triangle' }]
+      : [{ freq: 180, at: 0, len: 0.55, type: 'sawtooth' }];
+    for (const n of notes) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = n.type;
+      osc.frequency.value = n.freq;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      const t0 = ctx.currentTime + n.at;
+      gain.gain.setValueAtTime(0.22, t0);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + n.len);
+      osc.start(t0);
+      osc.stop(t0 + n.len);
+    }
+  } catch {
+    // Sin Web Audio -- silencioso, no rompe nada.
+  }
+}
+
 /** Vibración corta donde el navegador la deja (iOS no vibra desde la web). */
-export function vibrateAlert() {
-  try { navigator.vibrate?.([200, 80, 200]); } catch { /* sin API */ }
+export function vibrateAlert(pattern: number | number[] = [200, 80, 200]) {
+  try { navigator.vibrate?.(pattern); } catch { /* sin API */ }
 }
 
 /** Pantalla siempre encendida mientras el terminal está abierto. Si el

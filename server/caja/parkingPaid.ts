@@ -2,14 +2,14 @@ import { eq, and, inArray, ne, sql } from "drizzle-orm";
 import { orders, orderItems, tickets, ticketTypes } from "../../drizzle/schema";
 import { applyOp } from "./ops";
 import { generateDisplayCode, fallbackInternalCode } from "./displayCode";
-import { isParkingTicketType, PLACEHOLDER_BUYER_EMAILS } from "../../shared/parking";
+import { isParkingTicketType, isAnyParkingTicketType, PLACEHOLDER_BUYER_EMAILS } from "../../shared/parking";
 
 /** Resuelve y valida el cobro de estacionamiento para un ticket escaneado --
  * busca el ticket y su orden, encuentra el único producto "Estacionamiento"
  * del evento, y aplica la guarda contra cobro doble. No cobra nada -- eso lo
  * hace `sellParkingAtDoor` según el medio de pago (efectivo/débito/crédito;
  * nunca saldo -- decisión explícita del dueño, ese solo se gasta en caja). */
-async function resolveParkingCharge(db: any, params: { eventId: number; ticketCode: string }): Promise<
+async function resolveParkingCharge(db: any, params: { eventId: number; ticketCode: string; ticketTypeId?: number }): Promise<
   | { ok: false; conflictNote: string }
   | { ok: true; buyerOrder: any; parkingType: any; price: number }
 > {
@@ -21,19 +21,28 @@ async function resolveParkingCharge(db: any, params: { eventId: number; ticketCo
   const [buyerOrder] = await db.select().from(orders).where(eq(orders.id, scanned.orderId)).limit(1);
   if (!buyerOrder) return { ok: false, conflictNote: "No se encontró la orden de este ticket" };
 
-  // Producto "Estacionamiento" de este evento -- debe ser exactamente uno
-  // para poder cobrar sin ambigüedad (excluye "Estacionamiento VIP").
+  // Qué estacionamiento cobrar. Con `ticketTypeId` (lo que eligió el cliente:
+  // normal o VIP) se usa ese, siempre que sea un estacionamiento de este
+  // evento. Sin él (cobros viejos de la cola) se usa el único "Estacionamiento"
+  // sin VIP, y si es ambiguo no se cobra.
   const eventTicketTypes = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, params.eventId));
-  const parkingTypes = (eventTicketTypes as any[]).filter((tt) => tt.category === "extra" && isParkingTicketType(tt.name));
-  if (parkingTypes.length !== 1) {
-    return {
-      ok: false,
-      conflictNote: parkingTypes.length === 0
-        ? "Este evento no tiene un producto \"Estacionamiento\" configurado en Entradas"
-        : "Hay más de un producto \"Estacionamiento\" en este evento -- deja solo uno para poder cobrar en la puerta",
-    };
+  const allParkingTypes = (eventTicketTypes as any[]).filter((tt) => tt.category === "extra" && isAnyParkingTicketType(tt.name));
+  let parkingType: any;
+  if (params.ticketTypeId != null) {
+    parkingType = allParkingTypes.find((tt) => tt.id === params.ticketTypeId);
+    if (!parkingType) return { ok: false, conflictNote: "Ese estacionamiento no existe en este evento" };
+  } else {
+    const parkingTypes = allParkingTypes.filter((tt) => isParkingTicketType(tt.name));
+    if (parkingTypes.length !== 1) {
+      return {
+        ok: false,
+        conflictNote: parkingTypes.length === 0
+          ? "Este evento no tiene un producto \"Estacionamiento\" configurado en Entradas"
+          : "Hay más de un producto \"Estacionamiento\" en este evento -- deja solo uno para poder cobrar en la puerta",
+      };
+    }
+    parkingType = parkingTypes[0];
   }
-  const parkingType = parkingTypes[0];
 
   // Guarda contra cobro doble: server-autoritativo, corre acá (al aplicar la
   // operación de verdad), no cuando se encoló offline -- así protege incluso
@@ -50,7 +59,9 @@ async function resolveParkingCharge(db: any, params: { eventId: number; ticketCo
     if (orderIds.length > 0) {
       const existingParking = await db.select({ id: tickets.id }).from(tickets).where(and(
         inArray(tickets.orderId, orderIds),
-        eq(tickets.ticketTypeId, parkingType.id),
+        // Cualquier estacionamiento (normal o VIP) ya comprado cuenta: no se
+        // le cobra otro a quien ya tiene uno.
+        inArray(tickets.ticketTypeId, allParkingTypes.map((tt) => tt.id)),
         ne(tickets.status, "cancelled"),
       ));
       if ((existingParking as any[]).length > 0) {
@@ -131,6 +142,8 @@ export async function sellParkingAtDoor(
     eventId: number;
     ticketCode: string;
     paymentMethod: "efectivo" | "debito" | "credito";
+    /** Qué estacionamiento se cobró (normal o VIP). */
+    ticketTypeId?: number;
     operatorId: number;
     clientAt: Date;
   }
@@ -146,11 +159,11 @@ export async function sellParkingAtDoor(
       operatorId: params.operatorId,
       targetType: "ticket",
       targetId: code,
-      payload: { ticketCode: code, paymentMethod: params.paymentMethod },
+      payload: { ticketCode: code, paymentMethod: params.paymentMethod, ticketTypeId: params.ticketTypeId ?? null },
       clientAt: params.clientAt,
     },
     async () => {
-      const charge = await resolveParkingCharge(db, { eventId: params.eventId, ticketCode: code });
+      const charge = await resolveParkingCharge(db, { eventId: params.eventId, ticketCode: code, ticketTypeId: params.ticketTypeId });
       if (!charge.ok) return { result: "rejected" as const, conflictNote: charge.conflictNote };
 
       await createParkingOrderAndTicket(db, {
