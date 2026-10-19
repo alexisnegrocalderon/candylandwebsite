@@ -166,8 +166,8 @@ describe("createCajaSale", () => {
     expect(calls.order).toBeNull();
   });
 
-  it("aplica un código de descuento válido y suma usedCount una sola vez", async () => {
-    validateDiscountCode.mockResolvedValueOnce({ valid: true, discount: { id: 5, discountType: "percentage", discountValue: "10" } });
+  it("aplica la promo relámpago (código con lista de productos) y suma usedCount una sola vez", async () => {
+    validateDiscountCode.mockResolvedValueOnce({ valid: true, discount: { id: 5, discountType: "percentage", discountValue: "10", applicableTicketTypeIds: [1] } });
     const { db, calls } = makeFakeDb({ products: [piscola] });
 
     const res = await createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 1, quantity: 1 }], discountCode: "PROMO10" });
@@ -175,6 +175,17 @@ describe("createCajaSale", () => {
     expect(res.result).toBe("applied");
     expect(calls.order).toMatchObject({ subtotal: "5000", discount: "500", total: "4500" });
     expect(calls.discountUsedCountUpdates).toBe(1);
+  });
+
+  it("en caja un código SIN lista de productos no descuenta nada (no hay descuentos, solo promo relámpago)", async () => {
+    validateDiscountCode.mockResolvedValueOnce({ valid: true, discount: { id: 5, discountType: "percentage", discountValue: "50", applicableTicketTypeIds: null } });
+    const { db, calls } = makeFakeDb({ products: [piscola] });
+
+    const res = await createCajaSale(db, { ...baseParams, items: [{ ticketTypeId: 1, quantity: 1 }], discountCode: "TODO50" });
+
+    expect(res.result).toBe("applied");
+    expect(calls.order).toMatchObject({ subtotal: "5000", discount: "0", total: "5000" });
+    expect(calls.discountUsedCountUpdates).toBe(0);
   });
 
   it("ignora un código de descuento inválido sin tumbar la venta", async () => {

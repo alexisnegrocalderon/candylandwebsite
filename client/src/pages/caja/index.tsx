@@ -1374,41 +1374,24 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     setCustomerSearchResults([]);
   };
 
-  // Código de descuento (opcional): se PREVISUALIZA acá contra el mismo
-  // endpoint que usa el checkout web, pero el monto real que se cobra lo
-  // recalcula el servidor al aplicar la venta -- nunca se confía en este
-  // preview para el cobro final.
-  const [discountCode, setDiscountCode] = useState('');
+  // Promo relámpago aplicada (única forma de descuento en caja): solo vista
+  // previa, el monto real lo recalcula el servidor al aplicar la venta.
   const [discountResult, setDiscountResult] = useState<{ valid: boolean; message?: string; discount?: any } | null>(null);
-  const validateDiscount = trpc.orders.validateDiscount.useMutation();
-  const applyDiscount = async () => {
-    if (!discountCode.trim()) return;
-    try {
-      const r = await validateDiscount.mutateAsync({ code: discountCode.trim(), eventId });
-      setDiscountResult(r);
-      if (!r.valid) toast.error(r.message || 'Código no válido');
-    } catch {
-      setDiscountResult({ valid: false, message: 'No se pudo validar (¿sin conexión?)' });
-    }
-  };
-
   // Promo relámpago: mismo ritmo que el catálogo (60s, ver `caja.snapshot`
   // más arriba) para que la insignia aparezca/desaparezca sola.
   const { data: flashPromo } = trpc.flashPromo.active.useQuery({ eventId }, { refetchInterval: 60_000 });
   const flashPromoActive = !!flashPromo && new Date(flashPromo.expiresAt) > new Date();
 
-  // Si el carrito tiene algún producto en promo relámpago y la cajera NO
-  // escribió un código a mano, se aplica solo -- el código manual, si lo
-  // hay, siempre manda (por si la cajera prefiere aplicar otro).
+  // Si el carrito tiene algún producto en promo relámpago, se aplica sola.
   useEffect(() => {
-    if (!flashPromoActive || discountCode.trim()) return;
+    if (!flashPromoActive) return;
     const hasFlashItem = Object.entries(cart).some(([id, qty]) => qty > 0 && flashPromo!.ticketTypeIds.includes(Number(id)));
     if (hasFlashItem && discountResult?.discount?.code !== flashPromo!.code) {
       setDiscountResult({ valid: true, discount: { code: flashPromo!.code, discountType: flashPromo!.discountType, discountValue: flashPromo!.discountValue } });
     } else if (!hasFlashItem && discountResult?.discount?.code === flashPromo?.code) {
       setDiscountResult(null);
     }
-  }, [cart, flashPromoActive, flashPromo, discountCode]);
+  }, [cart, flashPromoActive, flashPromo]);
 
   // Guardarropía: el número de la percha lo genera la propia tablet al
   // confirmar (nextLockerTagNumber) -- acá solo se pide el nombre del
@@ -1644,7 +1627,6 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     setAssociatedName(null);
     setCustomerSearch('');
     setCustomerSearchResults([]);
-    setDiscountCode('');
     setDiscountResult(null);
     setLockerCustomerName('');
     setCustomerName('');
@@ -1918,35 +1900,14 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
               )}
             </div>
 
-            {/* Código de descuento -- solo vista previa, el servidor lo
-                revalida al cobrar. Sin señal simplemente no se puede aplicar. */}
-            <div className="space-y-1">
-              {discountResult?.valid && !discountCode.trim() && discountResult.discount?.code === flashPromo?.code ? (
-                <p className="text-xs text-amber-400">
-                  🔥 Promo Flash aplicada automáticamente: {discountResult.discount.discountValue}% -- no hace falta código.
-                </p>
-              ) : (
-                <>
-                  <div className="flex gap-2">
-                    <Input
-                      value={discountCode}
-                      onChange={(e) => { setDiscountCode(e.target.value.toUpperCase()); setDiscountResult(null); }}
-                      placeholder="Código de descuento"
-                      className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/60"
-                    />
-                    <Button size="sm" variant="outline" className="border-white/15 text-white shrink-0" disabled={!discountCode.trim() || validateDiscount.isPending} onClick={applyDiscount}>
-                      {validateDiscount.isPending ? '…' : 'Aplicar'}
-                    </Button>
-                  </div>
-                  {discountResult?.valid && discountResult.discount && (
-                    <p className="text-xs text-green-400">✓ Descuento aplicado: {discountResult.discount.discountType === 'percentage' ? `${discountResult.discount.discountValue}%` : `$${Number(discountResult.discount.discountValue).toLocaleString('es-CL')}`}</p>
-                  )}
-                  {discountResult && !discountResult.valid && (
-                    <p className="text-xs text-red-400">{discountResult.message || 'Código no válido'}</p>
-                  )}
-                </>
-              )}
-            </div>
+            {/* En caja no hay códigos de descuento: solo la promo relámpago, que
+                se aplica sola cuando el carrito trae esos productos (el
+                servidor la revalida al cobrar). */}
+            {discountResult?.valid && discountResult.discount?.code === flashPromo?.code && (
+              <p className="text-xs text-amber-400">
+                🔥 Promo Flash aplicada automáticamente: {discountResult.discount.discountValue}% -- no hace falta código.
+              </p>
+            )}
 
             <div className="flex justify-between text-lg font-bold border-t border-white/10 pt-3">
               <span>Total</span>
