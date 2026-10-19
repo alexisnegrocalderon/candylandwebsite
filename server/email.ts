@@ -9,6 +9,7 @@ import {
   pastelButton, glassButton,
 } from './emailLayout';
 import { logEmailSent } from './db';
+import { checkEmailQuotaAlert } from './emailQuotaAlert';
 import { ORACLE_TEASER_CARDS } from '../shared/costumeOracle';
 
 interface SendEmailInput {
@@ -99,6 +100,8 @@ async function logSendAttempt(input: SendEmailInput, success: boolean): Promise<
   } catch (err) {
     console.error('[Email] No se pudo registrar el envío en el contador diario:', err);
   }
+  // Aviso al llegar a 95 correos del día (una vez por día). Nunca lanza.
+  await checkEmailQuotaAlert();
 }
 
 /** Copia estática de reglas/valores/contenido del evento — se mantiene
