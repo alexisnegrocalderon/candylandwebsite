@@ -32,6 +32,8 @@ export function ConfirmDeleteButton({
   disabled,
   className,
   children,
+  open: openProp,
+  onOpenChange,
 }: {
   description: string;
   onConfirm: (adminPassword: string) => void | Promise<unknown>;
@@ -41,9 +43,15 @@ export function ConfirmDeleteButton({
    * siempre se dispare desde el botón rojo "Eliminar" que revela el swipe. */
   className?: string;
   children?: React.ReactNode;
+  /** Modo controlado opcional -- `SwipeToDeleteCard` lo usa para abrir el
+   * diálogo con un swipe largo, sin que haya que tocar el botón. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const demoProps = useDemoProps();
-  const [open, setOpen] = useState(false);
+  const [innerOpen, setInnerOpen] = useState(false);
+  const open = openProp ?? innerOpen;
+  const setOpen = (v: boolean) => { setInnerOpen(v); onOpenChange?.(v); };
   const [adminPassword, setAdminPassword] = useState('');
   const [working, setWorking] = useState(false);
 
