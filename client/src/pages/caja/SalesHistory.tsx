@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
-import { Search, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,12 +42,14 @@ function useDebounced<T>(value: T, ms: number): T {
   return debounced;
 }
 
-export function SalesHistory({ eventId, registerId, isOnline, compact = false }: {
+export function SalesHistory({ eventId, registerId, isOnline, compact = false, heightClass }: {
   eventId: number;
   registerId: number | null;
   isOnline: boolean;
   /** Versión acotada bajo la grilla de "Nueva venta"; la completa ocupa la pantalla. */
   compact?: boolean;
+  /** Reemplaza el alto de la versión `compact` (por defecto `shrink-0 max-h-72`). */
+  heightClass?: string;
 }) {
   const [search, setSearch] = useState('');
   const [method, setMethod] = useState<Method | null>(null);
@@ -69,6 +72,9 @@ export function SalesHistory({ eventId, registerId, isOnline, compact = false }:
   );
   const sales = query.data?.pages.flatMap((p) => p.sales) ?? [];
   const filtering = !!debouncedSearch || !!method || status !== 'all';
+  // En el visor chico (columna angosta junto al carrito) la lista de productos
+  // de cada venta no cabe: solo se muestra si hay ancho de sobra.
+  const productsCol = compact ? 'hidden min-[1100px]:table-cell' : 'hidden md:table-cell';
 
   const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const el = e.currentTarget;
@@ -78,7 +84,7 @@ export function SalesHistory({ eventId, registerId, isOnline, compact = false }:
   };
 
   return (
-    <div className={`flex flex-col admin-clay admin-clay-sm rounded-2xl overflow-hidden ${compact ? 'shrink-0 max-h-72' : 'h-full min-h-0'}`}>
+    <div className={`flex flex-col admin-clay admin-clay-sm rounded-2xl overflow-hidden ${compact ? (heightClass ?? 'shrink-0 max-h-72') : 'h-full min-h-0'}`}>
       <div className="shrink-0 px-3 pt-3 pb-2 space-y-2">
         <div className="flex items-center gap-2">
           <p className="text-xs uppercase tracking-wide text-white/50 flex-1">{compact ? 'Ventas de la noche' : 'Historial de ventas'}</p>
@@ -128,7 +134,7 @@ export function SalesHistory({ eventId, registerId, isOnline, compact = false }:
                 <th className="px-3 py-1.5 font-medium">Hora</th>
                 <th className="px-3 py-1.5 font-medium">Cliente</th>
                 <th className="px-3 py-1.5 font-medium">Cobró</th>
-                <th className="px-3 py-1.5 font-medium hidden md:table-cell">Productos</th>
+                <th className={`px-3 py-1.5 font-medium ${productsCol}`}>Productos</th>
                 <th className="px-3 py-1.5 font-medium">Método</th>
                 <th className="px-3 py-1.5 font-medium text-right">Monto</th>
               </tr>
@@ -144,7 +150,7 @@ export function SalesHistory({ eventId, registerId, isOnline, compact = false }:
                       <p className="truncate text-[11px] font-mono text-white/60">{s.orderNumber}</p>
                     </td>
                     <td className="px-3 py-2 truncate max-w-[110px]">{s.operatorName}</td>
-                    <td className="px-3 py-2 hidden md:table-cell max-w-[220px] truncate text-white/60">{s.items.join(', ')}</td>
+                    <td className={`px-3 py-2 ${productsCol} max-w-[220px] truncate text-white/60`}>{s.items.join(', ')}</td>
                     <td className="px-3 py-2"><MethodBadge method={s.paymentMethod} /></td>
                     <td className="px-3 py-2 text-right font-semibold whitespace-nowrap">
                       {voided ? <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/15 text-red-300 font-medium mr-1">Anulada</span> : null}
@@ -209,9 +215,13 @@ function SaleDetailModal({ eventId, registerId, isOnline, orderNumber, onClose }
     });
   };
 
-  return (
-    <div className="fixed inset-0 z-40 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-6" onClick={onClose}>
-      <div className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto admin-glass-sheet rounded-t-3xl sm:rounded-3xl p-5 space-y-4 text-white" onClick={(e) => e.stopPropagation()}>
+  // En un portal al <body>: el visor de ventas tiene vidrio (`backdrop-filter`)
+  // y `overflow-hidden`, y un `fixed` dentro de un ancestro con backdrop-filter
+  // se posiciona contra ESE ancestro, no contra la pantalla -- la ficha quedaba
+  // recortada dentro de la cajita del visor.
+  return createPortal(
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-6" onClick={onClose}>
+      <div className="w-full sm:max-w-md max-h-[90dvh] overflow-y-auto overscroll-contain admin-glass-sheet rounded-t-3xl sm:rounded-3xl p-5 space-y-4 text-white" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
             <p className="font-mono text-sm text-white/50">{orderNumber}</p>
@@ -294,7 +304,46 @@ function SaleDetailModal({ eventId, registerId, isOnline, orderNumber, onClose }
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** Tira plegable de "Ventas de la noche" para la pantalla de Nueva venta en
+ * tablet (vertical y horizontal): cerrada es una barra con la última venta;
+ * abierta muestra el visor completo (buscador, filtros, detalle) hasta casi la
+ * mitad de la pantalla, así no le quita espacio fijo a los productos. */
+export function SalesStrip({ eventId, registerId, isOnline }: { eventId: number; registerId: number | null; isOnline: boolean }) {
+  const [open, setOpen] = useState(false);
+  const last = trpc.caja.salesHistory.useQuery({ eventId, limit: 1 }, { enabled: !open, refetchInterval: 60_000 });
+  const lastSale = last.data?.sales?.[0];
+
+  if (open) {
+    return (
+      <div className="shrink-0 space-y-2">
+        <button type="button" onClick={() => setOpen(false)} className="admin-glass-panel flex w-full items-center gap-2 px-4 py-2 text-left text-xs uppercase tracking-wide text-white/70">
+          <ChevronDown className="h-4 w-4" />
+          <span className="flex-1">Ventas de la noche</span>
+          <span className="normal-case tracking-normal text-white/60">Cerrar</span>
+        </button>
+        <SalesHistory compact eventId={eventId} registerId={registerId} isOnline={isOnline} heightClass="shrink-0 h-[min(45dvh,26rem)]" />
+      </div>
+    );
+  }
+  return (
+    <button type="button" onClick={() => setOpen(true)} className="admin-glass-panel flex w-full shrink-0 items-center gap-3 px-4 py-3 text-left">
+      <ChevronUp className="h-4 w-4 shrink-0 text-white/60" />
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs uppercase tracking-wide text-white/50">Ventas de la noche</span>
+        <span className="block truncate text-sm">
+          {lastSale
+            ? <>{timeOf(lastSale.createdAt)} · {lastSale.buyerName} · <span className="font-semibold">{money(lastSale.total)}</span></>
+            : last.isError ? 'No se pudo cargar (¿sin conexión?)' : last.isLoading ? 'Cargando…' : 'Todavía no hay ventas esta noche'}
+        </span>
+      </span>
+      {lastSale && <MethodBadge method={lastSale.paymentMethod} />}
+      <span className="shrink-0 text-xs text-white/60">Ver todas</span>
+    </button>
   );
 }
 
