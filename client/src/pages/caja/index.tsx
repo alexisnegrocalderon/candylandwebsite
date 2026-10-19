@@ -20,7 +20,7 @@ import { forgetOffline, useOfflineFallback } from './offlineGate';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { formatChileDateTime } from '@shared/chileDate';
 import { getFavoriteIds, toggleFavorite } from './favorites';
-import { SalesHistory } from './SalesHistory';
+import { SalesHistory, SalesStrip } from './SalesHistory';
 import { RejectedOps } from './RejectedOps';
 
 /* Módulo /caja (docs/ARQUITECTURA-CAJA.md Fase 3) -- offline-first: la
@@ -1445,7 +1445,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   // código de descuento ya no redibuja todas las tarjetas. Los handlers usan
   // refs y setters de estado, así que no importa que sean de otro render.
   const productGrid = useMemo(() => (
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 min-[900px]:landscape:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 min-[900px]:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
               {productsInTab.map((p) => {
                 const left = p.totalStock - p.soldCount;
                 const noStock = left <= 0;
@@ -1675,7 +1675,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
       {catalog.length === 0 ? (
         <p className="text-white/50 text-sm">Todavía no hay productos cargados para este evento. Se cargan desde Admin → Carta de la Fiesta.</p>
       ) : (
-        <div className="flex-1 min-h-0 flex flex-col gap-5 min-[900px]:landscape:flex-row">
+        <div className="flex-1 min-h-0 flex flex-col gap-5 md:flex-row">
           <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-5">
             {/* Categorías como círculos, en fila -- con scroll horizontal si no caben. */}
             <div className="shrink-0 flex gap-4 overflow-x-auto pb-1">
@@ -1701,12 +1701,12 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
             {productGrid}
 
             {/* Ventas de la noche (pedido explícito del dueño): con nombre del cliente, quién cobró, buscador y scroll propio; tocar una fila abre el detalle y la anulación con clave admin. Alto acotado: nunca empuja el resto de la pantalla. */}
-            <div className="hidden min-[900px]:landscape:block">
-              <SalesHistory compact eventId={eventId} registerId={registerId} isOnline={isOnline} />
+            <div className="hidden md:block">
+              <SalesStrip eventId={eventId} registerId={registerId} isOnline={isOnline} />
             </div>
 
-            {/* Barra de total (celular y tablet vertical): abre el carrito. */}
-            <div className="shrink-0 min-[900px]:landscape:hidden">
+            {/* Barra de total (solo celular): abre el carrito. Desde tablet el carrito va fijo a la derecha. */}
+            <div className="shrink-0 md:hidden">
               <button type="button" onClick={() => setCartOpen(true)} disabled={!hasItems}
                 className="admin-glass-panel flex w-full items-center gap-3 px-4 py-3 text-left disabled:opacity-60">
                 <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10">
@@ -1723,7 +1723,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
           </div>
 
           {cartOpen && (
-            <div className="fixed inset-0 z-20 bg-black/60 backdrop-blur-sm min-[900px]:landscape:hidden" onClick={() => setCartOpen(false)} aria-hidden="true" />
+            <div className="fixed inset-0 z-20 bg-black/60 backdrop-blur-sm md:hidden" onClick={() => setCartOpen(false)} aria-hidden="true" />
           )}
 
           {/* Panel de carrito persistente al costado -- antes era una barra pegada abajo, ahora siempre visible mientras se arma la venta. */}
@@ -1737,8 +1737,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
               `overflow-y-auto`) y la grilla recupera la mitad de la
               pantalla. `lg:` en adelante (tablet en horizontal/desktop) usa
               `self-stretch` de siempre, sin cambios. */}
-          <aside aria-label="Carrito" className={`${cartOpen ? 'fixed inset-x-0 bottom-0 z-30 flex max-h-[88dvh] rounded-t-3xl admin-glass-sheet pb-[max(env(safe-area-inset-bottom),1rem)]' : 'hidden'} flex-col overflow-y-auto overscroll-contain p-4 space-y-4 min-[900px]:landscape:static min-[900px]:landscape:z-auto min-[900px]:landscape:flex min-[900px]:landscape:max-h-none min-[900px]:landscape:w-96 min-[900px]:landscape:shrink-0 min-[900px]:landscape:self-stretch min-[900px]:landscape:rounded-3xl min-[900px]:landscape:pb-4 caja-cart-panel`}>
-            <div className="flex items-center justify-between min-[900px]:landscape:hidden">
+          <aside aria-label="Carrito" className={`${cartOpen ? 'fixed inset-x-0 bottom-0 z-30 flex max-h-[88dvh] rounded-t-3xl admin-glass-sheet pb-[max(env(safe-area-inset-bottom),1rem)]' : 'hidden'} flex-col overflow-y-auto overscroll-contain p-4 space-y-4 md:static md:z-auto md:flex md:max-h-none md:w-72 min-[820px]:w-80 min-[900px]:w-96 md:shrink-0 md:self-stretch md:rounded-3xl md:pb-4 caja-cart-panel`}>
+            <div className="flex items-center justify-between md:hidden">
               <p className="font-heading text-lg">Carrito</p>
               <button type="button" onClick={() => setCartOpen(false)} aria-label="Cerrar carrito" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
             </div>
