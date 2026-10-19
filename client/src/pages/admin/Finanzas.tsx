@@ -15,6 +15,8 @@ import { StatTile } from '@/components/admin/StatTile';
 import { EmptyState } from '@/components/admin/EmptyState';
 import { CameraCaptureField } from '@/components/admin/CameraCaptureField';
 import { EXPENSE_CATEGORIES } from '@shared/expenses';
+import { StatementUpload } from '@/components/admin/finanzas/StatementUpload';
+import { MercadoPagoTab } from '@/components/admin/finanzas/MercadoPagoTab';
 
 const money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString('es-CL')}`;
 const PALETTE = ['#ec4899', '#38bdf8', '#8b5cf6', '#f59e0b', '#10b981', '#f97316', '#64748b'];
@@ -565,7 +567,7 @@ function PendingMovement({ m, events, onDone }: { m: any; events: any[]; onDone:
 }
 
 /** Caja real: saldos, lo que se ganó vs. lo que retiraste, movimientos por clasificar y cartola. */
-function CashTab() {
+function CashTab({ onOpenMp }: { onOpenMp: () => void }) {
   const isDemo = useIsDemo();
   const utils = trpc.useUtils();
   const [monthKey, setMonthKey] = useState(chileMonthNow());
@@ -581,18 +583,10 @@ function CashTab() {
   const addW = trpc.cash.addWithdrawal.useMutation({ onSuccess: () => { refresh(); setW({ ...w, amount: '', note: '' }); toast.success('Retiro registrado'); }, onError: onErr });
   const delW = trpc.cash.deleteWithdrawal.useMutation({ onSuccess: refresh, onError: onErr });
   const setBal = trpc.cash.setBalance.useMutation({ onSuccess: () => { refresh(); toast.success('Saldo actualizado'); }, onError: onErr });
-  const [statement, setStatement] = useState<{ text: string; preview: any } | null>(null);
-  const imp = trpc.cash.importStatement.useMutation({ onError: onErr });
 
   const months = useMemo(() => { const out: string[] = []; let m = chileMonthNow(); for (let i = 0; i < 12; i++) { out.push(m); const [y, mm] = m.split('-').map(Number); m = mm === 1 ? `${y - 1}-12` : `${y}-${String(mm - 1).padStart(2, '0')}`; } return out; }, []);
 
-  const onFile = async (file: File | undefined) => {
-    if (!file) return;
-    if (file.size > 2_500_000) { toast.error('El archivo es muy grande (máx. 2,5 MB).'); return; }
-    if (/\.(xlsx?|xls)$/i.test(file.name)) { toast.error('Guarda la cartola como CSV desde Excel (Archivo → Guardar como → CSV) y súbela de nuevo.'); return; }
-    const text = await file.text();
-    imp.mutate({ text, preview: true }, { onSuccess: (r) => setStatement({ text, preview: r }) });
-  };
+
 
   if (isLoading) return <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>;
   if (isError || !data) return <p className="text-sm text-destructive">No se pudo cargar: {error?.message}</p>;
@@ -660,7 +654,7 @@ function CashTab() {
       </Card>
 
       <Card className="admin-clay border-0">
-        <CardHeader><CardTitle>Movimientos por clasificar ({data.pending.length})</CardTitle><p className="text-sm text-[var(--admin-muted)]">De Mercado Pago y de tu cartola: dime qué fue cada uno y queda contabilizado.</p></CardHeader>
+        <CardHeader><CardTitle>Movimientos por clasificar ({data.pending.length})</CardTitle><p className="text-sm text-[var(--admin-muted)]">De Mercado Pago y de tu cartola: dime qué fue cada uno y queda contabilizado. <button type="button" className="underline" onClick={onOpenMp}>Ver todos los movimientos de Mercado Pago</button></p></CardHeader>
         <CardContent className="space-y-2">
           {data.pending.length === 0 && <p className="text-sm text-[var(--admin-muted)]">Nada pendiente ✓</p>}
           {data.pending.map((m: any) => <PendingMovement key={m.id} m={m} events={events ?? []} onDone={() => { refresh(); utils.finance.eventReport.invalidate(); }} />)}
@@ -670,37 +664,7 @@ function CashTab() {
       <Card className="admin-clay border-0">
         <CardHeader><CardTitle>Subir estado de cuenta (Mercado Pago o banco)</CardTitle><p className="text-sm text-[var(--admin-muted)]">Sube el CSV del estado de cuenta de Mercado Pago o la cartola del banco: se detecta solo, se leen los movimientos y el saldo. Volver a subir el mismo archivo no duplica nada.</p></CardHeader>
         <CardContent className="space-y-3">
-          <input type="file" accept=".csv,text/csv,.txt" disabled={isDemo || imp.isPending} onChange={(e) => onFile(e.target.files?.[0])} className="text-sm" />
-          {statement?.preview?.error && <p className="text-sm text-red-600">{statement.preview.error}</p>}
-          {statement?.preview && !statement.preview.error && (
-            <div className="space-y-2">
-              <p className="text-sm">{statement.preview.format === 'mercadopago' ? 'Estado de cuenta de Mercado Pago' : 'Cartola del banco'}: <strong>{statement.preview.movements.length}</strong> movimientos{statement.preview.skipped ? ` (salté ${statement.preview.skipped} filas sin fecha o monto)` : ''}.</p>
-              {statement.preview.totals && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs admin-clay-sm p-3">
-                  <p>Ventas liberadas <strong className="block text-sm tabular-nums">{money(statement.preview.totals.ventasBrutas)}</strong></p>
-                  <p>Comisiones Mercado Pago <strong className="block text-sm tabular-nums">{money(statement.preview.totals.comisiones)}</strong>{statement.preview.feePercent != null ? ` (${statement.preview.feePercent}%)` : ''}</p>
-                  <p>Transferencias enviadas <strong className="block text-sm tabular-nums">{money(statement.preview.totals.transferenciasEnviadas)}</strong></p>
-                  <p>Pagos con Mercado Pago <strong className="block text-sm tabular-nums">{money(statement.preview.totals.pagos)}</strong></p>
-                  <p>Retiros <strong className="block text-sm tabular-nums">{money(statement.preview.totals.retiros)}</strong></p>
-                  <p>Transferencias recibidas <strong className="block text-sm tabular-nums">{money(statement.preview.totals.transferenciasRecibidas)}</strong></p>
-                  <p>Rentabilidad <strong className="block text-sm tabular-nums">{money(statement.preview.totals.rentabilidad)}</strong></p>
-                  <p>Saldo final <strong className="block text-sm tabular-nums">{statement.preview.finalBalance != null ? money(statement.preview.finalBalance) : '—'}</strong></p>
-                </div>
-              )}
-              <div className="max-h-64 overflow-y-auto space-y-1">
-                {statement.preview.movements.slice(0, 30).map((m: any) => (
-                  <div key={m.externalId} className="flex gap-3 text-xs">
-                    <span className="w-20">{m.date}</span><span className="flex-1 truncate">{m.description}</span>
-                    <span className={`tabular-nums ${m.amount < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{money(m.amount)}</span>
-                  </div>
-                ))}
-              </div>
-              <button type="button" disabled={isDemo || imp.isPending} className={`${pillBase} bg-emerald-500 text-white`}
-                onClick={() => imp.mutate({ text: statement.text, preview: false }, { onSuccess: (r: any) => { setStatement(null); refresh(); toast.success(`Importados ${r.imported} movimientos nuevos`); } })}>
-                Importar {statement.preview.movements.length} movimientos
-              </button>
-            </div>
-          )}
+          <StatementUpload onImported={refresh} buttonClass={`${pillBase} bg-emerald-500 text-white`} />
         </CardContent>
       </Card>
 
@@ -1111,7 +1075,7 @@ function MarginGoal() {
 }
 
 export default function FinanzasView() {
-  const [tab, setTab] = useState<'live' | 'evento' | 'mes' | 'pagar' | 'caja'>('live');
+  const [tab, setTab] = useState<'live' | 'evento' | 'mes' | 'pagar' | 'caja' | 'mp'>('live');
   const isDemo = useIsDemo();
   const { data: events } = trpc.events.listAll.useQuery();
   const { data: defaultEvent } = trpc.events.getActiveForCaja.useQuery();
@@ -1171,9 +1135,9 @@ export default function FinanzasView() {
         )}
       </div>
 
-      <div className="flex gap-2" role="tablist">
-        {([['live', 'En vivo'], ['evento', 'Evento completo'], ['mes', 'Mes / Empresa'], ['pagar', 'Por pagar'], ['caja', 'Caja']] as const).map(([k, l]) => (
-          <Button key={k} role="tab" aria-selected={tab === k} variant={tab === k ? 'default' : 'outline'} onClick={() => setTab(k)}>{l}</Button>
+      <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]" role="tablist">
+        {([['live', 'En vivo'], ['evento', 'Evento completo'], ['mes', 'Mes / Empresa'], ['pagar', 'Por pagar'], ['caja', 'Caja'], ['mp', 'Mercado Pago']] as const).map(([k, l]) => (
+          <Button key={k} className="shrink-0" role="tab" aria-selected={tab === k} variant={tab === k ? 'default' : 'outline'} onClick={() => setTab(k)}>{l}</Button>
         ))}
       </div>
 
@@ -1184,7 +1148,8 @@ export default function FinanzasView() {
       {tab === 'live' && <LiveTab eventId={eventId} />}
       {tab === 'mes' && <CompanyTab />}
       {tab === 'pagar' && <PayablesTab />}
-      {tab === 'caja' && <CashTab />}
+      {tab === 'caja' && <CashTab onOpenMp={() => setTab('mp')} />}
+      {tab === 'mp' && <MercadoPagoTab />}
 
       {tab === 'evento' && isLoading && <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>}
       {tab === 'evento' && isError && <p className="text-sm text-destructive">No se pudo cargar: {error?.message}</p>}

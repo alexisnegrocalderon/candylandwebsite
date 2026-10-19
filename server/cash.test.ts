@@ -138,3 +138,37 @@ describe("cuadratura de cobros con ventas del sistema", () => {
     expect(r.unmatchedOrders).toHaveLength(2);
   });
 });
+
+import { destinationKey, summarizeMovements, type MovementView } from "../shared/cash";
+describe("summarizeMovements (pestaña Mercado Pago)", () => {
+  const mv = (id: number, amount: number, classification: MovementView["classification"], extra: Partial<MovementView> = {}): MovementView =>
+    ({ id, date: "2026-10-05", amount, description: null, kind: null, classification, eventId: null, category: null, fee: 0, ...extra });
+
+  it("separa ventas, gastos de Playroom por categoría, personal y traspasos", () => {
+    const s = summarizeMovements([
+      mv(1, 9650, "venta", { fee: 350 }),
+      mv(2, -20000, "gasto_evento", { category: "barra", description: "Jumbo 123456" }),
+      mv(3, -5000, "gasto_empresa", { category: "suscripciones", description: "Spotify" }),
+      mv(4, -8000, "retiro_dueno", { description: "Uber" }),
+      mv(5, -100000, "traspaso", { description: "Retiro a tu cuenta bancaria" }),
+      mv(6, -3000, "por_clasificar", { description: "Jumbo 999999" }),
+    ]);
+    expect(s.entro).toBe(9650);
+    expect(s.salio).toBe(136000);
+    expect(s.ventas).toBe(9650);
+    expect(s.comisiones).toBe(350);
+    expect(s.playroom).toBe(25000);
+    expect(s.personal).toBe(8000);
+    expect(s.traspasos).toBe(100000);
+    expect(s.porClasificar).toBe(1);
+    expect(s.byCategory[0]).toEqual({ category: "barra", amount: 20000 });
+    // Los traspasos no cuentan como "dónde se fue la plata"; Jumbo se agrupa sin el número de operación.
+    expect(s.topDestinos[0]).toEqual({ name: "Jumbo", amount: 23000, count: 2 });
+    expect(s.topDestinos.some((d) => d.name.startsWith("Retiro"))).toBe(false);
+  });
+
+  it("destinationKey quita números de operación", () => {
+    expect(destinationKey("Pago QR Botillería 1234567")).toBe("Pago QR Botillería");
+    expect(destinationKey(null)).toBe("Sin descripción");
+  });
+});
