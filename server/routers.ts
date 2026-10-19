@@ -1,3 +1,4 @@
+import { MAX_AMBASSADOR_BUYER_DISCOUNT, normalizeBuyerDiscountPercent } from '../shared/ambassadorDiscount';
 import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS, CAJA_DEVICE_COOKIE_NAME, ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { pushTitle } from "../shared/pushText";
@@ -1329,7 +1330,7 @@ export const appRouter = router({
 
       const ambassador = await db.getActiveExclusiveAmbassadorByCode(clean);
       if (ambassador) {
-        return { type: 'ambassador' as const, name: ambassador.name, code: ambassador.code };
+        return { type: 'ambassador' as const, name: ambassador.name, code: ambassador.code, buyerDiscountPercent: normalizeBuyerDiscountPercent(ambassador.buyerDiscountPercent) };
       }
 
       // Crédito de acceso ("1 Acceso Dúo" que quedó vigente de otra fiesta).
@@ -4309,6 +4310,8 @@ export const appRouter = router({
       code: z.string().min(1),
       // `null` = usar la escala global del programa (lo normal).
       commissionPercent: z.number().min(0).max(100).nullable().optional(),
+      // % de descuento al comprador sobre el acceso (vacío/0 = sin descuento).
+      buyerDiscountPercent: z.number().min(0).max(MAX_AMBASSADOR_BUYER_DISCOUNT).nullable().optional(),
       contact: z.string().optional(),
       email: z.string().email().optional(),
       instagram: z.string().optional(),
@@ -4320,6 +4323,7 @@ export const appRouter = router({
       name: z.string().optional(),
       code: z.string().optional(),
       commissionPercent: z.number().min(0).max(100).nullable().optional(),
+      buyerDiscountPercent: z.number().min(0).max(MAX_AMBASSADOR_BUYER_DISCOUNT).nullable().optional(),
       contact: z.string().optional(),
       email: z.string().email().optional(),
       instagram: z.string().optional(),

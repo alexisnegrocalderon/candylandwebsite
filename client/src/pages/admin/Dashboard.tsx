@@ -9,6 +9,7 @@ import { NOT_ADMIN_ERR_MSG } from '@shared/const';
 import { canOpenAdmin, isPartnerRole, useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
 import { CartaManager } from '@/components/admin/carta/CartaManager';
+import { MAX_AMBASSADOR_BUYER_DISCOUNT } from '@shared/ambassadorDiscount';
 import { Switch } from '@/components/ui/switch';
 import { trpc } from '@/lib/trpc';
 import FinanzasView from './Finanzas';
@@ -5795,7 +5796,7 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
   stats: { exclusiveSales: number; existingSales: number; eventRevenue: number; eventCommission: number; totalCommission: number } | undefined;
   expanded: boolean;
   onToggleExpand: () => void;
-  onUpdate: (data: { name?: string; code?: string; commissionPercent?: number | null; contact?: string; email?: string; instagram?: string; active?: number }) => Promise<unknown>;
+  onUpdate: (data: { name?: string; code?: string; commissionPercent?: number | null; buyerDiscountPercent?: number | null; contact?: string; email?: string; instagram?: string; active?: number }) => Promise<unknown>;
   onDelete: (adminPassword: string) => Promise<unknown>;
   updating: boolean;
   deleting: boolean;
@@ -5805,6 +5806,9 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
   const [code, setCode] = useState(ambassador.code);
   const [commissionPercent, setCommissionPercent] = useState(
     ambassador.commissionPercent === null || ambassador.commissionPercent === undefined ? '' : String(ambassador.commissionPercent),
+  );
+  const [buyerDiscount, setBuyerDiscount] = useState(
+    Number(ambassador.buyerDiscountPercent) > 0 ? String(Number(ambassador.buyerDiscountPercent)) : '',
   );
   const [contact, setContact] = useState(ambassador.contact ?? '');
   const [email, setEmail] = useState(ambassador.email ?? '');
@@ -5817,6 +5821,8 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
       code: code.toUpperCase(),
       // Vacío = null = usar la escala global, no 0%.
       commissionPercent: commissionPercent.trim() === '' ? null : Number(commissionPercent) || 0,
+      // Vacío o 0 = sin descuento para quien compra con su código.
+      buyerDiscountPercent: Number(buyerDiscount) > 0 ? Number(buyerDiscount) : null,
       contact: contact || undefined,
       email: email || undefined,
     });
@@ -5829,6 +5835,7 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
         <td className="py-2 px-3"><Input value={name} onChange={(e) => setName(e.target.value)} className="h-8" /></td>
         <td className="py-2 px-3"><Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} className="h-8 font-mono" /></td>
         <td className="py-2 px-3"><Input type="number" value={commissionPercent} onChange={(e) => setCommissionPercent(e.target.value)} placeholder="Escala" className="h-8 w-20" /></td>
+        <td className="py-2 px-3"><Input type="number" min={0} max={MAX_AMBASSADOR_BUYER_DISCOUNT} value={buyerDiscount} onChange={(e) => setBuyerDiscount(e.target.value)} placeholder="Sin desc." className="h-8 w-20" /></td>
         <td className="py-2 px-3 text-muted-foreground">{s.exclusiveSales}</td>
         <td className="py-2 px-3 text-muted-foreground">${s.eventRevenue.toLocaleString('es-CL')}</td>
         <td className="py-2 px-3 text-muted-foreground">${s.eventCommission.toLocaleString('es-CL')}</td>
@@ -5856,6 +5863,11 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
         {ambassador.commissionPercent === null || ambassador.commissionPercent === undefined
           ? <span className="text-muted-foreground text-xs">Escala</span>
           : `${ambassador.commissionPercent}%`}
+      </td>
+      <td className="py-2 px-3">
+        {Number(ambassador.buyerDiscountPercent) > 0
+          ? <span className="rounded-full bg-pink-500/15 px-2 py-0.5 text-xs font-semibold text-pink-500">{Number(ambassador.buyerDiscountPercent)}%</span>
+          : <span className="text-muted-foreground text-xs">Sin descuento</span>}
       </td>
       <td className="py-2 px-3">
         {s.exclusiveSales}
@@ -5913,7 +5925,7 @@ function AmbassadorProfileRow({ ambassadorId, eventId, deliveredKeys, onMarkBene
   const sales = data?.sales ?? [];
 
   if (!data) {
-    return <tr className="border-b border-border/50 bg-muted/10"><td colSpan={9} className="py-3 px-3 text-xs text-muted-foreground">Cargando ficha…</td></tr>;
+    return <tr className="border-b border-border/50 bg-muted/10"><td colSpan={10} className="py-3 px-3 text-xs text-muted-foreground">Cargando ficha…</td></tr>;
   }
 
   const progreso = stats?.nextTarget
@@ -5922,7 +5934,7 @@ function AmbassadorProfileRow({ ambassadorId, eventId, deliveredKeys, onMarkBene
 
   return (
     <tr className="border-b border-border/50 bg-muted/10">
-      <td colSpan={9} className="py-4 px-3">
+      <td colSpan={10} className="py-4 px-3">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
           <div className="p-3 rounded-xl bg-background border border-border">
             <p className="text-xs text-muted-foreground">Comisión actual</p>
@@ -6152,7 +6164,7 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
   const refreshAll = () => { refetch(); refetchRanking(); };
 
   const createAmbassador = trpc.ambassadors.create.useMutation({
-    onSuccess: () => { refreshAll(); toast.success('Embajador creado'); setShowForm(false); setNewAmbassador({ name: '', code: '', commissionPercent: '', contact: '', email: '' }); },
+    onSuccess: () => { refreshAll(); toast.success('Embajador creado'); setShowForm(false); setNewAmbassador({ name: '', code: '', commissionPercent: '', buyerDiscountPercent: '', contact: '', email: '' }); },
     onError: onMutationError,
   });
   const updateAmbassador = trpc.ambassadors.update.useMutation({ onSuccess: refreshAll, onError: onMutationError });
@@ -6177,7 +6189,7 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
   });
 
   const [showForm, setShowForm] = useState(false);
-  const [newAmbassador, setNewAmbassador] = useState({ name: '', code: '', commissionPercent: '', contact: '', email: '' });
+  const [newAmbassador, setNewAmbassador] = useState({ name: '', code: '', commissionPercent: '', buyerDiscountPercent: '', contact: '', email: '' });
   const [search, setSearch] = useState('');
   const [estado, setEstado] = useState<'all' | 'active' | 'inactive'>('all');
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -6197,6 +6209,7 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
         name: newAmbassador.name,
         code: newAmbassador.code.toUpperCase(),
         commissionPercent: newAmbassador.commissionPercent.trim() === '' ? null : Number(newAmbassador.commissionPercent) || 0,
+        buyerDiscountPercent: Number(newAmbassador.buyerDiscountPercent) > 0 ? Number(newAmbassador.buyerDiscountPercent) : null,
         contact: newAmbassador.contact || undefined,
         email: newAmbassador.email || undefined,
       });
@@ -6226,18 +6239,22 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
       {showForm && (
         <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
           <CardContent className="pt-6 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
               <div><Label>Nombre</Label><Input value={newAmbassador.name} onChange={(e) => setNewAmbassador({ ...newAmbassador, name: e.target.value })} className="mt-1" /></div>
               <div><Label>Código</Label><Input value={newAmbassador.code} onChange={(e) => setNewAmbassador({ ...newAmbassador, code: e.target.value.toUpperCase() })} className="mt-1 font-mono" placeholder="SOFIA" /></div>
               <div>
                 <Label>% fijo (opcional)</Label>
                 <Input type="number" value={newAmbassador.commissionPercent} onChange={(e) => setNewAmbassador({ ...newAmbassador, commissionPercent: e.target.value })} className="mt-1" placeholder="Escala" />
               </div>
+              <div>
+                <Label>Descuento al comprador %</Label>
+                <Input type="number" min={0} max={MAX_AMBASSADOR_BUYER_DISCOUNT} value={newAmbassador.buyerDiscountPercent} onChange={(e) => setNewAmbassador({ ...newAmbassador, buyerDiscountPercent: e.target.value })} className="mt-1" placeholder="Sin descuento" />
+              </div>
               <div><Label>Correo</Label><Input value={newAmbassador.email} onChange={(e) => setNewAmbassador({ ...newAmbassador, email: e.target.value })} className="mt-1" placeholder="Para el correo semanal" /></div>
               <div><Label>Contacto (opcional)</Label><Input value={newAmbassador.contact} onChange={(e) => setNewAmbassador({ ...newAmbassador, contact: e.target.value })} className="mt-1" placeholder="Teléfono o Instagram" /></div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Deja el "% fijo" vacío para que use la escala del programa (30% a 50% según sus ventas del evento). Solo
+              «Descuento al comprador»: % que se descuenta del acceso (nunca de los extras) a quien compra con el código o link de este embajador (máx. {MAX_AMBASSADOR_BUYER_DISCOUNT}%). Si el comprador además trae un código de descuento, se aplica el mayor, no se suman; la comisión se calcula sobre lo que pagó. Deja el "% fijo" vacío para que use la escala del programa (30% a 50% según sus ventas del evento). Solo
               ponle un número si ese embajador tiene un trato distinto al resto.
             </p>
             <div className="flex gap-2">
@@ -6257,6 +6274,7 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
                   <th className="text-left py-2 px-3">Embajador</th>
                   <th className="text-left py-2 px-3">Código</th>
                   <th className="text-left py-2 px-3">% Comisión</th>
+                  <th className="text-left py-2 px-3">Desc. comprador</th>
                   <th className="text-left py-2 px-3">Ventas del evento</th>
                   <th className="text-left py-2 px-3">Monto vendido</th>
                   <th className="text-left py-2 px-3">Comisión del evento</th>
@@ -6292,7 +6310,7 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
                   </Fragment>
                 ))}
                 {visibles.length === 0 && (
-                  <tr><td colSpan={9} className="py-8 text-center text-muted-foreground">
+                  <tr><td colSpan={10} className="py-8 text-center text-muted-foreground">
                     {ambassadors.length === 0 ? 'Sin embajadores todavía. Crea el primero con el botón de arriba.' : 'Ningún embajador coincide con el filtro.'}
                   </td></tr>
                 )}
@@ -6300,7 +6318,7 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
               {visibles.length > 0 && (
                 <tfoot>
                   <tr className="border-t border-border font-semibold">
-                    <td colSpan={4} className="py-2 px-3 text-right">Total del evento</td>
+                    <td colSpan={5} className="py-2 px-3 text-right">Total del evento</td>
                     <td className="py-2 px-3">${totalVendido.toLocaleString('es-CL')}</td>
                     <td className="py-2 px-3 text-primary">${totalComision.toLocaleString('es-CL')}</td>
                     <td colSpan={3}></td>

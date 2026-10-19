@@ -651,8 +651,9 @@ export type InsertReferral = typeof referrals.$inferInsert;
 // Embajadores exclusivos (pedido explícito del usuario): a diferencia de un
 // embajador "orgánico" (cualquier comprador, ver `referrals` arriba), estos
 // se dan de alta a mano en el admin con un código propio y cobran una
-// comisión en plata por cada venta con su código -- no dan descuento al
-// comprador, solo trackean quién trajo la venta. El mismo campo de código de
+// comisión en plata por cada venta con su código -- por defecto no dan
+// descuento al comprador (solo trackean quién trajo la venta); si el dueño le
+// configura `buyerDiscountPercent`, el comprador recibe ese % sobre el acceso. El mismo campo de código de
 // embajador del checkout sirve para ambos casos.
 export const exclusiveAmbassadors = mysqlTable("exclusiveAmbassadors", {
   id: int("id").autoincrement().primaryKey(),
@@ -667,6 +668,10 @@ export const exclusiveAmbassadors = mysqlTable("exclusiveAmbassadors", {
   // (ambassadorProgramConfig.commissionScale, 30-50% según ventas del mes).
   // Con un valor, es un override fijo para ese embajador en particular.
   commissionPercent: decimal("commissionPercent", { precision: 5, scale: 2 }),
+  // Descuento (%) que reciben quienes compran con el código/link de este
+  // embajador, solo sobre el valor del acceso (nunca extras). null o 0 = sin
+  // descuento (lo normal). Tope en shared/ambassadorDiscount.ts.
+  buyerDiscountPercent: decimal("buyerDiscountPercent", { precision: 5, scale: 2 }),
   contact: varchar("contact", { length: 255 }),
   // Destinatario del correo semanal -- `contact` es texto libre (teléfono o
   // Instagram) y no sirve para mandar nada.

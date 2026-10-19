@@ -37,3 +37,14 @@ describe("computeAmbassadorCommission", () => {
     expect(computeAmbassadorCommission(200000, 7.5)).toBe(15000);
   });
 });
+
+import { ambassadorBuyerDiscount } from "../shared/ambassadorDiscount";
+describe("descuento del embajador y su comisión", () => {
+  it("la comisión se calcula sobre lo que pagó el comprador (acceso menos el descuento del embajador)", () => {
+    const lines = [{ ticketTypeId: 1, category: "acceso", unitPrice: 20000, quantity: 1 }, { ticketTypeId: 2, category: "extra", unitPrice: 5000, quantity: 1 }];
+    const discount = ambassadorBuyerDiscount(10, lines); // 2.000, los extras no cuentan
+    const base = computeAmbassadorCommissionBase(20000, discount);
+    expect(base).toBe(18000);
+    expect(computeAmbassadorCommission(base, 40)).toBe(7200);
+  });
+});
