@@ -325,3 +325,8 @@ Motor en `server/contests.ts`, reglas puras en `shared/contest.ts`, migración `
 - Sorteo automático a la hora configurada; si un ganador no recibe el DM ni tiene correo, se le
   responde el comentario y, si no escribe dentro del plazo, pasa el suplente.
 - Bases públicas: `/concurso`.
+- Compra sin riesgo (migración `0110`): quien compra durante el concurso sigue en el sorteo de
+  entradas dobles con ×3; si gana elige en `/concurso/premio/<token>` devolución (tope = valor del
+  premio, se hace a mano en Mercado Pago y se marca en el panel sin anular la entrada) o una entrada
+  doble extra para regalar. El cupón personal congela el precio de la tanda en que participó
+  (`basedOnOriginalPrice`, recalculado por `refreshContestPriceLocks` al cambiar de tanda).

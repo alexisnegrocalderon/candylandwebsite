@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { Link } from 'wouter';
 import { Ticket, Mail, Sparkles, AlertTriangle } from 'lucide-react';
 import { useSeo } from '@/hooks/useSeo';
+import { ContestBuyerInvite } from '@/components/ContestBuyerInvite';
 
 /* Bienvenida post-pago: el momento en que la persona queda oficialmente
  * "adentro" de Candyland. La animación del dulce sumándose es deliberadamente
@@ -79,6 +80,8 @@ export default function PaymentSuccess() {
             <span className="text-sm">Tu QR es tu entrada al evento</span>
           </div>
         </div>
+
+        <ContestBuyerInvite />
 
         <Link
           href="/eventos"

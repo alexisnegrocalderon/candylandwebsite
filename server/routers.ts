@@ -3809,6 +3809,32 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo marcar.' });
       }
     }),
+    markRefundDone: adminProcedure.input(z.object({ winnerId: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        await contestSvc.markRefundDone(input.winnerId);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo marcar.' });
+      }
+      await db.recordAdminAudit({ action: 'contest.refundDone', targetType: 'contestWinner', targetId: input.winnerId, ip: clientIp(ctx) });
+      return { success: true };
+    }),
+    /* Página pública /concurso/premio/:token: el ganador que ya había
+     * comprado elige devolución o una entrada doble para regalar. */
+    choice: router({
+      get: publicProcedure.input(z.object({ token: z.string().max(64) })).query(({ input }) => contestSvc.getWinnerChoice(input.token)),
+      submit: publicProcedure.input(z.object({ token: z.string().max(64), choice: z.enum(['refund', 'gift']) })).mutation(async ({ input, ctx }) => {
+        const ipKey = `contest-choice:${clientIp(ctx)}`;
+        if (!(await db.checkIpRateLimit(ipKey))) {
+          throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Prueba de nuevo en un rato.' });
+        }
+        await db.recordIpAttempt(ipKey, 30, 30 * 60 * 1000);
+        try {
+          return await contestSvc.submitWinnerChoice(input.token, input.choice);
+        } catch (err) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar tu elección.' });
+        }
+      }),
+    }),
     skipWinner: adminProcedure.input(z.object({ winnerId: z.number().int() })).mutation(async ({ input, ctx }) => {
       const result = await contestSvc.skipWinner(input.winnerId);
       await db.recordAdminAudit({ action: 'contest.skipWinner', targetType: 'contestWinner', targetId: input.winnerId, payload: result, ip: clientIp(ctx) });

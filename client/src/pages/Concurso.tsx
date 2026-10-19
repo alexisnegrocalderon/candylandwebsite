@@ -73,7 +73,10 @@ export default function Concurso() {
                 <h2 className="font-heading font-bold text-xl">Premios</h2>
                 <p><b>Todos ganan algo:</b></p>
                 <ul className="list-disc pl-5 space-y-1">
-                  <li>Si aún no tienes entrada: {data.prizes.couponPercent}% de descuento personal en tu entrada, válido por {data.prizes.couponHours} horas desde que participas.</li>
+                  <li>
+                    Si aún no tienes entrada: un código personal que te <b>congela el precio de la tanda del día en que participas</b> hasta el {fmt(data.prizes.priceLockUntil)}
+                    {data.prizes.couponHours > 0 && <>, con {data.prizes.couponPercent}% de descuento extra si compras dentro de {data.prizes.couponHours} horas</>}.
+                  </li>
                   <li>
                     Si ya tienes entrada: {[
                       data.prizes.giftName ? `1 ${data.prizes.giftName} gratis` : null,
@@ -85,8 +88,14 @@ export default function Concurso() {
                 <p><b>Sorteos:</b></p>
                 <ul className="list-disc pl-5 space-y-1">
                   <li>{data.prizes.doubleWinners} {data.prizes.doubleLabel} entre quienes participan sin entrada.</li>
-                  {data.prizes.vipWinners > 0 && <li>{data.prizes.vipWinners} × {data.prizes.vipLabel} entre quienes ya tienen su entrada. Si compras durante el concurso, pasas a este sorteo con tus chances multiplicadas por {data.chances.buyerMultiplier}.</li>}
+                  {data.prizes.vipWinners > 0 && <li>{data.prizes.vipWinners} × {data.prizes.vipLabel} entre quienes ya tenían su entrada antes del concurso.</li>}
                 </ul>
+              </div>
+
+              <div className="glass-candy rounded-2xl p-6 mb-8 space-y-2 text-sm leading-relaxed border border-primary/30">
+                <h2 className="font-heading font-bold text-xl">🛡️ Compra sin riesgo</h2>
+                <p>No esperes el sorteo para comprar: si compras tu entrada durante el concurso <b>sigues participando por la entrada doble, con tus chances ×{data.chances.buyerMultiplier}</b>.</p>
+                <p>Y si ganas, eliges: <b>te devolvemos lo que pagaste por tu entrada</b> (hasta el valor del premio) y la conservas, <b>o te llevas una entrada doble extra para regalar</b>. Tienes {data.prizes.choiceHours} horas para elegir; si no eliges, te hacemos la devolución.</p>
               </div>
 
               <div className="glass-candy rounded-2xl p-6 mb-8 space-y-2 text-sm text-muted-foreground leading-relaxed">
@@ -95,10 +104,11 @@ export default function Concurso() {
                 <p>2. Período: {data.startsAt ? `desde ${fmt(data.startsAt)}` : 'desde su publicación'} hasta el sorteo, el {fmt(data.drawAt)}.</p>
                 <p>3. El sorteo es aleatorio y ponderado: cada chance equivale a un boleto. Se eligen ganadores y suplentes.</p>
                 <p>4. A los ganadores se les avisa por mensaje directo y respondiendo su comentario. Si no reclaman su premio dentro de {data.claimHours} horas, el premio pasa al siguiente suplente.</p>
-                <p>5. Los premios son personales, no canjeables por dinero y válidos solo para {data.eventTitle}. Los códigos de descuento no son acumulables entre sí.</p>
-                <p>6. Se descalificará a cuentas falsas, creadas para el concurso o que hagan trampa (por ejemplo, etiquetar cuentas inexistentes o repetidas).</p>
-                <p>7. Esta promoción no está patrocinada, avalada, administrada ni asociada en modo alguno a Instagram ni a Meta. Al participar, liberas a Instagram de toda responsabilidad.</p>
-                <p>8. Al participar aceptas estas bases y que publiquemos tu @ si resultas ganador/a.</p>
+                <p>5. Si compraste tu entrada durante el concurso y ganas la entrada doble, eliges entre la devolución de lo pagado por tus accesos (con tope en el valor del premio, al mismo medio de pago y conservando tu entrada) o una entrada doble adicional para regalar.</p>
+                <p>6. Los premios son personales, no canjeables por dinero y válidos solo para {data.eventTitle}. Los códigos de descuento no son acumulables entre sí.</p>
+                <p>7. Se descalificará a cuentas falsas, creadas para el concurso o que hagan trampa (por ejemplo, etiquetar cuentas inexistentes o repetidas).</p>
+                <p>8. Esta promoción no está patrocinada, avalada, administrada ni asociada en modo alguno a Instagram ni a Meta. Al participar, liberas a Instagram de toda responsabilidad.</p>
+                <p>9. Al participar aceptas estas bases y que publiquemos tu @ si resultas ganador/a.</p>
               </div>
 
               <Link href={`/checkout/${data.eventSlug}`} className="inline-flex rounded-full bg-primary px-6 py-3 font-semibold text-primary-foreground">

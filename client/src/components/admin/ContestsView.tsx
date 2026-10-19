@@ -40,6 +40,7 @@ const PHASE_LABEL: Record<string, { label: string; className: string }> = {
 const WINNER_STATUS: Record<string, string> = {
   alternate: 'Suplente',
   notified: 'Esperando que escriba',
+  choosing: 'Eligiendo devolución o regalo',
   delivered: 'Premio entregado',
   expired: 'No reclamó / pasado',
   skipped: 'No hizo falta',
@@ -97,13 +98,16 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'extraChances', label: 'DM al compartir en historia', help: '' },
   { key: 'emailNotFound', label: 'DM si el correo no tiene compra', help: '' },
   { key: 'winnerDouble', label: 'DM al ganador de la entrada doble', help: 'Va con el botón "Canjear mi premio".' },
+  { key: 'winnerBuyer', label: 'DM/correo al ganador que YA había comprado', help: 'Lleva el link para elegir devolución o entrada para regalar.' },
+  { key: 'choiceGift', label: 'DM cuando elige la entrada para regalar', help: '' },
+  { key: 'refundDone', label: 'DM/correo cuando marcas la devolución como hecha', help: '' },
   { key: 'winnerVip', label: 'DM al ganador del premio VIP', help: '' },
   { key: 'winnerPublic', label: 'Respuesta pública al comentario del ganador', help: 'Cuando ya le llegó el DM.' },
   { key: 'winnerPublicNoDm', label: 'Respuesta pública si no se le pudo escribir', help: 'Le pide escribir por DM antes del plazo.' },
   { key: 'afterDraw', label: 'DM a quien comenta después del sorteo', help: '' },
 ];
 
-const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}}';
+const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}} {{congelado_hasta}} {{link_elegir}} {{monto_devolucion}}';
 
 /* ── Ruleta para grabar el sorteo ─────────────────────────────────────────── */
 
@@ -363,6 +367,7 @@ function ContestDetail({ id }: { id: number }) {
         <StatTile icon={ShoppingBag} value={s.invitedPurchases} label="Amigos que compraron" tone="success" />
         <StatTile icon={ShoppingBag} value={s.orders} label="Compras del concurso" tone="success" />
         <StatTile icon={Banknote} value={clp(s.revenue)} label="Ventas del concurso" tone="revenue" />
+        {s.refundsPending > 0 && <StatTile icon={Banknote} value={clp(s.refundsPending)} label="Devoluciones pendientes" tone="danger" />}
       </div>
 
       <Tabs defaultValue={data.contest.status === 'draft' ? 'config' : data.contest.drawnAt ? 'winners' : 'people'}>
@@ -446,9 +451,15 @@ function ContestDetail({ id }: { id: number }) {
                 <NumberField label="Suplentes" value={config.prizes.doubleAlternates} onChange={(n) => patch((c) => ({ ...c, prizes: { ...c.prizes, doubleAlternates: n } }))} />
               </div>
               <div className="grid sm:grid-cols-3 gap-4">
-                <NumberField label="Cupón de consuelo (sin entrada)" value={config.prizes.couponPercent} suffix="%" onChange={(n) => patch((c) => ({ ...c, prizes: { ...c.prizes, couponPercent: n } }))} />
-                <NumberField label="El cupón vence en" value={config.prizes.couponHours} suffix="horas" onChange={(n) => patch((c) => ({ ...c, prizes: { ...c.prizes, couponHours: n } }))}
-                  help="Corre desde que participa: empuja a comprar ya." />
+                <NumberField label="Descuento extra sobre el precio congelado" value={config.prizes.couponPercent} suffix="%" onChange={(n) => patch((c) => ({ ...c, prizes: { ...c.prizes, couponPercent: n } }))} />
+                <NumberField label="El descuento extra dura" value={config.prizes.couponHours} suffix="horas" onChange={(n) => patch((c) => ({ ...c, prizes: { ...c.prizes, couponHours: n } }))}
+                  help="Desde que participa: empuja a comprar ya. 0 = sin extra." />
+                <NumberField label="Precio congelado hasta" value={config.prizes.priceLockHoursAfterDraw} suffix="h después del sorteo" onChange={(n) => patch((c) => ({ ...c, prizes: { ...c.prizes, priceLockHoursAfterDraw: n } }))}
+                  help="Su código le mantiene el precio de la tanda del día en que participó, aunque la tanda suba. Usa la escala de tandas del evento." />
+              </div>
+              <div className="grid sm:grid-cols-3 gap-4">
+                <NumberField label="Plazo para elegir devolución o regalo" value={config.prizes.choiceHours} suffix="horas" onChange={(n) => patch((c) => ({ ...c, prizes: { ...c.prizes, choiceHours: n } }))}
+                  help="Si gana alguien que compró durante el concurso. Si no elige, queda la devolución pendiente." />
               </div>
               <div className="border-t pt-4 space-y-4">
                 <p className="text-sm font-semibold">Para quienes ya tienen entrada</p>
@@ -483,7 +494,7 @@ function ContestDetail({ id }: { id: number }) {
               <NumberField label="Por compartir en historia" value={config.chances.storyBonus} onChange={(n) => patch((c) => ({ ...c, chances: { ...c.chances, storyBonus: n } }))} help="Una vez, mencionando la cuenta." />
               <NumberField label="Por cada amigo que compra" value={config.chances.perInvitedPurchase} onChange={(n) => patch((c) => ({ ...c, chances: { ...c.chances, perInvitedPurchase: n } }))} help="Con su link o su código." />
               <NumberField label="Multiplicador al comprar" value={config.chances.buyerMultiplier} min={1} suffix="x" onChange={(n) => patch((c) => ({ ...c, chances: { ...c.chances, buyerMultiplier: n } }))}
-                help="Quien compra durante el concurso pasa al sorteo VIP con sus chances multiplicadas." />
+                help="Quien compra durante el concurso sigue por la entrada doble con sus chances multiplicadas (si gana: devolución o regalo)." />
             </CardContent>
           </Card>
         </TabsContent>
@@ -558,8 +569,8 @@ function ParticipantsTable({ participants, onChanged }: { contestId: number; par
             <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="noticket">Sin entrada (entrada doble)</SelectItem>
-              <SelectItem value="ticket">Con entrada (sorteo VIP)</SelectItem>
+              <SelectItem value="noticket">Sin entrada</SelectItem>
+              <SelectItem value="ticket">Con entrada</SelectItem>
               <SelectItem value="out">Descalificados</SelectItem>
             </SelectContent>
           </Select>
@@ -592,7 +603,8 @@ function ParticipantsTable({ participants, onChanged }: { contestId: number; par
                       {p.mentions.length > 0 && <div title={p.mentions.map((m) => `@${m}`).join(' ')}>👥 {p.mentions.length} etiquetados</div>}
                       {p.storyMentioned && <div>📲 historia</div>}
                       {p.invitedPurchases > 0 && <div>🛒 {p.invitedPurchases} amigos compraron</div>}
-                      {p.boughtDuringContest && <div>🔥 compró (x)</div>}
+                      {p.boughtDuringContest && <div>🔥 compró en el concurso (x)</div>}
+                      <div>{p.pool === 'double' ? '🎟️ sorteo entrada doble' : '⭐ sorteo VIP'}</div>
                     </td>
                     <td className="py-2 pr-3">{p.hasTicket ? <span className="inline-flex items-center gap-1 text-[var(--admin-success-text)]"><CheckCircle2 className="w-4 h-4" /> Sí</span> : 'No'}</td>
                     <td className="py-2 pr-3 font-mono text-xs">{p.couponCode ?? p.friendCode ?? '—'}{p.couponUsed && ' ✅'}</td>
@@ -627,6 +639,10 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
     onSuccess: (r) => { onChanged(); toast.success(r.promoted ? 'Pasó el siguiente suplente.' : 'No quedan suplentes.'); },
     onError,
   });
+  const refund = trpc.contests.markRefundDone.useMutation({
+    onSuccess: () => { onChanged(); toast.success('Devolución marcada y avisada al ganador.'); },
+    onError,
+  });
   const copy = (text: string) => { navigator.clipboard?.writeText(text).then(() => toast.success('Copiado.')).catch(() => {}); };
 
   if (!data.contest.drawnAt) {
@@ -635,7 +651,8 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
         <CardContent className="pt-6 space-y-2 text-sm">
           <p>El sorteo se hace solo el <b>{data.config.drawAt ? new Date(data.config.drawAt).toLocaleString('es-CL', { dateStyle: 'full', timeStyle: 'short' }) : '—'}</b>.</p>
           <p className="text-muted-foreground">
-            Boletos hoy: {data.stats.tickets.double} en el sorteo de entradas dobles (sin entrada) y {data.stats.tickets.vip} en el VIP (con entrada).
+            Boletos hoy: {data.stats.tickets.double} en el sorteo de entradas dobles (sin entrada o compraron durante el concurso) y {data.stats.tickets.vip} en el VIP (ya tenían entrada).
+            Si gana alguien que compró durante el concurso, elige devolución o una entrada para regalar.
             A cada ganador se le escribe por DM con su premio; si no se puede, se le responde el comentario pidiéndole que escriba
             y, si no reclama en {data.config.claimHours} h, pasa el suplente.
           </p>
@@ -644,8 +661,8 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
     );
   }
   const pools: { key: 'double' | 'vip'; title: string }[] = [
-    { key: 'double', title: 'Entradas dobles (sin entrada)' },
-    { key: 'vip', title: `${data.config.prizes.vipPrizeLabel} (con entrada)` },
+    { key: 'double', title: 'Entradas dobles (sin entrada o compraron en el concurso)' },
+    { key: 'vip', title: `${data.config.prizes.vipPrizeLabel} (ya tenían entrada)` },
   ];
   const log = (data.contest.drawLog ?? {}) as Record<string, { participants: number; tickets: number }>;
   return (
@@ -676,7 +693,22 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
                           {w.prizeCode} <Copy className="w-3 h-3" />{w.prizeUsed && ' ✅ usado'}
                         </button>
                       )}
-                      {(w.status === 'notified' || w.status === 'delivered') && (
+                      {w.choice && (
+                        <span className="text-xs">
+                          {w.choice === 'gift' ? '🎁 Eligió entrada para regalar' : `💸 Devolución ${clp(w.refundAmount ?? 0)} · ${w.refundStatus === 'done' ? 'hecha' : 'pendiente'}`}
+                        </span>
+                      )}
+                      {w.status === 'choosing' && w.refundAmount != null && <span className="text-xs text-muted-foreground">devolución posible: {clp(w.refundAmount)}</span>}
+                      {w.refundStatus === 'pending' && (
+                        <>
+                          {w.paymentId && <span className="text-xs font-mono text-muted-foreground">pago MP {w.paymentId}</span>}
+                          <WriteButton size="sm" disabled={refund.isPending}
+                            onClick={() => { if (confirm(`¿Ya devolviste ${clp(w.refundAmount ?? 0)} a @${w.username} en Mercado Pago? Se registrará en la orden (la entrada sigue válida) y se le avisará.`)) refund.mutate({ winnerId: w.id }); }}>
+                            Marcar devuelto
+                          </WriteButton>
+                        </>
+                      )}
+                      {(w.status === 'notified' || w.status === 'delivered' || w.status === 'choosing') && (
                         <WriteButton size="sm" variant="ghost" className="ml-auto" disabled={skip.isPending}
                           onClick={() => { if (confirm(`¿Quitarle el premio a @${w.username} y pasar al siguiente suplente?`)) skip.mutate({ winnerId: w.id }); }}>
                           <SkipForward className="w-4 h-4" /> Pasar al suplente

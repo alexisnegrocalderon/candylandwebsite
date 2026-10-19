@@ -2741,7 +2741,9 @@ export const contestParticipants = mysqlTable("contestParticipants", {
   contestId: int("contestId").notNull(),
   igUserId: varchar("igUserId", { length: 64 }).notNull(),
   username: varchar("username", { length: 120 }),
-  source: mysqlEnum("source", ["comment", "story", "dm"]).notNull(),
+  // purchase = se inscribió solo al comprar con su @ (sin comentar todavía);
+  // su igUserId queda como `ig:<handle>` hasta que comente o escriba.
+  source: mysqlEnum("source", ["comment", "story", "dm", "purchase"]).notNull(),
   // Primer comentario (ya usado para el DM privado) y el último sin usar:
   // Meta deja un solo DM privado por comentario, y el que sobra sirve para
   // avisarle si gana.
@@ -2753,6 +2755,9 @@ export const contestParticipants = mysqlTable("contestParticipants", {
   invitedPurchases: int("invitedPurchases").default(0).notNull(),
   hasTicket: int("hasTicket").default(0).notNull(),
   boughtDuringContest: int("boughtDuringContest").default(0).notNull(),
+  // % de descuento de la tanda vigente al participar: su cupón le congela
+  // ese precio (shared/contest.ts priceLockCodePercent).
+  lockedPhasePercent: int("lockedPhasePercent"),
   email: varchar("email", { length: 320 }),
   // Orden aprobada del evento (para cargarle los regalos de asistente).
   orderId: int("orderId"),
@@ -2787,14 +2792,26 @@ export const contestWinners = mysqlTable("contestWinners", {
   // por DM (espera que escriba); delivered = premio entregado; expired = no
   // reclamó a tiempo (pasa el siguiente suplente); skipped = suplente que ya
   // no hizo falta.
-  status: mysqlEnum("status", ["alternate", "notified", "delivered", "expired", "skipped"]).notNull(),
+  // choosing = ganó habiendo comprado y está eligiendo devolución o regalo.
+  status: mysqlEnum("status", ["alternate", "notified", "choosing", "delivered", "expired", "skipped"]).notNull(),
   prizeCode: varchar("prizeCode", { length: 50 }),
+  // Ganador que ya había comprado: elige devolución (con tope = valor del
+  // premio) o una entrada doble extra para regalar. La devolución se hace a
+  // mano en Mercado Pago y se marca en el panel (la entrada sigue válida).
+  orderId: int("orderId"),
+  choice: mysqlEnum("choice", ["refund", "gift"]),
+  choiceToken: varchar("choiceToken", { length: 32 }),
+  choiceDeadline: timestamp("choiceDeadline"),
+  refundAmount: int("refundAmount"),
+  refundStatus: mysqlEnum("refundStatus", ["pending", "done"]),
+  refundedAt: timestamp("refundedAt"),
   claimDeadline: timestamp("claimDeadline"),
   notifiedAt: timestamp("notifiedAt"),
   deliveredAt: timestamp("deliveredAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (t) => ({
   contestIdx: index("contest_winners_contest_idx").on(t.contestId),
+  choiceTokenIdx: uniqueIndex("contest_winners_choice_token_idx").on(t.choiceToken),
 }));
 
 export type ContestWinner = typeof contestWinners.$inferSelect;

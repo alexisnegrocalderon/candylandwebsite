@@ -34,8 +34,13 @@ export interface ContestPrizes {
   /** Producto de la Carta que se carga gratis en la entrada del ganador VIP. */
   vipPrizeTicketTypeId: number | null;
   vipPrizeLabel: string;
+  /** 20% extra sobre el precio congelado, durante las primeras horas. */
   couponPercent: number;
   couponHours: number;
+  /** El precio congelado del cupón dura hasta estas horas después del sorteo. */
+  priceLockHoursAfterDraw: number;
+  /** Ganador que ya había comprado: horas para elegir devolución o regalo. */
+  choiceHours: number;
   friendPercent: number;
   /** Producto de la Carta de regalo para quien ya tiene entrada. */
   holderGiftTicketTypeId: number | null;
@@ -50,6 +55,9 @@ export interface ContestMessages {
   emailNotFound: string;
   boughtUpgrade: string;
   winnerDouble: string;
+  winnerBuyer: string;
+  choiceGift: string;
+  refundDone: string;
   winnerVip: string;
   winnerPublic: string;
   winnerPublicNoDm: string;
@@ -76,8 +84,10 @@ export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
     + '• +{{por_etiqueta}} por cada amigo que etiquetes en el post (hasta {{max_etiquetas}})\n'
     + '• +{{bonus_historia}} si compartes el post en tu historia mencionándonos\n'
     + '• +{{bonus_compra_amigo}} por cada amigo que compre con tu link: {{link_invitar}}\n\n'
-    + '🎁 Premio por participar: {{porcentaje}}% de descuento en tu entrada con el código {{cupon}}. Vence en {{horas}} horas ⏳\n'
-    + 'Si compras durante el concurso pasas al sorteo de {{premio_vip}} con x{{multiplicador}} chances 🔥\n\n'
+    + '🎁 Premio por participar: tu código {{cupon}} te CONGELA el precio de hoy hasta {{congelado_hasta}}, '
+    + 'y si compras en las próximas {{horas}} horas te suma {{porcentaje}}% de descuento extra ⏳\n\n'
+    + '🛡️ Compra sin riesgo: si compras durante el concurso sigues participando con x{{multiplicador}} chances, '
+    + 'y si ganas eliges: te devolvemos tu entrada o te llevas una entrada doble para regalar 🔥\n\n'
     + 'Sorteo: {{fecha_sorteo}}. Bases: {{link_bases}}',
   holderAsk: '¿Ya tienes tu entrada? Respóndeme con el correo de tu compra y te mando tus regalos de asistente 💌',
   holder:
@@ -89,17 +99,26 @@ export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
   extraChances: '🔥 ¡+{{bonus_historia}} chances por compartir en tu historia! Ahora tienes {{chances}}. Suerte, {{nombre}} 🍀',
   emailNotFound: 'No encontré una compra para esta fiesta con ese correo 🤔 Revisa que sea el mismo con que compraste. Mientras, tu cupón {{cupon}} sigue activo.',
   boughtUpgrade:
-    '¡Ya tienes tu entrada, {{nombre}}! 🎉 Pasaste al sorteo de {{premio_vip}} con {{chances}} chances (x{{multiplicador}}).\n\n'
+    '¡Ya tienes tu entrada, {{nombre}}! 🎉 Sigues en el sorteo con {{chances}} chances (x{{multiplicador}}). '
+    + 'Si ganas, eliges: te devolvemos tu entrada o te llevas una entrada doble para regalar.\n\n'
     + 'Tus regalos de asistente:\n{{lista_regalos}}\n\n'
     + '💌 Para tu amigo/a: {{porcentaje_amigo}}% con el código {{codigo_amigo}} o tu link {{link_invitar}}.',
   winnerDouble:
     '🎉 ¡{{nombre}}, GANASTE {{premio_singular}} para {{evento}}! 🍬\n\n'
     + 'Tu código (cubre la entrada completa): {{codigo_premio}}\n'
     + 'Toca el botón, completa los datos y listo. ¡Nos vemos en la fiesta! 🥳',
+  winnerBuyer:
+    '🎉 ¡{{nombre}}, GANASTE en el concurso de {{evento}}! 🍬\n\n'
+    + 'Como ya tienes tu entrada, eliges tu premio:\n'
+    + '💸 Te devolvemos {{monto_devolucion}} de tu entrada, o\n'
+    + '🎁 Te llevas {{premio_singular}} EXTRA para regalar a quien quieras.\n\n'
+    + 'Elige aquí antes de {{plazo}}: {{link_elegir}}',
+  choiceGift: '🎁 ¡Listo, {{nombre}}! Este es el código de la entrada para regalar: {{codigo_premio}}. Quien la use la compra a $0 con ese código.',
+  refundDone: '💸 {{nombre}}, ya te devolvimos {{monto_devolucion}} por tu premio del concurso. Tu entrada sigue igual de válida. ¡Nos vemos en la fiesta! 🥳',
   winnerVip: '🎉 ¡{{nombre}}, ganaste {{premio_vip}}! Ya quedó cargado en tu entrada: muéstralo en caja la noche de la fiesta 🥂',
   winnerPublic: '🎉 ¡{{nombre}} ganaste! Revisa tus mensajes directos 💌',
   winnerPublicNoDm: '🎉 ¡{{nombre}} ganaste! Escríbenos por DM antes de {{plazo}} para recibir tu premio 💌',
-  afterDraw: 'El sorteo ya se hizo 🎉 pero igual te dejo {{porcentaje}}% de descuento en tu entrada con el código {{cupon}} (vence en {{horas}} h). ¡Te esperamos!',
+  afterDraw: 'El sorteo ya se hizo 🎉 pero igual te dejo tu código {{cupon}}: precio congelado hasta {{congelado_hasta}} y {{porcentaje}}% extra si compras en las próximas {{horas}} h. ¡Te esperamos!',
   publicReplies: [
     '¡Ya estás participando! 🍬 Revisa tus DM 💌',
     '¡Dentro! 🎉 Te dejamos un regalo por DM',
@@ -128,6 +147,8 @@ export const DEFAULT_CONTEST_CONFIG: ContestConfig = {
     vipPrizeLabel: 'Mejora VIP',
     couponPercent: 20,
     couponHours: 24,
+    priceLockHoursAfterDraw: 48,
+    choiceHours: 48,
     friendPercent: 20,
     holderGiftTicketTypeId: null,
     holderPlaycoins: 2000,
@@ -192,7 +213,9 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       vipPrizeTicketTypeId: idOrNull(p.vipPrizeTicketTypeId),
       vipPrizeLabel: text(p.vipPrizeLabel, d.prizes.vipPrizeLabel, 80),
       couponPercent: int(p.couponPercent, d.prizes.couponPercent, 1, 100),
-      couponHours: int(p.couponHours, d.prizes.couponHours, 1, 720),
+      couponHours: int(p.couponHours, d.prizes.couponHours, 0, 720),
+      priceLockHoursAfterDraw: int(p.priceLockHoursAfterDraw, d.prizes.priceLockHoursAfterDraw, 0, 720),
+      choiceHours: int(p.choiceHours, d.prizes.choiceHours, 1, 168),
       friendPercent: int(p.friendPercent, d.prizes.friendPercent, 0, 100),
       holderGiftTicketTypeId: idOrNull(p.holderGiftTicketTypeId),
       holderPlaycoins: int(p.holderPlaycoins, d.prizes.holderPlaycoins, 0, 100_000),
@@ -205,6 +228,9 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       emailNotFound: text(m.emailNotFound, d.messages.emailNotFound),
       boughtUpgrade: text(m.boughtUpgrade, d.messages.boughtUpgrade),
       winnerDouble: text(m.winnerDouble, d.messages.winnerDouble),
+      winnerBuyer: text(m.winnerBuyer, d.messages.winnerBuyer),
+      choiceGift: text(m.choiceGift, d.messages.choiceGift),
+      refundDone: text(m.refundDone, d.messages.refundDone),
       winnerVip: text(m.winnerVip, d.messages.winnerVip),
       winnerPublic: text(m.winnerPublic, d.messages.winnerPublic, 300),
       winnerPublicNoDm: text(m.winnerPublicNoDm, d.messages.winnerPublicNoDm, 300),
@@ -352,4 +378,29 @@ export function prizeLabels(ticketName: string | null | undefined, count: number
   const name = (ticketName ?? '').trim();
   if (!name) return { plural: count === 1 ? 'entrada doble' : 'entradas dobles', singular: 'una entrada doble' };
   return { plural: `entradas ${name}`, singular: `una entrada ${name}` };
+}
+
+/** % del cupón personal sobre el PRECIO GENERAL (`basedOnOriginalPrice`) que
+ * deja el acceso al precio de la tanda en que la persona participó (`locked`,
+ * % de descuento de esa tanda), aunque hoy rija otra (`current`), y con
+ * `extra` % de descuento adicional mientras dure. Como todas las tandas
+ * copian `originalPrice`, sirve igual para cualquier acceso y cantidad.
+ * Ej.: participó con 50% (precio 0,5), hoy rige 40% (0,6), sin extra →
+ * 10% del general; con 20% extra → 0,6 − 0,4 = 20%. */
+export function priceLockCodePercent(lockedPct: number, currentPct: number, extraPct: number): number {
+  const target = (1 - lockedPct / 100) * (1 - extraPct / 100);
+  const current = 1 - currentPct / 100;
+  return Math.max(0, Math.min(100, Math.round((current - target) * 100)));
+}
+
+/** Devolución de un ganador que ya había comprado: lo pagado en accesos, con
+ * tope en el valor del premio. */
+export function refundAmountFor(paidAccesos: number, prizeValue: number): number {
+  return Math.max(0, Math.round(Math.min(paidAccesos, prizeValue)));
+}
+
+/** ¿A qué sorteo va? Entradas dobles: sin entrada o compró durante el
+ * concurso (si gana elige devolución o regalo). VIP: ya tenía entrada antes. */
+export function drawPoolFor(p: { hasTicket: boolean; boughtDuringContest: boolean }): 'double' | 'vip' {
+  return !p.hasTicket || p.boughtDuringContest ? 'double' : 'vip';
 }

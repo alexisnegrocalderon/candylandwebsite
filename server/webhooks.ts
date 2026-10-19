@@ -26,7 +26,7 @@ import { getAddonById, settleAddon } from './orderAddon';
 import { parseAddonReference } from '../shared/addon';
 import { getPartnerCampaignForOrder, tagCustomerForPartnerOrder } from './partnerCampaigns';
 import { partnerRulesList } from '../shared/partnerCampaign';
-import { contestOnOrderApproved } from './contests';
+import { contestOnOrderApproved, getContestInviteForEvent } from './contests';
 
 export const webhooksRouter = Router();
 
@@ -498,6 +498,7 @@ async function sendConfirmationEmailForOrder(order: any): Promise<{ success: boo
     extras,
     templateConfig,
     partnerWelcome: partner ? { label: partner.label, emoji: partner.emoji, rules: partnerRulesList(partner.rulesText) } : undefined,
+    contestInvite: (await getContestInviteForEvent(event.id).catch(() => null)) ?? undefined,
   });
 
   const result = await sendEmail({

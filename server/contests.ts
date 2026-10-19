@@ -34,9 +34,10 @@ import { buildContestWinnerEmail, sendEmail } from './email';
 import { generateTicketQR } from './qr';
 import { fallbackInternalCode, generateDisplayCode } from './caja/displayCode';
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
+import { normalizeTandaSchedule } from '../shared/tandaSchedule';
 import { normalizeIgHandle } from '../shared/igCustomerLink';
 import {
-  computeChances, contestPhase, defaultDrawAt, extractEmail, hasContestKeyword, mergeMentions, normalizeContestConfig, parseMentions,
+  computeChances, contestPhase, defaultDrawAt, drawPoolFor, extractEmail, priceLockCodePercent, refundAmountFor, hasContestKeyword, mergeMentions, normalizeContestConfig, parseMentions,
   prizeLabels, randomContestCode, randomInviteCode, renderContestTemplate, weightedDraw, type ContestConfig,
 } from '../shared/contest';
 
@@ -144,6 +145,15 @@ function giftLines(ctx: ContestCtx, p: { orderId: number | null; email: string |
   return lines.join('\n');
 }
 
+/** Hasta cuándo dura el precio congelado: X h después del sorteo (o, sin
+ * fecha de sorteo, hasta la fiesta). */
+function priceLockUntil(ctx: ContestCtx): Date {
+  const base = ctx.config.drawAt ? new Date(ctx.config.drawAt).getTime() + ctx.config.prizes.priceLockHoursAfterDraw * 60 * 60 * 1000 : new Date(ctx.event.eventDate).getTime();
+  return new Date(Math.min(base, new Date(ctx.event.eventDate).getTime()));
+}
+
+const dateTimeText = (d: Date | string) => `${formatChileDate(d, { withWeekday: true })} a las ${formatChileTime(d)}`;
+
 function templateVars(ctx: ContestCtx, p: ContestParticipant, extra: Record<string, string | number | null | undefined> = {}) {
   const { prizes, chances } = ctx.config;
   const labels = prizeLabels(ctx.prizeName, prizes.doubleWinners);
@@ -169,6 +179,7 @@ function templateVars(ctx: ContestCtx, p: ContestParticipant, extra: Record<stri
     link_bases: BASES_URL,
     evento: ctx.event.title,
     lista_regalos: giftLines(ctx, p),
+    congelado_hasta: dateTimeText(priceLockUntil(ctx)),
     ...extra,
   };
 }
@@ -210,7 +221,7 @@ async function reachableChannel(db: Db, p: ContestParticipant): Promise<Channel 
 
 async function createCode(db: Db, input: {
   prefix: string; type: 'percentage' | 'fixed'; value: number; maxUses: number; validUntil: Date; eventId: number;
-  description: string; applicableTicketTypeIds?: number[] | null;
+  description: string; applicableTicketTypeIds?: number[] | null; basedOnOriginalPrice?: boolean;
 }): Promise<string> {
   for (let attempt = 0; attempt < 6; attempt++) {
     const code = randomContestCode(input.prefix);
@@ -225,6 +236,7 @@ async function createCode(db: Db, input: {
         maxUses: input.maxUses,
         eventId: input.eventId,
         applicableTicketTypeIds: input.applicableTicketTypeIds ?? null,
+        basedOnOriginalPrice: input.basedOnOriginalPrice ? 1 : 0,
         validUntil: input.validUntil,
         isActive: 1,
       });
@@ -236,15 +248,64 @@ async function createCode(db: Db, input: {
   throw new Error('No se pudo crear el código.');
 }
 
+/** % de descuento de la tanda vigente del evento (sobre el precio general). */
+async function currentPhasePercent(db: Db, eventId: number): Promise<number> {
+  const [event] = await db.select({ schedule: events.tandaDiscountSchedule, index: events.tandaPhaseIndex }).from(events).where(eq(events.id, eventId)).limit(1);
+  if (!event) return 0;
+  const schedule = normalizeTandaSchedule(event.schedule);
+  return schedule[Math.min(event.index, schedule.length - 1)]?.percent ?? 0;
+}
+
+const extraActive = (ctx: ContestCtx, createdAt: Date | string, now = Date.now()) =>
+  ctx.config.prizes.couponHours > 0 && now - new Date(createdAt).getTime() < ctx.config.prizes.couponHours * 60 * 60 * 1000;
+
+/** Cupón personal: congela el precio de la tanda en que participó (hasta X h
+ * después del sorteo) y, las primeras horas, suma el % extra. Se calcula
+ * sobre el precio general (`basedOnOriginalPrice`) y se recalcula cuando
+ * cambia la tanda o vence el extra (refreshContestPriceLocks). */
 async function ensureCoupon(db: Db, ctx: ContestCtx, p: ContestParticipant): Promise<ContestParticipant> {
   if (p.couponCode) return p;
+  const locked = await currentPhasePercent(db, ctx.event.id);
+  const lockUntil = priceLockUntil(ctx);
+  const extraUntil = Date.now() + ctx.config.prizes.couponHours * 60 * 60 * 1000;
   const code = await createCode(db, {
-    prefix: 'REGALO', type: 'percentage', value: ctx.config.prizes.couponPercent, maxUses: 2,
-    validUntil: new Date(Date.now() + ctx.config.prizes.couponHours * 60 * 60 * 1000), eventId: ctx.event.id,
-    description: `Concurso «${ctx.contest.title}»: cupón de @${p.username ?? p.igUserId}`,
+    prefix: 'REGALO', type: 'percentage', value: priceLockCodePercent(locked, locked, ctx.config.prizes.couponPercent), maxUses: 2,
+    basedOnOriginalPrice: true,
+    validUntil: new Date(Math.max(lockUntil.getTime(), Math.min(extraUntil, new Date(ctx.event.eventDate).getTime()))), eventId: ctx.event.id,
+    description: `Concurso «${ctx.contest.title}»: precio congelado de @${p.username ?? p.igUserId}`,
   });
-  await db.update(contestParticipants).set({ couponCode: code }).where(eq(contestParticipants.id, p.id));
-  return { ...p, couponCode: code };
+  await db.update(contestParticipants).set({ couponCode: code, lockedPhasePercent: locked }).where(eq(contestParticipants.id, p.id));
+  return { ...p, couponCode: code, lockedPhasePercent: locked };
+}
+
+/** Recalcula el % de los cupones del concurso activo del evento: si subió la
+ * tanda, el cupón cubre la diferencia; si venció su % extra, se lo quita.
+ * Corre en el cron y justo después de cambiar de tanda. Nunca lanza. */
+export async function refreshContestPriceLocks(eventId?: number): Promise<number> {
+  try {
+    const db = await getDb();
+    if (!db) return 0;
+    const ctx = await getActiveContestCtx();
+    if (!ctx || (eventId !== undefined && ctx.event.id !== eventId)) return 0;
+    const current = await currentPhasePercent(db, ctx.event.id);
+    const rows = await db.select({ couponCode: contestParticipants.couponCode, locked: contestParticipants.lockedPhasePercent, createdAt: contestParticipants.createdAt })
+      .from(contestParticipants).where(and(eq(contestParticipants.contestId, ctx.contest.id), sql`${contestParticipants.couponCode} IS NOT NULL`, sql`${contestParticipants.lockedPhasePercent} IS NOT NULL`));
+    const byValue = new Map<number, string[]>();
+    for (const r of rows) {
+      const value = priceLockCodePercent(r.locked!, current, extraActive(ctx, r.createdAt) ? ctx.config.prizes.couponPercent : 0);
+      byValue.set(value, [...(byValue.get(value) ?? []), r.couponCode!]);
+    }
+    let updated = 0;
+    for (const [value, codes] of Array.from(byValue.entries())) {
+      const [res] = await db.update(discountCodes).set({ discountValue: String(value) })
+        .where(and(inArray(discountCodes.code, codes), sql`${discountCodes.discountValue} <> ${String(value)}`));
+      updated += Number((res as unknown as { affectedRows?: number }).affectedRows ?? 0);
+    }
+    return updated;
+  } catch (err) {
+    console.error('[Concurso] No se pudieron recalcular los precios congelados:', err);
+    return 0;
+  }
 }
 
 async function ensureFriendCode(db: Db, ctx: ContestCtx, p: ContestParticipant): Promise<ContestParticipant> {
@@ -305,18 +366,35 @@ async function deliverHolderPrizes(db: Db, ctx: ContestCtx, p: ContestParticipan
 
 /** ¿Esta persona ya tiene entrada aprobada para la fiesta? Busca por el
  * correo que dio y por su @ guardado en la ficha de cliente. */
-async function findHolderOrder(db: Db, eventId: number, input: { email?: string | null; username?: string | null }): Promise<{ email: string; orderId: number } | null> {
+async function findHolderOrder(db: Db, eventId: number, input: { email?: string | null; username?: string | null }): Promise<{ email: string; orderId: number; createdAt: Date } | null> {
   const emails = new Set<string>();
   if (input.email) emails.add(input.email.trim().toLowerCase());
   const handle = normalizeIgHandle(input.username);
   if (handle) for (const c of await findCustomersByInstagram(handle)) emails.add(c.email.trim().toLowerCase());
   for (const email of Array.from(emails)) {
-    const [order] = await db.select({ id: orders.id }).from(orders).where(and(
+    const [order] = await db.select({ id: orders.id, createdAt: orders.createdAt }).from(orders).where(and(
       eq(orders.eventId, eventId), eq(orders.paymentStatus, 'approved'), sql`LOWER(${orders.buyerEmail}) = ${email}`,
     )).orderBy(desc(orders.id)).limit(1);
-    if (order) return { email, orderId: order.id };
+    if (order) return { email, orderId: order.id, createdAt: order.createdAt };
   }
   return null;
+}
+
+/** Cuándo arrancó el concurso: una compra desde ese momento cuenta como
+ * "compró durante el concurso" (sigue en el sorteo de entradas dobles). */
+function contestStart(ctx: ContestCtx): Date {
+  return new Date(ctx.config.startsAt ?? ctx.contest.createdAt);
+}
+
+/** Marca que tiene entrada (y si la compró durante el concurso, antes del sorteo). */
+async function markHolder(db: Db, ctx: ContestCtx, participantId: number, holder: { email: string; orderId: number; createdAt: Date }) {
+  // Compró entre el inicio del concurso y el sorteo (la revisión final del
+  // sorteo corre con drawnAt ya puesto, por eso se compara con su fecha).
+  const bought = new Date(holder.createdAt).getTime();
+  const during = bought >= contestStart(ctx).getTime() && (!ctx.contest.drawnAt || bought < new Date(ctx.contest.drawnAt).getTime());
+  await db.update(contestParticipants).set({
+    hasTicket: 1, awaitingEmail: 0, email: holder.email, orderId: holder.orderId, ...(during ? { boughtDuringContest: 1 } : {}),
+  }).where(eq(contestParticipants.id, participantId));
 }
 
 /* ── Participantes ───────────────────────────────────────────────────────── */
@@ -343,10 +421,22 @@ async function claimLog(db: Db, contestId: number, kind: 'comment' | 'story' | '
 }
 
 async function createParticipant(db: Db, ctx: ContestCtx, input: {
-  igUserId: string; username: string | null; source: 'comment' | 'story' | 'dm'; commentId?: string | null; mentions?: string[];
+  igUserId: string; username: string | null; source: 'comment' | 'story' | 'dm' | 'purchase'; commentId?: string | null; mentions?: string[];
 }): Promise<{ participant: ContestParticipant; created: boolean }> {
   const existing = await getParticipant(db, ctx.contest.id, input.igUserId);
   if (existing) return { participant: existing, created: false };
+  // Se inscribió solo al comprar (con su @): ahora que comenta o escribe se le
+  // pone su id real y recibe su bienvenida, sin duplicarlo.
+  const handle = normalizeIgHandle(input.username);
+  const placeholder = handle ? await getParticipant(db, ctx.contest.id, `ig:${handle}`) : null;
+  if (placeholder) {
+    await db.update(contestParticipants).set({
+      igUserId: input.igUserId, source: input.source, firstCommentId: input.commentId ?? null,
+      mentions: mergeMentions(placeholder.mentions ?? [], input.mentions ?? []),
+      ...(input.source === 'story' ? { storyMentioned: 1 } : {}),
+    }).where(eq(contestParticipants.id, placeholder.id));
+    return { participant: await reload(db, placeholder.id), created: true };
+  }
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
       await db.insert(contestParticipants).values({
@@ -371,7 +461,7 @@ async function createParticipant(db: Db, ctx: ContestCtx, input: {
   let participant = (await getParticipant(db, ctx.contest.id, input.igUserId))!;
   const holder = await findHolderOrder(db, ctx.event.id, { username: input.username });
   if (holder) {
-    await db.update(contestParticipants).set({ hasTicket: 1, email: holder.email, orderId: holder.orderId }).where(eq(contestParticipants.id, participant.id));
+    await markHolder(db, ctx, participant.id, holder);
     participant = await deliverHolderPrizes(db, ctx, await reload(db, participant.id));
   } else {
     participant = await ensureCoupon(db, ctx, participant);
@@ -387,7 +477,9 @@ function welcomeMessage(ctx: ContestCtx, p: ContestParticipant): { text: string;
   const vars = templateVars(ctx, p);
   const m = ctx.config.messages;
   if (p.hasTicket) {
-    return { text: renderContestTemplate(m.holder, vars), button: null };
+    // Compró durante el concurso: sigue por la entrada doble con su ×.
+    const template = p.boughtDuringContest && !ctx.contest.drawnAt ? m.boughtUpgrade : m.holder;
+    return { text: renderContestTemplate(template, vars), button: null };
   }
   const drawn = !!ctx.contest.drawnAt;
   const text = drawn
@@ -395,7 +487,7 @@ function welcomeMessage(ctx: ContestCtx, p: ContestParticipant): { text: string;
     : `${renderContestTemplate(m.noTicket, vars)}\n\n${renderContestTemplate(m.holderAsk, vars)}`;
   return {
     text,
-    button: { title: `Usar mi ${ctx.config.prizes.couponPercent}%`.slice(0, 20), url: checkoutUrl(ctx, { code: p.couponCode, content: 'concurso-cupon' }) },
+    button: { title: 'Comprar a mi precio', url: checkoutUrl(ctx, { code: p.couponCode, content: 'concurso-cupon' }) },
   };
 }
 
@@ -480,6 +572,14 @@ export async function handleContestMessage(input: {
         await deliverWinnerPrize(db, ctx, pending[0], participant, channel);
         return true;
       }
+      // Ganador que había comprado y todavía no elige: se le reenvía el link.
+      const [choosing] = await db.select().from(contestWinners).where(and(
+        eq(contestWinners.contestId, ctx.contest.id), eq(contestWinners.participantId, participant.id), eq(contestWinners.status, 'choosing'),
+      )).limit(1);
+      if (choosing) {
+        await sendBuyerWinnerMessage(ctx, choosing, participant, channel);
+        return true;
+      }
     }
 
     // 2. Mención en historia: bonus (una vez) y, si es nuevo, participa.
@@ -511,11 +611,11 @@ export async function handleContestMessage(input: {
         await send(channel, renderContestTemplate(ctx.config.messages.emailNotFound, templateVars(ctx, participant)));
         return true;
       }
-      await db.update(contestParticipants).set({ hasTicket: 1, awaitingEmail: 0, email: holder.email, orderId: holder.orderId })
-        .where(eq(contestParticipants.id, participant.id));
+      await markHolder(db, ctx, participant.id, holder);
       await linkInstagramToCustomer(db, holder.email, participant.username);
       participant = await deliverHolderPrizes(db, ctx, await reload(db, participant.id));
-      await send(channel, renderContestTemplate(ctx.config.messages.holder, templateVars(ctx, participant)));
+      const { text: holderText } = welcomeMessage(ctx, participant);
+      await send(channel, holderText);
       return true;
     }
 
@@ -578,9 +678,9 @@ export async function contestOnOrderApproved(order: {
     };
 
     let buyer = await byField('couponCode', code);
+    const [customer] = await db.select({ instagram: customers.instagram }).from(customers).where(eq(customers.email, buyerEmail)).limit(1);
+    const handle = normalizeIgHandle(customer?.instagram);
     if (!buyer) {
-      const [customer] = await db.select({ instagram: customers.instagram }).from(customers).where(eq(customers.email, buyerEmail)).limit(1);
-      const handle = normalizeIgHandle(customer?.instagram);
       if (handle) {
         const [row] = await db.select().from(contestParticipants)
           .where(and(eq(contestParticipants.contestId, contest.id), sql`LOWER(${contestParticipants.username}) = ${handle}`)).limit(1);
@@ -603,6 +703,24 @@ export async function contestOnOrderApproved(order: {
       ? (await db.select({ id: contestWinners.id }).from(contestWinners).where(and(eq(contestWinners.contestId, contest.id), eq(contestWinners.prizeCode, code))).limit(1))[0]
       : undefined;
     const fromContestLink = order.utmMedium === 'concurso' && order.utmCampaign === `concurso-${contest.id}`;
+    // Compró sin haber participado pero dejó su @: queda inscrito solo (con
+    // la promesa de devolución o regalo si gana). Su id real llega cuando
+    // comente o escriba (createParticipant lo fusiona).
+    if (!buyer && handle && !contest.drawnAt && !prizeWinner && contestPhase(contest, ctx.config) === 'live') {
+      if (!(await claimLog(db, contest.id, 'order', String(order.id), null))) return;
+      try {
+        await db.insert(contestParticipants).values({
+          contestId: contest.id, igUserId: `ig:${handle}`, username: handle, source: 'purchase', mentions: [],
+          hasTicket: 1, boughtDuringContest: 1, email: buyerEmail, orderId: order.id, inviteCode: randomInviteCode(),
+        });
+        const created = await getParticipant(db, contest.id, `ig:${handle}`);
+        if (created) await deliverHolderPrizes(db, ctx, created);
+      } catch (err) {
+        console.error('[Concurso] No se pudo inscribir al comprador:', err);
+      }
+      if (referrer) await db.update(contestParticipants).set({ invitedPurchases: sql`invitedPurchases + 1` }).where(eq(contestParticipants.id, referrer.id));
+      return;
+    }
     if (!buyer && !referrer && !prizeWinner && !fromContestLink) return;
     if (!(await claimLog(db, contest.id, 'order', String(order.id), buyer?.id ?? referrer?.id ?? null))) return;
 
@@ -664,7 +782,7 @@ async function drawPools(db: Db, ctx: ContestCtx): Promise<{ double: number; vip
   for (const p of all.filter((x) => !x.hasTicket)) {
     const holder = await findHolderOrder(db, ctx.event.id, { email: p.email, username: p.username });
     if (holder) {
-      await db.update(contestParticipants).set({ hasTicket: 1, awaitingEmail: 0, email: holder.email, orderId: holder.orderId }).where(eq(contestParticipants.id, p.id));
+      await markHolder(db, ctx, p.id, holder);
       await deliverHolderPrizes(db, ctx, await reload(db, p.id)).catch(() => {});
     }
   }
@@ -673,8 +791,10 @@ async function drawPools(db: Db, ctx: ContestCtx): Promise<{ double: number; vip
 
   const { prizes } = ctx.config;
   const pools = [
-    { pool: 'double' as const, people: all.filter((p) => !p.hasTicket), winners: prizes.doubleWinners, alternates: prizes.doubleAlternates },
-    { pool: 'vip' as const, people: all.filter((p) => p.hasTicket), winners: prizes.vipWinners, alternates: prizes.vipAlternates },
+    // Quien compró durante el concurso sigue por la entrada doble (si gana,
+    // elige devolución o regalo); el VIP es para quienes ya tenían entrada.
+    { pool: 'double' as const, people: all.filter((p) => drawPoolFor({ hasTicket: !!p.hasTicket, boughtDuringContest: !!p.boughtDuringContest }) === 'double'), winners: prizes.doubleWinners, alternates: prizes.doubleAlternates },
+    { pool: 'vip' as const, people: all.filter((p) => drawPoolFor({ hasTicket: !!p.hasTicket, boughtDuringContest: !!p.boughtDuringContest }) === 'vip'), winners: prizes.vipWinners, alternates: prizes.vipAlternates },
   ];
   const log: Record<string, { participants: number; tickets: number }> = {};
   for (const { pool, people, winners, alternates } of pools) {
@@ -716,6 +836,10 @@ async function safeActivateWinner(db: Db, ctx: ContestCtx, row: ContestWinner): 
  * DM y si no se puede, lo deja "esperando que escriba" con plazo. */
 async function activateWinner(db: Db, ctx: ContestCtx, row: ContestWinner): Promise<void> {
   const participant = await reload(db, row.participantId);
+  if (row.pool === 'double' && participant.hasTicket && participant.orderId) {
+    await activateBuyerWinner(db, ctx, row, participant);
+    return;
+  }
   const channel = await reachableChannel(db, participant);
   if (channel) {
     await deliverWinnerPrize(db, ctx, row, participant, channel);
@@ -738,26 +862,182 @@ async function announcePublicly(ctx: ContestCtx, p: ContestParticipant, reachedB
     .catch((err) => console.error('[Concurso] No se pudo anunciar al ganador en el comentario:', err));
 }
 
+/** Filas del acceso del premio (todas las tandas: cada cambio de tanda crea
+ * una fila nueva con otro id, ver advanceTanda en db.ts) y la vigente. */
+async function prizeTicketRows(db: Db, ctx: ContestCtx) {
+  const typeId = ctx.config.prizes.prizeTicketTypeId;
+  if (!typeId) return null;
+  const [base] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, typeId)).limit(1);
+  if (!base) return null;
+  const rows = base.accesoSlug
+    ? await db.select().from(ticketTypes).where(and(eq(ticketTypes.eventId, ctx.event.id), eq(ticketTypes.accesoSlug, base.accesoSlug)))
+    : [base];
+  const current = rows.find((r) => r.status === 'active') ?? rows.sort((a, b) => b.id - a.id)[0] ?? base;
+  return { ids: rows.map((r) => r.id), current };
+}
+
+/** Código que deja gratis UNA entrada del premio, en cualquier tanda: monto
+ * fijo = precio general (no regala una segunda si compran dos). */
+async function createPrizeCode(db: Db, ctx: ContestCtx, who: string): Promise<string | null> {
+  const prize = await prizeTicketRows(db, ctx);
+  const value = Number(prize?.current.originalPrice ?? prize?.current.price ?? 0);
+  if (!prize || value <= 0) return null;
+  return createCode(db, {
+    prefix: 'PREMIO', type: 'fixed', value, maxUses: 1, applicableTicketTypeIds: prize.ids,
+    validUntil: new Date(new Date(ctx.event.eventDate).getTime() + 24 * 60 * 60 * 1000), eventId: ctx.event.id,
+    description: `Concurso «${ctx.contest.title}»: ${who}`,
+  });
+}
+
+/* ── Ganador que ya había comprado: elige devolución o regalo ───────────── */
+
+const choiceUrl = (token: string) => `${APP_URL}/concurso/premio/${token}`;
+
+/** Lo que pagó por sus accesos (sin extras ni cargo), menos el descuento. */
+async function paidForAccesos(db: Db, orderId: number): Promise<number> {
+  const [order] = await db.select({ discount: orders.discount }).from(orders).where(eq(orders.id, orderId)).limit(1);
+  const items = await db.select({ total: orderItems.totalPrice, category: ticketTypes.category })
+    .from(orderItems).innerJoin(ticketTypes, eq(ticketTypes.id, orderItems.ticketTypeId)).where(eq(orderItems.orderId, orderId));
+  const accesos = items.filter((i) => i.category === 'acceso').reduce((s, i) => s + Number(i.total), 0);
+  return Math.max(0, accesos - Number(order?.discount ?? 0));
+}
+
+async function activateBuyerWinner(db: Db, ctx: ContestCtx, row: ContestWinner, p: ContestParticipant): Promise<void> {
+  const prize = await prizeTicketRows(db, ctx);
+  const refundAmount = refundAmountFor(await paidForAccesos(db, p.orderId!), Number(prize?.current.price ?? 0));
+  const token = crypto.randomBytes(16).toString('hex');
+  const deadline = new Date(Date.now() + ctx.config.prizes.choiceHours * 60 * 60 * 1000);
+  await db.update(contestWinners).set({
+    status: 'choosing', orderId: p.orderId, refundAmount, choiceToken: token, choiceDeadline: deadline, notifiedAt: new Date(),
+  }).where(eq(contestWinners.id, row.id));
+  const updated = { ...row, status: 'choosing' as const, orderId: p.orderId, refundAmount, choiceToken: token, choiceDeadline: deadline };
+  const channel = await reachableChannel(db, p);
+  await sendBuyerWinnerMessage(ctx, updated, p, channel);
+  await announcePublicly(ctx, p, !!channel, channel ? undefined : deadline);
+}
+
+const clpText = (n: number) => `$${Math.round(n).toLocaleString('es-CL')}`;
+
+async function sendBuyerWinnerMessage(ctx: ContestCtx, row: ContestWinner, p: ContestParticipant, channel: Channel | null) {
+  if (!row.choiceToken) return;
+  const plazo = row.choiceDeadline ? dateTimeText(row.choiceDeadline) : '';
+  const vars = templateVars(ctx, p, { monto_devolucion: clpText(row.refundAmount ?? 0), link_elegir: choiceUrl(row.choiceToken), plazo });
+  if (channel) {
+    await send(channel, renderContestTemplate(ctx.config.messages.winnerBuyer, vars), { title: 'Elegir mi premio', url: choiceUrl(row.choiceToken) })
+      .catch((err) => console.error('[Concurso] No se pudo mandar el DM al ganador:', err));
+  }
+  if (p.email) {
+    await sendEmail({
+      to: p.email,
+      subject: `🎉 ¡Ganaste el concurso de ${ctx.event.title}! Elige tu premio`,
+      html: buildContestWinnerEmail({
+        name: p.username ? `@${p.username}` : 'ganador/a', prize: 'tu premio', eventTitle: ctx.event.title, ctaUrl: choiceUrl(row.choiceToken),
+        note: `Como ya tienes tu entrada, eliges: te devolvemos ${clpText(row.refundAmount ?? 0)} de tu entrada, o te llevas ${prizeLabels(ctx.prizeName, 1).singular} extra para regalar. Elige antes del ${plazo}.`,
+      }),
+    }).catch((err) => console.error('[Concurso] No se pudo mandar el correo al ganador:', err));
+  }
+}
+
+/** Para la página /concurso/premio/:token. */
+export async function getWinnerChoice(token: string) {
+  const db = await getDb();
+  if (!db || !/^[a-f0-9]{32}$/.test(token)) return null;
+  const [row] = await db.select().from(contestWinners).where(eq(contestWinners.choiceToken, token)).limit(1);
+  if (!row) return null;
+  const ctx = await getCtxById(row.contestId);
+  if (!ctx) return null;
+  const p = await reload(db, row.participantId);
+  return {
+    username: p?.username ?? null,
+    eventTitle: ctx.event.title,
+    status: row.status,
+    choice: row.choice,
+    refundAmount: row.refundAmount ?? 0,
+    refundStatus: row.refundStatus,
+    prizeLabel: prizeLabels(ctx.prizeName, 1).singular,
+    prizeCode: row.choice === 'gift' ? row.prizeCode : null,
+    deadline: row.choiceDeadline,
+    checkoutUrl: row.choice === 'gift' && row.prizeCode ? checkoutUrl(ctx, { code: row.prizeCode, content: 'concurso-regalo' }) : null,
+  };
+}
+
+/** El ganador eligió. Solo vale una vez y mientras está eligiendo. */
+export async function submitWinnerChoice(token: string, choice: 'refund' | 'gift') {
+  const db = await getDb();
+  if (!db) throw new Error('Servicio no disponible.');
+  const [row] = await db.select().from(contestWinners).where(eq(contestWinners.choiceToken, token)).limit(1);
+  if (!row) throw new Error('Este link no es válido.');
+  if (row.status !== 'choosing') return getWinnerChoice(token);
+  const ctx = await getCtxById(row.contestId);
+  if (!ctx) throw new Error('Concurso no encontrado.');
+  const [res] = await db.update(contestWinners).set({ choice, status: 'delivered', deliveredAt: new Date(), ...(choice === 'refund' ? { refundStatus: 'pending' as const } : {}) })
+    .where(and(eq(contestWinners.id, row.id), eq(contestWinners.status, 'choosing')));
+  if ((res as unknown as { affectedRows: number }).affectedRows !== 1) return getWinnerChoice(token);
+  const p = await reload(db, row.participantId);
+  if (choice === 'gift') {
+    const prizeCode = await createPrizeCode(db, ctx, `regalo de @${p.username ?? p.igUserId}`);
+    await db.update(contestWinners).set({ prizeCode }).where(eq(contestWinners.id, row.id));
+    const channel = await reachableChannel(db, p);
+    const text = renderContestTemplate(ctx.config.messages.choiceGift, templateVars(ctx, p, { codigo_premio: prizeCode }));
+    if (channel) await send(channel, text).catch(() => {});
+    if (p.email && prizeCode) {
+      await sendEmail({
+        to: p.email, subject: `🎁 Tu entrada para regalar · ${ctx.event.title}`,
+        html: buildContestWinnerEmail({
+          name: p.username ? `@${p.username}` : 'ganador/a', prize: prizeLabels(ctx.prizeName, 1).singular, eventTitle: ctx.event.title,
+          code: prizeCode, ctaUrl: checkoutUrl(ctx, { code: prizeCode, content: 'concurso-regalo' }),
+          note: 'Comparte este código con quien quieras: al comprar con él, esa entrada sale gratis.',
+        }),
+      }).catch(() => {});
+    }
+  }
+  return getWinnerChoice(token);
+}
+
+/** El dueño ya hizo la devolución en Mercado Pago: queda registrada en la
+ * orden (Finanzas descuenta `refundAmount`) SIN anular la entrada. */
+export async function markRefundDone(winnerId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible.');
+  const [row] = await db.select().from(contestWinners).where(eq(contestWinners.id, winnerId)).limit(1);
+  if (!row || row.refundStatus !== 'pending' || !row.orderId) throw new Error('No hay una devolución pendiente para este ganador.');
+  const ctx = await getCtxById(row.contestId);
+  if (!ctx) throw new Error('Concurso no encontrado.');
+  const amount = row.refundAmount ?? 0;
+  await db.update(contestWinners).set({ refundStatus: 'done', refundedAt: new Date() }).where(eq(contestWinners.id, row.id));
+  await db.update(orders).set({
+    refundAmount: sql`COALESCE(${orders.refundAmount}, 0) + ${amount}`,
+    refundReason: `Premio del concurso «${ctx.contest.title}» (la entrada sigue válida)`,
+    refundedAt: new Date(),
+  }).where(eq(orders.id, row.orderId));
+  const p = await reload(db, row.participantId);
+  const text = renderContestTemplate(ctx.config.messages.refundDone, templateVars(ctx, p, { monto_devolucion: clpText(amount) }));
+  const channel = await reachableChannel(db, p);
+  if (channel) await send(channel, text).catch(() => {});
+  if (p.email) {
+    await sendEmail({
+      to: p.email, subject: `💸 Te devolvimos ${clpText(amount)} · ${ctx.event.title}`,
+      html: buildContestWinnerEmail({ name: p.username ? `@${p.username}` : 'ganador/a', prize: 'tu devolución', eventTitle: ctx.event.title, ctaUrl: `${APP_URL}/mis-puntos`, note: text }),
+    }).catch(() => {});
+  }
+}
+
+/** Ganadores que no eligieron a tiempo: queda la devolución pendiente. */
+async function closeExpiredChoices(db: Db, ctx: ContestCtx): Promise<number> {
+  const [res] = await db.update(contestWinners).set({ choice: 'refund', refundStatus: 'pending', status: 'delivered', deliveredAt: new Date() })
+    .where(and(eq(contestWinners.contestId, ctx.contest.id), eq(contestWinners.status, 'choosing'), sql`${contestWinners.choiceDeadline} < ${new Date()}`));
+  return Number((res as unknown as { affectedRows?: number }).affectedRows ?? 0);
+}
+
 /** Crea y entrega el premio. `channel` null = solo por email (si lo hay);
  * el estado queda "notified" hasta que escriba por DM. */
 async function deliverWinnerPrize(db: Db, ctx: ContestCtx, row: ContestWinner, p: ContestParticipant, channel: Channel | null): Promise<void> {
   let prizeCode = row.prizeCode;
   let ok = true;
   if (row.pool === 'double') {
-    const typeId = ctx.config.prizes.prizeTicketTypeId;
-    if (!prizeCode && typeId) {
-      const [type] = await db.select({ price: ticketTypes.price, originalPrice: ticketTypes.originalPrice }).from(ticketTypes).where(eq(ticketTypes.id, typeId)).limit(1);
-      // Monto fijo = una unidad al precio general: cubre una entrada en
-      // cualquier tanda y no regala una segunda si compran dos.
-      const value = Number(type?.originalPrice ?? type?.price ?? 0);
-      if (value > 0) {
-        prizeCode = await createCode(db, {
-          prefix: 'PREMIO', type: 'fixed', value, maxUses: 1, applicableTicketTypeIds: [typeId],
-          validUntil: new Date(new Date(ctx.event.eventDate).getTime() + 24 * 60 * 60 * 1000), eventId: ctx.event.id,
-          description: `Concurso «${ctx.contest.title}»: premio de @${p.username ?? p.igUserId}`,
-        });
-        await db.update(contestWinners).set({ prizeCode }).where(eq(contestWinners.id, row.id));
-      }
+    if (!prizeCode) {
+      prizeCode = await createPrizeCode(db, ctx, `premio de @${p.username ?? p.igUserId}`);
+      if (prizeCode) await db.update(contestWinners).set({ prizeCode }).where(eq(contestWinners.id, row.id));
     }
     ok = !!prizeCode;
   } else if (row.status !== 'delivered' && !row.deliveredAt) {
@@ -874,7 +1154,9 @@ export async function runContestCron(now: Date = new Date()): Promise<Record<str
     result.draw = await runContestDraw(ctx.contest.id);
   } else if (ctx.contest.drawnAt) {
     result.expired = await expireUnclaimed(db, ctx);
+    result.choicesClosed = await closeExpiredChoices(db, ctx);
   }
+  result.priceLocks = await refreshContestPriceLocks(ctx.event.id);
   return result;
 }
 
@@ -997,6 +1279,10 @@ export async function getContestAdmin(id: number) {
     .where(and(eq(contestLog.contestId, id), eq(contestLog.kind, 'order')));
   const approved = orderRows.filter((o) => o.paymentStatus === 'approved');
   const byId = new Map(participants.map((p) => [p.id, p]));
+  const winnerOrderIds = winners.map((w) => w.orderId).filter((x): x is number => !!x);
+  const paymentByOrder = new Map((winnerOrderIds.length
+    ? await db.select({ id: orders.id, paymentId: orders.paymentId }).from(orders).where(inArray(orders.id, winnerOrderIds))
+    : []).map((o) => [o.id, o.paymentId]));
   return {
     contest: ctx.contest,
     config: ctx.config,
@@ -1015,18 +1301,22 @@ export async function getContestAdmin(id: number) {
       friendCodesUsed: participants.filter((p) => usedOf(p.friendCode) > 0).length,
       orders: approved.length,
       revenue: approved.reduce((s, o) => s + Number(o.total), 0),
-      tickets: { double: participants.filter((p) => !p.hasTicket && !p.disqualified).reduce((s, p) => s + chancesOf(p, ctx.config), 0),
-        vip: participants.filter((p) => p.hasTicket && !p.disqualified).reduce((s, p) => s + chancesOf(p, ctx.config), 0) },
+      tickets: {
+        double: participants.filter((p) => !p.disqualified && drawPoolFor({ hasTicket: !!p.hasTicket, boughtDuringContest: !!p.boughtDuringContest }) === 'double').reduce((s, p) => s + chancesOf(p, ctx.config), 0),
+        vip: participants.filter((p) => !p.disqualified && drawPoolFor({ hasTicket: !!p.hasTicket, boughtDuringContest: !!p.boughtDuringContest }) === 'vip').reduce((s, p) => s + chancesOf(p, ctx.config), 0),
+      },
+      refundsPending: winners.filter((w) => w.refundStatus === 'pending').reduce((s, w) => s + (w.refundAmount ?? 0), 0),
     },
     participants: participants.map((p) => ({
       id: p.id, username: p.username, igUserId: p.igUserId, source: p.source, mentions: p.mentions ?? [],
       storyMentioned: p.storyMentioned === 1, invitedPurchases: p.invitedPurchases, hasTicket: p.hasTicket === 1,
-      boughtDuringContest: p.boughtDuringContest === 1, email: p.email, couponCode: p.couponCode, couponUsed: usedOf(p.couponCode) > 0,
+      boughtDuringContest: p.boughtDuringContest === 1, email: p.email, pool: drawPoolFor({ hasTicket: !!p.hasTicket, boughtDuringContest: !!p.boughtDuringContest }), couponCode: p.couponCode, couponUsed: usedOf(p.couponCode) > 0,
       friendCode: p.friendCode, inviteCode: p.inviteCode, disqualified: p.disqualified === 1, disqualifyReason: p.disqualifyReason,
       chances: chancesOf(p, ctx.config), createdAt: p.createdAt,
     })),
     winners: winners.map((w) => ({
       ...w, username: byId.get(w.participantId)?.username ?? null, prizeUsed: usedOf(w.prizeCode) > 0,
+      paymentId: w.orderId ? paymentByOrder.get(w.orderId) ?? null : null,
     })),
   };
 }
@@ -1049,7 +1339,7 @@ export async function markParticipantHolder(participantId: number, email: string
   if (!ctx) throw new Error('Concurso no encontrado.');
   const holder = await findHolderOrder(db, ctx.event.id, { email });
   if (!holder) throw new Error('No hay una compra aprobada para esta fiesta con ese correo.');
-  await db.update(contestParticipants).set({ hasTicket: 1, awaitingEmail: 0, email: holder.email, orderId: holder.orderId }).where(eq(contestParticipants.id, p.id));
+  await markHolder(db, ctx, p.id, holder);
   await linkInstagramToCustomer(db, holder.email, p.username);
   await deliverHolderPrizes(db, ctx, await reload(db, p.id));
 }
@@ -1062,7 +1352,7 @@ export async function skipWinner(winnerId: number) {
   if (!row) throw new Error('Ganador no encontrado.');
   const ctx = await getCtxById(row.contestId);
   if (!ctx) throw new Error('Concurso no encontrado.');
-  await db.update(contestWinners).set({ status: 'expired' }).where(eq(contestWinners.id, winnerId));
+  await db.update(contestWinners).set({ status: 'expired', ...(row.refundStatus === 'pending' ? { refundStatus: null } : {}) }).where(eq(contestWinners.id, winnerId));
   if (row.prizeCode) await db.update(discountCodes).set({ isActive: 0 }).where(eq(discountCodes.code, row.prizeCode));
   return { promoted: await promoteAlternate(db, ctx, row.pool) };
 }
@@ -1077,7 +1367,7 @@ export async function getPublicContest() {
   const winners = ctx.contest.drawnAt
     ? await db.select({ pool: contestWinners.pool, username: contestParticipants.username, status: contestWinners.status })
       .from(contestWinners).innerJoin(contestParticipants, eq(contestParticipants.id, contestWinners.participantId))
-      .where(and(eq(contestWinners.contestId, ctx.contest.id), inArray(contestWinners.status, ['notified', 'delivered'])))
+      .where(and(eq(contestWinners.contestId, ctx.contest.id), inArray(contestWinners.status, ['notified', 'choosing', 'delivered'])))
     : [];
   const labels = prizeLabels(ctx.prizeName, ctx.config.prizes.doubleWinners);
   return {
@@ -1099,6 +1389,8 @@ export async function getPublicContest() {
       vipLabel: ctx.config.prizes.vipPrizeLabel,
       couponPercent: ctx.config.prizes.couponPercent,
       couponHours: ctx.config.prizes.couponHours,
+      priceLockUntil: priceLockUntil(ctx).toISOString(),
+      choiceHours: ctx.config.prizes.choiceHours,
       friendPercent: ctx.config.prizes.friendPercent,
       giftName: ctx.giftName,
       playcoins: ctx.config.prizes.holderPlaycoins,
@@ -1113,8 +1405,8 @@ export async function getDrawWheel(id: number) {
   const data = await getContestAdmin(id);
   if (!data) return null;
   return {
-    double: data.participants.filter((p) => !p.hasTicket && !p.disqualified).map((p) => ({ username: p.username, chances: p.chances })),
-    vip: data.participants.filter((p) => p.hasTicket && !p.disqualified).map((p) => ({ username: p.username, chances: p.chances })),
+    double: data.participants.filter((p) => p.pool === 'double' && !p.disqualified).map((p) => ({ username: p.username, chances: p.chances })),
+    vip: data.participants.filter((p) => p.pool === 'vip' && !p.disqualified).map((p) => ({ username: p.username, chances: p.chances })),
   };
 }
 
@@ -1124,4 +1416,12 @@ export async function listContestTicketTypes(eventId: number) {
   if (!db) return [];
   return db.select({ id: ticketTypes.id, name: ticketTypes.name, category: ticketTypes.category, price: ticketTypes.price, status: ticketTypes.status })
     .from(ticketTypes).where(eq(ticketTypes.eventId, eventId)).orderBy(asc(ticketTypes.category), asc(ticketTypes.name));
+}
+
+/** Llamado a participar para el correo de la entrada y la pantalla de compra
+ * exitosa: solo con un concurso activo, en vivo y antes del sorteo. */
+export async function getContestInviteForEvent(eventId: number): Promise<{ permalink: string; drawText: string; multiplier: number } | null> {
+  const ctx = await getActiveContestCtx();
+  if (!ctx || ctx.event.id !== eventId || !ctx.contest.mediaPermalink || contestPhase(ctx.contest, ctx.config) !== 'live') return null;
+  return { permalink: ctx.contest.mediaPermalink, drawText: drawDateText(ctx.config), multiplier: ctx.config.chances.buyerMultiplier };
 }

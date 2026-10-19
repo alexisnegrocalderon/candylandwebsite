@@ -23,6 +23,7 @@ import { getStoredAmbassadorRef } from '@/lib/ambassadorRef';
 import { BRAND } from '@shared/eventBrand';
 import { PARTNER_EXISTING_CUSTOMER_MESSAGE } from '@shared/partnerCampaign';
 import './Checkout.walletPreview.css';
+import { ContestBuyerInvite } from '@/components/ContestBuyerInvite';
 
 /** Mini vista previa de la Tarjeta Playroom, mostrada justo donde se pide el
  * PIN -- para que quede claro que el PIN protege ESTA tarjeta (saldo +
@@ -996,6 +997,7 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
           <p className="text-muted-foreground text-sm mb-8">
             Si no lo encuentras, revisa tu carpeta de <span className="font-semibold text-foreground">spam o correo no deseado</span> — dependiendo del filtro de tu correo, puede haberse ido para allá.
           </p>
+          {!isPartner && <ContestBuyerInvite eventSlug={event?.slug} />}
           {isPartner && partner && (
             <div className="glass-candy rounded-2xl p-5 mb-6 text-left space-y-3">
               <p className="text-sm font-bold">{partner.emoji} Nos vemos en la Pista Tech</p>

@@ -500,6 +500,10 @@ export async function advanceTanda(
     await db.update(events).set({ tandaPhaseIndex: next.index }).where(eq(events.id, eventId));
   }
 
+  // Concurso de Instagram: los cupones de precio congelado cubren al tiro la
+  // diferencia de la tanda nueva (import dinámico: contests.ts importa db.ts).
+  await import('./contests').then((m) => m.refreshContestPriceLocks(eventId)).catch(() => {});
+
   return { success: true, count, newPhaseIndex: next ? next.index : event.tandaPhaseIndex };
 }
 

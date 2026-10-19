@@ -188,6 +188,9 @@ export function buildOrderEmail(data: {
    * viene por primera vez, así que el correo repite los valores y el derecho
    * de permanencia que aceptaron en el checkout. */
   partnerWelcome?: { label: string; emoji: string; rules: string[] };
+  /** Concurso de Instagram activo (server/contests.ts): llamado a comentar el
+   * post para entrar al sorteo con la entrada ya comprada. */
+  contestInvite?: { permalink: string; drawText: string; multiplier: number };
 }) {
   const cfg = data.templateConfig ?? DEFAULT_ORDER_EMAIL_CONFIG;
   const ticketNames = data.items.map(i => i.name).join(', ');
@@ -282,6 +285,16 @@ export function buildOrderEmail(data: {
         <p style="color:${MUTED};font-size:13px;margin:0 0 14px;">Nuestros pilares: ${CONTENT.valores.join(' · ')}</p>
         ${data.partnerWelcome.rules.map(r => `<p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">• ${escapeEmailText(r)}</p>`).join('')}
         <p style="color:${ACCENT.pink.text};font-size:13px;font-weight:700;margin:12px 0 0;">Al comprar aceptaste estas reglas y el derecho de permanencia.</p>
+      `, { glow: 'pink' })}
+      ` : ''}
+
+      <!-- CONCURSO DE INSTAGRAM -->
+      ${data.contestInvite ? `
+      ${sectionTitle('🎉', 'Estás a un comentario de ganar')}
+      ${card(`
+        <p style="color:${INK};font-size:15px;line-height:1.6;margin:0 0 10px;">Comenta nuestro post del concurso y etiqueta a tus amigos: como ya compraste, participas con <b>x${data.contestInvite.multiplier} chances</b>.</p>
+        <p style="color:${MUTED};font-size:13px;line-height:1.6;margin:0 0 14px;">Si ganas, eliges: te devolvemos tu entrada o te llevas una entrada doble para regalar. Sorteo: ${escapeEmailText(data.contestInvite.drawText)}.</p>
+        <a href="${data.contestInvite.permalink}" style="display:inline-block;background:${ACCENT.pink.text};color:#fff;font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;border-radius:999px;">Ir al post del concurso</a>
       `, { glow: 'pink' })}
       ` : ''}
 

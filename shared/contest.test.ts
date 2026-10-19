@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { computeCodeDiscount } from './discountCode';
 import {
-  DEFAULT_CONTEST_CONFIG, computeChances, contestPhase, extractEmail, hasContestKeyword, mergeMentions,
+  DEFAULT_CONTEST_CONFIG, drawPoolFor, priceLockCodePercent, refundAmountFor, computeChances, contestPhase, extractEmail, hasContestKeyword, mergeMentions,
   normalizeContestConfig, parseMentions, randomContestCode, renderContestTemplate, weightedDraw,
 } from './contest';
 
@@ -105,10 +106,47 @@ describe('mensajes propuestos', () => {
   // Las variables que arma server/contests.ts (templateVars + extras).
   const KNOWN = new Set(['nombre', 'chances', 'ganadores_doble', 'premio', 'premio_singular', 'premio_vip', 'por_etiqueta', 'max_etiquetas',
     'bonus_historia', 'bonus_compra_amigo', 'multiplicador', 'porcentaje', 'horas', 'cupon', 'porcentaje_amigo', 'codigo_amigo',
-    'link_invitar', 'fecha_sorteo', 'link_bases', 'evento', 'lista_regalos', 'codigo_premio', 'plazo']);
+    'link_invitar', 'fecha_sorteo', 'link_bases', 'evento', 'lista_regalos', 'codigo_premio', 'plazo',
+    'congelado_hasta', 'link_elegir', 'monto_devolucion']);
   it('solo usan variables que existen', () => {
     const all = Object.values(DEFAULT_CONTEST_CONFIG.messages).flat().join('\n');
     const used = Array.from(all.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)).map((m) => m[1]);
     expect(used.filter((k) => !KNOWN.has(k))).toEqual([]);
+  });
+});
+
+describe('precio congelado', () => {
+  it('calcula el % sobre el precio general', () => {
+    expect(priceLockCodePercent(50, 50, 0)).toBe(0);
+    expect(priceLockCodePercent(50, 40, 0)).toBe(10);
+    expect(priceLockCodePercent(50, 40, 20)).toBe(20);
+    expect(priceLockCodePercent(50, 50, 20)).toBe(10);
+    // Nunca negativo (si la tanda bajara de precio).
+    expect(priceLockCodePercent(40, 50, 0)).toBe(0);
+  });
+
+  it('el checkout cobra el precio congelado en cualquier acceso y cantidad', () => {
+    // Tanda al participar: 50%. Hoy: 40%. Dúo general $40.000 (hoy $24.000), Soltera general $20.000 (hoy $12.000).
+    const lines = [
+      { ticketTypeId: 1, category: 'acceso', unitPrice: 24000, originalPrice: 40000, quantity: 1 },
+      { ticketTypeId: 2, category: 'acceso', unitPrice: 12000, originalPrice: 20000, quantity: 2 },
+    ];
+    const subtotal = 24000 + 24000;
+    const sinExtra = computeCodeDiscount({ discountType: 'percentage', discountValue: priceLockCodePercent(50, 40, 0), basedOnOriginalPrice: 1 }, lines, 'web');
+    expect(subtotal - sinExtra).toBe(20000 + 2 * 10000); // precios de la tanda del 50%
+    const conExtra = computeCodeDiscount({ discountType: 'percentage', discountValue: priceLockCodePercent(50, 40, 20), basedOnOriginalPrice: 1 }, lines, 'web');
+    expect(subtotal - conExtra).toBe(Math.round((20000 + 20000) * 0.8));
+  });
+});
+
+describe('devolución y sorteo', () => {
+  it('tope en el valor del premio', () => {
+    expect(refundAmountFor(60000, 40000)).toBe(40000);
+    expect(refundAmountFor(15000, 40000)).toBe(15000);
+  });
+  it('quien compra durante el concurso sigue en el sorteo de entradas dobles', () => {
+    expect(drawPoolFor({ hasTicket: false, boughtDuringContest: false })).toBe('double');
+    expect(drawPoolFor({ hasTicket: true, boughtDuringContest: true })).toBe('double');
+    expect(drawPoolFor({ hasTicket: true, boughtDuringContest: false })).toBe('vip');
   });
 });
