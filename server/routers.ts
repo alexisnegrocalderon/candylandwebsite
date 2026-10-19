@@ -3989,6 +3989,20 @@ export const appRouter = router({
       try { return await cashSvc.classifyMovement({ ...input, userId: ctx.user.id }); }
       catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo clasificar' }); }
     }),
+    classifyMany: adminProcedure.input(z.object({
+      ids: z.array(z.number().int().positive()).min(1).max(300),
+      classification: z.enum(['venta', 'comision', 'gasto_evento', 'gasto_empresa', 'retiro_dueno', 'traspaso', 'otro', 'por_clasificar']),
+      eventId: z.number().int().positive().nullish(), category: z.string().max(40).optional(),
+      documentType: z.enum(['boleta', 'factura', 'boleta_honorarios', 'sin_documento']).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      try {
+        const r = await cashSvc.classifyMany({ ...input, userId: ctx.user.id });
+        await db.recordAdminAudit({ action: 'cash.classifyMany', targetType: 'accountMovements', payload: { count: r.done, classification: input.classification }, ip: clientIp(ctx) });
+        return r;
+      } catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo clasificar' }); }
+    }),
+    accountMonth: adminProcedure.input(z.object({ monthKey: z.string().regex(/^\d{4}-\d{2}$/), source: z.enum(['mercadopago', 'banco']).default('mercadopago') }))
+      .query(({ input }) => cashSvc.getAccountMonth(input.monthKey, input.source)),
     importStatement: adminProcedure.input(z.object({ text: z.string().min(1).max(3_000_000), preview: z.boolean() })).mutation(async ({ input, ctx }) => {
       const r = await cashSvc.importBankStatement(input.text, input.preview);
       if (!input.preview) await db.recordAdminAudit({ action: 'cash.importStatement', targetType: 'accountMovements', payload: { imported: r.imported }, ip: clientIp(ctx) });

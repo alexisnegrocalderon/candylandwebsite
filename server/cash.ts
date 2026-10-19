@@ -1,8 +1,8 @@
 /** Caja real: saldos de Mercado Pago y banco, retiros del dueño, movimientos por clasificar. */
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import { accountBalances, accountMovements, expenses, ownerWithdrawals } from "../drizzle/schema";
 import * as db from "./db";
-import { cashPosition, parseBankStatement, parseMercadoPagoStatement, type MovementClass } from "../shared/cash";
+import { cashPosition, parseBankStatement, parseMercadoPagoStatement, summarizeMovements, type MovementClass, type MovementView } from "../shared/cash";
 import { monthKeyFor } from "../shared/ambassadorProgram";
 import { getCompanyYear } from "./financeCompany";
 
@@ -61,31 +61,89 @@ export async function setManualBalance(source: "mercadopago" | "banco", balance:
   return { success: true };
 }
 
-/** Clasifica un movimiento. Retiro → crea el retiro del dueño. Gasto → crea el gasto. */
+/** Clasifica (o reclasifica) un movimiento. Retiro → crea el retiro del
+ * dueño. Gasto → crea el gasto. Si ya estaba clasificado distinto, deshace
+ * lo que había creado este mismo movimiento (su retiro o su gasto) antes de
+ * aplicar lo nuevo, para que corregir no deje nada duplicado. */
 export async function classifyMovement(p: {
   id: number; classification: MovementClass; eventId?: number | null; category?: string; documentType?: string; userId?: number;
 }) {
   const conn = await need();
   const [m] = (await conn.select().from(accountMovements).where(eq(accountMovements.id, p.id)).limit(1)) as any[];
   if (!m) throw new Error("Movimiento no encontrado");
+  const isGasto = p.classification === "gasto_evento" || p.classification === "gasto_empresa";
+  if (p.classification === "gasto_evento" && !p.eventId) throw new Error("Elige a qué evento corresponde el gasto");
   const set: any = { classification: p.classification, eventId: p.eventId ?? null };
   const date = new Date(m.occurredAt).toISOString();
+
+  if (m.withdrawalId && p.classification !== "retiro_dueno") {
+    await conn.delete(ownerWithdrawals).where(eq(ownerWithdrawals.id, m.withdrawalId));
+    set.withdrawalId = null;
+  }
+  if (m.expenseId && !isGasto) {
+    await db.deleteExpense(m.expenseId);
+    set.expenseId = null;
+  }
+
   if (p.classification === "retiro_dueno" && !m.withdrawalId) {
     const w = await addWithdrawal({ date, amount: Number(m.amountClp), account: m.source, note: m.description, movementId: m.id });
     set.withdrawalId = w.id;
   }
-  if ((p.classification === "gasto_evento" || p.classification === "gasto_empresa") && !m.expenseId) {
-    if (p.classification === "gasto_evento" && !p.eventId) throw new Error("Elige a qué evento corresponde el gasto");
-    const r = await db.createExpense({
-      scope: p.classification === "gasto_evento" ? "evento" : "general", eventId: p.eventId ?? null, expenseDate: date,
-      category: p.category ?? "otros", description: String(m.description ?? "Gasto").slice(0, 255), documentType: p.documentType ?? "sin_documento",
-      amountTotal: Math.abs(Number(m.amountClp)), paymentMethod: "transferencia", createdByUserId: p.userId,
-      notes: `Desde ${m.source === "banco" ? "la cartola del banco" : "Mercado Pago"}`,
-    } as any);
-    if ((r as any)?.id) set.expenseId = (r as any).id;
+  if (isGasto) {
+    const fields = {
+      scope: p.classification === "gasto_evento" ? "evento" : "general", eventId: p.eventId ?? null,
+      category: p.category ?? "otros", documentType: p.documentType ?? "sin_documento",
+    };
+    if (m.expenseId) {
+      await conn.update(expenses).set(fields as any).where(eq(expenses.id, m.expenseId));
+    } else {
+      const r = await db.createExpense({
+        ...fields, expenseDate: date, description: String(m.description ?? "Gasto").slice(0, 255),
+        amountTotal: Math.abs(Number(m.amountClp)), paymentMethod: "transferencia", createdByUserId: p.userId,
+        notes: `Desde ${m.source === "banco" ? "la cartola del banco" : "Mercado Pago"}`,
+      } as any);
+      if ((r as any)?.id) set.expenseId = (r as any).id;
+    }
   }
   await conn.update(accountMovements).set(set).where(eq(accountMovements.id, p.id));
   return { success: true };
+}
+
+/** Lo mismo que `classifyMovement`, para varios movimientos a la vez. */
+export async function classifyMany(p: { ids: number[]; classification: MovementClass; eventId?: number | null; category?: string; documentType?: string; userId?: number }) {
+  let done = 0;
+  for (const id of p.ids) { await classifyMovement({ ...p, id }); done++; }
+  return { done };
+}
+
+/** "2026-10" → [inicio, fin) en hora de Chile (con un día de margen; se
+ * filtra exacto con monthKeyFor). */
+function monthRange(monthKey: string) {
+  const [y, m] = monthKey.split("-").map(Number);
+  return { from: new Date(Date.UTC(y, m - 1, 1) - 86_400_000), to: new Date(Date.UTC(y, m, 1) + 86_400_000) };
+}
+
+/** Todos los movimientos de una cuenta en el mes, con la categoría del gasto
+ * que generaron, y el resumen del mes. */
+export async function getAccountMonth(monthKey: string, source: "mercadopago" | "banco" = "mercadopago") {
+  const conn = await need();
+  const { from, to } = monthRange(monthKey);
+  const rows = ((await conn.select().from(accountMovements)
+    .where(and(eq(accountMovements.source, source), gte(accountMovements.occurredAt, from), lt(accountMovements.occurredAt, to)))
+    .orderBy(desc(accountMovements.occurredAt))) as any[]).filter((r) => monthKeyFor(r.occurredAt) === monthKey);
+  const expenseIds = rows.map((r) => r.expenseId).filter(Boolean) as number[];
+  const cats = new Map<number, string>();
+  if (expenseIds.length) {
+    for (const e of (await conn.select({ id: expenses.id, category: expenses.category }).from(expenses).where(inArray(expenses.id, expenseIds))) as any[]) cats.set(e.id, e.category);
+  }
+  const movements: (MovementView & { source: string; suggestion: MovementClass | null })[] = rows.map((r) => ({
+    id: r.id, source: r.source, date: r.occurredAt, amount: Number(r.amountClp), description: r.description, kind: r.kind,
+    classification: r.classification, eventId: r.eventId ?? null, category: r.expenseId ? cats.get(r.expenseId) ?? null : null,
+    fee: r.classification === "venta" ? Math.max(0, Number((r.raw as any)?.fee ?? 0)) : 0,
+    suggestion: typeof r.kind === "string" && r.kind.startsWith("sug:") ? (r.kind.slice(4) as MovementClass) : null,
+  }));
+  const [bal] = (await latestBalances()).filter((b) => b.source === source);
+  return { monthKey, movements, summary: summarizeMovements(movements), balance: bal ?? null };
 }
 
 /** Importa un archivo de movimientos: estado de cuenta de Mercado Pago o cartola

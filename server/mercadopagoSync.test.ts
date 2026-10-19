@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 vi.mock("./db", () => ({ getDb: vi.fn() }));
 import * as db from "./db";
-import { syncMercadoPago } from "./mercadopagoSync";
+import { defaultSyncDays, syncMercadoPago } from "./mercadopagoSync";
 
 function fakeDb() {
   const inserted: any[] = [];
@@ -62,5 +62,28 @@ describe("syncMercadoPago (solo lectura, con la API simulada)", () => {
     vi.mocked(db.getDb).mockResolvedValue(conn as any);
     const r = await syncMercadoPago(30);
     expect(r.errors.join(" ")).toMatch(/MERCADOPAGO_ACCESS_TOKEN/);
+  });
+
+  it("trae los pagos que hizo la cuenta (débito `payment`) con el mismo id que la cartola, y sigue saltando las ventas", async () => {
+    const { inserted, conn } = fakeDb();
+    vi.mocked(db.getDb).mockResolvedValue(conn as any);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.includes("/v1/payments/search")) return new Response(JSON.stringify({ results: [] }), { status: 200 });
+      if (url.endsWith("/v1/account/release_report/list")) return new Response(JSON.stringify([{ file_name: "rr.csv", date_created: new Date().toISOString() }]), { status: 200 });
+      if (url.includes("/v1/account/release_report/rr.csv")) {
+        return new Response("DATE;SOURCE_ID;DESCRIPTION;NET_CREDIT_AMOUNT;NET_DEBIT_AMOUNT;BALANCE_AMOUNT\n2026-10-01T22:00:00Z;1;payment;9650;0;9650\n2026-10-03T15:00:00Z;555;payment;0;12990;-3340", { status: 200 });
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    const r = await syncMercadoPago(30);
+    expect(r.movements).toBe(1);
+    expect(inserted.some((v) => String(v.externalId).startsWith("rr:1:"))).toBe(false);
+    const paid = inserted.find((v) => v.externalId === "mpst:555");
+    expect(paid).toMatchObject({ amountClp: -12990, classification: "por_clasificar", description: "Pago con Mercado Pago" });
+  });
+
+  it("el rango por defecto cubre desde el 1 del mes anterior (mínimo 45 días)", () => {
+    expect(defaultSyncDays(new Date("2026-10-31T12:00:00Z"))).toBe(62);
+    expect(defaultSyncDays(new Date("2026-10-02T12:00:00Z"))).toBe(45);
   });
 });
