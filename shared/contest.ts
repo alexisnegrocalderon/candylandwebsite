@@ -79,30 +79,26 @@ export interface ContestConfig {
 
 export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
   noTicket:
-    '¡Ya estás participando por 1 de las {{ganadores_doble}} {{premio}}, {{nombre}}! 🍬🎉\n\n'
-    + 'Hoy tienes {{chances}} chance(s). Súmale más:\n'
-    + '• +{{por_etiqueta}} por cada amigo que etiquetes en el post (hasta {{max_etiquetas}})\n'
-    + '• +{{bonus_historia}} si compartes el post en tu historia mencionándonos\n'
-    + '• +{{bonus_compra_amigo}} por cada amigo que compre con tu link: {{link_invitar}}\n\n'
-    + '🎁 Premio por participar: tu código {{cupon}} te CONGELA el precio de hoy hasta {{congelado_hasta}}, '
-    + 'y si compras en las próximas {{horas}} horas te suma {{porcentaje}}% de descuento extra ⏳\n\n'
-    + '🛡️ Compra sin riesgo: si compras durante el concurso sigues participando con x{{multiplicador}} chances, '
-    + 'y si ganas eliges: te devolvemos tu entrada o te llevas una entrada doble para regalar 🔥\n\n'
-    + 'Sorteo: {{fecha_sorteo}}. Bases: {{link_bases}}',
-  holderAsk: '¿Ya tienes tu entrada? Respóndeme con el correo de tu compra y te mando tus regalos de asistente 💌',
+    '¡Ya participas, {{nombre}}! 🎉 Sorteamos {{ganadores_doble}} {{premio}}.\n\n'
+    + 'Suma chances:\n'
+    + '👥 +{{por_etiqueta}} por amigo etiquetado\n'
+    + '📲 +{{bonus_historia}} si compartes el reel en tu historia y nos mencionas\n'
+    + '🛒 +{{bonus_compra_amigo}} por amigo que compre con tu link: {{link_invitar}}\n\n'
+    + '🔒 Tu código {{cupon}} congela el precio de hoy hasta {{congelado_hasta}} (+{{porcentaje}}% extra si compras en {{horas}} h).\n'
+    + '🛡️ Compra ahora y sigues con x{{multiplicador}}: si ganas, te devolvemos tu entrada o te llevas otra para regalar.\n\n'
+    + 'Sorteo: {{fecha_sorteo}} · Bases: {{link_bases}}',
+  holderAsk: '¿Ya tienes entrada? Respóndeme con el correo de tu compra 💌',
   holder:
-    '¡Qué bueno que vienes, {{nombre}}! 🎉 Como ya tienes tu entrada, participas por {{premio_vip}} con {{chances}} chance(s).\n\n'
-    + 'Tus regalos de asistente:\n{{lista_regalos}}\n\n'
-    + '💌 Para tu amigo/a: {{porcentaje_amigo}}% de descuento con el código {{codigo_amigo}} o con tu link {{link_invitar}}. '
-    + 'Cada amigo que compre te suma +{{bonus_compra_amigo}} chances.\n\n'
-    + 'Sorteo: {{fecha_sorteo}}. Bases: {{link_bases}}',
+    '¡Qué bueno que vienes, {{nombre}}! 🎉 Participas por {{premio_vip}}. Tus regalos:\n{{lista_regalos}}\n\n'
+    + '👥 +{{por_etiqueta}} por amigo etiquetado · 📲 +{{bonus_historia}} si compartes en tu historia\n'
+    + '💌 Para tu amigo: {{porcentaje_amigo}}% con {{codigo_amigo}} (o tu link {{link_invitar}}). Si compra, ganas +{{bonus_compra_amigo}} chances.\n\n'
+    + 'Sorteo: {{fecha_sorteo}}',
   extraChances: '🔥 ¡+{{bonus_historia}} chances por compartir en tu historia! Ahora tienes {{chances}}. Suerte, {{nombre}} 🍀',
-  emailNotFound: 'No encontré una compra para esta fiesta con ese correo 🤔 Revisa que sea el mismo con que compraste. Mientras, tu cupón {{cupon}} sigue activo.',
+  emailNotFound: 'No encontré una compra con ese correo 🤔 Revisa que sea el de tu compra. Tu código {{cupon}} sigue activo.',
   boughtUpgrade:
-    '¡Ya tienes tu entrada, {{nombre}}! 🎉 Sigues en el sorteo con {{chances}} chances (x{{multiplicador}}). '
-    + 'Si ganas, eliges: te devolvemos tu entrada o te llevas una entrada doble para regalar.\n\n'
-    + 'Tus regalos de asistente:\n{{lista_regalos}}\n\n'
-    + '💌 Para tu amigo/a: {{porcentaje_amigo}}% con el código {{codigo_amigo}} o tu link {{link_invitar}}.',
+    '¡Compra confirmada, {{nombre}}! 🎉 Sigues en el sorteo con x{{multiplicador}} ({{chances}} chances). Si ganas, eliges: te devolvemos tu entrada o te llevas otra para regalar.\n\n'
+    + 'Tus regalos:\n{{lista_regalos}}\n\n'
+    + '💌 Para tu amigo: {{porcentaje_amigo}}% con {{codigo_amigo}} o tu link {{link_invitar}}.',
   winnerDouble:
     '🎉 ¡{{nombre}}, GANASTE {{premio_singular}} para {{evento}}! 🍬\n\n'
     + 'Tu código (cubre la entrada completa): {{codigo_premio}}\n'
@@ -118,7 +114,7 @@ export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
   winnerVip: '🎉 ¡{{nombre}}, ganaste {{premio_vip}}! Ya quedó cargado en tu entrada: muéstralo en caja la noche de la fiesta 🥂',
   winnerPublic: '🎉 ¡{{nombre}} ganaste! Revisa tus mensajes directos 💌',
   winnerPublicNoDm: '🎉 ¡{{nombre}} ganaste! Escríbenos por DM antes de {{plazo}} para recibir tu premio 💌',
-  afterDraw: 'El sorteo ya se hizo 🎉 pero igual te dejo tu código {{cupon}}: precio congelado hasta {{congelado_hasta}} y {{porcentaje}}% extra si compras en las próximas {{horas}} h. ¡Te esperamos!',
+  afterDraw: 'El sorteo ya se hizo 🎉 pero tu código {{cupon}} congela el precio hasta {{congelado_hasta}} (+{{porcentaje}}% extra si compras en {{horas}} h). ¡Te esperamos!',
   publicReplies: [
     '¡Ya estás participando! 🍬 Revisa tus DM 💌',
     '¡Dentro! 🎉 Te dejamos un regalo por DM',
