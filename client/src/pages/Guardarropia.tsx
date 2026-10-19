@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { Archive, BellRing, Delete, Hash, Inbox, LogOut, Search, Undo2, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
-import { useDarkGlassDocument } from '@/components/admin/shell/AdminShell';
+import { TerminalFrame, TerminalLogin, TerminalSpinner, beep, loginErrorToast, useWakeLock, vibrateAlert } from '@/components/terminal/TerminalShell';
 import { compareLockerTags, lockerMatchesSearch, lockerTagMatchesDigits, type LockerItemStatus } from '@shared/locker';
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
 
@@ -28,51 +28,19 @@ const SOUND_MUTED_KEY = 'guardarropia_sound_muted';
 const UNDO_WINDOW_MS = 8000;
 const FLASH_MS = 8000;
 
-/** Pitido corto con Web Audio API -- sin archivo de sonido que cargar. */
-function beep() {
-  try {
-    const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-    const ctx = new Ctx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 880;
-    gain.gain.setValueAtTime(0.2, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.35);
-  } catch {
-    // Sin Web Audio (raro) -- silencioso, no rompe nada.
-  }
-}
-
-/** Marco con el mismo vidrio oscuro de /caja: tema en <html> (toasts y
- * portales también), fondo de planetas. Cada pantalla de abajo es `fixed
- * inset-0` y transparente para que se vea este fondo. */
-function Frame({ children }: { children: React.ReactNode }) {
-  useDarkGlassDocument();
-  return (
-    <div data-admin-theme="dark-glass" className="admin-shell caja-shell dark">
-      <div className="admin-backdrop" aria-hidden="true" />
-      {children}
-    </div>
-  );
-}
-
 export default function Guardarropia() {
   useSeo({ title: 'Guardarropía — Mansion Playroom', description: 'Recibir y entregar prendas.', path: '/guardarropia', noindex: true });
   return (
-    <Frame>
+    <TerminalFrame>
       <Gate />
-    </Frame>
+    </TerminalFrame>
   );
 }
 
 function Gate() {
   const me = trpc.guardarropia.me.useQuery();
   if (me.isLoading) {
-    return <div className="fixed inset-0 grid place-items-center"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
+    return <TerminalSpinner />;
   }
   if (!me.data) return <Login onDone={() => me.refetch()} />;
   return <Board operatorName={me.data.name} operatorRole={me.data.role} />;
@@ -82,83 +50,15 @@ function Gate() {
 
 function Login({ onDone }: { onDone: () => void }) {
   const { data: operators } = trpc.guardarropia.listOperators.useQuery();
-  const [selected, setSelected] = useState<{ id: number; name: string } | null>(null);
-  const [pin, setPin] = useState('');
-
-  const login = trpc.guardarropia.login.useMutation({
-    onSuccess: onDone,
-    onError: (e) => { toast.error(e.message); setPin(''); },
-  });
-
-  if (!selected) {
-    return (
-      <div className="fixed inset-0 overflow-y-auto overscroll-none text-white flex flex-col items-center justify-center gap-8 p-6">
-        <div className="flex flex-col items-center gap-2 text-center">
-          <img src="/candyland/logo-isotipo-transparent.png" alt="" className="h-14 w-14 object-contain" />
-          <h1 className="font-heading text-2xl tracking-tight"><span className="admin-brand-text block">MANSION PLAYROOM</span>Guardarropía</h1>
-          <p className="text-white/70 text-sm">Toca tu nombre</p>
-        </div>
-        <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
-          {(operators ?? []).map((o: any) => (
-            <button
-              key={o.id}
-              onClick={() => setSelected({ id: o.id, name: o.name })}
-              className="admin-tile flex h-20 flex-col items-center justify-center rounded-3xl text-lg font-semibold active:scale-95 transition-transform"
-            >
-              {o.name}
-              <span className="text-xs font-normal text-white/60">{OPERATOR_ROLE_LABELS[o.role] ?? o.role}</span>
-            </button>
-          ))}
-          {operators && operators.length === 0 && (
-            <p className="col-span-2 text-center text-white/50 text-sm">
-              No hay nadie con permiso de guardarropía. Pídele a un admin que te cree un usuario con rol "guardarropía".
-            </p>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Hasta 8 dígitos (lo que acepta el servidor). No entra solo: con PIN de 4
-  // a 8 dígitos no hay forma de saber cuándo terminó, y probar a ciegas
-  // gastaría intentos del bloqueo por PIN -- se entra con el botón.
-  const dots = Math.max(6, pin.length);
-  const submit = () => login.mutate({ operatorId: selected.id, pin });
-
+  const login = trpc.guardarropia.login.useMutation({ onSuccess: onDone, onError: loginErrorToast });
   return (
-    <div className="fixed inset-0 overflow-y-auto overscroll-none text-white flex flex-col items-center justify-center gap-6 p-6">
-      <button onClick={() => { setSelected(null); setPin(''); }} className="text-white/60 text-sm h-11 px-3">← Cambiar de persona</button>
-      <h1 className="text-xl font-bold">{selected.name}</h1>
-      <div className="flex gap-3" role="status" aria-label={`${pin.length} dígitos ingresados`}>
-        {Array.from({ length: dots }, (_, i) => (
-          <div key={i} className={`w-4 h-4 rounded-full border-2 transition-all ${i < pin.length ? 'bg-primary border-primary shadow-[0_0_10px_-2px_var(--color-primary)]' : 'border-white/15'}`} />
-        ))}
-      </div>
-      <div className="grid grid-cols-3 gap-3 w-full max-w-xs">
-        {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map((k, i) => (
-          <button
-            key={i}
-            disabled={!k || login.isPending}
-            onClick={() => {
-              if (k === '⌫') { setPin((p) => p.slice(0, -1)); return; }
-              if (!k) return;
-              setPin((p) => (p + k).slice(0, 8));
-            }}
-            aria-label={k === '⌫' ? 'Borrar último dígito' : k || undefined}
-            className={`h-16 rounded-full text-xl font-semibold active:scale-95 transition-transform focus-visible:ring-2 focus-visible:ring-primary ${k ? 'admin-tile' : 'invisible'}`}
-          >
-            {k}
-          </button>
-        ))}
-      </div>
-      <button
-        disabled={pin.length < 4 || login.isPending}
-        onClick={submit}
-        className="w-full max-w-xs h-14 rounded-full bg-primary text-base font-bold text-primary-foreground disabled:opacity-35"
-      >
-        {login.isPending ? 'Entrando…' : 'Entrar'}
-      </button>
-    </div>
+    <TerminalLogin
+      title="Guardarropía"
+      operators={operators as any}
+      emptyText='No hay nadie con permiso de guardarropía. Pídele a un admin que te cree un usuario con rol "guardarropía".'
+      pending={login.isPending}
+      onSubmit={(operatorId, pin, onError) => login.mutate({ operatorId, pin }, { onError })}
+    />
   );
 }
 
@@ -230,22 +130,7 @@ function Board({ operatorName, operatorRole }: { operatorName: string; operatorR
     return () => clearInterval(id);
   }, []);
 
-  // Pantalla siempre encendida mientras el terminal está abierto. Si el
-  // navegador no tiene Wake Lock (o el sistema lo suelta al cambiar de app)
-  // se ignora / se vuelve a pedir al volver a la pestaña.
-  useEffect(() => {
-    let lock: any = null;
-    const request = async () => {
-      try { lock = await (navigator as any).wakeLock?.request('screen'); } catch { /* sin permiso o sin API */ }
-    };
-    request();
-    const onVisible = () => { if (document.visibilityState === 'visible') request(); };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisible);
-      try { lock?.release?.(); } catch { /* ya liberado */ }
-    };
-  }, []);
+  useWakeLock();
 
   const items = (listQuery.data ?? []) as unknown as LockerItemRow[];
   const pending = useMemo(
@@ -286,7 +171,7 @@ function Board({ operatorName, operatorRole }: { operatorName: string; operatorR
     knownTags.current = current;
     if (fresh.length === 0) return;
     if (!muted) beep();
-    try { navigator.vibrate?.([200, 80, 200]); } catch { /* iOS no vibra desde el navegador */ }
+    vibrateAlert();
     setFlash({ labels: fresh.map((i) => `${i.customerName || 'Sin nombre'} · ${i.tagNumber}`), until: Date.now() + FLASH_MS });
   }, [pending, muted, listQuery.isSuccess]);
   useEffect(() => {

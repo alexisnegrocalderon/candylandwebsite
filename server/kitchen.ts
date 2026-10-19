@@ -65,6 +65,9 @@ export async function updateKitchenTicket(
         if (ticket.status === "entregado") { patch.deliveredAt = null; patch.deliveredByOperatorId = null; }
       }
       if (params.to === "entregado") { patch.deliveredAt = now; patch.deliveredByOperatorId = params.operatorId; }
+      // Deshacer un "Aprobar": vuelve a la cola de nuevos, sin quién ni
+      // cuándo lo aprobó.
+      if (params.to === "pendiente") { patch.approvedAt = null; patch.approvedByOperatorId = null; }
 
       await rawDb.update(kitchenTickets).set(patch).where(eq(kitchenTickets.id, ticket.id));
 
