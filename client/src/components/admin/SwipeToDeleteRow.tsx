@@ -90,13 +90,21 @@ export function SwipeToDeleteRow({
       )}
       <td
         className="p-0"
-        style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: REVEAL_WIDTH, zIndex: 0 }}
+        // El ancho sigue al dedo (ver SwipeToDeleteCard): con celdas
+        // translúcidas un rojo fijo debajo se vería en reposo.
+        aria-hidden={swipeX === 0}
+        style={{
+          position: 'absolute', top: 0, bottom: 0, right: 0, zIndex: 0, overflow: 'hidden',
+          width: -swipeX,
+          visibility: swipeX === 0 ? 'hidden' : 'visible',
+          transition: dragging ? 'none' : `width 150ms ease, visibility 0s linear ${swipeX === 0 ? 150 : 0}ms`,
+        }}
       >
         <ConfirmDeleteButton
           description={deleteDescription}
           onConfirm={onDelete}
           disabled={deleteDisabled}
-          className="flex h-full w-full flex-col items-center justify-center gap-1 bg-[var(--admin-danger-text)] text-xs font-semibold text-white disabled:opacity-40"
+          className="flex h-full w-full flex-col items-center justify-center gap-1 whitespace-nowrap bg-red-600 text-xs font-semibold text-white disabled:opacity-40"
         >
           <Trash2 className="w-5 h-5" />
           Eliminar
