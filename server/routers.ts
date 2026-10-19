@@ -294,6 +294,11 @@ async function checkAdminPassword(ctx: any, password: string | undefined, keyPre
   if (!(await db.checkIpRateLimit(ipKey))) {
     throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
   }
+  if (password?.startsWith(FACEID_GRANT_PREFIX)) {
+    if (await verifyFaceIdDeleteGrant(password.slice(FACEID_GRANT_PREFIX.length))) return true;
+    await db.recordIpFailedAttempt(ipKey);
+    return false;
+  }
   const adminPassword = process.env.ADMIN_PASSWORD;
   // `safeCompare` y no `!==`: tiempo constante, mismo criterio que ya usa
   // el login de admin.
@@ -543,16 +548,91 @@ async function requireAdminStepTicket(ticket: string) {
  * servidor -- mismo criterio que signAdminStepTicket para el paso 1 de TOTP.
  * Dura 2 minutos: alcanza de sobra para completar el prompt de Face
  * ID/Touch ID, y no vale la pena dejarlo vivo más que eso. */
-async function signWebauthnTicket(kind: 'reg' | 'auth', challenge: string): Promise<string> {
+async function signWebauthnTicket(kind: 'reg' | 'auth' | 'reauth', challenge: string): Promise<string> {
   return sdk.signSession({ openId: `webauthn:${kind}`, appId: 'candyland-admin-webauthn', name: challenge }, { expiresInMs: 2 * 60 * 1000 });
 }
 
-async function requireWebauthnTicket(kind: 'reg' | 'auth', ticket: string): Promise<string> {
+async function requireWebauthnTicket(kind: 'reg' | 'auth' | 'reauth', ticket: string): Promise<string> {
   const payload = await sdk.verifySession(ticket).catch(() => null);
   if (payload?.openId !== `webauthn:${kind}`) {
     throw new TRPCError({ code: 'UNAUTHORIZED', message: 'El código expiró, intenta de nuevo.' });
   }
   return payload.name;
+}
+
+/** Borrar con Face ID en vez de la clave de admin: después de verificar el
+ * passkey (`auth.webauthnReauthVerify`) el servidor entrega este permiso
+ * firmado, y el cliente lo manda en el MISMO campo `adminPassword` de
+ * siempre con el prefijo `faceid:` -- así las ~26 acciones protegidas no
+ * cambian su input. Dura 60 s: alcanza para la mutación que sigue al
+ * prompt, no para guardarlo. `checkAdminPassword` lo acepta como si fuera
+ * la clave. El `openId` propio impide pasar acá la cookie de sesión u otro
+ * vale firmado con el mismo secreto. */
+const FACEID_GRANT_PREFIX = 'faceid:';
+const FACEID_GRANT_OPEN_ID = 'webauthn:delete-grant';
+
+async function signFaceIdDeleteGrant(): Promise<string> {
+  const token = await sdk.signSession({ openId: FACEID_GRANT_OPEN_ID, appId: 'candyland-admin-webauthn', name: 'delete' }, { expiresInMs: 60 * 1000 });
+  return `${FACEID_GRANT_PREFIX}${token}`;
+}
+
+async function verifyFaceIdDeleteGrant(token: string): Promise<boolean> {
+  const payload = await sdk.verifySession(token).catch(() => null);
+  return payload?.openId === FACEID_GRANT_OPEN_ID;
+}
+
+/** Verifica una respuesta de passkey contra las llaves registradas del
+ * dueño. Compartido por el login con Face ID y la re-verificación para
+ * borrar. Tira TRPCError si no pasa; los intentos fallidos cuentan para el
+ * límite por IP de `ipKey`. */
+async function verifyAdminPasskey(ctx: any, params: { kind: 'auth' | 'reauth'; ticket: string; response: any; ipKey: string }) {
+  const { ipKey } = params;
+  if (!(await db.checkIpRateLimit(ipKey))) {
+    throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+  }
+  const challenge = await requireWebauthnTicket(params.kind, params.ticket);
+
+  const credentialId: string | undefined = typeof params.response?.id === 'string' ? params.response.id : undefined;
+  const credentialRow = credentialId ? await db.getAdminWebauthnCredentialById(credentialId) : null;
+  const { rpID, origin } = getRpIdAndOrigin(ctx.req);
+  if (!credentialRow) {
+    // No cuenta como intento fallido: con el Face ID automático, una llave
+    // vieja del llavero no debe dejar al dueño sin poder usar la contraseña.
+    console.warn(`[webauthn] ${params.kind} fallido: llave no registrada`, { credentialId: credentialId?.slice(0, 12), origin, rpID });
+    // `UNKNOWN_CREDENTIAL:<id>` le permite al cliente avisarle al
+    // llavero que esa llave ya no sirve (Signal API) y que iOS la quite.
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: `UNKNOWN_CREDENTIAL:${credentialId ?? ''}` });
+  }
+
+  let verification;
+  try {
+    verification = await verifyAuthentication({
+      response: params.response,
+      expectedChallenge: challenge,
+      expectedOrigin: origin,
+      expectedRPID: rpID,
+      credential: {
+        id: credentialRow.credentialId,
+        publicKey: new Uint8Array(Buffer.from(credentialRow.publicKey, 'base64url')),
+        counter: credentialRow.counter,
+        transports: (credentialRow.transports as any) ?? undefined,
+      },
+    });
+  } catch (err) {
+    console.warn(`[webauthn] ${params.kind} fallido: verificación rechazada`, {
+      credentialId: credentialId?.slice(0, 12), origin, rpID, reason: err instanceof Error ? err.message : String(err),
+    });
+    await db.recordIpFailedAttempt(ipKey);
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No se pudo verificar tu identidad. Intenta de nuevo o usa la contraseña.' });
+  }
+  if (!verification.verified) {
+    console.warn(`[webauthn] ${params.kind} fallido: firma no verificada`, { credentialId: credentialId?.slice(0, 12), origin, rpID });
+    await db.recordIpFailedAttempt(ipKey);
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No se pudo verificar tu identidad.' });
+  }
+
+  await db.touchAdminWebauthnCredential(credentialRow.id, verification.authenticationInfo.newCounter);
+  await db.resetIpRateLimit(ipKey);
 }
 
 /** La sesión de admin baja de UN AÑO a 7 días. Un año era demasiado para
@@ -900,55 +980,28 @@ export const appRouter = router({
       ticket: z.string(),
       response: z.any(),
     })).mutation(async ({ input, ctx }) => {
-      const ipKey = adminIpKey(ctx);
-      if (!(await db.checkIpRateLimit(ipKey))) {
-        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
-      }
-      const challenge = await requireWebauthnTicket('auth', input.ticket);
-
-      const credentialId: string | undefined = typeof input.response?.id === 'string' ? input.response.id : undefined;
-      const credentialRow = credentialId ? await db.getAdminWebauthnCredentialById(credentialId) : null;
-      const { rpID, origin } = getRpIdAndOrigin(ctx.req);
-      if (!credentialRow) {
-        // No cuenta como intento fallido: con el Face ID automático, una llave
-        // vieja del llavero no debe dejar al dueño sin poder usar la contraseña.
-        console.warn('[webauthn] login fallido: llave no registrada', { credentialId: credentialId?.slice(0, 12), origin, rpID });
-        // `UNKNOWN_CREDENTIAL:<id>` le permite al cliente avisarle al
-        // llavero que esa llave ya no sirve (Signal API) y que iOS la quite.
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: `UNKNOWN_CREDENTIAL:${credentialId ?? ''}` });
-      }
-
-      let verification;
-      try {
-        verification = await verifyAuthentication({
-          response: input.response,
-          expectedChallenge: challenge,
-          expectedOrigin: origin,
-          expectedRPID: rpID,
-          credential: {
-            id: credentialRow.credentialId,
-            publicKey: new Uint8Array(Buffer.from(credentialRow.publicKey, 'base64url')),
-            counter: credentialRow.counter,
-            transports: (credentialRow.transports as any) ?? undefined,
-          },
-        });
-      } catch (err) {
-        console.warn('[webauthn] login fallido: verificación rechazada', {
-          credentialId: credentialId?.slice(0, 12), origin, rpID, reason: err instanceof Error ? err.message : String(err),
-        });
-        await db.recordIpFailedAttempt(ipKey);
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No se pudo verificar tu identidad. Intenta de nuevo o entra con contraseña.' });
-      }
-      if (!verification.verified) {
-        console.warn('[webauthn] login fallido: firma no verificada', { credentialId: credentialId?.slice(0, 12), origin, rpID });
-        await db.recordIpFailedAttempt(ipKey);
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No se pudo verificar tu identidad.' });
-      }
-
-      await db.touchAdminWebauthnCredential(credentialRow.id, verification.authenticationInfo.newCounter);
-      await db.resetIpRateLimit(ipKey);
+      await verifyAdminPasskey(ctx, { kind: 'auth', ticket: input.ticket, response: input.response, ipKey: adminIpKey(ctx) });
       await issueAdminSession(ctx);
       return { success: true } as const;
+    }),
+
+    // Borrar con Face ID: mismo passkey del login, pero con la sesión ya
+    // abierta. Devuelve el permiso de 60 s que reemplaza la clave de admin
+    // en las acciones destructivas (ver signFaceIdDeleteGrant). Mismo
+    // límite por IP que la clave en esas acciones ('admin-reauth').
+    webauthnReauthOptions: adminProcedure.mutation(async ({ ctx }) => {
+      const { rpID } = getRpIdAndOrigin(ctx.req);
+      const options = await buildAuthenticationOptions({ rpID });
+      const ticket = await signWebauthnTicket('reauth', options.challenge);
+      return { options, ticket } as const;
+    }),
+
+    webauthnReauthVerify: adminProcedure.input(z.object({
+      ticket: z.string(),
+      response: z.any(),
+    })).mutation(async ({ input, ctx }) => {
+      await verifyAdminPasskey(ctx, { kind: 'reauth', ticket: input.ticket, response: input.response, ipKey: `admin-reauth:${clientIp(ctx)}` });
+      return { grant: await signFaceIdDeleteGrant() } as const;
     }),
 
     webauthnCredentialsList: adminProcedure.query(async () => {
