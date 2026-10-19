@@ -3536,7 +3536,15 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-heading text-2xl">{channel === 'caja' ? 'Ventas en Caja' : 'Ventas Web'}</h2>
         <div className="flex flex-wrap items-center gap-2">
-          <Input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Buscar por nombre, acompañante, email o N° de orden…" className="max-w-xs" />
+          {/* El placeholder largo se cortaba ("…email o N"): versión corta
+              visible, la descripción completa va en el aria-label. */}
+          <Input
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Buscar nombre, email u orden…"
+            aria-label="Buscar por nombre, acompañante, email o N° de orden"
+            className="min-w-56 flex-1"
+          />
           <Select value={eventFilter === 'auto' ? 'all' : eventFilter} onValueChange={setEventFilter}>
             <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -3544,8 +3552,16 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
               {(eventsList ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-36" aria-label="Desde" />
-          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-36" aria-label="Hasta" />
+          {/* En Safari/iPad un <input type="date"> vacío se pinta como una
+              caja en blanco sin pista de qué es: se le pone etiqueta visible. */}
+          <label className="flex items-center gap-1.5 text-xs text-[var(--admin-muted)]">
+            Desde
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-36 text-[var(--admin-text)]" />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-[var(--admin-muted)]">
+            Hasta
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-36 text-[var(--admin-text)]" />
+          </label>
           <DownloadLink href={exportUrl()}>
             <Button variant="outline" className="interactive">Descargar CSV</Button>
           </DownloadLink>
