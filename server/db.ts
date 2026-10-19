@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
 import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAvailability } from "../shared/accessCredit";
+import { computeCodeDiscount } from "../shared/discountCode";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
 import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage } from "../drizzle/schema";
@@ -1426,27 +1427,32 @@ export async function createOrder(input: {
     if (validation.valid && validation.discount) {
       const disc = validation.discount;
       discountCodeId = disc.id;
-      const scopeIds = disc.applicableTicketTypeIds as number[] | null;
-      // basedOnOriginalPrice (hoy solo códigos del programa Cumpleañeros):
-      // el % se calcula sobre el precio general (originalPrice), no sobre el
-      // precio vigente de la tanda -- ver el comentario de esa columna en
-      // drizzle/schema.ts. `preTotal` más abajo igual se clampa a 0, así que
-      // un % generoso sobre un originalPrice alto nunca deja el total
-      // negativo aunque supere el subtotal real de la tanda vigente.
-      const priceForDiscount = (ticketTypeId: number): number => {
-        if (!disc.basedOnOriginalPrice) return unitPrices.get(ticketTypeId) ?? 0;
-        const tt = tts.find((t) => t.id === ticketTypeId);
-        return tt ? Number(tt.originalPrice ?? tt.price) : 0;
-      };
-      const eligibleSubtotal = (scopeIds && scopeIds.length > 0
-        ? input.items.filter((item) => tts.find((t) => t.id === item.ticketTypeId)?.category === 'acceso' && scopeIds.includes(item.ticketTypeId))
-        : input.items.filter((item) => tts.find((t) => t.id === item.ticketTypeId)?.category === 'acceso')
-      ).reduce((sum, item) => sum + priceForDiscount(item.ticketTypeId) * item.quantity, 0);
-      if (disc.discountType === 'percentage') {
-        discountAmount = Math.round(eligibleSubtotal * Number(disc.discountValue) / 100);
-      } else {
-        discountAmount = Math.min(Number(disc.discountValue), eligibleSubtotal);
-      }
+      // Regla única (shared/discountCode.ts): solo líneas `acceso`, nunca
+      // extras. basedOnOriginalPrice (hoy solo códigos del programa
+      // Cumpleañeros): el % se calcula sobre el precio general
+      // (originalPrice), no sobre el de la tanda vigente -- ver el
+      // comentario de esa columna en drizzle/schema.ts. `preTotal` más abajo
+      // igual se clampa a 0, así que un % generoso sobre un originalPrice
+      // alto nunca deja el total negativo.
+      discountAmount = computeCodeDiscount(
+        {
+          discountType: disc.discountType,
+          discountValue: disc.discountValue,
+          applicableTicketTypeIds: disc.applicableTicketTypeIds as number[] | null,
+          basedOnOriginalPrice: disc.basedOnOriginalPrice,
+        },
+        input.items.map((item) => {
+          const tt = tts.find((t) => t.id === item.ticketTypeId);
+          return {
+            ticketTypeId: item.ticketTypeId,
+            category: tt?.category,
+            unitPrice: unitPrices.get(item.ticketTypeId) ?? 0,
+            originalPrice: tt ? Number(tt.originalPrice ?? tt.price) : null,
+            quantity: item.quantity,
+          };
+        }),
+        'web',
+      );
       // Increment used count
       await db.update(discountCodes).set({ usedCount: sql`usedCount + 1` }).where(eq(discountCodes.id, disc.id));
     }

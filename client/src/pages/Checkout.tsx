@@ -14,6 +14,7 @@ import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, whatsappComunidadLink, 
 import { isMissionActiveForEvent, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
 import { isValidRut, isValidPassport, isValidChileanPhone, formatRutLive } from '@shared/rut';
 import { isTopupProduct } from '@shared/prepaid';
+import { computeCodeDiscount } from '@shared/discountCode';
 import { playcoinsEarnedForPurchase } from '@shared/playcoins';
 import { dropSupersededTickets } from '@shared/liveTickets';
 import { useSeo } from '@/hooks/useSeo';
@@ -722,10 +723,22 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
   // Crédito de acceso: vale UNA unidad del mismo acceso (mismo cálculo que
   // `creditDiscount` en shared/accessCredit.ts, que es el que cobra el servidor).
   const creditApplies = codeResult?.type === 'credit' && codeResult.accesoSlug === accesoSlug && qty > 0;
+  // Descuento por código: misma función que usa el servidor al cobrar
+  // (shared/discountCode.ts) -- solo sobre el acceso, nunca sobre extras, y el
+  // monto fijo nunca pasa del precio del acceso.
+  const accesoTicketType = useConfig ? undefined : accesoTickets.find((t: any) => String(t.id) === accesoId);
   const discountAmount = codeResult?.type === 'discount'
-    ? codeResult.discount.discountType === 'percentage'
-      ? Math.round(subtotal * Number(codeResult.discount.discountValue) / 100)
-      : Number(codeResult.discount.discountValue)
+    ? computeCodeDiscount(
+      codeResult.discount,
+      [{
+        ticketTypeId: Number(accesoId),
+        category: 'acceso',
+        unitPrice: acceso?.precio ?? 0,
+        originalPrice: accesoTicketType ? Number((accesoTicketType as any).originalPrice ?? (accesoTicketType as any).price) : null,
+        quantity: qty,
+      }],
+      'web',
+    )
     : creditApplies ? (acceso?.precio ?? 0) : 0;
   const dbExtrasTotal = extraTickets.reduce((s: number, t: any) => s + (dbExtraQty[t.id] || 0) * Number(t.price), 0);
   // Carga de saldo (ticketTypes.topupAmount, pedido explícito del dueño): NO

@@ -3,6 +3,7 @@ import { orders, orderItems, ticketTypes, discountCodes, lockerItems, kitchenTic
 import { applyOp } from "./ops";
 import { awardPlaycoins, redeemPlaycoinsAuthoritative, validateDiscountCode, verifyCardPin, spendPrepaidAuthoritative } from "../db";
 import { isTopupProduct } from "../../shared/prepaid";
+import { computeCodeDiscount } from "../../shared/discountCode";
 
 /** Venta presencial en caja (docs/ARQUITECTURA-CAJA.md §0.4, §3.1.5): se
  * cobra en el terminal externo (fuera del sistema) y acá solo se registra --
@@ -152,22 +153,26 @@ export async function createCajaSale(
   // Sin señal el código no se puede validar -- la venta sigue sin descuento
   // en vez de dejar a la cajera esperando (mismo criterio que "avisar pero
   // dejar vender" del stock).
+  // En caja NO hay códigos de descuento: solo la promo relámpago, que trae
+  // la lista de productos a los que aplica (`applicableTicketTypeIds`). Un
+  // código sin esa lista no descuenta nada acá (regla en
+  // shared/discountCode.ts).
   let discountAmount = 0;
   let appliedDiscountId: number | null = null;
   if (params.discountCode?.trim()) {
     const validation = await validateDiscountCode(params.discountCode.trim(), params.eventId);
     if (validation.valid && validation.discount) {
       const disc = validation.discount;
-      appliedDiscountId = disc.id;
-      // Promo relámpago (`applicableTicketTypeIds`): el % se calcula solo
-      // sobre las líneas de esos productos, no sobre todo el carrito.
-      const scopeIds = disc.applicableTicketTypeIds as number[] | null;
-      const eligibleTotal = scopeIds && scopeIds.length > 0
-        ? lineItems.filter((li) => scopeIds.includes(li.ticketTypeId)).reduce((sum, li) => sum + li.unitPrice * li.quantity, 0)
-        : total;
-      discountAmount = disc.discountType === 'percentage'
-        ? Math.round(eligibleTotal * Number(disc.discountValue) / 100)
-        : Math.min(Number(disc.discountValue), eligibleTotal);
+      discountAmount = computeCodeDiscount(
+        {
+          discountType: disc.discountType,
+          discountValue: disc.discountValue,
+          applicableTicketTypeIds: disc.applicableTicketTypeIds as number[] | null,
+        },
+        lineItems.map((li) => ({ ticketTypeId: li.ticketTypeId, unitPrice: li.unitPrice, quantity: li.quantity })),
+        'caja',
+      );
+      if (discountAmount > 0) appliedDiscountId = disc.id;
     }
   }
 
