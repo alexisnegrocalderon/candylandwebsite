@@ -1,6 +1,7 @@
 import Dexie, { type Table } from 'dexie';
 import { formatKitchenTicketNumber } from '@shared/kitchen';
 import { formatLockerTagNumber } from '@shared/locker';
+import { personasForTicket } from '@shared/mission300';
 
 /* Snapshot local + cola de operaciones para el modo offline de /caja
  * (docs/ARQUITECTURA-CAJA.md §6.2-§6.3). Todo lo que la tablet necesita para
@@ -270,6 +271,24 @@ export async function searchLocal(query: string): Promise<CajaAttendee[]> {
   return all
     .filter((a) => a.buyerName.toLowerCase().includes(needle) || a.buyerEmail.toLowerCase().includes(needle) || (a.buyerPhone && a.buyerPhone.includes(q)))
     .slice(0, 20);
+}
+
+/** Personas que ya entraron y personas esperadas (accesos válidos o usados,
+ * sin los anulados), según el snapshot local. Incluye al instante los
+ * check-in de este mismo celular que todavía no se sincronizan. */
+export async function countCheckedInPersonas(): Promise<{ entered: number; expected: number }> {
+  const all = await cajaDB.attendees.toArray();
+  let entered = 0;
+  let expected = 0;
+  for (const a of all) {
+    for (const acc of a.access) {
+      if (acc.status !== 'valid' && acc.status !== 'used') continue;
+      const n = personasForTicket(acc.groupSize, acc.accesoSlug);
+      expected += n;
+      if (acc.status === 'used') entered += n;
+    }
+  }
+  return { entered, expected };
 }
 
 export async function getLocalAttendee(orderId: number): Promise<CajaAttendee | undefined> {
