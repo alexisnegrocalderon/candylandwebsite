@@ -26,7 +26,7 @@ import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, t
 import { matchesKeyword } from './instagramAutomations';
 import type { EmailTemplateConfig } from '../shared/emailTemplateConfig';
 import type { AdminAlertsConfig } from '../shared/adminAlertsConfig';
-import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
+import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, pickDoorParkingProduct, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { normalizeRut } from '../shared/rut';
 import { escapeLikePattern } from '../shared/sqlLike';
 import { computeCustomerLevel, hasBirthdayInMonth, mergeFromOrder, parseLockedFields } from '../shared/customerInsights';
@@ -4497,6 +4497,18 @@ export async function getPnlComparison(eventIds?: number[]) {
         marginPercent: pnl.marginPercent,
       };
     });
+}
+
+/** Lo que el celular de la puerta necesita para cobrar estacionamiento: el
+ * precio del único producto "Estacionamiento" del evento (`null` si no hay
+ * uno solo) y lo que le corresponde al local por auto. */
+export async function getParkingPricing(eventId: number) {
+  const db = await getDb();
+  const venueFeePerCarClp = Number((await getSiteSettings()).parkingVenueFeeClp ?? 3000);
+  if (!db) return { priceClp: null as number | null, venueFeePerCarClp };
+  const eventTicketTypes = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
+  const product = pickDoorParkingProduct(eventTicketTypes as any[]);
+  return { priceClp: product ? Number(product.price) : null, venueFeePerCarClp };
 }
 
 /** Conteo exacto de autos por origen (online / puerta / staff), para poder

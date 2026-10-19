@@ -1,7 +1,7 @@
 import '@/admin.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { AlertTriangle, Camera, Car, Check, DollarSign, Flashlight, ListChecks, LogOut, ScanLine, Search, ShoppingBag, Ticket, Users, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, Banknote, Camera, Car, Check, CreditCard, Flashlight, ListChecks, LogOut, ScanLine, Search, ShoppingBag, Ticket, Users, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
 import { useInstallableApp } from '@/hooks/useInstallableApp';
@@ -10,9 +10,10 @@ import { TerminalFrame, TerminalLogin, TerminalSpinner, loginErrorToast, playTon
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
 import { parseTicketCodeFromQr } from '@shared/qr';
 import { personasForTicket } from '@shared/mission300';
+import { cashChange, summarizeDoorParking, type DoorParkingCharge, type DoorParkingMethod } from '@shared/parking';
 import {
   saveSnapshot, getLocalEvent, searchLocal, enqueueOp, getPendingOps,
-  markOpSynced, clearSyncedOps, pendingOpsCount, correctedNow, countCheckedInPersonas,
+  markOpSynced, clearSyncedOps, pendingOpsCount, correctedNow, countCheckedInPersonas, getLocalParking,
   type CajaAttendee,
 } from './caja/db';
 
@@ -52,6 +53,26 @@ type Tab = 'escanear' | 'buscar' | 'ingresos';
 /** Un acceso dado desde este celular, para el historial de "Ingresos". */
 type HistoryEntry = { opId: string; ticketCode: string; typeName: string; names: string[]; personas: number; at: string };
 
+/** Un cobro de estacionamiento hecho desde este celular (se guarda aparte del
+ * historial de accesos, con su estado de envío al servidor). */
+type ParkingRecord = DoorParkingCharge & {
+  opId: string;
+  ticketCode: string;
+  name: string;
+  at: string;
+  /** Por qué el servidor lo rechazó (solo si `status === 'rechazado'`). */
+  note?: string;
+  /** El anfitrión ya vio el aviso de rechazo. */
+  seen?: boolean;
+};
+
+type SyncOp =
+  | { type: 'checkin'; opId: string; ticketCode: string; clientAt: string }
+  | { type: 'parking_paid'; opId: string; ticketCode: string; paymentMethod: DoorParkingMethod; clientAt: string };
+
+const METHOD_LABEL: Record<DoorParkingMethod, string> = { efectivo: 'Efectivo', debito: 'Débito', credito: 'Crédito' };
+const money = (n: number | null) => (n == null ? '—' : `$${Math.round(n).toLocaleString('es-CL')}`);
+
 const SOUND_MUTED_KEY = 'puerta_sound_muted';
 const HISTORY_MAX = 100;
 const FLASH_MS = 1400;
@@ -64,6 +85,13 @@ function historyKey(eventId: number) {
 }
 function loadHistory(eventId: number): HistoryEntry[] {
   try { return JSON.parse(localStorage.getItem(historyKey(eventId)) || '[]'); } catch { return []; }
+}
+
+function parkingKey(eventId: number) {
+  return `puerta_parking:${eventId}`;
+}
+function loadParking(eventId: number): ParkingRecord[] {
+  try { return JSON.parse(localStorage.getItem(parkingKey(eventId)) || '[]'); } catch { return []; }
 }
 
 function newOpId() {
@@ -121,7 +149,11 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
   const [flash, setFlash] = useState<{ names: string; personas: number } | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+  const [parkingInfo, setParkingInfo] = useState<{ priceClp: number | null; venueFeePerCarClp: number } | null>(null);
+  const [parkingRecords, setParkingRecords] = useState<ParkingRecord[]>([]);
+  const [reviewing, setReviewing] = useState(false);
   const recentRef = useRef<{ code: string; until: number }>({ code: '', until: 0 });
+  const eventIdRef = useRef<number | null>(null);
 
   useWakeLock();
 
@@ -135,12 +167,26 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
 
   const refreshCounts = useCallback(() => { countCheckedInPersonas().then(setCounts).catch(() => {}); }, []);
 
-  useEffect(() => { getLocalEvent().then((e) => e && setLocalEvent(e)); }, []);
+  useEffect(() => { getLocalEvent().then((e) => e && setLocalEvent(e)); getLocalParking().then(setParkingInfo); }, []);
   useEffect(() => {
-    if (snapshotQuery.data) saveSnapshot(snapshotQuery.data).then(() => { setLocalEvent(snapshotQuery.data!.event); refreshCounts(); });
+    if (snapshotQuery.data) saveSnapshot(snapshotQuery.data).then(() => { setLocalEvent(snapshotQuery.data!.event); refreshCounts(); getLocalParking().then(setParkingInfo); });
   }, [snapshotQuery.data, refreshCounts]);
   useEffect(() => { refreshCounts(); }, [refreshCounts]);
-  useEffect(() => { if (localEvent) setHistory(loadHistory(localEvent.id)); }, [localEvent?.id]);
+  useEffect(() => {
+    eventIdRef.current = localEvent?.id ?? null;
+    if (localEvent) { setHistory(loadHistory(localEvent.id)); setParkingRecords(loadParking(localEvent.id)); }
+  }, [localEvent?.id]);
+
+  // Cambia un cobro de estacionamiento (estado de envío, rechazo, visto) y lo
+  // guarda en el celular.
+  const patchParking = useCallback((opId: string, patch: Partial<ParkingRecord>) => {
+    setParkingRecords((prev) => {
+      const next = prev.map((r) => (r.opId === opId ? { ...r, ...patch } : r));
+      const id = eventIdRef.current;
+      if (id != null) { try { localStorage.setItem(parkingKey(id), JSON.stringify(next)); } catch { /* sin storage */ } }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const on = () => setIsOnline(true);
@@ -156,32 +202,61 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
   }, []);
   useEffect(() => { refreshPending(); }, [refreshPending]);
 
-  // Vaciado de la cola. Solo manda los check-in: la puerta comparte la cola
-  // con la caja pero no tiene permiso para nada más.
+  // Vaciado de la cola. La puerta manda los check-in Y los cobros de
+  // estacionamiento (la caja excluye estos últimos a propósito: son
+  // exclusivos de la puerta). Sin esto el cobro quedaba "por enviar" para
+  // siempre y nunca llegaba al registro de estacionamientos.
+  const syncRef = useRef(syncMutation);
+  syncRef.current = syncMutation;
+  const syncingRef = useRef(false);
   useEffect(() => {
     const run = async () => {
       if (!isOnline || !localEvent) return;
-      const ops = (await getPendingOps()).filter((o) => o.op.type === 'checkin');
+      // Un solo envío a la vez: cada cambio de estado de la mutación
+      // reinicia este efecto y lanzaba otro envío mientras el anterior seguía
+      // en vuelo (el servidor es idempotente por opId, pero era trabajo de más).
+      if (syncingRef.current) return;
+      syncingRef.current = true;
+      try {
+      const ops = (await getPendingOps()).filter((o) => o.op.type === 'checkin' || o.op.type === 'parking_paid');
       if (ops.length === 0) return;
       try {
-        const results = await syncMutation.mutateAsync({
+        const batch = ops.slice(0, 50);
+        const results = await syncRef.current.mutateAsync({
           eventId: localEvent.id,
-          ops: ops.slice(0, 50).map((o) => o.op as { type: 'checkin'; opId: string; ticketCode: string; clientAt: string }),
+          ops: batch.map((o) => o.op as SyncOp),
         });
         for (const [opId, res] of Object.entries(results)) {
           await markOpSynced(opId, res.result, res.conflictNote);
-          if (res.result === 'conflict') toast.warning(res.conflictNote || 'Conflicto al sincronizar');
+          const sent = batch.find((o) => o.opId === opId)?.op;
+          const failed = res.result === 'rejected' || res.result === 'conflict';
+          if (sent?.type === 'parking_paid') {
+            // Un cobro que el servidor no registró NO se puede perder de vista:
+            // queda marcado y el banner rojo sigue hasta que el anfitrión lo vea.
+            if (failed) {
+              patchParking(opId, { status: 'rechazado', note: res.conflictNote, seen: false });
+              playTone('error');
+              vibrateAlert([300, 120, 300]);
+            } else {
+              patchParking(opId, { status: 'ok' });
+            }
+          } else if (res.result === 'conflict') {
+            toast.warning(res.conflictNote || 'Conflicto al sincronizar');
+          }
         }
         await clearSyncedOps();
         refreshPending();
       } catch {
         // Sin red real -- se reintenta en el próximo tick.
       }
+      } finally {
+        syncingRef.current = false;
+      }
     };
     const id = setInterval(run, 5000);
     run();
     return () => clearInterval(id);
-  }, [isOnline, localEvent, syncMutation, refreshPending]);
+  }, [isOnline, localEvent, refreshPending, patchParking]);
 
   // Busca el código en el snapshot local: así la ficha aparece igual de
   // rápido con o sin señal.
@@ -257,13 +332,28 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
   // Nunca con saldo (decisión explícita del dueño): el estacionamiento se
   // paga como extra en el checkout online, o acá mismo en la puerta con
   // efectivo/débito/crédito -- nunca descontando la tarjeta de membresía.
-  const cobrarEstacionamiento = async (ticketCode: string, metodo: 'efectivo' | 'debito' | 'credito') => {
-    await enqueueOp({ opId: newOpId(), type: 'parking_paid', ticketCode, paymentMethod: metodo, clientAt: (await correctedNow()).toISOString() });
-    toast.success('Estacionamiento cobrado 🅿️');
+  // Efectivo: el anfitrión recibe la plata física. Débito/crédito: se cobra
+  // con la máquina. En los tres casos queda registrado con el medio de pago
+  // y pasa al registro de estacionamientos (descuento del local) al sincronizar.
+  const cobrarEstacionamiento = async (f: Ficha, metodo: DoorParkingMethod): Promise<ParkingRecord> => {
+    const opId = newOpId();
+    const at = (await correctedNow()).toISOString();
+    await enqueueOp({ opId, type: 'parking_paid', ticketCode: f.ticketCode, paymentMethod: metodo, clientAt: at });
+    const record: ParkingRecord = {
+      opId, ticketCode: f.ticketCode, name: f.attendees[0]?.name || f.buyerName || f.ticketCode,
+      method: metodo, amount: parkingInfo?.priceClp ?? null, status: 'pendiente', at,
+    };
+    setParkingRecords((prev) => {
+      const next = [record, ...prev];
+      const id = eventIdRef.current;
+      if (id != null) { try { localStorage.setItem(parkingKey(id), JSON.stringify(next)); } catch { /* sin storage */ } }
+      return next;
+    });
     refreshPending();
-    setFicha((prev) => (prev && prev.ticketCode === ticketCode)
+    setFicha((prev) => (prev && prev.ticketCode === f.ticketCode)
       ? { ...prev, extras: [...prev.extras, { typeName: 'Estacionamiento', status: 'used' }] }
       : prev);
+    return record;
   };
 
   const cerrar = () => {
@@ -276,6 +366,8 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
     setMuted(next);
     localStorage.setItem(SOUND_MUTED_KEY, next ? '1' : '0');
   };
+
+  const unseenRejected = parkingRecords.filter((r) => r.status === 'rechazado' && !r.seen).length;
 
   const goTab = (t: Tab) => {
     setTab(t);
@@ -317,6 +409,18 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
           )}
           {pending > 0 && <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs text-white/70">{pending} por enviar</span>}
         </div>
+
+        {unseenRejected > 0 && (
+          <button
+            onClick={() => setReviewing(true)}
+            className="flex w-full items-center gap-2 rounded-2xl bg-red-600 px-4 py-3 text-left text-sm font-bold text-white shadow-[0_0_24px_-6px_rgba(239,68,68,0.9)] active:scale-[0.99]"
+          >
+            <AlertTriangle className="h-5 w-5 shrink-0" />
+            <span className="min-w-0 flex-1">
+              {unseenRejected === 1 ? '1 cobro de estacionamiento NO se registró' : `${unseenRejected} cobros de estacionamiento NO se registraron`} — tocar para revisar
+            </span>
+          </button>
+        )}
       </header>
 
       <main className="relative flex-1 min-h-0 px-3 pb-2">
@@ -361,7 +465,7 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
           />
         )}
 
-        {tab === 'ingresos' && <IngresosPanel history={history} pendingIds={pendingIds} />}
+        {tab === 'ingresos' && <IngresosPanel history={history} pendingIds={pendingIds} parking={parkingRecords} venueFee={parkingInfo?.venueFeePerCarClp ?? 3000} />}
 
         {flash && (
           <div role="status" className="pointer-events-none absolute inset-x-6 top-4 z-30 flex items-center gap-3 rounded-2xl bg-emerald-500 px-4 py-3 text-black shadow-[0_0_30px_-4px_rgba(16,185,129,0.9)]">
@@ -404,7 +508,16 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
           ficha={ficha}
           onAceptar={() => darAcceso(ficha)}
           onCerrar={cerrar}
-          onCobrarEstacionamiento={(metodo) => cobrarEstacionamiento(ficha.ticketCode, metodo)}
+          parkingInfo={parkingInfo}
+          onCobrarEstacionamiento={(metodo) => cobrarEstacionamiento(ficha, metodo)}
+        />
+      )}
+
+      {reviewing && (
+        <RechazadosPanel
+          records={parkingRecords.filter((r) => r.status === 'rechazado' && !r.seen)}
+          onSeen={(opId) => patchParking(opId, { seen: true })}
+          onClose={() => setReviewing(false)}
         />
       )}
     </div>
@@ -413,15 +526,16 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
 
 /* --- Ficha de verificación ------------------------------------------------ */
 
-function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento }: {
+function FichaVerificacion({ ficha, onAceptar, onCerrar, parkingInfo, onCobrarEstacionamiento }: {
   ficha: Ficha;
   onAceptar: () => void;
   onCerrar: () => void;
-  onCobrarEstacionamiento: (metodo: 'efectivo' | 'debito' | 'credito') => Promise<void>;
+  parkingInfo: { priceClp: number | null; venueFeePerCarClp: number } | null;
+  onCobrarEstacionamiento: (metodo: DoorParkingMethod) => Promise<ParkingRecord>;
 }) {
   const personas = personasForTicket(ficha.groupSize, ficha.accesoSlug);
   const puedeEntrar = ficha.status === 'valid';
-  const [cobrando, setCobrando] = useState(false);
+  const [cobrandoAbierto, setCobrandoAbierto] = useState(false);
 
   // Entrada ya usada / anulada / desconocida: aviso grande de pantalla
   // completa, con el color del problema -- no se puede confundir con una
@@ -459,16 +573,6 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
       </div>
     );
   }
-
-  const cobrarConMetodo = async (metodo: 'efectivo' | 'debito' | 'credito') => {
-    setCobrando(true);
-    try {
-      await onCobrarEstacionamiento(metodo);
-    } catch (err: any) {
-      toast.error(err?.message ?? 'No se pudo cobrar el estacionamiento -- intenta de nuevo.', { duration: 8000 });
-      setCobrando(false);
-    }
-  };
 
   // El estacionamiento es lo primero que el anfitrión necesita saber para
   // decirle al auto dónde ir, así que va destacado y aparte del resto.
@@ -555,24 +659,15 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
            * No es obligatorio antes de dar acceso: no trabar la fila por
            * alguien que llegó a pie. */}
           {estacionamiento.length === 0 && (
-            <div className="admin-tile relative mb-3 rounded-2xl p-4">
-              <span className="absolute right-3.5 top-3.5 grid h-8 w-8 place-items-center rounded-full bg-white/10"><DollarSign className="h-3.5 w-3.5 text-candy-blue" /></span>
-              <p className="mb-2 pr-9 text-xs uppercase tracking-widest text-white/50">¿Paga estacionamiento ahora?</p>
-              {cobrando ? (
-                <p className="text-sm text-white/60">Cobrando…</p>
-              ) : (
-                <div className="grid grid-cols-3 gap-2">
-                  {(['efectivo', 'debito', 'credito'] as const).map((metodo) => (
-                    <button
-                      key={metodo}
-                      onClick={() => cobrarConMetodo(metodo)}
-                      className="admin-tile h-12 rounded-xl text-sm font-semibold capitalize active:scale-95"
-                    >
-                      {metodo}
-                    </button>
-                  ))}
-                </div>
-              )}
+            <div className="admin-tile mb-3 rounded-2xl p-4">
+              <p className="mb-1 text-xs uppercase tracking-widest text-white/50">Estacionamiento</p>
+              <p className="mb-3 text-base font-semibold text-white/80">🅿️ Sin estacionamiento pagado</p>
+              <button
+                onClick={() => setCobrandoAbierto(true)}
+                className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary text-base font-bold text-primary-foreground active:scale-[0.99]"
+              >
+                <Car className="h-5 w-5" /> Cobrar estacionamiento{parkingInfo?.priceClp != null ? ` ${money(parkingInfo.priceClp)}` : ''}
+              </button>
             </div>
           )}
 
@@ -598,6 +693,216 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, onCobrarEstacionamiento
         <button onClick={onCerrar} className="admin-tile h-14 w-full rounded-full font-semibold text-white/90 active:scale-[0.99]">
           No coincide / cancelar
         </button>
+      </div>
+
+      {cobrandoAbierto && (
+        <ParkingSheet
+          nombre={ficha.attendees[0]?.name || ficha.buyerName}
+          price={parkingInfo?.priceClp ?? null}
+          unavailable={!!parkingInfo && parkingInfo.priceClp == null}
+          onCobrar={onCobrarEstacionamiento}
+          onClose={() => setCobrandoAbierto(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* --- Hoja de cobro de estacionamiento -------------------------------------- */
+
+/** Cobro de estacionamiento a quien llegó sin él pagado: monto a la vista,
+ * medio de pago (efectivo en mano, o débito/crédito con la máquina) y un
+ * botón final de confirmar -- un toque suelto nunca cobra. Al confirmar
+ * queda registrado con su medio de pago y pasa al registro de
+ * estacionamientos (de ahí sale lo que le corresponde al local). */
+function ParkingSheet({ nombre, price, unavailable, onCobrar, onClose }: {
+  nombre: string;
+  price: number | null;
+  /** El evento no tiene un único producto "Estacionamiento": no se puede cobrar. */
+  unavailable: boolean;
+  onCobrar: (metodo: DoorParkingMethod) => Promise<ParkingRecord>;
+  onClose: () => void;
+}) {
+  const [metodo, setMetodo] = useState<DoorParkingMethod | null>(null);
+  const [recibido, setRecibido] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [recibo, setRecibo] = useState<{ record: ParkingRecord; recibido: number | null } | null>(null);
+
+  const recibidoNum = recibido ? parseInt(recibido, 10) : null;
+  const vuelto = metodo === 'efectivo' && recibidoNum != null ? cashChange(recibidoNum, price) : null;
+  const faltaPlata = metodo === 'efectivo' && recibidoNum != null && price != null && recibidoNum < price;
+  const puedeConfirmar = !!metodo && !unavailable && !enviando && !faltaPlata;
+
+  const confirmar = async () => {
+    if (!metodo) return;
+    setEnviando(true);
+    try {
+      const record = await onCobrar(metodo);
+      setRecibo({ record, recibido: metodo === 'efectivo' ? recibidoNum : null });
+      playTone('ok');
+      vibrateAlert(60);
+    } catch (err: any) {
+      toast.error(err?.message ?? 'No se pudo registrar el cobro -- intenta de nuevo.', { duration: 8000 });
+      setEnviando(false);
+    }
+  };
+
+  // Recibo en pantalla: se le muestra al cliente y queda claro lo cobrado.
+  if (recibo) {
+    const r = recibo.record;
+    const cambio = r.method === 'efectivo' && recibo.recibido != null ? cashChange(recibo.recibido, r.amount) : null;
+    return (
+      <div role="dialog" aria-label="Estacionamiento cobrado" className="fixed inset-0 z-[60] flex flex-col bg-[#0b0612] bg-gradient-to-b from-emerald-600/45 to-transparent p-5">
+        <div className="mx-auto flex w-full max-w-lg flex-1 flex-col items-center justify-center text-center">
+          <span className="mb-4 grid h-20 w-20 place-items-center rounded-full bg-emerald-400 text-black"><Check className="h-12 w-12" /></span>
+          <h1 className="font-heading text-3xl font-extrabold tracking-tight">Estacionamiento cobrado</h1>
+          <p className="mt-3 font-heading text-6xl font-extrabold tabular-nums">{money(r.amount)}</p>
+          <p className="mt-3 text-xl font-semibold text-white/90">{METHOD_LABEL[r.method]}</p>
+          <p className="mt-1 text-base text-white/70">{r.name}</p>
+          {cambio != null && cambio > 0 && (
+            <div className="admin-tile mt-6 rounded-2xl px-6 py-3">
+              <p className="text-xs uppercase tracking-widest text-white/50">Devuelve de vuelto</p>
+              <p className="font-heading text-3xl font-bold tabular-nums text-amber-300">{money(cambio)}</p>
+            </div>
+          )}
+        </div>
+        <div className="mx-auto w-full max-w-lg pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          <button onClick={onClose} className="h-16 w-full rounded-full bg-emerald-500 text-lg font-bold text-black active:scale-[0.99]">Listo</button>
+        </div>
+      </div>
+    );
+  }
+
+  const opciones: { value: DoorParkingMethod; label: string; sub: string; Icon: typeof Banknote }[] = [
+    { value: 'efectivo', label: 'Efectivo', sub: 'Recibes la plata en mano', Icon: Banknote },
+    { value: 'debito', label: 'Débito', sub: 'Con la máquina', Icon: CreditCard },
+    { value: 'credito', label: 'Crédito', sub: 'Con la máquina', Icon: CreditCard },
+  ];
+  const atajos = price != null ? Array.from(new Set([price, 10000, 20000].filter((n) => n >= price))) : [];
+
+  return (
+    <div role="dialog" aria-label="Cobrar estacionamiento" className="fixed inset-0 z-[60] flex flex-col bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="mt-auto max-h-[92dvh] overflow-y-auto overscroll-contain rounded-t-3xl bg-[#140c1f] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
+        <div className="mx-auto w-full max-w-lg">
+          <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-widest text-white/50">Cobrar estacionamiento</p>
+              <p className="font-heading text-5xl font-extrabold leading-tight tabular-nums">{money(price)}</p>
+              {nombre && <p className="truncate text-sm text-white/70">{nombre}</p>}
+            </div>
+            <button onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/70 active:bg-white/10" aria-label="Cerrar"><X className="h-6 w-6" /></button>
+          </div>
+
+          {unavailable && (
+            <p className="mb-4 rounded-2xl border border-red-500/40 bg-red-500/12 p-3 text-sm text-red-200">
+              Este evento no tiene un único producto "Estacionamiento" configurado, así que no se puede cobrar acá. Avisa a un admin.
+            </p>
+          )}
+
+          <p className="mb-2 text-xs uppercase tracking-widest text-white/50">¿Cómo paga?</p>
+          <div className="mb-4 grid gap-2">
+            {opciones.map(({ value, label, sub, Icon }) => (
+              <button
+                key={value}
+                onClick={() => setMetodo(value)}
+                aria-pressed={metodo === value}
+                className={`flex h-16 items-center gap-3 rounded-2xl border px-4 text-left active:scale-[0.99] ${metodo === value ? 'border-primary/60 bg-primary/20' : 'border-white/10 bg-white/5'}`}
+              >
+                <Icon className="h-6 w-6 shrink-0" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-lg font-bold">{label}</span>
+                  <span className="block text-xs text-white/60">{sub}</span>
+                </span>
+                <span className={`grid h-6 w-6 place-items-center rounded-full border-2 ${metodo === value ? 'border-primary bg-primary text-primary-foreground' : 'border-white/30'}`}>
+                  {metodo === value && <Check className="h-4 w-4" />}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {metodo === 'efectivo' && (
+            <div className="admin-tile mb-4 rounded-2xl p-4">
+              <p className="mb-2 text-xs uppercase tracking-widest text-white/50">¿Cuánto te entrega? (para el vuelto)</p>
+              <input
+                value={recibido}
+                onChange={(e) => setRecibido(e.target.value.replace(/\D/g, '').slice(0, 7))}
+                inputMode="numeric"
+                placeholder={price != null ? `Exacto ${money(price)}` : 'Monto recibido'}
+                aria-label="Monto recibido en efectivo"
+                className="h-14 w-full rounded-2xl bg-white/10 px-4 text-center text-2xl font-bold tabular-nums text-white placeholder:text-base placeholder:font-normal placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-primary/60"
+              />
+              {atajos.length > 0 && (
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {atajos.slice(0, 3).map((n) => (
+                    <button key={n} onClick={() => setRecibido(String(n))} className="admin-tile h-11 rounded-xl text-sm font-semibold active:scale-95">{money(n)}</button>
+                  ))}
+                </div>
+              )}
+              {faltaPlata && <p className="mt-3 text-center text-sm font-semibold text-red-300">Falta {money((price ?? 0) - (recibidoNum ?? 0))}</p>}
+              {vuelto != null && recibidoNum != null && (
+                <p className="mt-3 text-center text-lg">Vuelto: <span className="font-heading text-2xl font-bold tabular-nums text-amber-300">{money(vuelto)}</span></p>
+              )}
+            </div>
+          )}
+
+          {(metodo === 'debito' || metodo === 'credito') && (
+            <p className="mb-4 rounded-2xl border border-sky-400/30 bg-sky-400/10 p-3 text-sm text-sky-100">
+              Cobra <span className="font-bold">{money(price)}</span> en la máquina. Cuando salga <span className="font-bold">aprobado</span>, confirma acá.
+            </p>
+          )}
+
+          <button
+            onClick={confirmar}
+            disabled={!puedeConfirmar}
+            className="h-16 w-full rounded-full bg-emerald-500 text-lg font-bold text-black shadow-[0_0_24px_-6px_rgba(16,185,129,0.9)] active:scale-[0.99] disabled:opacity-35 disabled:shadow-none"
+          >
+            {enviando ? 'Registrando…'
+              : !metodo ? 'Elige cómo paga'
+              : metodo === 'efectivo' ? `Recibí el efectivo — confirmar ${money(price)}`
+              : `Ya cobré en la máquina — confirmar ${money(price)}`}
+          </button>
+          <button onClick={onClose} className="admin-tile mt-2.5 h-12 w-full rounded-full text-sm font-semibold text-white/80 active:scale-[0.99]">Cancelar, no cobrar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* --- Cobros de estacionamiento que el servidor no registró ------------------- */
+
+function RechazadosPanel({ records, onSeen, onClose }: {
+  records: ParkingRecord[];
+  onSeen: (opId: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div role="alertdialog" aria-label="Cobros no registrados" className="fixed inset-0 z-[60] flex flex-col bg-[#0b0612] bg-gradient-to-b from-red-700/45 to-transparent">
+      <div className="mx-auto w-full max-w-lg flex-1 overflow-y-auto overscroll-contain p-5 pt-[max(1.25rem,env(safe-area-inset-top))]">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <AlertTriangle className="mb-2 h-10 w-10 text-red-300" />
+            <h1 className="font-heading text-3xl font-extrabold leading-tight text-red-100">Cobros que NO se registraron</h1>
+            <p className="mt-2 text-sm text-white/80">
+              El cliente ya pagó, pero el sistema no lo tiene anotado. Avisa a un admin con estos datos para corregirlo a mano.
+            </p>
+          </div>
+          <button onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-white/70 active:bg-white/10" aria-label="Cerrar"><X className="h-6 w-6" /></button>
+        </div>
+
+        {records.length === 0 ? (
+          <p className="py-10 text-center text-white/70">Ya viste todos los avisos.</p>
+        ) : records.map((r) => (
+          <div key={r.opId} className="admin-tile mb-3 rounded-2xl p-4">
+            <p className="text-lg font-bold">{r.name}</p>
+            <p className="font-mono text-xs text-white/50">{r.ticketCode}</p>
+            <p className="mt-1 text-base">{METHOD_LABEL[r.method]} · <span className="font-bold tabular-nums">{money(r.amount)}</span> · {new Date(r.at).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })}</p>
+            <p className="mt-2 rounded-xl bg-red-500/15 p-2.5 text-sm text-red-100">{r.note || 'El servidor no lo registró.'}</p>
+            <button onClick={() => onSeen(r.opId)} className="mt-3 h-12 w-full rounded-full bg-white/12 text-sm font-bold active:scale-[0.99]">Lo vi · avisaré a un admin</button>
+          </div>
+        ))}
+      </div>
+      <div className="mx-auto w-full max-w-lg p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <button onClick={onClose} className="admin-tile h-14 w-full rounded-full font-semibold active:scale-[0.99]">Cerrar</button>
       </div>
     </div>
   );
@@ -699,16 +1004,73 @@ function BuscarPanel({ onPick, onCode }: {
 
 /* --- Ingresos: lo que se dio acceso desde este celular --------------------- */
 
-function IngresosPanel({ history, pendingIds }: { history: HistoryEntry[]; pendingIds: Set<string> }) {
+function IngresosPanel({ history, pendingIds, parking, venueFee }: {
+  history: HistoryEntry[];
+  pendingIds: Set<string>;
+  parking: ParkingRecord[];
+  venueFee: number;
+}) {
   const total = history.reduce((n, h) => n + h.personas, 0);
+  const resumen = summarizeDoorParking(parking, venueFee);
+  const hora = (iso: string) => new Date(iso).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' });
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <p className="shrink-0 pb-2 text-xs text-white/60">
-        Desde este celular: <span className="font-semibold text-white/80">{history.length}</span> {history.length === 1 ? 'acceso' : 'accesos'} · <span className="font-semibold text-white/80">{total}</span> {total === 1 ? 'persona' : 'personas'}
-      </p>
-      <div className="flex-1 min-h-0 space-y-2 overflow-y-auto overscroll-contain pb-3">
+      <div className="flex-1 min-h-0 space-y-3 overflow-y-auto overscroll-contain pb-3">
+        {/* Lo cobrado en estacionamiento desde este celular: el efectivo es
+            la plata física a entregar al cierre; lo del local es lo que sale
+            del registro de estacionamientos (por auto cobrado). */}
+        <div className="admin-glass-panel admin-glass-panel-sm space-y-3 p-4">
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-white/60"><Car className="h-4 w-4" /> Estacionamiento · este celular</p>
+          <div className="flex items-end justify-between">
+            <p className="text-base"><span className="font-heading text-3xl font-extrabold tabular-nums">{resumen.cars}</span> {resumen.cars === 1 ? 'auto cobrado' : 'autos cobrados'}</p>
+            <p className="font-heading text-2xl font-bold tabular-nums">{money(resumen.total)}</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            {(['efectivo', 'debito', 'credito'] as const).map((m) => (
+              <div key={m} className="rounded-xl bg-white/5 px-2 py-2">
+                <p className="text-[11px] text-white/60">{METHOD_LABEL[m]}</p>
+                <p className="text-sm font-bold tabular-nums">{money(resumen.byMethod[m].total)}</p>
+                <p className="text-[11px] text-white/50">{resumen.byMethod[m].count} {resumen.byMethod[m].count === 1 ? 'auto' : 'autos'}</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between rounded-xl bg-emerald-500/15 px-3 py-2.5">
+            <span className="text-sm text-emerald-100">Efectivo a entregar</span>
+            <span className="font-heading text-xl font-bold tabular-nums text-emerald-300">{money(resumen.cashToHandOver)}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm text-white/70">
+            <span>Del local ({resumen.cars} × {money(venueFee)})</span>
+            <span className="font-semibold tabular-nums text-white/90">{money(resumen.venueShare)}</span>
+          </div>
+          {resumen.rejected > 0 && <p className="text-xs font-semibold text-red-300">{resumen.rejected} {resumen.rejected === 1 ? 'cobro no se registró y no está contado' : 'cobros no se registraron y no están contados'}.</p>}
+        </div>
+
+        {parking.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs text-white/60">Cobros de estacionamiento</p>
+            {parking.map((r) => (
+              <div key={r.opId} className={`admin-tile flex items-center gap-3 rounded-2xl px-3 py-3 ${r.status === 'rechazado' ? '!border-red-500/50' : ''}`}>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-base font-semibold">{r.name}</p>
+                  <p className="truncate text-xs text-white/60">{METHOD_LABEL[r.method]} · {money(r.amount)}</p>
+                  {r.status === 'rechazado' && <p className="mt-0.5 text-xs text-red-300">{r.note || 'No se registró'}</p>}
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-sm tabular-nums text-white/80">{hora(r.at)}</p>
+                  <p className={`text-[11px] ${r.status === 'ok' ? 'text-emerald-300' : r.status === 'pendiente' ? 'text-amber-300' : 'text-red-300'}`}>
+                    {r.status === 'ok' ? '✓ registrado' : r.status === 'pendiente' ? '⏳ por enviar' : '⚠ no registrado'}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p className="pt-1 text-xs text-white/60">
+          Accesos desde este celular: <span className="font-semibold text-white/80">{history.length}</span> · <span className="font-semibold text-white/80">{total}</span> {total === 1 ? 'persona' : 'personas'}
+        </p>
         {history.length === 0 ? (
-          <p className="py-12 text-center text-sm text-white/50">Todavía no has dado ningún acceso desde este celular.</p>
+          <p className="py-8 text-center text-sm text-white/50">Todavía no has dado ningún acceso desde este celular.</p>
         ) : history.map((h) => {
           const synced = !pendingIds.has(h.opId);
           return (
@@ -718,7 +1080,7 @@ function IngresosPanel({ history, pendingIds }: { history: HistoryEntry[]; pendi
                 <p className="truncate text-xs text-white/60">{h.typeName} · {h.personas} {h.personas === 1 ? 'persona' : 'personas'}</p>
               </div>
               <div className="shrink-0 text-right">
-                <p className="text-sm tabular-nums text-white/80">{new Date(h.at).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })}</p>
+                <p className="text-sm tabular-nums text-white/80">{hora(h.at)}</p>
                 <p className={`text-[11px] ${synced ? 'text-emerald-300' : 'text-amber-300'}`}>{synced ? '✓ enviado' : '⏳ por enviar'}</p>
               </div>
             </div>

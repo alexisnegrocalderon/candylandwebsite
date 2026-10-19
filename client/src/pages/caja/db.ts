@@ -168,6 +168,8 @@ export async function saveSnapshot(snapshot: {
   catalog: CajaCatalogItem[];
   gifts?: { displayCode: string; drinkName: string; toAlias: string; fromAlias: string; eventId: number }[];
   staffComps?: { displayCode: string; productName: string; staffName: string; status: string }[];
+  /** Solo la puerta lo trae: precio del estacionamiento y lo del local por auto. */
+  parking?: { priceClp: number | null; venueFeePerCarClp: number };
   serverTime: string;
 }) {
   await cajaDB.transaction('rw', [cajaDB.attendees, cajaDB.codes, cajaDB.catalog, cajaDB.gifts, cajaDB.staffComps, cajaDB.meta, cajaDB.opsQueue], async () => {
@@ -193,6 +195,7 @@ export async function saveSnapshot(snapshot: {
     // servidor para corregir clientAt en cada operación (ver correctedNow()).
     await cajaDB.meta.put({ key: 'serverTimeOffsetMs', value: new Date(snapshot.serverTime).getTime() - Date.now() });
     await cajaDB.meta.put({ key: 'lastSnapshotAt', value: Date.now() });
+    if (snapshot.parking) await cajaDB.meta.put({ key: 'parking', value: snapshot.parking });
 
     // El snapshot llega del servidor SIN lo que esta tablet todavía no
     // sincronizó: sin esto, un código recién canjeado volvía a "válido" (y se
@@ -203,6 +206,13 @@ export async function saveSnapshot(snapshot: {
       if (rec.eventId === undefined || rec.eventId === snapshot.event.id) await applyOptimistic(rec.op);
     }
   });
+}
+
+/** Precio del estacionamiento y lo del local por auto, del último snapshot
+ * de la puerta (`null` si todavía no se bajó o la caja nunca lo pidió). */
+export async function getLocalParking(): Promise<{ priceClp: number | null; venueFeePerCarClp: number } | null> {
+  const row = await cajaDB.meta.get('parking');
+  return (row?.value as any) ?? null;
 }
 
 export async function getLocalEvent(): Promise<{ id: number; title: string; slug: string } | null> {

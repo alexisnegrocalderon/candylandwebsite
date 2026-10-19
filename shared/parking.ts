@@ -63,3 +63,54 @@ export function summarizeParkingCounts(origins: ParkingOrigin[]) {
   }
   return { online, puerta, staff, totalPaid: online + puerta, totalCars: online + puerta + staff };
 }
+
+/** El único producto "Estacionamiento" (sin VIP) del evento: el que se le
+ * cobra a quien llega sin estacionamiento pagado. `null` si no hay ninguno o
+ * hay más de uno (ambiguo) -- igual criterio que resolveParkingCharge en
+ * server/caja/parkingPaid.ts. */
+export function pickDoorParkingProduct<T extends { category: string; name: string }>(types: T[]): T | null {
+  const found = types.filter((t) => t.category === 'extra' && isParkingTicketType(t.name));
+  return found.length === 1 ? found[0] : null;
+}
+
+export type DoorParkingMethod = 'efectivo' | 'debito' | 'credito';
+
+/** Un cobro de estacionamiento hecho en la puerta desde este celular. */
+export interface DoorParkingCharge {
+  method: DoorParkingMethod;
+  /** Monto cobrado; `null` si el celular todavía no conocía el precio. */
+  amount: number | null;
+  /** `pendiente`: aún no llega al servidor. `ok`: registrado. `rechazado`: el
+   * servidor no lo registró (ya tenía estacionamiento, producto sin
+   * configurar...) y no cuenta. */
+  status: 'pendiente' | 'ok' | 'rechazado';
+}
+
+/** Resumen de lo cobrado desde un celular: autos, total, desglose por medio
+ * de pago, el efectivo físico a entregar y lo que le corresponde al local
+ * (`venueFeePerCarClp` por auto cobrado). Los rechazados no cuentan. */
+export function summarizeDoorParking(charges: DoorParkingCharge[], venueFeePerCarClp: number) {
+  const byMethod: Record<DoorParkingMethod, { count: number; total: number }> = {
+    efectivo: { count: 0, total: 0 }, debito: { count: 0, total: 0 }, credito: { count: 0, total: 0 },
+  };
+  let rejected = 0;
+  for (const c of charges) {
+    if (c.status === 'rechazado') { rejected++; continue; }
+    byMethod[c.method].count++;
+    byMethod[c.method].total += c.amount ?? 0;
+  }
+  const cars = byMethod.efectivo.count + byMethod.debito.count + byMethod.credito.count;
+  const total = byMethod.efectivo.total + byMethod.debito.total + byMethod.credito.total;
+  return {
+    cars, total, byMethod, rejected,
+    cashToHandOver: byMethod.efectivo.total,
+    venueShare: cars * venueFeePerCarClp,
+  };
+}
+
+/** Vuelto al cobrar en efectivo: `null` si lo recibido no alcanza (o no hay
+ * monto conocido). */
+export function cashChange(received: number, price: number | null): number | null {
+  if (price == null || !Number.isFinite(received) || received < price) return null;
+  return received - price;
+}

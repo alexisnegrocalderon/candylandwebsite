@@ -1755,7 +1755,11 @@ export const appRouter = router({
     // Mismo snapshot que la caja: la puerta lo guarda en el mismo IndexedDB
     // y por eso funciona sin señal.
     snapshot: doorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
-      return db.getCajaSnapshot(input.eventId);
+      const snapshot = await db.getCajaSnapshot(input.eventId);
+      if (!snapshot) return snapshot;
+      // Precio del estacionamiento y lo del local por auto: la puerta cobra
+      // estacionamiento y tiene que mostrar el monto antes de cobrar.
+      return { ...snapshot, parking: await db.getParkingPricing(input.eventId) };
     }),
 
     checkin: doorProcedure.input(z.object({
