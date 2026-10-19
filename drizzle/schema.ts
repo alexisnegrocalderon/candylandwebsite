@@ -2704,3 +2704,127 @@ export const coproductionExpenses = mysqlTable("coproductionExpenses", {
 }));
 
 export type CoproductionExpense = typeof coproductionExpenses.$inferSelect;
+
+// ---------------------------------------------------------------------------
+// Concursos de Instagram (admin → Comunidad → Concursos). Reglas puras en
+// shared/contest.ts; el motor (webhook, compras, sorteo) en server/contests.ts.
+// Tablas aparte a propósito: si la migración 0109 no se corrió, el webhook,
+// la compra y el resto del panel siguen igual (todo lo del concurso atrapa
+// el error y no hace nada).
+// ---------------------------------------------------------------------------
+
+export const contests = mysqlTable("contests", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 160 }).notNull(),
+  eventId: int("eventId").notNull(),
+  // draft = armándose; active = recibe participantes (desde config.startsAt);
+  // paused = detenido a mano; finished = cerrado (pasó la fiesta o a mano).
+  status: mysqlEnum("status", ["draft", "active", "paused", "finished"]).default("draft").notNull(),
+  // Publicación de Instagram del concurso: cualquier comentario ahí participa.
+  mediaId: varchar("mediaId", { length: 64 }),
+  mediaPermalink: varchar("mediaPermalink", { length: 300 }),
+  mediaImage: text("mediaImage"),
+  // shared/contest.ts (normalizeContestConfig): fechas, chances, premios y mensajes.
+  config: json("config"),
+  // Resumen del sorteo (boletos totales por sorteo) para mostrarlo/auditarlo.
+  drawLog: json("drawLog"),
+  drawnAt: timestamp("drawnAt"),
+  lastSyncAt: timestamp("lastSyncAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type Contest = typeof contests.$inferSelect;
+
+export const contestParticipants = mysqlTable("contestParticipants", {
+  id: int("id").autoincrement().primaryKey(),
+  contestId: int("contestId").notNull(),
+  igUserId: varchar("igUserId", { length: 64 }).notNull(),
+  username: varchar("username", { length: 120 }),
+  // purchase = se inscribió solo al comprar con su @ (sin comentar todavía);
+  // su igUserId queda como `ig:<handle>` hasta que comente o escriba.
+  source: mysqlEnum("source", ["comment", "story", "dm", "purchase"]).notNull(),
+  // Primer comentario (ya usado para el DM privado) y el último sin usar:
+  // Meta deja un solo DM privado por comentario, y el que sobra sirve para
+  // avisarle si gana.
+  firstCommentId: varchar("firstCommentId", { length: 64 }),
+  spareCommentId: varchar("spareCommentId", { length: 64 }),
+  spareCommentAt: timestamp("spareCommentAt"),
+  mentions: json("mentions").$type<string[]>(),
+  storyMentioned: int("storyMentioned").default(0).notNull(),
+  invitedPurchases: int("invitedPurchases").default(0).notNull(),
+  hasTicket: int("hasTicket").default(0).notNull(),
+  boughtDuringContest: int("boughtDuringContest").default(0).notNull(),
+  // % de descuento de la tanda vigente al participar: su cupón le congela
+  // ese precio (shared/contest.ts priceLockCodePercent).
+  lockedPhasePercent: int("lockedPhasePercent"),
+  email: varchar("email", { length: 320 }),
+  // Orden aprobada del evento (para cargarle los regalos de asistente).
+  orderId: int("orderId"),
+  couponCode: varchar("couponCode", { length: 50 }),
+  friendCode: varchar("friendCode", { length: 50 }),
+  inviteCode: varchar("inviteCode", { length: 16 }).notNull(),
+  // Regalos de asistente ya entregados (una sola vez).
+  holderPrizesAt: timestamp("holderPrizesAt"),
+  awaitingEmail: int("awaitingEmail").default(0).notNull(),
+  disqualified: int("disqualified").default(0).notNull(),
+  disqualifyReason: varchar("disqualifyReason", { length: 200 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  contestUserIdx: uniqueIndex("contest_participants_user_idx").on(t.contestId, t.igUserId),
+  inviteIdx: uniqueIndex("contest_participants_invite_idx").on(t.inviteCode),
+  usernameIdx: index("contest_participants_username_idx").on(t.username),
+}));
+
+export type ContestParticipant = typeof contestParticipants.$inferSelect;
+
+export const contestWinners = mysqlTable("contestWinners", {
+  id: int("id").autoincrement().primaryKey(),
+  contestId: int("contestId").notNull(),
+  participantId: int("participantId").notNull(),
+  // double = entradas dobles (sin entrada); vip = premio de asistentes.
+  pool: mysqlEnum("pool", ["double", "vip"]).notNull(),
+  // Orden de salida en la tómbola: los primeros N ganan, el resto es suplente.
+  position: int("position").notNull(),
+  chances: int("chances").notNull(),
+  // alternate = suplente en espera; notified = ganó y no lo pudimos contactar
+  // por DM (espera que escriba); delivered = premio entregado; expired = no
+  // reclamó a tiempo (pasa el siguiente suplente); skipped = suplente que ya
+  // no hizo falta.
+  // choosing = ganó habiendo comprado y está eligiendo devolución o regalo.
+  status: mysqlEnum("status", ["alternate", "notified", "choosing", "delivered", "expired", "skipped"]).notNull(),
+  prizeCode: varchar("prizeCode", { length: 50 }),
+  // Ganador que ya había comprado: elige devolución (con tope = valor del
+  // premio) o una entrada doble extra para regalar. La devolución se hace a
+  // mano en Mercado Pago y se marca en el panel (la entrada sigue válida).
+  orderId: int("orderId"),
+  choice: mysqlEnum("choice", ["refund", "gift"]),
+  choiceToken: varchar("choiceToken", { length: 32 }),
+  choiceDeadline: timestamp("choiceDeadline"),
+  refundAmount: int("refundAmount"),
+  refundStatus: mysqlEnum("refundStatus", ["pending", "done"]),
+  refundedAt: timestamp("refundedAt"),
+  claimDeadline: timestamp("claimDeadline"),
+  notifiedAt: timestamp("notifiedAt"),
+  deliveredAt: timestamp("deliveredAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  contestIdx: index("contest_winners_contest_idx").on(t.contestId),
+  choiceTokenIdx: uniqueIndex("contest_winners_choice_token_idx").on(t.choiceToken),
+}));
+
+export type ContestWinner = typeof contestWinners.$inferSelect;
+
+// Idempotencia: cada comentario, mención en historia y compra se procesa una
+// sola vez aunque llegue por el webhook y por la sincronización a la vez.
+export const contestLog = mysqlTable("contestLog", {
+  id: int("id").autoincrement().primaryKey(),
+  contestId: int("contestId").notNull(),
+  kind: mysqlEnum("kind", ["comment", "story", "order"]).notNull(),
+  refId: varchar("refId", { length: 100 }).notNull(),
+  participantId: int("participantId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  refIdx: uniqueIndex("contest_log_ref_idx").on(t.contestId, t.kind, t.refId),
+}));

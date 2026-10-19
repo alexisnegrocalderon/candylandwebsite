@@ -764,6 +764,20 @@
       "when": 1792310000000,
       "tag": "0108_coproductions",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "5",
+      "when": 1792400000000,
+      "tag": "0109_contests",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "5",
+      "when": 1792410000000,
+      "tag": "0110_contest_buyers",
+      "breakpoints": true
     }
   ]
 }

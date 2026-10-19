@@ -81,6 +81,9 @@ import { computeCustomerLevel } from "../shared/customerInsights";
 import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftClosed, listCajaAlerts } from "./caja/alerts";
 import { BRAND } from "../shared/eventBrand";
 import * as partnerSvc from "./partnerCampaigns";
+import * as contestSvc from "./contests";
+import { fetchOwnMedia } from "./instagramSend";
+import { normalizeMedia } from "../shared/instagramShowcase";
 import * as staffSvc from "./staff";
 import * as siiSvc from "./sii";
 import * as cashSvc from "./cash";
@@ -3731,6 +3734,110 @@ export const appRouter = router({
       const slug = input.slug ?? partnerSvc.ELECTRONICA_SLUG;
       const result = await partnerSvc.sendPartnerThanks(slug, input);
       await db.recordAdminAudit({ action: 'partner.sendThanks', targetType: 'partnerCampaign', targetId: slug, payload: result, ip: clientIp(ctx) });
+      return result;
+    }),
+  }),
+
+  /* Concursos de Instagram (admin → Comunidad → Concursos). El motor que
+   * corre solo (webhook, compras, sorteo) vive en server/contests.ts. */
+  contests: router({
+    public: publicProcedure.query(() => contestSvc.getPublicContest().catch(() => null)),
+    list: adminReadProcedure.query(() => contestSvc.listContests().catch(() => {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Falta correr la migración 0109 (concursos) en la base.' });
+    })),
+    get: adminReadProcedure.input(z.object({ id: z.number().int() })).query(({ input }) => contestSvc.getContestAdmin(input.id)),
+    ticketTypes: adminReadProcedure.input(z.object({ eventId: z.number().int() })).query(({ input }) => contestSvc.listContestTicketTypes(input.eventId)),
+    /* Últimas publicaciones de la cuenta, para elegir la del concurso. */
+    media: adminReadProcedure.query(async () => {
+      try {
+        return normalizeMedia(await fetchOwnMedia(25));
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron leer las publicaciones.' });
+      }
+    }),
+    create: adminProcedure.input(z.object({ eventId: z.number().int(), title: z.string().max(160).optional() })).mutation(async ({ input, ctx }) => {
+      const result = await contestSvc.createContest(input.eventId, input.title);
+      await db.recordAdminAudit({ action: 'contest.create', targetType: 'contest', targetId: result.id, ip: clientIp(ctx) });
+      return result;
+    }),
+    update: adminProcedure.input(z.object({
+      id: z.number().int(),
+      title: z.string().max(160).optional(),
+      config: z.unknown().optional(),
+      mediaId: z.string().max(64).nullable().optional(),
+      mediaPermalink: z.string().max(300).nullable().optional(),
+      mediaImage: z.string().max(2000).nullable().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const { id, ...patch } = input;
+      const result = await contestSvc.updateContest(id, patch);
+      await db.recordAdminAudit({ action: 'contest.update', targetType: 'contest', targetId: id, ip: clientIp(ctx) });
+      return result;
+    }),
+    setStatus: adminProcedure.input(z.object({ id: z.number().int(), status: z.enum(['draft', 'active', 'paused', 'finished']) })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.setContestStatus(input.id, input.status);
+        await db.recordAdminAudit({ action: `contest.${input.status}`, targetType: 'contest', targetId: input.id, payload: result, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo cambiar el estado.' });
+      }
+    }),
+    syncNow: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
+      try {
+        return await contestSvc.syncContestComments(input.id);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron leer los comentarios.' });
+      }
+    }),
+    drawNow: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
+      const result = await contestSvc.runContestDraw(input.id);
+      if (!result) throw new TRPCError({ code: 'BAD_REQUEST', message: 'El concurso no está activo o ya se sorteó.' });
+      await db.recordAdminAudit({ action: 'contest.draw', targetType: 'contest', targetId: input.id, payload: result, ip: clientIp(ctx) });
+      return result;
+    }),
+    wheel: adminReadProcedure.input(z.object({ id: z.number().int() })).query(({ input }) => contestSvc.getDrawWheel(input.id)),
+    setDisqualified: adminProcedure.input(z.object({ participantId: z.number().int(), disqualified: z.boolean(), reason: z.string().max(200).nullable().optional() })).mutation(async ({ input, ctx }) => {
+      await contestSvc.setParticipantDisqualified(input.participantId, input.disqualified, input.reason);
+      await db.recordAdminAudit({ action: 'contest.disqualify', targetType: 'contestParticipant', targetId: input.participantId, payload: input, ip: clientIp(ctx) });
+      return { success: true };
+    }),
+    markHolder: adminProcedure.input(z.object({ participantId: z.number().int(), email: z.string().trim().email().max(320) })).mutation(async ({ input }) => {
+      try {
+        await contestSvc.markParticipantHolder(input.participantId, input.email);
+        return { success: true };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo marcar.' });
+      }
+    }),
+    markRefundDone: adminProcedure.input(z.object({ winnerId: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        await contestSvc.markRefundDone(input.winnerId);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo marcar.' });
+      }
+      await db.recordAdminAudit({ action: 'contest.refundDone', targetType: 'contestWinner', targetId: input.winnerId, ip: clientIp(ctx) });
+      return { success: true };
+    }),
+    /* Página pública /concurso/premio/:token: el ganador que ya había
+     * comprado elige devolución o una entrada doble para regalar. */
+    choice: router({
+      get: publicProcedure.input(z.object({ token: z.string().max(64) })).query(({ input }) => contestSvc.getWinnerChoice(input.token)),
+      submit: publicProcedure.input(z.object({ token: z.string().max(64), choice: z.enum(['refund', 'gift']) })).mutation(async ({ input, ctx }) => {
+        const ipKey = `contest-choice:${clientIp(ctx)}`;
+        if (!(await db.checkIpRateLimit(ipKey))) {
+          throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Prueba de nuevo en un rato.' });
+        }
+        await db.recordIpAttempt(ipKey, 30, 30 * 60 * 1000);
+        try {
+          return await contestSvc.submitWinnerChoice(input.token, input.choice);
+        } catch (err) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar tu elección.' });
+        }
+      }),
+    }),
+    skipWinner: adminProcedure.input(z.object({ winnerId: z.number().int() })).mutation(async ({ input, ctx }) => {
+      const result = await contestSvc.skipWinner(input.winnerId);
+      await db.recordAdminAudit({ action: 'contest.skipWinner', targetType: 'contestWinner', targetId: input.winnerId, payload: result, ip: clientIp(ctx) });
       return result;
     }),
   }),
