@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Home, Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones, ListChecks, Image as ImageIcon } from 'lucide-react';
+import { Home, Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones, ListChecks, Image as ImageIcon, PartyPopper } from 'lucide-react';
 import { ExpenseTerminal } from '@/components/admin/expenses/ExpenseTerminal';
 import { ExpensesToday } from '@/components/admin/expenses/ExpensesToday';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
@@ -50,6 +50,7 @@ import { SalesStrategyView } from '@/components/admin/SalesStrategyView';
 import { EventSurveyView } from '@/components/admin/EventSurveyView';
 import { WinbackView } from '@/components/admin/WinbackView';
 import { ContentPlanView } from '@/components/admin/ContentPlanView';
+import { ContestsView } from '@/components/admin/ContestsView';
 import { ProfileAuditView } from '@/components/admin/ProfileAuditView';
 import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
 import { parseAdminDeepLink } from '@shared/adminDeepLink';
@@ -11482,6 +11483,7 @@ const ADMIN_SECTIONS = [
   ) },
   { id: 'profile-audit', label: 'Revisar mi perfil', hub: 'contenido', icon: UserCheck, render: () => <ProfileAuditView /> },
 
+  { id: 'contests', label: 'Concursos', hub: 'comunidad', icon: PartyPopper, render: () => <ContestsView /> },
   { id: 'referrals', label: 'Referidos', hub: 'comunidad', icon: Trophy, render: () => <ReferralsView /> },
   { id: 'ambassadors', label: 'Embajadores VIP', hub: 'comunidad', icon: Crown, render: () => <AmbassadorsView /> },
 

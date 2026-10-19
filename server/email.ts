@@ -2050,3 +2050,36 @@ export function buildPartnerThanksEmail(data: {
     `,
   });
 }
+
+/** Ganador de un concurso de Instagram (server/contests.ts): se manda además
+ * del DM cuando conocemos su correo, por si no ve los mensajes a tiempo. */
+export function buildContestWinnerEmail(data: {
+  name: string;
+  prize: string;
+  eventTitle: string;
+  code?: string | null;
+  ctaUrl: string;
+  note: string;
+}) {
+  const esc = escapeEmailText;
+  return emailShell({
+    preheader: `Ganaste ${data.prize} para ${data.eventTitle}.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'pink',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🎉',
+      title: `¡Ganaste, ${esc(data.name)}!`,
+      subtitle: `${esc(data.prize)} para ${esc(data.eventTitle)}.`,
+      cta: { href: data.ctaUrl, label: data.code ? 'Canjear mi premio' : 'Ver mi entrada' },
+      ctaStyle: 'pastel',
+    }),
+    body: `
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 24px;">${esc(data.note)}</p>
+      ${data.code ? card(`
+        <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;text-align:center;">Tu código</p>
+        <p style="color:${ACCENT.gold.text};font-size:28px;font-weight:800;font-family:monospace;letter-spacing:2px;margin:0;text-align:center;user-select:all;">${esc(data.code)}</p>
+      `, { glow: 'gold' }) : ''}
+    `,
+  });
+}

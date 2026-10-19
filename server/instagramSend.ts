@@ -235,6 +235,43 @@ export async function fetchOwnMedia(limit = 9): Promise<unknown[]> {
   return Array.isArray(body.data) ? body.data : [];
 }
 
+export interface MediaComment {
+  id: string;
+  text: string;
+  igUserId: string | null;
+  username: string | null;
+  timestamp: string | null;
+}
+
+/** Comentarios de una publicación propia (concursos: recoger los que ya
+ * estaban antes de lanzarlo y los que el webhook no haya avisado). Recorre
+ * las páginas hasta `maxPages`. Necesita `instagram_business_manage_comments`. */
+export async function fetchMediaComments(mediaId: string, maxPages = 20): Promise<MediaComment[]> {
+  if (!ENV.igAccessToken) throw new InstagramApiError('Falta IG_ACCESS_TOKEN en el servidor.');
+  const out: MediaComment[] = [];
+  let url: string | null = `${GRAPH_BASE}/${encodeURIComponent(mediaId)}/comments?fields=id,text,timestamp,username,from&limit=50&access_token=${encodeURIComponent(ENV.igAccessToken)}`;
+  for (let page = 0; url && page < maxPages; page++) {
+    const response: Response = await fetch(url);
+    if (!response.ok) throw new InstagramApiError(`Meta no entregó los comentarios (${response.status}).`);
+    const body = await response.json() as {
+      data?: Array<{ id?: string; text?: string; timestamp?: string; username?: string; from?: { id?: string; username?: string } }>;
+      paging?: { next?: string };
+    };
+    for (const c of body.data ?? []) {
+      if (!c.id) continue;
+      out.push({
+        id: c.id,
+        text: c.text ?? '',
+        igUserId: c.from?.id ?? null,
+        username: c.from?.username ?? c.username ?? null,
+        timestamp: c.timestamp ?? null,
+      });
+    }
+    url = body.paging?.next ?? null;
+  }
+  return out;
+}
+
 /** Renueva el token de larga duración (dura 60 días y se puede refrescar a
  * partir de las 24 horas de emitido).
  *

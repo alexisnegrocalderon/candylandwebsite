@@ -26,6 +26,7 @@ import { getAddonById, settleAddon } from './orderAddon';
 import { parseAddonReference } from '../shared/addon';
 import { getPartnerCampaignForOrder, tagCustomerForPartnerOrder } from './partnerCampaigns';
 import { partnerRulesList } from '../shared/partnerCampaign';
+import { contestOnOrderApproved } from './contests';
 
 export const webhooksRouter = Router();
 
@@ -740,6 +741,9 @@ async function processApprovedOrder(order: any) {
   // ("avísame antes de que suba el precio"), lo marca convertido -- nunca
   // lanza, no puede bloquear la confirmación de una compra real.
   await matchLeadForOrder(order);
+  // Concurso de Instagram activo (server/contests.ts): suma chances a quien
+  // invitó y pasa al sorteo VIP a quien participaba sin entrada. Nunca lanza.
+  await contestOnOrderApproved(order);
 
   // Saldo prepagado (pedido explícito del dueño, etapa 2 de la tarjeta de
   // membresía): las líneas de "carga de saldo" se acreditan acá, DESPUÉS de

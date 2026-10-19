@@ -308,3 +308,20 @@ Instagram → Comentarios. Nada se publica solo.
   conversación y viaja como `utm_content` en el botón de compra del agente.
 - **Avisos push con destino**: la URL del aviso (`shared/adminDeepLink.ts`)
   abre la sección, pestaña, conversación o comentario exactos.
+
+## Concursos (admin → Comunidad → Concursos)
+
+Motor en `server/contests.ts`, reglas puras en `shared/contest.ts`, migración `0109`.
+
+- Cualquier comentario en el post del concurso participa (webhook `comments`; además el cron
+  `instagram-followup` revisa los comentarios del post cada 15 min por si alguno no llegó).
+  El primer comentario recibe por DM privado el cupón (sin entrada) o los regalos de asistente
+  (con entrada) y el link personal `/c/<código>`.
+- Mención en historia (`attachments[].type = story_mention`, mismo campo `messages`), palabra
+  clave por DM y "respóndeme con el correo de tu compra" se manejan en `handleContestMessage`,
+  antes del agente.
+- Compras: `contestOnOrderApproved` (webhooks.ts) suma chances a quien invitó y pasa al sorteo
+  VIP a quien compró.
+- Sorteo automático a la hora configurada; si un ganador no recibe el DM ni tiene correo, se le
+  responde el comentario y, si no escribe dentro del plazo, pasa el suplente.
+- Bases públicas: `/concurso`.
