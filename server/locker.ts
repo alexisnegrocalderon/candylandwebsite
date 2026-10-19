@@ -51,6 +51,9 @@ export async function updateLockerItem(
       const patch: Record<string, unknown> = { status: params.to };
       if (params.to === "guardado") { patch.receivedAt = now; patch.receivedByOperatorId = params.operatorId; }
       if (params.to === "retirado") { patch.retrievedAt = now; patch.retrievedByOperatorId = params.operatorId; }
+      // "Deshacer" un Recibido: vuelve a la cola de por recibir, sin quién ni
+      // cuándo la recibió.
+      if (params.to === "pendiente") { patch.receivedAt = null; patch.receivedByOperatorId = null; }
 
       await rawDb.update(lockerItems).set(patch).where(eq(lockerItems.id, item.id));
 

@@ -1919,6 +1919,13 @@ export const appRouter = router({
         return { id: operator.id, name: operator.name, role: operator.role };
       }),
 
+    // Cerrar sesión / cambiar de persona en el mismo celular.
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(CAJA_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+
     me: publicProcedure.query(({ ctx }) => ctx.operator),
 
     /* El evento sale del operador que inició sesión (`operators.eventId`),
