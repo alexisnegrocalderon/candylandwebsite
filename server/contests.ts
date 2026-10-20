@@ -40,6 +40,7 @@ import {
   commentEnrolls, computeChances, contestPhase, defaultDrawAt, dmFallbackReply, drawPoolFor, fitDmText, extractEmail, dmEnrolls, parseKeywords, priceLockCodePercent, refundAmountFor, mergeMentions, normalizeContestConfig, parseMentions,
   prizeLabels, randomContestCode, randomInviteCode, renderContestTemplate, weightedDraw, type ContestConfig,
 } from '../shared/contest';
+import { buildRanking } from '../shared/contestRanking';
 
 const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
 /** Meta deja mandar un DM privado a un comentario hasta 7 días después. */
@@ -88,7 +89,7 @@ export async function getActiveContestCtx(): Promise<ContestCtx | null> {
   }
 }
 
-async function getCtxById(id: number): Promise<ContestCtx | null> {
+export async function getCtxById(id: number): Promise<ContestCtx | null> {
   const db = await getDb();
   if (!db) return null;
   const [contest] = await db.select().from(contests).where(eq(contests.id, id)).limit(1);
@@ -130,9 +131,11 @@ function checkoutUrl(ctx: ContestCtx, opts: { code?: string | null; content: str
 }
 
 export const inviteLink = (code: string) => `${APP_URL}/c/${code}`;
+export const positionLink = (code: string) => `${APP_URL}/r/${code}`;
+export const CONTEST_APP_URL = APP_URL;
 export const BASES_URL = `${APP_URL}/concurso`;
 
-function drawDateText(config: ContestConfig): string {
+export function drawDateText(config: ContestConfig): string {
   if (!config.drawAt) return 'antes de la fiesta';
   return `${formatChileDate(config.drawAt, { withWeekday: true })} a las ${formatChileTime(config.drawAt)}`;
 }
@@ -186,9 +189,9 @@ function templateVars(ctx: ContestCtx, p: ContestParticipant, extra: Record<stri
 
 /* ── Envío ───────────────────────────────────────────────────────────────── */
 
-type Channel = { kind: 'comment'; commentId: string } | { kind: 'dm'; igUserId: string; threadId: number | null };
+export type Channel = { kind: 'comment'; commentId: string } | { kind: 'dm'; igUserId: string; threadId: number | null };
 
-async function send(channel: Channel, text: string, button?: { title: string; url: string } | null): Promise<void> {
+export async function send(channel: Channel, text: string, button?: { title: string; url: string } | null): Promise<void> {
   if (channel.kind === 'comment') {
     // Instagram deja UN solo mensaje por comentario (respuesta privada): el
     // link va dentro del texto, no como un segundo mensaje con botón.
@@ -206,7 +209,7 @@ async function send(channel: Channel, text: string, button?: { title: string; ur
 /** Canal por el que todavía se le puede escribir a alguien que ya participa:
  * su chat si escribió hace menos de 24 h, o un comentario suyo sin usar
  * (menos de 7 días). `null` = hoy no hay forma de mandarle un DM. */
-async function reachableChannel(db: Db, p: ContestParticipant): Promise<Channel | null> {
+export async function reachableChannel(db: Db, p: ContestParticipant): Promise<Channel | null> {
   const [thread] = await db.select({ id: igThreads.id, lastInboundAt: igThreads.lastInboundAt })
     .from(igThreads).where(eq(igThreads.igUserId, p.igUserId)).limit(1);
   if (thread && canReplyWithinWindow(thread.lastInboundAt)) return { kind: 'dm', igUserId: p.igUserId, threadId: thread.id };
@@ -477,15 +480,17 @@ async function createParticipant(db: Db, ctx: ContestCtx, input: {
 function welcomeMessage(ctx: ContestCtx, p: ContestParticipant): { text: string; button: { title: string; url: string } | null } {
   const vars = templateVars(ctx, p);
   const m = ctx.config.messages;
+  // Antes del sorteo, todos reciben el link a su posición en el ranking.
+  const positionLine = ctx.contest.drawnAt ? '' : `\n\n📊 Mira tu posición y cómo subir: ${positionLink(p.inviteCode)}`;
   if (p.hasTicket) {
     // Compró durante el concurso: sigue por la entrada doble con su ×.
     const template = p.boughtDuringContest && !ctx.contest.drawnAt ? m.boughtUpgrade : m.holder;
-    return { text: renderContestTemplate(template, vars), button: null };
+    return { text: `${renderContestTemplate(template, vars)}${positionLine}`, button: null };
   }
   const drawn = !!ctx.contest.drawnAt;
   const text = drawn
     ? renderContestTemplate(m.afterDraw, vars)
-    : `${renderContestTemplate(m.noTicket, vars)}\n\n${renderContestTemplate(m.holderAsk, vars)}`;
+    : `${renderContestTemplate(m.noTicket, vars)}\n\n${renderContestTemplate(m.holderAsk, vars)}${positionLine}`;
   return {
     text,
     // Link corto (/p/<código>): lleva al checkout con su código ya puesto.
@@ -1174,6 +1179,11 @@ export async function runContestCron(now: Date = new Date()): Promise<Record<str
 /* ── Link personal para invitar (/c/:código) ─────────────────────────────── */
 
 export function registerContestRoutes(app: Express) {
+  // Link corto a «mi posición» (va en el DM de bienvenida).
+  app.get('/r/:code', (req: Request, res: Response) => {
+    const code = String(req.params.code ?? '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16);
+    res.redirect(302, code ? `/concurso/mi-posicion/${code}` : '/concurso');
+  });
   // Link corto de quien participa: lleva al checkout con SU código (precio congelado).
   app.get('/p/:code', async (req: Request, res: Response) => {
     try {
@@ -1410,6 +1420,16 @@ export async function resendWelcomeDms(contestId: number): Promise<{ sent: numbe
   return { sent, failed, lastError };
 }
 
+/** Participantes y ranking de un concurso (dos tablas, ver shared/contestRanking.ts). */
+export async function loadRankingFor(db: Db, ctx: ContestCtx) {
+  const participants = await db.select().from(contestParticipants).where(eq(contestParticipants.contestId, ctx.contest.id));
+  const ranking = buildRanking(participants.map((p) => ({
+    id: p.id, username: p.username, createdAt: p.createdAt, mentions: p.mentions, storyMentioned: p.storyMentioned,
+    invitedPurchases: p.invitedPurchases, hasTicket: p.hasTicket, boughtDuringContest: p.boughtDuringContest, disqualified: p.disqualified,
+  })), ctx.config.chances);
+  return { participants, ranking };
+}
+
 /** Datos públicos para la página de bases (/concurso). */
 export async function getPublicContest() {
   const ctx = await getActiveContestCtx();
@@ -1423,8 +1443,11 @@ export async function getPublicContest() {
       .where(and(eq(contestWinners.contestId, ctx.contest.id), inArray(contestWinners.status, ['notified', 'choosing', 'delivered'])))
     : [];
   const labels = prizeLabels(ctx.prizeName, ctx.config.prizes.doubleWinners);
+  const { ranking } = await loadRankingFor(db, ctx);
+  const top = (rows: typeof ranking.double) => rows.slice(0, 10).map((r) => ({ position: r.position, username: r.username, points: r.points }));
   return {
     title: ctx.contest.title,
+    ranking: { double: top(ranking.double), vip: top(ranking.vip), totals: ranking.totals, doubleCount: ranking.double.length, vipCount: ranking.vip.length },
     eventTitle: ctx.event.title,
     eventSlug: ctx.event.slug,
     eventDate: ctx.event.eventDate,

@@ -330,3 +330,9 @@ Motor en `server/contests.ts`, reglas puras en `shared/contest.ts`, migración `
   premio, se hace a mano en Mercado Pago y se marca en el panel sin anular la entrada) o una entrada
   doble extra para regalar. El cupón personal congela el precio de la tanda en que participó
   (`basedOnOriginalPrice`, recalculado por `refreshContestPriceLocks` al cambiar de tanda).
+- Ranking (`server/contestRanking.ts`, `shared/contestRanking.ts`): dos tablas por sorteo, en puntos
+  (1 punto = 1 chance). Página pública `/concurso`, personal `/concurso/mi-posicion/<código>` (link corto
+  `/r/<código>` en el DM). Empujes automáticos desde el cron `instagram-followup`: comentario diario del top
+  en el reel, respuestas públicas con tope diario, correo a compradores el día antes del sorteo y, por DM,
+  tips una vez al día cuando el participante escribe (Instagram no permite DMs por iniciativa propia). Los
+  controles de "una sola vez" van en `contestLog` (refId `rank-*`), sin migración.

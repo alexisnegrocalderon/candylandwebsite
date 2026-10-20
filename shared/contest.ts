@@ -65,6 +65,21 @@ export interface ContestMessages {
   publicReplies: string[];
 }
 
+/** Ranking y empujes automáticos (server/contestRanking.ts). */
+export interface ContestRankingConfig {
+  /** Comentario diario con el top en el reel. */
+  dailyComment: boolean;
+  /** Hora de Chile (0-23) del comentario diario. */
+  dailyHour: number;
+  /** Respuestas públicas con su posición a quienes están cerca de subir. */
+  publicReplies: boolean;
+  maxRepliesPerDay: number;
+  /** Tips por DM cuando el participante escribe (una vez al día). */
+  dmTips: boolean;
+  /** Correo a quienes ya compraron el día antes del sorteo. */
+  emailBuyers: boolean;
+}
+
 export interface ContestConfig {
   /** Palabras clave separadas por coma; el comentario tiene que traerlas TODAS
    * (ej. "quiero, entrada" calza con "quiero mi entrada doble"). */
@@ -80,12 +95,13 @@ export interface ContestConfig {
   chances: ContestChances;
   prizes: ContestPrizes;
   messages: ContestMessages;
+  ranking: ContestRankingConfig;
 }
 
 export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
   noTicket:
     '¡Ya participas, {{nombre}}! 🎉 Sorteamos {{ganadores_doble}} {{premio}}.\n\n'
-    + 'Suma chances:\n'
+    + 'Suma puntos:\n'
     + '👥 +{{por_etiqueta}} por amigo etiquetado\n'
     + '📲 +{{bonus_historia}} si compartes el reel en tu historia y nos mencionas\n'
     + '🛒 +{{bonus_compra_amigo}} por amigo que compre con tu link: {{link_invitar}}\n\n'
@@ -96,12 +112,12 @@ export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
   holder:
     '¡Qué bueno que vienes, {{nombre}}! 🎉 Participas por {{premio_vip}}. Tus regalos:\n{{lista_regalos}}\n\n'
     + '👥 +{{por_etiqueta}} por amigo etiquetado · 📲 +{{bonus_historia}} si compartes en tu historia\n'
-    + '💌 Para tu amigo: {{porcentaje_amigo}}% con {{codigo_amigo}} (o tu link {{link_invitar}}). Si compra, ganas +{{bonus_compra_amigo}} chances.\n\n'
+    + '💌 Para tu amigo: {{porcentaje_amigo}}% con {{codigo_amigo}} (o tu link {{link_invitar}}). Si compra, ganas +{{bonus_compra_amigo}} puntos.\n\n'
     + 'Sorteo: {{fecha_sorteo}}',
-  extraChances: '🔥 ¡+{{bonus_historia}} chances por compartir en tu historia! Ahora tienes {{chances}}. Suerte, {{nombre}} 🍀',
+  extraChances: '🔥 ¡+{{bonus_historia}} puntos por compartir en tu historia! Ahora tienes {{chances}}. Suerte, {{nombre}} 🍀',
   emailNotFound: 'No encontré una compra con ese correo 🤔 Revisa que sea el de tu compra. Tu código {{cupon}} sigue activo.',
   boughtUpgrade:
-    '¡Compra confirmada, {{nombre}}! 🎉 Sigues en el sorteo con x{{multiplicador}} ({{chances}} chances). Si ganas, eliges: te devolvemos tu entrada o te llevas otra para regalar.\n\n'
+    '¡Compra confirmada, {{nombre}}! 🎉 Sigues en el sorteo con x{{multiplicador}} ({{chances}} puntos). Si ganas, eliges: te devolvemos tu entrada o te llevas otra para regalar.\n\n'
     + 'Tus regalos:\n{{lista_regalos}}\n\n'
     + '💌 Para tu amigo: {{porcentaje_amigo}}% con {{codigo_amigo}} o tu link {{link_invitar}}.',
   winnerDouble:
@@ -156,6 +172,7 @@ export const DEFAULT_CONTEST_CONFIG: ContestConfig = {
     holderPlaycoins: 2000,
   },
   messages: DEFAULT_CONTEST_MESSAGES,
+  ranking: { dailyComment: true, dailyHour: 20, publicReplies: true, maxRepliesPerDay: 15, dmTips: true, emailBuyers: true },
 };
 
 function int(v: unknown, fallback: number, min: number, max: number): number {
@@ -187,6 +204,7 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
   const c = (r.chances && typeof r.chances === 'object' ? r.chances : {}) as Record<string, unknown>;
   const p = (r.prizes && typeof r.prizes === 'object' ? r.prizes : {}) as Record<string, unknown>;
   const m = (r.messages && typeof r.messages === 'object' ? r.messages : {}) as Record<string, unknown>;
+  const k = (r.ranking && typeof r.ranking === 'object' ? r.ranking : {}) as Record<string, unknown>;
   const d = DEFAULT_CONTEST_CONFIG;
   const replies = Array.isArray(m.publicReplies)
     ? m.publicReplies.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.slice(0, 300)).slice(0, 10)
@@ -239,6 +257,14 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       winnerPublicNoDm: text(m.winnerPublicNoDm, d.messages.winnerPublicNoDm, 300),
       afterDraw: text(m.afterDraw, d.messages.afterDraw),
       publicReplies: replies.length > 0 ? replies : d.messages.publicReplies,
+    },
+    ranking: {
+      dailyComment: typeof k.dailyComment === 'boolean' ? k.dailyComment : d.ranking.dailyComment,
+      dailyHour: int(k.dailyHour, d.ranking.dailyHour, 0, 23),
+      publicReplies: typeof k.publicReplies === 'boolean' ? k.publicReplies : d.ranking.publicReplies,
+      maxRepliesPerDay: int(k.maxRepliesPerDay, d.ranking.maxRepliesPerDay, 0, 100),
+      dmTips: typeof k.dmTips === 'boolean' ? k.dmTips : d.ranking.dmTips,
+      emailBuyers: typeof k.emailBuyers === 'boolean' ? k.emailBuyers : d.ranking.emailBuyers,
     },
   };
 }
