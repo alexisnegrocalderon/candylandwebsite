@@ -431,9 +431,9 @@ function ContestDetail({ id }: { id: number }) {
                   <p className="text-xs text-muted-foreground mt-1">Propuesto: 3 días antes de la fiesta. Se sortea solo a esa hora (± 15 min).</p>
                 </div>
                 <div>
-                  <Label>Palabra clave (por DM o respuesta a historia)</Label>
+                  <Label>Palabra clave para participar</Label>
                   <Input className="mt-1" value={config.keyword} onChange={(e) => patch((c) => ({ ...c, keyword: e.target.value }))} />
-                  <p className="text-xs text-muted-foreground mt-1">Quien la escribe por DM también participa. En el post no hace falta: cualquier comentario cuenta.</p>
+                  <p className="text-xs text-muted-foreground mt-1">Solo participa quien la comenta en el post (o la escribe sola por DM). Quien comenta otra cosa no recibe nada. Vacía = cualquier comentario participa.</p>
                 </div>
                 <NumberField label="Plazo para reclamar el premio" value={config.claimHours} suffix="horas" onChange={(n) => patch((c) => ({ ...c, claimHours: n }))}
                   help="Solo si no se le pudo escribir al ganador. Pasado el plazo, pasa el suplente." />

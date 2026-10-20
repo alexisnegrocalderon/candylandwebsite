@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeCodeDiscount } from './discountCode';
 import {
-  DEFAULT_CONTEST_CONFIG, dmFallbackReply, drawPoolFor, fitDmText, priceLockCodePercent, refundAmountFor, utf8Bytes, computeChances, contestPhase, extractEmail, hasContestKeyword, mergeMentions,
+  DEFAULT_CONTEST_CONFIG, commentEnrolls, dmFallbackReply, drawPoolFor, isKeywordOnly, fitDmText, priceLockCodePercent, refundAmountFor, utf8Bytes, computeChances, contestPhase, extractEmail, hasContestKeyword, mergeMentions,
   normalizeContestConfig, parseMentions, randomContestCode, renderContestTemplate, weightedDraw,
 } from './contest';
 
@@ -170,5 +170,29 @@ describe('DM de comentario', () => {
   it('si no sale el DM, el comentario invita a escribir la palabra clave', () => {
     expect(dmFallbackReply(' CONCURSO ')).toContain('Escríbenos CONCURSO por DM');
     expect(dmFallbackReply('')).toContain('CONCURSO');
+  });
+});
+
+describe('quién se inscribe', () => {
+  it('por comentario, solo con la palabra clave', () => {
+    expect(commentEnrolls('CONCURSO @ana @pedro', 'CONCURSO', false)).toBe(true);
+    expect(commentEnrolls('qué rico! @ana', 'CONCURSO', false)).toBe(false);
+    expect(commentEnrolls('cuánto vale?', 'CONCURSO', false)).toBe(false);
+    expect(commentEnrolls('#concurso', 'CONCURSO', false)).toBe(true);
+  });
+  it('quien ya participa suma etiquetas con cualquier comentario', () => {
+    expect(commentEnrolls('@ana @pedro', 'CONCURSO', true)).toBe(true);
+  });
+  it('sin palabra clave configurada, cualquier comentario inscribe', () => {
+    expect(commentEnrolls('hola', '', false)).toBe(true);
+    expect(commentEnrolls('hola', '   ', false)).toBe(true);
+  });
+  it('por DM solo vale el mensaje que es la palabra, no una conversación', () => {
+    expect(isKeywordOnly('concurso', 'CONCURSO')).toBe(true);
+    expect(isKeywordOnly('  CONCURSO!! ', 'CONCURSO')).toBe(true);
+    expect(isKeywordOnly('🎉 Concurso', 'CONCURSO')).toBe(true);
+    expect(isKeywordOnly('cómo participo en el concurso', 'CONCURSO')).toBe(false);
+    expect(isKeywordOnly('hola, quiero info', 'CONCURSO')).toBe(false);
+    expect(isKeywordOnly('concurso', '')).toBe(false);
   });
 });

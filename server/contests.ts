@@ -37,7 +37,7 @@ import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { normalizeTandaSchedule } from '../shared/tandaSchedule';
 import { normalizeIgHandle } from '../shared/igCustomerLink';
 import {
-  computeChances, contestPhase, defaultDrawAt, dmFallbackReply, drawPoolFor, fitDmText, extractEmail, priceLockCodePercent, refundAmountFor, hasContestKeyword, mergeMentions, normalizeContestConfig, parseMentions,
+  commentEnrolls, computeChances, contestPhase, defaultDrawAt, dmFallbackReply, drawPoolFor, fitDmText, extractEmail, isKeywordOnly, priceLockCodePercent, refundAmountFor, hasContestKeyword, mergeMentions, normalizeContestConfig, parseMentions,
   prizeLabels, randomContestCode, randomInviteCode, renderContestTemplate, weightedDraw, type ContestConfig,
 } from '../shared/contest';
 
@@ -517,6 +517,14 @@ export async function handleContestComment(input: {
     if (!db) return false;
     if (!(await claimLog(db, ctx.contest.id, 'comment', input.commentId, null))) return true;
 
+    // Solo inscribe quien comenta la palabra clave. Quien ya participa (o se
+    // inscribió al comprar con su @) suma etiquetas con cualquier comentario.
+    // Los demás comentarios siguen su camino normal (borrador de respuesta).
+    const handle = normalizeIgHandle(input.username);
+    const known = !!(await getParticipant(db, ctx.contest.id, input.igUserId))
+      || !!(handle && await getParticipant(db, ctx.contest.id, `ig:${handle}`));
+    if (!commentEnrolls(input.text, ctx.config.keyword, known)) return false;
+
     const mentions = parseMentions(input.text, [own, input.username ?? ''].filter(Boolean));
     const { participant, created } = await createParticipant(db, ctx, {
       igUserId: input.igUserId, username: input.username, source: 'comment', commentId: input.commentId, mentions,
@@ -589,15 +597,11 @@ export async function handleContestMessage(input: {
       }
     }
 
-    // 2. Mención en historia: bonus (una vez) y, si es nuevo, participa.
+    // 2. Mención en historia: solo suma el bonus a quien YA participa (una
+    // mención suelta de la cuenta no inscribe ni manda nada).
     if (input.storyMention) {
-      if (!accepting(ctx) || !(await claimLog(db, ctx.contest.id, 'story', input.mid ?? `${input.igUserId}-${Date.now()}`, participant?.id ?? null))) return !!participant;
-      if (!participant) {
-        const { participant: created } = await createParticipant(db, ctx, { igUserId: input.igUserId, username: input.username, source: 'story' });
-        const { text, button } = welcomeMessage(ctx, created);
-        await send(channel, text, button);
-        return true;
-      }
+      if (!participant) return false;
+      if (!accepting(ctx) || !(await claimLog(db, ctx.contest.id, 'story', input.mid ?? `${input.igUserId}-${Date.now()}`, participant.id))) return true;
       if (participant.storyMentioned) return true;
       await db.update(contestParticipants).set({ storyMentioned: 1 }).where(eq(contestParticipants.id, participant.id));
       participant = await reload(db, participant.id);
@@ -626,9 +630,9 @@ export async function handleContestMessage(input: {
       return true;
     }
 
-    // 4. Palabra clave por DM o respuesta a historia: participa. Solo en
-    // mensajes cortos: una pregunta larga que la nombra la contesta el agente.
-    if (ctx.config.keyword && text.length <= ctx.config.keyword.length + 30 && hasContestKeyword(text, ctx.config.keyword) && accepting(ctx)) {
+    // 4. Palabra clave por DM: participa. Solo si el mensaje ES la palabra
+    // (una pregunta que la nombra la contesta el agente, no inscribe).
+    if (isKeywordOnly(text, ctx.config.keyword) && accepting(ctx)) {
       if (participant) {
         const { text: again, button } = welcomeMessage(ctx, participant);
         await send(channel, again, button);

@@ -282,6 +282,22 @@ export function hasContestKeyword(textIn: string, keyword: string): boolean {
   return new RegExp(`(^|[^a-z0-9])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`).test(norm(textIn));
 }
 
+/** ¿El mensaje es SOLO la palabra clave (con o sin signos, mayúsculas o
+ * emojis alrededor)? "concurso", "CONCURSO!" y "🎉 Concurso" sí; "cómo
+ * participo en el concurso" no: eso lo contesta el agente. */
+export function isKeywordOnly(textIn: string, keyword: string): boolean {
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const k = norm(keyword);
+  return !!k && norm(textIn) === k;
+}
+
+/** ¿Este comentario inscribe? Quien ya participa suma etiquetas con cualquier
+ * comentario; quien todavía no, tiene que comentar la palabra clave (si la
+ * palabra está vacía, cualquier comentario inscribe). */
+export function commentEnrolls(commentText: string, keyword: string, alreadyParticipates: boolean): boolean {
+  return alreadyParticipates || !keyword.trim() || hasContestKeyword(commentText, keyword);
+}
+
 /** Primer email que aparezca en el texto (la persona responde con el correo
  * de su compra). */
 export function extractEmail(textIn: string): string | null {
