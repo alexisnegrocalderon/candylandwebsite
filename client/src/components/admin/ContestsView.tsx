@@ -101,6 +101,7 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'boughtUpgrade', label: 'DM cuando compra durante el concurso', help: 'Pasa al sorteo VIP con chances multiplicadas.' },
   { key: 'extraChances', label: 'DM al compartir en historia', help: '' },
   { key: 'emailNotFound', label: 'DM si el correo no tiene compra', help: '' },
+  { key: 'storyToReel', label: 'DM a quien responde la historia con la palabra clave', help: 'No lo inscribe: lo manda a comentar el reel. Variables: {{link_reel}}, {{frase}}.' },
   { key: 'winnerVerify', label: 'DM al ganador: pedir datos de verificación', help: 'Primer aviso. Pide RUT, fecha de nacimiento y ACEPTO. Variables: {{plazo}}.' },
   { key: 'verifyReceived', label: 'Verificación: datos recibidos', help: 'Se manda cuando el ganador completó los datos y quedan por aprobar.' },
   { key: 'verifyMissing', label: 'Verificación: falta algo', help: 'Usa {{faltante}} para listar lo que falta.' },
@@ -115,7 +116,7 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'afterDraw', label: 'DM a quien comenta después del sorteo', help: '' },
 ];
 
-const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}} {{congelado_hasta}} {{link_elegir}} {{monto_devolucion}}';
+const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}} {{congelado_hasta}} {{link_elegir}} {{monto_devolucion}} {{link_reel}} {{frase}} {{faltante}}';
 
 /* ── Ruleta para grabar el sorteo ─────────────────────────────────────────── */
 

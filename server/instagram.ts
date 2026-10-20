@@ -287,6 +287,7 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     text,
     mid: message.mid ?? null,
     storyMention,
+    storyReply: !!message.reply_to?.story,
   })) return;
 
   // Ranking del concurso: si el participante pregunta por sus puntos se le
