@@ -37,7 +37,7 @@ import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { normalizeTandaSchedule } from '../shared/tandaSchedule';
 import { normalizeIgHandle } from '../shared/igCustomerLink';
 import {
-  commentEnrolls, computeChances, contestPhase, defaultDrawAt, dmFallbackReply, drawPoolFor, fitDmText, extractEmail, dmEnrolls, parseKeywords, priceLockCodePercent, refundAmountFor, mergeMentions, normalizeContestConfig, parseMentions,
+  commentEnrolls, computeChances, contestPhase, defaultDrawAt, dmFallbackReply, drawPoolFor, fitDmText, extractEmail, dmEnrolls, matchesAllKeywords, parseKeywords, priceLockCodePercent, refundAmountFor, mergeMentions, normalizeContestConfig, parseMentions,
   prizeLabels, randomContestCode, randomInviteCode, renderContestTemplate, weightedDraw, type ContestConfig,
 } from '../shared/contest';
 import { buildRanking, pickGuaranteedLeader } from '../shared/contestRanking';
@@ -575,6 +575,8 @@ export async function handleContestComment(input: {
  * `true` si lo manejó el concurso (y el agente de IA no debe contestar). */
 export async function handleContestMessage(input: {
   igUserId: string; username: string | null; threadId: number | null; text: string; mid: string | null; storyMention: boolean;
+  /** Es la respuesta a una historia (no un DM suelto). */
+  storyReply?: boolean;
 }): Promise<boolean> {
   try {
     const ctx = await getActiveContestCtx();
@@ -643,6 +645,17 @@ export async function handleContestMessage(input: {
       participant = await deliverHolderPrizes(db, ctx, await reload(db, participant.id));
       const { text: holderText } = welcomeMessage(ctx, participant);
       await send(channel, holderText);
+      return true;
+    }
+
+    // 3b. Respuesta a una historia con la palabra clave: no inscribe, se manda
+    // a comentar el reel (ahí está el concurso). Quien ya participa sigue igual.
+    if (input.storyReply && !participant && accepting(ctx) && matchesAllKeywords(text, parseKeywords(ctx.config.keyword))) {
+      await send(channel, renderContestTemplate(ctx.config.messages.storyToReel, {
+        nombre: input.username ? `@${input.username}` : '',
+        frase: ctx.config.keywordPhrase.trim() || parseKeywords(ctx.config.keyword).join(' '),
+        link_reel: ctx.contest.mediaPermalink ?? '',
+      }));
       return true;
     }
 

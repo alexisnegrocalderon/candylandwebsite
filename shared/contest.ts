@@ -54,6 +54,7 @@ export interface ContestMessages {
   extraChances: string;
   emailNotFound: string;
   boughtUpgrade: string;
+  storyToReel: string;
   winnerVerify: string;
   verifyReceived: string;
   verifyMissing: string;
@@ -124,6 +125,8 @@ export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
     '¡Compra confirmada, {{nombre}}! 🔥 Tus puntos ahora van x{{multiplicador}} ({{chances}}). Si ganas, eliges: te devolvemos tu entrada o te llevas otra para regalar.\n\n'
     + 'Tus regalos:\n{{lista_regalos}}\n\n'
     + '💌 Trae a tu gente: {{porcentaje_amigo}}% con {{codigo_amigo}} o tu link {{link_invitar}} (+{{bonus_compra_amigo}} puntos por cada amigo que compre).',
+  storyToReel:
+    '¡Ahí vas, {{nombre}}! 🍬 El concurso es en el reel: comenta ahí "{{frase}}" y entras al ranking 👉 {{link_reel}}',
   winnerVerify:
     '🎉 ¡{{nombre}}, quedaste entre los ganadores de {{evento}}! 🍬\n\n'
     + 'Antes de entregarte el premio verificamos que cumples los requisitos para asistir a Playroom (evento +18). Respóndenos en un solo mensaje:\n'
@@ -260,6 +263,7 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       extraChances: text(m.extraChances, d.messages.extraChances),
       emailNotFound: text(m.emailNotFound, d.messages.emailNotFound),
       boughtUpgrade: text(m.boughtUpgrade, d.messages.boughtUpgrade),
+      storyToReel: text(m.storyToReel, d.messages.storyToReel),
       winnerVerify: text(m.winnerVerify, d.messages.winnerVerify),
       verifyReceived: text(m.verifyReceived, d.messages.verifyReceived),
       verifyMissing: text(m.verifyMissing, d.messages.verifyMissing),
