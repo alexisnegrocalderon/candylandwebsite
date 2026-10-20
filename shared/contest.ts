@@ -54,6 +54,10 @@ export interface ContestMessages {
   extraChances: string;
   emailNotFound: string;
   boughtUpgrade: string;
+  winnerVerify: string;
+  verifyReceived: string;
+  verifyMissing: string;
+  verifyRejected: string;
   winnerDouble: string;
   winnerBuyer: string;
   choiceGift: string;
@@ -120,6 +124,14 @@ export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
     '¡Compra confirmada, {{nombre}}! 🔥 Tus puntos ahora van x{{multiplicador}} ({{chances}}). Si ganas, eliges: te devolvemos tu entrada o te llevas otra para regalar.\n\n'
     + 'Tus regalos:\n{{lista_regalos}}\n\n'
     + '💌 Trae a tu gente: {{porcentaje_amigo}}% con {{codigo_amigo}} o tu link {{link_invitar}} (+{{bonus_compra_amigo}} puntos por cada amigo que compre).',
+  winnerVerify:
+    '🎉 ¡{{nombre}}, quedaste entre los ganadores de {{evento}}! 🍬\n\n'
+    + 'Antes de entregarte el premio verificamos que cumples los requisitos para asistir a Playroom (evento +18). Respóndenos en un solo mensaje:\n'
+    + '1) Tu RUT\n2) Tu fecha de nacimiento (dd/mm/aaaa)\n3) La palabra ACEPTO: aceptas nuestros valores y el derecho de permanencia\n\n'
+    + 'Tienes hasta {{plazo}}. Cuando lo revisemos te llega el premio 💌',
+  verifyReceived: '✅ ¡Gracias, {{nombre}}! Recibimos tus datos. Los revisamos y en cuanto estén aprobados te mandamos tu premio por aquí 🍬',
+  verifyMissing: 'Casi, {{nombre}} 🙌 Nos falta: {{faltante}}. Respóndenos en un mensaje y seguimos.',
+  verifyRejected: 'Hola {{nombre}} 🙏 Revisamos tus datos y no podemos entregarte el premio porque no cumples los requisitos para asistir a Playroom. Gracias por participar.',
   winnerDouble:
     '🎉 ¡{{nombre}}, GANASTE {{premio_singular}} para {{evento}}! 🍬\n\n'
     + 'Tu código (cubre la entrada completa): {{codigo_premio}}\n'
@@ -248,6 +260,10 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       extraChances: text(m.extraChances, d.messages.extraChances),
       emailNotFound: text(m.emailNotFound, d.messages.emailNotFound),
       boughtUpgrade: text(m.boughtUpgrade, d.messages.boughtUpgrade),
+      winnerVerify: text(m.winnerVerify, d.messages.winnerVerify),
+      verifyReceived: text(m.verifyReceived, d.messages.verifyReceived),
+      verifyMissing: text(m.verifyMissing, d.messages.verifyMissing),
+      verifyRejected: text(m.verifyRejected, d.messages.verifyRejected),
       winnerDouble: text(m.winnerDouble, d.messages.winnerDouble),
       winnerBuyer: text(m.winnerBuyer, d.messages.winnerBuyer),
       choiceGift: text(m.choiceGift, d.messages.choiceGift),

@@ -785,6 +785,13 @@
       "when": 1792420000000,
       "tag": "0111_ambassador_buyer_discount",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "5",
+      "when": 1792506400000,
+      "tag": "0112_contest_verify",
+      "breakpoints": true
     }
   ]
 }
