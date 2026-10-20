@@ -22,12 +22,12 @@ import type { Express, Request, Response } from 'express';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   contestLog, contestParticipants, contestWinners, contests, customers, discountCodes, events, igThreads, orderItems,
-  orders, ticketTypes, tickets, type Contest, type ContestParticipant, type ContestWinner,
+  blockedCustomers, orders, ticketTypes, tickets, type Contest, type ContestParticipant, type ContestWinner,
 } from '../drizzle/schema';
 import { adjustPlaycoinsManually, appendIgMessage, findCustomersByInstagram, getDb } from './db';
 import { ENV } from './_core/env';
 import {
-  canReplyWithinWindow, fetchMediaComments, fetchOwnProfile, replyToComment, sendButtonMessage, sendInstagramMessage,
+  canReplyWithinWindow, fetchInstagramProfile, fetchMediaComments, fetchOwnProfile, replyToComment, sendButtonMessage, sendInstagramMessage,
   sendPrivateReply,
 } from './instagramSend';
 import { buildContestWinnerEmail, sendEmail } from './email';
@@ -41,6 +41,7 @@ import {
   prizeLabels, randomContestCode, randomInviteCode, renderContestTemplate, weightedDraw, type ContestConfig,
 } from '../shared/contest';
 import { buildRanking, pickGuaranteedLeader } from '../shared/contestRanking';
+import { ageOn, isVerifyComplete, missingVerifyFields, parseVerifyReply } from '../shared/contestVerify';
 
 const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
 /** Meta deja mandar un DM privado a un comentario hasta 7 días después. */
@@ -592,6 +593,16 @@ export async function handleContestMessage(input: {
         await deliverWinnerPrize(db, ctx, pending[0], participant, channel);
         return true;
       }
+      // Ganador en verificación: lo que escriba son sus datos.
+      if (!input.storyMention && input.text.trim()) {
+        const [verifying] = await db.select().from(contestWinners).where(and(
+          eq(contestWinners.contestId, ctx.contest.id), eq(contestWinners.participantId, participant.id), inArray(contestWinners.status, ['verifying', 'review']),
+        )).limit(1);
+        if (verifying) {
+          await handleVerifyReply(db, ctx, verifying, participant, channel, input.text.trim());
+          return true;
+        }
+      }
       // Ganador que había comprado y todavía no elige: se le reenvía el link.
       const [choosing] = await db.select().from(contestWinners).where(and(
         eq(contestWinners.contestId, ctx.contest.id), eq(contestWinners.participantId, participant.id), eq(contestWinners.status, 'choosing'),
@@ -848,8 +859,11 @@ async function safeActivateWinner(db: Db, ctx: ContestCtx, row: ContestWinner): 
     await activateWinner(db, ctx, row);
   } catch (err) {
     console.error(`[Concurso] No se pudo avisar al ganador ${row.id}:`, err);
+    // Sin premio hasta verificar: el ganador de entrada doble sin compra queda
+    // "verificando"; los demás, esperando que escriban.
+    const needsVerify = row.pool === 'double';
     await db.update(contestWinners).set({
-      status: 'notified', notifiedAt: new Date(), claimDeadline: new Date(Date.now() + ctx.config.claimHours * 60 * 60 * 1000),
+      status: needsVerify ? 'verifying' : 'notified', notifiedAt: new Date(), claimDeadline: new Date(Date.now() + ctx.config.claimHours * 60 * 60 * 1000),
     }).where(and(eq(contestWinners.id, row.id), eq(contestWinners.status, 'alternate')));
   }
 }
@@ -860,6 +874,11 @@ async function activateWinner(db: Db, ctx: ContestCtx, row: ContestWinner): Prom
   const participant = await reload(db, row.participantId);
   if (row.pool === 'double' && participant.hasTicket && participant.orderId) {
     await activateBuyerWinner(db, ctx, row, participant);
+    return;
+  }
+  // Entrada doble sin compra: antes del premio se verifica que pueda asistir.
+  if (row.pool === 'double') {
+    await startVerification(db, ctx, row, participant);
     return;
   }
   const channel = await reachableChannel(db, participant);
@@ -873,6 +892,109 @@ async function activateWinner(db: Db, ctx: ContestCtx, row: ContestWinner): Prom
   await announcePublicly(ctx, participant, false, deadline);
   // Si conocemos su correo, el premio va igual por email (no espera el DM).
   if (participant.email) await deliverWinnerPrize(db, ctx, { ...row, status: 'notified' }, participant, null);
+}
+
+/* ── Verificación del ganador (aprobación manual en el panel) ───────────── */
+
+/** Avisa que ganó y pide RUT, fecha de nacimiento y ACEPTO. El premio no se
+ * crea hasta que el admin aprueba. */
+async function startVerification(db: Db, ctx: ContestCtx, row: ContestWinner, p: ContestParticipant): Promise<void> {
+  const deadline = new Date(Date.now() + ctx.config.claimHours * 60 * 60 * 1000);
+  await db.update(contestWinners).set({ status: 'verifying', notifiedAt: new Date(), claimDeadline: deadline }).where(eq(contestWinners.id, row.id));
+  const channel = await reachableChannel(db, p);
+  if (channel) {
+    await send(channel, renderContestTemplate(ctx.config.messages.winnerVerify, templateVars(ctx, p, { plazo: dateTimeText(deadline) })))
+      .catch((err) => console.error('[Concurso] No se pudo pedir la verificación al ganador:', err));
+  }
+  await announcePublicly(ctx, p, !!channel, deadline);
+}
+
+/** Registra lo que respondió el ganador y, si ya mandó todo, lo deja por aprobar. */
+async function handleVerifyReply(db: Db, ctx: ContestCtx, row: ContestWinner, p: ContestParticipant, channel: Channel, text: string): Promise<void> {
+  const parsed = parseVerifyReply(text);
+  const merged = {
+    rut: parsed.rut ?? row.verifyRut,
+    birthDate: parsed.birthDate ?? row.verifyBirthDate,
+    accepted: parsed.accepted || !!row.verifyAcceptedAt,
+  };
+  const anything = !!(merged.rut || merged.birthDate || merged.accepted);
+  const complete = isVerifyComplete(merged);
+  await db.update(contestWinners).set({
+    verifyRut: merged.rut, verifyBirthDate: merged.birthDate,
+    verifyAcceptedAt: merged.accepted ? (row.verifyAcceptedAt ?? new Date()) : null,
+    ...(complete ? { status: 'review' as const } : {}),
+  }).where(eq(contestWinners.id, row.id));
+  const plazo = row.claimDeadline ? dateTimeText(row.claimDeadline) : '';
+  if (complete) {
+    await send(channel, renderContestTemplate(ctx.config.messages.verifyReceived, templateVars(ctx, p)));
+  } else if (!anything) {
+    await send(channel, renderContestTemplate(ctx.config.messages.winnerVerify, templateVars(ctx, p, { plazo })));
+  } else {
+    await send(channel, renderContestTemplate(ctx.config.messages.verifyMissing, templateVars(ctx, p, { faltante: missingVerifyFields(merged).join(', ') })));
+  }
+}
+
+/** Lo que el panel muestra para decidir: edad, bloqueo por RUT, aceptación. */
+async function verifySummary(db: Db, ctx: ContestCtx, w: ContestWinner) {
+  const age = w.verifyBirthDate ? ageOn(w.verifyBirthDate, new Date(ctx.event.eventDate)) : null;
+  let blocked: { reason: string | null } | null = null;
+  if (w.verifyRut) {
+    const [hit] = await db.select().from(blockedCustomers)
+      .where(and(eq(blockedCustomers.rut, w.verifyRut), eq(blockedCustomers.isActive, 1))).limit(1);
+    if (hit) blocked = { reason: hit.reason ?? null };
+  }
+  return { rut: w.verifyRut, birthDate: w.verifyBirthDate, age, adult: age == null ? null : age >= 18, blocked, acceptedAt: w.verifyAcceptedAt };
+}
+
+/** El admin aprobó: ahora sí se crea y entrega el premio. */
+export async function approveWinner(winnerId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible.');
+  const [row] = await db.select().from(contestWinners).where(eq(contestWinners.id, winnerId)).limit(1);
+  if (!row || (row.status !== 'review' && row.status !== 'verifying')) throw new Error('Este ganador no está esperando aprobación.');
+  const ctx = await getCtxById(row.contestId);
+  if (!ctx) throw new Error('Concurso no encontrado.');
+  const p = await reload(db, row.participantId);
+  const channel = await reachableChannel(db, p);
+  const verifiedAt = new Date();
+  // "notified" = premio por entregar: si no hay DM ni correo, sale cuando escriba.
+  await db.update(contestWinners).set({
+    status: 'notified', verifiedAt,
+    claimDeadline: new Date(Date.now() + ctx.config.claimHours * 60 * 60 * 1000),
+  }).where(eq(contestWinners.id, row.id));
+  await deliverWinnerPrize(db, ctx, { ...row, status: 'notified', verifiedAt }, p, channel);
+  const [after] = await db.select().from(contestWinners).where(eq(contestWinners.id, row.id)).limit(1);
+  return { status: after?.status ?? 'notified' };
+}
+
+/** El admin rechazó: no cumple los requisitos. Pasa el suplente. */
+export async function rejectWinner(winnerId: number, note?: string | null) {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible.');
+  const [row] = await db.select().from(contestWinners).where(eq(contestWinners.id, winnerId)).limit(1);
+  if (!row || (row.status !== 'review' && row.status !== 'verifying')) throw new Error('Este ganador no está esperando aprobación.');
+  const ctx = await getCtxById(row.contestId);
+  if (!ctx) throw new Error('Concurso no encontrado.');
+  await db.update(contestWinners).set({ status: 'rejected', verifyNote: (note ?? '').trim().slice(0, 500) || null }).where(eq(contestWinners.id, row.id));
+  const p = await reload(db, row.participantId);
+  const channel = await reachableChannel(db, p);
+  if (channel) {
+    await send(channel, renderContestTemplate(ctx.config.messages.verifyRejected, templateVars(ctx, p)))
+      .catch((err) => console.error('[Concurso] No se pudo avisar el rechazo:', err));
+  }
+  return { promoted: await promoteAlternate(db, ctx, row.pool) };
+}
+
+/** ¿Sigue la cuenta? Lo consulta el admin a mano (Meta puede no entregarlo). */
+export async function checkWinnerFollows(winnerId: number): Promise<{ follows: boolean | null }> {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible.');
+  const [row] = await db.select().from(contestWinners).where(eq(contestWinners.id, winnerId)).limit(1);
+  if (!row) throw new Error('Ganador no encontrado.');
+  const p = await reload(db, row.participantId);
+  if (p.igUserId.startsWith('ig:')) return { follows: null };
+  const profile = await fetchInstagramProfile(p.igUserId);
+  return { follows: typeof profile.isFollower === 'boolean' ? profile.isFollower : null };
 }
 
 async function announcePublicly(ctx: ContestCtx, p: ContestParticipant, reachedByDm: boolean, deadline?: Date) {
@@ -1104,7 +1226,7 @@ async function deliverWinnerPrize(db: Db, ctx: ContestCtx, row: ContestWinner, p
 async function expireUnclaimed(db: Db, ctx: ContestCtx): Promise<number> {
   const now = new Date();
   const overdue = await db.select().from(contestWinners).where(and(
-    eq(contestWinners.contestId, ctx.contest.id), eq(contestWinners.status, 'notified'), sql`${contestWinners.claimDeadline} < ${now}`,
+    eq(contestWinners.contestId, ctx.contest.id), inArray(contestWinners.status, ['notified', 'verifying']), sql`${contestWinners.claimDeadline} < ${now}`,
   ));
   for (const row of overdue) {
     await db.update(contestWinners).set({ status: 'expired' }).where(eq(contestWinners.id, row.id));
@@ -1355,10 +1477,11 @@ export async function getContestAdmin(id: number) {
       friendCode: p.friendCode, inviteCode: p.inviteCode, disqualified: p.disqualified === 1, disqualifyReason: p.disqualifyReason,
       chances: chancesOf(p, ctx.config), createdAt: p.createdAt,
     })),
-    winners: winners.map((w) => ({
+    winners: await Promise.all(winners.map(async (w) => ({
       ...w, username: byId.get(w.participantId)?.username ?? null, prizeUsed: usedOf(w.prizeCode) > 0,
+      verify: w.verifyRut || w.verifyBirthDate || w.verifyAcceptedAt ? await verifySummary(db, ctx, w) : null,
       paymentId: w.orderId ? paymentByOrder.get(w.orderId) ?? null : null,
-    })),
+    }))),
   };
 }
 

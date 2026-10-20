@@ -3859,6 +3859,25 @@ export const appRouter = router({
         }
       }),
     }),
+    approveWinner: adminProcedure.input(z.object({ winnerId: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.approveWinner(input.winnerId);
+        await db.recordAdminAudit({ action: 'contest.approveWinner', targetType: 'contestWinner', targetId: input.winnerId, payload: result, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo aprobar.' });
+      }
+    }),
+    rejectWinner: adminProcedure.input(z.object({ winnerId: z.number().int(), note: z.string().max(500).optional() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.rejectWinner(input.winnerId, input.note);
+        await db.recordAdminAudit({ action: 'contest.rejectWinner', targetType: 'contestWinner', targetId: input.winnerId, payload: { ...result, note: input.note ?? null }, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo rechazar.' });
+      }
+    }),
+    checkFollows: adminProcedure.input(z.object({ winnerId: z.number().int() })).mutation(({ input }) => contestSvc.checkWinnerFollows(input.winnerId)),
     skipWinner: adminProcedure.input(z.object({ winnerId: z.number().int() })).mutation(async ({ input, ctx }) => {
       const result = await contestSvc.skipWinner(input.winnerId);
       await db.recordAdminAudit({ action: 'contest.skipWinner', targetType: 'contestWinner', targetId: input.winnerId, payload: result, ip: clientIp(ctx) });

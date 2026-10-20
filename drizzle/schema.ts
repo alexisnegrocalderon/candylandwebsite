@@ -2798,7 +2798,15 @@ export const contestWinners = mysqlTable("contestWinners", {
   // reclamó a tiempo (pasa el siguiente suplente); skipped = suplente que ya
   // no hizo falta.
   // choosing = ganó habiendo comprado y está eligiendo devolución o regalo.
-  status: mysqlEnum("status", ["alternate", "notified", "choosing", "delivered", "expired", "skipped"]).notNull(),
+  // verifying = ganó y debe mandar RUT, fecha de nacimiento y ACEPTO; review =
+  // mandó los datos y el admin debe aprobar; rejected = no cumple los requisitos.
+  status: mysqlEnum("status", ["alternate", "verifying", "review", "notified", "choosing", "delivered", "expired", "skipped", "rejected"]).notNull(),
+  // Datos que manda el ganador para verificar que puede asistir (+18, sin bloqueo).
+  verifyRut: varchar("verifyRut", { length: 20 }),
+  verifyBirthDate: varchar("verifyBirthDate", { length: 10 }),
+  verifyAcceptedAt: timestamp("verifyAcceptedAt"),
+  verifyNote: varchar("verifyNote", { length: 500 }),
+  verifiedAt: timestamp("verifiedAt"),
   prizeCode: varchar("prizeCode", { length: 50 }),
   // Ganador que ya había comprado: elige devolución (con tope = valor del
   // premio) o una entrada doble extra para regalar. La devolución se hace a

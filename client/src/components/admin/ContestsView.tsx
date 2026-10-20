@@ -40,6 +40,9 @@ const PHASE_LABEL: Record<string, { label: string; className: string }> = {
 
 const WINNER_STATUS: Record<string, string> = {
   alternate: 'Suplente',
+  verifying: 'Esperando sus datos de verificación',
+  review: 'Datos recibidos: por aprobar',
+  rejected: 'Rechazado (no cumple requisitos)',
   notified: 'Esperando que escriba',
   choosing: 'Eligiendo devolución o regalo',
   delivered: 'Premio entregado',
@@ -98,6 +101,10 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'boughtUpgrade', label: 'DM cuando compra durante el concurso', help: 'Pasa al sorteo VIP con chances multiplicadas.' },
   { key: 'extraChances', label: 'DM al compartir en historia', help: '' },
   { key: 'emailNotFound', label: 'DM si el correo no tiene compra', help: '' },
+  { key: 'winnerVerify', label: 'DM al ganador: pedir datos de verificación', help: 'Primer aviso. Pide RUT, fecha de nacimiento y ACEPTO. Variables: {{plazo}}.' },
+  { key: 'verifyReceived', label: 'Verificación: datos recibidos', help: 'Se manda cuando el ganador completó los datos y quedan por aprobar.' },
+  { key: 'verifyMissing', label: 'Verificación: falta algo', help: 'Usa {{faltante}} para listar lo que falta.' },
+  { key: 'verifyRejected', label: 'Verificación: no cumple requisitos', help: 'Se manda si rechazas al ganador.' },
   { key: 'winnerDouble', label: 'DM al ganador de la entrada doble', help: 'Va con el botón "Canjear mi premio".' },
   { key: 'winnerBuyer', label: 'DM/correo al ganador que YA había comprado', help: 'Lleva el link para elegir devolución o entrada para regalar.' },
   { key: 'choiceGift', label: 'DM cuando elige la entrada para regalar', help: '' },
@@ -685,6 +692,19 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
     onSuccess: (r) => { onChanged(); toast.success(r.promoted ? 'Pasó el siguiente suplente.' : 'No quedan suplentes.'); },
     onError,
   });
+  const approve = trpc.contests.approveWinner.useMutation({
+    onSuccess: () => { onChanged(); toast.success('Aprobado: se entregó el premio.'); },
+    onError,
+  });
+  const reject = trpc.contests.rejectWinner.useMutation({
+    onSuccess: (r) => { onChanged(); toast.success(r.promoted ? 'Rechazado: pasó el siguiente suplente.' : 'Rechazado: no quedan suplentes.'); },
+    onError,
+  });
+  const [follows, setFollows] = useState<Record<number, boolean | null>>({});
+  const checkFollows = trpc.contests.checkFollows.useMutation({
+    onSuccess: (r, v) => { setFollows((f) => ({ ...f, [v.winnerId]: r.follows })); if (r.follows == null) toast.message('Meta no entregó el dato: revisa el perfil a mano.'); },
+    onError,
+  });
   const refund = trpc.contests.markRefundDone.useMutation({
     onSuccess: () => { onChanged(); toast.success('Devolución marcada y avisada al ganador.'); },
     onError,
@@ -700,7 +720,7 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
             Boletos hoy: {data.stats.tickets.double} en el sorteo de entradas dobles (sin entrada o compraron durante el concurso) y {data.stats.tickets.vip} en el VIP (ya tenían entrada).
             El 1º del ranking de cada tabla gana uno de los premios seguro (si hay empate arriba se sortea entre los empatados) y el resto se sortea.
             Si gana alguien que compró durante el concurso, elige devolución o una entrada para regalar.
-            A cada ganador se le escribe por DM con su premio; si no se puede, se le responde el comentario pidiéndole que escriba
+            A cada ganador sin entrada se le pide por DM RUT, fecha de nacimiento y ACEPTO, y el premio se entrega solo cuando lo apruebas aquí (+18, sin bloqueo, sigue la cuenta); a quien ya tenía entrada se le avisa directo. Si no se le puede escribir, se le responde el comentario pidiéndole que escriba
             y, si no reclama en {data.config.claimHours} h, pasa el suplente.
           </p>
         </CardContent>
@@ -736,6 +756,38 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
                       {w.status === 'notified' && w.claimDeadline && (
                         <span className="text-xs text-muted-foreground">plazo: {new Date(w.claimDeadline).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })}</span>
                       )}
+                      {(w.status === 'verifying' || w.status === 'review') && (
+                        <div className="basis-full rounded-md border border-dashed p-3 space-y-2">
+                          <p className="font-medium">Verificar que puede asistir a Playroom</p>
+                          <ul className="space-y-1 text-xs">
+                            <li>{w.verify?.adult == null ? '⏳' : w.verify.adult ? '✅' : '❌'} +18 el día del evento: {w.verify?.birthDate ? `${w.verify.birthDate.split('-').reverse().join('/')} (${w.verify.age} años)` : 'esperando su fecha de nacimiento'}</li>
+                            <li>{!w.verify?.rut ? '⏳' : w.verify.blocked ? '❌' : '✅'} Bloqueo de clientes: {w.verify?.rut ? `${w.verify.rut}${w.verify.blocked ? ` — BLOQUEADO${w.verify.blocked.reason ? ` (${w.verify.blocked.reason})` : ''}` : ' — no figura'}` : 'esperando su RUT'}</li>
+                            <li>{w.verify?.acceptedAt ? '✅' : '⏳'} Aceptó valores y derecho de permanencia (ACEPTO)</li>
+                            <li>
+                              {follows[w.id] == null ? '❔' : follows[w.id] ? '✅' : '❌'} Sigue la cuenta y es un perfil real:{' '}
+                              <a href={`https://instagram.com/${w.username ?? ''}`} target="_blank" rel="noreferrer" className="underline">ver perfil</a>{' · '}
+                              <button className="underline" disabled={checkFollows.isPending} onClick={() => checkFollows.mutate({ winnerId: w.id })}>comprobar si nos sigue</button>
+                            </li>
+                          </ul>
+                          {w.status === 'verifying' && w.claimDeadline && (
+                            <p className="text-xs text-muted-foreground">Si no manda los datos antes del {new Date(w.claimDeadline).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })}, pasa el suplente.</p>
+                          )}
+                          <div className="flex gap-2">
+                            <WriteButton size="sm" disabled={approve.isPending || w.status !== 'review'}
+                              onClick={() => {
+                                const warn = w.verify?.blocked ? '\n\n⚠️ Su RUT figura en Bloqueo de clientes.' : w.verify?.adult === false ? '\n\n⚠️ Es menor de 18 años.' : '';
+                                if (confirm(`¿Aprobar a @${w.username} y entregarle el premio?${warn}`)) approve.mutate({ winnerId: w.id });
+                              }}>
+                              Aprobar y entregar premio
+                            </WriteButton>
+                            <WriteButton size="sm" variant="outline" disabled={reject.isPending}
+                              onClick={() => { const note = prompt(`Motivo del rechazo de @${w.username} (opcional, solo interno):`); if (note !== null) reject.mutate({ winnerId: w.id, note }); }}>
+                              Rechazar y pasar al suplente
+                            </WriteButton>
+                          </div>
+                        </div>
+                      )}
+                      {w.status === 'rejected' && w.verifyNote && <span className="text-xs text-muted-foreground">motivo: {w.verifyNote}</span>}
                       {w.prizeCode && (
                         <button className="font-mono text-xs inline-flex items-center gap-1 underline" onClick={() => copy(w.prizeCode!)}>
                           {w.prizeCode} <Copy className="w-3 h-3" />{w.prizeUsed && ' ✅ usado'}
@@ -756,7 +808,7 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
                           </WriteButton>
                         </>
                       )}
-                      {(w.status === 'notified' || w.status === 'delivered' || w.status === 'choosing') && (
+                      {(w.status === 'notified' || w.status === 'delivered' || w.status === 'choosing' || w.status === 'verifying' || w.status === 'review') && (
                         <WriteButton size="sm" variant="ghost" className="ml-auto" disabled={skip.isPending}
                           onClick={() => { if (confirm(`¿Quitarle el premio a @${w.username} y pasar al siguiente suplente?`)) skip.mutate({ winnerId: w.id }); }}>
                           <SkipForward className="w-4 h-4" /> Pasar al suplente
