@@ -648,14 +648,16 @@ export async function handleContestMessage(input: {
       return true;
     }
 
-    // 3b. Respuesta a una historia con la palabra clave: no inscribe, se manda
-    // a comentar el reel (ahí está el concurso). Quien ya participa sigue igual.
+    // 3b. Respuesta a una historia con la palabra clave: entra con los puntos
+    // base y se le invita a comentar el reel para sumar más (etiquetas).
     if (input.storyReply && !participant && accepting(ctx) && matchesAllKeywords(text, parseKeywords(ctx.config.keyword))) {
-      await send(channel, renderContestTemplate(ctx.config.messages.storyToReel, {
-        nombre: input.username ? `@${input.username}` : '',
+      const { participant: created } = await createParticipant(db, ctx, { igUserId: input.igUserId, username: input.username, source: 'dm' });
+      const vars = templateVars(ctx, created, {
         frase: ctx.config.keywordPhrase.trim() || parseKeywords(ctx.config.keyword).join(' '),
         link_reel: ctx.contest.mediaPermalink ?? '',
-      }));
+      });
+      const positionLine = ctx.contest.drawnAt ? '' : `\n\n📊 Mira tu posición y cómo subir: ${positionLink(created.inviteCode)}`;
+      await send(channel, `${renderContestTemplate(ctx.config.messages.storyToReel, vars)}${positionLine}`, { title: 'Comprar a mi precio', url: `${APP_URL}/p/${created.inviteCode}` });
       return true;
     }
 

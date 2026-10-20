@@ -101,7 +101,7 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'boughtUpgrade', label: 'DM cuando compra durante el concurso', help: 'Pasa al sorteo VIP con chances multiplicadas.' },
   { key: 'extraChances', label: 'DM al compartir en historia', help: '' },
   { key: 'emailNotFound', label: 'DM si el correo no tiene compra', help: '' },
-  { key: 'storyToReel', label: 'DM a quien responde la historia con la palabra clave', help: 'No lo inscribe: lo manda a comentar el reel. Variables: {{link_reel}}, {{frase}}.' },
+  { key: 'storyToReel', label: 'DM a quien responde la historia (entra con puntos base)', help: 'Lo inscribe con los puntos base y lo invita a comentar el reel para sumar más. Variables: {{link_reel}}, {{frase}}.' },
   { key: 'winnerVerify', label: 'DM al ganador: pedir datos de verificación', help: 'Primer aviso. Pide RUT, fecha de nacimiento y ACEPTO. Variables: {{plazo}}.' },
   { key: 'verifyReceived', label: 'Verificación: datos recibidos', help: 'Se manda cuando el ganador completó los datos y quedan por aprobar.' },
   { key: 'verifyMissing', label: 'Verificación: falta algo', help: 'Usa {{faltante}} para listar lo que falta.' },
