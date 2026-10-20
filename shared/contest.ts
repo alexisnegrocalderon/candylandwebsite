@@ -376,6 +376,28 @@ export function prizeLabels(ticketName: string | null | undefined, count: number
   return { plural: `entradas ${name}`, singular: `una entrada ${name}` };
 }
 
+/** Bytes en UTF-8 (Instagram limita el texto de un DM a 1000 bytes, y cada
+ * emoji pesa 4 y cada tilde 2). */
+export function utf8Bytes(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/** Deja un DM dentro del límite de Instagram sin cortarlo a la mitad: saca
+ * párrafos completos desde el final (nunca el primero ni el último, que lleva
+ * el link) hasta que cabe. */
+export function fitDmText(text: string, maxBytes = 900): string {
+  const parts = text.split('\n\n');
+  while (utf8Bytes(parts.join('\n\n')) > maxBytes && parts.length > 2) parts.splice(parts.length - 2, 1);
+  return parts.join('\n\n');
+}
+
+/** Respuesta pública a un comentario cuando no se le pudo mandar el DM: lo
+ * invita a escribir la palabra clave, así abre la conversación y el sistema
+ * le contesta por el chat normal. */
+export function dmFallbackReply(keyword: string): string {
+  return `¡Ya participas! 🎉 Escríbenos ${keyword.trim() || 'CONCURSO'} por DM y te mandamos tu código 💌`;
+}
+
 /** % del cupón personal sobre el PRECIO GENERAL (`basedOnOriginalPrice`) que
  * deja el acceso al precio de la tanda en que la persona participó (`locked`,
  * % de descuento de esa tanda), aunque hoy rija otra (`current`), y con

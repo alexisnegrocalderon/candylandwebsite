@@ -281,6 +281,10 @@ function ContestDetail({ id }: { id: number }) {
     onError,
   });
   const syncNow = trpc.contests.syncNow.useMutation({ onSuccess: (r) => { invalidate(); toast.success(`${r.processed} comentarios nuevos de ${r.total}.`); }, onError });
+  const resend = trpc.contests.resendWelcomes.useMutation({
+    onSuccess: (r) => toast.success(`${r.sent} DM enviados, ${r.failed} no salieron (ya lo habían recibido o Instagram lo rechazó).${r.lastError ? ` Último error: ${r.lastError}` : ''}`, { duration: 12000 }),
+    onError,
+  });
   const drawNow = trpc.contests.drawNow.useMutation({ onSuccess: () => { invalidate(); toast.success('¡Sorteo hecho! Los premios se están entregando.'); setShowWheel(true); }, onError });
 
   if (isLoading || !data || !config) return <div className="py-12 flex justify-center"><Loader2 className="w-6 h-6 animate-spin" /></div>;
@@ -331,6 +335,11 @@ function ContestDetail({ id }: { id: number }) {
             {data.contest.status === 'active' && (
               <WriteButton variant="outline" disabled={syncNow.isPending} onClick={() => syncNow.mutate({ id })}>
                 {syncNow.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Revisar comentarios ahora
+              </WriteButton>
+            )}
+            {data.contest.status === 'active' && (
+              <WriteButton variant="outline" disabled={resend.isPending} onClick={() => resend.mutate({ id })}>
+                {resend.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <MailCheck className="w-4 h-4" />} Reenviar DM a quienes no lo recibieron
               </WriteButton>
             )}
             {data.contest.status === 'active' && !data.contest.drawnAt && (

@@ -37,7 +37,7 @@ import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { normalizeTandaSchedule } from '../shared/tandaSchedule';
 import { normalizeIgHandle } from '../shared/igCustomerLink';
 import {
-  computeChances, contestPhase, defaultDrawAt, drawPoolFor, extractEmail, priceLockCodePercent, refundAmountFor, hasContestKeyword, mergeMentions, normalizeContestConfig, parseMentions,
+  computeChances, contestPhase, defaultDrawAt, dmFallbackReply, drawPoolFor, fitDmText, extractEmail, priceLockCodePercent, refundAmountFor, hasContestKeyword, mergeMentions, normalizeContestConfig, parseMentions,
   prizeLabels, randomContestCode, randomInviteCode, renderContestTemplate, weightedDraw, type ContestConfig,
 } from '../shared/contest';
 
@@ -190,8 +190,9 @@ type Channel = { kind: 'comment'; commentId: string } | { kind: 'dm'; igUserId: 
 
 async function send(channel: Channel, text: string, button?: { title: string; url: string } | null): Promise<void> {
   if (channel.kind === 'comment') {
-    await sendPrivateReply(channel.commentId, text);
-    if (button) await sendButtonMessage({ comment_id: channel.commentId }, '👇', button);
+    // Instagram deja UN solo mensaje por comentario (respuesta privada): el
+    // link va dentro del texto, no como un segundo mensaje con botón.
+    await sendPrivateReply(channel.commentId, fitDmText(button ? `${text}\n\n👉 ${button.url}` : text));
     return;
   }
   const { mid } = await sendInstagramMessage({ recipientId: channel.igUserId, text });
@@ -487,7 +488,8 @@ function welcomeMessage(ctx: ContestCtx, p: ContestParticipant): { text: string;
     : `${renderContestTemplate(m.noTicket, vars)}\n\n${renderContestTemplate(m.holderAsk, vars)}`;
   return {
     text,
-    button: { title: 'Comprar a mi precio', url: checkoutUrl(ctx, { code: p.couponCode, content: 'concurso-cupon' }) },
+    // Link corto (/p/<código>): lleva al checkout con su código ya puesto.
+    button: { title: 'Comprar a mi precio', url: `${APP_URL}/p/${p.inviteCode}` },
   };
 }
 
@@ -536,11 +538,16 @@ export async function handleContestComment(input: {
     if (participant.disqualified) return true;
 
     const { text, button } = welcomeMessage(ctx, participant);
-    await send({ kind: 'comment', commentId: input.commentId }, text, button)
-      .catch((err) => console.error('[Concurso] No se pudo mandar el DM de bienvenida:', err));
-    if (ctx.config.publicReply && ctx.config.messages.publicReplies.length > 0) {
-      const replies = ctx.config.messages.publicReplies;
-      await replyToComment(input.commentId, replies[Math.floor(Math.random() * replies.length)])
+    const dmSent = await send({ kind: 'comment', commentId: input.commentId }, text, button)
+      .then(() => true)
+      .catch((err) => { console.error('[Concurso] No se pudo mandar el DM de bienvenida:', err); return false; });
+    // Si el DM no salió, la respuesta pública lo invita a escribir la palabra
+    // clave: así abre el chat y recibe todo por ahí (sin quedar sin nada).
+    const replies = ctx.config.messages.publicReplies;
+    const publicText = !dmSent ? dmFallbackReply(ctx.config.keyword)
+      : ctx.config.publicReply && replies.length > 0 ? replies[Math.floor(Math.random() * replies.length)] : null;
+    if (publicText) {
+      await replyToComment(input.commentId, publicText)
         .catch((err) => console.error('[Concurso] No se pudo responder el comentario:', err));
     }
     return true;
@@ -1163,6 +1170,20 @@ export async function runContestCron(now: Date = new Date()): Promise<Record<str
 /* ── Link personal para invitar (/c/:código) ─────────────────────────────── */
 
 export function registerContestRoutes(app: Express) {
+  // Link corto de quien participa: lleva al checkout con SU código (precio congelado).
+  app.get('/p/:code', async (req: Request, res: Response) => {
+    try {
+      const db = await getDb();
+      const code = String(req.params.code ?? '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 16);
+      if (!db || !code) return res.redirect(302, '/');
+      const [p] = await db.select().from(contestParticipants).where(eq(contestParticipants.inviteCode, code)).limit(1);
+      const ctx = p ? await getCtxById(p.contestId) : null;
+      if (!p || !ctx) return res.redirect(302, '/');
+      res.redirect(302, checkoutUrl(ctx, { code: p.hasTicket ? null : p.couponCode, content: 'concurso-cupon' }));
+    } catch {
+      res.redirect(302, '/');
+    }
+  });
   app.get('/c/:code', async (req: Request, res: Response) => {
     try {
       const db = await getDb();
@@ -1355,6 +1376,34 @@ export async function skipWinner(winnerId: number) {
   await db.update(contestWinners).set({ status: 'expired', ...(row.refundStatus === 'pending' ? { refundStatus: null } : {}) }).where(eq(contestWinners.id, winnerId));
   if (row.prizeCode) await db.update(discountCodes).set({ isActive: 0 }).where(eq(discountCodes.code, row.prizeCode));
   return { promoted: await promoteAlternate(db, ctx, row.pool) };
+}
+
+/** Reenvía la bienvenida a quienes participaron por comentario (máx. 7 días,
+ * lo que deja Meta). Instagram acepta UN mensaje por comentario: a quien ya
+ * lo recibió lo rechaza y no pasa nada; a quien no, le llega. */
+export async function resendWelcomeDms(contestId: number): Promise<{ sent: number; failed: number; lastError: string | null }> {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible.');
+  const ctx = await getCtxById(contestId);
+  if (!ctx) throw new Error('Concurso no encontrado.');
+  const since = new Date(Date.now() - PRIVATE_REPLY_WINDOW_MS);
+  const rows = (await db.select().from(contestParticipants).where(and(
+    eq(contestParticipants.contestId, contestId), eq(contestParticipants.disqualified, 0), sql`${contestParticipants.firstCommentId} IS NOT NULL`,
+  )).orderBy(asc(contestParticipants.id))).filter((p) => new Date(p.createdAt) >= since).slice(0, 150);
+  let sent = 0;
+  let failed = 0;
+  let lastError: string | null = null;
+  for (const p of rows) {
+    const { text, button } = welcomeMessage(ctx, p);
+    try {
+      await send({ kind: 'comment', commentId: p.firstCommentId! }, text, button);
+      sent++;
+    } catch (err) {
+      failed++;
+      lastError = err instanceof Error ? err.message : 'Error';
+    }
+  }
+  return { sent, failed, lastError };
 }
 
 /** Datos públicos para la página de bases (/concurso). */

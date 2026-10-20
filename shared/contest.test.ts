@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeCodeDiscount } from './discountCode';
 import {
-  DEFAULT_CONTEST_CONFIG, drawPoolFor, priceLockCodePercent, refundAmountFor, computeChances, contestPhase, extractEmail, hasContestKeyword, mergeMentions,
+  DEFAULT_CONTEST_CONFIG, dmFallbackReply, drawPoolFor, fitDmText, priceLockCodePercent, refundAmountFor, utf8Bytes, computeChances, contestPhase, extractEmail, hasContestKeyword, mergeMentions,
   normalizeContestConfig, parseMentions, randomContestCode, renderContestTemplate, weightedDraw,
 } from './contest';
 
@@ -148,5 +148,27 @@ describe('devolución y sorteo', () => {
     expect(drawPoolFor({ hasTicket: false, boughtDuringContest: false })).toBe('double');
     expect(drawPoolFor({ hasTicket: true, boughtDuringContest: true })).toBe('double');
     expect(drawPoolFor({ hasTicket: true, boughtDuringContest: false })).toBe('vip');
+  });
+});
+
+describe('DM de comentario', () => {
+  it('un DM largo se acorta por párrafos sin cortar el link del final', () => {
+    const long = ['Hola', 'x'.repeat(400), 'y'.repeat(400), '👉 https://mansionplayroom.cl/p/abc123'].join('\n\n');
+    const fitted = fitDmText(long, 600);
+    expect(utf8Bytes(fitted)).toBeLessThanOrEqual(600);
+    expect(fitted.startsWith('Hola')).toBe(true);
+    expect(fitted.endsWith('https://mansionplayroom.cl/p/abc123')).toBe(true);
+  });
+  it('lo que ya cabe no se toca', () => {
+    expect(fitDmText('uno\n\ndos\n\ntres')).toBe('uno\n\ndos\n\ntres');
+  });
+  it('cuenta bytes reales: emojis y tildes pesan más que un carácter', () => {
+    expect(utf8Bytes('a')).toBe(1);
+    expect(utf8Bytes('é')).toBe(2);
+    expect(utf8Bytes('🎉')).toBe(4);
+  });
+  it('si no sale el DM, el comentario invita a escribir la palabra clave', () => {
+    expect(dmFallbackReply(' CONCURSO ')).toContain('Escríbenos CONCURSO por DM');
+    expect(dmFallbackReply('')).toContain('CONCURSO');
   });
 });
