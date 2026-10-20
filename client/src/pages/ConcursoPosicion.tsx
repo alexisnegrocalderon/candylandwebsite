@@ -45,6 +45,7 @@ export default function ConcursoPosicion() {
         <p className="font-heading font-extrabold text-6xl">{['🥇', '🥈', '🥉'][v.position - 1] ?? ''} {v.position}º</p>
         <p className="text-muted-foreground text-sm">de {v.ofTotal} participantes · <b className="text-foreground">{v.points} puntos</b></p>
         {v.probability > 0 && <p className="text-xs text-muted-foreground pt-1">≈ {v.probability < 1 ? '<1' : Math.round(v.probability)}% de probabilidad de ganar (aprox.)</p>}
+        {v.isLeader && <p className="text-sm pt-2 font-semibold">🏆 {v.tiedLeaders > 1 ? `Vas empatado en el 1º con ${v.tiedLeaders - 1} más: el premio seguro se sortea entre los empatados. ¡Saca ventaja!` : 'Vas 1º: si sigues así, ganas tu premio seguro.'}</p>}
         {v.gapToNext !== null && (
           <p className="text-sm pt-2">
             Te faltan <b>{v.gapToNext}</b> punto{v.gapToNext === 1 ? '' : 's'} para pasar{v.nextUsername ? <> a <b>@{v.nextUsername}</b></> : ' al de arriba'} 🚀
@@ -64,7 +65,7 @@ export default function ConcursoPosicion() {
               </li>
             ))}
           </ul>
-          <p className="text-xs text-muted-foreground">Sorteo: {fmt(data.drawAt)}. 1 punto = 1 chance; el sorteo es ponderado, no gana necesariamente el primero.</p>
+          <p className="text-xs text-muted-foreground">Sorteo: {fmt(data.drawAt)}. El 1º de cada tabla gana su premio seguro; el resto se sortea (1 punto = 1 chance).</p>
         </div>
       )}
 

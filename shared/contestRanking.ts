@@ -5,7 +5,7 @@
  * 1 punto = 1 chance del sorteo. El sorteo es ponderado, no gana el primero:
  * por eso el ranking es informativo y se muestra una probabilidad aproximada.
  * Dos tablas, una por sorteo (shared/contest.ts → drawPoolFor). */
-import { computeChances, drawPoolFor, type ContestChances } from './contest';
+import { computeChances, drawPoolFor, weightedDraw, type ContestChances, type DrawEntry } from './contest';
 
 export interface RankingInput {
   id: number;
@@ -73,6 +73,28 @@ export function approxWinProbability(points: number, totalPoints: number, winner
   if (points <= 0 || totalPoints <= 0 || winners <= 0) return 0;
   const share = Math.min(1, points / totalPoints);
   return Math.round((1 - Math.pow(1 - share, winners)) * 1000) / 10;
+}
+
+/** El 1º del ranking de una tabla gana seguro uno de los premios: el de más
+ * puntos; si hay empate arriba, se sortea entre los empatados. `null` si no
+ * hay nadie. El resto de los premios se sortea (ponderado) sin él. */
+export function pickGuaranteedLeader(entries: DrawEntry[], random: () => number): number | null {
+  const top = entries.reduce((m, e) => Math.max(m, e.weight), 0);
+  if (top <= 0) return null;
+  const tied = entries.filter((e) => e.weight === top);
+  return tied.length === 1 ? tied[0].id : weightedDraw(tied, 1, random)[0] ?? null;
+}
+
+/** Probabilidad aproximada con premio garantizado al 1º: el líder (o, si hay
+ * empate, uno de los empatados) se lleva un premio seguro y los demás
+ * `winners − 1` se sortean sin él. */
+export function approxWinProbabilityWithLeader(points: number, totalPoints: number, winners: number, leader: { count: number; points: number }): number {
+  if (winners <= 0 || points <= 0 || totalPoints <= 0 || leader.count <= 0) return 0;
+  const slots = winners - 1;
+  const draw = slots > 0 ? approxWinProbability(points, Math.max(0, totalPoints - leader.points), slots) / 100 : 0;
+  const isLeader = points === leader.points;
+  const p = isLeader ? 1 / leader.count + (1 - 1 / leader.count) * draw : draw;
+  return Math.round(p * 1000) / 10;
 }
 
 export interface TipState {
@@ -181,7 +203,7 @@ export function rankingCommentText(input: RankingCommentInput): string {
   };
   section('🎟️ Entrada doble', input.ranking.double);
   section(`⭐ ${input.vipLabel}`, input.ranking.vip);
-  lines.push('', '¡Aún puedes subir! Etiqueta amigos, comparte en tu historia o invita a comprar 🚀', `Tu posición: ${input.link}`, `Sorteo: ${input.drawText}`);
+  lines.push('', '🏆 El 1º de cada tabla gana su premio seguro; el resto se sortea.', '¡Aún puedes subir! Etiqueta amigos, comparte en tu historia o invita a comprar 🚀', `Tu posición: ${input.link}`, `Sorteo: ${input.drawText}`);
   return lines.join('\n').slice(0, 2200);
 }
 
