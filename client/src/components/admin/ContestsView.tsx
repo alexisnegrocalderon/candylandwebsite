@@ -18,7 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StatTile } from '@/components/admin/StatTile';
 import { ContestRankingPanel } from '@/components/admin/ContestRankingPanel';
-import { DEFAULT_CONTEST_MESSAGES, type ContestConfig, type ContestMessages } from '@shared/contest';
+import { DEFAULT_CONTEST_MESSAGES, commentEnrolls, dmEnrolls, missingKeywords, parseKeywords, type ContestConfig, type ContestMessages } from '@shared/contest';
 
 /* Concursos de Instagram (admin → Comunidad → Concursos). Aquí solo se
  * configura y se mira: el concurso corre solo (server/contests.ts) -- recoge
@@ -252,6 +252,31 @@ export function ContestsView() {
   );
 }
 
+/** Probador: escribe una frase y mira si inscribiría (por comentario y por DM / respuesta a historia). */
+function KeywordTester({ keyword }: { keyword: string }) {
+  const [text, setText] = useState('quiero entrada');
+  const keywords = parseKeywords(keyword);
+  const missing = missingKeywords(text, keywords);
+  return (
+    <div className="mt-3 rounded-lg border p-3 space-y-2">
+      <Label className="text-xs">Probar una frase</Label>
+      <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="quiero entrada" />
+      {keywords.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Sin palabras clave: cualquier comentario participa.</p>
+      ) : (
+        <div className="text-xs space-y-0.5">
+          <p>Palabras que se exigen: <b>{keywords.join(' + ')}</b></p>
+          <p>{commentEnrolls(text, keyword, false) ? '✅' : '❌'} En un comentario del post{missing.length > 0 ? ` (faltan: ${missing.join(', ')})` : ''}</p>
+          <p>{dmEnrolls(text, keyword) ? '✅' : '❌'} Por DM o respondiendo una historia{!dmEnrolls(text, keyword) && missing.length === 0 ? ' (es muy larga o tiene una pregunta)' : ''}</p>
+        </div>
+      )}
+      {keywords.length === 1 && keywords[0].split(' ').length >= 3 && (
+        <p className="text-xs text-[var(--admin-warning-text)]">Ojo: escribiste una frase completa. Separa las palabras con coma (ej. «quiero, entrada») para que calce con variaciones.</p>
+      )}
+    </div>
+  );
+}
+
 function ContestDetail({ id }: { id: number }) {
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.contests.get.useQuery({ id }, { refetchInterval: 30_000 });
@@ -436,6 +461,7 @@ function ContestDetail({ id }: { id: number }) {
                   <Label>Palabras clave para participar</Label>
                   <Input className="mt-1" value={config.keyword} onChange={(e) => patch((c) => ({ ...c, keyword: e.target.value }))} />
                   <p className="text-xs text-muted-foreground mt-1">Separa con coma: el comentario tiene que traerlas todas (ej. «quiero, entrada» calza con «quiero mi entrada doble»). Quien comenta otra cosa no recibe nada. Vacía = cualquier comentario participa.</p>
+                  <KeywordTester keyword={config.keyword} />
                 </div>
                 <div>
                   <Label>Frase que ve la gente (opcional)</Label>

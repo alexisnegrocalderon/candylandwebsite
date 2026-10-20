@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeCodeDiscount } from './discountCode';
 import {
-  DEFAULT_CONTEST_CONFIG, commentEnrolls, dmFallbackReply, dmEnrolls, drawPoolFor, parseKeywords, fitDmText, priceLockCodePercent, refundAmountFor, utf8Bytes, computeChances, contestPhase, extractEmail, hasContestKeyword, mergeMentions,
+  DEFAULT_CONTEST_CONFIG, missingKeywords, commentEnrolls, dmFallbackReply, dmEnrolls, drawPoolFor, parseKeywords, fitDmText, priceLockCodePercent, refundAmountFor, utf8Bytes, computeChances, contestPhase, extractEmail, hasContestKeyword, mergeMentions,
   normalizeContestConfig, parseMentions, randomContestCode, renderContestTemplate, weightedDraw,
 } from './contest';
 
@@ -207,5 +207,13 @@ describe('quién se inscribe', () => {
     expect(dmEnrolls('  CONCURSO!! ', 'CONCURSO')).toBe(true);
     expect(dmEnrolls('cómo participo en el concurso', 'CONCURSO')).toBe(false);
     expect(dmEnrolls('concurso', '')).toBe(false);
+  });
+});
+
+describe('probador de frases', () => {
+  it('dice qué palabras clave faltan', () => {
+    expect(missingKeywords('quiero entrada', ['quiero', 'entrada'])).toEqual([]);
+    expect(missingKeywords('quiero ir', ['quiero', 'entrada'])).toEqual(['entrada']);
+    expect(missingKeywords('quiero entrada', ['quiero mi entrada doble'])).toEqual(['quiero mi entrada doble']);
   });
 });

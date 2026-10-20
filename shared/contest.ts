@@ -339,6 +339,13 @@ export function matchesAllKeywords(textIn: string, keywords: string[]): boolean 
   return keywords.every((k) => text.includes(` ${k}`));
 }
 
+/** Qué palabras clave faltan en el texto (vacío = las trae todas). Para el
+ * probador del panel: muestra por qué una frase no inscribe. */
+export function missingKeywords(textIn: string, keywords: string[]): string[] {
+  const text = ` ${normWords(textIn)}`;
+  return keywords.filter((k) => !text.includes(` ${k}`));
+}
+
 /** ¿Este mensaje por DM inscribe? Trae todas las palabras clave y es corto
  * (palabras clave + 2) y sin pregunta: "quiero mi entrada doble" sí; "hola,
  * quiero una entrada para el viernes, ¿cuánto vale?" no, eso lo contesta el

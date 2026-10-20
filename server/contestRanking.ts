@@ -201,13 +201,25 @@ async function publicReplies(db: Db, ctx: ContestCtx, ranking: Ranking, particip
     const p = byId.get(t.participantId)!;
     const key = rankReplyKey(t.participantId, day);
     if (!(await claim(db, ctx.contest.id, key, t.participantId))) continue;
-    try {
-      await replyToComment((p.spareCommentId ?? p.firstCommentId)!, rankReplyText(t, positionLink(p.inviteCode)));
-      sent++;
-    } catch (err) {
-      console.error('[Concurso] No se pudo responder con la posición:', err);
-      await release(db, ctx.contest.id, key);
+    // Primero el comentario más nuevo; si ya no existe, el primero.
+    const commentIds = Array.from(new Set([p.spareCommentId, p.firstCommentId].filter((x): x is string => !!x)));
+    let delivered = false;
+    let permanent = true;
+    for (const commentId of commentIds) {
+      try {
+        await replyToComment(commentId, rankReplyText(t, positionLink(p.inviteCode)));
+        delivered = true;
+        break;
+      } catch (err) {
+        console.error('[Concurso] No se pudo responder con la posición:', err);
+        // Código 100 = el comentario ya no existe o no se puede responder: no
+        // sirve reintentar. Cualquier otro error puede ser pasajero.
+        if ((err as { code?: number })?.code !== 100) permanent = false;
+      }
     }
+    if (delivered) sent++;
+    // Un comentario borrado no se reintenta cada 15 minutos (ocuparía el cupo de respuestas).
+    else if (!permanent) await release(db, ctx.contest.id, key);
   }
   return sent;
 }
