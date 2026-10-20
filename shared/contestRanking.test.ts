@@ -88,7 +88,7 @@ describe('respuestas públicas', () => {
   it('el texto nombra a quien está arriba y cabe en un comentario', () => {
     const text = rankReplyText(rankReplyCandidates(rows)[0], 'https://mansionplayroom.cl/r/abc123');
     expect(text).toContain('@b vas 2º con 9 puntos');
-    expect(text).toContain('pasas a @a');
+    expect(text).toContain('te separan de @a');
     expect(text.length).toBeLessThan(400);
   });
 });

@@ -20,7 +20,7 @@ import {
   CONTEST_APP_URL, drawDateText, getActiveContestCtx, getCtxById, loadRankingFor, positionLink, reachableChannel, send, BASES_URL,
   type ContestCtx,
 } from './contests';
-import { contestPhase } from '../shared/contest';
+import { contestPhase, parseKeywords } from '../shared/contest';
 import { chileDateKey, chileHourOf } from '../shared/chileDate';
 import {
   approxWinProbabilityWithLeader, asksAboutRanking, dmTipsText, personalTips, rankDmKey, rankMailKey, rankPostKey, rankReplyCandidates,
@@ -132,7 +132,7 @@ async function postRanking(ctx: ContestCtx, ranking: Ranking, opts: { lastDay: b
     vipLabel: ctx.config.prizes.vipPrizeLabel,
     drawText: drawDateText(ctx.config),
     link: BASES_URL,
-    headline: opts.lastDay ? '⏳ ÚLTIMAS HORAS: ¡sorteo hoy!' : undefined,
+    headline: opts.lastDay ? '⏳ ÚLTIMAS HORAS: ¡sorteo hoy! Esta es la tabla que cuenta' : undefined,
   };
   try {
     await commentOnOwnMedia(mediaId, rankingCommentText({ ...base, ranking }));
@@ -313,9 +313,19 @@ export async function getRankingAdmin(contestId: number) {
     .where(and(eq(contestLog.contestId, contestId), eq(contestLog.kind, 'comment'), eq(contestLog.refId, rankPostKey(day)))).limit(1)).length > 0;
   const [mails] = await db.select({ n: sql<number>`COUNT(*)` }).from(contestLog)
     .where(and(eq(contestLog.contestId, contestId), eq(contestLog.kind, 'comment'), sql`${contestLog.refId} LIKE 'rank-mail:%'`));
-  const top = (rows: RankRow[]) => rows.slice(0, 20).map((r) => ({ position: r.position, username: r.username, points: r.points, probability: 0 }));
+  const top = (rows: RankRow[]) => rows.slice(0, 20).map((r) => ({ participantId: r.participantId, position: r.position, username: r.username, points: r.points, probability: 0 }));
   return {
     title: ctx.contest.title,
+    // Para las imágenes de historias del panel (números reales del concurso).
+    story: {
+      chances: ctx.config.chances,
+      phrase: ctx.config.keywordPhrase.trim() || parseKeywords(ctx.config.keyword).join(' ') || ctx.config.keyword,
+      drawAt: ctx.config.drawAt,
+      participants: ranking.double.length + ranking.vip.length,
+      doubleWinners: ctx.config.prizes.doubleWinners,
+      couponPercent: ctx.config.prizes.couponPercent,
+      couponHours: ctx.config.prizes.couponHours,
+    },
     vipLabel: ctx.config.prizes.vipPrizeLabel,
     drawText: drawDateText(ctx.config),
     double: top(ranking.double).map((r) => ({ ...r, probability: approxWinProbabilityWithLeader(r.points, ranking.totals.double, ctx.config.prizes.doubleWinners, leaderOf(ranking.double)) })),
