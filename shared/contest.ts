@@ -100,7 +100,7 @@ export interface ContestConfig {
 
 export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
   noTicket:
-    '¡Ya participas, {{nombre}}! 🎉 Sorteamos {{ganadores_doble}} {{premio}}.\n\n'
+    '¡Ya participas, {{nombre}}! 🎉 Sorteamos {{ganadores_doble}} {{premio}} (el 1º del ranking gana una seguro).\n\n'
     + 'Suma puntos:\n'
     + '👥 +{{por_etiqueta}} por amigo etiquetado\n'
     + '📲 +{{bonus_historia}} si compartes el reel en tu historia y nos mencionas\n'

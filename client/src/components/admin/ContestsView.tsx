@@ -672,6 +672,7 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
           <p>El sorteo se hace solo el <b>{data.config.drawAt ? new Date(data.config.drawAt).toLocaleString('es-CL', { dateStyle: 'full', timeStyle: 'short' }) : '—'}</b>.</p>
           <p className="text-muted-foreground">
             Boletos hoy: {data.stats.tickets.double} en el sorteo de entradas dobles (sin entrada o compraron durante el concurso) y {data.stats.tickets.vip} en el VIP (ya tenían entrada).
+            El 1º del ranking de cada tabla gana uno de los premios seguro (si hay empate arriba se sortea entre los empatados) y el resto se sortea.
             Si gana alguien que compró durante el concurso, elige devolución o una entrada para regalar.
             A cada ganador se le escribe por DM con su premio; si no se puede, se le responde el comentario pidiéndole que escriba
             y, si no reclama en {data.config.claimHours} h, pasa el suplente.
@@ -684,7 +685,7 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
     { key: 'double', title: 'Entradas dobles (sin entrada o compraron en el concurso)' },
     { key: 'vip', title: `${data.config.prizes.vipPrizeLabel} (ya tenían entrada)` },
   ];
-  const log = (data.contest.drawLog ?? {}) as Record<string, { participants: number; tickets: number }>;
+  const log = (data.contest.drawLog ?? {}) as Record<string, { participants: number; tickets: number; guaranteed?: number | null }>;
   return (
     <div className="space-y-4">
       <Button variant="outline" onClick={onWheel}><Dices className="w-4 h-4" /> Abrir ruleta para grabar</Button>
@@ -704,6 +705,7 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
                       <span className="font-semibold w-6">{w.position}.</span>
                       <a href={`https://instagram.com/${w.username ?? ''}`} target="_blank" rel="noreferrer" className="font-medium hover:underline">@{w.username ?? '—'}</a>
                       <span className="text-muted-foreground">{w.chances} chances</span>
+                      {log[pool.key]?.guaranteed === w.participantId && <span className="px-2 py-0.5 rounded-full bg-primary/15 text-primary text-xs font-semibold">🏆 1º del ranking (seguro)</span>}
                       <span className="px-2 py-0.5 rounded-full bg-muted text-xs">{WINNER_STATUS[w.status] ?? w.status}</span>
                       {w.status === 'notified' && w.claimDeadline && (
                         <span className="text-xs text-muted-foreground">plazo: {new Date(w.claimDeadline).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })}</span>

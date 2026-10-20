@@ -23,7 +23,7 @@ import {
 import { contestPhase } from '../shared/contest';
 import { chileDateKey, chileHourOf } from '../shared/chileDate';
 import {
-  approxWinProbability, asksAboutRanking, dmTipsText, personalTips, rankDmKey, rankMailKey, rankPostKey, rankReplyCandidates,
+  approxWinProbabilityWithLeader, asksAboutRanking, dmTipsText, personalTips, rankDmKey, rankMailKey, rankPostKey, rankReplyCandidates,
   rankReplyKey, rankReplyText, rankingCommentText, takeReplyTargets, type RankRow, type Ranking,
 } from '../shared/contestRanking';
 
@@ -56,6 +56,8 @@ function locate(ranking: Ranking, participantId: number): { pool: 'double' | 'vi
   return null;
 }
 
+const leaderOf = (rows: RankRow[]) => ({ count: rows.filter((r) => r.position === 1).length, points: rows[0]?.points ?? 0 });
+
 const poolLabel = (ctx: ContestCtx, pool: 'double' | 'vip') => (pool === 'double' ? 'la entrada doble' : ctx.config.prizes.vipPrizeLabel);
 
 function personalView(ctx: ContestCtx, ranking: Ranking, p: ContestParticipant) {
@@ -80,7 +82,9 @@ function personalView(ctx: ContestCtx, ranking: Ranking, p: ContestParticipant) 
     position: row.position,
     ofTotal: rows.length,
     points: row.points,
-    probability: approxWinProbability(row.points, total, winners),
+    probability: approxWinProbabilityWithLeader(row.points, total, winners, leaderOf(rows)),
+    isLeader: row.position === 1,
+    tiedLeaders: rows.filter((r) => r.position === 1).length,
     gapToNext: above ? above.points - row.points : null,
     nextUsername: above?.username ?? null,
     // Un empate con el 10º comparte su posición, así que alcanza con igualarlo.
@@ -314,8 +318,8 @@ export async function getRankingAdmin(contestId: number) {
     title: ctx.contest.title,
     vipLabel: ctx.config.prizes.vipPrizeLabel,
     drawText: drawDateText(ctx.config),
-    double: top(ranking.double).map((r) => ({ ...r, probability: approxWinProbability(r.points, ranking.totals.double, ctx.config.prizes.doubleWinners) })),
-    vip: top(ranking.vip).map((r) => ({ ...r, probability: approxWinProbability(r.points, ranking.totals.vip, ctx.config.prizes.vipWinners) })),
+    double: top(ranking.double).map((r) => ({ ...r, probability: approxWinProbabilityWithLeader(r.points, ranking.totals.double, ctx.config.prizes.doubleWinners, leaderOf(ranking.double)) })),
+    vip: top(ranking.vip).map((r) => ({ ...r, probability: approxWinProbabilityWithLeader(r.points, ranking.totals.vip, ctx.config.prizes.vipWinners, leaderOf(ranking.vip)) })),
     counts: { double: ranking.double.length, vip: ranking.vip.length },
     today: { posted, replies: (await repliedToday(db, contestId, day)).size, mails: Number(mails?.n ?? 0) },
   };

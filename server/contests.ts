@@ -40,7 +40,7 @@ import {
   commentEnrolls, computeChances, contestPhase, defaultDrawAt, dmFallbackReply, drawPoolFor, fitDmText, extractEmail, dmEnrolls, parseKeywords, priceLockCodePercent, refundAmountFor, mergeMentions, normalizeContestConfig, parseMentions,
   prizeLabels, randomContestCode, randomInviteCode, renderContestTemplate, weightedDraw, type ContestConfig,
 } from '../shared/contest';
-import { buildRanking } from '../shared/contestRanking';
+import { buildRanking, pickGuaranteedLeader } from '../shared/contestRanking';
 
 const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
 /** Meta deja mandar un DM privado a un comentario hasta 7 días después. */
@@ -812,12 +812,18 @@ async function drawPools(db: Db, ctx: ContestCtx): Promise<{ double: number; vip
     { pool: 'double' as const, people: all.filter((p) => drawPoolFor({ hasTicket: !!p.hasTicket, boughtDuringContest: !!p.boughtDuringContest }) === 'double'), winners: prizes.doubleWinners, alternates: prizes.doubleAlternates },
     { pool: 'vip' as const, people: all.filter((p) => drawPoolFor({ hasTicket: !!p.hasTicket, boughtDuringContest: !!p.boughtDuringContest }) === 'vip'), winners: prizes.vipWinners, alternates: prizes.vipAlternates },
   ];
-  const log: Record<string, { participants: number; tickets: number }> = {};
+  const log: Record<string, { participants: number; tickets: number; guaranteed: number | null }> = {};
   for (const { pool, people, winners, alternates } of pools) {
     const weights = people.map((p) => ({ id: p.id, weight: chancesOf(p, ctx.config) }));
-    log[pool] = { participants: people.length, tickets: weights.reduce((s, w) => s + w.weight, 0) };
+    // El 1º del ranking gana seguro uno de los premios (empate arriba: se
+    // sortea entre los empatados); el resto se sortea sin él.
+    const leaderId = winners > 0 ? pickGuaranteedLeader(weights, secureRandom) : null;
+    log[pool] = { participants: people.length, tickets: weights.reduce((s, w) => s + w.weight, 0), guaranteed: leaderId };
     if (winners <= 0) continue;
-    const picked = weightedDraw(weights, winners + alternates, secureRandom);
+    const picked = [
+      ...(leaderId !== null ? [leaderId] : []),
+      ...weightedDraw(weights.filter((w) => w.id !== leaderId), winners - (leaderId !== null ? 1 : 0) + alternates, secureRandom),
+    ];
     for (let i = 0; i < picked.length; i++) {
       await db.insert(contestWinners).values({
         contestId, participantId: picked[i], pool, position: i + 1,

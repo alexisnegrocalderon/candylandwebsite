@@ -51,7 +51,7 @@ export default function Concurso() {
                 <div className="glass-candy rounded-2xl p-6 mb-8 space-y-4">
                   <h2 className="font-heading font-bold text-xl">🏆 Ranking en vivo</h2>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    1 punto = 1 chance en el sorteo. Es un sorteo ponderado: más puntos = más probabilidad, pero no gana necesariamente el primero.
+                    🏆 El 1º de cada tabla gana su premio seguro al cierre. El resto se sortea: 1 punto = 1 chance, más puntos = más probabilidad.
                     ¿Eres de los que participan? Tu posición exacta y cómo subir te llegan por DM.
                   </p>
                   <div className="grid gap-6 sm:grid-cols-2">
@@ -116,8 +116,16 @@ export default function Concurso() {
                 </ul>
                 <p><b>Sorteos:</b></p>
                 <ul className="list-disc pl-5 space-y-1">
-                  <li>{data.prizes.doubleWinners} {data.prizes.doubleLabel} entre quienes participan sin entrada.</li>
-                  {data.prizes.vipWinners > 0 && <li>{data.prizes.vipWinners} × {data.prizes.vipLabel} entre quienes ya tenían su entrada antes del concurso.</li>}
+                  <li>
+                    {data.prizes.doubleWinners} {data.prizes.doubleLabel} entre quienes participan sin entrada
+                    {data.prizes.doubleWinners > 0 && <>: <b>el 1º del ranking gana una seguro</b>{data.prizes.doubleWinners > 1 ? ` y ${data.prizes.doubleWinners - 1 === 1 ? 'la otra se sortea' : `las otras ${data.prizes.doubleWinners - 1} se sortean`}` : ''}</>}.
+                  </li>
+                  {data.prizes.vipWinners > 0 && (
+                    <li>
+                      {data.prizes.vipWinners} × {data.prizes.vipLabel} entre quienes ya tenían su entrada antes del concurso: <b>el 1º del ranking gana uno seguro</b>{data.prizes.vipWinners > 1 ? ` y el resto se sortea` : ''}.
+                    </li>
+                  )}
+                  <li>Si hay empate en el primer lugar, el premio seguro se sortea entre los empatados.</li>
                 </ul>
               </div>
 
@@ -131,7 +139,7 @@ export default function Concurso() {
                 <h2 className="font-heading font-bold text-xl text-foreground">Bases y condiciones</h2>
                 <p>1. Organiza Mansion Playroom. Participan personas mayores de 18 años con una cuenta de Instagram pública y real.</p>
                 <p>2. Período: {data.startsAt ? `desde ${fmt(data.startsAt)}` : 'desde su publicación'} hasta el sorteo, el {fmt(data.drawAt)}.</p>
-                <p>3. El sorteo es aleatorio y ponderado: cada punto equivale a un boleto (1 punto = 1 chance). Se eligen ganadores y suplentes.</p>
+                <p>3. En cada tabla, el 1º del ranking al momento del sorteo gana uno de los premios (si hay empate en el primer lugar, se sortea entre los empatados). Los demás premios se sortean de forma aleatoria y ponderada entre el resto: cada punto equivale a un boleto (1 punto = 1 chance). Se eligen también suplentes.</p>
                 <p>4. A los ganadores se les avisa por mensaje directo y respondiendo su comentario. Si no reclaman su premio dentro de {data.claimHours} horas, el premio pasa al siguiente suplente.</p>
                 <p>5. Si compraste tu entrada durante el concurso y ganas la entrada doble, eliges entre la devolución de lo pagado por tus accesos (con tope en el valor del premio, al mismo medio de pago y conservando tu entrada) o una entrada doble adicional para regalar.</p>
                 <p>6. Los premios son personales, no canjeables por dinero y válidos solo para {data.eventTitle}. Los códigos de descuento no son acumulables entre sí.</p>

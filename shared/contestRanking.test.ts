@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONTEST_CONFIG, normalizeContestConfig } from './contest';
 import {
-  approxWinProbability, asksAboutRanking, buildRanking, dmTipsText, personalTips, rankDmKey, rankMailKey, rankPostKey, rankReplyCandidates,
+  approxWinProbability, approxWinProbabilityWithLeader, pickGuaranteedLeader, asksAboutRanking, buildRanking, dmTipsText, personalTips, rankDmKey, rankMailKey, rankPostKey, rankReplyCandidates,
   rankReplyKey, rankReplyText, rankRows, rankingCommentText, takeReplyTargets, type RankingInput,
 } from './contestRanking';
 
@@ -141,5 +141,32 @@ describe('configuración del ranking', () => {
     expect(c.maxRepliesPerDay).toBe(0);
     expect(c.dmTips).toBe(false);
     expect(c.dailyComment).toBe(true);
+  });
+});
+
+describe('premio seguro al 1º del ranking', () => {
+  const seq = (...values: number[]) => { let i = 0; return () => values[i++] ?? 0; };
+  it('gana seguro el de más puntos', () => {
+    expect(pickGuaranteedLeader([{ id: 1, weight: 3 }, { id: 2, weight: 9 }, { id: 3, weight: 5 }], seq(0.99))).toBe(2);
+  });
+  it('si hay empate arriba, se sortea solo entre los empatados', () => {
+    const entries = [{ id: 1, weight: 9 }, { id: 2, weight: 9 }, { id: 3, weight: 4 }];
+    expect(pickGuaranteedLeader(entries, seq(0))).toBe(1);
+    expect(pickGuaranteedLeader(entries, seq(0.99))).toBe(2);
+  });
+  it('sin participantes no hay líder', () => {
+    expect(pickGuaranteedLeader([], seq(0))).toBeNull();
+    expect(pickGuaranteedLeader([{ id: 1, weight: 0 }], seq(0))).toBeNull();
+  });
+  it('la probabilidad aproximada cuenta al líder como seguro y al resto sin él', () => {
+    // 2 premios, 100 puntos en total, el líder tiene 40.
+    const leader = { count: 1, points: 40 };
+    expect(approxWinProbabilityWithLeader(40, 100, 2, leader)).toBe(100);
+    // el resto compite por 1 premio sobre 60 puntos
+    expect(approxWinProbabilityWithLeader(6, 100, 2, leader)).toBe(10);
+    // con 1 solo premio, el resto no tiene chance
+    expect(approxWinProbabilityWithLeader(6, 100, 1, leader)).toBe(0);
+    // dos empatados arriba: cada uno tiene 50% de llevarse el seguro
+    expect(approxWinProbabilityWithLeader(40, 100, 1, { count: 2, points: 40 })).toBe(50);
   });
 });
