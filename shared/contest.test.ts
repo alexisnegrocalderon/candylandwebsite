@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeCodeDiscount } from './discountCode';
 import {
-  DEFAULT_CONTEST_CONFIG, commentEnrolls, dmFallbackReply, drawPoolFor, isKeywordOnly, fitDmText, priceLockCodePercent, refundAmountFor, utf8Bytes, computeChances, contestPhase, extractEmail, hasContestKeyword, mergeMentions,
+  DEFAULT_CONTEST_CONFIG, commentEnrolls, dmFallbackReply, dmEnrolls, drawPoolFor, parseKeywords, fitDmText, priceLockCodePercent, refundAmountFor, utf8Bytes, computeChances, contestPhase, extractEmail, hasContestKeyword, mergeMentions,
   normalizeContestConfig, parseMentions, randomContestCode, renderContestTemplate, weightedDraw,
 } from './contest';
 
@@ -167,8 +167,9 @@ describe('DM de comentario', () => {
     expect(utf8Bytes('é')).toBe(2);
     expect(utf8Bytes('🎉')).toBe(4);
   });
-  it('si no sale el DM, el comentario invita a escribir la palabra clave', () => {
-    expect(dmFallbackReply(' CONCURSO ')).toContain('Escríbenos CONCURSO por DM');
+  it('si no sale el DM, el comentario invita a escribir la frase', () => {
+    expect(dmFallbackReply(' CONCURSO ')).toContain('Escríbenos "concurso" por DM');
+    expect(dmFallbackReply('quiero, entrada', 'quiero mi entrada doble')).toContain('Escríbenos "quiero mi entrada doble" por DM');
     expect(dmFallbackReply('')).toContain('CONCURSO');
   });
 });
@@ -187,12 +188,24 @@ describe('quién se inscribe', () => {
     expect(commentEnrolls('hola', '', false)).toBe(true);
     expect(commentEnrolls('hola', '   ', false)).toBe(true);
   });
-  it('por DM solo vale el mensaje que es la palabra, no una conversación', () => {
-    expect(isKeywordOnly('concurso', 'CONCURSO')).toBe(true);
-    expect(isKeywordOnly('  CONCURSO!! ', 'CONCURSO')).toBe(true);
-    expect(isKeywordOnly('🎉 Concurso', 'CONCURSO')).toBe(true);
-    expect(isKeywordOnly('cómo participo en el concurso', 'CONCURSO')).toBe(false);
-    expect(isKeywordOnly('hola, quiero info', 'CONCURSO')).toBe(false);
-    expect(isKeywordOnly('concurso', '')).toBe(false);
+  it('con varias palabras clave tienen que estar todas', () => {
+    const kw = 'quiero, entrada';
+    expect(parseKeywords(' Quiero , ENTRADA ,quiero')).toEqual(['quiero', 'entrada']);
+    expect(commentEnrolls('Quiero mi entrada doble!! @ana', kw, false)).toBe(true);
+    expect(commentEnrolls('yo quiero entradas 🙏', kw, false)).toBe(true);
+    expect(commentEnrolls('QUIERO MI ENTRADA', kw, false)).toBe(true);
+    expect(commentEnrolls('cuánto vale la entrada?', kw, false)).toBe(false);
+    expect(commentEnrolls('quiero ir!!', kw, false)).toBe(false);
+    expect(commentEnrolls('no quieres entrada', kw, false)).toBe(false);
+  });
+  it('por DM inscribe la frase corta, no una conversación ni una pregunta', () => {
+    expect(dmEnrolls('quiero mi entrada doble', 'quiero, entrada')).toBe(true);
+    expect(dmEnrolls('Quiero entrada!', 'quiero, entrada')).toBe(true);
+    expect(dmEnrolls('hola, quiero una entrada para el viernes', 'quiero, entrada')).toBe(false);
+    expect(dmEnrolls('quiero entrada, ¿cuánto vale?', 'quiero, entrada')).toBe(false);
+    expect(dmEnrolls('concurso', 'CONCURSO')).toBe(true);
+    expect(dmEnrolls('  CONCURSO!! ', 'CONCURSO')).toBe(true);
+    expect(dmEnrolls('cómo participo en el concurso', 'CONCURSO')).toBe(false);
+    expect(dmEnrolls('concurso', '')).toBe(false);
   });
 });

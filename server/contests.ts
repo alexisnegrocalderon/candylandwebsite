@@ -37,7 +37,7 @@ import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { normalizeTandaSchedule } from '../shared/tandaSchedule';
 import { normalizeIgHandle } from '../shared/igCustomerLink';
 import {
-  commentEnrolls, computeChances, contestPhase, defaultDrawAt, dmFallbackReply, drawPoolFor, fitDmText, extractEmail, isKeywordOnly, priceLockCodePercent, refundAmountFor, hasContestKeyword, mergeMentions, normalizeContestConfig, parseMentions,
+  commentEnrolls, computeChances, contestPhase, defaultDrawAt, dmFallbackReply, drawPoolFor, fitDmText, extractEmail, dmEnrolls, parseKeywords, priceLockCodePercent, refundAmountFor, mergeMentions, normalizeContestConfig, parseMentions,
   prizeLabels, randomContestCode, randomInviteCode, renderContestTemplate, weightedDraw, type ContestConfig,
 } from '../shared/contest';
 
@@ -552,7 +552,7 @@ export async function handleContestComment(input: {
     // Si el DM no salió, la respuesta pública lo invita a escribir la palabra
     // clave: así abre el chat y recibe todo por ahí (sin quedar sin nada).
     const replies = ctx.config.messages.publicReplies;
-    const publicText = !dmSent ? dmFallbackReply(ctx.config.keyword)
+    const publicText = !dmSent ? dmFallbackReply(ctx.config.keyword, ctx.config.keywordPhrase)
       : ctx.config.publicReply && replies.length > 0 ? replies[Math.floor(Math.random() * replies.length)] : null;
     if (publicText) {
       await replyToComment(input.commentId, publicText)
@@ -632,7 +632,7 @@ export async function handleContestMessage(input: {
 
     // 4. Palabra clave por DM: participa. Solo si el mensaje ES la palabra
     // (una pregunta que la nombra la contesta el agente, no inscribe).
-    if (isKeywordOnly(text, ctx.config.keyword) && accepting(ctx)) {
+    if (dmEnrolls(text, ctx.config.keyword) && accepting(ctx)) {
       if (participant) {
         const { text: again, button } = welcomeMessage(ctx, participant);
         await send(channel, again, button);
@@ -1432,7 +1432,7 @@ export async function getPublicContest() {
     phase: contestPhase(ctx.contest, ctx.config),
     startsAt: ctx.config.startsAt,
     drawAt: ctx.config.drawAt,
-    keyword: ctx.config.keyword,
+    keyword: ctx.config.keywordPhrase.trim() || parseKeywords(ctx.config.keyword).join(' '),
     claimHours: ctx.config.claimHours,
     chances: ctx.config.chances,
     prizes: {
