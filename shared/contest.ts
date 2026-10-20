@@ -66,7 +66,12 @@ export interface ContestMessages {
 }
 
 export interface ContestConfig {
+  /** Palabras clave separadas por coma; el comentario tiene que traerlas TODAS
+   * (ej. "quiero, entrada" calza con "quiero mi entrada doble"). */
   keyword: string;
+  /** Frase que ve la gente en el aviso y en las bases (ej. "quiero mi entrada
+   * doble"). Vacía = las palabras clave tal cual. */
+  keywordPhrase: string;
   startsAt: string | null;
   drawAt: string | null;
   claimHours: number;
@@ -127,6 +132,7 @@ export const DEFAULT_CONTEST_CONFIG: ContestConfig = {
   // Palabra poco común a propósito: "fiesta" aparece en cualquier pregunta
   // por DM y le quitaría la conversación al agente de ventas.
   keyword: 'CONCURSO',
+  keywordPhrase: '',
   startsAt: null,
   drawAt: null,
   claimHours: 24,
@@ -186,7 +192,8 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
     ? m.publicReplies.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.slice(0, 300)).slice(0, 10)
     : [];
   return {
-    keyword: typeof r.keyword === 'string' ? r.keyword.trim().slice(0, 40) : d.keyword,
+    keyword: typeof r.keyword === 'string' ? r.keyword.trim().slice(0, 80) : d.keyword,
+    keywordPhrase: typeof r.keywordPhrase === 'string' ? r.keywordPhrase.trim().slice(0, 80) : d.keywordPhrase,
     startsAt: isoOrNull(r.startsAt),
     drawAt: isoOrNull(r.drawAt),
     claimHours: int(r.claimHours, d.claimHours, 1, 168),
@@ -285,17 +292,43 @@ export function hasContestKeyword(textIn: string, keyword: string): boolean {
 /** ¿El mensaje es SOLO la palabra clave (con o sin signos, mayúsculas o
  * emojis alrededor)? "concurso", "CONCURSO!" y "🎉 Concurso" sí; "cómo
  * participo en el concurso" no: eso lo contesta el agente. */
-export function isKeywordOnly(textIn: string, keyword: string): boolean {
-  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  const k = norm(keyword);
-  return !!k && norm(textIn) === k;
+const normWords = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** "quiero, entrada" → ["quiero", "entrada"] (sin tildes, sin repetir, máx. 5). */
+export function parseKeywords(raw: string): string[] {
+  const out: string[] = [];
+  for (const part of raw.split(/[,;\n]/)) {
+    const k = normWords(part);
+    if (k && !out.includes(k)) out.push(k);
+  }
+  return out.slice(0, 5);
+}
+
+/** ¿El texto trae TODAS las palabras clave? Cada una al comienzo de una
+ * palabra ("entrada" calza con "entradas"; "quiero" no calza con "no
+ * quieres"). Sin palabras clave no calza nada. */
+export function matchesAllKeywords(textIn: string, keywords: string[]): boolean {
+  if (keywords.length === 0) return false;
+  const text = ` ${normWords(textIn)}`;
+  return keywords.every((k) => text.includes(` ${k}`));
+}
+
+/** ¿Este mensaje por DM inscribe? Trae todas las palabras clave y es corto
+ * (palabras clave + 2) y sin pregunta: "quiero mi entrada doble" sí; "hola,
+ * quiero una entrada para el viernes, ¿cuánto vale?" no, eso lo contesta el
+ * agente. */
+export function dmEnrolls(textIn: string, keywordRaw: string): boolean {
+  const keywords = parseKeywords(keywordRaw);
+  if (!matchesAllKeywords(textIn, keywords) || textIn.includes('?') || textIn.includes('¿')) return false;
+  return normWords(textIn).split(' ').length <= keywords.length + 2;
 }
 
 /** ¿Este comentario inscribe? Quien ya participa suma etiquetas con cualquier
  * comentario; quien todavía no, tiene que comentar la palabra clave (si la
  * palabra está vacía, cualquier comentario inscribe). */
 export function commentEnrolls(commentText: string, keyword: string, alreadyParticipates: boolean): boolean {
-  return alreadyParticipates || !keyword.trim() || hasContestKeyword(commentText, keyword);
+  const keywords = parseKeywords(keyword);
+  return alreadyParticipates || keywords.length === 0 || matchesAllKeywords(commentText, keywords);
 }
 
 /** Primer email que aparezca en el texto (la persona responde con el correo
@@ -410,8 +443,9 @@ export function fitDmText(text: string, maxBytes = 900): string {
 /** Respuesta pública a un comentario cuando no se le pudo mandar el DM: lo
  * invita a escribir la palabra clave, así abre la conversación y el sistema
  * le contesta por el chat normal. */
-export function dmFallbackReply(keyword: string): string {
-  return `¡Ya participas! 🎉 Escríbenos ${keyword.trim() || 'CONCURSO'} por DM y te mandamos tu código 💌`;
+export function dmFallbackReply(keyword: string, phrase = ''): string {
+  const label = phrase.trim() || parseKeywords(keyword).join(' ') || 'CONCURSO';
+  return `¡Ya participas! 🎉 Escríbenos "${label}" por DM y te mandamos tu código 💌`;
 }
 
 /** % del cupón personal sobre el PRECIO GENERAL (`basedOnOriginalPrice`) que
