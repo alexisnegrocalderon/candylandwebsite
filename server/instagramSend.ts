@@ -51,9 +51,12 @@ async function postToMessagesEndpoint(recipient: Record<string, string>, message
 
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = (body as { error?: { message?: string; code?: number; error_subcode?: number } }).error;
+    const error = (body as { error?: { message?: string; code?: number; error_subcode?: number; type?: string; fbtrace_id?: string; error_user_msg?: string; is_transient?: boolean } }).error;
+    // El detalle (tipo, rastro, si es transitorio) va en el mensaje para que
+    // quede en los registros: "An unknown error has occurred" solo no dice nada.
+    const detail = error ? ` [${[error.type, error.is_transient ? 'transitorio' : '', error.error_user_msg, error.fbtrace_id ? `trace ${error.fbtrace_id}` : ''].filter(Boolean).join(' · ')}]` : '';
     throw new InstagramApiError(
-      error?.message ?? `Instagram respondió ${response.status}`,
+      `${error?.message ?? `Instagram respondió ${response.status}`}${detail}`,
       error?.code,
       error?.error_subcode,
     );

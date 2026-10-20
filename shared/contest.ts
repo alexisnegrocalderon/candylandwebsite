@@ -282,6 +282,22 @@ export function hasContestKeyword(textIn: string, keyword: string): boolean {
   return new RegExp(`(^|[^a-z0-9])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^a-z0-9])`).test(norm(textIn));
 }
 
+/** ¿El mensaje es SOLO la palabra clave (con o sin signos, mayúsculas o
+ * emojis alrededor)? "concurso", "CONCURSO!" y "🎉 Concurso" sí; "cómo
+ * participo en el concurso" no: eso lo contesta el agente. */
+export function isKeywordOnly(textIn: string, keyword: string): boolean {
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const k = norm(keyword);
+  return !!k && norm(textIn) === k;
+}
+
+/** ¿Este comentario inscribe? Quien ya participa suma etiquetas con cualquier
+ * comentario; quien todavía no, tiene que comentar la palabra clave (si la
+ * palabra está vacía, cualquier comentario inscribe). */
+export function commentEnrolls(commentText: string, keyword: string, alreadyParticipates: boolean): boolean {
+  return alreadyParticipates || !keyword.trim() || hasContestKeyword(commentText, keyword);
+}
+
 /** Primer email que aparezca en el texto (la persona responde con el correo
  * de su compra). */
 export function extractEmail(textIn: string): string | null {
@@ -374,6 +390,28 @@ export function prizeLabels(ticketName: string | null | undefined, count: number
   const name = (ticketName ?? '').trim();
   if (!name) return { plural: count === 1 ? 'entrada doble' : 'entradas dobles', singular: 'una entrada doble' };
   return { plural: `entradas ${name}`, singular: `una entrada ${name}` };
+}
+
+/** Bytes en UTF-8 (Instagram limita el texto de un DM a 1000 bytes, y cada
+ * emoji pesa 4 y cada tilde 2). */
+export function utf8Bytes(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/** Deja un DM dentro del límite de Instagram sin cortarlo a la mitad: saca
+ * párrafos completos desde el final (nunca el primero ni el último, que lleva
+ * el link) hasta que cabe. */
+export function fitDmText(text: string, maxBytes = 900): string {
+  const parts = text.split('\n\n');
+  while (utf8Bytes(parts.join('\n\n')) > maxBytes && parts.length > 2) parts.splice(parts.length - 2, 1);
+  return parts.join('\n\n');
+}
+
+/** Respuesta pública a un comentario cuando no se le pudo mandar el DM: lo
+ * invita a escribir la palabra clave, así abre la conversación y el sistema
+ * le contesta por el chat normal. */
+export function dmFallbackReply(keyword: string): string {
+  return `¡Ya participas! 🎉 Escríbenos ${keyword.trim() || 'CONCURSO'} por DM y te mandamos tu código 💌`;
 }
 
 /** % del cupón personal sobre el PRECIO GENERAL (`basedOnOriginalPrice`) que

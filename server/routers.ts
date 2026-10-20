@@ -3783,6 +3783,15 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo cambiar el estado.' });
       }
     }),
+    resendWelcomes: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.resendWelcomeDms(input.id);
+        await db.recordAdminAudit({ action: 'contest.resendWelcomes', targetType: 'contest', targetId: input.id, payload: result, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo reenviar.' });
+      }
+    }),
     syncNow: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
       try {
         return await contestSvc.syncContestComments(input.id);

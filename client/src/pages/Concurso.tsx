@@ -59,11 +59,11 @@ export default function Concurso() {
                 <h2 className="font-heading font-bold text-xl">¿Cómo participo?</h2>
                 <ol className="list-decimal pl-5 space-y-2 text-sm leading-relaxed">
                   <li>
-                    Comenta en{' '}
+                    Comenta {data.keyword ? <b>{data.keyword}</b> : 'cualquier cosa'} en{' '}
                     {data.mediaPermalink ? <a className="underline text-primary" href={data.mediaPermalink} target="_blank" rel="noreferrer">nuestra publicación del concurso</a> : 'nuestra publicación del concurso'}
-                    {data.keyword && <> o escríbenos <b>{data.keyword}</b> por mensaje directo</>}. Ya participas con {data.chances.base} chance{data.chances.base === 1 ? '' : 's'}.
+                    {data.keyword && <> (o escríbenos solo <b>{data.keyword}</b> por mensaje directo)</>}. Ya participas con {data.chances.base} chance{data.chances.base === 1 ? '' : 's'}.
                   </li>
-                  {data.chances.perMention > 0 && <li>Suma +{data.chances.perMention} por cada amigo que etiquetes en los comentarios (hasta {data.chances.maxMentions}, sin repetir).</li>}
+                  {data.chances.perMention > 0 && <li>Suma +{data.chances.perMention} por cada amigo que etiquetes en tu comentario (hasta {data.chances.maxMentions}, sin repetir).</li>}
                   {data.chances.storyBonus > 0 && <li>Suma +{data.chances.storyBonus} si compartes la publicación en tu historia mencionándonos.</li>}
                   {data.chances.perInvitedPurchase > 0 && <li>Suma +{data.chances.perInvitedPurchase} por cada amigo que compre su entrada con tu link personal (te llega por DM).</li>}
                 </ol>
