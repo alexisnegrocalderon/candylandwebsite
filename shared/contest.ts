@@ -100,26 +100,26 @@ export interface ContestConfig {
 
 export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
   noTicket:
-    '¡Ya participas, {{nombre}}! 🎉 Sorteamos {{ganadores_doble}} {{premio}} (el 1º del ranking gana una seguro).\n\n'
-    + 'Suma puntos:\n'
+    '¡Estás dentro, {{nombre}}! 🔥 Hoy llevas {{chances}} puntos. Sorteamos {{ganadores_doble}} {{premio}} y el 1º del ranking gana una seguro… ¿te vas a quedar mirando?\n\n'
+    + 'Sube más rápido:\n'
     + '👥 +{{por_etiqueta}} por amigo etiquetado\n'
     + '📲 +{{bonus_historia}} si compartes el reel en tu historia y nos mencionas\n'
     + '🛒 +{{bonus_compra_amigo}} por amigo que compre con tu link: {{link_invitar}}\n\n'
     + '🔒 Tu código {{cupon}} congela el precio de hoy hasta {{congelado_hasta}} (+{{porcentaje}}% extra si compras en {{horas}} h).\n'
-    + '🛡️ Compra ahora y sigues con x{{multiplicador}}: si ganas, te devolvemos tu entrada o te llevas otra para regalar.\n\n'
+    + '🛡️ Compra ahora: tus puntos pasan a x{{multiplicador}} y, si ganas, te devolvemos tu entrada o te llevas otra para regalar.\n\n'
     + 'Sorteo: {{fecha_sorteo}} · Bases: {{link_bases}}',
   holderAsk: '¿Ya tienes entrada? Respóndeme con el correo de tu compra 💌',
   holder:
-    '¡Qué bueno que vienes, {{nombre}}! 🎉 Participas por {{premio_vip}}. Tus regalos:\n{{lista_regalos}}\n\n'
+    '¡Ya estás adentro, {{nombre}}! 🎉 Y compites por {{premio_vip}} y por llegar al 1º del ranking. Tus regalos:\n{{lista_regalos}}\n\n'
     + '👥 +{{por_etiqueta}} por amigo etiquetado · 📲 +{{bonus_historia}} si compartes en tu historia\n'
-    + '💌 Para tu amigo: {{porcentaje_amigo}}% con {{codigo_amigo}} (o tu link {{link_invitar}}). Si compra, ganas +{{bonus_compra_amigo}} puntos.\n\n'
+    + '💌 Trae a tu gente: {{porcentaje_amigo}}% con {{codigo_amigo}} (o tu link {{link_invitar}}). Cada amigo que compre = +{{bonus_compra_amigo}} puntos para ti.\n\n'
     + 'Sorteo: {{fecha_sorteo}}',
   extraChances: '🔥 ¡+{{bonus_historia}} puntos por compartir en tu historia! Ahora tienes {{chances}}. Suerte, {{nombre}} 🍀',
   emailNotFound: 'No encontré una compra con ese correo 🤔 Revisa que sea el de tu compra. Tu código {{cupon}} sigue activo.',
   boughtUpgrade:
-    '¡Compra confirmada, {{nombre}}! 🎉 Sigues en el sorteo con x{{multiplicador}} ({{chances}} puntos). Si ganas, eliges: te devolvemos tu entrada o te llevas otra para regalar.\n\n'
+    '¡Compra confirmada, {{nombre}}! 🔥 Tus puntos ahora van x{{multiplicador}} ({{chances}}). Si ganas, eliges: te devolvemos tu entrada o te llevas otra para regalar.\n\n'
     + 'Tus regalos:\n{{lista_regalos}}\n\n'
-    + '💌 Para tu amigo: {{porcentaje_amigo}}% con {{codigo_amigo}} o tu link {{link_invitar}}.',
+    + '💌 Trae a tu gente: {{porcentaje_amigo}}% con {{codigo_amigo}} o tu link {{link_invitar}} (+{{bonus_compra_amigo}} puntos por cada amigo que compre).',
   winnerDouble:
     '🎉 ¡{{nombre}}, GANASTE {{premio_singular}} para {{evento}}! 🍬\n\n'
     + 'Tu código (cubre la entrada completa): {{codigo_premio}}\n'

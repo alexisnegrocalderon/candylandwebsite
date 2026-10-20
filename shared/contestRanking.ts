@@ -203,13 +203,13 @@ export function rankingCommentText(input: RankingCommentInput): string {
   };
   section('🎟️ Entrada doble', input.ranking.double);
   section(`⭐ ${input.vipLabel}`, input.ranking.vip);
-  lines.push('', '🏆 El 1º de cada tabla gana su premio seguro; el resto se sortea.', '¡Aún puedes subir! Etiqueta amigos, comparte en tu historia o invita a comprar 🚀', `Tu posición: ${input.link}`, `Sorteo: ${input.drawText}`);
+  lines.push('', '🏆 El 1º de cada tabla gana su premio seguro. ¿Quién se lo lleva? 👀', '¿Te pasaron? Etiqueta amigos, comparte en tu historia o invita a comprar 🚀', `Tu posición: ${input.link}`, `Sorteo: ${input.drawText}`);
   return lines.join('\n').slice(0, 2200);
 }
 
 export function rankReplyText(c: ReplyCandidate, link: string): string {
-  const next = c.aboveUsername ? `a @${c.aboveUsername}` : 'al de arriba';
-  return `${who(c.username)} vas ${c.position}º con ${c.points} puntos 🔥 Con ${c.gap} más pasas ${next}: etiqueta amigos, comparte en tu historia o invita a comprar 🚀 Tu posición: ${link}`;
+  const next = c.aboveUsername ? `@${c.aboveUsername}` : 'el de arriba';
+  return `${who(c.username)} vas ${c.position}º con ${c.points} puntos 🔥 Solo ${c.gap} punto${c.gap === 1 ? '' : 's'} te separan de ${next} 👀 ¿Lo dejas escapar? Etiqueta amigos, comparte en tu historia o invita a comprar 🚀 Tu posición: ${link}`;
 }
 
 export interface DmTipsInput {
@@ -225,7 +225,7 @@ export function dmTipsText(input: DmTipsInput): string {
   const todo = input.tips.filter((t) => !t.done).slice(0, 3).map((t) => `• ${t.text}`);
   const prob = input.probability > 0 ? ` (≈${input.probability < 1 ? '<1' : Math.round(input.probability)}% de probabilidad)` : '';
   return [
-    `📊 Vas ${input.position}º en ${input.poolLabel} con ${input.points} puntos${prob}.`,
+    `📊 Vas ${input.position}º en ${input.poolLabel} con ${input.points} puntos${prob}. Los de arriba no se quedan quietos 😏`,
     ...(todo.length ? ['', 'Para subir:', ...todo] : []),
     '',
     `Tu posición y el ranking: ${input.link}`,
