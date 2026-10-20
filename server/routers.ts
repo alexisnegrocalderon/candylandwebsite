@@ -83,6 +83,7 @@ import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftCl
 import { BRAND } from "../shared/eventBrand";
 import * as partnerSvc from "./partnerCampaigns";
 import * as contestSvc from "./contests";
+import * as rankingSvc from "./contestRanking";
 import { fetchOwnMedia } from "./instagramSend";
 import { normalizeMedia } from "../shared/instagramShowcase";
 import * as staffSvc from "./staff";
@@ -3783,6 +3784,19 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo cambiar el estado.' });
       }
     }),
+    /* Ranking: la tabla del panel, el botón «publicar ahora» y la página
+     * personal «mi posición» (pública, por el código de invitación). */
+    rankingAdmin: adminReadProcedure.input(z.object({ id: z.number().int() })).query(({ input }) => rankingSvc.getRankingAdmin(input.id)),
+    publishRanking: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await rankingSvc.publishRankingNow(input.id);
+        await db.recordAdminAudit({ action: 'contest.publishRanking', targetType: 'contest', targetId: input.id, payload: result, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo publicar el ranking.' });
+      }
+    }),
+    position: publicProcedure.input(z.object({ code: z.string().max(32) })).query(({ input }) => rankingSvc.getPersonalPosition(input.code).catch(() => null)),
     resendWelcomes: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
       try {
         const result = await contestSvc.resendWelcomeDms(input.id);

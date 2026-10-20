@@ -19,7 +19,8 @@ export default function Concurso() {
     description: 'Bases y condiciones del concurso de Instagram de Mansion Playroom.',
     path: '/concurso',
   });
-  const { data, isLoading } = trpc.contests.public.useQuery();
+  // El ranking se actualiza solo cada minuto.
+  const { data, isLoading } = trpc.contests.public.useQuery(undefined, { refetchInterval: 60_000 });
 
   return (
     <div className="min-h-dvh pt-24 pb-16">
@@ -46,6 +47,34 @@ export default function Concurso() {
                 Sorteo: {fmt(data.drawAt)}.
               </p>
 
+              {data.phase !== 'drawn' && (data.ranking.doubleCount + data.ranking.vipCount) > 0 && (
+                <div className="glass-candy rounded-2xl p-6 mb-8 space-y-4">
+                  <h2 className="font-heading font-bold text-xl">🏆 Ranking en vivo</h2>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    1 punto = 1 chance en el sorteo. Es un sorteo ponderado: más puntos = más probabilidad, pero no gana necesariamente el primero.
+                    ¿Eres de los que participan? Tu posición exacta y cómo subir te llegan por DM.
+                  </p>
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    {([['double', '🎟️ Entrada doble', data.ranking.double, data.ranking.doubleCount], ['vip', `⭐ ${data.prizes.vipLabel}`, data.ranking.vip, data.ranking.vipCount]] as const).map(([key, title, rows, count]) => (
+                      <div key={key}>
+                        <p className="font-semibold mb-2">{title} <span className="text-xs text-muted-foreground font-normal">· {count} participan</span></p>
+                        {rows.length === 0 ? <p className="text-sm text-muted-foreground">Todavía no hay nadie.</p> : (
+                          <ol className="space-y-1.5 text-sm">
+                            {rows.map((r) => (
+                              <li key={`${key}-${r.position}-${r.username}`} className="flex items-center gap-3">
+                                <span className="w-7 text-center">{['🥇', '🥈', '🥉'][r.position - 1] ?? `${r.position}.`}</span>
+                                <span className="flex-1 truncate font-medium">@{r.username ?? '—'}</span>
+                                <span className="tabular-nums text-muted-foreground">{r.points} pts</span>
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {data.winners.length > 0 && (
                 <div className="glass-candy rounded-2xl p-6 mb-8">
                   <h2 className="font-heading font-bold text-xl mb-3">🎉 Ganadores</h2>
@@ -61,7 +90,7 @@ export default function Concurso() {
                   <li>
                     Comenta {data.keyword ? <b>{data.keyword}</b> : 'cualquier cosa'} en{' '}
                     {data.mediaPermalink ? <a className="underline text-primary" href={data.mediaPermalink} target="_blank" rel="noreferrer">nuestra publicación del concurso</a> : 'nuestra publicación del concurso'}
-                    {data.keyword && <> (o escríbenos solo <b>{data.keyword}</b> por mensaje directo)</>}. Ya participas con {data.chances.base} chance{data.chances.base === 1 ? '' : 's'}.
+                    {data.keyword && <> (o escríbenos solo <b>{data.keyword}</b> por mensaje directo)</>}. Ya participas con {data.chances.base} punto{data.chances.base === 1 ? '' : 's'}.
                   </li>
                   {data.chances.perMention > 0 && <li>Suma +{data.chances.perMention} por cada amigo que etiquetes en tu comentario (hasta {data.chances.maxMentions}, sin repetir).</li>}
                   {data.chances.storyBonus > 0 && <li>Suma +{data.chances.storyBonus} si compartes la publicación en tu historia mencionándonos.</li>}
@@ -94,7 +123,7 @@ export default function Concurso() {
 
               <div className="glass-candy rounded-2xl p-6 mb-8 space-y-2 text-sm leading-relaxed border border-primary/30">
                 <h2 className="font-heading font-bold text-xl">🛡️ Compra sin riesgo</h2>
-                <p>No esperes el sorteo para comprar: si compras tu entrada durante el concurso <b>sigues participando por la entrada doble, con tus chances ×{data.chances.buyerMultiplier}</b>.</p>
+                <p>No esperes el sorteo para comprar: si compras tu entrada durante el concurso <b>sigues participando por la entrada doble, con tus puntos ×{data.chances.buyerMultiplier}</b>.</p>
                 <p>Y si ganas, eliges: <b>te devolvemos lo que pagaste por tu entrada</b> (hasta el valor del premio) y la conservas, <b>o te llevas una entrada doble extra para regalar</b>. Tienes {data.prizes.choiceHours} horas para elegir; si no eliges, te hacemos la devolución.</p>
               </div>
 
@@ -102,13 +131,13 @@ export default function Concurso() {
                 <h2 className="font-heading font-bold text-xl text-foreground">Bases y condiciones</h2>
                 <p>1. Organiza Mansion Playroom. Participan personas mayores de 18 años con una cuenta de Instagram pública y real.</p>
                 <p>2. Período: {data.startsAt ? `desde ${fmt(data.startsAt)}` : 'desde su publicación'} hasta el sorteo, el {fmt(data.drawAt)}.</p>
-                <p>3. El sorteo es aleatorio y ponderado: cada chance equivale a un boleto. Se eligen ganadores y suplentes.</p>
+                <p>3. El sorteo es aleatorio y ponderado: cada punto equivale a un boleto (1 punto = 1 chance). Se eligen ganadores y suplentes.</p>
                 <p>4. A los ganadores se les avisa por mensaje directo y respondiendo su comentario. Si no reclaman su premio dentro de {data.claimHours} horas, el premio pasa al siguiente suplente.</p>
                 <p>5. Si compraste tu entrada durante el concurso y ganas la entrada doble, eliges entre la devolución de lo pagado por tus accesos (con tope en el valor del premio, al mismo medio de pago y conservando tu entrada) o una entrada doble adicional para regalar.</p>
                 <p>6. Los premios son personales, no canjeables por dinero y válidos solo para {data.eventTitle}. Los códigos de descuento no son acumulables entre sí.</p>
                 <p>7. Se descalificará a cuentas falsas, creadas para el concurso o que hagan trampa (por ejemplo, etiquetar cuentas inexistentes o repetidas).</p>
                 <p>8. Esta promoción no está patrocinada, avalada, administrada ni asociada en modo alguno a Instagram ni a Meta. Al participar, liberas a Instagram de toda responsabilidad.</p>
-                <p>9. Al participar aceptas estas bases y que publiquemos tu @ si resultas ganador/a.</p>
+                <p>9. Al participar aceptas estas bases y que publiquemos tu @ y tus puntos en el ranking, y tu @ si resultas ganador/a.</p>
               </div>
 
               <Link href={`/checkout/${data.eventSlug}`} className="inline-flex rounded-full bg-primary px-6 py-3 font-semibold text-primary-foreground">

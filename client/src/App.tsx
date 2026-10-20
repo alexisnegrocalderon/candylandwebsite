@@ -64,6 +64,7 @@ const Prices = lazy(() => import("./pages/Prices"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
 const Concurso = lazy(() => import("./pages/Concurso"));
 const ConcursoPremio = lazy(() => import("./pages/ConcursoPremio"));
+const ConcursoPosicion = lazy(() => import("./pages/ConcursoPosicion"));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
 
 function PageLoader() {
@@ -147,6 +148,7 @@ function Router() {
           <Route path="/politica-de-reembolso" component={RefundPolicy} />
           <Route path="/concurso" component={Concurso} />
           <Route path="/concurso/premio/:token" component={ConcursoPremio} />
+          <Route path="/concurso/mi-posicion/:code" component={ConcursoPosicion} />
           <Route path="/politica-de-privacidad" component={PrivacyPolicy} />
           <Route path="/admin" component={AdminDashboard} />
           <Route path="/admin/print/orders" component={PrintOrders} />

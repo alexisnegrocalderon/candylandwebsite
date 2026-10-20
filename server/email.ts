@@ -2099,3 +2099,35 @@ export function buildContestWinnerEmail(data: {
     `,
   });
 }
+
+/** Aviso del ranking a quienes ya compraron (server/contestRanking.ts): el día
+ * antes del sorteo, con su posición y cómo sumar puntos. */
+export function buildContestRankingEmail(data: {
+  name: string;
+  eventTitle: string;
+  position: number;
+  poolLabel: string;
+  points: number;
+  tips: string[];
+  drawText: string;
+  link: string;
+}) {
+  const esc = escapeEmailText;
+  return emailShell({
+    preheader: `Vas ${data.position}º en ${data.poolLabel} con ${data.points} puntos. Mañana es el sorteo.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'pink',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🏆',
+      title: `Vas ${data.position}º, ${esc(data.name)}`,
+      subtitle: `${data.points} puntos en ${esc(data.poolLabel)} · sorteo ${esc(data.drawText)}`,
+      cta: { href: data.link, label: 'Ver mi posición' },
+      ctaStyle: 'pastel',
+    }),
+    body: `
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 20px;">Ya tienes tu entrada para ${esc(data.eventTitle)} y sigues participando. Todavía puedes subir antes del sorteo:</p>
+      ${card(data.tips.map((t) => `<p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">• ${esc(t)}</p>`).join(''), { glow: 'pink' })}
+    `,
+  });
+}

@@ -26,6 +26,7 @@ import { shouldSendWeeklyAmbassadorEmailNow } from "../shared/ambassadorProgram"
 import { ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 import { suggestOwnCommentsForNewPosts } from './instagramComments';
 import { runContestCron } from './contests';
+import { runContestRankingCron } from './contestRanking';
 
 const CHECKIN_SUMMARY_EMAIL = ADMIN_NOTIFICATION_EMAIL;
 
@@ -427,6 +428,14 @@ export function registerCronRoutes(app: Express) {
     // Concurso de Instagram (server/contests.ts): recoge comentarios,
     // sortea a la hora y pasa suplentes -- mismo cron, sin entrada nueva.
     let contest: Record<string, unknown> | { error: string };
+    // El ranking va primero: el aviso de «últimas horas» sale antes del sorteo.
+    let ranking: Record<string, unknown> | { error: string };
+    try {
+      ranking = await runContestRankingCron();
+    } catch (err) {
+      console.error('[Cron] Error en el ranking del concurso:', err);
+      ranking = { error: err instanceof Error ? err.message : 'Error desconocido' };
+    }
     try {
       contest = await runContestCron();
     } catch (err) {
@@ -455,7 +464,7 @@ export function registerCronRoutes(app: Express) {
         console.error('[Cron] Error reactivando hilos pausados del agente:', err);
         autoResume = { error: err instanceof Error ? err.message : 'Error desconocido' };
       }
-      res.json({ success: true, ...result, whatsapp, autoResume, contest });
+      res.json({ success: true, ...result, whatsapp, autoResume, contest, ranking });
     } catch (err) {
       console.error('[Cron] Error mandando los recordatorios de cierre de Instagram:', err);
       res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Error desconocido' });

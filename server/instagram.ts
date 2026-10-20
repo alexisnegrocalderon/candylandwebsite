@@ -25,6 +25,7 @@ import {
 import { runInstagramAgent } from './instagramAgent';
 import { handleIncomingComment } from './instagramComments';
 import { handleContestComment, handleContestMessage } from './contests';
+import { handleRankingDm } from './contestRanking';
 import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, sendImageMessage, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
 import { resolveInstagramBuyLink, resolveEventCardImage } from './instagramInteractive';
 import { resolvePageLink, splitIntoBubbles } from './agentLinks';
@@ -287,6 +288,10 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
     mid: message.mid ?? null,
     storyMention,
   })) return;
+
+  // Ranking del concurso: si el participante pregunta por sus puntos se le
+  // contesta aquí; si no, recibe sus tips una vez al día y el agente sigue.
+  if (text.length > 0 && await handleRankingDm({ igUserId: senderId, text, threadId: thread.id })) return;
 
   // Automatización por palabra clave (respuesta a historia): independiente
   // del agente conversacional de IA -- funciona aunque el agente esté

@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StatTile } from '@/components/admin/StatTile';
+import { ContestRankingPanel } from '@/components/admin/ContestRankingPanel';
 import { DEFAULT_CONTEST_MESSAGES, type ContestConfig, type ContestMessages } from '@shared/contest';
 
 /* Concursos de Instagram (admin → Comunidad → Concursos). Aquí solo se
@@ -384,6 +385,7 @@ function ContestDetail({ id }: { id: number }) {
           <TabsTrigger value="config">Configuración</TabsTrigger>
           <TabsTrigger value="messages">Mensajes</TabsTrigger>
           <TabsTrigger value="people">Participantes ({s.participants})</TabsTrigger>
+          <TabsTrigger value="ranking">Ranking</TabsTrigger>
           <TabsTrigger value="winners">Sorteo y ganadores</TabsTrigger>
         </TabsList>
 
@@ -541,6 +543,10 @@ function ContestDetail({ id }: { id: number }) {
 
         <TabsContent value="people">
           <ParticipantsTable contestId={id} participants={data.participants} onChanged={invalidate} />
+        </TabsContent>
+
+        <TabsContent value="ranking">
+          <ContestRankingPanel id={id} config={config} patch={patch} />
         </TabsContent>
 
         <TabsContent value="winners">
