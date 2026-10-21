@@ -43,6 +43,7 @@ import {
 import { buildRanking, pickGuaranteedLeader } from '../shared/contestRanking';
 import { buildTemplateConfig, getContestTemplate, type ContestTemplateKey } from '../shared/contestTemplates';
 import { milestoneState } from '../shared/contestMilestones';
+import { answerMatches } from '../shared/contestQuiz';
 import { ageOn, isVerifyComplete, missingVerifyFields, parseVerifyReply } from '../shared/contestVerify';
 
 const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
@@ -188,7 +189,7 @@ function priceLockUntil(ctx: ContestCtx): Date {
 
 const dateTimeText = (d: Date | string) => `${formatChileDate(d, { withWeekday: true })} a las ${formatChileTime(d)}`;
 
-function templateVars(ctx: ContestCtx, p: ContestParticipant, extra: Record<string, string | number | null | undefined> = {}) {
+export function templateVars(ctx: ContestCtx, p: ContestParticipant, extra: Record<string, string | number | null | undefined> = {}) {
   const { prizes, chances } = ctx.config;
   const labels = prizeLabels(ctx.prizeName, prizes.doubleWinners);
   return {
@@ -450,7 +451,7 @@ export async function getParticipant(db: Db, contestId: number, igUserId: string
   return row ?? null;
 }
 
-async function reload(db: Db, id: number): Promise<ContestParticipant> {
+export async function reload(db: Db, id: number): Promise<ContestParticipant> {
   const [row] = await db.select().from(contestParticipants).where(eq(contestParticipants.id, id)).limit(1);
   return row;
 }
@@ -479,7 +480,7 @@ async function applyPendingStory(db: Db, ctx: ContestCtx, p: ContestParticipant)
 
 const pendingStoryKey = (igUserId: string) => `pending:${igUserId}`.slice(0, 100);
 
-async function createParticipant(db: Db, ctx: ContestCtx, input: {
+export async function createParticipant(db: Db, ctx: ContestCtx, input: {
   igUserId: string; username: string | null; source: 'comment' | 'story' | 'dm' | 'purchase'; commentId?: string | null; mentions?: string[];
 }): Promise<{ participant: ContestParticipant; created: boolean }> {
   const existing = await getParticipant(db, ctx.contest.id, input.igUserId);
@@ -558,7 +559,7 @@ function welcomeMessage(ctx: ContestCtx, p: ContestParticipant): { text: string;
 }
 
 /** ¿Este concurso recibe participantes ahora? */
-function accepting(ctx: ContestCtx): boolean {
+export function accepting(ctx: ContestCtx): boolean {
   const phase = contestPhase(ctx.contest, ctx.config);
   return phase === 'live' || (phase === 'drawn' && ctx.config.couponsAfterDraw);
 }
@@ -581,6 +582,12 @@ export async function handleContestComment(input: {
     const db = await getDb();
     if (!db) return false;
     if (!(await claimLog(db, ctx.contest.id, 'comment', input.commentId, null))) return true;
+    // Quiz: el comentario es una respuesta (si no acierta, sigue su camino normal).
+    if (ctx.contest.template === 'quiz') {
+      return (await import('./contestQuiz')).handleQuizAnswer(db, ctx, {
+        igUserId: input.igUserId, username: input.username, text: input.text, channel: { kind: 'comment', commentId: input.commentId }, commentId: input.commentId,
+      });
+    }
 
     // Solo inscribe quien comenta la palabra clave. Quien ya participa (o se
     // inscribió al comprar con su @) suma etiquetas con cualquier comentario.
@@ -652,6 +659,8 @@ async function pickCtxForMessage(db: Db, igUserId: string, text: string): Promis
     return keywords.length > 0 && matchesAllKeywords(text, keywords);
   });
   if (keywordMatch) return keywordMatch;
+  const quizMatch = all.find((c) => c.contest.template === 'quiz' && c.config.quiz.questions.some((q) => q.answers.some((a) => answerMatches(text, a))));
+  if (quizMatch) return quizMatch;
   return all.find((c) => participants.get(c.contest.id)) ?? (await getActiveContestCtx());
 }
 
@@ -714,6 +723,7 @@ export async function handleContestMessage(input: {
 
     // 2. Mención en historia: solo suma el bonus a quien YA participa (una
     // mención suelta de la cuenta no inscribe ni manda nada).
+    if (input.storyMention && ctx.contest.template === 'quiz') return false;
     if (input.storyMention) {
       if (!participant) {
         // Aún no participa: la mención queda guardada y suma cuando comente.
@@ -732,6 +742,13 @@ export async function handleContestMessage(input: {
 
     const text = input.text.trim();
     if (!text) return false;
+
+    // Quiz: el DM (o la respuesta a la historia) es una respuesta; si no
+    // acierta, no se hace nada automático (la historia puede ser de otra cosa).
+    if (ctx.contest.template === 'quiz') {
+      if (!accepting(ctx) || ctx.contest.drawnAt) return false;
+      return (await import('./contestQuiz')).handleQuizAnswer(db, ctx, { igUserId: input.igUserId, username: input.username, text, channel, commentId: null });
+    }
 
     // 3. Responde con el correo de su compra.
     const email = extractEmail(text);
@@ -912,6 +929,9 @@ export async function runContestDraw(contestId: number): Promise<{ double: numbe
   ctx.contest = { ...ctx.contest, drawnAt: new Date() };
 
   try {
+    if (ctx.contest.template === 'quiz') {
+      return await (await import('./contestQuiz')).drawQuiz(db, ctx);
+    }
     if (ctx.contest.template === 'milestones') {
       return await (await import('./contestMilestones')).drawMilestones(db, ctx);
     }
@@ -1564,7 +1584,8 @@ export async function updateContest(id: number, patch: {
 /** Lo que falta para poder lanzar (vacío = listo). */
 export function launchBlockers(ctx: ContestCtx): string[] {
   const out: string[] = [];
-  if (!ctx.contest.mediaId) out.push('Elige la publicación de Instagram del concurso.');
+  if (!ctx.contest.mediaId && ctx.contest.template !== 'quiz') out.push('Elige la publicación de Instagram del concurso.');
+  if (ctx.contest.template === 'quiz' && !ctx.config.quiz.questions.some((q) => q.text && q.answers.length > 0)) out.push('Agrega al menos una pregunta con sus respuestas aceptadas.');
   if (ctx.config.prizes.doubleWinners > 0 && !ctx.config.prizes.prizeTicketTypeId) out.push('Elige qué entrada se regala como premio.');
   if (!ctx.config.drawAt) out.push('Pon la fecha del sorteo.');
   else if (new Date(ctx.config.drawAt).getTime() > new Date(ctx.event.eventDate).getTime()) out.push('El sorteo tiene que ser antes de la fiesta.');

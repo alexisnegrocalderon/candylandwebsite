@@ -107,7 +107,7 @@ describe('mensajes propuestos', () => {
   const KNOWN = new Set(['nombre', 'chances', 'ganadores_doble', 'premio', 'premio_singular', 'premio_vip', 'por_etiqueta', 'max_etiquetas',
     'bonus_historia', 'bonus_compra_amigo', 'multiplicador', 'porcentaje', 'horas', 'cupon', 'porcentaje_amigo', 'codigo_amigo',
     'link_invitar', 'fecha_sorteo', 'link_bases', 'evento', 'lista_regalos', 'codigo_premio', 'plazo',
-    'congelado_hasta', 'link_elegir', 'monto_devolucion', 'faltante', 'link_reel', 'frase', 'puntos_texto', 'comentarios', 'hito_porcentaje', 'hito_codigo', 'proximo_hito', 'proximo_porcentaje', 'faltan']);
+    'congelado_hasta', 'link_elegir', 'monto_devolucion', 'faltante', 'link_reel', 'frase', 'puntos_texto', 'comentarios', 'hito_porcentaje', 'hito_codigo', 'proximo_hito', 'proximo_porcentaje', 'faltan', 'puntos_quiz', 'puntos_total', 'aciertos', 'total_preguntas']);
   it('solo usan variables que existen', () => {
     const all = Object.values(DEFAULT_CONTEST_CONFIG.messages).flat().join('\n');
     const used = Array.from(all.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)).map((m) => m[1]);

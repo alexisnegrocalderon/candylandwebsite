@@ -28,7 +28,7 @@ async function loadReferrals(db: Db, ctx: ContestCtx) {
 }
 
 /** Guarda a los elegidos (ganadores + suplentes) y activa a los primeros N. */
-async function saveAndActivate(db: Db, ctx: ContestCtx, picked: { participantId: number; score: number }[]) {
+export async function saveAndActivate(db: Db, ctx: ContestCtx, picked: { participantId: number; score: number }[]) {
   const { doubleWinners, doubleAlternates } = ctx.config.prizes;
   const chosen = picked.slice(0, doubleWinners + doubleAlternates);
   for (let i = 0; i < chosen.length; i++) {

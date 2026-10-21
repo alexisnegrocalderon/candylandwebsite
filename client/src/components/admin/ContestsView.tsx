@@ -108,6 +108,8 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'extraChances', label: 'DM al compartir en historia', help: '' },
   { key: 'emailNotFound', label: 'DM si el correo no tiene compra', help: '' },
   { key: 'storyToReel', label: 'DM a quien responde la historia (entra con puntos base)', help: 'Lo inscribe con los puntos base y lo invita a comentar el reel para sumar más. Variables: {{link_reel}}, {{frase}}.' },
+  { key: 'quizCorrect', label: 'Quiz: respuesta correcta', help: 'Variables: {{puntos_quiz}}, {{puntos_total}}, {{aciertos}}, {{total_preguntas}}.' },
+  { key: 'quizRepeat', label: 'Quiz: respuesta que ya tenía', help: 'Cuando vuelve a acertar una pregunta que ya había respondido.' },
   { key: 'privateProofAsk', label: 'Aviso para cuentas privadas (va al final de la bienvenida)', help: 'Las menciones en historias de cuentas privadas no llegan a la app: piden captura por DM. Se omite si la bienvenida ya es muy larga.' },
   { key: 'proofReceived', label: 'Captura recibida', help: 'Respuesta automática cuando un participante manda una imagen por DM.' },
   { key: 'proofApproved', label: 'Puntos sumados a mano', help: 'Se manda cuando le sumas los puntos desde Participantes.' },
@@ -125,7 +127,7 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'afterDraw', label: 'DM a quien comenta después del sorteo', help: '' },
 ];
 
-const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}} {{congelado_hasta}} {{link_elegir}} {{monto_devolucion}} {{link_reel}} {{frase}} {{faltante}} {{puntos_texto}}';
+const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}} {{congelado_hasta}} {{link_elegir}} {{monto_devolucion}} {{link_reel}} {{frase}} {{faltante}} {{puntos_texto}} {{puntos_quiz}} {{puntos_total}} {{aciertos}} {{total_preguntas}}';
 
 /* ── Ruleta para grabar el sorteo ─────────────────────────────────────────── */
 
@@ -483,6 +485,42 @@ function ContestDetail({ id }: { id: number }) {
             </CardContent>
           </Card>
 
+          {data.contest.template === 'quiz' && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Preguntas del quiz</CardTitle></CardHeader>
+              <CardContent className="space-y-5">
+                <p className="text-xs text-muted-foreground">
+                  Publica cada pregunta en una historia o en el reel. La gente responde por DM (respondiendo la historia) o comentando; no importan mayúsculas ni tildes.
+                  Cada acierto suma sus puntos (pueden reintentar) y al cierre se sortea entre quienes acertaron, con tantos boletos como puntos.
+                </p>
+                {config.quiz.questions.map((q, i) => (
+                  <div key={i} className="rounded-lg border p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label>Pregunta {i + 1}</Label>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => patch((c) => ({ ...c, quiz: { questions: c.quiz.questions.filter((_, k) => k !== i) } }))}><X className="w-4 h-4" /></Button>
+                    </div>
+                    <Input value={q.text} placeholder="¿En qué año abrió Playroom?"
+                      onChange={(e) => patch((c) => ({ ...c, quiz: { questions: c.quiz.questions.map((x, k) => (k === i ? { ...x, text: e.target.value } : x)) } }))} />
+                    <div className="grid sm:grid-cols-[1fr_8rem] gap-3">
+                      <div>
+                        <Label className="text-xs">Respuestas aceptadas (separadas por coma)</Label>
+                        <Input className="mt-1" value={q.answers.join(', ')} placeholder="2024, dos mil veinticuatro"
+                          onChange={(e) => patch((c) => ({ ...c, quiz: { questions: c.quiz.questions.map((x, k) => (k === i ? { ...x, answers: e.target.value.split(/[,;]/).map((a) => a.trim()).filter(Boolean) } : x)) } }))} />
+                      </div>
+                      <NumberField label="Puntos" value={q.points} min={1}
+                        onChange={(n) => patch((c) => ({ ...c, quiz: { questions: c.quiz.questions.map((x, k) => (k === i ? { ...x, points: n } : x)) } }))} />
+                    </div>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" disabled={config.quiz.questions.length >= 5}
+                  onClick={() => patch((c) => ({ ...c, quiz: { questions: [...c.quiz.questions, { text: '', answers: [], points: 1 }] } }))}><Plus className="w-4 h-4" /> Agregar pregunta</Button>
+                {!!data.contest.drawLog && Array.isArray((data.contest.drawLog as { perQuestion?: number[] }).perQuestion) && (
+                  <p className="text-sm">Aciertos por pregunta: {((data.contest.drawLog as { perQuestion: number[] }).perQuestion).map((n, i) => `P${i + 1}: ${n}`).join(' · ')}</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {data.contest.template === 'milestones' && (
             <Card>
               <CardHeader><CardTitle className="text-base">Hitos de comentarios</CardTitle></CardHeader>
@@ -800,6 +838,12 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
             <p className="text-muted-foreground">
               Al cierre ganan quienes más compras lograron con su link (empate = quien entró antes) y se publica la tabla final en el reel.
               {data.config.ranking.dailyComment ? ` Cada día desde las ${data.config.ranking.dailyHour}:00 se comenta la tabla parcial.` : ''} Cada ganador pasa por la verificación antes de recibir el premio.
+            </p>
+          )}
+          {data.contest.template === 'quiz' && (
+            <p className="text-muted-foreground">
+              Cada respuesta correcta (por DM o comentario) suma los puntos de su pregunta. Al cierre se sortea entre quienes acertaron al menos una, con tantos boletos como puntos,
+              y cada ganador pasa por la verificación antes de recibir el premio.
             </p>
           )}
           {data.contest.template === 'milestones' && (
