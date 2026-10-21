@@ -3,6 +3,7 @@ import { Link } from 'wouter';
 import { Ticket, Mail, Sparkles, AlertTriangle } from 'lucide-react';
 import { useSeo } from '@/hooks/useSeo';
 import { ContestBuyerInvite } from '@/components/ContestBuyerInvite';
+import { PushPrompt } from '@/components/site/PushPrompt';
 
 /* Bienvenida post-pago: el momento en que la persona queda oficialmente
  * "adentro" de Candyland. La animación del dulce sumándose es deliberadamente
@@ -15,6 +16,8 @@ export default function PaymentSuccess() {
     path: '/pago/exito',
     noindex: true,
   });
+  // Mercado Pago vuelve con ?order=<número>: liga los avisos al correo de la compra.
+  const orderNumber = (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('order') : null) ?? undefined;
 
   return (
     <div className="min-h-screen pt-24 pb-16 flex items-center justify-center overflow-hidden">
@@ -82,6 +85,8 @@ export default function PaymentSuccess() {
         </div>
 
         <ContestBuyerInvite />
+
+        <PushPrompt source="pago" orderNumber={orderNumber} className="mb-8" />
 
         <Link
           href="/eventos"

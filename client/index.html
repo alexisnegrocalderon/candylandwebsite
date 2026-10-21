@@ -111,6 +111,13 @@
       @media (prefers-reduced-motion: reduce) {
         #initial-loader img { animation: none; opacity: 0.85; }
       }
+      /* Abierto como app instalada (data-splash="site", ver el script bajo el
+         loader): fondo oscuro como el panel; la intro de neón sale de ahí. */
+      html[data-splash="site"], html[data-splash="site"] body { background: #0b0612; }
+      html[data-splash="site"] #initial-loader { background: radial-gradient(ellipse 70% 50% at 50% 42%, #241337, #0b0612 70%) #0b0612; }
+      html[data-splash="site"] #initial-loader { transition: opacity 0.26s ease; }
+      html[data-splash="site"] #initial-loader.splash-out { opacity: 0; }
+      html[data-splash="site"] #initial-loader img { width: 64px; height: auto; animation: none; }
     </style>
 
     <!-- Datos estructurados GLOBALES: solo el negocio y el sitio, que valen
@@ -153,6 +160,23 @@
   </head>
   <body>
     <div id="initial-loader"><img src="/candyland/favicon-112.png?v=2" alt="" width="56" height="56" /></div>
+    <script>
+      // Sitio abierto desde el ícono de inicio: loader oscuro y barra de estado
+      // oscura antes del primer cuadro (App.tsx lo convierte en la intro de neón).
+      // Las pantallas del panel/terminales ya traen su propio splash.
+      (function () {
+        try {
+          var d = document.documentElement;
+          if (d.getAttribute('data-splash')) return;
+          if (!(matchMedia('(display-mode: standalone)').matches || navigator.standalone === true)) return;
+          d.setAttribute('data-splash', 'site');
+          var m = document.querySelector('meta[name="theme-color"]');
+          if (m) m.setAttribute('content', '#0b0612');
+          var i = document.querySelector('#initial-loader img');
+          if (i) { i.src = '/app-icons/splash/logo-192.webp'; i.removeAttribute('height'); }
+        } catch (e) {}
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

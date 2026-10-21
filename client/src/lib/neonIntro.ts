@@ -13,6 +13,8 @@
  * mientras está abierta. Un toque la salta, vibración suave al encenderse, versión
  * corta en las terminales y versión quieta con "Reducir movimiento". */
 
+import '@/neonIntro.css';
+
 const SEEN_KEY = 'neon-intro.seen.';
 
 /** Duración total en ms: panel completo, terminales corta. */
@@ -20,8 +22,10 @@ const FULL_MS = 3000;
 const SHORT_MS = 1600;
 const STATIC_MS = 900;
 
-/** Qué app es (admin, caja, puerta…) según la ruta. */
+/** Qué app es (admin, caja, puerta…) según la ruta. El sitio instalado es
+ * una sola app aunque se abra en otra ruta (un aviso push que lleva a la entrada). */
 function appKey(): string {
+  if (typeof document !== 'undefined' && document.documentElement.dataset.splash === 'site') return 'site';
   return (typeof location !== 'undefined' ? location.pathname.split('/')[1] : '') || 'app';
 }
 

@@ -13,6 +13,9 @@ export default function Baja() {
   const t = params.get('t') ?? '';
   const [done, setDone] = useState<string | null>(null);
   const confirm = trpc.unsubscribe.confirm.useMutation({ onSuccess: (r) => setDone(r.email) });
+  // Si ese correo activó avisos push en algún teléfono, interruptor para apagarlos también.
+  const { data: push } = trpc.unsubscribe.pushStatus.useQuery({ e, t }, { enabled: !!e && !!t, retry: false });
+  const [alsoPush, setAlsoPush] = useState(true);
 
   return (
     <div className="min-h-dvh pt-24 pb-16">
@@ -22,7 +25,7 @@ export default function Baja() {
             <CheckCircle2 className="w-12 h-12 mx-auto text-primary" />
             <h1 className="font-heading font-extrabold text-2xl">Listo, ya no te escribiremos</h1>
             <p className="text-sm text-muted-foreground">
-              Dimos de baja <b className="text-foreground">{done}</b> de los correos de promociones. Si compras una entrada, igual te llegará la confirmación con tu QR, porque es parte de tu compra.
+              Dimos de baja <b className="text-foreground">{done}</b> de los correos de promociones{push?.active && alsoPush ? ' y de las notificaciones' : ''}. Si compras una entrada, igual te llegará la confirmación con tu QR, porque es parte de tu compra.
             </p>
           </>
         ) : (
@@ -35,14 +38,22 @@ export default function Baja() {
             {!e || !t ? (
               <p className="text-sm text-destructive">Este link está incompleto. Abre el botón de baja que viene al final de tu correo.</p>
             ) : (
+              <>
+              {!!push?.active && (
+                <label className="flex items-center justify-between gap-3 rounded-2xl border border-border/60 px-4 py-3 text-sm text-left cursor-pointer">
+                  <span>También dejar de recibir <b>notificaciones</b> en tu teléfono</span>
+                  <input type="checkbox" className="w-5 h-5 accent-[var(--primary)]" checked={alsoPush} onChange={(ev) => setAlsoPush(ev.target.checked)} />
+                </label>
+              )}
               <button
                 type="button"
                 disabled={confirm.isPending}
-                onClick={() => confirm.mutate({ e, t })}
+                onClick={() => confirm.mutate({ e, t, push: !!push?.active && alsoPush })}
                 className="w-full inline-flex items-center justify-center gap-2 h-12 rounded-full bg-primary text-primary-foreground font-bold text-sm uppercase tracking-wide interactive disabled:opacity-60"
               >
                 {confirm.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Darme de baja
               </button>
+              </>
             )}
             {confirm.error && <p className="text-sm text-destructive">{confirm.error.message}</p>}
           </>

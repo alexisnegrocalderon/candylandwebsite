@@ -105,6 +105,11 @@ import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emai
 import { billingPeriodStart, RESEND_DAILY_DEFAULT, RESEND_MONTHLY_LIMIT } from "../shared/emailQuota";
 import { applyEmailOptOut, decodeEmail as decodeUnsubscribeEmail, verifyUnsubscribe } from "./unsubscribe";
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
+import * as customerPush from "./customerPush";
+import { notifyEventLaunch } from "./customerPush";
+import * as appDevices from "./appDevices";
+import { SEGMENT_TYPES } from "../shared/pushSegments";
+import { normalizeCustomerPushConfig } from "../shared/customerPushConfig";
 import { normalizeInstagramAgentConfig, normalizeIgUsername, DEFAULT_INSTAGRAM_AGENT_CONFIG, IG_MAX_REPLY_CHARS } from "../shared/instagramAgentConfig";
 import { sendManualInstagramReply } from "./instagram";
 import { canReplyWithinWindow, fetchOwnProfile } from "./instagramSend";
@@ -745,6 +750,24 @@ const blockedInputSchema = z.object({
   sourceBy: z.string().max(120).nullish(), notes: z.string().max(4000).nullish(), isActive: z.number().optional(),
 });
 
+const pushSubscriptionSchema = z.object({
+  endpoint: z.string().url().max(512),
+  keys: z.object({ p256dh: z.string().max(255), auth: z.string().max(255) }),
+});
+const pushSegmentSchema = z.object({
+  type: z.enum(SEGMENT_TYPES),
+  eventId: z.number().int().positive().optional(),
+  days: z.number().int().min(1).max(730).optional(),
+});
+const pushCampaignSchema = z.object({
+  title: z.string().trim().min(1).max(80),
+  body: z.string().trim().min(1).max(255),
+  url: z.string().trim().max(500),
+  imageUrl: z.string().url().max(500).nullish(),
+  segment: pushSegmentSchema,
+  scheduledAt: z.string().datetime().nullish(),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -1107,6 +1130,8 @@ export const appRouter = router({
         const created = await db.getEventBySlug(input.slug);
         const previous = (await db.getAllEvents()).find((e) => e.id !== created?.id && new Date(e.eventDate) < new Date(input.eventDate));
         if (created && previous) await db.copyCartaBetweenEvents(previous.id, created.id);
+        // Aviso push "nuevo evento" (si está prendido en Push → Automáticos).
+        if (created && input.status === 'published') await notifyEventLaunch(created.id, 'evento');
       } catch (err) {
         console.error('[events.create] No se pudo copiar la carta del evento anterior:', err);
       }
@@ -1152,7 +1177,11 @@ export const appRouter = router({
       })).optional(),
     })).mutation(async ({ input }) => {
       const { id, ...data } = input;
-      return db.updateEvent(id, withTaxIssuer(data));
+      const before = input.status === 'published' ? await db.getEventById(id) : null;
+      const result = await db.updateEvent(id, withTaxIssuer(data));
+      // Recién publicado (venía en borrador): aviso push "nuevo evento".
+      if (before && before.status === 'draft') await notifyEventLaunch(id, 'evento');
+      return result;
     }),
     delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const before = await db.getEventById(input.id);
@@ -1237,7 +1266,9 @@ export const appRouter = router({
         newStockPoolId: z.number().nullable().optional(),
       })).min(1),
     })).mutation(async ({ input }) => {
-      return db.advanceTanda(input.eventId, input.rows);
+      const result = await db.advanceTanda(input.eventId, input.rows);
+      await notifyEventLaunch(input.eventId, 'preventa');
+      return result;
     }),
     ticketStockHistory: adminReadProcedure.input(z.object({ ticketTypeId: z.number() })).query(async ({ input }) => {
       return db.getTicketStockHistory(input.ticketTypeId);
@@ -3980,14 +4011,104 @@ export const appRouter = router({
   /* Baja de correos de promociones desde el link del pie (página pública /baja).
    * El link lleva el correo y una firma: sin firma válida no se da de baja a nadie. */
   unsubscribe: router({
-    confirm: publicProcedure.input(z.object({ e: z.string().max(500), t: z.string().max(64) })).mutation(async ({ input, ctx }) => {
+    confirm: publicProcedure.input(z.object({ e: z.string().max(500), t: z.string().max(64), push: z.boolean().optional() })).mutation(async ({ input, ctx }) => {
       const ipKey = `unsubscribe:${clientIp(ctx)}`;
       if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Prueba de nuevo en un rato.' });
       await db.recordIpAttempt(ipKey, 30, 30 * 60 * 1000);
       const email = decodeUnsubscribeEmail(input.e);
       if (!verifyUnsubscribe(email, input.t)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Este link de baja no es válido o está incompleto.' });
       await applyEmailOptOut(email);
+      // Interruptor "Notificaciones" de /baja: también apaga los avisos push de ese correo.
+      if (input.push) await customerPush.setPushOptOutForEmail(email, true);
       return { success: true, email };
+    }),
+    pushStatus: publicProcedure.input(z.object({ e: z.string().max(500), t: z.string().max(64) })).query(async ({ input }) => {
+      const email = decodeUnsubscribeEmail(input.e);
+      if (!verifyUnsubscribe(email, input.t)) return { active: 0 };
+      return { active: (await customerPush.countPushForEmail(email)).active };
+    }),
+  }),
+
+  /* Avisos push a CLIENTES del sitio (server/customerPush.ts). Lo público lo
+   * usa el aviso "Activar avisos" del sitio (PushPrompt) y el service worker
+   * (sw-site.js); lo del admin, la pestaña Push del panel. */
+  customerPush: router({
+    publicKey: publicProcedure.query(() => ({ publicKey: customerPush.customerPushPublicKey() })),
+    subscribe: publicProcedure.input(z.object({
+      subscription: pushSubscriptionSchema,
+      ticketCode: z.string().max(64).optional(),
+      orderNumber: z.string().max(32).optional(),
+      source: z.enum(['ticket', 'pago', 'home', 'concurso', 'puntos', 'app']),
+      platform: z.enum(['ios', 'android', 'desktop']),
+      standalone: z.boolean(),
+    })).mutation(async ({ input, ctx }) => {
+      const ipKey = `customer-push:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Prueba de nuevo en un rato.' });
+      // Generoso: en la fiesta mucha gente sale por la misma IP (WiFi del local).
+      await db.recordIpAttempt(ipKey, 200, 30 * 60 * 1000);
+      return customerPush.subscribeCustomer(input);
+    }),
+    link: publicProcedure.input(z.object({ endpoint: z.string().url().max(512), ticketCode: z.string().max(64) })).mutation(async ({ input }) => {
+      return customerPush.linkCustomerSubscription(input.endpoint, input.ticketCode);
+    }),
+    unsubscribe: publicProcedure.input(z.object({ endpoint: z.string().url().max(512) })).mutation(async ({ input }) => {
+      await customerPush.unsubscribeCustomer(input.endpoint);
+      return { success: true };
+    }),
+    resubscribe: publicProcedure.input(z.object({ oldEndpoint: z.string().url().max(512), subscription: pushSubscriptionSchema })).mutation(async ({ input }) => {
+      await customerPush.resubscribeCustomer(input.oldEndpoint, input.subscription);
+      return { success: true };
+    }),
+    click: publicProcedure.input(z.object({ campaignId: z.number().int().positive() })).mutation(async ({ input }) => {
+      await customerPush.recordPushClick(input.campaignId);
+      return { success: true };
+    }),
+    // El sitio se abrió como app instalada (una vez por apertura): "¿quién tiene la app?".
+    appOpen: publicProcedure.input(z.object({
+      deviceId: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
+      platform: z.enum(['ios', 'android', 'desktop']),
+      ticketCode: z.string().max(64).optional(),
+    })).mutation(async ({ input }) => {
+      await appDevices.recordAppOpen(input);
+      return { success: true };
+    }),
+    appStats: adminReadProcedure.query(() => appDevices.appInstallStats()),
+
+    // ── Panel ──
+    stats: adminReadProcedure.query(() => customerPush.audienceStats()),
+    campaigns: adminReadProcedure.query(() => customerPush.listPushCampaigns(80)),
+    preview: adminReadProcedure.input(z.object({ segment: pushSegmentSchema })).query(({ input }) => customerPush.previewSegment(input.segment)),
+    save: adminProcedure.input(pushCampaignSchema.extend({ id: z.number().optional() })).mutation(async ({ input, ctx }) => {
+      const data = { ...input, scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null, createdBy: ctx.user?.name ?? ctx.user?.email ?? null };
+      if (input.id) {
+        await customerPush.updatePushCampaign(input.id, data);
+        return { id: input.id };
+      }
+      return { id: await customerPush.createPushCampaign(data) };
+    }),
+    send: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      try {
+        return await customerPush.sendPushCampaign(input.id);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo enviar' });
+      }
+    }),
+    cancel: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await customerPush.cancelPushCampaign(input.id);
+      return { success: true };
+    }),
+    sendTest: adminProcedure.input(pushCampaignSchema.pick({ title: true, body: true, url: true, imageUrl: true }).extend({ email: z.string().email() })).mutation(async ({ input }) => {
+      try {
+        return await customerPush.sendPushTest(input.email, { title: input.title, body: input.body, url: input.url, image: input.imageUrl });
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo enviar' });
+      }
+    }),
+    config: adminReadProcedure.query(() => customerPush.getCustomerPushConfig()),
+    setConfig: adminProcedure.input(z.record(z.string(), z.any())).mutation(async ({ input }) => {
+      const config = normalizeCustomerPushConfig(input);
+      await db.updateSiteSettings({ customerPushConfig: config });
+      return config;
     }),
   }),
 
@@ -5503,12 +5624,17 @@ export const appRouter = router({
       source: z.string().optional(),
       birthdayMonth: z.number().int().min(1).max(12).optional(),
       optedOut: z.enum(['email', 'any']).optional(),
+      // Solo quienes abrieron la app instalada en los últimos 60 días.
+      hasApp: z.boolean().optional(),
     }).optional()).query(async ({ input }) => {
       const now = new Date();
-      const rows = await db.listCustomers(input ?? {});
+      const { hasApp, ...filters } = input ?? {};
+      const [all, withApp] = await Promise.all([db.listCustomers(filters), appDevices.appEmails()]);
+      const rows = hasApp ? all.filter((c: any) => withApp.has(c.email.toLowerCase())) : all;
       // Nunca sale el hash del PIN de la tarjeta; el nivel va calculado.
       return rows.map(({ cardPinHash: _hash, ...c }: any) => ({
         ...c,
+        hasApp: withApp.has(c.email.toLowerCase()),
         level: computeCustomerLevel({
           totalOrders: c.totalOrders, totalSpent: Number(c.totalSpent), lastActivityAt: c.lastSeenAt, levelOverride: c.levelOverride, now,
         }),
@@ -5518,7 +5644,7 @@ export const appRouter = router({
     detail: adminReadProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
       const profile = await getCustomerProfile(input.id);
       if (!profile) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontré a ese cliente.' });
-      return profile;
+      return { ...profile, hasApp: (await appDevices.appEmails()).has(String(profile.customer.email).toLowerCase()) };
     }),
     // Edición manual de la ficha. Lo que se toca queda protegido de las
     // compras nuevas (lockedFields) y se deja en la bitácora de admin.

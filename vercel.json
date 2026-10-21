@@ -102,11 +102,24 @@
       "destination": "/politica-de-privacidad.html"
     },
     {
-      "source": "/((?!assets/|candyland/|app-icons/|apple-touch-icon[^/]*\\.png|api/|robots\\.txt|sitemap\\.xml|llms\\.txt|favicon\\.ico|gastos\\.webmanifest|gastos/sw\\.js|puerta\\.webmanifest|puerta/sw\\.js|admin\\.webmanifest|admin/sw\\.js|fiesta\\.webmanifest|fiesta/sw\\.js|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)",
+      "source": "/((?!assets/|candyland/|app-icons/|apple-touch-icon[^/]*\\.png|api/|robots\\.txt|sitemap\\.xml|llms\\.txt|favicon\\.ico|gastos\\.webmanifest|gastos/sw\\.js|puerta\\.webmanifest|puerta/sw\\.js|admin\\.webmanifest|admin/sw\\.js|fiesta\\.webmanifest|fiesta/sw\\.js|site\\.webmanifest|sw-site\\.js|products/|collections/|cart|account/|pages/|blogs/|apps/|policies/|cdn/).*)",
       "destination": "/api"
     }
   ],
   "headers": [
+    {
+      "source": "/sw-site.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        },
+        {
+          "key": "Service-Worker-Allowed",
+          "value": "/"
+        }
+      ]
+    },
     {
       "source": "/assets/(.*)",
       "headers": [
@@ -143,6 +156,10 @@
     {
       "path": "/api/cron/tanda",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/push-queue",
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/abandoned-cart",

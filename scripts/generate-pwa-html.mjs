@@ -123,3 +123,21 @@ for (const screen of SCREENS) {
   writeFileSync(join(outDir, screen.file), html);
   console.log(`[generate-pwa-html] ${screen.file} <- manifest=${screen.manifest ?? '(sin manifest)'}${screen.splash ? ` · splash ${screen.splash}` : ''}`);
 }
+
+// El sitio público (index.html) al final, para que las pantallas de arriba se
+// generen del HTML base sin estos tags. Instalable como app desde la home: el
+// manifest y las imágenes de arranque oscuras; el loader oscuro y la intro los
+// pone un script inline de client/index.html solo cuando corre instalado.
+{
+  const viewport = baseHtml.match(/<meta name="viewport"[^>]*\/?>/);
+  const tags = [
+    `<link rel="manifest" href="/site.webmanifest" />`,
+    `<meta name="apple-mobile-web-app-capable" content="yes" />`,
+    `<meta name="mobile-web-app-capable" content="yes" />`,
+    `<meta name="apple-mobile-web-app-title" content="Playroom" />`,
+    `<meta name="apple-mobile-web-app-status-bar-style" content="black" />`,
+    ...STARTUP_IMAGE_TAGS,
+  ].join('\n    ');
+  writeFileSync(join(outDir, 'index.html'), baseHtml.replace(viewport[0], `${viewport[0]}\n    ${tags}`));
+  console.log('[generate-pwa-html] index.html <- manifest=/site.webmanifest (sitio instalable)');
+}

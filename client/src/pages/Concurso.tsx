@@ -3,6 +3,7 @@ import { PartyPopper } from 'lucide-react';
 import { Link } from 'wouter';
 import { trpc } from '@/lib/trpc';
 import { useSeo } from '@/hooks/useSeo';
+import { PushPrompt } from '@/components/site/PushPrompt';
 
 /* Bases del concurso de Instagram activo (server/contests.ts →
  * getPublicContest). Se arman solas con la configuración del panel, así que
@@ -153,6 +154,7 @@ export default function Concurso() {
               </Link>
             </>
           )}
+          <PushPrompt source="concurso" className="mt-8" />
         </motion.div>
       </div>
     </div>

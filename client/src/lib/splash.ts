@@ -21,6 +21,12 @@ export function hasDarkSplash(): boolean {
   return typeof document !== 'undefined' && document.documentElement.dataset.splash === 'dark';
 }
 
+/** ¿El sitio público abierto como app instalada? (lo marca un script inline
+ * de client/index.html). Ahí el loader es el oscuro y abre con la intro corta. */
+export function isSiteApp(): boolean {
+  return typeof document !== 'undefined' && document.documentElement.dataset.splash === 'site';
+}
+
 /** Quita el splash. Si es la primera apertura del día, antes pasa la intro
  * de neón (client/src/lib/neonIntro.ts); si no, un fundido corto. `intro:
  * false` para salir sin intro (error, respaldo de tiempo). Se puede llamar
@@ -30,7 +36,7 @@ export function hideSplash(opts: { intro?: boolean } = {}): void {
   const el = document.getElementById('initial-loader');
   hidden = true;
   if (!el) return;
-  if (opts.intro !== false && hasDarkSplash() && introDue()) {
+  if (opts.intro !== false && (hasDarkSplash() || isSiteApp()) && introDue()) {
     playNeonIntro(el, () => {});
     return;
   }

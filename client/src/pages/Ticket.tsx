@@ -13,6 +13,7 @@ import { TopupPanel } from '@/components/wallet/TopupPanel';
 import { AddonPanel } from '@/components/wallet/AddonPanel';
 import { ContestHolderInvite } from '@/components/ContestHolderInvite';
 import './Ticket.wallet.css';
+import { PushPrompt } from '@/components/site/PushPrompt';
 
 /** Página pública "Mi entrada" / tarjeta digital — a donde apunta el QR de
  * cada ticket (server/qr.ts). De solo lectura: muestra el QR, el saldo y
@@ -229,6 +230,8 @@ export default function Ticket() {
         </div>
 
         <ContestHolderInvite eventTitle={ticket.eventTitle} />
+
+        {ticket.status !== 'cancelled' && <PushPrompt source="ticket" ticketCode={ticket.ticketCode} tone="dark" className="max-w-[440px] mx-auto mt-5" />}
 
         <div className="wcard-actions">
           {/* La fiesta en el celular. Solo aparece cuando la persona ya

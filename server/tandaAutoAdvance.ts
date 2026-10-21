@@ -1,5 +1,6 @@
 import { eq, and } from 'drizzle-orm';
 import { getDb, advanceTanda, getStockPoolRemaining } from './db';
+import { notifyEventLaunch } from './customerPush';
 import { events, ticketTypes } from '../drizzle/schema';
 import { normalizeTandaSchedule, computePhasePrice, nextPhase } from '../shared/tandaSchedule';
 import { UNLIMITED_STOCK } from '../shared/stock';
@@ -70,6 +71,7 @@ export async function checkAndAdvanceTandaIfNeeded(eventId: number): Promise<{ a
       newStockPoolId: null,
     }));
     await advanceTanda(eventId, rows);
+    await notifyEventLaunch(eventId, 'preventa');
     return { advanced: true, reason };
   } catch (err) {
     // Nunca debe romper el pedido que lo disparó (una consulta pública de

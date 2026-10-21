@@ -834,6 +834,20 @@
       "when": 1792710000000,
       "tag": "0118_blocked_profile",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "5",
+      "when": 1792720000000,
+      "tag": "0119_customer_push",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "5",
+      "when": 1792730000000,
+      "tag": "0120_app_devices",
+      "breakpoints": true
     }
   ]
 }
