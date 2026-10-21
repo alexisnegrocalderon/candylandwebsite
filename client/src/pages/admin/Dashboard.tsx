@@ -5941,7 +5941,7 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
       <td className="py-2 px-3">
         {Number(ambassador.buyerDiscountPercent) > 0
           ? <span className="rounded-full bg-pink-500/15 px-2 py-0.5 text-xs font-semibold text-pink-500">{Number(ambassador.buyerDiscountPercent)}%</span>
-          : <span className="text-muted-foreground text-xs">Sin descuento</span>}
+          : <span className="text-muted-foreground text-xs">Sin desc. propio</span>}
       </td>
       <td className="py-2 px-3">
         {s.exclusiveSales}
@@ -7192,9 +7192,17 @@ function ProgramConfigTab() {
   const [weeklyEnabled, setWeeklyEnabled] = useState(true);
   const [weekday, setWeekday] = useState('1');
   const [hour, setHour] = useState('9');
+  const [generalEnabled, setGeneralEnabled] = useState(false);
+  const [generalPercent, setGeneralPercent] = useState('');
+  const [generalEnds, setGeneralEnds] = useState('');
 
   useEffect(() => {
     if (!data) return;
+    setGeneralEnabled(data.generalBuyerDiscountEnabled);
+    setGeneralPercent(data.generalBuyerDiscountPercent > 0 ? String(data.generalBuyerDiscountPercent) : '');
+    setGeneralEnds(data.generalBuyerDiscountEndsAt
+      ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(data.generalBuyerDiscountEndsAt))
+      : '');
     setScale(data.commissionScale);
     setBenefits(data.benefits);
     setExistingPercent(String(data.existingClientPercent));
@@ -7213,6 +7221,43 @@ function ProgramConfigTab() {
 
   return (
     <div className="space-y-6">
+      <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
+        <CardHeader><CardTitle>Descuento general para compradores</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            Un % de descuento en la entrada para quien compre con el código o link de <strong>cualquier</strong> embajador,
+            sin ir uno por uno. No cambia a los embajadores que ya tienen su propio % (esos siguen igual): solo se agrega a
+            los que no tienen. Descuenta solo el acceso, nunca los extras. Máximo {MAX_AMBASSADOR_BUYER_DISCOUNT}%.
+          </p>
+          <div className="flex items-center gap-3">
+            <Checkbox id="general-discount" checked={generalEnabled} onCheckedChange={(v) => setGeneralEnabled(!!v)} />
+            <Label htmlFor="general-discount">Descuento general activo</Label>
+          </div>
+          <div className="flex flex-wrap gap-4">
+            <div className="max-w-xs">
+              <Label>Descuento %</Label>
+              <Input type="number" min={0} max={MAX_AMBASSADOR_BUYER_DISCOUNT} value={generalPercent} onChange={(e) => setGeneralPercent(e.target.value)} placeholder="Ej: 5" className="mt-1" />
+            </div>
+            <div className="max-w-xs">
+              <Label>Se apaga solo el (opcional)</Label>
+              <Input type="date" value={generalEnds} onChange={(e) => setGeneralEnds(e.target.value)} className="mt-1" />
+              <p className="text-xs text-muted-foreground mt-1">Vale hasta el final de ese día (hora de Chile). Vacío = hasta que lo apagues.</p>
+            </div>
+          </div>
+          <WriteButton
+            onClick={() => update.mutate({
+              generalBuyerDiscountEnabled: generalEnabled,
+              generalBuyerDiscountPercent: Math.min(MAX_AMBASSADOR_BUYER_DISCOUNT, Math.max(0, Number(generalPercent) || 0)),
+              generalBuyerDiscountEndsAt: generalEnds ? new Date(`${generalEnds}T23:59:59-03:00`).toISOString() : null,
+            })}
+            disabled={update.isPending}
+            className="interactive"
+          >
+            {update.isPending ? 'Guardando…' : 'Guardar descuento general'}
+          </WriteButton>
+        </CardContent>
+      </Card>
+
       <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
         <CardHeader><CardTitle>Escala de comisión</CardTitle></CardHeader>
         <CardContent className="space-y-4">

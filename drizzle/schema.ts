@@ -765,6 +765,13 @@ export const ambassadorProgramConfig = mysqlTable("ambassadorProgramConfig", {
   // el cron corre cada hora y se autolimita a esta (server/cronRoutes.ts
   // /api/cron/ambassador-weekly, vía shouldSendWeeklyAmbassadorEmailNow).
   weeklyEmailHourChile: int("weeklyEmailHourChile").default(9).notNull(),
+  // Descuento general para quienes compran con el código/link de CUALQUIER
+  // embajador, solo sobre el acceso. No modifica a los embajadores que ya
+  // tienen un % propio (`exclusiveAmbassadors.buyerDiscountPercent`): solo se
+  // agrega a los que no tienen. `...EndsAt` (opcional) lo apaga solo.
+  generalBuyerDiscountEnabled: int("generalBuyerDiscountEnabled").default(0).notNull(),
+  generalBuyerDiscountPercent: decimal("generalBuyerDiscountPercent", { precision: 5, scale: 2 }).default("0").notNull(),
+  generalBuyerDiscountEndsAt: timestamp("generalBuyerDiscountEndsAt"),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 

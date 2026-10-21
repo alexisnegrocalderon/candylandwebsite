@@ -35,3 +35,28 @@ export function ambassadorBuyerDiscount(percent: number | string | null | undefi
 export function bestBuyerDiscount(codeAmount: number, ambassadorAmount: number): { amount: number; ambassadorWins: boolean } {
   return ambassadorAmount > codeAmount ? { amount: ambassadorAmount, ambassadorWins: true } : { amount: codeAmount, ambassadorWins: false };
 }
+
+export interface GeneralBuyerDiscount {
+  enabled: boolean;
+  percent: number | string | null | undefined;
+  /** Vence al terminar este instante; null = sin fecha de término. */
+  endsAt?: Date | string | null;
+}
+
+/** El descuento general solo cuenta si está activo, con % > 0 y sin vencer. */
+export function generalDiscountActive(g: GeneralBuyerDiscount | null | undefined, now: Date = new Date()): boolean {
+  if (!g || !g.enabled || normalizeBuyerDiscountPercent(g.percent) <= 0) return false;
+  return !g.endsAt || new Date(g.endsAt).getTime() >= now.getTime();
+}
+
+/** % final que recibe el comprador de un embajador: el propio si lo tiene
+ * (el general NO lo modifica); si no, el general vigente; si no, 0. */
+export function effectiveBuyerDiscountPercent(
+  individual: number | string | null | undefined,
+  general: GeneralBuyerDiscount | null | undefined,
+  now: Date = new Date(),
+): number {
+  const own = normalizeBuyerDiscountPercent(individual);
+  if (own > 0) return own;
+  return generalDiscountActive(general, now) ? normalizeBuyerDiscountPercent(general!.percent) : 0;
+}

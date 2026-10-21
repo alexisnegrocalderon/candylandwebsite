@@ -1,4 +1,4 @@
-import { MAX_AMBASSADOR_BUYER_DISCOUNT, normalizeBuyerDiscountPercent } from '../shared/ambassadorDiscount';
+import { MAX_AMBASSADOR_BUYER_DISCOUNT, effectiveBuyerDiscountPercent } from '../shared/ambassadorDiscount';
 import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS, CAJA_DEVICE_COOKIE_NAME, ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { pushTitle } from "../shared/pushText";
@@ -1333,7 +1333,7 @@ export const appRouter = router({
 
       const ambassador = await db.getActiveExclusiveAmbassadorByCode(clean);
       if (ambassador) {
-        return { type: 'ambassador' as const, name: ambassador.name, code: ambassador.code, buyerDiscountPercent: normalizeBuyerDiscountPercent(ambassador.buyerDiscountPercent) };
+        return { type: 'ambassador' as const, name: ambassador.name, code: ambassador.code, buyerDiscountPercent: effectiveBuyerDiscountPercent(ambassador.buyerDiscountPercent, await db.getGeneralBuyerDiscount()) };
       }
 
       // Crédito de acceso ("1 Acceso Dúo" que quedó vigente de otra fiesta).
@@ -4511,11 +4511,16 @@ export const appRouter = router({
       weeklyEmailEnabled: z.boolean().optional(),
       weeklyEmailWeekday: z.number().int().min(0).max(6).optional(),
       weeklyEmailHourChile: z.number().int().min(0).max(23).optional(),
+      generalBuyerDiscountEnabled: z.boolean().optional(),
+      generalBuyerDiscountPercent: z.number().min(0).max(MAX_AMBASSADOR_BUYER_DISCOUNT).optional(),
+      // ISO de cuando se apaga solo; null = sin fecha de término.
+      generalBuyerDiscountEndsAt: z.string().nullable().optional(),
     })).mutation(async ({ input }) => {
-      const { launchDate, ...rest } = input;
+      const { launchDate, generalBuyerDiscountEndsAt, ...rest } = input;
       return ambassadorProgram.updateProgramConfig({
         ...rest,
         ...(launchDate ? { launchDate: new Date(launchDate) } : {}),
+        ...(generalBuyerDiscountEndsAt !== undefined ? { generalBuyerDiscountEndsAt: generalBuyerDiscountEndsAt ? new Date(generalBuyerDiscountEndsAt) : null } : {}),
       });
     }),
 

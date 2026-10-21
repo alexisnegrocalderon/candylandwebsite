@@ -31,6 +31,11 @@ export type ProgramConfig = {
   weeklyEmailEnabled: boolean;
   weeklyEmailWeekday: number;
   weeklyEmailHourChile: number;
+  // Descuento general al comprador de cualquier embajador (solo a los que no
+  // tienen % propio). Ver shared/ambassadorDiscount.ts.
+  generalBuyerDiscountEnabled: boolean;
+  generalBuyerDiscountPercent: number;
+  generalBuyerDiscountEndsAt: Date | null;
 };
 
 /** Las columnas `json` vuelven como arreglo ya parseado o como texto según el
@@ -62,6 +67,9 @@ export async function getProgramConfig(): Promise<ProgramConfig> {
     weeklyEmailEnabled: true,
     weeklyEmailWeekday: DEFAULT_WEEKLY_EMAIL_WEEKDAY,
     weeklyEmailHourChile: 9,
+    generalBuyerDiscountEnabled: false,
+    generalBuyerDiscountPercent: 0,
+    generalBuyerDiscountEndsAt: null,
   };
 
   const db = await getDb();
@@ -85,6 +93,9 @@ export async function getProgramConfig(): Promise<ProgramConfig> {
     weeklyEmailEnabled: row.weeklyEmailEnabled === 1,
     weeklyEmailWeekday: row.weeklyEmailWeekday,
     weeklyEmailHourChile: row.weeklyEmailHourChile,
+    generalBuyerDiscountEnabled: row.generalBuyerDiscountEnabled === 1,
+    generalBuyerDiscountPercent: Number(row.generalBuyerDiscountPercent ?? 0),
+    generalBuyerDiscountEndsAt: row.generalBuyerDiscountEndsAt ? new Date(row.generalBuyerDiscountEndsAt) : null,
   };
 }
 
@@ -96,6 +107,10 @@ export async function updateProgramConfig(data: {
   weeklyEmailEnabled?: boolean;
   weeklyEmailWeekday?: number;
   weeklyEmailHourChile?: number;
+  generalBuyerDiscountEnabled?: boolean;
+  generalBuyerDiscountPercent?: number;
+  /** null = sin fecha de término. */
+  generalBuyerDiscountEndsAt?: Date | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error('Database not available');
@@ -110,6 +125,9 @@ export async function updateProgramConfig(data: {
   if (data.weeklyEmailEnabled !== undefined) patch.weeklyEmailEnabled = data.weeklyEmailEnabled ? 1 : 0;
   if (data.weeklyEmailWeekday !== undefined) patch.weeklyEmailWeekday = data.weeklyEmailWeekday;
   if (data.weeklyEmailHourChile !== undefined) patch.weeklyEmailHourChile = data.weeklyEmailHourChile;
+  if (data.generalBuyerDiscountEnabled !== undefined) patch.generalBuyerDiscountEnabled = data.generalBuyerDiscountEnabled ? 1 : 0;
+  if (data.generalBuyerDiscountPercent !== undefined) patch.generalBuyerDiscountPercent = String(data.generalBuyerDiscountPercent);
+  if (data.generalBuyerDiscountEndsAt !== undefined) patch.generalBuyerDiscountEndsAt = data.generalBuyerDiscountEndsAt;
 
   if (Object.keys(patch).length > 0 && row) {
     await db.update(ambassadorProgramConfig).set(patch).where(eq(ambassadorProgramConfig.id, row.id));

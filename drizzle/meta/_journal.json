@@ -820,6 +820,13 @@
       "when": 1792679200000,
       "tag": "0116_contest_entries",
       "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "5",
+      "when": 1792700000000,
+      "tag": "0117_ambassador_general_discount",
+      "breakpoints": true
     }
   ]
 }
