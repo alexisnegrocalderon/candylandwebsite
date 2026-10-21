@@ -108,7 +108,7 @@ import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
 import * as customerPush from "./customerPush";
 import { notifyEventLaunch } from "./customerPush";
 import * as appDevices from "./appDevices";
-import { SEGMENT_TYPES } from "../shared/pushSegments";
+import { draftPushCopy } from "./pushAi";
 import { normalizeCustomerPushConfig } from "../shared/customerPushConfig";
 import { normalizeInstagramAgentConfig, normalizeIgUsername, DEFAULT_INSTAGRAM_AGENT_CONFIG, IG_MAX_REPLY_CHARS } from "../shared/instagramAgentConfig";
 import { sendManualInstagramReply } from "./instagram";
@@ -754,11 +754,8 @@ const pushSubscriptionSchema = z.object({
   endpoint: z.string().url().max(512),
   keys: z.object({ p256dh: z.string().max(255), auth: z.string().max(255) }),
 });
-const pushSegmentSchema = z.object({
-  type: z.enum(SEGMENT_TYPES),
-  eventId: z.number().int().positive().optional(),
-  days: z.number().int().min(1).max(730).optional(),
-});
+// La forma real la valida normalizeSegment (shared/pushSegments.ts): acepta reglas combinadas y las formas antiguas.
+const pushSegmentSchema = z.record(z.string(), z.any());
 const pushCampaignSchema = z.object({
   title: z.string().trim().min(1).max(80),
   body: z.string().trim().min(1).max(255),
@@ -766,6 +763,12 @@ const pushCampaignSchema = z.object({
   imageUrl: z.string().url().max(500).nullish(),
   segment: pushSegmentSchema,
   scheduledAt: z.string().datetime().nullish(),
+  titleB: z.string().trim().max(80).nullish(),
+  bodyB: z.string().trim().max(255).nullish(),
+  abPercent: z.number().int().min(0).max(50).optional(),
+  abWaitMin: z.number().int().min(30).max(1440).optional(),
+  smartHour: z.boolean().optional(),
+  actions: z.array(z.object({ label: z.string().trim().max(24), url: z.string().trim().max(500) })).max(2).optional(),
 });
 
 export const appRouter = router({
@@ -4059,8 +4062,8 @@ export const appRouter = router({
       await customerPush.resubscribeCustomer(input.oldEndpoint, input.subscription);
       return { success: true };
     }),
-    click: publicProcedure.input(z.object({ campaignId: z.number().int().positive() })).mutation(async ({ input }) => {
-      await customerPush.recordPushClick(input.campaignId);
+    click: publicProcedure.input(z.object({ campaignId: z.number().int().positive(), subscriptionId: z.number().int().positive().optional() })).mutation(async ({ input }) => {
+      await customerPush.recordPushClick(input.campaignId, input.subscriptionId);
       return { success: true };
     }),
     // El sitio se abrió como app instalada (una vez por apertura): "¿quién tiene la app?".
@@ -4068,6 +4071,8 @@ export const appRouter = router({
       deviceId: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
       platform: z.enum(['ios', 'android', 'desktop']),
       ticketCode: z.string().max(64).optional(),
+      // Dispositivo con avisos activos: suma la hora de apertura a su historial (mejor hora por persona).
+      endpoint: z.string().url().max(512).optional(),
     })).mutation(async ({ input }) => {
       await appDevices.recordAppOpen(input);
       return { success: true };
@@ -4102,6 +4107,22 @@ export const appRouter = router({
         return await customerPush.sendPushTest(input.email, { title: input.title, body: input.body, url: input.url, image: input.imageUrl });
       } catch (err) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo enviar' });
+      }
+    }),
+    presets: adminReadProcedure.input(z.object({ kind: z.enum(['template', 'audience']) })).query(({ input }) => customerPush.listPresets(input.kind)),
+    savePreset: adminProcedure.input(z.object({ kind: z.enum(['template', 'audience']), name: z.string().trim().min(1).max(80), data: z.any() })).mutation(async ({ input }) => {
+      return { id: await customerPush.savePreset(input.kind, input.name, input.data) };
+    }),
+    deletePreset: adminProcedure.input(z.object({ id: z.number() })).mutation(async ({ input }) => {
+      await customerPush.deletePreset(input.id);
+      return { success: true };
+    }),
+    aiDraft: adminProcedure.input(z.object({ idea: z.string().trim().min(3).max(400), eventId: z.number().optional(), audience: z.string().max(300).optional() })).mutation(async ({ input }) => {
+      const ev = input.eventId ? await db.getEventById(input.eventId) : null;
+      try {
+        return { drafts: await draftPushCopy({ idea: input.idea, eventTitle: ev?.title ?? null, audience: input.audience ?? null }) };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo redactar' });
       }
     }),
     config: adminReadProcedure.query(() => customerPush.getCustomerPushConfig()),

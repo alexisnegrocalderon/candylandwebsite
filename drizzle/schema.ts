@@ -2017,6 +2017,9 @@ export const customerPushSubscriptions = mysqlTable("customerPushSubscriptions",
   // Último aviso de marketing (campañas, nuevo evento): tope de uno al día.
   lastMarketingAt: timestamp("lastMarketingAt"),
   lastSentAt: timestamp("lastSentAt"),
+  // Aperturas de la app por hora de Chile (24 casillas): "mejor hora por
+  // persona" (shared/pushSchedule.ts). null = sin datos todavía.
+  hourHist: json("hourHist"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, (table) => ({
@@ -2047,6 +2050,18 @@ export const pushCampaigns = mysqlTable("pushCampaigns", {
   sent: int("sent").default(0).notNull(),
   failed: int("failed").default(0).notNull(),
   clicks: int("clicks").default(0).notNull(),
+  // Prueba A/B: segundo título/texto, % de la audiencia que hace de prueba
+  // (0 = sin prueba), minutos de espera antes de mandar el ganador al resto.
+  titleB: varchar("titleB", { length: 80 }),
+  bodyB: varchar("bodyB", { length: 255 }),
+  abPercent: int("abPercent").default(0).notNull(),
+  abWaitMin: int("abWaitMin").default(180).notNull(),
+  abWinner: varchar("abWinner", { length: 1 }),
+  abTestAt: timestamp("abTestAt"),
+  // 1 = cada persona recibe el aviso a su mejor hora (dentro de las próximas 24 h).
+  smartHour: int("smartHour").default(0).notNull(),
+  // Botones del aviso [{label, url}] (máx. 2; Android y computador).
+  actions: json("actions"),
   createdBy: varchar("createdBy", { length: 120 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -2055,6 +2070,47 @@ export const pushCampaigns = mysqlTable("pushCampaigns", {
 }));
 
 export type PushCampaign = typeof pushCampaigns.$inferSelect;
+
+// Cada aviso a cada dispositivo: cola de envío (queued → sent/failed), base de
+// "según avisos anteriores", de la prueba A/B y del conteo de toques.
+export const pushDeliveries = mysqlTable("pushDeliveries", {
+  id: int("id").autoincrement().primaryKey(),
+  campaignId: int("campaignId").notNull(),
+  subscriptionId: int("subscriptionId").notNull(),
+  variant: varchar("variant", { length: 1 }).default("A").notNull(),
+  // queued | sent | failed
+  status: varchar("status", { length: 10 }).default("queued").notNull(),
+  sendAt: timestamp("sendAt").notNull(),
+  sentAt: timestamp("sentAt"),
+  clickedAt: timestamp("clickedAt"),
+  // Link propio de esta persona (ej. su encuesta); null = el de la campaña.
+  urlOverride: varchar("urlOverride", { length: 500 }),
+}, (table) => ({
+  campaignIdx: index("push_deliveries_campaign_idx").on(table.campaignId, table.status),
+  dueIdx: index("push_deliveries_due_idx").on(table.status, table.sendAt),
+  subIdx: index("push_deliveries_sub_idx").on(table.subscriptionId),
+}));
+
+// Plantillas de aviso y audiencias guardadas del panel de push.
+export const pushPresets = mysqlTable("pushPresets", {
+  id: int("id").autoincrement().primaryKey(),
+  // template | audience
+  kind: varchar("kind", { length: 12 }).notNull(),
+  name: varchar("name", { length: 80 }).notNull(),
+  data: json("data").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+// Qué avisos automáticos ya se mandaron a quién (no repetir): `subjectKey` es
+// "<tipo>:<evento o -->:<correo>", se consulta por ventana de días.
+export const pushAutoLog = mysqlTable("pushAutoLog", {
+  id: int("id").autoincrement().primaryKey(),
+  kind: varchar("kind", { length: 24 }).notNull(),
+  subjectKey: varchar("subjectKey", { length: 200 }).notNull(),
+  sentAt: timestamp("sentAt").defaultNow().notNull(),
+}, (table) => ({
+  keyIdx: index("push_auto_log_key_idx").on(table.kind, table.subjectKey),
+}));
 
 // Teléfonos/computadores que abren el sitio como app instalada (desde el ícono
 // de inicio) -- server/appDevices.ts. El navegador no avisa cuando alguien

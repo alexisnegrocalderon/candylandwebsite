@@ -66,6 +66,7 @@ const Prices = lazy(() => import("./pages/Prices"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
 const Baja = lazy(() => import("./pages/Baja"));
 const MiEntrada = lazy(() => import("./pages/MiEntrada"));
+const AppInstall = lazy(() => import("./pages/AppInstall"));
 const Concurso = lazy(() => import("./pages/Concurso"));
 const ConcursoPremio = lazy(() => import("./pages/ConcursoPremio"));
 const ConcursoPosicion = lazy(() => import("./pages/ConcursoPosicion"));
@@ -132,6 +133,7 @@ function Router() {
           <Route path="/mis-puntos" component={MisPuntos} />
           <Route path="/verificar/:ticketCode" component={Ticket} />
           <Route path="/mi-entrada" component={MiEntrada} />
+          <Route path="/app" component={AppInstall} />
           <Route path="/encuesta/:token" component={Survey} />
           <Route path="/recargar" component={Recargar} />
           <Route path="/fiesta/:ticketCode" component={Party} />

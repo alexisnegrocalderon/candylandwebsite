@@ -301,6 +301,7 @@ export function buildOrderEmail(data: {
           ${pastelButton(ticketUrl, 'Ver mi tarjeta', 'pink')}
           ${glassButton(partyUrl, '🍬 Playmatch')}
           ${glassButton(calendarUrl, '📅 Agendar')}
+          ${glassButton(`${EMAIL_BASE_URL}/app?src=email`, '📲 Instalar la app')}
         </div>
       `, { glow: 'pink' })}
 

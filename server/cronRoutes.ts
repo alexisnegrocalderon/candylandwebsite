@@ -6,7 +6,7 @@ import { purgeClosedPartyPhotos, purgeOldPartyMessages, purgeOldPartyProfiles, e
 import { sendEmail, buildCheckinSummaryEmail } from "./email";
 import { getProgramConfig, sendWeeklyAmbassadorEmails } from "./ambassadorProgram";
 import { runAbandonedCartCron } from "./orderReminders";
-import { runPushQueue } from "./customerPush";
+import { runPushQueue } from "./pushAutomations";
 import { checkAndAdvanceTandaIfNeeded } from "./tandaAutoAdvance";
 import { runFoundersPromoDaily } from "./foundersPromo";
 import { runTanda2PromoDaily } from "./tanda2Promo";

@@ -23,3 +23,21 @@ export function pushTitle(emoji: string, kind: string, detail?: string | null): 
 export function clp(n: number): string {
   return `$${Math.round(n).toLocaleString('es-CL')}`;
 }
+
+/** Primer nombre con mayúscula inicial ("MARÍA JOSÉ pérez" → "María"), o '' si no hay. */
+export function firstName(full: string | null | undefined): string {
+  const w = (full ?? '').trim().split(/\s+/)[0] ?? '';
+  return w.length >= 2 ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : '';
+}
+
+/** Cambia {nombre} por el primer nombre; sin nombre lo saca sin dejar "Hola ," ni espacios dobles. */
+export function personalizeName(text: string, name: string | null | undefined): string {
+  const first = firstName(name);
+  return text
+    .replace(/\{nombre\}/gi, first)
+    .replace(/\s+([,.!?:;])/g, '$1')
+    .replace(/([¡¿])\s+/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[,.:;\s]+/, '')
+    .trim();
+}

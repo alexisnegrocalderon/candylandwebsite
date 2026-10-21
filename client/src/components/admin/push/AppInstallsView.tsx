@@ -31,6 +31,17 @@ export function AppInstallsView() {
       <p className="text-sm text-muted-foreground">
         Teléfonos que abrieron el sitio desde el ícono de inicio en los últimos 60 días. Si alguien borra el ícono no nos enteramos: simplemente deja de aparecer como activo. Se identifica a la persona cuando abre una entrada suya dentro de la app.
       </p>
+      <div className="admin-clay flex flex-col gap-4 rounded-2xl p-4 sm:flex-row sm:items-center">
+        <img src="/api/app-qr.png?src=puerta" alt="QR para instalar la app" className="h-32 w-32 shrink-0 rounded-xl bg-white p-1.5" />
+        <div className="min-w-0 space-y-1.5">
+          <p className="font-semibold">QR para instalar la app</p>
+          <p className="text-xs text-muted-foreground">Imprímelo para la puerta, la caja o el flyer: lleva a una página que enseña a instalar la app paso a paso (iPhone y Android) y a activar los avisos. También va como botón «Instalar la app» en el correo de confirmación.</p>
+          <div className="flex flex-wrap gap-3 text-xs">
+            <a className="text-primary underline" href="/api/app-qr.png?src=puerta&download=1">Descargar PNG</a>
+            <a className="text-primary underline" href="/app" target="_blank" rel="noreferrer">Ver la página</a>
+          </div>
+        </div>
+      </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat value={data ? data.ios + data.android + data.desktop : '—'} label="con la app (60 días)" />
         <Stat value={data?.active7 ?? '—'} label="la abrieron esta semana" />

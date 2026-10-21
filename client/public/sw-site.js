@@ -9,8 +9,8 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
-/* El payload lo arma server/customerPush.ts: { title, body, url, image?, c? }
- * (`c` = id de la campaña, para contar el toque). */
+/* El payload lo arma server/customerPush.ts: { title, body, url, image?, c?, s?, actions? }
+ * (`c` = campaña y `s` = suscripción, para contar el toque). */
 self.addEventListener('push', (event) => {
   let data = { title: 'Mansion Playroom', body: 'Tienes una novedad.', url: '/' };
   try {
@@ -25,7 +25,9 @@ self.addEventListener('push', (event) => {
       icon: '/candyland/favicon-192.png',
       badge: '/candyland/favicon-192.png',
       image: data.image || undefined,
-      data: { url: data.url || '/', c: data.c || null },
+      // Botones (Android y computador): máx. 2; iPhone no los muestra.
+      actions: Array.isArray(data.actions) ? data.actions.slice(0, 2).map((a) => ({ action: a.action, title: a.title })) : undefined,
+      data: { url: data.url || '/', c: data.c || null, s: data.s || null, actions: data.actions || [] },
     })
   );
 });
@@ -43,11 +45,13 @@ function trpcPost(path, json) {
  * abierta, la lleva ahí en vez de abrir otra encima. */
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const { url = '/', c = null } = event.notification.data || {};
-  const target = new URL(url, self.location.origin).href;
+  const { url = '/', c = null, s = null, actions = [] } = event.notification.data || {};
+  // Si tocó un botón, abre el link de ese botón; si no, el del aviso.
+  const picked = event.action ? actions.find((a) => a.action === event.action) : null;
+  const target = new URL((picked && picked.url) || url, self.location.origin).href;
 
   event.waitUntil(Promise.all([
-    c ? trpcPost('customerPush.click', { campaignId: c }) : null,
+    c ? trpcPost('customerPush.click', s ? { campaignId: c, subscriptionId: s } : { campaignId: c }) : null,
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
       for (const client of clients) {
         if (new URL(client.url).origin === self.location.origin && 'focus' in client) {
