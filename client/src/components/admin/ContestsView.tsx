@@ -108,6 +108,9 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'extraChances', label: 'DM al compartir en historia', help: '' },
   { key: 'emailNotFound', label: 'DM si el correo no tiene compra', help: '' },
   { key: 'storyToReel', label: 'DM a quien responde la historia (entra con puntos base)', help: 'Lo inscribe con los puntos base y lo invita a comentar el reel para sumar más. Variables: {{link_reel}}, {{frase}}.' },
+  { key: 'privateProofAsk', label: 'Aviso para cuentas privadas (va al final de la bienvenida)', help: 'Las menciones en historias de cuentas privadas no llegan a la app: piden captura por DM. Se omite si la bienvenida ya es muy larga.' },
+  { key: 'proofReceived', label: 'Captura recibida', help: 'Respuesta automática cuando un participante manda una imagen por DM.' },
+  { key: 'proofApproved', label: 'Puntos sumados a mano', help: 'Se manda cuando le sumas los puntos desde Participantes.' },
   { key: 'winnerVerify', label: 'DM al ganador: pedir datos de verificación', help: 'Primer aviso. Pide RUT, fecha de nacimiento y ACEPTO. Variables: {{plazo}}.' },
   { key: 'verifyReceived', label: 'Verificación: datos recibidos', help: 'Se manda cuando el ganador completó los datos y quedan por aprobar.' },
   { key: 'verifyMissing', label: 'Verificación: falta algo', help: 'Usa {{faltante}} para listar lo que falta.' },
@@ -594,10 +597,15 @@ function ContestDetail({ id }: { id: number }) {
 
 type AdminData = NonNullable<inferRouterOutputs<AppRouter>['contests']['get']>;
 
-function ParticipantsTable({ participants, onChanged }: { contestId: number; participants: AdminData['participants']; onChanged: () => void }) {
+function ParticipantsTable({ contestId, participants, onChanged }: { contestId: number; participants: AdminData['participants']; onChanged: () => void }) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'ticket' | 'noticket' | 'out'>('all');
   const disq = trpc.contests.setDisqualified.useMutation({ onSuccess: () => { onChanged(); toast.success('Listo.'); }, onError });
+  const adjust = trpc.contests.adjustParticipant.useMutation({ onSuccess: (r) => { onChanged(); toast.success(`Listo: ahora tiene ${r.chances} puntos.`); }, onError });
+  const recalc = trpc.contests.recalcMentions.useMutation({
+    onSuccess: (r) => { onChanged(); toast.success(`${r.comments} comentarios revisados: ${r.added} etiquetas nuevas en ${r.updated} participantes.`); },
+    onError,
+  });
   const holder = trpc.contests.markHolder.useMutation({ onSuccess: () => { onChanged(); toast.success('Marcado con entrada: regalos entregados.'); }, onError });
 
   const rows = participants
@@ -619,6 +627,10 @@ function ParticipantsTable({ participants, onChanged }: { contestId: number; par
               <SelectItem value="out">Descalificados</SelectItem>
             </SelectContent>
           </Select>
+          <WriteButton variant="outline" size="sm" disabled={recalc.isPending} title="Vuelve a leer los comentarios del reel (con respuestas) y suma las etiquetas que falten. Nunca resta."
+            onClick={() => recalc.mutate({ id: contestId })}>
+            {recalc.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Recalcular etiquetas
+          </WriteButton>
         </div>
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6 text-center">Todavía no hay participantes.</p>
@@ -642,6 +654,7 @@ function ParticipantsTable({ participants, onChanged }: { contestId: number; par
                       <a href={`https://instagram.com/${p.username ?? ''}`} target="_blank" rel="noreferrer" className="font-medium hover:underline">@{p.username ?? p.igUserId}</a>
                       <div className="text-xs text-muted-foreground">{new Date(p.createdAt).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' })} · {p.source === 'comment' ? 'comentario' : p.source === 'story' ? 'historia' : 'DM'}</div>
                       {p.disqualifyReason && <div className="text-xs text-destructive">{p.disqualifyReason}</div>}
+                      {p.proofPending && <div className="text-xs font-semibold text-[var(--admin-warning-text)]">📎 mandó una captura: revísala en su chat y súmale los puntos</div>}
                     </td>
                     <td className="py-2 pr-3 text-right font-semibold tabular-nums">{p.chances}</td>
                     <td className="py-2 pr-3 text-xs text-muted-foreground">
@@ -654,6 +667,26 @@ function ParticipantsTable({ participants, onChanged }: { contestId: number; par
                     <td className="py-2 pr-3">{p.hasTicket ? <span className="inline-flex items-center gap-1 text-[var(--admin-success-text)]"><CheckCircle2 className="w-4 h-4" /> Sí</span> : 'No'}</td>
                     <td className="py-2 pr-3 font-mono text-xs">{p.couponCode ?? p.friendCode ?? '—'}{p.couponUsed && ' ✅'}</td>
                     <td className="py-2 text-right whitespace-nowrap">
+                      {!p.disqualified && (
+                        <>
+                          {!p.storyMentioned && (
+                            <Button size="sm" variant="ghost" title="Sumar el bonus de historia (cuenta privada o captura revisada)" disabled={adjust.isPending}
+                              onClick={() => { if (confirm(`¿Sumarle el bonus de historia a @${p.username}?`)) adjust.mutate({ participantId: p.id, story: true }); }}>
+                              📲+
+                            </Button>
+                          )}
+                          <Button size="sm" variant="ghost" title="Sumar una etiqueta" disabled={adjust.isPending} onClick={() => adjust.mutate({ participantId: p.id, mentionsDelta: 1 })}>👥+</Button>
+                          {p.mentions.length > 0 && (
+                            <Button size="sm" variant="ghost" title="Restar una etiqueta" disabled={adjust.isPending} onClick={() => adjust.mutate({ participantId: p.id, mentionsDelta: -1 })}>👥−</Button>
+                          )}
+                          {p.storyMentioned && (
+                            <Button size="sm" variant="ghost" title="Quitar el bonus de historia" disabled={adjust.isPending}
+                              onClick={() => { if (confirm(`¿Quitarle el bonus de historia a @${p.username}?`)) adjust.mutate({ participantId: p.id, story: false }); }}>
+                              📲−
+                            </Button>
+                          )}
+                        </>
+                      )}
                       {!p.hasTicket && !p.disqualified && (
                         <Button size="sm" variant="ghost" title="Marcar que ya tiene entrada" disabled={holder.isPending}
                           onClick={() => { const email = prompt('Correo con el que compró su entrada:'); if (email) holder.mutate({ participantId: p.id, email }); }}>
