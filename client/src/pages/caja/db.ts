@@ -26,6 +26,9 @@ export interface CajaAttendee {
   /** Compra por el link de una campaña aliada (ej. comunidad electrónica):
    * gente que viene por primera vez. Opcional: snapshots viejos no lo traen. */
   partnerBadge?: { label: string; emoji: string; refLabel: string | null } | null;
+  /** Coincide con la lista de bloqueados: `block` = dato duro (RUT, teléfono,
+   * Instagram o correo) → no permitir ingreso; `review` = solo el nombre. */
+  blockedAlert?: { level: 'block' | 'review'; matches: { name: string | null; by: string; venue: string | null }[] } | null;
 }
 
 export interface CajaCatalogItem {

@@ -9,6 +9,7 @@ import { NOT_ADMIN_ERR_MSG } from '@shared/const';
 import { canOpenAdmin, isPartnerRole, useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
 import { CartaManager } from '@/components/admin/carta/CartaManager';
+import { BlockedManager } from '@/components/admin/blocked/BlockedManager';
 import { MAX_AMBASSADOR_BUYER_DISCOUNT } from '@shared/ambassadorDiscount';
 import { Switch } from '@/components/ui/switch';
 import { trpc } from '@/lib/trpc';
@@ -1914,83 +1915,6 @@ function CommunityCodesManager() {
  * crear la orden (ver createOrder, server/db.ts). El nombre acá es solo
  * referencia para reconocer a quién corresponde cada RUT -- el bloqueo
  * nunca matchea por nombre, para no bloquear a un homónimo por error. */
-function BlockedCustomersManager() {
-  const { data: blockedData, refetch } = trpc.blockedCustomers.listAll.useQuery();
-  const createBlocked = trpc.blockedCustomers.create.useMutation({ onSuccess: () => { refetch(); toast.success('Cliente bloqueado'); }, onError: onMutationError });
-  const deleteBlocked = trpc.blockedCustomers.delete.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
-  const updateBlocked = trpc.blockedCustomers.update.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
-
-  const [newBlocked, setNewBlocked] = useState({ rut: '', fullName: '', reason: '' });
-  const [showForm, setShowForm] = useState(false);
-
-  const blocked = blockedData ?? [];
-
-  const handleCreate = async () => {
-    if (!newBlocked.rut.trim()) return;
-    if (!isValidRut(newBlocked.rut)) { toast.error('RUT inválido — revisa el formato (12.345.678-9)'); return; }
-    try {
-      await createBlocked.mutateAsync({
-        rut: newBlocked.rut,
-        fullName: newBlocked.fullName || undefined,
-        reason: newBlocked.reason || undefined,
-      });
-      setNewBlocked({ rut: '', fullName: '', reason: '' });
-      setShowForm(false);
-    } catch {
-      // el toast de error ya lo muestra onMutationError; dejamos el formulario abierto para reintentar
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="font-heading text-2xl">Bloqueo de Clientes</h2>
-          <p className="text-muted-foreground text-sm mt-1">Impide comprar entradas por RUT — se revisa el comprador y cada acompañante. El nombre es solo referencia, el bloqueo no matchea por nombre para evitar bloquear a un homónimo.</p>
-        </div>
-        <Button onClick={() => setShowForm(!showForm)} className="interactive"><Plus className="w-4 h-4 mr-2" /> Bloquear RUT</Button>
-      </div>
-
-      {showForm && (
-        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-          <CardContent className="pt-6 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div><Label>RUT</Label><Input value={newBlocked.rut} onChange={(e) => setNewBlocked({ ...newBlocked, rut: e.target.value })} className="mt-1" placeholder="12.345.678-9" /></div>
-              <div><Label>Nombre (opcional, solo referencia)</Label><Input value={newBlocked.fullName} onChange={(e) => setNewBlocked({ ...newBlocked, fullName: e.target.value })} className="mt-1" /></div>
-              <div><Label>Motivo (opcional)</Label><Input value={newBlocked.reason} onChange={(e) => setNewBlocked({ ...newBlocked, reason: e.target.value })} className="mt-1" /></div>
-            </div>
-            <div className="flex gap-2">
-              <WriteButton onClick={handleCreate}>Bloquear</WriteButton>
-              <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="space-y-3">
-        {blocked.length === 0 && <p className="text-muted-foreground text-sm">No hay clientes bloqueados.</p>}
-        {blocked.map((b: any) => (
-          <Card key={b.id}>
-            <CardContent className="pt-4 flex justify-between items-center">
-              <div>
-                <span className="font-mono font-bold text-destructive">{b.rut}</span>
-                {b.fullName && <span className="text-muted-foreground text-sm ml-3">{b.fullName}</span>}
-                {b.reason && <span className="text-muted-foreground text-sm ml-3">— {b.reason}</span>}
-                <span className={`text-xs ml-3 px-2 py-0.5 rounded-full ${b.isActive ? 'bg-red-500/20 text-red-400' : 'bg-muted text-muted-foreground'}`}>{b.isActive ? 'Bloqueado' : 'Inactivo'}</span>
-              </div>
-              <div className="flex gap-2">
-                <WriteButton variant="outline" size="sm" onClick={() => updateBlocked.mutateAsync({ id: b.id, isActive: b.isActive ? 0 : 1 })}>
-                  {b.isActive ? 'Desactivar' : 'Reactivar'}
-                </WriteButton>
-                <ConfirmDeleteButton description={`Vas a eliminar el bloqueo del RUT "${b.rut}".`} onConfirm={(adminPassword) => deleteBlocked.mutateAsync({ id: b.id, adminPassword })} />
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /** Tarjeta de estadística con ícono en badge circular de color (estilo de
  * las referencias mandadas: número grande + badge de color, sin borde duro). */
@@ -2106,6 +2030,7 @@ function ManualAccessSection() {
         attendeeData: JSON.stringify({ campos }),
       });
       toast.success(`Acceso creado y mail enviado -- orden ${result.orderNumber}.`);
+      if (result.blockedReview?.length) toast.warning(`Ojo: el nombre coincide con alguien de la lista de bloqueados (${result.blockedReview.join('; ')}). Revisa que no sea la misma persona.`, { duration: 12000 });
       resetForm();
       refetchHistory();
     } catch (err) {
@@ -11081,7 +11006,7 @@ const ADMIN_SECTIONS = [
   { id: 'leads', label: 'Leads', hub: 'clientes', icon: UserPlus, render: () => <LeadsView /> },
   { id: 'winback', label: 'Reactivar clientes', hub: 'clientes', icon: Users, render: () => <WinbackView /> },
   { id: 'birthdays', label: 'Cumpleañeros', hub: 'clientes', icon: Cake, render: () => <BirthdaysView /> },
-  { id: 'blocked-customers', label: 'Bloqueo de Clientes', hub: 'clientes', icon: Ban, render: () => <BlockedCustomersManager /> },
+  { id: 'blocked-customers', label: 'Bloqueo de Clientes', hub: 'clientes', icon: Ban, render: () => <BlockedManager /> },
 
   { id: 'instagram', label: 'Instagram', hub: 'mensajes', icon: Instagram, render: () => <InstagramInbox /> },
   { id: 'whatsapp', label: 'WhatsApp', hub: 'mensajes', icon: MessageCircle, render: () => <WhatsAppInbox /> },

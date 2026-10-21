@@ -46,6 +46,8 @@ type Ficha = {
   buyerName: string;
   /** Entró por el link de una campaña aliada: primera vez en Playroom. */
   partnerBadge?: { label: string; emoji: string; refLabel: string | null } | null;
+  /** Lista de bloqueados: `block` = no permitir ingreso; `review` = posible (solo el nombre). */
+  blockedAlert?: CajaAttendee['blockedAlert'];
 };
 
 type Tab = 'escanear' | 'buscar' | 'ingresos';
@@ -278,6 +280,7 @@ function Scanner({ operatorName, operatorRole }: { operatorName: string; operato
       extras: attendee.extras.map((e) => ({ typeName: e.typeName, status: e.status })),
       buyerName: attendee.buyerName,
       partnerBadge: attendee.partnerBadge ?? null,
+      blockedAlert: attendee.blockedAlert ?? null,
     };
   }, []);
 
@@ -536,16 +539,19 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, parkingInfo, onCobrarEs
   onCobrarEstacionamiento: (opcion: DoorParkingOption | null, metodo: DoorParkingMethod) => Promise<ParkingRecord>;
 }) {
   const personas = personasForTicket(ficha.groupSize, ficha.accesoSlug);
-  const puedeEntrar = ficha.status === 'valid';
+  const bloqueado = ficha.blockedAlert?.level === 'block';
+  const puedeEntrar = ficha.status === 'valid' && !bloqueado;
   const [cobrandoAbierto, setCobrandoAbierto] = useState(false);
 
   // Entrada ya usada / anulada / desconocida: aviso grande de pantalla
   // completa, con el color del problema -- no se puede confundir con una
   // entrada válida ni pasar por alto al apuro.
   if (!puedeEntrar) {
-    const used = ficha.status === 'used';
-    const titulo = used ? 'ENTRADA YA USADA' : ficha.status === 'cancelled' ? 'ENTRADA ANULADA' : 'NO ENCONTRAMOS LA ENTRADA';
-    const detalle = used
+    const used = ficha.status === 'used' && !bloqueado;
+    const titulo = bloqueado ? 'NO PERMITIR INGRESO' : used ? 'ENTRADA YA USADA' : ficha.status === 'cancelled' ? 'ENTRADA ANULADA' : 'NO ENCONTRAMOS LA ENTRADA';
+    const detalle = bloqueado
+      ? `Coincide con la lista de bloqueados (${(ficha.blockedAlert?.matches ?? []).map((m) => `${m.name || 'sin nombre'} por ${m.by}${m.venue ? ` · ${m.venue}` : ''}`).join('; ')}). Avisa a un supervisor; no dejes pasar.`
+      : used
       ? 'Alguien ya entró con este código. No dejes pasar: confirma con un supervisor.'
       : ficha.status === 'cancelled'
       ? 'No dar acceso.'
@@ -606,6 +612,17 @@ function FichaVerificacion({ ficha, onAceptar, onCerrar, parkingInfo, onCobrarEs
         </div>
 
         <div className="mx-auto w-full max-w-lg px-5 pb-4">
+          {/* Solo el nombre coincide con alguien bloqueado: puede ser un homónimo,
+           * así que se avisa y decide el equipo (los datos duros ya frenan arriba). */}
+          {ficha.blockedAlert?.level === 'review' && (
+            <div className="mb-4 rounded-3xl border border-amber-300/50 bg-amber-400/15 p-4">
+              <p className="text-lg font-bold">⚠ Posible bloqueado (solo el nombre)</p>
+              <p className="mt-1 text-sm text-white/80">
+                El nombre coincide con {(ficha.blockedAlert.matches ?? []).map((m) => `${m.name || 'alguien'}${m.venue ? ` (${m.venue})` : ''}`).join(', ')}. Verifica con la cédula antes de dejarlo pasar y avisa a un supervisor si es la misma persona.
+              </p>
+            </div>
+          )}
+
           {/* Comunidad aliada: vienen por primera vez a Playroom. */}
           {ficha.partnerBadge && (
             <div className="mb-4 rounded-3xl border border-cyan-300/40 bg-cyan-400/15 p-4">

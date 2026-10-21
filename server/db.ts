@@ -4,6 +4,8 @@ import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
 import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAvailability } from "../shared/accessCredit";
 import { computeCodeDiscount } from "../shared/discountCode";
+import { BLOCK_BY_LABEL, blockedKeysFor, hasHardKey, matchBlocked, type BlockedRow, type BlockMatchBy, type Identity } from "../shared/blockedMatch";
+import { findExistingMatch, mergeFields, type ImportFields } from "../shared/blockedImport";
 import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPercent, type GeneralBuyerDiscount } from "../shared/ambassadorDiscount";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
@@ -949,32 +951,171 @@ export async function syncLeadsAsMailingAudience(filter: { eventId?: number } = 
   return syncLeadsAsMailingAudienceImpl(db, filter);
 }
 
-// Lista de bloqueo de clientes (por RUT) -- ver el chequeo en createOrder.
+// Lista de bloqueo de clientes -- reglas en shared/blockedMatch.ts; se aplica
+// en createOrder, createManualOrder y en el snapshot de la puerta.
 export async function getAllBlockedCustomers() {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(blockedCustomers).orderBy(desc(blockedCustomers.createdAt));
 }
 
-export async function createBlockedCustomer(data: { rut: string; fullName?: string; reason?: string }) {
+export type BlockedInput = {
+  rut?: string | null; fullName?: string | null; email?: string | null; phone?: string | null; instagram?: string | null;
+  reason?: string | null; sourceVenue?: string | null; sourceProducer?: string | null; blockedOn?: string | null; sourceBy?: string | null; notes?: string | null;
+  isActive?: number;
+};
+
+const blank = (v: string | null | undefined) => { const t = (v ?? '').trim(); return t ? t : null; };
+
+/** Valores listos para guardar: lo que escribió la fuente + sus versiones normalizadas. */
+export function blockedValues(d: BlockedInput) {
+  const keys = blockedKeysFor({ rut: d.rut, email: d.email, phone: d.phone, instagram: d.instagram, fullName: d.fullName });
+  return {
+    rut: blank(d.rut), fullName: blank(d.fullName), email: blank(d.email), phone: blank(d.phone), instagram: blank(d.instagram),
+    ...keys,
+    reason: blank(d.reason), sourceVenue: blank(d.sourceVenue), sourceProducer: blank(d.sourceProducer),
+    blockedOn: blank(d.blockedOn), sourceBy: blank(d.sourceBy), notes: blank(d.notes),
+  };
+}
+
+let blockedCache: { at: number; rows: any[] } | null = null;
+export function invalidateBlockedCache() { blockedCache = null; }
+
+/** Filas activas para comparar (en memoria 30 s: se usa en cada compra y en
+ * cada snapshot de la puerta). Completa de paso las versiones normalizadas de
+ * fichas anteriores a esta lista (solo tenían RUT y nombre). */
+export async function loadBlockedRows(): Promise<any[]> {
+  if (blockedCache && Date.now() - blockedCache.at < 30_000) return blockedCache.rows;
+  const db = await getDb();
+  if (!db) return [];
+  let rows: any[];
+  try {
+    rows = await db.select().from(blockedCustomers).where(eq(blockedCustomers.isActive, 1));
+    const stale = rows.filter((r: any) => (r.nameFold == null && r.fullName) || (r.rutNorm == null && r.rut));
+    if (stale.length) {
+      for (const r of stale as any[]) {
+        const v = blockedValues(r);
+        await db.update(blockedCustomers).set({ rutNorm: v.rutNorm, nameFold: v.nameFold, emailNorm: v.emailNorm, phoneNorm: v.phoneNorm, igNorm: v.igNorm }).where(eq(blockedCustomers.id, r.id));
+      }
+      rows = await db.select().from(blockedCustomers).where(eq(blockedCustomers.isActive, 1));
+    }
+  } catch {
+    // La migración 0118 (columnas nuevas) todavía no se aplicó: se sigue
+    // bloqueando por RUT con las columnas de siempre, en vez de romper la compra.
+    const legacy = await db.select({ id: blockedCustomers.id, rut: blockedCustomers.rut, fullName: blockedCustomers.fullName, isActive: blockedCustomers.isActive })
+      .from(blockedCustomers).where(eq(blockedCustomers.isActive, 1));
+    rows = (legacy as any[]).map((r) => ({ ...r, ...blockedKeysFor({ rut: r.rut, fullName: r.fullName }), sourceVenue: null }));
+  }
+  blockedCache = { at: Date.now(), rows };
+  return rows;
+}
+
+/** Cruza personas (titular y acompañantes) con la lista de bloqueados. */
+export async function findBlockedMatch(identities: Identity[]) {
+  const rows = await loadBlockedRows();
+  return matchBlocked(identities, rows as any[]);
+}
+
+export async function createBlockedCustomer(data: BlockedInput) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.insert(blockedCustomers).values({ ...data, rut: normalizeRut(data.rut) });
+  const v = blockedValues(data);
+  if (!v.fullName && !v.rutNorm && !v.emailNorm && !v.phoneNorm && !v.igNorm) throw new Error("Agrega al menos un dato: nombre, RUT, teléfono, Instagram o correo.");
+  await db.insert(blockedCustomers).values(v);
+  invalidateBlockedCache();
   return { success: true };
 }
 
-export async function updateBlockedCustomer(id: number, data: any) {
+export async function updateBlockedCustomer(id: number, data: BlockedInput) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const updateData = data.rut ? { ...data, rut: normalizeRut(data.rut) } : data;
-  await db.update(blockedCustomers).set(updateData).where(eq(blockedCustomers.id, id));
+  const [current] = await db.select().from(blockedCustomers).where(eq(blockedCustomers.id, id)).limit(1);
+  if (!current) throw new Error("No existe ese bloqueado");
+  // Solo cambia lo que viene en `data`; después se recalculan las versiones normalizadas.
+  const merged = { ...(current as any), ...Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined)) };
+  const v = blockedValues(merged);
+  await db.update(blockedCustomers).set({ ...v, ...(data.isActive !== undefined ? { isActive: data.isActive } : {}) }).where(eq(blockedCustomers.id, id));
+  invalidateBlockedCache();
   return { success: true };
+}
+
+/** Aplica las filas ya revisadas de una planilla: crea fichas nuevas y completa
+ * (sin pisar nada) las que ya existen. Vuelve a cruzar contra la base al
+ * aplicar, así reimportar el mismo archivo no duplica. */
+export async function importBlockedRows(rows: ImportFields[], defaults: { sourceBy?: string | null } = {}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const all = (await db.select().from(blockedCustomers)) as any[];
+  let created = 0, merged = 0, skipped = 0;
+  for (const f of rows) {
+    const keys = blockedKeysFor(f);
+    if (!f.fullName && !hasHardKey(keys)) { skipped++; continue; }
+    const hit = findExistingMatch(keys, all as BlockedRow[]) as any;
+    if (hit) {
+      const patch = mergeFields(hit, f);
+      if (Object.keys(patch).length) {
+        const next = { ...hit, ...patch };
+        await db.update(blockedCustomers).set(blockedValues(next)).where(eq(blockedCustomers.id, hit.id));
+        Object.assign(hit, blockedValues(next));
+      }
+      merged++;
+    } else {
+      const values = { ...blockedValues({ ...f, sourceBy: f.sourceProducer ? undefined : defaults.sourceBy }), };
+      const [res] = await db.insert(blockedCustomers).values(values) as any;
+      all.push({ id: Number(res.insertId), isActive: 1, ...values });
+      created++;
+    }
+  }
+  invalidateBlockedCache();
+  return { created, merged, skipped };
+}
+
+/** Compras y clientes que YA existen y coinciden con la lista (para revisar
+ * después de importar). No cancela nada: `block` = dato duro, `review` = solo
+ * el nombre. Solo compras aprobadas de eventos que aún no pasan. */
+export async function listBlockedExistingMatches() {
+  const db = await getDb();
+  if (!db) return { orders: [], customers: [] };
+  const rows = await loadBlockedRows();
+  if (!rows.length) return { orders: [], customers: [] };
+
+  const since = new Date(Date.now() - 24 * 3_600_000);
+  const upcoming = await db.select({
+    id: orders.id, orderNumber: orders.orderNumber, buyerName: orders.buyerName, buyerEmail: orders.buyerEmail, buyerPhone: orders.buyerPhone,
+    attendeeData: orders.attendeeData, eventId: orders.eventId, eventTitle: events.title, channel: orders.channel,
+  }).from(orders).innerJoin(events, eq(orders.eventId, events.id))
+    .where(and(eq(orders.paymentStatus, 'approved'), gte(events.eventDate, since)));
+  const orderHits = [] as { orderId: number; orderNumber: string; eventTitle: string; buyerName: string; level: 'block' | 'review'; matches: { name: string | null; by: string; venue: string | null }[] }[];
+  for (const o of upcoming as any[]) {
+    const m = matchBlocked(orderIdentities(o.attendeeData, { name: o.buyerName, email: o.buyerEmail, phone: o.buyerPhone }), rows as any[]);
+    const hits = m.block.length ? m.block : m.review;
+    if (!hits.length) continue;
+    orderHits.push({
+      orderId: o.id, orderNumber: o.orderNumber, eventTitle: o.eventTitle, buyerName: o.buyerName, level: m.block.length ? 'block' : 'review',
+      matches: hits.slice(0, 3).map((h) => ({ name: h.row.fullName ?? null, by: BLOCK_BY_LABEL[h.by], venue: h.row.sourceVenue ?? null })),
+    });
+  }
+
+  const custs = await db.select({ id: customers.id, fullName: customers.fullName, email: customers.email, phone: customers.phone, rut: customers.rut, instagram: customers.instagram }).from(customers);
+  const customerHits = [] as { customerId: number; fullName: string | null; email: string; level: 'block' | 'review'; matches: { name: string | null; by: string; venue: string | null }[] }[];
+  for (const c of custs as any[]) {
+    const m = matchBlocked([{ name: c.fullName, email: c.email, phone: c.phone, rut: c.rut, instagram: c.instagram }], rows as any[]);
+    const hits = m.block.length ? m.block : m.review;
+    if (!hits.length) continue;
+    customerHits.push({
+      customerId: c.id, fullName: c.fullName, email: c.email, level: m.block.length ? 'block' : 'review',
+      matches: hits.slice(0, 3).map((h) => ({ name: h.row.fullName ?? null, by: BLOCK_BY_LABEL[h.by], venue: h.row.sourceVenue ?? null })),
+    });
+  }
+  const order = (a: { level: string }, b: { level: string }) => (a.level === b.level ? 0 : a.level === 'block' ? -1 : 1);
+  return { orders: orderHits.sort(order).slice(0, 300), customers: customerHits.sort(order).slice(0, 300) };
 }
 
 export async function deleteBlockedCustomer(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(blockedCustomers).where(eq(blockedCustomers.id, id));
+  invalidateBlockedCache();
   return { success: true };
 }
 
@@ -1129,6 +1270,41 @@ export function parseAttendeeRuts(attendeeDataJson: string | null | undefined): 
   } catch {
     return [];
   }
+}
+
+/** Texto para el admin: "Juan Pérez por RUT (Sinners)". */
+export function describeBlockHits(hits: { row: any; by: BlockMatchBy }[]): string {
+  return hits.map((h) => `${h.row.fullName || 'sin nombre'} por ${BLOCK_BY_LABEL[h.by]}${h.row.sourceVenue ? ` · ${h.row.sourceVenue}` : ''}`).join('; ');
+}
+
+/** Instagram del comprador (`buyer__instagram`) -- cualquier clave que lo contenga. */
+export function parseAttendeeInstagram(attendeeDataJson: string | null | undefined): string | null {
+  if (!attendeeDataJson) return null;
+  try {
+    const campos = JSON.parse(attendeeDataJson)?.campos ?? {};
+    for (const [key, value] of Object.entries(campos)) {
+      if (typeof value === 'string' && value.trim() && /instagram/i.test(key)) return value.trim();
+    }
+  } catch { /* attendeeData ilegible: sin Instagram */ }
+  return null;
+}
+
+/** Todas las personas de una orden listas para cruzar con la lista de
+ * bloqueados: el titular con sus datos de contacto y cada acompañante con su
+ * nombre y RUT. */
+export function orderIdentities(
+  attendeeDataJson: string | null | undefined,
+  buyer: { name?: string | null; email?: string | null; phone?: string | null },
+): Identity[] {
+  const people = parseAttendees(attendeeDataJson);
+  // El checkout guarda `buyer__rut`; los accesos manuales, `rut`.
+  let buyerRut = parseBuyerRut(attendeeDataJson);
+  if (!buyerRut && attendeeDataJson) {
+    try { const v = JSON.parse(attendeeDataJson)?.campos?.rut; if (typeof v === 'string' && v.trim()) buyerRut = v.trim(); } catch { /* sin RUT */ }
+  }
+  const out: Identity[] = [{ name: buyer.name, email: buyer.email, phone: buyer.phone, instagram: parseAttendeeInstagram(attendeeDataJson), rut: buyerRut }];
+  for (const p of people) out.push({ name: p.name, rut: p.rut });
+  return out;
 }
 
 /** Titular + acompañantes de una orden, cada uno con SU PROPIO nombre y RUT
@@ -1381,15 +1557,15 @@ export async function createOrder(input: {
     }
   }
 
-  // Lista de bloqueo: si el RUT del comprador o de algún acompañante
-  // coincide (exacto, normalizado), la compra se rechaza acá -- antes de
-  // calcular precios/stock y antes de crear cualquier fila en `orders`, así
-  // nunca llega a existir una orden ni se intenta cobrar nada.
-  const attendeeRuts = parseAttendeeRuts(input.attendeeData);
-  if (attendeeRuts.length > 0) {
-    const blocked = await db.select().from(blockedCustomers)
-      .where(and(inArray(blockedCustomers.rut, attendeeRuts), eq(blockedCustomers.isActive, 1)));
-    if (blocked.length > 0) {
+  // Lista de bloqueo: si el RUT, teléfono, Instagram o correo del comprador o
+  // de algún acompañante coincide (normalizado), la compra se rechaza acá --
+  // antes de calcular precios/stock y antes de crear cualquier fila en
+  // `orders`, así nunca llega a existir una orden ni se intenta cobrar nada.
+  // El nombre solo avisa (queda en el panel de revisión y en la puerta), no
+  // frena la compra. Mensaje genérico a propósito: no revela el motivo.
+  {
+    const blockedCheck = await findBlockedMatch(orderIdentities(input.attendeeData, { name: input.buyerName, email: input.buyerEmail, phone: input.buyerPhone }));
+    if (blockedCheck.block.length > 0) {
       throw new Error('No pudimos procesar tu compra. Si crees que es un error, escríbenos.');
     }
   }
@@ -1780,10 +1956,18 @@ export async function createManualOrder(input: {
   kind: 'invitation' | 'paid';
   paymentMethod?: string;
   attendeeData?: string;
-}): Promise<{ orderId: number; orderNumber: string; total: number }> {
+}): Promise<{ orderId: number; orderNumber: string; total: number; blockedReview: string[] }> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   if (input.items.length === 0) throw new Error("Elige al menos un tipo de entrada");
+
+  // Lista de bloqueados: un dato duro que coincide impide crear el acceso (acá
+  // el aviso es para el admin, así que sí dice cuál); el nombre solo avisa.
+  const blockedCheck = await findBlockedMatch(orderIdentities(input.attendeeData, { name: input.buyerName, email: input.buyerEmail, phone: input.buyerPhone }));
+  if (blockedCheck.block.length > 0) {
+    throw new Error(`No se creó el acceso: coincide con la lista de bloqueados (${describeBlockHits(blockedCheck.block)}).`);
+  }
+  const blockedReview = blockedCheck.review.map((h) => describeBlockHits([h]));
 
   const event = await getEventBySlug(input.eventSlug);
   if (!event) throw new Error("Event not found");
@@ -1833,7 +2017,7 @@ export async function createManualOrder(input: {
     await db.update(ticketTypes).set({ soldCount: sql`soldCount + ${item.quantity}` }).where(eq(ticketTypes.id, item.ticketTypeId));
   }
 
-  return { orderId, orderNumber, total };
+  return { orderId, orderNumber, total, blockedReview };
 }
 
 /** Correo placeholder para órdenes que el admin crea sin comprador real
@@ -3062,7 +3246,20 @@ export async function getCajaSnapshot(eventId: number) {
   // Sello de campaña aliada para la puerta ("🎧 primera vez, comunidad
   // electrónica"): el equipo sabe a quién darle la bienvenida y las reglas.
   const partnerBadges = await getPartnerBadgesByOrderIds(orderIds);
+  // Lista de bloqueados: se calcula acá y viaja en el snapshot, así la puerta
+  // avisa aunque no haya señal. `block` = dato duro (RUT, teléfono, Instagram o
+  // correo): no permitir ingreso; `review` = solo el nombre coincide.
+  const blockedRows = await loadBlockedRows();
   const attendees = approvedOrders.map((o: any) => {
+    const blockedHits = blockedRows.length ? matchBlocked(orderIdentities(o.attendeeData, { name: o.buyerName, email: o.buyerEmail, phone: o.buyerPhone }), blockedRows as any[]) : null;
+    const blockedAlert = blockedHits && (blockedHits.block.length || blockedHits.review.length)
+      ? {
+        level: (blockedHits.block.length ? 'block' : 'review') as 'block' | 'review',
+        matches: (blockedHits.block.length ? blockedHits.block : blockedHits.review).slice(0, 3).map((h) => ({
+          name: (h.row.fullName as string | null) ?? null, by: BLOCK_BY_LABEL[h.by], venue: (h.row.sourceVenue as string | null) ?? null,
+        })),
+      }
+      : null;
     const ts = ticketsByOrder.get(o.id) ?? [];
     // Titular + acompañantes con nombre Y rut propios: es lo que el
     // anfitrión compara persona por persona contra la cédula en la puerta.
@@ -3077,6 +3274,7 @@ export async function getCajaSnapshot(eventId: number) {
       buyerEmail: o.buyerEmail,
       buyerPhone: o.buyerPhone,
       partnerBadge: partnerBadges.get(o.id) ?? null,
+      blockedAlert,
       attendees: parsedAttendees.length > 0
         ? parsedAttendees
         : [{ name: o.buyerName, rut: parseBuyerRut(o.attendeeData) ?? rutByEmail.get((o.buyerEmail || '').trim().toLowerCase()) ?? null, docType: 'rut' as const }],

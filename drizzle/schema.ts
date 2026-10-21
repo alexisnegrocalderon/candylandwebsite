@@ -520,20 +520,48 @@ export const leads = mysqlTable("leads", {
 export type Lead = typeof leads.$inferSelect;
 export type InsertLead = typeof leads.$inferInsert;
 
-// Lista de bloqueo de clientes: si el RUT del comprador o de algún
-// acompañante coincide (normalizado, coincidencia exacta), createOrder
-// rechaza la compra antes de crear la orden y antes de cualquier cobro.
-// `fullName` es solo referencia para el admin -- el bloqueo NUNCA matchea
-// por nombre (demasiados falsos positivos con personas homónimas).
+// Lista de bloqueo de clientes (shared/blockedMatch.ts): si el RUT, teléfono,
+// Instagram o correo del comprador o de algún acompañante coincide (normalizado),
+// createOrder rechaza la compra antes de crear la orden y de cobrar, los
+// accesos manuales no se crean y la puerta avisa "no permitir ingreso".
+// El nombre completo NO bloquea: solo avisa ("posible bloqueado"), por los
+// homónimos.
+//
+// Cada ficha puede tener datos incompletos (basta con uno) y se va completando
+// a medida que llega información: las columnas `*Norm` y `nameFold` son las
+// versiones normalizadas que se comparan; `rut`, `email`, `phone` e
+// `instagram` guardan lo que escribió la fuente. `sourceVenue` es el local o
+// la productora donde lo bloquearon (ej. "Sinners").
 export const blockedCustomers = mysqlTable("blockedCustomers", {
   id: int("id").autoincrement().primaryKey(),
-  rut: varchar("rut", { length: 20 }).notNull().unique(),
+  rut: varchar("rut", { length: 20 }),
   fullName: varchar("fullName", { length: 255 }),
+  email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 40 }),
+  instagram: varchar("instagram", { length: 100 }),
+  rutNorm: varchar("rutNorm", { length: 20 }),
+  emailNorm: varchar("emailNorm", { length: 320 }),
+  phoneNorm: varchar("phoneNorm", { length: 20 }),
+  igNorm: varchar("igNorm", { length: 40 }),
+  nameFold: varchar("nameFold", { length: 255 }),
   reason: varchar("reason", { length: 500 }),
+  sourceVenue: varchar("sourceVenue", { length: 120 }),
+  sourceProducer: varchar("sourceProducer", { length: 120 }),
+  // "YYYY-MM-DD" del bloqueo original, si se sabe.
+  blockedOn: varchar("blockedOn", { length: 10 }),
+  // Quién pasó el dato (persona o productora amiga).
+  sourceBy: varchar("sourceBy", { length: 120 }),
+  notes: text("notes"),
   isActive: int("isActive").default(1).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => [
+  index("blocked_rut_norm_idx").on(t.rutNorm),
+  index("blocked_email_norm_idx").on(t.emailNorm),
+  index("blocked_phone_norm_idx").on(t.phoneNorm),
+  index("blocked_ig_norm_idx").on(t.igNorm),
+  index("blocked_name_fold_idx").on(t.nameFold),
+]);
 
 export type BlockedCustomer = typeof blockedCustomers.$inferSelect;
 export type InsertBlockedCustomer = typeof blockedCustomers.$inferInsert;
