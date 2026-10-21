@@ -827,6 +827,13 @@
       "when": 1792700000000,
       "tag": "0117_ambassador_general_discount",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "5",
+      "when": 1792710000000,
+      "tag": "0118_blocked_profile",
+      "breakpoints": true
     }
   ]
 }

@@ -738,6 +738,13 @@ async function scopedCoproduction(ctx: { partnerCoproductionId: number | null },
   return requireCoproduction(input?.slug ?? 'dalmore');
 }
 
+const blockedInputSchema = z.object({
+  fullName: z.string().max(255).nullish(), rut: z.string().max(20).nullish(), email: z.string().max(320).nullish(),
+  phone: z.string().max(40).nullish(), instagram: z.string().max(100).nullish(), reason: z.string().max(500).nullish(),
+  sourceVenue: z.string().max(120).nullish(), sourceProducer: z.string().max(120).nullish(), blockedOn: z.string().max(10).nullish(),
+  sourceBy: z.string().max(120).nullish(), notes: z.string().max(4000).nullish(), isActive: z.number().optional(),
+});
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -4402,23 +4409,33 @@ export const appRouter = router({
     listAll: adminReadProcedure.query(async () => {
       return db.getAllBlockedCustomers();
     }),
-    create: adminProcedure.input(z.object({
-      rut: z.string().min(1),
-      fullName: z.string().optional(),
-      reason: z.string().optional(),
-    })).mutation(async ({ input }) => {
-      return db.createBlockedCustomer(input);
+    create: adminProcedure.input(blockedInputSchema).mutation(async ({ input, ctx }) => {
+      try {
+        const r = await db.createBlockedCustomer(input);
+        await db.recordAdminAudit({ action: 'blockedCustomers.create', targetType: 'blockedCustomer', payload: { name: input.fullName ?? null }, ip: clientIp(ctx) });
+        return r;
+      } catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo guardar' }); }
     }),
-    update: adminProcedure.input(z.object({
-      id: z.number(),
-      rut: z.string().optional(),
-      fullName: z.string().optional(),
-      reason: z.string().optional(),
-      isActive: z.number().optional(),
-    })).mutation(async ({ input }) => {
+    update: adminProcedure.input(blockedInputSchema.extend({ id: z.number() })).mutation(async ({ input }) => {
       const { id, ...data } = input;
-      return db.updateBlockedCustomer(id, data);
+      try { return await db.updateBlockedCustomer(id, data); }
+      catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo guardar' }); }
     }),
+    /** Aplica las filas ya revisadas de una planilla (ver shared/blockedImport.ts). */
+    importApply: adminProcedure.input(z.object({
+      rows: z.array(z.object({
+        fullName: z.string().max(255).nullable(), rut: z.string().max(20).nullable(), email: z.string().max(320).nullable(),
+        phone: z.string().max(40).nullable(), instagram: z.string().max(100).nullable(), sourceVenue: z.string().max(120).nullable(),
+        sourceProducer: z.string().max(120).nullable(), blockedOn: z.string().max(10).nullable(), reason: z.string().max(500).nullable(), notes: z.string().max(4000).nullable(),
+      })).min(1).max(2000),
+      sourceBy: z.string().max(120).nullish(),
+    })).mutation(async ({ input, ctx }) => {
+      const r = await db.importBlockedRows(input.rows, { sourceBy: input.sourceBy ?? null });
+      await db.recordAdminAudit({ action: 'blockedCustomers.import', targetType: 'blockedCustomer', payload: r, ip: clientIp(ctx) });
+      return r;
+    }),
+    /** Compras y clientes que ya existen y coinciden con la lista (para revisar; no cancela nada). */
+    existingMatches: adminReadProcedure.query(() => db.listBlockedExistingMatches()),
     delete: adminPasswordProcedure.input(z.object({ id: z.number() })).mutation(async ({ input, ctx }) => {
       const result = await db.deleteBlockedCustomer(input.id);
       await db.recordAdminAudit({ action: 'blockedCustomers.delete', targetType: 'blockedCustomer', targetId: input.id, ip: clientIp(ctx) });
