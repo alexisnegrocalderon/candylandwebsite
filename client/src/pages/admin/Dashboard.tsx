@@ -3546,8 +3546,8 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
           <Input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Buscar nombre, email u orden…"
-            aria-label="Buscar por nombre, acompañante, email o N° de orden"
+            placeholder="Buscar nombre, RUT, email u orden…"
+            aria-label="Buscar por nombre o RUT (comprador o acompañante), email o N° de orden"
             className="min-w-56 flex-1"
           />
           <Select value={eventFilter === 'auto' ? 'all' : eventFilter} onValueChange={setEventFilter}>
@@ -3793,6 +3793,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                           <td className="py-2.5 px-3 font-mono text-sm">{order.orderNumber}</td>
                           <td className="py-2.5 px-3">
                             {order.buyerName}<br/><span className="text-[var(--admin-muted)] text-sm">{order.buyerEmail}</span>
+                            <MatchedAttendeeTag match={order.matchedAttendee} />
                             {order.partnerBadge && (
                               <span className="mt-1 block w-fit rounded-full bg-cyan-500/15 px-2 py-0.5 text-xs font-semibold text-cyan-700">
                                 {order.partnerBadge.emoji} {order.partnerBadge.label}{order.partnerBadge.refLabel ? ` · ${order.partnerBadge.refLabel.split(' · ')[0]}` : ''}
@@ -4029,6 +4030,7 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
                       <p className="font-mono text-sm text-[var(--admin-muted)]">{order.orderNumber}</p>
                       <p className="font-medium truncate">{order.buyerName}</p>
                       <p className="text-sm text-[var(--admin-muted)] truncate">{order.buyerEmail}</p>
+                      <MatchedAttendeeTag match={order.matchedAttendee} />
                       {order.partnerBadge && (
                         <span className="mt-1 block w-fit rounded-full bg-cyan-500/15 px-2 py-0.5 text-xs font-semibold text-cyan-700">
                           {order.partnerBadge.emoji} {order.partnerBadge.label}{order.partnerBadge.refLabel ? ` · ${order.partnerBadge.refLabel.split(' · ')[0]}` : ''}
@@ -4215,6 +4217,64 @@ const CUSTOMERS_PAGE_SIZE = 25;
  * propio que se traduce a '' al leerlo. */
 const NO_TAG_FILTER = '__all__';
 
+/** Dice quién de la orden coincidió con la búsqueda cuando no es el titular
+ * (un acompañante), para que no parezca que la orden apareció por error. */
+function MatchedAttendeeTag({ match }: { match?: { name: string; rut: string | null; isBuyer: boolean } | null }) {
+  if (!match || match.isBuyer) return null;
+  return (
+    <span className="mt-1 block w-fit max-w-full truncate rounded-full bg-sky-500/15 px-2 py-0.5 text-xs font-semibold text-sky-300">
+      Acompañante: {match.name}{match.rut ? ` · ${match.rut}` : ''}
+    </span>
+  );
+}
+
+/** Acompañantes de las compras web (nombre + RUT, sin correo): se agregan
+ * solos al aprobarse una orden y nunca reciben correos masivos. */
+function AttendeeContactsPanel({ search }: { search: string }) {
+  const { data } = trpc.customers.attendees.useQuery({ search: search || undefined });
+  const utils = trpc.useUtils();
+  const backfill = trpc.customers.backfillAttendees.useMutation({
+    onSuccess: (r) => { toast.success(`Listo: ${r.contacts} acompañantes en la base (${r.orders} órdenes revisadas).`); utils.customers.attendees.invalidate(); },
+    onError: onMutationError,
+  });
+  const [open, setOpen] = useState(false);
+  const rows = data ?? [];
+  const shown = open ? rows : rows.slice(0, 8);
+  return (
+    <Card>
+      <CardContent className="space-y-3 pt-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="font-heading text-lg">Acompañantes</h3>
+            <p className="text-sm text-muted-foreground">{rows.length} persona{rows.length !== 1 ? 's' : ''} que vinieron en la compra de otro, con su RUT. No reciben correos.</p>
+          </div>
+          <Button size="sm" variant="outline" disabled={backfill.isPending} onClick={() => backfill.mutate()}>
+            {backfill.isPending ? 'Revisando…' : 'Cargar compras anteriores'}
+          </Button>
+        </div>
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{search ? 'Ningún acompañante coincide.' : 'Aún no hay acompañantes registrados.'}</p>
+        ) : (
+          <div className="divide-y divide-white/10">
+            {shown.map((c: any) => (
+              <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{c.fullName}</p>
+                  <p className="truncate text-xs text-muted-foreground">{c.rut || 'Sin RUT'} · compra de {c.buyerName || c.buyerEmail || '—'}</p>
+                </div>
+                <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-xs">{Array.isArray(c.eventIds) ? c.eventIds.length : 0} evento{Array.isArray(c.eventIds) && c.eventIds.length === 1 ? '' : 's'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {rows.length > 8 && (
+          <Button size="sm" variant="ghost" onClick={() => setOpen((v) => !v)}>{open ? 'Ver menos' : `Ver los ${rows.length}`}</Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function CustomersView() {
   const [search, setSearch] = useState('');
   const [accessType, setAccessType] = useState<string>('all');
@@ -4298,7 +4358,7 @@ function CustomersView() {
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, email o teléfono…" className="max-w-xs" />
+        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre, RUT, email o teléfono…" className="max-w-xs" />
         <Select value={accessType} onValueChange={setAccessType}>
           <SelectTrigger className="w-56"><SelectValue placeholder="Tipo de acceso" /></SelectTrigger>
           <SelectContent>
@@ -4474,6 +4534,8 @@ function CustomersView() {
           )}
         </CardContent>
       </Card>
+
+      <AttendeeContactsPanel search={search} />
 
       <CustomerDrawer
         customerId={openCustomerId}

@@ -5384,6 +5384,11 @@ export const appRouter = router({
 
   // Base de datos de clientes desde /admin (pedido explícito del usuario).
   customers: router({
+    // Acompañantes de órdenes web (nombre + RUT, sin correo): no son parte de
+    // `listAll`, así que nunca entran a una audiencia de mailing.
+    attendees: adminReadProcedure.input(z.object({ search: z.string().optional() }).optional())
+      .query(({ input }) => db.listAttendeeContacts(input?.search)),
+    backfillAttendees: adminProcedure.mutation(async () => db.backfillAttendeeContacts()),
     listAll: adminReadProcedure.input(z.object({
       search: z.string().optional(),
       accessType: z.string().optional(),
