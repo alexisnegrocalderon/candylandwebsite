@@ -47,7 +47,7 @@ export default function Concurso() {
                 Sorteo: {fmt(data.drawAt)}.
               </p>
 
-              {data.phase !== 'drawn' && (data.ranking.doubleCount + data.ranking.vipCount) > 0 && (
+              {data.template === 'ranking' && data.phase !== 'drawn' && (data.ranking.doubleCount + data.ranking.vipCount) > 0 && (
                 <div className="glass-candy rounded-2xl p-6 mb-8 space-y-4">
                   <h2 className="font-heading font-bold text-xl">🏆 Ranking en vivo</h2>
                   <p className="text-xs text-muted-foreground leading-relaxed">
@@ -118,14 +118,14 @@ export default function Concurso() {
                 <ul className="list-disc pl-5 space-y-1">
                   <li>
                     {data.prizes.doubleWinners} {data.prizes.doubleLabel} entre quienes participan sin entrada
-                    {data.prizes.doubleWinners > 0 && <>: <b>el 1º del ranking gana una seguro</b>{data.prizes.doubleWinners > 1 ? ` y ${data.prizes.doubleWinners - 1 === 1 ? 'la otra se sortea' : `las otras ${data.prizes.doubleWinners - 1} se sortean`}` : ''}</>}.
+                    {data.template === 'ranking' && data.prizes.doubleWinners > 0 && <>: <b>el 1º del ranking gana una seguro</b>{data.prizes.doubleWinners > 1 ? ` y ${data.prizes.doubleWinners - 1 === 1 ? 'la otra se sortea' : `las otras ${data.prizes.doubleWinners - 1} se sortean`}` : ''}</>}.
                   </li>
                   {data.prizes.vipWinners > 0 && (
                     <li>
                       {data.prizes.vipWinners} × {data.prizes.vipLabel} entre quienes ya tenían su entrada antes del concurso: <b>el 1º del ranking gana uno seguro</b>{data.prizes.vipWinners > 1 ? ` y el resto se sortea` : ''}.
                     </li>
                   )}
-                  <li>Si hay empate en el primer lugar, el premio seguro se sortea entre los empatados.</li>
+                  {data.template === 'ranking' && <li>Si hay empate en el primer lugar, el premio seguro se sortea entre los empatados.</li>}
                 </ul>
               </div>
 
@@ -139,7 +139,7 @@ export default function Concurso() {
                 <h2 className="font-heading font-bold text-xl text-foreground">Bases y condiciones</h2>
                 <p>1. Organiza Mansion Playroom. Participan personas mayores de 18 años con una cuenta de Instagram pública y real.</p>
                 <p>2. Período: {data.startsAt ? `desde ${fmt(data.startsAt)}` : 'desde su publicación'} hasta el sorteo, el {fmt(data.drawAt)}.</p>
-                <p>3. En cada tabla, el 1º del ranking al momento del sorteo gana uno de los premios (si hay empate en el primer lugar, se sortea entre los empatados). Los demás premios se sortean de forma aleatoria y ponderada entre el resto: cada punto equivale a un boleto (1 punto = 1 chance). Se eligen también suplentes.</p>
+                <p>3. {data.template !== 'ranking' ? 'Los premios se sortean de forma aleatoria entre todas las personas que participan (un comentario válido equivale a un boleto). Se eligen también suplentes.' : 'En cada tabla, el 1º del ranking al momento del sorteo gana uno de los premios (si hay empate en el primer lugar, se sortea entre los empatados). Los demás premios se sortean de forma aleatoria y ponderada entre el resto: cada punto equivale a un boleto (1 punto = 1 chance). Se eligen también suplentes.'}</p>
                 <p>4. A los ganadores se les avisa por mensaje directo y respondiendo su comentario. Si no reclaman su premio dentro de {data.claimHours} horas, el premio pasa al siguiente suplente. Antes de entregar el premio verificamos que el ganador cumple los requisitos para asistir a Playroom (ser mayor de 18 años, no tener restricción de ingreso, aceptar nuestros valores y derecho de permanencia, y ser un perfil real que sigue la cuenta); si no los cumple, el premio pasa al siguiente suplente.</p>
                 <p>5. Si compraste tu entrada durante el concurso y ganas la entrada doble, eliges entre la devolución de lo pagado por tus accesos (con tope en el valor del premio, al mismo medio de pago y conservando tu entrada) o una entrada doble adicional para regalar.</p>
                 <p>6. Los premios son personales, no canjeables por dinero y válidos solo para {data.eventTitle}. Los códigos de descuento no son acumulables entre sí.</p>
