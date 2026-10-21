@@ -602,6 +602,14 @@ function ParticipantsTable({ contestId, participants, onChanged }: { contestId: 
   const [filter, setFilter] = useState<'all' | 'ticket' | 'noticket' | 'out'>('all');
   const disq = trpc.contests.setDisqualified.useMutation({ onSuccess: () => { onChanged(); toast.success('Listo.'); }, onError });
   const adjust = trpc.contests.adjustParticipant.useMutation({ onSuccess: (r) => { onChanged(); toast.success(`Listo: ahora tiene ${r.chances} puntos.`); }, onError });
+  const inviteStatus = trpc.contests.holderInviteStatus.useQuery({ id: contestId }, { retry: false });
+  const invite = trpc.contests.sendHolderInvites.useMutation({
+    onSuccess: (r) => {
+      inviteStatus.refetch();
+      toast.success(`${r.sent} correos enviados.${r.pending > 0 ? ` Quedan ${r.pending} por invitar.` : ' Ya se invitó a todos.'}${r.stoppedByBudget ? ' Se frenó por el tope diario de correos.' : ''}`);
+    },
+    onError,
+  });
   const recalc = trpc.contests.recalcMentions.useMutation({
     onSuccess: (r) => { onChanged(); toast.success(`${r.comments} comentarios revisados: ${r.added} etiquetas nuevas en ${r.updated} participantes.`); },
     onError,
@@ -631,6 +639,13 @@ function ParticipantsTable({ contestId, participants, onChanged }: { contestId: 
             onClick={() => recalc.mutate({ id: contestId })}>
             {recalc.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} Recalcular etiquetas
           </WriteButton>
+          {inviteStatus.data && inviteStatus.data.pending > 0 && (
+            <WriteButton variant="outline" size="sm" disabled={invite.isPending || inviteStatus.data.budgetLeft <= 0}
+              title="Correo a quienes ya compraron y todavía no comentan el reel (máx. 40 por clic y tope diario de correos)"
+              onClick={() => { if (confirm(`¿Invitar por correo a comentar el reel? Hay ${inviteStatus.data!.pending} compradores sin participar; se envían hasta ${Math.min(inviteStatus.data!.perClick, inviteStatus.data!.budgetLeft)} ahora.`)) invite.mutate({ id: contestId }); }}>
+              {invite.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <MailCheck className="w-4 h-4" />} Invitar a quienes ya compraron ({inviteStatus.data.pending})
+            </WriteButton>
+          )}
         </div>
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground py-6 text-center">Todavía no hay participantes.</p>

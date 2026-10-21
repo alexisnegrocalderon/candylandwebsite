@@ -11,6 +11,7 @@ import { rememberTicketCode } from '@/lib/lastTicketCode';
 import { WalletCard } from '@/components/wallet/WalletCard';
 import { TopupPanel } from '@/components/wallet/TopupPanel';
 import { AddonPanel } from '@/components/wallet/AddonPanel';
+import { ContestHolderInvite } from '@/components/ContestHolderInvite';
 import './Ticket.wallet.css';
 
 /** Página pública "Mi entrada" / tarjeta digital — a donde apunta el QR de
@@ -226,6 +227,8 @@ export default function Ticket() {
             </div>
           )}
         </div>
+
+        <ContestHolderInvite eventTitle={ticket.eventTitle} />
 
         <div className="wcard-actions">
           {/* La fiesta en el celular. Solo aparece cuando la persona ya

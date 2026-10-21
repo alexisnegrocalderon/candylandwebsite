@@ -3842,6 +3842,16 @@ export const appRouter = router({
         throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo ajustar.' });
       }
     }),
+    holderInviteStatus: adminReadProcedure.input(z.object({ id: z.number().int() })).query(({ input }) => contestSvc.getHolderInviteStatus(input.id)),
+    sendHolderInvites: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.sendHolderInvites(input.id);
+        await db.recordAdminAudit({ action: 'contest.sendHolderInvites', targetType: 'contest', targetId: input.id, payload: result, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron enviar los correos.' });
+      }
+    }),
     recalcMentions: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
       try {
         const result = await contestSvc.recalcMentions(input.id);

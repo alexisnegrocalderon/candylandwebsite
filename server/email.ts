@@ -295,7 +295,7 @@ export function buildOrderEmail(data: {
       ${data.contestInvite ? `
       ${sectionTitle('🎉', 'Estás a un comentario de ganar')}
       ${card(`
-        <p style="color:${INK};font-size:15px;line-height:1.6;margin:0 0 10px;">Comenta nuestro post del concurso y etiqueta a tus amigos: como ya compraste, participas con <b>x${data.contestInvite.multiplier} chances</b>.</p>
+        <p style="color:${INK};font-size:15px;line-height:1.6;margin:0 0 10px;">Para participar tienes que <b>comentar nuestro post del concurso</b> y etiquetar a tus amigos: como ya compraste, entras con <b>x${data.contestInvite.multiplier} chances</b>.</p>
         <p style="color:${MUTED};font-size:13px;line-height:1.6;margin:0 0 14px;">Si ganas, eliges: te devolvemos tu entrada o te llevas una entrada doble para regalar. Sorteo: ${escapeEmailText(data.contestInvite.drawText)}.</p>
         <a href="${data.contestInvite.permalink}" style="display:inline-block;background:${ACCENT.pink.text};color:#fff;font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;border-radius:999px;">Ir al post del concurso</a>
       `, { glow: 'pink' })}
@@ -2096,6 +2096,36 @@ export function buildContestWinnerEmail(data: {
         <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 6px;text-align:center;">Tu código</p>
         <p style="color:${ACCENT.gold.text};font-size:28px;font-weight:800;font-family:monospace;letter-spacing:2px;margin:0;text-align:center;user-select:all;">${esc(data.code)}</p>
       `, { glow: 'gold' }) : ''}
+    `,
+  });
+}
+
+/** Invitación a quienes ya tienen entrada: para participar tienen que comentar
+ * el reel del concurso (server/contests.ts → sendHolderInvites). */
+export function buildContestHolderInviteEmail(data: {
+  name: string;
+  eventTitle: string;
+  vipLabel: string;
+  perks: string[];
+  drawText: string;
+  link: string;
+}) {
+  const esc = escapeEmailText;
+  return emailShell({
+    preheader: `Ya tienes entrada para ${data.eventTitle}: comenta el reel y participa por ${data.vipLabel}.`,
+    pageBg: DISCO_BG,
+    hero: emailHero({
+      accent: 'pink',
+      heroBg: DISCO_HERO_BG,
+      emoji: '🎁',
+      title: `${esc(data.name)}, tu entrada también participa`,
+      subtitle: `Comenta el reel y entra por ${esc(data.vipLabel)}`,
+      cta: { href: data.link, label: 'Ir al reel del concurso' },
+      ctaStyle: 'pastel',
+    }),
+    body: `
+      <p style="color:${MUTED};font-size:15px;line-height:1.6;margin:0 0 20px;">Ya tienes tu entrada para ${esc(data.eventTitle)}. Para participar hay que <b>comentar nuestro reel</b> (y etiquetar amigos para sumar puntos): sin comentario no entras. Sorteo: ${esc(data.drawText)}.</p>
+      ${card(data.perks.map((t) => `<p style="color:${INK};font-size:14px;line-height:1.6;margin:0 0 8px;">• ${esc(t)}</p>`).join(''), { glow: 'pink' })}
     `,
   });
 }
