@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeContestConfig } from './contest';
-import { milestoneCommentText, milestoneState } from './contestMilestones';
+import { asksForMilestoneCode, milestoneCommentText, milestoneState } from './contestMilestones';
 
 const steps = normalizeContestConfig(null).milestones.steps;
 
@@ -37,9 +37,19 @@ describe('configuración de hitos', () => {
 
 describe('textos', () => {
   it('el comentario muestra lo que falta para el siguiente escalón', () => {
-    const t = milestoneCommentText({ count: 100, percent: 10, code: 'HITO-AB12', until: 'vie 23 a las 20:00', next: steps[1], remaining: 150, link: 'https://x' });
+    const t = milestoneCommentText({ count: 100, percent: 10, until: 'vie 23 a las 20:00', next: steps[1], remaining: 150, link: 'https://x' });
     expect(t).toContain('¡100 comentarios!');
-    expect(t).toContain('HITO-AB12');
+    expect(t).not.toContain('HITO-');
+    expect(t).toContain('te llega por DM');
     expect(t).toContain('Faltan 150 comentarios para subirlo a 15%');
+  });
+});
+
+describe('pedir el código por DM', () => {
+  it('reconoce la palabra sola y no una conversación', () => {
+    expect(asksForMilestoneCode('HITO')).toBe(true);
+    expect(asksForMilestoneCode(' código! ')).toBe(true);
+    expect(asksForMilestoneCode('cupón')).toBe(true);
+    expect(asksForMilestoneCode('hola, cuál es el código de la fiesta?')).toBe(false);
   });
 });

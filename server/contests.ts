@@ -42,7 +42,8 @@ import {
 } from '../shared/contest';
 import { buildRanking, pickGuaranteedLeader } from '../shared/contestRanking';
 import { buildTemplateConfig, getContestTemplate, type ContestTemplateKey } from '../shared/contestTemplates';
-import { milestoneState } from '../shared/contestMilestones';
+import { CONTEST_EMAIL_DAILY_LIMIT } from '../shared/emailQuota';
+import { asksForMilestoneCode, milestoneState } from '../shared/contestMilestones';
 import { answerMatches } from '../shared/contestQuiz';
 import { flashBlockers } from '../shared/contestFlash';
 import type { PhotoAttachment } from '../shared/contestPhoto';
@@ -232,6 +233,7 @@ export function templateVars(ctx: ContestCtx, p: ContestParticipant, extra: Reco
     link_bases: BASES_URL,
     evento: ctx.event.title,
     lista_regalos: giftLines(ctx, p),
+    link_posicion: positionLink(p.inviteCode),
     ...milestoneVars(ctx),
     ...countdownVars(ctx),
     congelado_hasta: dateTimeText(priceLockUntil(ctx)),
@@ -431,7 +433,7 @@ async function deliverHolderPrizes(db: Db, ctx: ContestCtx, p: ContestParticipan
 
 /** ¿Esta persona ya tiene entrada aprobada para la fiesta? Busca por el
  * correo que dio y por su @ guardado en la ficha de cliente. */
-async function findHolderOrder(db: Db, eventId: number, input: { email?: string | null; username?: string | null }): Promise<{ email: string; orderId: number; createdAt: Date } | null> {
+export async function findHolderOrder(db: Db, eventId: number, input: { email?: string | null; username?: string | null }): Promise<{ email: string; orderId: number; createdAt: Date } | null> {
   const emails = new Set<string>();
   if (input.email) emails.add(input.email.trim().toLowerCase());
   const handle = normalizeIgHandle(input.username);
@@ -452,7 +454,7 @@ function contestStart(ctx: ContestCtx): Date {
 }
 
 /** Marca que tiene entrada (y si la compró durante el concurso, antes del sorteo). */
-async function markHolder(db: Db, ctx: ContestCtx, participantId: number, holder: { email: string; orderId: number; createdAt: Date }) {
+export async function markHolder(db: Db, ctx: ContestCtx, participantId: number, holder: { email: string; orderId: number; createdAt: Date }) {
   // Compró entre el inicio del concurso y el sorteo (la revisión final del
   // sorteo corre con drawnAt ya puesto, por eso se compara con su fecha).
   const bought = new Date(holder.createdAt).getTime();
@@ -789,6 +791,12 @@ export async function handleContestMessage(input: {
     if (ctx.contest.template === 'flash') {
       if (!accepting(ctx) || ctx.contest.drawnAt) return false;
       return (await import('./contestFlash')).handleFlashAnswer(db, ctx, { igUserId: input.igUserId, username: input.username, text, channel, commentId: null, storyReply: !!input.storyReply });
+    }
+
+    // Retos por hitos: "hito" / "código" por DM devuelve el código vigente (el reel no lo publica).
+    if (ctx.contest.template === 'milestones' && participant && !participant.disqualified && asksForMilestoneCode(text)) {
+      await (await import('./contestMilestones')).replyMilestoneCode(ctx, participant, channel);
+      return true;
     }
 
     // Quiz: el DM (o la respuesta a la historia) es una respuesta; si no
@@ -1776,7 +1784,7 @@ export async function getContestAdmin(id: number) {
 /* ── Invitar por correo a quienes ya tienen entrada ─────────────────────── */
 
 /** Tope de correos del día para estos envíos (el resto queda para las entradas). */
-const HOLDER_INVITE_DAILY_LIMIT = 70;
+const HOLDER_INVITE_DAILY_LIMIT = CONTEST_EMAIL_DAILY_LIMIT;
 const HOLDER_INVITES_PER_CLICK = 40;
 const holderInviteKey = (email: string) => `holder-mail:${crypto.createHash('sha1').update(email).digest('hex').slice(0, 20)}`;
 

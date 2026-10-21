@@ -595,7 +595,7 @@ function ContestDetail({ id }: { id: number }) {
                         </div>
                         <div className="min-w-0">
                           {prize.kind === 'ticket' && <TicketTypeSelect label="Acceso" value={prize.ticketTypeId} types={accesos} categories={['acceso']} allowNone={false} onChange={(v) => setPrize({ ticketTypeId: v })} help="Con verificación del ganador." />}
-                          {prize.kind === 'product' && <TicketTypeSelect label="Producto" value={prize.ticketTypeId} types={accesos} categories={['consumo', 'extra', 'merch']} allowNone={false} onChange={(v) => setPrize({ ticketTypeId: v })} help="Se carga en su entrada, o recibe un código para canjearlo." />}
+                          {prize.kind === 'product' && <TicketTypeSelect label="Producto" value={prize.ticketTypeId} types={accesos} categories={['consumo', 'extra', 'merch']} allowNone={false} onChange={(v) => setPrize({ ticketTypeId: v })} help="Se carga gratis en su entrada. Si aún no tiene, debe comprarla y escribirnos el correo de su compra." />}
                           {prize.kind === 'playcoins' && <NumberField label="PlayCoins" value={prize.playcoins} onChange={(n) => setPrize({ playcoins: n })} help="Se abonan a su cuenta si la encontramos; si no, nos manda su correo." />}
                           {prize.kind === 'code' && <NumberField label="Descuento" value={prize.percent} suffix="%" onChange={(n) => setPrize({ percent: n })} help="Código de un solo uso hasta la fiesta." />}
                           {prize.kind === 'manual' && (

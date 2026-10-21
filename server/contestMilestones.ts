@@ -7,7 +7,7 @@
 import { and, eq } from 'drizzle-orm';
 import { contestLog, contestParticipants, contests, discountCodes, igThreads, ticketTypes } from '../drizzle/schema';
 import { fetchMediaComments, commentOnOwnMedia, canReplyWithinWindow } from './instagramSend';
-import { claimLog, createCode, ownUsername, send, CONTEST_APP_URL, type ContestCtx, type Db } from './contests';
+import { claimLog, createCode, ownUsername, send, CONTEST_APP_URL, type Channel, type ContestCtx, type Db } from './contests';
 import { ENV } from './_core/env';
 import { parseKeywords, matchesAllKeywords } from '../shared/contest';
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
@@ -87,7 +87,7 @@ export async function runMilestones(db: Db, ctx: ContestCtx): Promise<Record<str
     if (await claimLog(db, ctx.contest.id, 'comment', `milestone-post:${state.reachedIndex}`, null)) {
       await commentOnOwnMedia(ctx.contest.mediaId, milestoneCommentText({
         count: state.reachedIndex >= 0 ? ctx.config.milestones.steps[state.reachedIndex].comments : count,
-        percent: state.percent, code, until: untilText(progress.validUntil!), next: state.next, remaining: state.remaining, link: `${CONTEST_APP_URL}/concurso`,
+        percent: state.percent, until: untilText(progress.validUntil!), next: state.next, remaining: state.remaining, link: `${CONTEST_APP_URL}/concurso`,
       })).catch((err) => console.error('[Concurso] No se pudo anunciar el hito:', err));
     }
   } else if (count !== progress.count) {
@@ -99,6 +99,22 @@ export async function runMilestones(db: Db, ctx: ContestCtx): Promise<Record<str
     result.dms = await sendPendingDms(db, ctx, progress, state);
   }
   return result;
+}
+
+/** Un participante escribió "hito" / "código": se le manda su código vigente. */
+export async function replyMilestoneCode(ctx: ContestCtx, p: { username: string | null }, channel: Channel): Promise<void> {
+  const progress = readProgress(ctx);
+  const state = milestoneState(progress.count, ctx.config.milestones.steps);
+  const live = progress.reached >= 0 && progress.code && progress.validUntil && new Date(progress.validUntil).getTime() > Date.now();
+  const text = live
+    ? milestoneDmText({
+      name: p.username ? `@${p.username}` : '', count: ctx.config.milestones.steps[progress.reached].comments, percent: progress.percent,
+      code: progress.code!, until: untilText(progress.validUntil!), next: state.next, remaining: state.remaining, link: `${CONTEST_APP_URL}/concurso`,
+    })
+    : progress.reached >= 0
+      ? 'El descuento del último hito ya venció 😅 Atento: si llegamos al siguiente se desbloquea de nuevo.'
+      : `Todavía no se desbloquea ningún hito: llevamos ${progress.count} comentarios${state.next ? ` y faltan ${state.remaining} para el primero (${state.next.percent}%)` : ''} 🚀`;
+  await send(channel, text).catch((err) => console.error('[Concurso] No se pudo mandar el código del hito:', err));
 }
 
 /** DM del hito a quienes tienen la ventana de 24 h abierta (una vez por hito y persona). */

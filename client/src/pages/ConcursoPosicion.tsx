@@ -27,6 +27,28 @@ export default function ConcursoPosicion() {
 
   if (isLoading) return box(<Loader2 className="w-8 h-8 animate-spin mx-auto text-muted-foreground" />);
   if (!data) return box(<p className="text-center text-muted-foreground">Este link no es válido. Comenta en nuestro post del concurso para participar.</p>);
+  if (data.milestone) {
+    const m = data.milestone;
+    return box(
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="space-y-5 text-center">
+        <p className="text-sm uppercase tracking-[0.25em] text-primary mb-2">Reto por hitos</p>
+        <h1 className="font-heading font-extrabold text-3xl">{data.username ? `@${data.username}` : 'Tu descuento'}</h1>
+        <div className="glass-candy rounded-2xl p-6 space-y-2">
+          <p className="text-sm text-muted-foreground">Llevamos <b className="text-foreground">{m.count}</b> comentarios</p>
+          {m.live && m.code ? (
+            <>
+              <p className="font-heading font-extrabold text-5xl">{m.percent}%</p>
+              <p className="text-sm">Tu código: <b className="font-mono">{m.code}</b></p>
+              <p className="text-xs text-muted-foreground">Válido hasta {fmt(m.validUntil)}</p>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">Todavía no hay un descuento vigente. Entre más comentarios, más descuento: {m.steps.map((s) => `${s.comments} → ${s.percent}%`).join(' · ')}.</p>
+          )}
+        </div>
+        {data.links.reel && <a href={data.links.reel} target="_blank" rel="noopener noreferrer" className="w-full inline-flex items-center justify-center h-12 rounded-full bg-primary text-primary-foreground font-bold text-sm uppercase tracking-wide interactive">Ir al reel y ayudar a llegar al siguiente hito</a>}
+      </motion.div>,
+    );
+  }
   if (data.disqualified || !data.view) {
     return box(<p className="text-center text-muted-foreground">No encontramos tu posición en el ranking. Escríbenos por Instagram si crees que es un error.</p>);
   }

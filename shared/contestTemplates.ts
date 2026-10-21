@@ -129,6 +129,7 @@ export const CONTEST_TEMPLATES: ContestTemplate[] = [
         noTicket:
           '🎯 ¡Estás dentro, {{nombre}}! Entre todos desbloqueamos descuento para {{evento}}: a {{proximo_hito}} comentarios sube el descuento para todos.\n\n'
           + 'Llevamos {{comentarios}} comentarios. Comenta, comparte el reel y ayúdanos a llegar 🚀\n\n'
+          + '🎁 Tu descuento desbloqueado lo ves siempre aquí: {{link_posicion}} (o escribe HITO por DM).\n\n'
           + '🔒 Tu cupón {{cupon}} congela el precio de hoy hasta el {{congelado_hasta}}.\n\n'
           + '📜 Bases: {{link_bases}}',
         storyToReel:

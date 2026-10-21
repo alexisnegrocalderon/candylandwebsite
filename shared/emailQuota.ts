@@ -7,6 +7,10 @@ import { chileDateKey } from './chileDate';
  * variable EMAIL_DAILY_ALERT_AT en Vercel). */
 export const EMAIL_DAILY_ALERT_DEFAULT = 95;
 
+/** Tope de correos del día para los envíos del concurso (ranking, invitación a
+ * quienes ya compraron): deja ~30 libres para entradas y avisos. */
+export const CONTEST_EMAIL_DAILY_LIMIT = 70;
+
 export function emailAlertThreshold(raw: string | undefined): number {
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? Math.round(n) : EMAIL_DAILY_ALERT_DEFAULT;
