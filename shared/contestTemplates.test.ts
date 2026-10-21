@@ -53,11 +53,21 @@ describe('plantillas de concurso', () => {
     expect(c.verify.enabled).toBe(true);
   });
 
+  it('el reto relámpago arranca con 3 premios por puesto, sin palabras clave ni cupón de consuelo del concurso', () => {
+    const c = buildTemplateConfig('flash', input);
+    expect(c.keyword).toBe('');
+    expect(c.flash.prizes.map((p) => p.kind)).toEqual(['ticket', 'product', 'playcoins']);
+    expect(c.couponsAfterDraw).toBe(false);
+    expect(c.prizes.guaranteedLeader).toBe(false);
+    expect(c.verify.enabled).toBe(true);
+    expect(getContestTemplate('flash').typicalHours).toBe(2);
+  });
+
   it('los textos de cada plantilla solo usan variables que existen y no nombran un evento', () => {
     const known = new Set(['nombre', 'chances', 'ganadores_doble', 'premio', 'premio_singular', 'premio_vip', 'por_etiqueta', 'max_etiquetas',
       'bonus_historia', 'bonus_compra_amigo', 'multiplicador', 'porcentaje', 'horas', 'cupon', 'porcentaje_amigo', 'codigo_amigo', 'link_invitar',
       'fecha_sorteo', 'link_bases', 'evento', 'lista_regalos', 'codigo_premio', 'plazo', 'congelado_hasta', 'link_elegir', 'monto_devolucion',
-      'faltante', 'link_reel', 'frase', 'puntos_texto', 'comentarios', 'hito_porcentaje', 'hito_codigo', 'proximo_hito', 'proximo_porcentaje', 'faltan', 'puntos_quiz', 'puntos_total', 'aciertos', 'total_preguntas']);
+      'faltante', 'link_reel', 'frase', 'puntos_texto', 'comentarios', 'hito_porcentaje', 'hito_codigo', 'proximo_hito', 'proximo_porcentaje', 'faltan', 'puntos_quiz', 'puntos_total', 'aciertos', 'total_preguntas', 'intentos', 's', 'max_intentos', 'puesto', 'premio_flash', 'codigo_flash', 'porcentaje_flash', 'ganadores']);
     for (const t of CONTEST_TEMPLATES) {
       const c = buildTemplateConfig(t.key, input);
       const all = Object.values(c.messages).flat().join('\n');

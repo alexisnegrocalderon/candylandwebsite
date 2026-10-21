@@ -4,7 +4,7 @@ import { normalizeContestConfig, type ContestConfig } from './contest';
  * armada (puntos, premios, textos, avisos automáticos). Al crear un concurso
  * se elige una y todo queda editable. Los textos usan solo variables
  * (`{{evento}}`, `{{premio}}`, `{{frase}}`…), nada fijo de un evento. */
-export type ContestTemplateKey = 'ranking' | 'draw' | 'likes' | 'referrals' | 'milestones' | 'quiz';
+export type ContestTemplateKey = 'ranking' | 'draw' | 'likes' | 'referrals' | 'milestones' | 'quiz' | 'flash';
 
 export interface ContestTemplate {
   key: ContestTemplateKey;
@@ -151,6 +151,27 @@ export const CONTEST_TEMPLATES: ContestTemplate[] = [
       keywordPhrase: '',
       chances: { base: 1, perMention: 0, maxMentions: 0, storyBonus: 0, perInvitedPurchase: 0, buyerMultiplier: 1 },
       prizes: { doubleWinners: 1, doubleAlternates: 2, vipWinners: 0, vipAlternates: 0, guaranteedLeader: false },
+      ranking: { dailyComment: false, publicReplies: false, dmTips: false, emailBuyers: false },
+    },
+  },
+  {
+    key: 'flash',
+    name: 'Reto relámpago',
+    emoji: '⚡',
+    tagline: 'Los 3 primeros en acertar ganan, cada puesto con su premio',
+    description:
+      'Publicas un reto en una historia o reel (pregunta, encuentra algo, diferencias…) y la gente responde por DM o comentando. '
+      + 'Los 3 primeros en acertar ganan, cada puesto con el premio que elijas (entrada, producto, PlayCoins, descuento o manual). '
+      + 'Los intentos son limitados, hay pista automática y el reto dura pocas horas.',
+    typicalHours: 2,
+    durationPresets: [1, 2, 3],
+    overrides: {
+      keyword: '',
+      keywordPhrase: '',
+      publicReply: false,
+      couponsAfterDraw: false,
+      chances: { base: 1, perMention: 0, maxMentions: 0, storyBonus: 0, perInvitedPurchase: 0, buyerMultiplier: 1 },
+      prizes: { doubleWinners: 3, doubleAlternates: 1, vipWinners: 0, vipAlternates: 0, guaranteedLeader: false },
       ranking: { dailyComment: false, publicReplies: false, dmTips: false, emailBuyers: false },
     },
   },
