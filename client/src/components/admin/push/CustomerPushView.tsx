@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PushComposer, draftFromCampaign, emptyDraft, type ComposerDraft } from './PushComposer';
 import { PushHistory } from './PushHistory';
 import { PushAutoSettings } from './PushAutoSettings';
+import { AppInstallsView } from './AppInstallsView';
 
 function Stat({ value, label }: { value: number | string; label: string }) {
   return (
@@ -43,6 +44,7 @@ export function CustomerPushView() {
           <TabsTrigger value="enviar">{draft.id ? 'Editar' : 'Enviar'}</TabsTrigger>
           <TabsTrigger value="historial">Historial</TabsTrigger>
           <TabsTrigger value="auto">Automáticos</TabsTrigger>
+          <TabsTrigger value="app">Quién tiene la app</TabsTrigger>
         </TabsList>
         <TabsContent value="enviar" className="pt-3">
           <PushComposer initial={draft} onDone={() => { setDraft(emptyDraft()); setTab('historial'); }} />
@@ -52,6 +54,9 @@ export function CustomerPushView() {
         </TabsContent>
         <TabsContent value="auto" className="pt-3">
           <PushAutoSettings />
+        </TabsContent>
+        <TabsContent value="app" className="pt-3">
+          <AppInstallsView />
         </TabsContent>
       </Tabs>
     </div>

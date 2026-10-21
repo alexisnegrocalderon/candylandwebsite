@@ -1,4 +1,5 @@
 import { hasDarkSplash, hideSplash, isSiteApp } from "@/lib/splash";
+import { reportAppOpen } from "@/lib/customerPush";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
@@ -223,7 +224,7 @@ function App() {
   // hideSplash() (ver client/src/lib/splash.ts). El sitio instalado como app
   // lo convierte en la intro de neón corta mientras baja la página.
   useEffect(() => {
-    if (isSiteApp()) hideSplash();
+    if (isSiteApp()) { hideSplash(); reportAppOpen(); }
     else if (!hasDarkSplash()) document.getElementById('initial-loader')?.remove();
   }, []);
 

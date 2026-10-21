@@ -4213,6 +4213,7 @@ function CustomersView() {
   const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [birthdayFilter, setBirthdayFilter] = useState<string>('all');
   const [contactFilter, setContactFilter] = useState<string>('all');
+  const [appFilter, setAppFilter] = useState<string>('all');
   const [cityFilter, setCityFilter] = useState('');
   const [openCustomerId, setOpenCustomerId] = useState<number | null>(null);
   const [importing, setImporting] = useState(false);
@@ -4233,6 +4234,7 @@ function CustomersView() {
     city: cityFilter.trim() || undefined,
     birthdayMonth: birthdayFilter === 'all' ? undefined : Number(birthdayFilter),
     optedOut: contactFilter === 'all' ? undefined : (contactFilter as 'email' | 'any'),
+    hasApp: appFilter === 'app' ? true : undefined,
   });
 
   const customersList = customersData ?? [];
@@ -4244,7 +4246,7 @@ function CustomersView() {
   const currentPage = Math.min(page, totalPages - 1);
   const pageItems = customersList.slice(currentPage * CUSTOMERS_PAGE_SIZE, currentPage * CUSTOMERS_PAGE_SIZE + CUSTOMERS_PAGE_SIZE);
 
-  useEffect(() => { setPage(0); }, [search, accessType, tagFilter, eventFilter, levelFilter, genderFilter, sourceFilter, birthdayFilter, contactFilter, cityFilter]);
+  useEffect(() => { setPage(0); }, [search, accessType, tagFilter, eventFilter, levelFilter, genderFilter, sourceFilter, birthdayFilter, contactFilter, appFilter, cityFilter]);
 
   const filterParams = () => {
     const params = new URLSearchParams();
@@ -4337,6 +4339,13 @@ function CustomersView() {
               ))}
             </SelectContent>
           </Select>
+          <Select value={appFilter} onValueChange={setAppFilter}>
+            <SelectTrigger className="w-44"><SelectValue placeholder="App" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Con y sin app</SelectItem>
+              <SelectItem value="app">📱 Tienen la app</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={contactFilter} onValueChange={setContactFilter}>
             <SelectTrigger className="w-52"><SelectValue placeholder="Contacto" /></SelectTrigger>
             <SelectContent>
@@ -4410,6 +4419,7 @@ function CustomersView() {
                           <p className="font-semibold">{c.fullName || '(sin nombre)'}</p>
                           {level && <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${level.chip}`}>{level.label}</span>}
                           {(c.emailOptOut || c.whatsappOptOut) && <BellOff className="w-3.5 h-3.5 text-destructive" aria-label="No contactar" />}
+                          {c.hasApp && <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-primary/15 text-primary" title="Abrió la app instalada en los últimos 60 días">📱 Tiene la app</span>}
                         </div>
                         <p className="text-muted-foreground text-xs">{c.email}{c.phone ? ` · ${c.phone}` : ''}{c.city ? ` · ${c.city}` : ''}</p>
                         {accessTypes.length > 0 && (

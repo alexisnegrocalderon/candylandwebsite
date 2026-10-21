@@ -64,6 +64,32 @@ export function dismissPrompt(): void {
   try { localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch { /* sin storage: vuelve a aparecer, no pasa nada */ }
 }
 
+const DEVICE_KEY = 'mp_app_device';
+const OPENED_KEY = 'mp_app_opened';
+
+/** Avisa al servidor que el sitio se abrió como app instalada (una vez por
+ * apertura; con `ticketCode`, aunque ya haya avisado, para ligarla a esa
+ * compra). Es lo que cuenta "quién tiene la app" (server/appDevices.ts). */
+export function reportAppOpen(ticketCode?: string): void {
+  if (!isStandalone()) return;
+  try {
+    if (!ticketCode && sessionStorage.getItem(OPENED_KEY)) return;
+    let deviceId = localStorage.getItem(DEVICE_KEY);
+    if (!deviceId) {
+      deviceId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
+      localStorage.setItem(DEVICE_KEY, deviceId);
+    }
+    sessionStorage.setItem(OPENED_KEY, '1');
+    const code = ticketCode ?? lastTicketCode() ?? undefined;
+    fetch('/api/trpc/customerPush.appOpen', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ json: { deviceId, platform: pushPlatform(), ...(code ? { ticketCode: code } : {}) } }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch { /* sin storage: no se cuenta esta apertura */ }
+}
+
 /** Estado del aviso en este dispositivo + activar/desactivar. `ticketCode` u
  * `orderNumber` ligan el dispositivo al correo de esa compra. */
 export function useCustomerPush(opts: { source: PushSource; ticketCode?: string; orderNumber?: string }) {
@@ -87,6 +113,8 @@ export function useCustomerPush(opts: { source: PushSource; ticketCode?: string;
       setState(sub && Notification.permission === 'granted' ? 'enabled' : 'ask');
       // Ya activado desde la home (anónimo) y ahora abre su entrada: se liga a su correo.
       if (sub && opts.ticketCode) link.mutate({ endpoint: sub.endpoint, ticketCode: opts.ticketCode });
+      // Abrió su entrada dentro de la app: esa app queda ligada a su compra.
+      if (opts.ticketCode) reportAppOpen(opts.ticketCode);
     })();
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -2056,6 +2056,27 @@ export const pushCampaigns = mysqlTable("pushCampaigns", {
 
 export type PushCampaign = typeof pushCampaigns.$inferSelect;
 
+// Teléfonos/computadores que abren el sitio como app instalada (desde el ícono
+// de inicio) -- server/appDevices.ts. El navegador no avisa cuando alguien
+// instala o borra la app: se registra cada apertura, así que "tiene la app"
+// se lee como "la abrió en los últimos N días". `deviceId` es un id al azar
+// que la app guarda en su almacenamiento; el email sale de la última entrada
+// abierta en ese teléfono (si hay).
+export const appDevices = mysqlTable("appDevices", {
+  id: int("id").autoincrement().primaryKey(),
+  deviceId: varchar("deviceId", { length: 64 }).notNull().unique(),
+  platform: varchar("platform", { length: 10 }).notNull(),
+  email: varchar("email", { length: 320 }),
+  emailNorm: varchar("emailNorm", { length: 320 }),
+  orderId: int("orderId"),
+  opens: int("opens").default(1).notNull(),
+  firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
+  lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+}, (table) => ({
+  emailIdx: index("app_devices_email_idx").on(table.emailNorm),
+  lastSeenIdx: index("app_devices_last_seen_idx").on(table.lastSeenAt),
+}));
+
 // ---------------------------------------------------------------------------
 // Agente de IA del Instagram de la productora (server/instagram.ts).
 // ---------------------------------------------------------------------------

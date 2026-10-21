@@ -157,6 +157,7 @@ export function CustomerDrawer({ customerId, onClose, onPrev, onNext, onChanged,
                     {(c.emailOptOut || c.whatsappOptOut) && (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-destructive/10 text-destructive flex items-center gap-1"><BellOff className="w-3 h-3" /> No contactar</span>
                     )}
+                    {data?.hasApp && <span className="text-xs px-2 py-0.5 rounded-full bg-primary/15 text-primary" title="Abrió la app instalada en los últimos 60 días">📱 Tiene la app</span>}
                   </div>
                   <p className="text-sm text-muted-foreground truncate">{c.email}</p>
                   <div className="flex flex-wrap gap-2 mt-2">

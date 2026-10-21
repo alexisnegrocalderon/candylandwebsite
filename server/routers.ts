@@ -107,6 +107,7 @@ import { applyEmailOptOut, decodeEmail as decodeUnsubscribeEmail, verifyUnsubscr
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
 import * as customerPush from "./customerPush";
 import { notifyEventLaunch } from "./customerPush";
+import * as appDevices from "./appDevices";
 import { SEGMENT_TYPES } from "../shared/pushSegments";
 import { normalizeCustomerPushConfig } from "../shared/customerPushConfig";
 import { normalizeInstagramAgentConfig, normalizeIgUsername, DEFAULT_INSTAGRAM_AGENT_CONFIG, IG_MAX_REPLY_CHARS } from "../shared/instagramAgentConfig";
@@ -4062,6 +4063,16 @@ export const appRouter = router({
       await customerPush.recordPushClick(input.campaignId);
       return { success: true };
     }),
+    // El sitio se abrió como app instalada (una vez por apertura): "¿quién tiene la app?".
+    appOpen: publicProcedure.input(z.object({
+      deviceId: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
+      platform: z.enum(['ios', 'android', 'desktop']),
+      ticketCode: z.string().max(64).optional(),
+    })).mutation(async ({ input }) => {
+      await appDevices.recordAppOpen(input);
+      return { success: true };
+    }),
+    appStats: adminReadProcedure.query(() => appDevices.appInstallStats()),
 
     // ── Panel ──
     stats: adminReadProcedure.query(() => customerPush.audienceStats()),
@@ -5613,12 +5624,17 @@ export const appRouter = router({
       source: z.string().optional(),
       birthdayMonth: z.number().int().min(1).max(12).optional(),
       optedOut: z.enum(['email', 'any']).optional(),
+      // Solo quienes abrieron la app instalada en los últimos 60 días.
+      hasApp: z.boolean().optional(),
     }).optional()).query(async ({ input }) => {
       const now = new Date();
-      const rows = await db.listCustomers(input ?? {});
+      const { hasApp, ...filters } = input ?? {};
+      const [all, withApp] = await Promise.all([db.listCustomers(filters), appDevices.appEmails()]);
+      const rows = hasApp ? all.filter((c: any) => withApp.has(c.email.toLowerCase())) : all;
       // Nunca sale el hash del PIN de la tarjeta; el nivel va calculado.
       return rows.map(({ cardPinHash: _hash, ...c }: any) => ({
         ...c,
+        hasApp: withApp.has(c.email.toLowerCase()),
         level: computeCustomerLevel({
           totalOrders: c.totalOrders, totalSpent: Number(c.totalSpent), lastActivityAt: c.lastSeenAt, levelOverride: c.levelOverride, now,
         }),
@@ -5628,7 +5644,7 @@ export const appRouter = router({
     detail: adminReadProcedure.input(z.object({ id: z.number() })).query(async ({ input }) => {
       const profile = await getCustomerProfile(input.id);
       if (!profile) throw new TRPCError({ code: 'NOT_FOUND', message: 'No encontré a ese cliente.' });
-      return profile;
+      return { ...profile, hasApp: (await appDevices.appEmails()).has(String(profile.customer.email).toLowerCase()) };
     }),
     // Edición manual de la ficha. Lo que se toca queda protegido de las
     // compras nuevas (lockedFields) y se deja en la bitácora de admin.

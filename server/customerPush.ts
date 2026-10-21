@@ -49,7 +49,7 @@ export function safePushUrl(raw: string | null | undefined): string {
 /* ── Suscripción ─────────────────────────────────────────────────────────── */
 
 /** Email ligado a la entrada o al pedido desde donde se activó. */
-async function resolveEmail(input: { ticketCode?: string; orderNumber?: string }): Promise<{ email: string; orderId: number } | null> {
+export async function resolveEmail(input: { ticketCode?: string; orderNumber?: string }): Promise<{ email: string; orderId: number } | null> {
   const db = await getDb();
   if (!db) return null;
   let orderId: number | null = null;
