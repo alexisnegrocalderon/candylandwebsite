@@ -4,7 +4,7 @@ import { normalizeContestConfig, type ContestConfig } from './contest';
  * armada (puntos, premios, textos, avisos automáticos). Al crear un concurso
  * se elige una y todo queda editable. Los textos usan solo variables
  * (`{{evento}}`, `{{premio}}`, `{{frase}}`…), nada fijo de un evento. */
-export type ContestTemplateKey = 'ranking' | 'draw';
+export type ContestTemplateKey = 'ranking' | 'draw' | 'likes' | 'referrals';
 
 export interface ContestTemplate {
   key: ContestTemplateKey;
@@ -58,6 +58,56 @@ export const CONTEST_TEMPLATES: ContestTemplate[] = [
           + 'Tus regalos:\n{{lista_regalos}}',
         storyToReel:
           '🍬 ¡Estás dentro, {{nombre}}! Sorteamos {{ganadores_doble}} {{premio}} el {{fecha_sorteo}}. Más info en el reel 👉 {{link_reel}}',
+      },
+    },
+  },
+  {
+    key: 'likes',
+    name: 'Comentario con más "me gusta"',
+    emoji: '❤️',
+    tagline: 'Gana el comentario más votado al cierre',
+    description:
+      'Comentar la palabra clave inscribe y compite: gana quien tenga el comentario con más "me gusta" al cierre (1 por persona, '
+      + 'empate = el más antiguo). Al cerrar se congelan los likes y se publica el top 3 con @ en el reel.',
+    typicalHours: 24,
+    durationPresets: [24, 48, 72],
+    overrides: {
+      chances: { base: 1, perMention: 0, maxMentions: 0, storyBonus: 0, perInvitedPurchase: 0, buyerMultiplier: 1 },
+      prizes: { doubleWinners: 1, doubleAlternates: 2, vipWinners: 0, vipAlternates: 0, guaranteedLeader: false },
+      ranking: { dailyComment: true, publicReplies: false, dmTips: false, emailBuyers: false },
+      messages: {
+        noTicket:
+          '❤️ ¡Estás dentro, {{nombre}}! Gana el comentario con más "me gusta" el {{fecha_sorteo}} y se lleva {{premio_singular}}.\n\n'
+          + 'Pide a tus amigos que le den like a tu comentario en el reel y compártelo en tu historia 🚀\n\n'
+          + '🔒 Mientras, tu cupón {{cupon}} congela el precio de hoy hasta el {{congelado_hasta}} (+{{porcentaje}}% extra si compras en {{horas}} h).\n\n'
+          + '📜 Bases: {{link_bases}}',
+        storyToReel:
+          '❤️ {{nombre}}, el concurso es en el reel: comenta "{{frase}}" y consigue likes 👉 {{link_reel}}',
+      },
+    },
+  },
+  {
+    key: 'referrals',
+    name: 'Carrera de referidos',
+    emoji: '🚀',
+    tagline: 'Gana quien haga comprar a más amigos',
+    description:
+      'Cada participante recibe su link personal. Gana quien consiga más compras con su link durante el concurso (se mide con compras reales, '
+      + 'empate = quien entró antes). Comentario diario con la tabla y resultado final en el reel.',
+    typicalHours: 24 * 5,
+    durationPresets: [72, 24 * 5, 24 * 7],
+    overrides: {
+      chances: { base: 1, perMention: 0, maxMentions: 0, storyBonus: 0, perInvitedPurchase: 1, buyerMultiplier: 1 },
+      prizes: { doubleWinners: 2, doubleAlternates: 1, vipWinners: 0, vipAlternates: 0, guaranteedLeader: false },
+      ranking: { dailyComment: true, dailyHour: 20, publicReplies: false, dmTips: false, emailBuyers: false },
+      messages: {
+        noTicket:
+          '🚀 ¡Estás dentro, {{nombre}}! Gana quien haga comprar a más amigos antes del {{fecha_sorteo}}: {{ganadores_doble}} {{premio}} para el top.\n\n'
+          + '🔗 Tu link personal: {{link_invitar}}\n'
+          + '🛒 Cada amigo que compre con tu link cuenta para ti. Tu amigo también paga menos: {{porcentaje_amigo}}% con {{codigo_amigo}}.\n\n'
+          + '📜 Bases: {{link_bases}}',
+        storyToReel:
+          '🚀 {{nombre}}, la carrera es en el reel: comenta "{{frase}}" y recibe tu link personal 👉 {{link_reel}}',
       },
     },
   },
