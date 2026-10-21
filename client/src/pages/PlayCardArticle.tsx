@@ -134,8 +134,8 @@ export default function PlayCardArticle() {
           <p className="text-center text-xs text-muted-foreground mb-4">Ejemplo ilustrativo -- toca la tarjeta para ver el reverso.</p>
           {/* Acceso directo pedido por el dueño: alguien leyendo esta página
               ya tiene entrada propia y quiere ver SU saldo real, no el de
-              ejemplo de arriba -- lleva a /mis-puntos (búsqueda por email,
-              sin login, mismo criterio que el resto del sitio). */}
+              ejemplo de arriba -- lleva a /mis-puntos (Mi cuenta: entra con un
+              código al correo). */}
           <div className="flex flex-col sm:flex-row gap-3 justify-center mb-14">
             <Link
               href="/recargar"
@@ -147,7 +147,7 @@ export default function PlayCardArticle() {
               href="/mis-puntos"
               className="btn-jelly inline-flex items-center justify-center gap-2 px-6 py-3 rounded-full border border-primary/40 font-semibold interactive"
             >
-              <Wallet className="w-4 h-4" /> Revisar mi saldo real
+              <Wallet className="w-4 h-4" /> Ver mi saldo en Mi cuenta
             </Link>
           </div>
 

@@ -9,6 +9,7 @@ import { getDb, getStockPoolRemaining } from './db';
 import {
   advanceAbTests, createPushCampaign, finalizeCampaigns, getCustomerPushConfig, nextEvent, processDueDeliveries, sendPushCampaign,
 } from './customerPush';
+import { runMemberBenefits } from './members';
 import { events, pushAutoLog, pushCampaigns, ticketTypes } from '../drizzle/schema';
 import type { PushRule } from '../shared/pushSegments';
 import { fillPushText, type CustomerPushConfig } from '../shared/customerPushConfig';
@@ -145,6 +146,13 @@ async function runBalance(config: CustomerPushConfig, now: Date): Promise<string
   return `saldo: ${n}`;
 }
 
+/** Cupones de socios (nivel del mes y cumpleaños): una vez al día desde las 10:00, con aviso a quien tiene las notificaciones. */
+async function runMembers(now: Date): Promise<string | null> {
+  if (chileParts(now).hour < 10 || !(await claimOnce('socios', chileParts(now).day))) return null;
+  const r = await runMemberBenefits(now);
+  return r.granted > 0 ? `cupones de socios: ${r.granted} (${r.notified} avisados)` : null;
+}
+
 /** Cron cada 15 min: campañas programadas que ya tocan, pruebas A/B, entregas en cola y automáticos (1 vez por hora). */
 export async function runPushQueue(now = new Date()): Promise<{ campaigns: number; delivered: number; abAdvanced: number; automatic: string[]; errors: string[] }> {
   const db = await getDb();
@@ -168,6 +176,7 @@ export async function runPushQueue(now = new Date()): Promise<{ campaigns: numbe
       const runners: [string, () => Promise<string | null>][] = [
         ['recordatorio', () => runEventReminder(config, now)], ['cumpleaños', () => runBirthday(config, now)], ['pocos cupos', () => runLowStock(config)],
         ['gracias', () => runThanks(config, now)], ['reactivación', () => runWinback(config, now)], ['saldo', () => runBalance(config, now)],
+        ['socios', () => runMembers(now)],
       ];
       for (const [name, run] of runners) {
         try { const r = await run(); if (r) automatic.push(r); } catch (err) { errors.push(`${name}: ${err instanceof Error ? err.message : 'error'}`); }

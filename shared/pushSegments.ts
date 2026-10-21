@@ -33,7 +33,9 @@ export type PushRule =
   /** Compraron alguna vez, pero no en los últimos N días. */
   | { type: 'dormant'; days: number }
   /** Tienen saldo PlayCard sin gastar. */
-  | { type: 'hasBalance' };
+  | { type: 'hasBalance' }
+  /** Socios: entraron a «Mi cuenta» alguna vez. */
+  | { type: 'member' };
 
 export interface PushSegment {
   type: 'combo';
@@ -43,7 +45,7 @@ export interface PushSegment {
 
 export const RULE_TYPES = [
   'event', 'nextEvent', 'nextEventNoTicket', 'neverBought', 'recentBuyers', 'ambassadors', 'level', 'birthdayMonth', 'birthdayToday',
-  'city', 'gender', 'app', 'clicked', 'notClicked', 'attended', 'dormant', 'hasBalance',
+  'city', 'gender', 'app', 'clicked', 'notClicked', 'attended', 'dormant', 'hasBalance', 'member',
 ] as const;
 
 export const LEVELS = ['vip', 'recurrente', 'nuevo', 'inactivo', 'sin_compras'] as const;
@@ -75,7 +77,7 @@ export function normalizeRule(raw: unknown): PushRule | null {
     case 'birthdayMonth': return Number.isInteger(r.month) && r.month >= 1 && r.month <= 12 ? { type: 'birthdayMonth', month: r.month } : null;
     case 'city': return typeof r.city === 'string' && r.city.trim() ? { type: 'city', city: r.city.trim().slice(0, 100) } : null;
     case 'gender': return typeof r.gender === 'string' && r.gender.trim() ? { type: 'gender', gender: r.gender.trim().slice(0, 20) } : null;
-    case 'nextEvent': case 'nextEventNoTicket': case 'neverBought': case 'ambassadors': case 'birthdayToday': case 'hasBalance': return { type: r.type };
+    case 'nextEvent': case 'nextEventNoTicket': case 'neverBought': case 'ambassadors': case 'birthdayToday': case 'hasBalance': case 'member': return { type: r.type };
     default: return null;
   }
 }
@@ -164,6 +166,7 @@ export function describeRule(rule: PushRule, names?: { event?: (id: number) => s
     case 'clicked': return `tocaron «${names?.campaign?.(rule.campaignId) ?? `aviso #${rule.campaignId}`}»`;
     case 'notClicked': return `no tocaron «${names?.campaign?.(rule.campaignId) ?? `aviso #${rule.campaignId}`}»`;
     case 'hasBalance': return 'con saldo PlayCard';
+    case 'member': return 'socios (tienen cuenta)';
   }
 }
 

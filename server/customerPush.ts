@@ -297,6 +297,20 @@ async function sendDirect(subs: SubRow[], payload: CustomerPushPayload, opts: { 
   return { sent: okIds.length, failed };
 }
 
+/** Aviso inmediato a todos los dispositivos de un correo (cupón nuevo, etc.). Devuelve cuántos recibieron. Nunca lanza. */
+export async function pushToEmail(email: string, payload: CustomerPushPayload): Promise<number> {
+  try {
+    const db = await getDb();
+    const key = emailKey(email);
+    if (!db || !key) return 0;
+    const subs = await db.select().from(customerPushSubscriptions).where(and(eq(customerPushSubscriptions.emailNorm, key), isNull(customerPushSubscriptions.optedOutAt)));
+    return (await sendDirect(subs, payload, { names: await namesByEmail([key]) })).sent;
+  } catch (err) {
+    console.error('[CustomerPush] Aviso a un correo:', err);
+    return 0;
+  }
+}
+
 /* ── Segmentos ───────────────────────────────────────────────────────────── */
 
 const emailSet = (rows: { e: string | null }[]): Set<string> => new Set(rows.map((r) => emailKey(r.e)).filter((e): e is string => !!e));
@@ -320,11 +334,11 @@ async function resolveRules(rules: PushRule[], subs: SubRow[]): Promise<Record<s
   const out: Record<string, RuleMatch> = {};
   const subEmails = new Set(subs.map((s) => s.emailNorm).filter((e): e is string => !!e));
   const approved = eq(orders.paymentStatus, 'approved');
-  type Cust = { email: string; birthDate: string | null; gender: string | null; city: string | null; totalOrders: number; totalSpent: unknown; lastSeenAt: Date | null; levelOverride: string | null; prepaidBalance: number };
+  type Cust = { email: string; birthDate: string | null; gender: string | null; city: string | null; totalOrders: number; totalSpent: unknown; lastSeenAt: Date | null; levelOverride: string | null; prepaidBalance: number; memberSince: Date | null };
   let customerRows: Cust[] | null = null;
   const allCustomers = async (): Promise<Cust[]> => (customerRows ??= (await db.select({
     email: customers.email, birthDate: customers.birthDate, gender: customers.gender, city: customers.city, totalOrders: customers.totalOrders,
-    totalSpent: customers.totalSpent, lastSeenAt: customers.lastSeenAt, levelOverride: customers.levelOverride, prepaidBalance: customers.prepaidBalance,
+    totalSpent: customers.totalSpent, lastSeenAt: customers.lastSeenAt, levelOverride: customers.levelOverride, prepaidBalance: customers.prepaidBalance, memberSince: customers.memberSince,
   }).from(customers)) as Cust[]);
   const buyersOf = async (cond: any): Promise<Set<string>> => emailSet(await db.selectDistinct({ e: orders.buyerEmail }).from(orders).where(cond));
   const customerEmails = async (pred: (c: Cust) => boolean): Promise<Set<string>> =>
@@ -389,6 +403,9 @@ async function resolveRules(rules: PushRule[], subs: SubRow[]): Promise<Record<s
       }
       case 'hasBalance':
         out[key] = { emails: await customerEmails((c) => c.prepaidBalance > 0) };
+        break;
+      case 'member':
+        out[key] = { emails: await customerEmails((c) => !!c.memberSince) };
         break;
       case 'app': {
         const rows = await db.select({ e: appDevices.emailNorm, last: sql<Date>`max(${appDevices.lastSeenAt})` }).from(appDevices).where(isNotNull(appDevices.emailNorm)).groupBy(appDevices.emailNorm);

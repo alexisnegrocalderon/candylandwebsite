@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -25,6 +25,9 @@ import { BRAND } from '@shared/eventBrand';
 import { PARTNER_EXISTING_CUSTOMER_MESSAGE } from '@shared/partnerCampaign';
 import './Checkout.walletPreview.css';
 import { ContestBuyerInvite } from '@/components/ContestBuyerInvite';
+import { MemberEarlyGate } from '@/components/site/MemberEarlyGate';
+import { useMemberSession } from '@/lib/member';
+import { isMemberEarlyAccess } from '@shared/memberConfig';
 
 /** Mini vista previa de la Tarjeta Playroom, mostrada justo donde se pide el
  * PIN -- para que quede claro que el PIN protege ESTA tarjeta (saldo +
@@ -341,7 +344,7 @@ const PARTNER_CHECKS: { key: 'sigoPlayroom' | 'aceptaValores' | 'aceptaPermanenc
  * (/electronica, ver shared/partnerCampaign.ts) -- mismos accesos y mismo
  * flujo, pero con el precio por persona de la campaña, sin códigos, sin
  * Soltero, y con el paso obligatorio de valores + derecho de permanencia. */
-export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {}) {
+function CheckoutInner({ partnerSlug }: { partnerSlug?: string } = {}) {
   const [, params] = useRoute('/checkout/:eventSlug');
   const isPartner = !!partnerSlug;
   const { data: partner, isLoading: partnerLoading } = trpc.partner.get.useQuery(
@@ -709,6 +712,15 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
     mode: 'onBlur',
     defaultValues: draft.values ?? {},
   });
+
+  // Quien tiene sesión de «Mi cuenta» ya trae su correo puesto (una sola vez: si lo cambia, se respeta).
+  const { data: memberSession } = useMemberSession();
+  const emailPrefilled = useRef(false);
+  useEffect(() => {
+    if (emailPrefilled.current || !memberSession?.loggedIn || !memberSession.isMember) return;
+    emailPrefilled.current = true;
+    if (!watch('buyer__email')) setValue('buyer__email', memberSession.email, { shouldValidate: false });
+  }, [memberSession, setValue, watch]);
 
   useEffect(() => {
     if (draft.accesoSlug) setAccesoSlug(draft.accesoSlug);
@@ -1723,4 +1735,17 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
       </div>
     </div>
   );
+}
+
+/** Puerta de la preventa de socios: si el evento la tiene activa y no hay sesión de «Mi cuenta», se pide entrar antes de comprar. */
+export default function Checkout(props: { partnerSlug?: string } = {}) {
+  const [, params] = useRoute('/checkout/:eventSlug');
+  const slug = props.partnerSlug ? '' : params?.eventSlug ?? CANDYLAND.slug;
+  const { data: event } = trpc.events.getBySlug.useQuery({ slug }, { enabled: !!slug, retry: false });
+  const { data: session, isLoading } = useMemberSession();
+  if (slug && event && isMemberEarlyAccess(event as any)) {
+    if (isLoading) return <div className="min-h-dvh" />;
+    if (!(session?.loggedIn && session.isMember)) return <MemberEarlyGate event={event as any} />;
+  }
+  return <CheckoutInner {...props} />;
 }

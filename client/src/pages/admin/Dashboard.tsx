@@ -52,6 +52,7 @@ import { CustomerDrawer } from '@/components/admin/CustomerDrawer';
 import { CUSTOMER_LEVEL_META, GENDER_OPTIONS, SOURCE_OPTIONS, daysBetween, recencyTone } from '@shared/customerInsights';
 import { MailingComposer } from '@/components/admin/MailingComposer';
 import { CustomerPushView } from '@/components/admin/push/CustomerPushView';
+import { MembersManager } from '@/components/admin/members/MembersManager';
 import { InstagramInbox } from '@/components/admin/InstagramInbox';
 import { SalesStrategyView } from '@/components/admin/SalesStrategyView';
 import { EventSurveyView } from '@/components/admin/EventSurveyView';
@@ -931,7 +932,7 @@ function eventFormFromEvent(event: any) {
     shortDescription: (event.shortDescription || '') as string, venue: (event.venue || '') as string,
     address: (event.address || '') as string, mapsUrl: (event.mapsUrl || '') as string,
     eventDate: toChileInputValue(event.eventDate), doorsOpen: toChileInputValue(event.doorsOpen),
-    eventEnd: toChileInputValue(event.eventEnd),
+    eventEnd: toChileInputValue(event.eventEnd), memberEarlyUntil: toChileInputValue(event.memberEarlyUntil),
     status: (event.status || 'draft') as 'draft' | 'published' | 'soldout' | 'cancelled' | 'past',
     imageUrl: (event.imageUrl || '') as string, featured: !!event.featured,
     missionForceClosed: !!event.missionForceClosed, ivaApplies: !!event.ivaApplies,
@@ -1060,6 +1061,7 @@ function EventCard({ event, onDeleted, expanded, onToggleExpand }: { event: any;
       eventDate: fromChileInputValue(form.eventDate),
       doorsOpen: fromChileInputValue(form.doorsOpen),
       eventEnd: fromChileInputValue(form.eventEnd),
+      memberEarlyUntil: fromChileInputValue(form.memberEarlyUntil),
     });
   };
 
@@ -1125,6 +1127,11 @@ function EventCard({ event, onDeleted, expanded, onToggleExpand }: { event: any;
                 <Label>Fin del evento</Label>
                 <Input type="datetime-local" value={form.eventEnd} onChange={(e) => setForm({ ...form, eventEnd: e.target.value })} className="mt-1" />
                 <p className="text-xs text-muted-foreground mt-1">Si lo dejas vacío, se asume 12 horas después de la fecha del evento.</p>
+              </div>
+              <div className="md:col-span-2">
+                <Label>Preventa anticipada para socios hasta</Label>
+                <Input type="datetime-local" value={form.memberEarlyUntil} onChange={(e) => setForm({ ...form, memberEarlyUntil: e.target.value })} className="mt-1" />
+                <p className="text-xs text-muted-foreground mt-1">Hasta esa fecha solo compran quienes entraron a «Mi cuenta» con el correo de su compra; después se abre para todos. Vacío = sin preventa de socios.</p>
               </div>
             </div>
             <EventDescriptionAiFields
@@ -11024,6 +11031,7 @@ const ADMIN_SECTIONS = [
   { id: 'leads', label: 'Leads', hub: 'clientes', icon: UserPlus, render: () => <LeadsView /> },
   { id: 'winback', label: 'Reactivar clientes', hub: 'clientes', icon: Users, render: () => <WinbackView /> },
   { id: 'birthdays', label: 'Cumpleañeros', hub: 'clientes', icon: Cake, render: () => <BirthdaysView /> },
+  { id: 'members', label: 'Socios', hub: 'clientes', icon: Crown, render: () => <MembersManager /> },
   { id: 'blocked-customers', label: 'Bloqueo de Clientes', hub: 'clientes', icon: Ban, render: () => <BlockedManager /> },
 
   { id: 'instagram', label: 'Instagram', hub: 'mensajes', icon: Instagram, render: () => <InstagramInbox /> },

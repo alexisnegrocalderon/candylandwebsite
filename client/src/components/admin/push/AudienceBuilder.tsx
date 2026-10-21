@@ -31,6 +31,7 @@ const GROUPS: { label: string; options: RuleOption[] }[] = [
     { id: 'gender', label: 'Género…', make: () => ({ type: 'gender', gender: 'mujer' }) },
     { id: 'hasBalance', label: 'Con saldo PlayCard', make: () => ({ type: 'hasBalance' }) },
     { id: 'ambassadors', label: 'Embajadores VIP', make: () => ({ type: 'ambassadors' }) },
+    { id: 'member', label: 'Socios (tienen cuenta)', make: () => ({ type: 'member' }) },
   ] },
   { label: 'App y avisos', options: [
     { id: 'appActive', label: 'Abrieron la app hace poco…', make: () => ({ type: 'app', mode: 'active', days: 30 }) },

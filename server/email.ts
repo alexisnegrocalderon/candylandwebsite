@@ -716,31 +716,39 @@ export function buildOrderRefundEmail(data: {
 
 /** Código de 6 dígitos para entrar a /recargar. Va en un bloque grande con
  * `user-select:all` para que un toque lo seleccione entero y se pueda copiar. */
-export function buildTopupCodeEmail(data: { code: string; purpose?: 'recargar' | 'pin' }) {
+export function buildTopupCodeEmail(data: { code: string; purpose?: 'recargar' | 'pin' | 'cuenta'; name?: string | null }) {
   const spaced = `${data.code.slice(0, 3)} ${data.code.slice(3)}`;
   const forPin = data.purpose === 'pin';
+  const forAccount = data.purpose === 'cuenta';
   return emailShell({
-    preheader: `${forPin ? 'Tu código para cambiar el PIN' : 'Tu código para recargar la PlayCard'}: ${spaced}`,
+    preheader: `${forAccount ? 'Tu código para entrar a tu cuenta' : forPin ? 'Tu código para cambiar el PIN' : 'Tu código para recargar la PlayCard'}: ${spaced}`,
     pageBg: DISCO_BG,
     hero: emailHero({
       accent: 'gold',
       heroBg: DISCO_HERO_BG,
-      emoji: forPin ? '🔐🔑' : '🔐💳',
-      title: forPin ? 'Tu código para cambiar el PIN' : 'Tu código para recargar',
-      subtitle: forPin
-        ? 'Escríbelo (o cópialo y pégalo) en la pantalla donde pediste recuperar tu PIN.'
-        : 'Escríbelo (o cópialo y pégalo) en la página de recarga de tu PlayCard.',
+      emoji: forAccount ? '🔐🎟️' : forPin ? '🔐🔑' : '🔐💳',
+      title: forAccount ? 'Tu código para entrar' : forPin ? 'Tu código para cambiar el PIN' : 'Tu código para recargar',
+      subtitle: forAccount
+        ? `${data.name ? `${escapeEmailText(data.name)}, e` : 'E'}scríbelo (o cópialo y pégalo) en la página donde pediste entrar a tu cuenta.`
+        : forPin
+          ? 'Escríbelo (o cópialo y pégalo) en la pantalla donde pediste recuperar tu PIN.'
+          : 'Escríbelo (o cópialo y pégalo) en la página de recarga de tu PlayCard.',
     }),
     body: `
       ${card(`
         <div style="text-align:center;">
           <p style="color:${FAINT};font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:0 0 10px;">Tu código</p>
           <p style="color:${ACCENT.gold.text};font-size:44px;font-weight:800;letter-spacing:8px;margin:0 0 10px;font-family:'Courier New',monospace;user-select:all;-webkit-user-select:all;">${data.code}</p>
-          <p style="color:${MUTED};font-size:13px;margin:0;">Vale por 10 minutos. Si no lo pediste tú, ignora este correo: nadie puede recargar, cambiar tu PIN ni ver tu saldo sin este código.</p>
+          <p style="color:${MUTED};font-size:13px;margin:0;">Vale por 10 minutos. Si no lo pediste tú, ignora este correo: nadie puede entrar a tu cuenta, recargar, cambiar tu PIN ni ver tu saldo sin este código.</p>
         </div>
       `, { glow: 'gold' })}
     `,
   });
+}
+
+/** Código de 6 dígitos para entrar a «Mi cuenta» (server/members.ts). */
+export function buildMemberCodeEmail(data: { code: string; name?: string | null }) {
+  return buildTopupCodeEmail({ code: data.code, purpose: 'cuenta', name: data.name });
 }
 
 /** Aviso de seguridad: el PIN de la PlayCard se cambió con "Olvidé mi PIN".

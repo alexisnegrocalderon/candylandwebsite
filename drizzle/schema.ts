@@ -40,6 +40,10 @@ export const events = mysqlTable("events", {
   eventDate: timestamp("eventDate").notNull(),
   doorsOpen: timestamp("doorsOpen"),
   eventEnd: timestamp("eventEnd"),
+  // Preventa anticipada para socios (quienes tienen cuenta): hasta esta fecha
+  // las entradas solo las compra quien entró a «Mi cuenta» con el mismo correo
+  // de la compra. null = sin preventa de socios (comportamiento de siempre).
+  memberEarlyUntil: timestamp("memberEarlyUntil"),
   status: mysqlEnum("status", ["draft", "published", "soldout", "cancelled", "past"]).default("draft").notNull(),
   featured: int("featured").default(0).notNull(),
   // Interruptor manual del admin: fuerza el cobro a "valor general" aunque
@@ -650,6 +654,9 @@ export const siteSettings = mysqlTable("siteSettings", {
   // carrito abandonado) -- forma en shared/customerPushConfig.ts. null = todo
   // APAGADO, mismo criterio que arriba.
   customerPushConfig: json("customerPushConfig"),
+  // Beneficios de la cuenta de socios (cupón de bienvenida, por nivel y de
+  // cumpleaños) -- forma en shared/memberConfig.ts. null = todo APAGADO.
+  memberConfig: json("memberConfig"),
   // Último reporte del coach semanal del agente (server/agentCoach.ts): qué
   // preguntan más, dónde se enfría la gente y qué agregarle al conocimiento.
   agentCoachReport: json("agentCoachReport"),
@@ -1068,6 +1075,9 @@ export const customers = mysqlTable("customers", {
   // dos conviven en la misma tarjeta sin mezclarse. Igual que `playcoins`, es
   // una proyección cacheada de la suma de `prepaidLedger` para este cliente.
   prepaidBalance: int("prepaidBalance").default(0).notNull(),
+  // Primera vez que entró a «Mi cuenta» (código por correo): desde ahí es
+  // «socio» y le llegan los cupones y la preventa anticipada (server/members.ts).
+  memberSince: timestamp("memberSince"),
   // PIN de 4 dígitos que el cliente define en su propia tarjeta para poder
   // GASTAR el saldo. La tarjeta se VE con solo tener el ticketCode (token
   // portador, igual que hoy), pero descontar plata exige además esto -- así una
@@ -3067,3 +3077,23 @@ export const attendeeContacts = mysqlTable("attendee_contacts", {
 }, (t) => ({
   matchKeyIdx: uniqueIndex("attendee_contacts_match_key_idx").on(t.matchKey),
 }));
+
+// Cupones personales de los socios (cuenta de «Mi cuenta»): cada uno es un
+// `discountCodes` de un solo uso, ligado a un correo. `grantKey` hace
+// idempotente el regalo (ej. "bienvenida:ana@x.cl", "nivel:vip:2026-10:ana@x.cl",
+// "cumple:2026:ana@x.cl"): dos corridas o dos toques nunca regalan dos veces.
+export const memberCoupons = mysqlTable("memberCoupons", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull(),
+  discountCodeId: int("discountCodeId").notNull(),
+  // bienvenida | nivel | cumpleanos | manual
+  kind: varchar("kind", { length: 16 }).notNull(),
+  title: varchar("title", { length: 120 }).notNull(),
+  grantKey: varchar("grantKey", { length: 160 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  keyIdx: uniqueIndex("member_coupons_key_idx").on(table.grantKey),
+  emailIdx: index("member_coupons_email_idx").on(table.email),
+}));
+
+export type MemberCoupon = typeof memberCoupons.$inferSelect;
