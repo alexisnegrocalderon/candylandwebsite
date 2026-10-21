@@ -104,7 +104,7 @@ import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emai
 import { billingPeriodStart, RESEND_DAILY_DEFAULT, RESEND_MONTHLY_LIMIT } from "../shared/emailQuota";
 import { applyEmailOptOut, decodeEmail as decodeUnsubscribeEmail, verifyUnsubscribe } from "./unsubscribe";
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
-import { normalizeInstagramAgentConfig, DEFAULT_INSTAGRAM_AGENT_CONFIG, IG_MAX_REPLY_CHARS } from "../shared/instagramAgentConfig";
+import { normalizeInstagramAgentConfig, normalizeIgUsername, DEFAULT_INSTAGRAM_AGENT_CONFIG, IG_MAX_REPLY_CHARS } from "../shared/instagramAgentConfig";
 import { sendManualInstagramReply } from "./instagram";
 import { canReplyWithinWindow, fetchOwnProfile } from "./instagramSend";
 import { runInstagramAgent, buildInstagramContext } from "./instagramAgent";
@@ -2917,7 +2917,23 @@ export const appRouter = router({
       hooks: z.array(z.string().max(160)).max(20).optional(),
     })).mutation(async ({ input }) => {
       const current = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
-      return db.updateSiteSettings({ instagramAgentConfig: { ...input, commentsEnabled: input.commentsEnabled ?? current.commentsEnabled, hideSpam: input.hideSpam ?? current.hideSpam, customLinkCodes: current.customLinkCodes, trustedAccounts: current.trustedAccounts, welcomeEnabled: input.welcomeEnabled ?? current.welcomeEnabled, hooks: input.hooks ?? current.hooks } });
+      return db.updateSiteSettings({ instagramAgentConfig: { ...input, commentsEnabled: input.commentsEnabled ?? current.commentsEnabled, hideSpam: input.hideSpam ?? current.hideSpam, customLinkCodes: current.customLinkCodes, trustedAccounts: current.trustedAccounts, noAiAccounts: current.noAiAccounts, autoResumeMigrated: true, welcomeEnabled: input.welcomeEnabled ?? current.welcomeEnabled, hooks: input.hooks ?? current.hooks } });
+    }),
+    /* Cuentas de confianza sin IA: el agente nunca les contesta ni se les reactiva solo. */
+    setNoAiAccount: adminProcedure.input(z.object({ username: z.string().max(60), noAi: z.boolean(), threadId: z.number().int().optional() })).mutation(async ({ input }) => {
+      const username = normalizeIgUsername(input.username);
+      if (!username) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Escribe un usuario de Instagram válido.' });
+      const current = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
+      const list = input.noAi ? Array.from(new Set([...current.noAiAccounts, username])) : current.noAiAccounts.filter((u) => u !== username);
+      await db.updateSiteSettings({ instagramAgentConfig: { ...current, noAiAccounts: list } });
+      // Si ya hay una conversación abierta con esa cuenta, queda pausada de una.
+      if (input.noAi && input.threadId) await db.setIgThreadBotPaused(input.threadId, true, 'Cuenta de confianza: sin IA');
+      return { noAiAccounts: list };
+    }),
+    /* Reactiva el agente en todas las conversaciones pausadas (menos las cuentas de confianza). */
+    resumeAllThreads: adminProcedure.mutation(async () => {
+      const current = normalizeInstagramAgentConfig((await db.getSiteSettings() as any).instagramAgentConfig);
+      return { resumed: await db.resumeAllIgThreads(current.noAiAccounts) };
     }),
     /* Cuánto vendió el agente (Instagram + WhatsApp): órdenes aprobadas
      * que entraron por un botón del agente (utm_campaign=agente...). */

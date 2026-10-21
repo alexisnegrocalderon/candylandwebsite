@@ -64,9 +64,16 @@ export interface InstagramAgentConfig {
    * caso, nunca genera las palabras). */
   thanksMessage: string;
   /** Horas después de pausarse (o del último mensaje a mano del dueño) en
-   * que un hilo vuelve solo a tener agente -- pedido del dueño, 27/09. Los
-   * hilos marcados como personales NO se reactivan. 0 = apagado. */
+   * que un hilo vuelve solo a tener agente (pedido del dueño, 27/09; 3 h desde
+   * el 21/10). Solo las cuentas de `noAiAccounts` quedan sin IA. 0 = apagado. */
   autoResumeHours: number;
+  /** Cuentas de confianza sin IA (usuario sin @, en minúscula): amigos o equipo
+   * a quienes el agente nunca contesta ni se les reactiva solo. El dueño las
+   * agrega desde la bandeja. */
+  noAiAccounts: string[];
+  /** Marca de la reactivación única del 21/10 (3 h + reactivar todo): evita
+   * repetirla si el dueño cambia las horas después. */
+  autoResumeMigrated: boolean;
   /** Guía de ventas del dueño (texto libre): tipos de cliente y cómo
    * abordar a cada uno, y las objeciones típicas con cómo responderlas. Se
    * le pasa al modelo junto al contexto de marca. */
@@ -112,7 +119,9 @@ export const DEFAULT_INSTAGRAM_AGENT_CONFIG: InstagramAgentConfig = {
   // Sin URL a propósito: el recordatorio va con el botón de compra abajo.
   followUpMessage: 'Cuando quieras retomamos 💜 mientras tanto puedes ver fechas y entradas acá abajo 👇',
   thanksMessage: 'Un gusto y cualquier otra cosa que necesites estamos aquí para poder ayudar',
-  autoResumeHours: 24,
+  autoResumeHours: 3,
+  noAiAccounts: [],
+  autoResumeMigrated: false,
   coachWeeklyEnabled: true,
   commentsEnabled: false,
   hideSpam: true,
@@ -178,6 +187,10 @@ export function normalizeInstagramAgentConfig(raw: unknown): InstagramAgentConfi
     trustedAccounts: Array.isArray(partial.trustedAccounts)
       ? Array.from(new Set(partial.trustedAccounts.map(normalizeIgUsername).filter(Boolean))).slice(0, 100)
       : [],
+    noAiAccounts: Array.isArray(partial.noAiAccounts)
+      ? Array.from(new Set(partial.noAiAccounts.map(normalizeIgUsername).filter(Boolean))).slice(0, 200)
+      : [],
+    autoResumeMigrated: partial.autoResumeMigrated === true,
     welcomeEnabled: partial.welcomeEnabled === true,
     hooks: Array.isArray(partial.hooks)
       ? partial.hooks.filter((h): h is string => typeof h === 'string').map((h) => h.trim().slice(0, 160)).filter(Boolean).slice(0, 20)

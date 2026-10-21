@@ -475,9 +475,12 @@ function AgentSettingsCard({ agent }: { agent: AgentDraft }) {
           />
           <p className="text-xs text-muted-foreground">
             Una conversación pausada (porque el agente la derivó o porque contestaste tú) vuelve a tener agente sola pasado
-            este tiempo desde tu último mensaje. Los chats personales no se reactivan. 0 = no reactivar nunca solo.
+            este tiempo desde tu último mensaje. Solo las cuentas de confianza (abajo) se quedan sin IA. 0 = no reactivar nunca solo.
           </p>
+          <ResumeAllButton />
         </div>
+
+        <NoAiAccountsEditor />
 
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -869,6 +872,14 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
     onSuccess: () => { utils.instagram.getThread.invalidate({ threadId }); utils.instagram.listThreads.invalidate(); },
     onError,
   });
+  const { data: agentConfig } = trpc.instagram.getConfig.useQuery();
+  const setNoAi = trpc.instagram.setNoAiAccount.useMutation({
+    onSuccess: (r) => {
+      utils.instagram.getConfig.invalidate(); utils.instagram.getThread.invalidate({ threadId }); utils.instagram.listThreads.invalidate();
+      toast.success(`Cuentas de confianza: ${r.noAiAccounts.length}.`);
+    },
+    onError,
+  });
   const reply = trpc.instagram.reply.useMutation({
     onSuccess: () => {
       setText('');
@@ -928,7 +939,20 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
             <Switch checked={thread.botPaused === 0} onCheckedChange={(on) => setPaused.mutate({ threadId, paused: !on })} />
           </div>
           {thread.botPaused === 1 && (
-            <AgentAutoResumeNote botPausedAt={thread.botPausedAt} handoffReason={thread.handoffReason} />
+            <AgentAutoResumeNote botPausedAt={thread.botPausedAt} handoffReason={thread.handoffReason} isInstagram />
+          )}
+          {thread.username && (
+            <div className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 p-3">
+              <div className="text-sm">
+                <p className="font-medium">Cuenta de confianza (sin IA)</p>
+                <p className="text-xs text-muted-foreground">Amigos o equipo: el agente nunca les contesta y no se les reactiva solo.</p>
+              </div>
+              <Switch
+                checked={!!agentConfig?.noAiAccounts.includes(thread.username.toLowerCase())}
+                disabled={!agentConfig || setNoAi.isPending}
+                onCheckedChange={(on) => setNoAi.mutate({ username: thread.username!, noAi: on, threadId })}
+              />
+            </div>
           )}
           <CustomerNotesCard channel="instagram" threadId={threadId} notes={thread.customerNotes} />
           <IgCustomerLinkCard threadId={threadId} />
@@ -965,5 +989,52 @@ function ThreadDetail({ threadId, onBack }: { threadId: number; onBack: () => vo
         </p>
       )}
     </>
+  );
+}
+
+/** Reactiva el agente de una vez en todas las conversaciones pausadas (menos las cuentas de confianza). */
+function ResumeAllButton() {
+  const utils = trpc.useUtils();
+  const resume = trpc.instagram.resumeAllThreads.useMutation({
+    onSuccess: (r) => { utils.instagram.listThreads.invalidate(); toast.success(`El agente volvió a quedar activo en ${r.resumed} conversaciones.`); },
+    onError,
+  });
+  return (
+    <Button type="button" variant="outline" size="sm" disabled={resume.isPending}
+      onClick={() => { if (confirm('¿Reactivar el agente en TODAS las conversaciones pausadas? Las cuentas de confianza se quedan sin IA.')) resume.mutate(); }}>
+      Reactivar la IA en todas las conversaciones ahora
+    </Button>
+  );
+}
+
+/** Lista de cuentas de confianza: amigos o equipo a quienes el agente nunca contesta. */
+function NoAiAccountsEditor() {
+  const utils = trpc.useUtils();
+  const { data: config } = trpc.instagram.getConfig.useQuery();
+  const [username, setUsername] = useState('');
+  const set = trpc.instagram.setNoAiAccount.useMutation({
+    onSuccess: () => { utils.instagram.getConfig.invalidate(); utils.instagram.listThreads.invalidate(); setUsername(''); },
+    onError,
+  });
+  return (
+    <div className="space-y-2">
+      <Label>Cuentas de confianza (sin IA)</Label>
+      <p className="text-xs text-muted-foreground">
+        Amigos o equipo a quienes el agente nunca contesta ni se les reactiva solo. También puedes agregarlas desde la ficha de cada conversación.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {(config?.noAiAccounts ?? []).map((u) => (
+          <span key={u} className="inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs">
+            @{u}
+            <button type="button" aria-label={`Quitar @${u}`} onClick={() => set.mutate({ username: u, noAi: false })}>×</button>
+          </span>
+        ))}
+        {(config?.noAiAccounts.length ?? 0) === 0 && <span className="text-xs text-muted-foreground">Ninguna todavía.</span>}
+      </div>
+      <div className="flex gap-2 max-w-sm">
+        <Input value={username} placeholder="@usuario" onChange={(e) => setUsername(e.target.value)} />
+        <Button type="button" variant="outline" disabled={!username.trim() || set.isPending} onClick={() => set.mutate({ username, noAi: true })}>Agregar</Button>
+      </div>
+    </div>
   );
 }

@@ -31,7 +31,7 @@ import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, sendImageMes
 import { resolveInstagramBuyLink, resolveEventCardImage } from './instagramInteractive';
 import { resolvePageLink, splitIntoBubbles } from './agentLinks';
 import { sendPushToAdmins } from './push';
-import { normalizeInstagramAgentConfig, PERSONAL_HANDOFF_REASON } from '../shared/instagramAgentConfig';
+import { normalizeInstagramAgentConfig, normalizeIgUsername, PERSONAL_HANDOFF_REASON } from '../shared/instagramAgentConfig';
 import type { IgKeywordAutomation } from '../drizzle/schema';
 import { resolveAutomationButton, splitAutomationLink } from './instagramAutomations';
 import { ALREADY_BOUGHT_MARKER, buildAlreadyBoughtReply, saysAlreadyBought } from '../shared/igCustomerLink';
@@ -316,6 +316,13 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   const config = normalizeInstagramAgentConfig((settings as any)?.instagramAgentConfig);
 
   if (!config.enabled) return;
+  // Cuenta de confianza (amigos, equipo): el agente nunca le contesta. Queda
+  // pausada y la reactivación automática la salta.
+  const who = normalizeIgUsername(thread.username ?? profile.username ?? '');
+  if (who && config.noAiAccounts.includes(who)) {
+    if (thread.botPaused !== 1) await setIgThreadBotPaused(thread.id, true, 'Cuenta de confianza: sin IA');
+    return;
+  }
   // El hilo ya está en manos de una persona (lo derivó el agente antes, o lo
   // tomó el admin desde la bandeja): el bot no vuelve a meterse.
   if (thread.botPaused === 1) {

@@ -6,11 +6,16 @@ import { PERSONAL_HANDOFF_REASON } from '@shared/instagramAgentConfig';
  * cuándo vuelve el agente a ese chat sin tener que prenderlo (ver
  * server/agentAutoResume.ts). Sirve para Instagram y WhatsApp: la config de
  * horas es una sola. */
-export function AgentAutoResumeNote({ botPausedAt, handoffReason }: { botPausedAt: Date | string | null; handoffReason: string | null }) {
+const NO_AI_REASON = 'Cuenta de confianza: sin IA';
+
+export function AgentAutoResumeNote({ botPausedAt, handoffReason, isInstagram = false }: { botPausedAt: Date | string | null; handoffReason: string | null; isInstagram?: boolean }) {
   const { data: config } = trpc.instagram.getConfig.useQuery();
   if (!config) return null;
 
-  if (handoffReason === PERSONAL_HANDOFF_REASON) {
+  if (handoffReason === NO_AI_REASON) {
+    return <p className="text-xs text-muted-foreground mt-0.5">Cuenta de confianza: sin IA, no se reactiva sola.</p>;
+  }
+  if (handoffReason === PERSONAL_HANDOFF_REASON && !isInstagram) {
     return <p className="text-xs text-muted-foreground mt-0.5">Chat personal: no se reactiva solo.</p>;
   }
   if (config.autoResumeHours <= 0 || !botPausedAt) return null;

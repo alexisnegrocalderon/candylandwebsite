@@ -1,4 +1,4 @@
-import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, isNull, isNotNull, ne, getTableColumns } from "drizzle-orm";
+import { eq, desc, and, sql, or, gt, gte, lt, lte, like, inArray, notInArray, isNull, isNotNull, ne, getTableColumns } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
@@ -7642,15 +7642,22 @@ export async function setIgThreadBotPaused(id: number, paused: boolean, reason?:
  * hace más de `cutoff`, salvo los que la IA marcó como personales (chats
  * de amigos del dueño). Los pausados antes de que existiera `botPausedAt`
  * (null) también se reactivan. Devuelve cuántos hilos reactivó. */
-export async function resumeStaleIgThreads(cutoff: Date, personalReason: string): Promise<number> {
+export async function resumeStaleIgThreads(cutoff: Date, personalReason: string | null, excludeUsernames: string[] = []): Promise<number> {
   const db = await getDb();
   if (!db) return 0;
   const [result] = await db.update(igThreads).set({ botPaused: 0, handoffReason: null, botPausedAt: null }).where(and(
     eq(igThreads.botPaused, 1),
-    or(isNull(igThreads.handoffReason), ne(igThreads.handoffReason, personalReason)),
+    personalReason ? or(isNull(igThreads.handoffReason), ne(igThreads.handoffReason, personalReason)) : undefined,
     or(isNull(igThreads.botPausedAt), lte(igThreads.botPausedAt, cutoff)),
+    excludeUsernames.length > 0 ? notInArray(sql<string>`LOWER(COALESCE(${igThreads.username}, ''))`, excludeUsernames) : undefined,
   ));
   return Number((result as unknown as { affectedRows?: number })?.affectedRows ?? 0);
+}
+
+/** Reactiva el agente en TODOS los hilos pausados, menos las cuentas de
+ * confianza (sin IA). Botón del panel y reactivación única del 21/10. */
+export async function resumeAllIgThreads(excludeUsernames: string[] = []): Promise<number> {
+  return resumeStaleIgThreads(new Date(), null, excludeUsernames);
 }
 
 export async function setIgThreadCustomerNotes(id: number, notes: string | null): Promise<void> {
