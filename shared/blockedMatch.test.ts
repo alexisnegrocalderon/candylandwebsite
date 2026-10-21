@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blockedKeysFor, emailKey, hasHardKey, igKey, matchBlocked, nameKey, phoneKey, rutKey, type BlockedRow } from './blockedMatch';
+import { isBodyOnlyRutKey, isFullRutKey, blockedKeysFor, emailKey, hasHardKey, igKey, matchBlocked, nameKey, phoneKey, rutKey, type BlockedRow } from './blockedMatch';
 
 const row = (id: number, f: Parameters<typeof blockedKeysFor>[0], extra: Partial<BlockedRow> = {}): BlockedRow => ({ id, fullName: f.fullName ?? null, ...blockedKeysFor(f), ...extra });
 
@@ -42,6 +42,16 @@ describe('matchBlocked', () => {
     expect(matchBlocked([{ phone: '91111 2222' }], rows).block[0].by).toBe('phone');
     expect(matchBlocked([{ instagram: 'https://instagram.com/otro.malo' }], rows).block[0].by).toBe('instagram');
     expect(matchBlocked([{ email: 'X@Y.CL' }], rows).block[0].by).toBe('email');
+  });
+
+  it('una ficha con RUT sin dígito verificador bloquea al RUT completo; una cédula extranjera, solo si es idéntica', () => {
+    const list = [row(10, { rut: '5698486' }), row(11, { rut: '1096257494' })];
+    expect(isBodyOnlyRutKey('5698486')).toBe(true);
+    expect(isFullRutKey('56984860')).toBe(true);
+    expect(matchBlocked([{ rut: '5.698.486-0' }], list).block.map((h) => h.row.id)).toEqual([10]);
+    expect(matchBlocked([{ rut: '5.698.486-K' }], list).block).toEqual([]); // DV inválido: no es ese RUT
+    expect(matchBlocked([{ rut: '1096257494' }], list).block.map((h) => h.row.id)).toEqual([11]);
+    expect(matchBlocked([{ rut: '1096257495' }], list).block).toEqual([]);
   });
 
   it('el nombre solo avisa, nunca bloquea', () => {

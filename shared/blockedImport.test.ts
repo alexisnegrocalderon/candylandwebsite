@@ -89,3 +89,11 @@ describe('fechas y fusión de datos', () => {
     expect(merged).toEqual({ rut: '12.345.678-5', sourceVenue: 'Sinners', notes: 'a · b' });
   });
 });
+
+describe('columna de documento', () => {
+  it('acepta RUT sin DV y cédulas extranjeras sin tratarlos como teléfono ni como texto', () => {
+    const plan = planBlockedImport([['Ana Soto', '11276166'], ['', '1096257494'], ['', '19.681.692-5']], { mapping: ['fullName', 'rut'] }, []);
+    expect(plan.rows.map((r) => r.fields.rut)).toEqual(['11276166', '1096257494', '19.681.692-5']);
+    expect(plan.misplaced).toEqual([]);
+  });
+});

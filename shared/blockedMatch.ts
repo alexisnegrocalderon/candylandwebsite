@@ -12,6 +12,21 @@ export type BlockMatchBy = 'rut' | 'email' | 'phone' | 'instagram' | 'name';
 
 /** RUT sin puntos ni guion, en mayúsculas ("12.345.678-9" = "123456789"). Sirve
  * también para pasaportes (alfanuméricos); '' si es demasiado corto. */
+/** ¿Es un RUT chileno completo (cuerpo + dígito verificador válido)? Recibe la clave de `rutKey`. */
+export function isFullRutKey(key: string): boolean {
+  if (!/^\d{7,8}[0-9K]$/.test(key)) return false;
+  const body = key.slice(0, -1);
+  let sum = 0; let mult = 2;
+  for (let i = body.length - 1; i >= 0; i--) { sum += Number(body[i]) * mult; mult = mult === 7 ? 2 : mult + 1; }
+  const e = 11 - (sum % 11);
+  return key.slice(-1) === (e === 11 ? '0' : e === 10 ? 'K' : String(e));
+}
+
+/** Una ficha con solo el número base de un RUT (6-8 dígitos, sin dígito verificador, y que no calza como RUT completo). */
+export function isBodyOnlyRutKey(key: string | null | undefined): boolean {
+  return !!key && /^\d{6,8}$/.test(key) && !isFullRutKey(key);
+}
+
 export function rutKey(raw: string | null | undefined): string {
   const s = (raw ?? '').replace(/[^0-9a-zA-Z]/g, '').toUpperCase();
   return s.length >= 6 && s.length <= 15 ? s : '';
@@ -94,7 +109,9 @@ export function matchBlocked<R extends BlockedRow>(identities: Identity[], rows:
     const k = { rut: rutKey(p.rut), email: emailKey(p.email), phone: phoneKey(p.phone), ig: igKey(p.instagram), name: nameKey(p.name) };
     for (const row of active) {
       let by: BlockMatchBy | null = null;
-      if (k.rut && row.rutNorm === k.rut) by = 'rut';
+      // El RUT de quien compra también calza con una ficha que solo trae el
+      // número base (sin dígito verificador): el cuerpo es único por persona.
+      if (k.rut && (row.rutNorm === k.rut || (isFullRutKey(k.rut) && isBodyOnlyRutKey(row.rutNorm) && row.rutNorm === k.rut.slice(0, -1)))) by = 'rut';
       else if (k.email && row.emailNorm === k.email) by = 'email';
       else if (k.phone && row.phoneNorm === k.phone) by = 'phone';
       else if (k.ig && row.igNorm === k.ig) by = 'instagram';

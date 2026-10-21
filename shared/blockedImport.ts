@@ -188,6 +188,9 @@ export function planBlockedImport(rows: string[][], opts: ImportOptions, existin
       }
       if (TEXT_FIELDS.includes(field)) { route(field); return; }
       if (field === 'blockedOn') { route('blockedOn'); return; }
+      // Una columna de RUT/documento acepta cualquier documento (RUT sin dígito
+      // verificador, cédula o pasaporte extranjero): lo dudoso se revisa en la ficha.
+      if (field === 'rut' && /^[A-Za-z0-9.\- ]{5,20}$/.test(v) && /\d{5}/.test(v.replace(/[.\- ]/g, ''))) { route('rut'); return; }
       // Columna de dato duro (RUT, teléfono, correo, Instagram): si el contenido no es de ese tipo, se ve qué es.
       if (kind === field) { route(field); return; }
       if (kind === 'text') { placeText(); return; }
