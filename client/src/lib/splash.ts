@@ -8,6 +8,7 @@
  * principio a fin, sin círculos girando entre medio. */
 
 import { useEffect, type RefObject } from 'react';
+import { introDue, playNeonIntro } from './neonIntro';
 
 const FADE_MS = 260;
 /** Respaldo: pase lo que pase, a los 12 s el splash se va solo. */
@@ -20,18 +21,25 @@ export function hasDarkSplash(): boolean {
   return typeof document !== 'undefined' && document.documentElement.dataset.splash === 'dark';
 }
 
-/** Quita el splash con un fundido corto. Se puede llamar las veces que sea. */
-export function hideSplash(): void {
+/** Quita el splash. Si es la primera apertura del día, antes pasa la intro
+ * de neón (client/src/lib/neonIntro.ts); si no, un fundido corto. `intro:
+ * false` para salir sin intro (error, respaldo de tiempo). Se puede llamar
+ * las veces que sea. */
+export function hideSplash(opts: { intro?: boolean } = {}): void {
   if (hidden || typeof document === 'undefined') return;
   const el = document.getElementById('initial-loader');
   hidden = true;
   if (!el) return;
+  if (opts.intro !== false && hasDarkSplash() && introDue()) {
+    playNeonIntro(el, () => {});
+    return;
+  }
   el.classList.add('splash-out');
   window.setTimeout(() => el.remove(), FADE_MS);
 }
 
 if (typeof window !== 'undefined' && hasDarkSplash()) {
-  window.setTimeout(hideSplash, SAFETY_MS);
+  window.setTimeout(() => hideSplash({ intro: false }), SAFETY_MS);
 }
 
 /** Para pantallas que ya están listas al montar (login, PIN, panel). */
