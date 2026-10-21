@@ -4,7 +4,7 @@ import { normalizeContestConfig, type ContestConfig } from './contest';
  * armada (puntos, premios, textos, avisos automáticos). Al crear un concurso
  * se elige una y todo queda editable. Los textos usan solo variables
  * (`{{evento}}`, `{{premio}}`, `{{frase}}`…), nada fijo de un evento. */
-export type ContestTemplateKey = 'ranking' | 'draw' | 'likes' | 'referrals';
+export type ContestTemplateKey = 'ranking' | 'draw' | 'likes' | 'referrals' | 'milestones';
 
 export interface ContestTemplate {
   key: ContestTemplateKey;
@@ -108,6 +108,31 @@ export const CONTEST_TEMPLATES: ContestTemplate[] = [
           + '📜 Bases: {{link_bases}}',
         storyToReel:
           '🚀 {{nombre}}, la carrera es en el reel: comenta "{{frase}}" y recibe tu link personal 👉 {{link_reel}}',
+      },
+    },
+  },
+  {
+    key: 'milestones',
+    name: 'Retos por hitos',
+    emoji: '🎯',
+    tagline: 'Entre más comentarios, más descuento para todos',
+    description:
+      'Cuando el reel llega a 100, 250 y 500 comentarios (editables) se desbloquea un 10 %, 15 % y 20 % de descuento para TODOS con un código que '
+      + 'dura 48 h. El más alto reemplaza al anterior. Se avisa en el reel y por DM. No hay ganadores: empuja a comentar y compartir.',
+    typicalHours: 24 * 5,
+    durationPresets: [72, 24 * 5, 24 * 7],
+    overrides: {
+      chances: { base: 1, perMention: 0, maxMentions: 0, storyBonus: 0, perInvitedPurchase: 0, buyerMultiplier: 1 },
+      prizes: { doubleWinners: 0, doubleAlternates: 0, vipWinners: 0, vipAlternates: 0, guaranteedLeader: false, friendPercent: 0 },
+      ranking: { dailyComment: false, publicReplies: false, dmTips: false, emailBuyers: false },
+      messages: {
+        noTicket:
+          '🎯 ¡Estás dentro, {{nombre}}! Entre todos desbloqueamos descuento para {{evento}}: a {{proximo_hito}} comentarios sube el descuento para todos.\n\n'
+          + 'Llevamos {{comentarios}} comentarios. Comenta, comparte el reel y ayúdanos a llegar 🚀\n\n'
+          + '🔒 Tu cupón {{cupon}} congela el precio de hoy hasta el {{congelado_hasta}}.\n\n'
+          + '📜 Bases: {{link_bases}}',
+        storyToReel:
+          '🎯 {{nombre}}, el reto es en el reel: comenta "{{frase}}" y ayúdanos a desbloquear descuentos para todos 👉 {{link_reel}}',
       },
     },
   },

@@ -108,13 +108,13 @@ export function ContestWizard({ open, onOpenChange, events, onCreated }: {
                   <SelectContent>{events.map((e) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div>
+              {template !== 'milestones' && <div>
                 <Label>Premio (entrada que se regala)</Label>
                 <Select value={prizeId} onValueChange={setPrizeId}>
                   <SelectTrigger className="mt-1"><SelectValue placeholder={types.isLoading ? 'Cargando…' : 'Elegir entrada'} /></SelectTrigger>
                   <SelectContent>{accesos.map((t) => <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>)}</SelectContent>
                 </Select>
-              </div>
+              </div>}
             </div>
             <div>
               <Label>Nombre del concurso (opcional)</Label>

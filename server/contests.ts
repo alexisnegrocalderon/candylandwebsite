@@ -42,6 +42,7 @@ import {
 } from '../shared/contest';
 import { buildRanking, pickGuaranteedLeader } from '../shared/contestRanking';
 import { buildTemplateConfig, getContestTemplate, type ContestTemplateKey } from '../shared/contestTemplates';
+import { milestoneState } from '../shared/contestMilestones';
 import { ageOn, isVerifyComplete, missingVerifyFields, parseVerifyReply } from '../shared/contestVerify';
 
 const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
@@ -154,6 +155,22 @@ export function drawDateText(config: ContestConfig): string {
   return `${formatChileDate(config.drawAt, { withWeekday: true })} a las ${formatChileTime(config.drawAt)}`;
 }
 
+/** Avance del reto por hitos (lo guarda server/contestMilestones.ts en drawLog). */
+function milestoneVars(ctx: ContestCtx): Record<string, string | number> {
+  if (ctx.contest.template !== 'milestones') return {};
+  const log = (ctx.contest.drawLog ?? {}) as { count?: number; code?: string | null };
+  const count = Number(log.count ?? 0);
+  const state = milestoneState(count, ctx.config.milestones.steps);
+  return {
+    comentarios: count,
+    hito_porcentaje: state.percent,
+    hito_codigo: log.code ?? '',
+    proximo_hito: state.next?.comments ?? '',
+    proximo_porcentaje: state.next?.percent ?? '',
+    faltan: state.remaining,
+  };
+}
+
 function giftLines(ctx: ContestCtx, p: { orderId: number | null; email: string | null }): string {
   const lines: string[] = [];
   if (ctx.giftName && p.orderId) lines.push(`• 1 ${ctx.giftName} gratis: ya está en tu entrada, se canjea en caja`);
@@ -196,6 +213,7 @@ function templateVars(ctx: ContestCtx, p: ContestParticipant, extra: Record<stri
     link_bases: BASES_URL,
     evento: ctx.event.title,
     lista_regalos: giftLines(ctx, p),
+    ...milestoneVars(ctx),
     congelado_hasta: dateTimeText(priceLockUntil(ctx)),
     ...extra,
   };
@@ -237,7 +255,7 @@ export async function reachableChannel(db: Db, p: ContestParticipant): Promise<C
 
 /* ── Códigos y regalos ───────────────────────────────────────────────────── */
 
-async function createCode(db: Db, input: {
+export async function createCode(db: Db, input: {
   prefix: string; type: 'percentage' | 'fixed'; value: number; maxUses: number; validUntil: Date; eventId: number;
   description: string; applicableTicketTypeIds?: number[] | null; basedOnOriginalPrice?: boolean;
 }): Promise<string> {
@@ -894,6 +912,9 @@ export async function runContestDraw(contestId: number): Promise<{ double: numbe
   ctx.contest = { ...ctx.contest, drawnAt: new Date() };
 
   try {
+    if (ctx.contest.template === 'milestones') {
+      return await (await import('./contestMilestones')).drawMilestones(db, ctx);
+    }
     if (ctx.contest.template === 'likes' || ctx.contest.template === 'referrals') {
       const races = await import('./contestRaces');
       return await (ctx.contest.template === 'likes' ? races.drawLikes(db, ctx) : races.drawReferrals(db, ctx));
@@ -1412,6 +1433,9 @@ async function runContestCronFor(db: Db, ctx: ContestCtx, now: Date): Promise<Re
     } catch (err) {
       result.sync = { error: err instanceof Error ? err.message : 'Error' };
     }
+  }
+  if (ctx.contest.template === 'milestones' && !ctx.contest.drawnAt && contestPhase(ctx.contest, ctx.config, now) === 'live') {
+    result.milestones = await (await import('./contestMilestones')).runMilestones(db, ctx).catch((err) => `error: ${err instanceof Error ? err.message : err}`);
   }
   if ((ctx.contest.template === 'likes' || ctx.contest.template === 'referrals') && !ctx.contest.drawnAt && contestPhase(ctx.contest, ctx.config, now) === 'live') {
     const races = await import('./contestRaces');

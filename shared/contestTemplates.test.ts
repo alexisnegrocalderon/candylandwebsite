@@ -47,7 +47,7 @@ describe('plantillas de concurso', () => {
     const known = new Set(['nombre', 'chances', 'ganadores_doble', 'premio', 'premio_singular', 'premio_vip', 'por_etiqueta', 'max_etiquetas',
       'bonus_historia', 'bonus_compra_amigo', 'multiplicador', 'porcentaje', 'horas', 'cupon', 'porcentaje_amigo', 'codigo_amigo', 'link_invitar',
       'fecha_sorteo', 'link_bases', 'evento', 'lista_regalos', 'codigo_premio', 'plazo', 'congelado_hasta', 'link_elegir', 'monto_devolucion',
-      'faltante', 'link_reel', 'frase', 'puntos_texto']);
+      'faltante', 'link_reel', 'frase', 'puntos_texto', 'comentarios', 'hito_porcentaje', 'hito_codigo', 'proximo_hito', 'proximo_porcentaje', 'faltan']);
     for (const t of CONTEST_TEMPLATES) {
       const c = buildTemplateConfig(t.key, input);
       const all = Object.values(c.messages).flat().join('\n');

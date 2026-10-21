@@ -95,6 +95,17 @@ export interface ContestVerifyConfig {
   enabled: boolean;
 }
 
+/** Retos por hitos: al llegar a N comentarios se desbloquea un % para todos. */
+export interface ContestMilestoneStep {
+  comments: number;
+  percent: number;
+}
+export interface ContestMilestonesConfig {
+  steps: ContestMilestoneStep[];
+  /** El código del hito dura estas horas desde el último hito alcanzado. */
+  hours: number;
+}
+
 export interface ContestConfig {
   /** Palabras clave separadas por coma; el comentario tiene que traerlas TODAS
    * (ej. "quiero, entrada" calza con "quiero mi entrada doble"). */
@@ -112,6 +123,7 @@ export interface ContestConfig {
   messages: ContestMessages;
   ranking: ContestRankingConfig;
   verify: ContestVerifyConfig;
+  milestones: ContestMilestonesConfig;
 }
 
 export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
@@ -209,6 +221,7 @@ export const DEFAULT_CONTEST_CONFIG: ContestConfig = {
   messages: DEFAULT_CONTEST_MESSAGES,
   ranking: { dailyComment: true, dailyHour: 20, publicReplies: true, maxRepliesPerDay: 15, dmTips: true, emailBuyers: true },
   verify: { enabled: true },
+  milestones: { steps: [{ comments: 100, percent: 10 }, { comments: 250, percent: 15 }, { comments: 500, percent: 20 }], hours: 48 },
 };
 
 function int(v: unknown, fallback: number, min: number, max: number): number {
@@ -232,6 +245,18 @@ function isoOrNull(v: unknown): string | null {
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
 }
 
+function normalizeSteps(raw: unknown, fallback: ContestMilestoneStep[]): ContestMilestoneStep[] {
+  if (!Array.isArray(raw)) return fallback;
+  const steps = raw
+    .map((s) => (s && typeof s === 'object' ? s as Record<string, unknown> : null))
+    .filter((s): s is Record<string, unknown> => !!s)
+    .map((s) => ({ comments: int(s.comments, 0, 0, 100_000), percent: int(s.percent, 0, 0, 100) }))
+    .filter((s) => s.comments > 0 && s.percent > 0)
+    .sort((a, b) => a.comments - b.comments)
+    .slice(0, 6);
+  return steps.length > 0 ? steps : fallback;
+}
+
 /** Limpia la configuración guardada (o la que manda el panel): todo campo
  * que falte o venga roto vuelve al valor propuesto, así un concurso nunca
  * queda con un número imposible. */
@@ -241,6 +266,7 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
   const p = (r.prizes && typeof r.prizes === 'object' ? r.prizes : {}) as Record<string, unknown>;
   const m = (r.messages && typeof r.messages === 'object' ? r.messages : {}) as Record<string, unknown>;
   const k = (r.ranking && typeof r.ranking === 'object' ? r.ranking : {}) as Record<string, unknown>;
+  const ms = (r.milestones && typeof r.milestones === 'object' ? r.milestones : {}) as Record<string, unknown>;
   const v = (r.verify && typeof r.verify === 'object' ? r.verify : {}) as Record<string, unknown>;
   const d = DEFAULT_CONTEST_CONFIG;
   const replies = Array.isArray(m.publicReplies)
@@ -313,6 +339,7 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       emailBuyers: typeof k.emailBuyers === 'boolean' ? k.emailBuyers : d.ranking.emailBuyers,
     },
     verify: { enabled: typeof v.enabled === 'boolean' ? v.enabled : d.verify.enabled },
+    milestones: { steps: normalizeSteps(ms.steps, d.milestones.steps), hours: int(ms.hours, d.milestones.hours, 1, 720) },
   };
 }
 
