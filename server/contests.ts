@@ -1842,6 +1842,7 @@ export async function sendHolderInvites(contestId: number): Promise<{ sent: numb
     if ((await countEmailsSentToday()) >= HOLDER_INVITE_DAILY_LIMIT) { stoppedByBudget = true; break; }
     if (!(await claimLog(db, contestId, 'comment', holderInviteKey(person.email), null))) continue;
     const result = await sendEmail({
+      marketing: true,
       to: person.email,
       subject: `🎁 ${person.name}, tu entrada también participa: comenta el reel`,
       html: buildContestHolderInviteEmail({

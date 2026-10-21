@@ -89,6 +89,7 @@ export async function sendEventSurveys(eventId: number, limit: number = SURVEY_B
   let failed = 0;
   for (const invite of pending) {
     const result = await sendEmail({
+      marketing: true,
       to: invite.buyerEmail,
       subject: `¿Cómo estuvo ${event.title}? 💜 (1 minuto)`,
       html: buildEventSurveyEmail({ buyerName: invite.buyerName ?? '', eventTitle: event.title, surveyUrl: surveyUrl(invite.token) }),

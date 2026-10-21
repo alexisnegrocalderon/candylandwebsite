@@ -14,6 +14,7 @@ import { registerLinkTrackerRoute } from "../linkTracker";
 import { registerAppIconRoute } from "../appIcon";
 import { instagramRouter } from "../instagram";
 import { registerContestRoutes } from "../contests";
+import { registerUnsubscribeRoutes } from "../unsubscribe";
 import { whatsappRouter } from "../whatsapp";
 import { createContext } from "./context";
 import { resetDb } from "../db";
@@ -66,6 +67,7 @@ export function createApp(): Express {
   registerLinkTrackerRoute(app);
   // Link personal para invitar amigos de un concurso (/c/<código>).
   registerContestRoutes(app);
+  registerUnsubscribeRoutes(app);
   registerAppIconRoute(app);
   // Webhooks antes de tRPC para evitar conflictos de middleware.
   app.use(webhooksRouter);

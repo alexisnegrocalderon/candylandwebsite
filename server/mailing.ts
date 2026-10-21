@@ -169,7 +169,7 @@ export async function sendMailingBatch(
       priceList: extras?.priceList,
       remaining: extras?.remaining,
     });
-    const sent = await sendEmail({ to: customer.email, subject: content.subject, html });
+    const sent = await sendEmail({ to: customer.email, subject: content.subject, html, marketing: true });
     results.push({ customerId: customer.id, email: customer.email, success: sent.success, reason: sent.reason });
 
     // Tagueo automático (pedido explícito del usuario): con el límite de
@@ -348,7 +348,7 @@ export async function processMailingCronBatch(): Promise<MailingCronResult> {
       eventInfo: eventSections ? eventInfo : null,
       eventSections,
     });
-    const result = await sendEmail({ to: recipient.email, subject: content.subject, html });
+    const result = await sendEmail({ to: recipient.email, subject: content.subject, html, marketing: true });
     await db.markMailingRecipientResult(recipient.id, recipient.campaignId, result.success, result.reason);
     campaignsTouched.add(recipient.campaignId);
 

@@ -304,7 +304,7 @@ export async function sendPartnerReminders(slug: string) {
       rules,
       ticketCode: ticket?.ticketCode,
     });
-    const result = await sendEmail({ to: row.buyerEmail, subject: `${campaign.emoji} Ya casi: tu noche en ${event.title}`, html });
+    const result = await sendEmail({ to: row.buyerEmail, subject: `${campaign.emoji} Ya casi: tu noche en ${event.title}`, html, marketing: true });
     if (result.success) {
       sent += 1;
       await db.update(partnerOrders).set({ reminderSentAt: new Date() }).where(eq(partnerOrders.orderId, row.orderId));
@@ -348,7 +348,7 @@ export async function sendPartnerThanks(slug: string, input: { discountCode: str
       discountCode: code,
       benefitText: input.benefitText,
     });
-    const result = await sendEmail({ to: row.buyerEmail, subject: `${campaign.emoji} Gracias por venir a ${event.title}`, html });
+    const result = await sendEmail({ to: row.buyerEmail, subject: `${campaign.emoji} Gracias por venir a ${event.title}`, html, marketing: true });
     if (result.success) {
       sent += 1;
       await db.update(partnerOrders).set({ thanksSentAt: new Date() }).where(eq(partnerOrders.orderId, row.orderId));

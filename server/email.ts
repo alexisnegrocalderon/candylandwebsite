@@ -6,13 +6,17 @@ import {
   ACCENT, HALLOWEEN, INK, MUTED, FAINT, BORDER, CARD_BG, DISCO_BG, DISCO_HERO_BG, EMAIL_BASE_URL, LOGO_URL,
   REPORT_INK, REPORT_MUTED, REPORT_FAINT, REPORT_BORDER,
   card, sectionTitle, grid, costumeBadge, anniversaryBand, emailShell, emailHero,
-  pastelButton, glassButton,
+  pastelButton, glassButton, unsubscribeFooterHtml,
 } from './emailLayout';
+import { isEmailOptedOut, unsubscribeOneClickUrl, unsubscribePageUrl } from './unsubscribe';
 import { logEmailSent } from './db';
 import { checkEmailQuotaAlert } from './emailQuotaAlert';
 import { ORACLE_TEASER_CARDS } from '../shared/costumeOracle';
 
 interface SendEmailInput {
+  /** Correo de promociones / mailing / concurso: lleva link y header de baja y no
+   * sale a quien ya pidió no recibirlos. Los transaccionales (compra, QR) no. */
+  marketing?: boolean;
   to: string;
   subject: string;
   html: string;
@@ -42,7 +46,7 @@ function resolveFromHeader(): string {
   return `${BRAND_NAME} <${address}>`;
 }
 
-function postToResend(apiKey: string, from: string, input: SendEmailInput): Promise<Response> {
+function postToResend(apiKey: string, from: string, input: SendEmailInput, extraHeaders?: Record<string, string>, html?: string): Promise<Response> {
   return fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -53,7 +57,8 @@ function postToResend(apiKey: string, from: string, input: SendEmailInput): Prom
       from,
       to: input.to,
       subject: input.subject,
-      html: input.html,
+      html: html ?? input.html,
+      ...(extraHeaders ? { headers: extraHeaders } : {}),
       ...(input.cc ? { cc: input.cc } : {}),
       ...(input.attachments?.length ? {
         attachments: input.attachments.map((a) => ({
@@ -63,6 +68,19 @@ function postToResend(apiKey: string, from: string, input: SendEmailInput): Prom
       } : {}),
     }),
   });
+}
+
+/** Dirección de envío pelada (para el mailto del header de baja). */
+function resolveFromAddress(): string {
+  const raw = process.env.RESEND_FROM_EMAIL?.trim() || DEFAULT_FROM_ADDRESS;
+  const match = raw.match(/<([^>]+)>/);
+  return (match ? match[1] : raw).trim();
+}
+
+/** Agrega el pie de baja justo antes de cerrar el <body> (o al final). */
+export function injectUnsubscribeFooter(html: string, url: string): string {
+  const footer = unsubscribeFooterHtml(url);
+  return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${footer}</body>`) : `${html}${footer}`;
 }
 
 export async function sendEmail(input: SendEmailInput) {
@@ -75,11 +93,23 @@ export async function sendEmail(input: SendEmailInput) {
   }
 
   try {
+    // Correos de promociones: no salen a quien pidió la baja, y llevan el link
+    // y los headers de baja (List-Unsubscribe de un clic).
+    let html = input.html;
+    let headers: Record<string, string> | undefined;
+    if (input.marketing) {
+      if (await isEmailOptedOut(input.to)) return { success: false, reason: 'Pidió no recibir correos' };
+      html = injectUnsubscribeFooter(input.html, unsubscribePageUrl(input.to));
+      headers = {
+        'List-Unsubscribe': `<${unsubscribeOneClickUrl(input.to)}>, <mailto:${resolveFromAddress()}?subject=baja>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+      };
+    }
     // Resend permite 2 envíos por segundo: si responde 429 se espera y se reintenta (máx. 2 veces).
-    let response = await postToResend(apiKey, from, input);
+    let response = await postToResend(apiKey, from, input, headers, html);
     for (let retry = 0; retry < 2 && response.status === 429; retry++) {
       await new Promise((resolve) => setTimeout(resolve, 800 * (retry + 1)));
-      response = await postToResend(apiKey, from, input);
+      response = await postToResend(apiKey, from, input, headers, html);
     }
 
     if (!response.ok) {

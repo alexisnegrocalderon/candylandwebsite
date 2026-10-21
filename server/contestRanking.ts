@@ -259,6 +259,7 @@ async function emailBuyers(db: Db, ctx: ContestCtx, ranking: Ranking, participan
     const key = rankMailKey(p.id);
     if (!(await claim(db, ctx.contest.id, key, p.id))) continue;
     const result = await sendEmail({
+      marketing: true,
       to: p.email,
       subject: `🏆 Vas ${view.position}º en el concurso · ${ctx.event.title}`,
       html: buildContestRankingEmail({

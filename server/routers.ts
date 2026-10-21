@@ -102,6 +102,7 @@ import { identityFromTicketCode, identityFromEmail, getTopupOptions, createTopup
 import { formatChileDate, formatChileTime } from "../shared/chileDate";
 import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emailTemplateConfig";
 import { billingPeriodStart, RESEND_DAILY_DEFAULT, RESEND_MONTHLY_LIMIT } from "../shared/emailQuota";
+import { applyEmailOptOut, decodeEmail as decodeUnsubscribeEmail, verifyUnsubscribe } from "./unsubscribe";
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
 import { normalizeInstagramAgentConfig, DEFAULT_INSTAGRAM_AGENT_CONFIG, IG_MAX_REPLY_CHARS } from "../shared/instagramAgentConfig";
 import { sendManualInstagramReply } from "./instagram";
@@ -3940,6 +3941,20 @@ export const appRouter = router({
       const result = await contestSvc.skipWinner(input.winnerId);
       await db.recordAdminAudit({ action: 'contest.skipWinner', targetType: 'contestWinner', targetId: input.winnerId, payload: result, ip: clientIp(ctx) });
       return result;
+    }),
+  }),
+
+  /* Baja de correos de promociones desde el link del pie (página pública /baja).
+   * El link lleva el correo y una firma: sin firma válida no se da de baja a nadie. */
+  unsubscribe: router({
+    confirm: publicProcedure.input(z.object({ e: z.string().max(500), t: z.string().max(64) })).mutation(async ({ input, ctx }) => {
+      const ipKey = `unsubscribe:${clientIp(ctx)}`;
+      if (!(await db.checkIpRateLimit(ipKey))) throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Prueba de nuevo en un rato.' });
+      await db.recordIpAttempt(ipKey, 30, 30 * 60 * 1000);
+      const email = decodeUnsubscribeEmail(input.e);
+      if (!verifyUnsubscribe(email, input.t)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Este link de baja no es válido o está incompleto.' });
+      await applyEmailOptOut(email);
+      return { success: true, email };
     }),
   }),
 
