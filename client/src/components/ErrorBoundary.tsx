@@ -29,7 +29,7 @@ class ErrorBoundary extends Component<Props, State> {
     // que la revise si vuelve a pasar.
     console.error('[ErrorBoundary]', error, info.componentStack);
     // Que el splash de apertura nunca tape el mensaje de error.
-    hideSplash();
+    hideSplash({ intro: false });
   }
 
   render() {
