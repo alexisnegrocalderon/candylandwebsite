@@ -1,0 +1,61 @@
+/* Splash de apertura de las apps instalables (panel y terminales).
+ *
+ * El HTML de esas pantallas (scripts/generate-pwa-html.mjs) trae un
+ * `#initial-loader` oscuro con el isotipo y marca `<html data-splash="dark">`.
+ * A diferencia del sitio público -- donde el loader se va apenas React monta --
+ * acá se queda hasta que la pantalla tiene algo real que mostrar (el panel, el
+ * login o el PIN de la terminal), así la apertura es una sola pantalla de
+ * principio a fin, sin círculos girando entre medio. */
+
+import { useEffect, type RefObject } from 'react';
+
+const FADE_MS = 260;
+/** Respaldo: pase lo que pase, a los 12 s el splash se va solo. */
+const SAFETY_MS = 12_000;
+
+let hidden = false;
+
+/** ¿Esta pantalla usa el splash oscuro que espera a la app? */
+export function hasDarkSplash(): boolean {
+  return typeof document !== 'undefined' && document.documentElement.dataset.splash === 'dark';
+}
+
+/** Quita el splash con un fundido corto. Se puede llamar las veces que sea. */
+export function hideSplash(): void {
+  if (hidden || typeof document === 'undefined') return;
+  const el = document.getElementById('initial-loader');
+  hidden = true;
+  if (!el) return;
+  el.classList.add('splash-out');
+  window.setTimeout(() => el.remove(), FADE_MS);
+}
+
+if (typeof window !== 'undefined' && hasDarkSplash()) {
+  window.setTimeout(hideSplash, SAFETY_MS);
+}
+
+/** Para pantallas que ya están listas al montar (login, PIN, panel). */
+export function useHideSplashOnMount(): void {
+  useEffect(() => { hideSplash(); }, []);
+}
+
+/** Para los marcos de las terminales: quita el splash cuando adentro ya no
+ * queda ningún "cargando" (los spinners llevan `data-splash-wait`). Así la
+ * apertura pasa directo del splash al PIN o a la pantalla principal. */
+export function useHideSplashWhenSettled(ref: RefObject<HTMLElement | null>): void {
+  useEffect(() => {
+    if (hidden || !hasDarkSplash()) return;
+    const el = ref.current;
+    if (!el) return;
+    const check = () => {
+      if (el.childElementCount > 0 && !el.querySelector('[data-splash-wait]')) {
+        observer.disconnect();
+        hideSplash();
+      }
+    };
+    const observer = new MutationObserver(check);
+    observer.observe(el, { childList: true, subtree: true });
+    check();
+    return () => observer.disconnect();
+  }, [ref]);
+}

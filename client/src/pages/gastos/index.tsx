@@ -1,5 +1,6 @@
 import '@/admin.css';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useHideSplashWhenSettled } from '@/lib/splash';
 import { ListChecks, Plus } from 'lucide-react';
 import { canOpenAdmin } from '@/lib/demoMode';
 import { trpc } from '@/lib/trpc';
@@ -33,7 +34,7 @@ export default function GastosApp() {
     return (
       <Frame>
         <div className="flex min-h-[60dvh] items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <div data-splash-wait className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
       </Frame>
     );
@@ -68,8 +69,11 @@ function GastosScreens() {
 /** Mismo chrome que el encabezado del panel (AdminShell): vidrio oscuro,
  * logo, título y pestañas, respetando la muesca del iPhone. */
 function Frame({ tabs, children }: { tabs?: React.ReactNode; children: React.ReactNode }) {
+  // El splash de apertura se va cuando ya no queda nada "cargando" adentro.
+  const ref = useRef<HTMLDivElement>(null);
+  useHideSplashWhenSettled(ref);
   return (
-    <div data-admin-theme="dark-glass" className="admin-shell dark relative min-h-dvh">
+    <div ref={ref} data-admin-theme="dark-glass" className="admin-shell dark relative min-h-dvh">
       <div className="admin-backdrop" aria-hidden="true" />
       <div className="relative z-10">
         <header className="sticky top-0 z-30 px-3 pt-[max(env(safe-area-inset-top),0.75rem)]">

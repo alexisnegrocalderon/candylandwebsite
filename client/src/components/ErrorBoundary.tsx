@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { Component, ReactNode } from "react";
+import { hideSplash } from "@/lib/splash";
 
 interface Props {
   children: ReactNode;
@@ -27,6 +28,8 @@ class ErrorBoundary extends Component<Props, State> {
     // queda en la consola del navegador de quien lo sufre, para poder pedirle
     // que la revise si vuelve a pasar.
     console.error('[ErrorBoundary]', error, info.componentStack);
+    // Que el splash de apertura nunca tape el mensaje de error.
+    hideSplash();
   }
 
   render() {

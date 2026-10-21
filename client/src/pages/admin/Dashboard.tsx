@@ -9,6 +9,7 @@ import { NOT_ADMIN_ERR_MSG } from '@shared/const';
 import { canOpenAdmin, isPartnerRole, useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
 import { CartaManager } from '@/components/admin/carta/CartaManager';
+import { useHideSplashOnMount } from '@/lib/splash';
 import { BlockedManager } from '@/components/admin/blocked/BlockedManager';
 import { MAX_AMBASSADOR_BUYER_DISCOUNT } from '@shared/ambassadorDiscount';
 import { Switch } from '@/components/ui/switch';
@@ -10978,6 +10979,12 @@ function HomeSection() {
   return <HomeView badgeCounts={badgeCounts} onOpen={openSection} />;
 }
 
+/** Quita el splash de apertura al montar (pantallas que no pasan por AdminShell). */
+function SplashGone() {
+  useHideSplashOnMount();
+  return null;
+}
+
 const ADMIN_SECTIONS = [
   { id: 'home', label: 'Inicio', hub: 'inicio', icon: Home, render: () => <HomeSection /> },
 
@@ -11410,12 +11417,11 @@ export default function AdminDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Verificando la sesión: el splash oscuro de apertura sigue a la vista
+  // (lo quitan AdminShell o el login al montar), así que acá solo va el fondo
+  // oscuro -- un círculo girando sería un segundo loader.
   if (loading) {
-    return (
-      <div data-admin-theme="light-pro" className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <div data-admin-theme="dark-glass" className="min-h-screen bg-[#0b0612]" />;
   }
 
   if (!isAuthenticated) {
@@ -11424,7 +11430,8 @@ export default function AdminDashboard() {
 
   if (!canOpenAdmin(user?.role)) {
     return (
-      <div data-admin-theme="light-pro" className="min-h-screen flex items-center justify-center">
+      <div data-admin-theme="dark-glass" className="admin-backdrop min-h-screen flex items-center justify-center">
+        <SplashGone />
         <div className="admin-clay text-center p-8">
           <h2 className="font-heading text-3xl mb-4">Sin Permisos</h2>
           <p className="text-muted-foreground">No tienes permisos de administrador.</p>

@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Fingerprint } from 'lucide-react';
 import { signalUnknownCredential } from '@/lib/passkeySignals';
+import { useHideSplashOnMount } from '@/lib/splash';
+import { useDarkGlassDocument } from '@/components/admin/shell/AdminShell';
 
 /** Login del panel en dos pasos: contraseña y luego el código de la app de
  * autenticación. La contraseña sola ya no entrega sesión.
@@ -13,6 +15,10 @@ import { signalUnknownCredential } from '@/lib/passkeySignals';
  * ver Ajustes → Seguridad), se puede entrar directo sin pasar por ninguno de
  * los dos pasos -- es un camino adicional, no reemplaza al de arriba. */
 export function AdminLoginForm() {
+  // Mismo vidrio oscuro que el panel desde la primera pantalla (también para
+  // los diálogos en portal), y fuera el splash de apertura: ya hay algo que mostrar.
+  useDarkGlassDocument();
+  useHideSplashOnMount();
   const utils = trpc.useUtils();
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -121,7 +127,7 @@ export function AdminLoginForm() {
   // su hash guardado, y ni el sistema puede recuperarlos.
   if (backupCodes) {
     return (
-      <div data-admin-theme="light-pro" className="min-h-screen pt-24 flex items-center justify-center px-4">
+      <div data-admin-theme="dark-glass" className="admin-backdrop min-h-screen flex items-center justify-center px-4 py-10">
         <div className="admin-clay w-full max-w-md text-center p-8">
           <h2 className="font-heading text-2xl mb-2">Guarda estos códigos</h2>
           <p className="text-muted-foreground text-sm mb-5">
@@ -142,7 +148,7 @@ export function AdminLoginForm() {
   // Configuración inicial del segundo factor.
   if (setup) {
     return (
-      <div data-admin-theme="light-pro" className="min-h-screen pt-24 flex items-center justify-center px-4">
+      <div data-admin-theme="dark-glass" className="admin-backdrop min-h-screen flex items-center justify-center px-4 py-10">
         <div className="admin-clay w-full max-w-sm text-center p-8">
           <h2 className="font-heading text-2xl mb-2">Configura tu segundo factor</h2>
           <p className="text-muted-foreground text-sm mb-5">
@@ -181,7 +187,7 @@ export function AdminLoginForm() {
   // Paso 2: el código.
   if (ticket) {
     return (
-      <div data-admin-theme="light-pro" className="min-h-screen pt-24 flex items-center justify-center px-4">
+      <div data-admin-theme="dark-glass" className="admin-backdrop min-h-screen flex items-center justify-center px-4 py-10">
         <div className="admin-clay w-full max-w-xs text-center p-8">
           <h2 className="font-heading text-2xl mb-2">Código de verificación</h2>
           <p className="text-muted-foreground text-sm mb-5">
@@ -216,11 +222,12 @@ export function AdminLoginForm() {
   // Paso 1: Face ID primero; la contraseña (+ código) queda como alternativa.
   const passwordFlow = !webauthnSupported || showPassword;
   return (
-    <div data-admin-theme="light-pro" className="min-h-screen pt-24 flex items-center justify-center px-4">
+    <div data-admin-theme="dark-glass" className="admin-backdrop min-h-screen flex items-center justify-center px-4 py-10">
       <form
         onSubmit={(e) => { e.preventDefault(); if (password) login.mutate({ password }); }}
         className="admin-clay text-center w-full max-w-xs p-8"
       >
+        <img src="/candyland/logo-isotipo-transparent.png" alt="" width={48} height={66} className="mx-auto mb-4 h-16 w-auto" />
         <h2 className="font-heading text-3xl mb-4">Acceso Restringido</h2>
         {webauthnSupported && (
           <>

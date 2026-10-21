@@ -6,8 +6,8 @@
   "scope": "/admin",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0d0810",
-  "theme_color": "#0d0810",
+  "background_color": "#0b0612",
+  "theme_color": "#0b0612",
   "icons": [
     {
       "src": "/app-icons/admin/icon-180.png?v=4",

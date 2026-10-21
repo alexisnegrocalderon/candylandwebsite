@@ -38,7 +38,15 @@
       "destination": "/fiesta.html"
     },
     {
-      "source": "/(cocina|guardarropia|checkout|pago)(/.*)?",
+      "source": "/cocina(/.*)?",
+      "destination": "/cocina.html"
+    },
+    {
+      "source": "/guardarropia(/.*)?",
+      "destination": "/guardarropia.html"
+    },
+    {
+      "source": "/(checkout|pago)(/.*)?",
       "destination": "/index.html"
     },
     {

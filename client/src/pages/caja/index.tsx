@@ -2,6 +2,7 @@ import '@/admin.css';
 import { useDarkGlassDocument } from '@/components/admin/shell/AdminShell';
 import { OPERATOR_ROLE_LABELS } from '@shared/cajaRoles';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useHideSplashWhenSettled } from '@/lib/splash';
 import { toast } from 'sonner';
 import { Camera, Check, Delete, X, ShoppingCart, Search, LayoutDashboard, AlertTriangle, LogOut, Receipt } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
@@ -44,10 +45,13 @@ type View = 'menu' | 'sheet' | 'sale' | 'history' | 'dashboard' | 'conflicts' | 
  * para que se vea este fondo. */
 function CajaFrame({ children }: { children: React.ReactNode }) {
   useDarkGlassDocument();
+  // El splash de apertura se va cuando ya no queda nada "cargando" adentro.
+  const contentRef = useRef<HTMLDivElement>(null);
+  useHideSplashWhenSettled(contentRef);
   return (
     <div data-admin-theme="dark-glass" className="admin-shell caja-shell dark">
       <div className="admin-backdrop" aria-hidden="true" />
-      {children}
+      <div ref={contentRef} className="contents">{children}</div>
     </div>
   );
 }
@@ -80,7 +84,7 @@ function CajaGate() {
   if (loadingDevice) {
     return (
       <div className="fixed inset-0 overscroll-none bg-transparent flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <div data-splash-wait className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -138,7 +142,7 @@ function OperatorGate() {
   if (isLoading) {
     return (
       <div className="fixed inset-0 overscroll-none bg-transparent flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <div data-splash-wait className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
