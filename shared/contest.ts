@@ -57,6 +57,11 @@ export interface ContestMessages {
   emailNotFound: string;
   boughtUpgrade: string;
   storyToReel: string;
+  flashWrong: string;
+  flashNoAttempts: string;
+  flashWin: string;
+  flashLate: string;
+  flashFinal: string;
   quizCorrect: string;
   quizRepeat: string;
   privateProofAsk: string;
@@ -108,6 +113,35 @@ export interface ContestMilestonesConfig {
   hours: number;
 }
 
+/** Reto relámpago: los primeros en acertar ganan, cada puesto con su premio. */
+export type FlashPrizeKind = 'ticket' | 'product' | 'playcoins' | 'code' | 'manual';
+export interface FlashPrize {
+  kind: FlashPrizeKind;
+  /** Entrada (ticket) o producto de la Carta (product). */
+  ticketTypeId: number | null;
+  playcoins: number;
+  /** Descuento (code). */
+  percent: number;
+  /** Texto del premio (manual) o descripción para el aviso. */
+  label: string;
+}
+export interface ContestFlashConfig {
+  question: string;
+  /** Respuestas aceptadas. */
+  answers: string[];
+  /** Intentos por persona (0 = sin límite). */
+  maxAttempts: number;
+  hintEnabled: boolean;
+  hintText: string;
+  /** Premios por puesto: 1º, 2º y 3º (1 a 3). */
+  prizes: FlashPrize[];
+  /** Suplentes para los premios con verificación. */
+  alternates: number;
+  /** % de descuento para quienes aciertan después de los ganadores (0 = nada). */
+  consolationPercent: number;
+  announce: boolean;
+}
+
 /** Quiz: serie de preguntas (se publican en historias/reel); cada respuesta
  * correcta suma sus puntos y al cierre se sortea entre quienes acertaron. */
 export interface ContestQuizQuestion {
@@ -139,6 +173,7 @@ export interface ContestConfig {
   verify: ContestVerifyConfig;
   milestones: ContestMilestonesConfig;
   quiz: ContestQuizConfig;
+  flash: ContestFlashConfig;
 }
 
 export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
@@ -170,6 +205,11 @@ export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
     + '👥 +{{por_etiqueta}} por cada amigo que etiquetes\n'
     + '🛒 +{{bonus_compra_amigo}} por cada amigo que compre con tu link\n'
     + '👉 Comenta "{{frase}}" en el reel: {{link_reel}}',
+  flashWrong: '🤔 Esa no es, {{nombre}}. Te quedan {{intentos}} intento{{s}} del reto relámpago ⚡',
+  flashNoAttempts: 'Ya usaste tus {{max_intentos}} intentos de este reto 😅 Atento al próximo ⚡',
+  flashWin: '⚡🏆 ¡{{nombre}}, quedaste {{puesto}}º en el reto relámpago! {{premio_flash}}',
+  flashLate: '⚡ ¡Correcto, {{nombre}}! Pero ya estaban los ganadores. Te dejamos {{porcentaje_flash}}% de descuento con el código {{codigo_flash}} (vale hasta que cierra el reto).',
+  flashFinal: '⚡ ¡Terminó el reto relámpago!\n{{ganadores}}\n¡Gracias por jugar! 🍬',
   quizCorrect:
     '✅ ¡Correcto, {{nombre}}! Llevas {{puntos_quiz}} de {{puntos_total}} puntos ({{aciertos}}/{{total_preguntas}} preguntas). Cada punto es un boleto para el sorteo del {{fecha_sorteo}}: {{ganadores_doble}} {{premio}} 🎁\n\n'
     + 'Sigue atento a nuestras historias: vienen más preguntas 🔥',
@@ -241,6 +281,14 @@ export const DEFAULT_CONTEST_CONFIG: ContestConfig = {
   ranking: { dailyComment: true, dailyHour: 20, publicReplies: true, maxRepliesPerDay: 15, dmTips: true, emailBuyers: true },
   verify: { enabled: true },
   quiz: { questions: [] },
+  flash: {
+    question: '', answers: [], maxAttempts: 3, hintEnabled: true, hintText: '', alternates: 1, consolationPercent: 10, announce: true,
+    prizes: [
+      { kind: 'ticket', ticketTypeId: null, playcoins: 0, percent: 0, label: '' },
+      { kind: 'product', ticketTypeId: null, playcoins: 0, percent: 0, label: '' },
+      { kind: 'playcoins', ticketTypeId: null, playcoins: 2000, percent: 0, label: '' },
+    ],
+  },
   milestones: { steps: [{ comments: 100, percent: 10 }, { comments: 250, percent: 15 }, { comments: 500, percent: 20 }], hours: 48 },
 };
 
@@ -263,6 +311,36 @@ function isoOrNull(v: unknown): string | null {
   if (typeof v !== 'string' || !v) return null;
   const t = new Date(v).getTime();
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
+
+function normalizeFlash(f: Record<string, unknown>, d: ContestFlashConfig): ContestFlashConfig {
+  const kinds: FlashPrizeKind[] = ['ticket', 'product', 'playcoins', 'code', 'manual'];
+  const rawPrizes = Array.isArray(f.prizes) ? f.prizes.slice(0, 3) : [];
+  const prizes = rawPrizes.length > 0
+    ? rawPrizes.map((raw, i) => {
+        const p = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+        const fb = d.prizes[i] ?? d.prizes[d.prizes.length - 1];
+        return {
+          kind: kinds.includes(p.kind as FlashPrizeKind) ? (p.kind as FlashPrizeKind) : fb.kind,
+          ticketTypeId: idOrNull(p.ticketTypeId),
+          playcoins: int(p.playcoins, fb.playcoins, 0, 1_000_000),
+          percent: int(p.percent, fb.percent, 0, 100),
+          label: typeof p.label === 'string' ? p.label.trim().slice(0, 120) : '',
+        };
+      })
+    : d.prizes;
+  return {
+    question: typeof f.question === 'string' ? f.question.trim().slice(0, 400) : d.question,
+    answers: (Array.isArray(f.answers) ? f.answers : typeof f.answers === 'string' ? f.answers.split(/[,;\n]/) : [])
+      .filter((a): a is string => typeof a === 'string').map((a) => a.trim().slice(0, 60)).filter(Boolean).slice(0, 10),
+    maxAttempts: int(f.maxAttempts, d.maxAttempts, 0, 20),
+    hintEnabled: typeof f.hintEnabled === 'boolean' ? f.hintEnabled : d.hintEnabled,
+    hintText: typeof f.hintText === 'string' ? f.hintText.trim().slice(0, 300) : d.hintText,
+    prizes,
+    alternates: int(f.alternates, d.alternates, 0, 5),
+    consolationPercent: int(f.consolationPercent, d.consolationPercent, 0, 100),
+    announce: typeof f.announce === 'boolean' ? f.announce : d.announce,
+  };
 }
 
 function normalizeQuestions(raw: unknown): ContestQuizQuestion[] {
@@ -304,6 +382,7 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
   const p = (r.prizes && typeof r.prizes === 'object' ? r.prizes : {}) as Record<string, unknown>;
   const m = (r.messages && typeof r.messages === 'object' ? r.messages : {}) as Record<string, unknown>;
   const k = (r.ranking && typeof r.ranking === 'object' ? r.ranking : {}) as Record<string, unknown>;
+  const fl = (r.flash && typeof r.flash === 'object' ? r.flash : {}) as Record<string, unknown>;
   const qz = (r.quiz && typeof r.quiz === 'object' ? r.quiz : {}) as Record<string, unknown>;
   const ms = (r.milestones && typeof r.milestones === 'object' ? r.milestones : {}) as Record<string, unknown>;
   const v = (r.verify && typeof r.verify === 'object' ? r.verify : {}) as Record<string, unknown>;
@@ -352,6 +431,11 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       emailNotFound: text(m.emailNotFound, d.messages.emailNotFound),
       boughtUpgrade: text(m.boughtUpgrade, d.messages.boughtUpgrade),
       storyToReel: text(m.storyToReel, d.messages.storyToReel),
+      flashWrong: text(m.flashWrong, d.messages.flashWrong, 400),
+      flashNoAttempts: text(m.flashNoAttempts, d.messages.flashNoAttempts, 400),
+      flashWin: text(m.flashWin, d.messages.flashWin, 600),
+      flashLate: text(m.flashLate, d.messages.flashLate, 600),
+      flashFinal: text(m.flashFinal, d.messages.flashFinal, 800),
       quizCorrect: text(m.quizCorrect, d.messages.quizCorrect),
       quizRepeat: text(m.quizRepeat, d.messages.quizRepeat, 400),
       privateProofAsk: text(m.privateProofAsk, d.messages.privateProofAsk, 300),
@@ -381,6 +465,7 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
     },
     verify: { enabled: typeof v.enabled === 'boolean' ? v.enabled : d.verify.enabled },
     quiz: { questions: normalizeQuestions(qz.questions) },
+    flash: normalizeFlash(fl, d.flash),
     milestones: { steps: normalizeSteps(ms.steps, d.milestones.steps), hours: int(ms.hours, d.milestones.hours, 1, 720) },
   };
 }

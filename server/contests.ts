@@ -44,6 +44,7 @@ import { buildRanking, pickGuaranteedLeader } from '../shared/contestRanking';
 import { buildTemplateConfig, getContestTemplate, type ContestTemplateKey } from '../shared/contestTemplates';
 import { milestoneState } from '../shared/contestMilestones';
 import { answerMatches } from '../shared/contestQuiz';
+import { flashBlockers } from '../shared/contestFlash';
 import { ageOn, isVerifyComplete, missingVerifyFields, parseVerifyReply } from '../shared/contestVerify';
 
 const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
@@ -136,7 +137,7 @@ function chancesOf(p: ContestParticipant, config: ContestConfig): number {
 
 /* ── Links y textos ──────────────────────────────────────────────────────── */
 
-function checkoutUrl(ctx: ContestCtx, opts: { code?: string | null; content: string }): string {
+export function checkoutUrl(ctx: ContestCtx, opts: { code?: string | null; content: string }): string {
   const params = new URLSearchParams();
   if (opts.code) params.set('code', opts.code);
   params.set('utm_source', 'instagram');
@@ -367,7 +368,7 @@ async function ensureFriendCode(db: Db, ctx: ContestCtx, p: ContestParticipant):
 
 /** Carga un producto gratis en una orden ya pagada: su vale (displayCode)
  * aparece junto a la entrada, listo para canjear en caja como cualquier extra. */
-async function grantFreeItem(db: Db, orderId: number, ticketTypeId: number): Promise<boolean> {
+export async function grantFreeItem(db: Db, orderId: number, ticketTypeId: number): Promise<boolean> {
   const [order] = await db.select({ id: orders.id, eventId: orders.eventId, buyerName: orders.buyerName, paymentStatus: orders.paymentStatus })
     .from(orders).where(eq(orders.id, orderId)).limit(1);
   const [product] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, ticketTypeId)).limit(1);
@@ -582,6 +583,12 @@ export async function handleContestComment(input: {
     const db = await getDb();
     if (!db) return false;
     if (!(await claimLog(db, ctx.contest.id, 'comment', input.commentId, null))) return true;
+    // Reto relámpago: el comentario es un intento de respuesta.
+    if (ctx.contest.template === 'flash') {
+      return (await import('./contestFlash')).handleFlashAnswer(db, ctx, {
+        igUserId: input.igUserId, username: input.username, text: input.text, channel: { kind: 'comment', commentId: input.commentId }, commentId: input.commentId,
+      });
+    }
     // Quiz: el comentario es una respuesta (si no acierta, sigue su camino normal).
     if (ctx.contest.template === 'quiz') {
       return (await import('./contestQuiz')).handleQuizAnswer(db, ctx, {
@@ -659,6 +666,8 @@ async function pickCtxForMessage(db: Db, igUserId: string, text: string): Promis
     return keywords.length > 0 && matchesAllKeywords(text, keywords);
   });
   if (keywordMatch) return keywordMatch;
+  const flashMatch = all.find((c) => c.contest.template === 'flash' && c.config.flash.answers.some((a) => answerMatches(text, a)));
+  if (flashMatch) return flashMatch;
   const quizMatch = all.find((c) => c.contest.template === 'quiz' && c.config.quiz.questions.some((q) => q.answers.some((a) => answerMatches(text, a))));
   if (quizMatch) return quizMatch;
   return all.find((c) => participants.get(c.contest.id)) ?? (await getActiveContestCtx());
@@ -687,7 +696,7 @@ export async function handleContestMessage(input: {
         eq(contestWinners.contestId, ctx.contest.id), eq(contestWinners.participantId, participant.id), eq(contestWinners.status, 'notified'),
       )).limit(1);
       if (pending[0]) {
-        await deliverWinnerPrize(db, ctx, pending[0], participant, channel);
+        await deliverWinnerPrize(db, ctx, pending[0], participant, channel, input.text);
         return true;
       }
       // Ganador en verificación: lo que escriba son sus datos.
@@ -723,7 +732,7 @@ export async function handleContestMessage(input: {
 
     // 2. Mención en historia: solo suma el bonus a quien YA participa (una
     // mención suelta de la cuenta no inscribe ni manda nada).
-    if (input.storyMention && ctx.contest.template === 'quiz') return false;
+    if (input.storyMention && (ctx.contest.template === 'quiz' || ctx.contest.template === 'flash')) return false;
     if (input.storyMention) {
       if (!participant) {
         // Aún no participa: la mención queda guardada y suma cuando comente.
@@ -742,6 +751,12 @@ export async function handleContestMessage(input: {
 
     const text = input.text.trim();
     if (!text) return false;
+
+    // Reto relámpago: respuesta por DM o a la historia del reto.
+    if (ctx.contest.template === 'flash') {
+      if (!accepting(ctx) || ctx.contest.drawnAt) return false;
+      return (await import('./contestFlash')).handleFlashAnswer(db, ctx, { igUserId: input.igUserId, username: input.username, text, channel, commentId: null, storyReply: !!input.storyReply });
+    }
 
     // Quiz: el DM (o la respuesta a la historia) es una respuesta; si no
     // acierta, no se hace nada automático (la historia puede ser de otra cosa).
@@ -932,6 +947,9 @@ export async function runContestDraw(contestId: number): Promise<{ double: numbe
     if (ctx.contest.template === 'quiz') {
       return await (await import('./contestQuiz')).drawQuiz(db, ctx);
     }
+    if (ctx.contest.template === 'flash') {
+      return await (await import('./contestFlash')).drawFlash(db, ctx);
+    }
     if (ctx.contest.template === 'milestones') {
       return await (await import('./contestMilestones')).drawMilestones(db, ctx);
     }
@@ -1002,14 +1020,14 @@ async function drawPools(db: Db, ctx: ContestCtx): Promise<{ double: number; vip
 /** Como `activateWinner`, pero un error de Meta o del correo no corta el
  * sorteo: el ganador queda "esperando que escriba" con su plazo, y si no
  * reclama, pasa el suplente como siempre. */
-export async function safeActivateWinner(db: Db, ctx: ContestCtx, row: ContestWinner): Promise<void> {
+export async function safeActivateWinner(db: Db, ctx: ContestCtx, row: ContestWinner, via?: Channel | null): Promise<void> {
   try {
-    await activateWinner(db, ctx, row);
+    await activateWinner(db, ctx, row, via);
   } catch (err) {
     console.error(`[Concurso] No se pudo avisar al ganador ${row.id}:`, err);
     // Sin premio hasta verificar: el ganador de entrada doble sin compra queda
     // "verificando"; los demás, esperando que escriban.
-    const needsVerify = row.pool === 'double' && ctx.config.verify.enabled;
+    const needsVerify = row.pool === 'double' && ctx.config.verify.enabled && isTicketPrize(ctx, row);
     await db.update(contestWinners).set({
       status: needsVerify ? 'verifying' : 'notified', notifiedAt: new Date(), claimDeadline: new Date(Date.now() + ctx.config.claimHours * 60 * 60 * 1000),
     }).where(and(eq(contestWinners.id, row.id), eq(contestWinners.status, 'alternate')));
@@ -1018,18 +1036,37 @@ export async function safeActivateWinner(db: Db, ctx: ContestCtx, row: ContestWi
 
 /** Un ganador (o el suplente que sube): crea su premio, intenta entregarlo por
  * DM y si no se puede, lo deja "esperando que escriba" con plazo. */
-async function activateWinner(db: Db, ctx: ContestCtx, row: ContestWinner): Promise<void> {
+/** Reto relámpago: cada puesto tiene su premio (config.flash.prizes). */
+function flashPrizeOf(ctx: ContestCtx, row: ContestWinner) {
+  return ctx.contest.template === 'flash' ? ctx.config.flash.prizes[row.position - 1] ?? null : null;
+}
+/** ¿El premio de este ganador es una entrada? (En los demás concursos, siempre.) */
+export function isTicketPrize(ctx: ContestCtx, row: ContestWinner): boolean {
+  if (ctx.contest.template !== 'flash') return true;
+  const prize = flashPrizeOf(ctx, row);
+  return !prize || prize.kind === 'ticket';
+}
+/** En el reto relámpago, la entrada que se regala depende del puesto. */
+async function ctxForPlace(db: Db, ctx: ContestCtx, row: ContestWinner): Promise<ContestCtx> {
+  const prize = flashPrizeOf(ctx, row);
+  if (!prize || prize.kind !== 'ticket' || !prize.ticketTypeId) return ctx;
+  const [type] = await db.select({ name: ticketTypes.name }).from(ticketTypes).where(eq(ticketTypes.id, prize.ticketTypeId)).limit(1);
+  return { ...ctx, config: { ...ctx.config, prizes: { ...ctx.config.prizes, prizeTicketTypeId: prize.ticketTypeId } }, prizeName: type?.name ?? ctx.prizeName };
+}
+
+export async function activateWinner(db: Db, ctxIn: ContestCtx, row: ContestWinner, via?: Channel | null): Promise<void> {
+  const ctx = await ctxForPlace(db, ctxIn, row);
   const participant = await reload(db, row.participantId);
-  if (row.pool === 'double' && participant.hasTicket && participant.orderId) {
+  if (row.pool === 'double' && participant.hasTicket && participant.orderId && isTicketPrize(ctx, row)) {
     await activateBuyerWinner(db, ctx, row, participant);
     return;
   }
   // Entrada doble sin compra: antes del premio se verifica que pueda asistir.
-  if (row.pool === 'double' && ctx.config.verify.enabled) {
-    await startVerification(db, ctx, row, participant);
+  if (row.pool === 'double' && ctx.config.verify.enabled && isTicketPrize(ctx, row)) {
+    await startVerification(db, ctx, row, participant, via);
     return;
   }
-  const channel = await reachableChannel(db, participant);
+  const channel = via ?? await reachableChannel(db, participant);
   if (channel) {
     await deliverWinnerPrize(db, ctx, row, participant, channel);
     await announcePublicly(ctx, participant, true);
@@ -1046,10 +1083,10 @@ async function activateWinner(db: Db, ctx: ContestCtx, row: ContestWinner): Prom
 
 /** Avisa que ganó y pide RUT, fecha de nacimiento y ACEPTO. El premio no se
  * crea hasta que el admin aprueba. */
-async function startVerification(db: Db, ctx: ContestCtx, row: ContestWinner, p: ContestParticipant): Promise<void> {
+async function startVerification(db: Db, ctx: ContestCtx, row: ContestWinner, p: ContestParticipant, via?: Channel | null): Promise<void> {
   const deadline = new Date(Date.now() + ctx.config.claimHours * 60 * 60 * 1000);
   await db.update(contestWinners).set({ status: 'verifying', notifiedAt: new Date(), claimDeadline: deadline }).where(eq(contestWinners.id, row.id));
-  const channel = await reachableChannel(db, p);
+  const channel = via ?? await reachableChannel(db, p);
   if (channel) {
     await send(channel, renderContestTemplate(ctx.config.messages.winnerVerify, templateVars(ctx, p, { plazo: dateTimeText(deadline) })))
       .catch((err) => console.error('[Concurso] No se pudo pedir la verificación al ganador:', err));
@@ -1130,7 +1167,7 @@ export async function rejectWinner(winnerId: number, note?: string | null) {
     await send(channel, renderContestTemplate(ctx.config.messages.verifyRejected, templateVars(ctx, p)))
       .catch((err) => console.error('[Concurso] No se pudo avisar el rechazo:', err));
   }
-  return { promoted: await promoteAlternate(db, ctx, row.pool) };
+  return { promoted: await promoteAlternate(db, ctx, row.pool, row.position) };
 }
 
 /** ¿Sigue la cuenta? Lo consulta el admin a mano (Meta puede no entregarlo). */
@@ -1260,8 +1297,9 @@ export async function submitWinnerChoice(token: string, choice: 'refund' | 'gift
   const [row] = await db.select().from(contestWinners).where(eq(contestWinners.choiceToken, token)).limit(1);
   if (!row) throw new Error('Este link no es válido.');
   if (row.status !== 'choosing') return getWinnerChoice(token);
-  const ctx = await getCtxById(row.contestId);
-  if (!ctx) throw new Error('Concurso no encontrado.');
+  const ctxBase = await getCtxById(row.contestId);
+  if (!ctxBase) throw new Error('Concurso no encontrado.');
+  const ctx = await ctxForPlace(db, ctxBase, row);
   const [res] = await db.update(contestWinners).set({ choice, status: 'delivered', deliveredAt: new Date(), ...(choice === 'refund' ? { refundStatus: 'pending' as const } : {}) })
     .where(and(eq(contestWinners.id, row.id), eq(contestWinners.status, 'choosing')));
   if ((res as unknown as { affectedRows: number }).affectedRows !== 1) return getWinnerChoice(token);
@@ -1323,7 +1361,12 @@ async function closeExpiredChoices(db: Db, ctx: ContestCtx): Promise<number> {
 
 /** Crea y entrega el premio. `channel` null = solo por email (si lo hay);
  * el estado queda "notified" hasta que escriba por DM. */
-async function deliverWinnerPrize(db: Db, ctx: ContestCtx, row: ContestWinner, p: ContestParticipant, channel: Channel | null): Promise<void> {
+export async function deliverWinnerPrize(db: Db, ctxIn: ContestCtx, row: ContestWinner, p: ContestParticipant, channel: Channel | null, text?: string): Promise<void> {
+  if (!isTicketPrize(ctxIn, row)) {
+    await (await import('./contestFlash')).deliverFlashPrize(db, ctxIn, row, p, channel, text);
+    return;
+  }
+  const ctx = await ctxForPlace(db, ctxIn, row);
   let prizeCode = row.prizeCode;
   let ok = true;
   if (row.pool === 'double') {
@@ -1378,12 +1421,12 @@ async function expireUnclaimed(db: Db, ctx: ContestCtx): Promise<number> {
   ));
   for (const row of overdue) {
     await db.update(contestWinners).set({ status: 'expired' }).where(eq(contestWinners.id, row.id));
-    await promoteAlternate(db, ctx, row.pool);
+    await promoteAlternate(db, ctx, row.pool, row.position);
   }
   return overdue.length;
 }
 
-async function promoteAlternate(db: Db, ctx: ContestCtx, pool: 'double' | 'vip'): Promise<boolean> {
+async function promoteAlternate(db: Db, ctx: ContestCtx, pool: 'double' | 'vip', vacatedPlace?: number): Promise<boolean> {
   const [next] = await db.select().from(contestWinners).where(and(
     eq(contestWinners.contestId, ctx.contest.id), eq(contestWinners.pool, pool), eq(contestWinners.status, 'alternate'),
   )).orderBy(asc(contestWinners.position)).limit(1);
@@ -1391,7 +1434,12 @@ async function promoteAlternate(db: Db, ctx: ContestCtx, pool: 'double' | 'vip')
   const participant = await reload(db, next.participantId);
   if (participant.disqualified) {
     await db.update(contestWinners).set({ status: 'skipped' }).where(eq(contestWinners.id, next.id));
-    return promoteAlternate(db, ctx, pool);
+    return promoteAlternate(db, ctx, pool, vacatedPlace);
+  }
+  // Reto relámpago: el suplente que sube hereda el premio del puesto que quedó libre.
+  if (ctx.contest.template === 'flash' && vacatedPlace && vacatedPlace <= ctx.config.flash.prizes.length) {
+    await db.update(contestWinners).set({ position: vacatedPlace }).where(eq(contestWinners.id, next.id));
+    next.position = vacatedPlace;
   }
   await safeActivateWinner(db, ctx, next);
   return true;
@@ -1453,6 +1501,9 @@ async function runContestCronFor(db: Db, ctx: ContestCtx, now: Date): Promise<Re
     } catch (err) {
       result.sync = { error: err instanceof Error ? err.message : 'Error' };
     }
+  }
+  if (ctx.contest.template === 'flash' && !ctx.contest.drawnAt && contestPhase(ctx.contest, ctx.config, now) === 'live') {
+    result.flash = await (await import('./contestFlash')).runFlashCron(db, ctx, now).catch((err) => `error: ${err instanceof Error ? err.message : err}`);
   }
   if (ctx.contest.template === 'milestones' && !ctx.contest.drawnAt && contestPhase(ctx.contest, ctx.config, now) === 'live') {
     result.milestones = await (await import('./contestMilestones')).runMilestones(db, ctx).catch((err) => `error: ${err instanceof Error ? err.message : err}`);
@@ -1584,9 +1635,10 @@ export async function updateContest(id: number, patch: {
 /** Lo que falta para poder lanzar (vacío = listo). */
 export function launchBlockers(ctx: ContestCtx): string[] {
   const out: string[] = [];
-  if (!ctx.contest.mediaId && ctx.contest.template !== 'quiz') out.push('Elige la publicación de Instagram del concurso.');
+  if (ctx.contest.template === 'flash') out.push(...flashBlockers(ctx.config.flash));
+  if (!ctx.contest.mediaId && ctx.contest.template !== 'quiz' && ctx.contest.template !== 'flash') out.push('Elige la publicación de Instagram del concurso.');
   if (ctx.contest.template === 'quiz' && !ctx.config.quiz.questions.some((q) => q.text && q.answers.length > 0)) out.push('Agrega al menos una pregunta con sus respuestas aceptadas.');
-  if (ctx.config.prizes.doubleWinners > 0 && !ctx.config.prizes.prizeTicketTypeId) out.push('Elige qué entrada se regala como premio.');
+  if (ctx.contest.template !== 'flash' && ctx.config.prizes.doubleWinners > 0 && !ctx.config.prizes.prizeTicketTypeId) out.push('Elige qué entrada se regala como premio.');
   if (!ctx.config.drawAt) out.push('Pon la fecha del sorteo.');
   else if (new Date(ctx.config.drawAt).getTime() > new Date(ctx.event.eventDate).getTime()) out.push('El sorteo tiene que ser antes de la fiesta.');
   return out;
@@ -1864,7 +1916,7 @@ export async function skipWinner(winnerId: number) {
   if (!ctx) throw new Error('Concurso no encontrado.');
   await db.update(contestWinners).set({ status: 'expired', ...(row.refundStatus === 'pending' ? { refundStatus: null } : {}) }).where(eq(contestWinners.id, winnerId));
   if (row.prizeCode) await db.update(discountCodes).set({ isActive: 0 }).where(eq(discountCodes.code, row.prizeCode));
-  return { promoted: await promoteAlternate(db, ctx, row.pool) };
+  return { promoted: await promoteAlternate(db, ctx, row.pool, row.position) };
 }
 
 /** Reenvía la bienvenida a quienes participaron por comentario (máx. 7 días,

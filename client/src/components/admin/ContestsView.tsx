@@ -108,6 +108,11 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'extraChances', label: 'DM al compartir en historia', help: '' },
   { key: 'emailNotFound', label: 'DM si el correo no tiene compra', help: '' },
   { key: 'storyToReel', label: 'DM a quien responde la historia (entra con puntos base)', help: 'Lo inscribe con los puntos base y lo invita a comentar el reel para sumar más. Variables: {{link_reel}}, {{frase}}.' },
+  { key: 'flashWrong', label: 'Reto: respuesta incorrecta', help: 'Con intentos limitados. Variables: {{intentos}} (los que quedan) y {{s}} (plural).' },
+  { key: 'flashNoAttempts', label: 'Reto: sin intentos', help: 'Variable: {{max_intentos}}.' },
+  { key: 'flashWin', label: 'Reto: aviso al ganador', help: 'Variables: {{puesto}} y {{premio_flash}} (el premio de ese puesto, con el código si corresponde).' },
+  { key: 'flashLate', label: 'Reto: acertó pero ya no quedaban puestos', help: 'Variables: {{porcentaje_flash}} y {{codigo_flash}}.' },
+  { key: 'flashFinal', label: 'Reto: comentario final en el reel', help: '{{ganadores}} lista 🥇🥈🥉 con @.' },
   { key: 'quizCorrect', label: 'Quiz: respuesta correcta', help: 'Variables: {{puntos_quiz}}, {{puntos_total}}, {{aciertos}}, {{total_preguntas}}.' },
   { key: 'quizRepeat', label: 'Quiz: respuesta que ya tenía', help: 'Cuando vuelve a acertar una pregunta que ya había respondido.' },
   { key: 'privateProofAsk', label: 'Aviso para cuentas privadas (va al final de la bienvenida)', help: 'Las menciones en historias de cuentas privadas no llegan a la app: piden captura por DM. Se omite si la bienvenida ya es muy larga.' },
@@ -127,7 +132,7 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'afterDraw', label: 'DM a quien comenta después del sorteo', help: '' },
 ];
 
-const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}} {{congelado_hasta}} {{link_elegir}} {{monto_devolucion}} {{link_reel}} {{frase}} {{faltante}} {{puntos_texto}} {{puntos_quiz}} {{puntos_total}} {{aciertos}} {{total_preguntas}}';
+const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}} {{congelado_hasta}} {{link_elegir}} {{monto_devolucion}} {{link_reel}} {{frase}} {{faltante}} {{puntos_texto}} {{puntos_quiz}} {{puntos_total}} {{aciertos}} {{total_preguntas}} {{intentos}} {{s}} {{max_intentos}} {{puesto}} {{premio_flash}} {{codigo_flash}} {{porcentaje_flash}} {{ganadores}}';
 
 /* ── Ruleta para grabar el sorteo ─────────────────────────────────────────── */
 
@@ -485,6 +490,86 @@ function ContestDetail({ id }: { id: number }) {
             </CardContent>
           </Card>
 
+          {data.contest.template === 'flash' && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Reto relámpago</CardTitle></CardHeader>
+              <CardContent className="space-y-5">
+                <p className="text-xs text-muted-foreground">
+                  Publica el reto en una historia o reel (pregunta, "encuentra el objeto", "cuántas diferencias hay"…). La gente responde por DM (respondiendo la historia) o comentando.
+                  Ganan los primeros en acertar, cada puesto con su premio; cuando se llena el último, el reto cierra solo.
+                </p>
+                <div>
+                  <Label>El reto (para copiar en la historia)</Label>
+                  <Textarea className="mt-1 text-sm" rows={2} value={config.flash.question} placeholder="¿Cuántas diferencias hay entre las dos fotos?"
+                    onChange={(e) => patch((c) => ({ ...c, flash: { ...c.flash, question: e.target.value } }))} />
+                </div>
+                <div className="grid sm:grid-cols-[1fr_9rem] gap-4">
+                  <div>
+                    <Label>Respuestas aceptadas (separadas por coma)</Label>
+                    <Input className="mt-1" value={config.flash.answers.join(', ')} placeholder="5, cinco"
+                      onChange={(e) => patch((c) => ({ ...c, flash: { ...c.flash, answers: e.target.value.split(/[,;]/).map((a) => a.trim()).filter(Boolean) } }))} />
+                  </div>
+                  <NumberField label="Intentos por persona" value={config.flash.maxAttempts} help="0 = sin límite."
+                    onChange={(n) => patch((c) => ({ ...c, flash: { ...c.flash, maxAttempts: n } }))} />
+                </div>
+                <div className="grid sm:grid-cols-[auto_1fr] gap-4 items-start">
+                  <label className="flex items-center gap-2 text-sm pt-6"><Switch checked={config.flash.hintEnabled} onCheckedChange={(v) => patch((c) => ({ ...c, flash: { ...c.flash, hintEnabled: v } }))} /> Pista a la mitad</label>
+                  <div>
+                    <Label>Pista (se comenta en el reel si nadie ha acertado a la mitad del tiempo)</Label>
+                    <Input className="mt-1" value={config.flash.hintText} disabled={!config.flash.hintEnabled} placeholder="Mira bien la esquina de abajo a la derecha"
+                      onChange={(e) => patch((c) => ({ ...c, flash: { ...c.flash, hintText: e.target.value } }))} />
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold">Premio de cada puesto</p>
+                  {config.flash.prizes.map((prize, i) => {
+                    const setPrize = (patchPrize: Partial<typeof prize>) => patch((c) => ({ ...c, flash: { ...c.flash, prizes: c.flash.prizes.map((x, k) => (k === i ? { ...x, ...patchPrize } : x)) } }));
+                    return (
+                      <div key={i} className="rounded-lg border p-3 grid sm:grid-cols-[7rem_12rem_1fr_auto] gap-3 items-end">
+                        <p className="text-sm font-semibold pb-2">{['🥇 1º', '🥈 2º', '🥉 3º'][i]}</p>
+                        <div>
+                          <Label className="text-xs">Premio</Label>
+                          <Select value={prize.kind} onValueChange={(v) => setPrize({ kind: v as typeof prize.kind })}>
+                            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="ticket">🎟️ Entrada</SelectItem>
+                              <SelectItem value="product">🍸 Producto de la Carta</SelectItem>
+                              <SelectItem value="playcoins">🪙 PlayCoins</SelectItem>
+                              <SelectItem value="code">🏷️ Código de descuento</SelectItem>
+                              <SelectItem value="manual">✍️ Manual</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="min-w-0">
+                          {prize.kind === 'ticket' && <TicketTypeSelect label="Acceso" value={prize.ticketTypeId} types={accesos} categories={['acceso']} allowNone={false} onChange={(v) => setPrize({ ticketTypeId: v })} help="Con verificación del ganador." />}
+                          {prize.kind === 'product' && <TicketTypeSelect label="Producto" value={prize.ticketTypeId} types={accesos} categories={['consumo', 'extra', 'merch']} allowNone={false} onChange={(v) => setPrize({ ticketTypeId: v })} help="Se carga en su entrada, o recibe un código para canjearlo." />}
+                          {prize.kind === 'playcoins' && <NumberField label="PlayCoins" value={prize.playcoins} onChange={(n) => setPrize({ playcoins: n })} help="Se abonan a su cuenta si la encontramos; si no, nos manda su correo." />}
+                          {prize.kind === 'code' && <NumberField label="Descuento" value={prize.percent} suffix="%" onChange={(n) => setPrize({ percent: n })} help="Código de un solo uso hasta la fiesta." />}
+                          {prize.kind === 'manual' && (
+                            <div>
+                              <Label className="text-xs">Qué se entrega</Label>
+                              <Input className="mt-1" value={prize.label} placeholder="Un shot gratis en la barra" onChange={(e) => setPrize({ label: e.target.value })} />
+                              <p className="text-xs text-muted-foreground mt-1">Solo se avisa al ganador; lo entregas tú.</p>
+                            </div>
+                          )}
+                        </div>
+                        <Button type="button" variant="ghost" size="sm" disabled={config.flash.prizes.length <= 1}
+                          onClick={() => patch((c) => ({ ...c, flash: { ...c.flash, prizes: c.flash.prizes.filter((_, k) => k !== i) } }))}><X className="w-4 h-4" /></Button>
+                      </div>
+                    );
+                  })}
+                  <Button type="button" variant="outline" size="sm" disabled={config.flash.prizes.length >= 3}
+                    onClick={() => patch((c) => ({ ...c, flash: { ...c.flash, prizes: [...c.flash.prizes, { kind: 'playcoins', ticketTypeId: null, playcoins: 1000, percent: 0, label: '' }] } }))}><Plus className="w-4 h-4" /> Agregar puesto</Button>
+                </div>
+                <div className="grid sm:grid-cols-3 gap-4">
+                  <NumberField label="Suplentes" value={config.flash.alternates} onChange={(n) => patch((c) => ({ ...c, flash: { ...c.flash, alternates: n } }))} help="Los siguientes en acertar: si un ganador no pasa la verificación, entra el suplente." />
+                  <NumberField label="Descuento para quienes acierten después" value={config.flash.consolationPercent} suffix="%" onChange={(n) => patch((c) => ({ ...c, flash: { ...c.flash, consolationPercent: n } }))} help="Vale hasta que cierra el reto. 0 = nada." />
+                  <label className="flex items-center gap-2 text-sm pt-6"><Switch checked={config.flash.announce} onCheckedChange={(v) => patch((c) => ({ ...c, flash: { ...c.flash, announce: v } }))} /> Anunciar ganadores en el reel</label>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {data.contest.template === 'quiz' && (
             <Card>
               <CardHeader><CardTitle className="text-base">Preguntas del quiz</CardTitle></CardHeader>
@@ -838,6 +923,12 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
             <p className="text-muted-foreground">
               Al cierre ganan quienes más compras lograron con su link (empate = quien entró antes) y se publica la tabla final en el reel.
               {data.config.ranking.dailyComment ? ` Cada día desde las ${data.config.ranking.dailyHour}:00 se comenta la tabla parcial.` : ''} Cada ganador pasa por la verificación antes de recibir el premio.
+            </p>
+          )}
+          {data.contest.template === 'flash' && (
+            <p className="text-muted-foreground">
+              Ganan los primeros {data.config.flash.prizes.length} en acertar, cada puesto con su premio ({data.config.flash.prizes.map((p, i) => `${i + 1}º ${({ ticket: 'entrada', product: 'producto', playcoins: `${p.playcoins} PlayCoins`, code: `${p.percent}% de descuento`, manual: p.label || 'premio manual' } as Record<string, string>)[p.kind]}`).join(', ')}).
+              Solo las entradas pasan por la verificación del ganador. Cuando se llena el último puesto el reto cierra solo y se anuncia en el reel.
             </p>
           )}
           {data.contest.template === 'quiz' && (

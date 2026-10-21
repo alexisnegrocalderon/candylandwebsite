@@ -74,7 +74,7 @@ export function ContestWizard({ open, onOpenChange, events, onCreated }: {
     prizeTicketTypeId: prizeId ? Number(prizeId) : null,
     mediaId: media?.id ?? null, mediaPermalink: media?.permalink ?? null, mediaImage: media?.image ?? null,
     startsAt: new Date(startsAt).toISOString(), drawAt: new Date(endsAt).toISOString(),
-    ...(template === 'quiz' ? {} : { keyword: keyword.trim(), keywordPhrase: phrase.trim() }),
+    ...(template === 'quiz' || template === 'flash' ? {} : { keyword: keyword.trim(), keywordPhrase: phrase.trim() }),
   });
 
   return (
@@ -108,7 +108,7 @@ export function ContestWizard({ open, onOpenChange, events, onCreated }: {
                   <SelectContent>{events.map((e) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              {template !== 'milestones' && <div>
+              {template !== 'milestones' && template !== 'flash' && <div>
                 <Label>Premio (entrada que se regala)</Label>
                 <Select value={prizeId} onValueChange={setPrizeId}>
                   <SelectTrigger className="mt-1"><SelectValue placeholder={types.isLoading ? 'Cargando…' : 'Elegir entrada'} /></SelectTrigger>
@@ -120,7 +120,7 @@ export function ContestWizard({ open, onOpenChange, events, onCreated }: {
               <Label>Nombre del concurso (opcional)</Label>
               <Input className="mt-1" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={`${tpl.name} · ${events.find((e) => String(e.id) === eventId)?.title ?? 'evento'}`} />
             </div>
-            {template !== 'quiz' && <div className="grid sm:grid-cols-2 gap-4">
+            {template !== 'quiz' && template !== 'flash' && <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <Label>Palabras clave (todas, separadas por coma)</Label>
                 <Input className="mt-1" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
