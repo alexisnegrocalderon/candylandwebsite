@@ -37,7 +37,7 @@ import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { normalizeTandaSchedule } from '../shared/tandaSchedule';
 import { normalizeIgHandle } from '../shared/igCustomerLink';
 import {
-  commentEnrolls, computeChances, contestPhase, defaultDrawAt, dmFallbackReply, drawPoolFor, fitDmText, extractEmail, dmEnrolls, matchesAllKeywords, parseKeywords, priceLockCodePercent, refundAmountFor, mergeMentions, normalizeContestConfig, parseMentions,
+  commentEnrolls, computeChances, contestPhase, defaultDrawAt, dmFallbackReply, drawPoolFor, fitDmText, extractEmail, dmEnrolls, matchesAllKeywords, utf8Bytes, parseKeywords, priceLockCodePercent, refundAmountFor, mergeMentions, normalizeContestConfig, parseMentions,
   prizeLabels, randomContestCode, randomInviteCode, renderContestTemplate, weightedDraw, type ContestConfig,
 } from '../shared/contest';
 import { buildRanking, pickGuaranteedLeader } from '../shared/contestRanking';
@@ -518,16 +518,20 @@ function welcomeMessage(ctx: ContestCtx, p: ContestParticipant): { text: string;
   const vars = templateVars(ctx, p);
   const m = ctx.config.messages;
   // Antes del sorteo, todos reciben el link a su posición en el ranking.
-  const positionLine = ctx.contest.drawnAt || ctx.contest.template !== 'ranking' ? '' : `\n\n📊 Mira tu posición y cómo subir: ${positionLink(p.inviteCode)}`;
+  const ranked = !ctx.contest.drawnAt && ctx.contest.template === 'ranking';
+  const positionLine = ranked ? `\n\n📊 Mira tu posición y cómo subir: ${positionLink(p.inviteCode)}` : '';
+  // Cuentas privadas: su mención en historia no llega, piden captura. Solo si cabe en un DM.
+  const proofLine = ranked && !p.storyMentioned ? `\n\n${renderContestTemplate(m.privateProofAsk, vars)}` : '';
+  const withProof = (text: string) => (utf8Bytes(`${text}${proofLine}`) <= 960 ? `${text}${proofLine}` : text);
   if (p.hasTicket) {
     // Compró durante el concurso: sigue por la entrada doble con su ×.
     const template = p.boughtDuringContest && !ctx.contest.drawnAt ? m.boughtUpgrade : m.holder;
-    return { text: `${renderContestTemplate(template, vars)}${positionLine}`, button: null };
+    return { text: withProof(`${renderContestTemplate(template, vars)}${positionLine}`), button: null };
   }
   const drawn = !!ctx.contest.drawnAt;
   const text = drawn
     ? renderContestTemplate(m.afterDraw, vars)
-    : `${renderContestTemplate(m.noTicket, vars)}\n\n${renderContestTemplate(m.holderAsk, vars)}${positionLine}`;
+    : withProof(`${renderContestTemplate(m.noTicket, vars)}\n\n${renderContestTemplate(m.holderAsk, vars)}${positionLine}`);
   return {
     text,
     // Link corto (/p/<código>): lleva al checkout con su código ya puesto.
@@ -639,6 +643,8 @@ export async function handleContestMessage(input: {
   igUserId: string; username: string | null; threadId: number | null; text: string; mid: string | null; storyMention: boolean;
   /** Es la respuesta a una historia (no un DM suelto). */
   storyReply?: boolean;
+  /** El mensaje trae una imagen (captura de su historia, cuentas privadas). */
+  hasImage?: boolean;
 }): Promise<boolean> {
   try {
     const db = await getDb();
@@ -675,6 +681,17 @@ export async function handleContestMessage(input: {
         await sendBuyerWinnerMessage(ctx, choosing, participant, channel);
         return true;
       }
+    }
+
+    // 1b. Captura de su historia (cuenta privada): queda por revisar en el panel.
+    if (input.hasImage && !input.storyMention && participant && !participant.disqualified && !ctx.contest.drawnAt) {
+      const [earlier] = await db.select({ id: contestLog.id }).from(contestLog).where(and(
+        eq(contestLog.contestId, ctx.contest.id), eq(contestLog.kind, 'story'), eq(contestLog.participantId, participant.id), sql`${contestLog.refId} LIKE 'proof:%'`,
+      )).limit(1);
+      if (await claimLog(db, ctx.contest.id, 'story', `proof:${participant.id}:${input.mid ?? Date.now()}`, participant.id) && !earlier) {
+        await send(channel, renderContestTemplate(ctx.config.messages.proofReceived, templateVars(ctx, participant)));
+      }
+      return true;
     }
 
     // 2. Mención en historia: solo suma el bonus a quien YA participa (una
@@ -1572,6 +1589,9 @@ export async function getContestAdmin(id: number) {
     .from(contestLog).innerJoin(orders, sql`${orders.id} = CAST(${contestLog.refId} AS UNSIGNED)`)
     .where(and(eq(contestLog.contestId, id), eq(contestLog.kind, 'order')));
   const approved = orderRows.filter((o) => o.paymentStatus === 'approved');
+  const proofRows = await db.select({ participantId: contestLog.participantId }).from(contestLog)
+    .where(and(eq(contestLog.contestId, id), eq(contestLog.kind, 'story'), sql`${contestLog.refId} LIKE 'proof:%'`));
+  const proofPending = new Set(proofRows.map((r) => r.participantId).filter((x): x is number => x !== null));
   const byId = new Map(participants.map((p) => [p.id, p]));
   const winnerOrderIds = winners.map((w) => w.orderId).filter((x): x is number => !!x);
   const paymentByOrder = new Map((winnerOrderIds.length
@@ -1602,6 +1622,7 @@ export async function getContestAdmin(id: number) {
       refundsPending: winners.filter((w) => w.refundStatus === 'pending').reduce((s, w) => s + (w.refundAmount ?? 0), 0),
     },
     participants: participants.map((p) => ({
+      proofPending: proofPending.has(p.id),
       id: p.id, username: p.username, igUserId: p.igUserId, source: p.source, mentions: p.mentions ?? [],
       storyMentioned: p.storyMentioned === 1, invitedPurchases: p.invitedPurchases, hasTicket: p.hasTicket === 1,
       boughtDuringContest: p.boughtDuringContest === 1, email: p.email, pool: drawPoolFor({ hasTicket: !!p.hasTicket, boughtDuringContest: !!p.boughtDuringContest }), couponCode: p.couponCode, couponUsed: usedOf(p.couponCode) > 0,
@@ -1614,6 +1635,77 @@ export async function getContestAdmin(id: number) {
       paymentId: w.orderId ? paymentByOrder.get(w.orderId) ?? null : null,
     }))),
   };
+}
+
+/** Ajuste a mano de los puntos de un participante (cuentas privadas, capturas
+ * revisadas): marca/desmarca el bonus de historia y suma/resta etiquetas. */
+export async function adjustParticipant(participantId: number, input: { story?: boolean; mentionsDelta?: number }) {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible.');
+  const p = await reload(db, participantId);
+  if (!p) throw new Error('Participante no encontrado.');
+  const ctx = await getCtxById(p.contestId);
+  if (!ctx) throw new Error('Concurso no encontrado.');
+  let mentions = [...(p.mentions ?? [])];
+  const delta = Math.max(-50, Math.min(50, Math.trunc(input.mentionsDelta ?? 0)));
+  if (delta > 0) {
+    for (let i = 0, n = 1; i < delta; n++) {
+      const handle = `manual${n}`;
+      if (!mentions.includes(handle)) { mentions.push(handle); i++; }
+    }
+  } else if (delta < 0) {
+    for (let i = 0; i < -delta && mentions.length > 0; i++) {
+      // Primero se quitan las sumadas a mano; después, las últimas registradas.
+      const manual = mentions.map((m, k) => (m.startsWith('manual') ? k : -1)).filter((k) => k >= 0).pop();
+      mentions.splice(manual !== undefined ? manual : mentions.length - 1, 1);
+    }
+  }
+  const storyChanged = input.story !== undefined && (input.story ? 1 : 0) !== p.storyMentioned;
+  await db.update(contestParticipants).set({
+    mentions, ...(input.story !== undefined ? { storyMentioned: input.story ? 1 : 0 } : {}),
+  }).where(eq(contestParticipants.id, p.id));
+  await db.delete(contestLog).where(and(
+    eq(contestLog.contestId, p.contestId), eq(contestLog.kind, 'story'), eq(contestLog.participantId, p.id), sql`${contestLog.refId} LIKE 'proof:%'`,
+  ));
+  const updated = await reload(db, p.id);
+  // Si sumó y tiene el chat abierto, se le avisa (sin gastar su comentario de reserva).
+  if ((storyChanged && input.story) || delta > 0) {
+    const [thread] = await db.select({ id: igThreads.id, lastInboundAt: igThreads.lastInboundAt }).from(igThreads).where(eq(igThreads.igUserId, p.igUserId)).limit(1);
+    if (thread && canReplyWithinWindow(thread.lastInboundAt) && !ctx.contest.drawnAt && !updated.disqualified) {
+      await send({ kind: 'dm', igUserId: p.igUserId, threadId: thread.id }, renderContestTemplate(ctx.config.messages.proofApproved, templateVars(ctx, updated)))
+        .catch((err) => console.error('[Concurso] No se pudo avisar los puntos sumados:', err));
+    }
+  }
+  return { chances: chancesOf(updated, ctx.config), mentions: mentions.length, story: updated.storyMentioned === 1 };
+}
+
+/** Vuelve a leer todos los comentarios del reel (con sus respuestas) y suma a
+ * cada participante las etiquetas que no tuviera registradas. Nunca resta. */
+export async function recalcMentions(contestId: number): Promise<{ participants: number; updated: number; added: number; comments: number }> {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible.');
+  const ctx = await getCtxById(contestId);
+  if (!ctx || !ctx.contest.mediaId) throw new Error('El concurso no tiene publicación.');
+  const comments = await fetchMediaComments(ctx.contest.mediaId, 20, { withReplies: true });
+  const own = await ownUsername();
+  const byUser = new Map<string, string[]>();
+  for (const c of comments) {
+    if (!c.igUserId) continue;
+    byUser.set(c.igUserId, mergeMentions(byUser.get(c.igUserId) ?? [], parseMentions(c.text, [own, c.username ?? ''].filter(Boolean))));
+  }
+  const people = await db.select().from(contestParticipants).where(eq(contestParticipants.contestId, contestId));
+  let updated = 0;
+  let added = 0;
+  for (const p of people) {
+    const found = byUser.get(p.igUserId);
+    if (!found) continue;
+    const merged = mergeMentions(p.mentions ?? [], found);
+    if (merged.length === (p.mentions ?? []).length) continue;
+    await db.update(contestParticipants).set({ mentions: merged }).where(eq(contestParticipants.id, p.id));
+    updated++;
+    added += merged.length - (p.mentions ?? []).length;
+  }
+  return { participants: people.length, updated, added, comments: comments.length };
 }
 
 export async function setParticipantDisqualified(participantId: number, disqualified: boolean, reason?: string | null) {
