@@ -4,7 +4,7 @@ import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
 import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAvailability } from "../shared/accessCredit";
 import { computeCodeDiscount } from "../shared/discountCode";
-import { ambassadorBuyerDiscount, bestBuyerDiscount } from "../shared/ambassadorDiscount";
+import { ambassadorBuyerDiscount, bestBuyerDiscount, effectiveBuyerDiscountPercent, type GeneralBuyerDiscount } from "../shared/ambassadorDiscount";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
 import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
@@ -1528,7 +1528,8 @@ export async function createOrder(input: {
   // confía en el monto que muestra el cliente.
   if (!partnerCampaign && !creditHit && input.ambassadorCode) {
     const amb = await getActiveExclusiveAmbassadorByCode(input.ambassadorCode);
-    const ambAmount = amb ? ambassadorBuyerDiscount(amb.buyerDiscountPercent, input.items.map((item) => {
+    const ambPercent = amb ? effectiveBuyerDiscountPercent(amb.buyerDiscountPercent, await getGeneralBuyerDiscount()) : 0;
+    const ambAmount = amb ? ambassadorBuyerDiscount(ambPercent, input.items.map((item) => {
       const tt = tts.find((t) => t.id === item.ticketTypeId);
       return { ticketTypeId: item.ticketTypeId, category: tt?.category, unitPrice: unitPrices.get(item.ticketTypeId) ?? 0, quantity: item.quantity };
     })) : 0;
@@ -2753,6 +2754,23 @@ export async function deleteExclusiveAmbassador(id: number) {
  * persona (SOFIA, CAMILA), y el nivel se cuenta por mes cruzando todos los
  * eventos. Antes se exigía que el código estuviera dado de alta para ese
  * evento puntual, lo que obligaba a recrear cada embajador en cada fiesta. */
+/** Descuento general para todos los embajadores (Configuración del programa).
+ * Nunca rompe una compra: si falta la fila o la columna, es "sin descuento". */
+export async function getGeneralBuyerDiscount(): Promise<GeneralBuyerDiscount | null> {
+  try {
+    const db = await getDb();
+    if (!db) return null;
+    const [row] = await db.select({
+      enabled: ambassadorProgramConfig.generalBuyerDiscountEnabled,
+      percent: ambassadorProgramConfig.generalBuyerDiscountPercent,
+      endsAt: ambassadorProgramConfig.generalBuyerDiscountEndsAt,
+    }).from(ambassadorProgramConfig).limit(1);
+    return row ? { enabled: row.enabled === 1, percent: row.percent, endsAt: row.endsAt } : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getActiveExclusiveAmbassadorByCode(code: string) {
   const db = await getDb();
   if (!db) return null;
