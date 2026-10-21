@@ -108,6 +108,10 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'extraChances', label: 'DM al compartir en historia', help: '' },
   { key: 'emailNotFound', label: 'DM si el correo no tiene compra', help: '' },
   { key: 'storyToReel', label: 'DM a quien responde la historia (entra con puntos base)', help: 'Lo inscribe con los puntos base y lo invita a comentar el reel para sumar más. Variables: {{link_reel}}, {{frase}}.' },
+  { key: 'countdownUnlock', label: 'Cuenta regresiva: meta alcanzada (comentario en el reel)', help: 'Variables: {{vendidas}}, {{ganadores_actuales}}, {{s}}, {{meta_texto}}.' },
+  { key: 'countdownDaily', label: 'Cuenta regresiva: parcial diario (comentario en el reel)', help: 'Además: {{link_compra}}, {{frase}}, {{fecha_sorteo}}.' },
+  { key: 'countdownFinal', label: 'Cuenta regresiva: cierre con ganadores', help: 'Se publica al cerrar si se desbloqueó al menos una meta.' },
+  { key: 'countdownNone', label: 'Cuenta regresiva: cierre sin meta', help: 'Se publica al cerrar si no se alcanzó la primera meta ({{proxima_meta}}).' },
   { key: 'flashWrong', label: 'Reto: respuesta incorrecta', help: 'Con intentos limitados. Variables: {{intentos}} (los que quedan) y {{s}} (plural).' },
   { key: 'flashNoAttempts', label: 'Reto: sin intentos', help: 'Variable: {{max_intentos}}.' },
   { key: 'flashWin', label: 'Reto: aviso al ganador', help: 'Variables: {{puesto}} y {{premio_flash}} (el premio de ese puesto, con el código si corresponde).' },
@@ -132,7 +136,7 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'afterDraw', label: 'DM a quien comenta después del sorteo', help: '' },
 ];
 
-const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}} {{congelado_hasta}} {{link_elegir}} {{monto_devolucion}} {{link_reel}} {{frase}} {{faltante}} {{puntos_texto}} {{puntos_quiz}} {{puntos_total}} {{aciertos}} {{total_preguntas}} {{intentos}} {{s}} {{max_intentos}} {{puesto}} {{premio_flash}} {{codigo_flash}} {{porcentaje_flash}} {{ganadores}}';
+const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}} {{congelado_hasta}} {{link_elegir}} {{monto_devolucion}} {{link_reel}} {{frase}} {{faltante}} {{puntos_texto}} {{puntos_quiz}} {{puntos_total}} {{aciertos}} {{total_preguntas}} {{intentos}} {{s}} {{max_intentos}} {{puesto}} {{premio_flash}} {{codigo_flash}} {{porcentaje_flash}} {{ganadores}} {{vendidas}} {{ganadores_actuales}} {{proxima_meta}} {{proximos_ganadores}} {{faltan_meta}} {{meta_texto}} {{link_compra}}';
 
 /* ── Ruleta para grabar el sorteo ─────────────────────────────────────────── */
 
@@ -489,6 +493,36 @@ function ContestDetail({ id }: { id: number }) {
               </label>
             </CardContent>
           </Card>
+
+          {data.contest.template === 'countdown' && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Metas de ventas</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-xs text-muted-foreground">
+                  Cuenta las entradas (accesos) vendidas desde que arranca el concurso, sin las gratis. Cada meta alcanzada desbloquea más ganadores en el sorteo; la más alta reemplaza a la anterior.
+                  Si no se llega a la primera, no hay sorteo.
+                </p>
+                {config.countdown.steps.map((step, i) => (
+                  <div key={i} className="grid sm:grid-cols-[1fr_1fr_auto] gap-3 items-end">
+                    <NumberField label={`Meta ${i + 1}: entradas vendidas`} value={step.tickets} min={1}
+                      onChange={(n) => patch((c) => ({ ...c, countdown: { steps: c.countdown.steps.map((s, k) => (k === i ? { ...s, tickets: n } : s)) } }))} />
+                    <NumberField label="Ganadores que desbloquea" value={step.winners} min={1}
+                      onChange={(n) => patch((c) => ({ ...c, countdown: { steps: c.countdown.steps.map((s, k) => (k === i ? { ...s, winners: n } : s)) } }))} />
+                    <Button type="button" variant="ghost" size="sm" disabled={config.countdown.steps.length <= 1}
+                      onClick={() => patch((c) => ({ ...c, countdown: { steps: c.countdown.steps.filter((_, k) => k !== i) } }))}><X className="w-4 h-4" /></Button>
+                  </div>
+                ))}
+                <Button type="button" variant="outline" size="sm" disabled={config.countdown.steps.length >= 6}
+                  onClick={() => patch((c) => {
+                    const last = c.countdown.steps[c.countdown.steps.length - 1];
+                    return { ...c, countdown: { steps: [...c.countdown.steps, { tickets: (last?.tickets ?? 0) + 50, winners: (last?.winners ?? 0) + 1 }] } };
+                  })}><Plus className="w-4 h-4" /> Agregar meta</Button>
+                {!!data.contest.drawLog && (data.contest.drawLog as { sold?: number }).sold !== undefined && (
+                  <p className="text-sm">Avance: <b>{(data.contest.drawLog as { sold?: number }).sold}</b> entradas vendidas · {(data.contest.drawLog as { winners?: number }).winners ?? 0} ganador(es) desbloqueado(s).</p>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {data.contest.template === 'flash' && (
             <Card>
@@ -923,6 +957,12 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
             <p className="text-muted-foreground">
               Al cierre ganan quienes más compras lograron con su link (empate = quien entró antes) y se publica la tabla final en el reel.
               {data.config.ranking.dailyComment ? ` Cada día desde las ${data.config.ranking.dailyHour}:00 se comenta la tabla parcial.` : ''} Cada ganador pasa por la verificación antes de recibir el premio.
+            </p>
+          )}
+          {data.contest.template === 'countdown' && (
+            <p className="text-muted-foreground">
+              Cada meta de entradas vendidas ({data.config.countdown.steps.map((s) => `${s.tickets} → ${s.winners}`).join(', ')}) desbloquea más ganadores. Al cierre se sortea entre quienes comentaron
+              (quien compró durante el concurso tiene x{data.config.chances.buyerMultiplier} boletos) y cada ganador pasa por la verificación. Si no se llega a la primera meta, no hay sorteo.
             </p>
           )}
           {data.contest.template === 'flash' && (

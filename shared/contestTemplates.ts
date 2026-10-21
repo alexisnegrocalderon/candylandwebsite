@@ -4,7 +4,7 @@ import { normalizeContestConfig, type ContestConfig } from './contest';
  * armada (puntos, premios, textos, avisos automáticos). Al crear un concurso
  * se elige una y todo queda editable. Los textos usan solo variables
  * (`{{evento}}`, `{{premio}}`, `{{frase}}`…), nada fijo de un evento. */
-export type ContestTemplateKey = 'ranking' | 'draw' | 'likes' | 'referrals' | 'milestones' | 'quiz' | 'flash';
+export type ContestTemplateKey = 'ranking' | 'draw' | 'likes' | 'referrals' | 'milestones' | 'quiz' | 'flash' | 'countdown';
 
 export interface ContestTemplate {
   key: ContestTemplateKey;
@@ -173,6 +173,31 @@ export const CONTEST_TEMPLATES: ContestTemplate[] = [
       chances: { base: 1, perMention: 0, maxMentions: 0, storyBonus: 0, perInvitedPurchase: 0, buyerMultiplier: 1 },
       prizes: { doubleWinners: 3, doubleAlternates: 1, vipWinners: 0, vipAlternates: 0, guaranteedLeader: false },
       ranking: { dailyComment: false, publicReplies: false, dmTips: false, emailBuyers: false },
+    },
+  },
+  {
+    key: 'countdown',
+    name: 'Cuenta regresiva de ventas',
+    emoji: '⏳',
+    tagline: 'Más entradas vendidas, más ganadores en el sorteo',
+    description:
+      'Comentar inscribe en el sorteo, y cada meta de entradas vendidas durante el concurso desbloquea más ganadores (por defecto 25 → 1, 50 → 2, 100 → 3). '
+      + 'Se avisa cada meta en el reel y hay un parcial diario. Quien compra durante el concurso tiene el doble de boletos. Se sortea al cierre con verificación del ganador.',
+    typicalHours: 72,
+    durationPresets: [48, 72, 24 * 5],
+    overrides: {
+      chances: { base: 1, perMention: 0, maxMentions: 0, storyBonus: 0, perInvitedPurchase: 0, buyerMultiplier: 2 },
+      prizes: { doubleWinners: 1, doubleAlternates: 2, vipWinners: 0, vipAlternates: 0, guaranteedLeader: false },
+      ranking: { dailyComment: true, dailyHour: 20, publicReplies: false, dmTips: false, emailBuyers: false },
+      messages: {
+        noTicket:
+          '⏳ ¡Estás dentro, {{nombre}}! Entre más entradas vendamos, más ganadores: llevamos {{vendidas}} vendidas y {{meta_texto}}\n\n'
+          + '🛒 Si compras tu entrada durante el concurso tienes el doble de boletos (x{{multiplicador}}) y, si ganas, te devolvemos tu entrada o te llevas otra para regalar.\n\n'
+          + '🔒 Tu cupón {{cupon}} congela el precio de hoy hasta el {{congelado_hasta}} (+{{porcentaje}}% extra si compras en {{horas}} h).\n\n'
+          + '📜 Bases: {{link_bases}}',
+        storyToReel:
+          '⏳ {{nombre}}, la cuenta regresiva es en el reel: comenta "{{frase}}" y entras al sorteo 👉 {{link_reel}}',
+      },
     },
   },
 ];

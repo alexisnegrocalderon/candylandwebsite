@@ -45,6 +45,7 @@ import { buildTemplateConfig, getContestTemplate, type ContestTemplateKey } from
 import { milestoneState } from '../shared/contestMilestones';
 import { answerMatches } from '../shared/contestQuiz';
 import { flashBlockers } from '../shared/contestFlash';
+import { countdownMetaText, countdownState } from '../shared/contestCountdown';
 import { ageOn, isVerifyComplete, missingVerifyFields, parseVerifyReply } from '../shared/contestVerify';
 
 const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
@@ -126,7 +127,7 @@ export async function ownUsername(): Promise<string> {
   return ownUsernameCache.value;
 }
 
-function chancesOf(p: ContestParticipant, config: ContestConfig): number {
+export function chancesOf(p: ContestParticipant, config: ContestConfig): number {
   return computeChances({
     mentionCount: (p.mentions ?? []).length,
     storyMentioned: p.storyMentioned === 1,
@@ -173,6 +174,21 @@ function milestoneVars(ctx: ContestCtx): Record<string, string | number> {
   };
 }
 
+/** Avance de la cuenta regresiva (lo guarda server/contestCountdown.ts en drawLog). */
+function countdownVars(ctx: ContestCtx): Record<string, string | number> {
+  if (ctx.contest.template !== 'countdown') return {};
+  const sold = Number(((ctx.contest.drawLog ?? {}) as { sold?: number }).sold ?? 0);
+  const state = countdownState(sold, ctx.config.countdown.steps);
+  return {
+    vendidas: sold,
+    ganadores_actuales: state.winners,
+    proxima_meta: state.next?.tickets ?? '',
+    proximos_ganadores: state.next?.winners ?? '',
+    faltan_meta: state.remaining,
+    meta_texto: countdownMetaText(state),
+  };
+}
+
 function giftLines(ctx: ContestCtx, p: { orderId: number | null; email: string | null }): string {
   const lines: string[] = [];
   if (ctx.giftName && p.orderId) lines.push(`• 1 ${ctx.giftName} gratis: ya está en tu entrada, se canjea en caja`);
@@ -216,6 +232,7 @@ export function templateVars(ctx: ContestCtx, p: ContestParticipant, extra: Reco
     evento: ctx.event.title,
     lista_regalos: giftLines(ctx, p),
     ...milestoneVars(ctx),
+    ...countdownVars(ctx),
     congelado_hasta: dateTimeText(priceLockUntil(ctx)),
     ...extra,
   };
@@ -950,6 +967,9 @@ export async function runContestDraw(contestId: number): Promise<{ double: numbe
     if (ctx.contest.template === 'flash') {
       return await (await import('./contestFlash')).drawFlash(db, ctx);
     }
+    if (ctx.contest.template === 'countdown') {
+      return await (await import('./contestCountdown')).drawCountdown(db, ctx);
+    }
     if (ctx.contest.template === 'milestones') {
       return await (await import('./contestMilestones')).drawMilestones(db, ctx);
     }
@@ -1501,6 +1521,9 @@ async function runContestCronFor(db: Db, ctx: ContestCtx, now: Date): Promise<Re
     } catch (err) {
       result.sync = { error: err instanceof Error ? err.message : 'Error' };
     }
+  }
+  if (ctx.contest.template === 'countdown' && !ctx.contest.drawnAt && contestPhase(ctx.contest, ctx.config, now) === 'live') {
+    result.countdown = await (await import('./contestCountdown')).runCountdown(db, ctx, now).catch((err) => `error: ${err instanceof Error ? err.message : err}`);
   }
   if (ctx.contest.template === 'flash' && !ctx.contest.drawnAt && contestPhase(ctx.contest, ctx.config, now) === 'live') {
     result.flash = await (await import('./contestFlash')).runFlashCron(db, ctx, now).catch((err) => `error: ${err instanceof Error ? err.message : err}`);

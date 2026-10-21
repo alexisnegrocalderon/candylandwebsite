@@ -57,6 +57,10 @@ export interface ContestMessages {
   emailNotFound: string;
   boughtUpgrade: string;
   storyToReel: string;
+  countdownUnlock: string;
+  countdownDaily: string;
+  countdownFinal: string;
+  countdownNone: string;
   flashWrong: string;
   flashNoAttempts: string;
   flashWin: string;
@@ -111,6 +115,15 @@ export interface ContestMilestonesConfig {
   steps: ContestMilestoneStep[];
   /** El código del hito dura estas horas desde el último hito alcanzado. */
   hours: number;
+}
+
+/** Cuenta regresiva de ventas: a más entradas vendidas, más ganadores. */
+export interface ContestCountdownStep {
+  tickets: number;
+  winners: number;
+}
+export interface ContestCountdownConfig {
+  steps: ContestCountdownStep[];
 }
 
 /** Reto relámpago: los primeros en acertar ganan, cada puesto con su premio. */
@@ -174,6 +187,7 @@ export interface ContestConfig {
   milestones: ContestMilestonesConfig;
   quiz: ContestQuizConfig;
   flash: ContestFlashConfig;
+  countdown: ContestCountdownConfig;
 }
 
 export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
@@ -205,6 +219,10 @@ export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
     + '👥 +{{por_etiqueta}} por cada amigo que etiquetes\n'
     + '🛒 +{{bonus_compra_amigo}} por cada amigo que compre con tu link\n'
     + '👉 Comenta "{{frase}}" en el reel: {{link_reel}}',
+  countdownUnlock: '🔥 ¡{{vendidas}} entradas vendidas! Desbloqueamos {{ganadores_actuales}} ganador{{s}} para el sorteo de {{premio_singular}} 🎉 {{meta_texto}}',
+  countdownDaily: '⏳ CUENTA REGRESIVA: llevamos {{vendidas}} entradas vendidas. Ganadores desbloqueados: {{ganadores_actuales}}. {{meta_texto}}\nComenta "{{frase}}" para entrar al sorteo del {{fecha_sorteo}} y compra la tuya 👉 {{link_compra}}',
+  countdownFinal: '🎉 ¡Cerró la cuenta regresiva! Se vendieron {{vendidas}} entradas y se desbloquearon {{ganadores_actuales}} ganador{{s}}. Los avisamos por DM 💌',
+  countdownNone: '⏳ Cerró la cuenta regresiva con {{vendidas}} entradas: no llegamos a la primera meta ({{proxima_meta}}). ¡Gracias por jugar! Para la próxima vamos por más 🚀',
   flashWrong: '🤔 Esa no es, {{nombre}}. Te quedan {{intentos}} intento{{s}} del reto relámpago ⚡',
   flashNoAttempts: 'Ya usaste tus {{max_intentos}} intentos de este reto 😅 Atento al próximo ⚡',
   flashWin: '⚡🏆 ¡{{nombre}}, quedaste {{puesto}}º en el reto relámpago! {{premio_flash}}',
@@ -281,6 +299,7 @@ export const DEFAULT_CONTEST_CONFIG: ContestConfig = {
   ranking: { dailyComment: true, dailyHour: 20, publicReplies: true, maxRepliesPerDay: 15, dmTips: true, emailBuyers: true },
   verify: { enabled: true },
   quiz: { questions: [] },
+  countdown: { steps: [{ tickets: 25, winners: 1 }, { tickets: 50, winners: 2 }, { tickets: 100, winners: 3 }] },
   flash: {
     question: '', answers: [], maxAttempts: 3, hintEnabled: true, hintText: '', alternates: 1, consolationPercent: 10, announce: true,
     prizes: [
@@ -311,6 +330,18 @@ function isoOrNull(v: unknown): string | null {
   if (typeof v !== 'string' || !v) return null;
   const t = new Date(v).getTime();
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
+
+function normalizeCountdownSteps(raw: unknown, fallback: ContestCountdownStep[]): ContestCountdownStep[] {
+  if (!Array.isArray(raw)) return fallback;
+  const steps = raw
+    .map((s) => (s && typeof s === 'object' ? s as Record<string, unknown> : null))
+    .filter((s): s is Record<string, unknown> => !!s)
+    .map((s) => ({ tickets: int(s.tickets, 0, 0, 100_000), winners: int(s.winners, 0, 0, 50) }))
+    .filter((s) => s.tickets > 0 && s.winners > 0)
+    .sort((a, b) => a.tickets - b.tickets)
+    .slice(0, 6);
+  return steps.length > 0 ? steps : fallback;
 }
 
 function normalizeFlash(f: Record<string, unknown>, d: ContestFlashConfig): ContestFlashConfig {
@@ -431,6 +462,10 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       emailNotFound: text(m.emailNotFound, d.messages.emailNotFound),
       boughtUpgrade: text(m.boughtUpgrade, d.messages.boughtUpgrade),
       storyToReel: text(m.storyToReel, d.messages.storyToReel),
+      countdownUnlock: text(m.countdownUnlock, d.messages.countdownUnlock, 800),
+      countdownDaily: text(m.countdownDaily, d.messages.countdownDaily, 1500),
+      countdownFinal: text(m.countdownFinal, d.messages.countdownFinal, 800),
+      countdownNone: text(m.countdownNone, d.messages.countdownNone, 800),
       flashWrong: text(m.flashWrong, d.messages.flashWrong, 400),
       flashNoAttempts: text(m.flashNoAttempts, d.messages.flashNoAttempts, 400),
       flashWin: text(m.flashWin, d.messages.flashWin, 600),
@@ -466,6 +501,7 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
     verify: { enabled: typeof v.enabled === 'boolean' ? v.enabled : d.verify.enabled },
     quiz: { questions: normalizeQuestions(qz.questions) },
     flash: normalizeFlash(fl, d.flash),
+    countdown: { steps: normalizeCountdownSteps((r.countdown as { steps?: unknown } | undefined)?.steps, d.countdown.steps) },
     milestones: { steps: normalizeSteps(ms.steps, d.milestones.steps), hours: int(ms.hours, d.milestones.hours, 1, 720) },
   };
 }
