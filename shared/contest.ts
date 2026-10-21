@@ -57,6 +57,9 @@ export interface ContestMessages {
   emailNotFound: string;
   boughtUpgrade: string;
   storyToReel: string;
+  privateProofAsk: string;
+  proofReceived: string;
+  proofApproved: string;
   winnerVerify: string;
   verifyReceived: string;
   verifyMissing: string;
@@ -152,6 +155,9 @@ export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
     + '👥 +{{por_etiqueta}} por cada amigo que etiquetes\n'
     + '🛒 +{{bonus_compra_amigo}} por cada amigo que compre con tu link\n'
     + '👉 Comenta "{{frase}}" en el reel: {{link_reel}}',
+  privateProofAsk: '🔒 ¿Tu cuenta es privada? Mándanos aquí una captura de tu historia y te sumamos los {{bonus_historia}} puntos.',
+  proofReceived: '📎 ¡Recibido, {{nombre}}! Revisamos tu captura y te avisamos cuando te sumemos los puntos.',
+  proofApproved: '✅ {{nombre}}, ya te sumamos tus puntos. Ahora llevas {{chances}} 🔥',
   winnerVerify:
     '🎉 ¡{{nombre}}, quedaste entre los ganadores de {{evento}}! 🍬\n\n'
     + 'Antes de entregarte el premio verificamos que cumples los requisitos para asistir a Playroom (evento +18). Respóndenos en un solo mensaje:\n'
@@ -307,6 +313,9 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       emailNotFound: text(m.emailNotFound, d.messages.emailNotFound),
       boughtUpgrade: text(m.boughtUpgrade, d.messages.boughtUpgrade),
       storyToReel: text(m.storyToReel, d.messages.storyToReel),
+      privateProofAsk: text(m.privateProofAsk, d.messages.privateProofAsk, 300),
+      proofReceived: text(m.proofReceived, d.messages.proofReceived, 300),
+      proofApproved: text(m.proofApproved, d.messages.proofApproved, 300),
       winnerVerify: text(m.winnerVerify, d.messages.winnerVerify),
       verifyReceived: text(m.verifyReceived, d.messages.verifyReceived),
       verifyMissing: text(m.verifyMissing, d.messages.verifyMissing),

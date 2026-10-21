@@ -12,7 +12,7 @@ export function ContestBuyerInvite({ eventSlug }: { eventSlug?: string }) {
     <div className="glass-candy rounded-2xl p-5 mb-6 text-left space-y-3">
       <p className="text-sm font-bold inline-flex items-center gap-2"><PartyPopper className="w-4 h-4 text-primary" /> Estás a un comentario de ganar</p>
       <p className="text-xs text-muted-foreground leading-relaxed">
-        Comenta nuestro post del concurso y etiqueta a tus amigos: como ya compraste, participas con <b className="text-foreground">x{data.chances.buyerMultiplier} chances</b>.
+        Para participar tienes que <b className="text-foreground">comentar nuestro post del concurso</b> y etiquetar a tus amigos: como ya compraste, entras con <b className="text-foreground">x{data.chances.buyerMultiplier} chances</b>.
         Si ganas, eliges: te devolvemos tu entrada o te llevas una entrada doble para regalar.
       </p>
       <a

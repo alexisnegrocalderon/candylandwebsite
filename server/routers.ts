@@ -3833,6 +3833,34 @@ export const appRouter = router({
       await db.recordAdminAudit({ action: 'contest.disqualify', targetType: 'contestParticipant', targetId: input.participantId, payload: input, ip: clientIp(ctx) });
       return { success: true };
     }),
+    adjustParticipant: adminProcedure.input(z.object({ participantId: z.number().int(), story: z.boolean().optional(), mentionsDelta: z.number().int().min(-50).max(50).optional() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.adjustParticipant(input.participantId, { story: input.story, mentionsDelta: input.mentionsDelta });
+        await db.recordAdminAudit({ action: 'contest.adjustParticipant', targetType: 'contestParticipant', targetId: input.participantId, payload: { ...input, ...result }, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo ajustar.' });
+      }
+    }),
+    holderInviteStatus: adminReadProcedure.input(z.object({ id: z.number().int() })).query(({ input }) => contestSvc.getHolderInviteStatus(input.id)),
+    sendHolderInvites: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.sendHolderInvites(input.id);
+        await db.recordAdminAudit({ action: 'contest.sendHolderInvites', targetType: 'contest', targetId: input.id, payload: result, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron enviar los correos.' });
+      }
+    }),
+    recalcMentions: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.recalcMentions(input.id);
+        await db.recordAdminAudit({ action: 'contest.recalcMentions', targetType: 'contest', targetId: input.id, payload: result, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo recalcular.' });
+      }
+    }),
     markHolder: adminProcedure.input(z.object({ participantId: z.number().int(), email: z.string().trim().email().max(320) })).mutation(async ({ input }) => {
       try {
         await contestSvc.markParticipantHolder(input.participantId, input.email);
@@ -5366,6 +5394,11 @@ export const appRouter = router({
 
   // Base de datos de clientes desde /admin (pedido explícito del usuario).
   customers: router({
+    // Acompañantes de órdenes web (nombre + RUT, sin correo): no son parte de
+    // `listAll`, así que nunca entran a una audiencia de mailing.
+    attendees: adminReadProcedure.input(z.object({ search: z.string().optional() }).optional())
+      .query(({ input }) => db.listAttendeeContacts(input?.search)),
+    backfillAttendees: adminProcedure.mutation(async () => db.backfillAttendeeContacts()),
     listAll: adminReadProcedure.input(z.object({
       search: z.string().optional(),
       accessType: z.string().optional(),

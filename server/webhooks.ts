@@ -2,7 +2,7 @@ import { formatChileDate, formatChileTime } from '../shared/chileDate';
 import { Router, Request, Response } from 'express';
 import { clp, pushTitle } from '../shared/pushText';
 import { getPaymentInfo, createTopupPreference, createCardPayment } from './mercadopago';
-import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid, matchLeadForOrder, getSiteSettings, creditPrepaid, isGiftPerPersonForCode } from './db';
+import { getDb, parseAttendeeNames, getOrderExtras, upsertCustomerFromOrder, upsertAttendeeContactsFromOrder, awardPlaycoins, getCustomerForAttribution, getPartyGiftByOrderId, getPartyProfileContact, markGiftPaid, matchLeadForOrder, getSiteSettings, creditPrepaid, isGiftPerPersonForCode } from './db';
 import { normalizeOrderEmailConfig } from '../shared/emailTemplateConfig';
 import { sendPushToAdmins } from './push';
 import { attributeAmbassadorSale } from './ambassadorProgram';
@@ -734,6 +734,9 @@ async function processApprovedOrder(order: any) {
   const priorCustomer = await getCustomerForAttribution(order.buyerEmail);
 
   await upsertCustomerFromOrder(order, orderAccesoSlugs);
+  // Los acompañantes (nombre + RUT, sin correo) quedan en Clientes; nunca bloquea la aprobación.
+  await upsertAttendeeContactsFromOrder(order).catch((err) =>
+    console.error('[attendeeContacts] No se pudo registrar a los acompañantes:', err));
   // Compra por el link de una campaña aliada (/electronica): la ficha del
   // cliente queda con el tag de la comunidad. Nunca bloquea la aprobación.
   await tagCustomerForPartnerOrder(order.id, order.buyerEmail).catch((err) =>
