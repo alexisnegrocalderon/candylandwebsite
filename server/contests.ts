@@ -24,13 +24,13 @@ import {
   contestLog, contestParticipants, contestWinners, contests, customers, discountCodes, events, igThreads, orderItems,
   blockedCustomers, orders, ticketTypes, tickets, type Contest, type ContestParticipant, type ContestWinner,
 } from '../drizzle/schema';
-import { adjustPlaycoinsManually, appendIgMessage, findCustomersByInstagram, getDb } from './db';
+import { adjustPlaycoinsManually, appendIgMessage, countEmailsSentToday, findCustomersByInstagram, getDb } from './db';
 import { ENV } from './_core/env';
 import {
   canReplyWithinWindow, fetchInstagramProfile, fetchMediaComments, fetchOwnProfile, replyToComment, sendButtonMessage, sendInstagramMessage,
   sendPrivateReply,
 } from './instagramSend';
-import { buildContestWinnerEmail, sendEmail } from './email';
+import { buildContestHolderInviteEmail, buildContestWinnerEmail, sendEmail } from './email';
 import { generateTicketQR } from './qr';
 import { fallbackInternalCode, generateDisplayCode } from './caja/displayCode';
 import { formatChileDate, formatChileTime } from '../shared/chileDate';
@@ -845,21 +845,11 @@ async function orderApprovedFor(db: Db, ctx: ContestCtx, order: {
       ? (await db.select({ id: contestWinners.id }).from(contestWinners).where(and(eq(contestWinners.contestId, contest.id), eq(contestWinners.prizeCode, code))).limit(1))[0]
       : undefined;
     const fromContestLink = order.utmMedium === 'concurso' && order.utmCampaign === `concurso-${contest.id}`;
-    // Compró sin haber participado pero dejó su @: queda inscrito solo (con
-    // la promesa de devolución o regalo si gana). Su id real llega cuando
-    // comente o escriba (createParticipant lo fusiona).
+    // Compró sin haber participado: ya no se inscribe solo, tiene que comentar
+    // el reel (ahí se le reconoce su entrada y su x3 si compró en el concurso).
+    // Si traía el código de un amigo, igual le cuenta la compra a quien lo invitó.
     if (!buyer && handle && !contest.drawnAt && !prizeWinner && contestPhase(contest, ctx.config) === 'live') {
       if (!(await claimLog(db, contest.id, 'order', String(order.id), null))) return;
-      try {
-        await db.insert(contestParticipants).values({
-          contestId: contest.id, igUserId: `ig:${handle}`, username: handle, source: 'purchase', mentions: [],
-          hasTicket: 1, boughtDuringContest: 1, email: buyerEmail, orderId: order.id, inviteCode: randomInviteCode(),
-        });
-        const created = await getParticipant(db, contest.id, `ig:${handle}`);
-        if (created) await deliverHolderPrizes(db, ctx, created);
-      } catch (err) {
-        console.error('[Concurso] No se pudo inscribir al comprador:', err);
-      }
       if (referrer) await db.update(contestParticipants).set({ invitedPurchases: sql`invitedPurchases + 1` }).where(eq(contestParticipants.id, referrer.id));
       return;
     }
@@ -1427,6 +1417,14 @@ async function runContestCronFor(db: Db, ctx: ContestCtx, now: Date): Promise<Re
     const races = await import('./contestRaces');
     result.race = await races.runRaceDaily(db, ctx, now).catch((err) => `error: ${err instanceof Error ? err.message : err}`);
   }
+  // Red de seguridad: cada hora se vuelven a leer los comentarios (con respuestas)
+  // por si el aviso de alguno no llegó. Solo suma, nunca resta.
+  if (ctx.contest.template === 'ranking' && !ctx.contest.drawnAt && contestPhase(ctx.contest, ctx.config, now) === 'live') {
+    const hourKey = `recalc:${now.toISOString().slice(0, 13)}`;
+    if (await claimLog(db, ctx.contest.id, 'comment', hourKey, null)) {
+      result.recalc = await recalcMentions(ctx.contest.id).catch((err) => `error: ${err instanceof Error ? err.message : err}`);
+    }
+  }
   if (!ctx.contest.drawnAt && ctx.config.drawAt && new Date(ctx.config.drawAt).getTime() <= now.getTime()) {
     result.draw = await runContestDraw(ctx.contest.id);
   } else if (ctx.contest.drawnAt) {
@@ -1637,6 +1635,80 @@ export async function getContestAdmin(id: number) {
   };
 }
 
+/* ── Invitar por correo a quienes ya tienen entrada ─────────────────────── */
+
+/** Tope de correos del día para estos envíos (el resto queda para las entradas). */
+const HOLDER_INVITE_DAILY_LIMIT = 70;
+const HOLDER_INVITES_PER_CLICK = 40;
+const holderInviteKey = (email: string) => `holder-mail:${crypto.createHash('sha1').update(email).digest('hex').slice(0, 20)}`;
+
+/** Compradores aprobados del evento que todavía no comentaron (no son
+ * participantes) y a los que aún no se les mandó la invitación. */
+async function pendingHolderInvites(db: Db, ctx: ContestCtx): Promise<{ email: string; name: string }[]> {
+  const buyers = await db.select({ email: orders.buyerEmail, name: orders.buyerName }).from(orders)
+    .where(and(eq(orders.eventId, ctx.event.id), eq(orders.paymentStatus, 'approved')));
+  const participants = await db.select({ email: contestParticipants.email, orderId: contestParticipants.orderId, username: contestParticipants.username })
+    .from(contestParticipants).where(eq(contestParticipants.contestId, ctx.contest.id));
+  const joined = new Set(participants.map((p) => p.email?.toLowerCase()).filter((e): e is string => !!e));
+  const sent = new Set((await db.select({ refId: contestLog.refId }).from(contestLog)
+    .where(and(eq(contestLog.contestId, ctx.contest.id), eq(contestLog.kind, 'comment'), sql`${contestLog.refId} LIKE 'holder-mail:%'`))).map((r) => r.refId));
+  const seen = new Set<string>();
+  const out: { email: string; name: string }[] = [];
+  for (const b of buyers) {
+    const email = b.email.trim().toLowerCase();
+    if (!email || seen.has(email) || joined.has(email) || sent.has(holderInviteKey(email))) continue;
+    seen.add(email);
+    out.push({ email, name: (b.name ?? '').trim().split(/\s+/)[0] || 'hola' });
+  }
+  return out;
+}
+
+export async function getHolderInviteStatus(contestId: number) {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible.');
+  const ctx = await getCtxById(contestId);
+  if (!ctx) throw new Error('Concurso no encontrado.');
+  const pending = await pendingHolderInvites(db, ctx);
+  const sentToday = await countEmailsSentToday();
+  return { pending: pending.length, budgetLeft: Math.max(0, HOLDER_INVITE_DAILY_LIMIT - sentToday), perClick: HOLDER_INVITES_PER_CLICK };
+}
+
+/** Manda la invitación a comentar a quienes ya compraron y no participan.
+ * Respeta el tope diario de correos; se puede repetir hasta cubrir a todos. */
+export async function sendHolderInvites(contestId: number): Promise<{ sent: number; pending: number; stoppedByBudget: boolean }> {
+  const db = await getDb();
+  if (!db) throw new Error('Base de datos no disponible.');
+  const ctx = await getCtxById(contestId);
+  if (!ctx || ctx.contest.status !== 'active' || contestPhase(ctx.contest, ctx.config) !== 'live') throw new Error('El concurso tiene que estar en vivo.');
+  if (!ctx.contest.mediaPermalink) throw new Error('Falta el link del reel del concurso (Configuración).');
+  const pending = await pendingHolderInvites(db, ctx);
+  const perks = [
+    `Entras al sorteo de ${ctx.config.prizes.vipPrizeLabel}`,
+    ...(ctx.config.prizes.holderPlaycoins > 0 ? [`Recibes ${ctx.config.prizes.holderPlaycoins.toLocaleString('es-CL')} PlayCoins`] : []),
+    ...(ctx.giftName ? [`Te regalamos ${ctx.giftName} para canjear en caja`] : []),
+    ...(ctx.config.prizes.friendPercent > 0 ? [`Un código de ${ctx.config.prizes.friendPercent}% para un amigo`] : []),
+    `Cada amigo etiquetado suma +${ctx.config.chances.perMention} punto`,
+  ];
+  let sent = 0;
+  let stoppedByBudget = false;
+  for (const person of pending) {
+    if (sent >= HOLDER_INVITES_PER_CLICK) break;
+    if ((await countEmailsSentToday()) >= HOLDER_INVITE_DAILY_LIMIT) { stoppedByBudget = true; break; }
+    if (!(await claimLog(db, contestId, 'comment', holderInviteKey(person.email), null))) continue;
+    const result = await sendEmail({
+      to: person.email,
+      subject: `🎁 ${person.name}, tu entrada también participa: comenta el reel`,
+      html: buildContestHolderInviteEmail({
+        name: person.name, eventTitle: ctx.event.title, vipLabel: ctx.config.prizes.vipPrizeLabel, perks,
+        drawText: drawDateText(ctx.config), link: ctx.contest.mediaPermalink,
+      }),
+    }).catch(() => ({ success: false }));
+    if (result.success) sent++;
+    else await db.delete(contestLog).where(and(eq(contestLog.contestId, contestId), eq(contestLog.kind, 'comment'), eq(contestLog.refId, holderInviteKey(person.email)))).catch(() => {});
+  }
+  return { sent, pending: Math.max(0, pending.length - sent), stoppedByBudget };
+}
+
 /** Ajuste a mano de los puntos de un participante (cuentas privadas, capturas
  * revisadas): marca/desmarca el bonus de historia y suma/resta etiquetas. */
 export async function adjustParticipant(participantId: number, input: { story?: boolean; mentionsDelta?: number }) {
@@ -1699,11 +1771,17 @@ export async function recalcMentions(contestId: number): Promise<{ participants:
   for (const p of people) {
     const found = byUser.get(p.igUserId);
     if (!found) continue;
-    const merged = mergeMentions(p.mentions ?? [], found);
-    if (merged.length === (p.mentions ?? []).length) continue;
-    await db.update(contestParticipants).set({ mentions: merged }).where(eq(contestParticipants.id, p.id));
+    const current = p.mentions ?? [];
+    const merged = mergeMentions(current, found);
+    const gained = merged.length - current.length;
+    if (gained <= 0) continue;
+    // Las etiquetas sumadas a mano suplían las que no se habían leído: al
+    // aparecer las reales se descuentan, para no contarlas dos veces.
+    let toDrop = gained;
+    const finalList = merged.filter((m) => !(toDrop > 0 && m.startsWith('manual') && (toDrop--, true)));
+    await db.update(contestParticipants).set({ mentions: finalList }).where(eq(contestParticipants.id, p.id));
     updated++;
-    added += merged.length - (p.mentions ?? []).length;
+    added += gained;
   }
   return { participants: people.length, updated, added, comments: comments.length };
 }
