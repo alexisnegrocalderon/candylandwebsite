@@ -74,7 +74,7 @@ export function ContestWizard({ open, onOpenChange, events, onCreated }: {
     prizeTicketTypeId: prizeId ? Number(prizeId) : null,
     mediaId: media?.id ?? null, mediaPermalink: media?.permalink ?? null, mediaImage: media?.image ?? null,
     startsAt: new Date(startsAt).toISOString(), drawAt: new Date(endsAt).toISOString(),
-    keyword: keyword.trim(), keywordPhrase: phrase.trim(),
+    ...(template === 'quiz' ? {} : { keyword: keyword.trim(), keywordPhrase: phrase.trim() }),
   });
 
   return (
@@ -120,7 +120,7 @@ export function ContestWizard({ open, onOpenChange, events, onCreated }: {
               <Label>Nombre del concurso (opcional)</Label>
               <Input className="mt-1" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={`${tpl.name} · ${events.find((e) => String(e.id) === eventId)?.title ?? 'evento'}`} />
             </div>
-            <div className="grid sm:grid-cols-2 gap-4">
+            {template !== 'quiz' && <div className="grid sm:grid-cols-2 gap-4">
               <div>
                 <Label>Palabras clave (todas, separadas por coma)</Label>
                 <Input className="mt-1" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
@@ -129,7 +129,7 @@ export function ContestWizard({ open, onOpenChange, events, onCreated }: {
                 <Label>Frase que verá la gente</Label>
                 <Input className="mt-1" value={phrase} onChange={(e) => setPhrase(e.target.value)} />
               </div>
-            </div>
+            </div>}
             <div>
               <Label>Reel o publicación del concurso (puedes elegirla después)</Label>
               {mediaList.isLoading && <Loader2 className="w-5 h-5 animate-spin mt-2" />}

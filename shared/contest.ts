@@ -57,6 +57,8 @@ export interface ContestMessages {
   emailNotFound: string;
   boughtUpgrade: string;
   storyToReel: string;
+  quizCorrect: string;
+  quizRepeat: string;
   privateProofAsk: string;
   proofReceived: string;
   proofApproved: string;
@@ -106,6 +108,18 @@ export interface ContestMilestonesConfig {
   hours: number;
 }
 
+/** Quiz: serie de preguntas (se publican en historias/reel); cada respuesta
+ * correcta suma sus puntos y al cierre se sortea entre quienes acertaron. */
+export interface ContestQuizQuestion {
+  text: string;
+  /** Respuestas aceptadas (sin importar mayúsculas ni tildes). */
+  answers: string[];
+  points: number;
+}
+export interface ContestQuizConfig {
+  questions: ContestQuizQuestion[];
+}
+
 export interface ContestConfig {
   /** Palabras clave separadas por coma; el comentario tiene que traerlas TODAS
    * (ej. "quiero, entrada" calza con "quiero mi entrada doble"). */
@@ -124,6 +138,7 @@ export interface ContestConfig {
   ranking: ContestRankingConfig;
   verify: ContestVerifyConfig;
   milestones: ContestMilestonesConfig;
+  quiz: ContestQuizConfig;
 }
 
 export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
@@ -155,6 +170,10 @@ export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
     + '👥 +{{por_etiqueta}} por cada amigo que etiquetes\n'
     + '🛒 +{{bonus_compra_amigo}} por cada amigo que compre con tu link\n'
     + '👉 Comenta "{{frase}}" en el reel: {{link_reel}}',
+  quizCorrect:
+    '✅ ¡Correcto, {{nombre}}! Llevas {{puntos_quiz}} de {{puntos_total}} puntos ({{aciertos}}/{{total_preguntas}} preguntas). Cada punto es un boleto para el sorteo del {{fecha_sorteo}}: {{ganadores_doble}} {{premio}} 🎁\n\n'
+    + 'Sigue atento a nuestras historias: vienen más preguntas 🔥',
+  quizRepeat: 'Esa ya la tenías 😉 Llevas {{puntos_quiz}} puntos. Sigue atento a nuestras historias: vienen más preguntas 🔥',
   privateProofAsk: '🔒 ¿Tu cuenta es privada? Mándanos aquí una captura de tu historia y te sumamos los {{bonus_historia}} puntos.',
   proofReceived: '📎 ¡Recibido, {{nombre}}! Revisamos tu captura y te avisamos cuando te sumemos los puntos.',
   proofApproved: '✅ {{nombre}}, ya te sumamos tus puntos. Ahora llevas {{chances}} 🔥',
@@ -221,6 +240,7 @@ export const DEFAULT_CONTEST_CONFIG: ContestConfig = {
   messages: DEFAULT_CONTEST_MESSAGES,
   ranking: { dailyComment: true, dailyHour: 20, publicReplies: true, maxRepliesPerDay: 15, dmTips: true, emailBuyers: true },
   verify: { enabled: true },
+  quiz: { questions: [] },
   milestones: { steps: [{ comments: 100, percent: 10 }, { comments: 250, percent: 15 }, { comments: 500, percent: 20 }], hours: 48 },
 };
 
@@ -245,6 +265,24 @@ function isoOrNull(v: unknown): string | null {
   return Number.isFinite(t) ? new Date(t).toISOString() : null;
 }
 
+function normalizeQuestions(raw: unknown): ContestQuizQuestion[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((q) => (q && typeof q === 'object' ? q as Record<string, unknown> : null))
+    .filter((q): q is Record<string, unknown> => !!q)
+    .map((q) => ({
+      text: typeof q.text === 'string' ? q.text.trim().slice(0, 300) : '',
+      answers: (Array.isArray(q.answers) ? q.answers : typeof q.answers === 'string' ? q.answers.split(/[,;\n]/) : [])
+        .filter((a): a is string => typeof a === 'string')
+        .map((a) => a.trim().slice(0, 60))
+        .filter(Boolean)
+        .slice(0, 10),
+      points: int(q.points, 1, 1, 100),
+    }))
+    .filter((q) => q.text.length > 0 || q.answers.length > 0)
+    .slice(0, 5);
+}
+
 function normalizeSteps(raw: unknown, fallback: ContestMilestoneStep[]): ContestMilestoneStep[] {
   if (!Array.isArray(raw)) return fallback;
   const steps = raw
@@ -266,6 +304,7 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
   const p = (r.prizes && typeof r.prizes === 'object' ? r.prizes : {}) as Record<string, unknown>;
   const m = (r.messages && typeof r.messages === 'object' ? r.messages : {}) as Record<string, unknown>;
   const k = (r.ranking && typeof r.ranking === 'object' ? r.ranking : {}) as Record<string, unknown>;
+  const qz = (r.quiz && typeof r.quiz === 'object' ? r.quiz : {}) as Record<string, unknown>;
   const ms = (r.milestones && typeof r.milestones === 'object' ? r.milestones : {}) as Record<string, unknown>;
   const v = (r.verify && typeof r.verify === 'object' ? r.verify : {}) as Record<string, unknown>;
   const d = DEFAULT_CONTEST_CONFIG;
@@ -313,6 +352,8 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       emailNotFound: text(m.emailNotFound, d.messages.emailNotFound),
       boughtUpgrade: text(m.boughtUpgrade, d.messages.boughtUpgrade),
       storyToReel: text(m.storyToReel, d.messages.storyToReel),
+      quizCorrect: text(m.quizCorrect, d.messages.quizCorrect),
+      quizRepeat: text(m.quizRepeat, d.messages.quizRepeat, 400),
       privateProofAsk: text(m.privateProofAsk, d.messages.privateProofAsk, 300),
       proofReceived: text(m.proofReceived, d.messages.proofReceived, 300),
       proofApproved: text(m.proofApproved, d.messages.proofApproved, 300),
@@ -339,6 +380,7 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       emailBuyers: typeof k.emailBuyers === 'boolean' ? k.emailBuyers : d.ranking.emailBuyers,
     },
     verify: { enabled: typeof v.enabled === 'boolean' ? v.enabled : d.verify.enabled },
+    quiz: { questions: normalizeQuestions(qz.questions) },
     milestones: { steps: normalizeSteps(ms.steps, d.milestones.steps), hours: int(ms.hours, d.milestones.hours, 1, 720) },
   };
 }

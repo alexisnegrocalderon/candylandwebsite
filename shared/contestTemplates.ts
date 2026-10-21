@@ -4,7 +4,7 @@ import { normalizeContestConfig, type ContestConfig } from './contest';
  * armada (puntos, premios, textos, avisos automáticos). Al crear un concurso
  * se elige una y todo queda editable. Los textos usan solo variables
  * (`{{evento}}`, `{{premio}}`, `{{frase}}`…), nada fijo de un evento. */
-export type ContestTemplateKey = 'ranking' | 'draw' | 'likes' | 'referrals' | 'milestones';
+export type ContestTemplateKey = 'ranking' | 'draw' | 'likes' | 'referrals' | 'milestones' | 'quiz';
 
 export interface ContestTemplate {
   key: ContestTemplateKey;
@@ -134,6 +134,24 @@ export const CONTEST_TEMPLATES: ContestTemplate[] = [
         storyToReel:
           '🎯 {{nombre}}, el reto es en el reel: comenta "{{frase}}" y ayúdanos a desbloquear descuentos para todos 👉 {{link_reel}}',
       },
+    },
+  },
+  {
+    key: 'quiz',
+    name: 'Quiz',
+    emoji: '🧠',
+    tagline: 'Responde en historias o comentarios, cada acierto suma boletos',
+    description:
+      'Publicas preguntas (historias o reel) y la gente responde por DM o comentando. Cada respuesta correcta suma sus puntos (se puede reintentar) '
+      + 'y al cierre se sortea entre quienes acertaron, con más boletos para quien más sabe. Hasta 5 preguntas; las respuestas aceptadas las defines tú.',
+    typicalHours: 72,
+    durationPresets: [24, 48, 72, 24 * 5],
+    overrides: {
+      keyword: '',
+      keywordPhrase: '',
+      chances: { base: 1, perMention: 0, maxMentions: 0, storyBonus: 0, perInvitedPurchase: 0, buyerMultiplier: 1 },
+      prizes: { doubleWinners: 1, doubleAlternates: 2, vipWinners: 0, vipAlternates: 0, guaranteedLeader: false },
+      ranking: { dailyComment: false, publicReplies: false, dmTips: false, emailBuyers: false },
     },
   },
 ];
