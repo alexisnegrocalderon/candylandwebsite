@@ -41,6 +41,7 @@ import {
   prizeLabels, randomContestCode, randomInviteCode, renderContestTemplate, weightedDraw, type ContestConfig,
 } from '../shared/contest';
 import { buildRanking, pickGuaranteedLeader } from '../shared/contestRanking';
+import { buildTemplateConfig, getContestTemplate, type ContestTemplateKey } from '../shared/contestTemplates';
 import { ageOn, isVerifyComplete, missingVerifyFields, parseVerifyReply } from '../shared/contestVerify';
 
 const APP_URL = (process.env.APP_URL || 'https://mansionplayroom.cl').replace(/\/+$/, '');
@@ -77,16 +78,28 @@ async function loadCtx(db: Db, contest: Contest): Promise<ContestCtx | null> {
   };
 }
 
-/** El concurso que está corriendo (uno a la vez). `null` si no hay o si la
- * tabla no existe todavía. */
+/** El concurso "principal" que está corriendo (el ranking si lo hay, si no
+ * el más reciente). `null` si no hay o si la tabla no existe todavía. */
 export async function getActiveContestCtx(): Promise<ContestCtx | null> {
+  const all = await getActiveContestCtxs();
+  return all.find((c) => c.contest.template === 'ranking') ?? all[0] ?? null;
+}
+
+/** Todos los concursos corriendo (pueden convivir varios, cada uno con su
+ * publicación). El más reciente primero. */
+export async function getActiveContestCtxs(): Promise<ContestCtx[]> {
   try {
     const db = await getDb();
-    if (!db) return null;
-    const [contest] = await db.select().from(contests).where(eq(contests.status, 'active')).orderBy(desc(contests.id)).limit(1);
-    return contest ? await loadCtx(db, contest) : null;
+    if (!db) return [];
+    const rows = await db.select().from(contests).where(eq(contests.status, 'active')).orderBy(desc(contests.id));
+    const out: ContestCtx[] = [];
+    for (const contest of rows) {
+      const ctx = await loadCtx(db, contest);
+      if (ctx) out.push(ctx);
+    }
+    return out;
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -290,8 +303,20 @@ export async function refreshContestPriceLocks(eventId?: number): Promise<number
   try {
     const db = await getDb();
     if (!db) return 0;
-    const ctx = await getActiveContestCtx();
-    if (!ctx || (eventId !== undefined && ctx.event.id !== eventId)) return 0;
+    let updated = 0;
+    for (const ctx of await getActiveContestCtxs()) {
+      if (eventId !== undefined && ctx.event.id !== eventId) continue;
+      updated += await refreshPriceLocksFor(db, ctx);
+    }
+    return updated;
+  } catch (err) {
+    console.error('[Concurso] No se pudieron recalcular los precios congelados:', err);
+    return 0;
+  }
+}
+
+async function refreshPriceLocksFor(db: Db, ctx: ContestCtx): Promise<number> {
+  {
     const current = await currentPhasePercent(db, ctx.event.id);
     const rows = await db.select({ couponCode: contestParticipants.couponCode, locked: contestParticipants.lockedPhasePercent, createdAt: contestParticipants.createdAt })
       .from(contestParticipants).where(and(eq(contestParticipants.contestId, ctx.contest.id), sql`${contestParticipants.couponCode} IS NOT NULL`, sql`${contestParticipants.lockedPhasePercent} IS NOT NULL`));
@@ -307,9 +332,6 @@ export async function refreshContestPriceLocks(eventId?: number): Promise<number
       updated += Number((res as unknown as { affectedRows?: number }).affectedRows ?? 0);
     }
     return updated;
-  } catch (err) {
-    console.error('[Concurso] No se pudieron recalcular los precios congelados:', err);
-    return 0;
   }
 }
 
@@ -482,7 +504,7 @@ function welcomeMessage(ctx: ContestCtx, p: ContestParticipant): { text: string;
   const vars = templateVars(ctx, p);
   const m = ctx.config.messages;
   // Antes del sorteo, todos reciben el link a su posición en el ranking.
-  const positionLine = ctx.contest.drawnAt ? '' : `\n\n📊 Mira tu posición y cómo subir: ${positionLink(p.inviteCode)}`;
+  const positionLine = ctx.contest.drawnAt || ctx.contest.template !== 'ranking' ? '' : `\n\n📊 Mira tu posición y cómo subir: ${positionLink(p.inviteCode)}`;
   if (p.hasTicket) {
     // Compró durante el concurso: sigue por la entrada doble con su ×.
     const template = p.boughtDuringContest && !ctx.contest.drawnAt ? m.boughtUpgrade : m.holder;
@@ -513,7 +535,8 @@ export async function handleContestComment(input: {
   commentId: string; mediaId: string | null; igUserId: string; username: string | null; text: string;
 }, preloaded?: ContestCtx | null): Promise<boolean> {
   try {
-    const ctx = preloaded ?? await getActiveContestCtx();
+    // Cada concurso tiene su publicación: el comentario va al que la tiene.
+    const ctx = preloaded ?? (input.mediaId ? (await getActiveContestCtxs()).find((c) => c.contest.mediaId === input.mediaId) ?? null : null);
     if (!ctx || !ctx.contest.mediaId || input.mediaId !== ctx.contest.mediaId) return false;
     const own = await ownUsername();
     // Comentarios de la propia cuenta (incluidas nuestras respuestas) no participan.
@@ -571,6 +594,31 @@ export async function handleContestComment(input: {
   }
 }
 
+/** Con varios concursos activos, ¿a cuál va este mensaje? 1º el que tiene un
+ * premio esperando a esta persona; 2º el que usa estas palabras clave; 3º en
+ * el que ya participa; si nada calza, el principal. */
+async function pickCtxForMessage(db: Db, igUserId: string, text: string): Promise<ContestCtx | null> {
+  const all = await getActiveContestCtxs();
+  if (all.length <= 1) return all[0] ?? null;
+  const participants = new Map<number, ContestParticipant | null>();
+  for (const c of all) participants.set(c.contest.id, await getParticipant(db, c.contest.id, igUserId));
+  for (const c of all) {
+    const p = participants.get(c.contest.id);
+    if (!p) continue;
+    const [pending] = await db.select({ id: contestWinners.id }).from(contestWinners).where(and(
+      eq(contestWinners.contestId, c.contest.id), eq(contestWinners.participantId, p.id),
+      inArray(contestWinners.status, ['notified', 'verifying', 'review', 'choosing']),
+    )).limit(1);
+    if (pending) return c;
+  }
+  const keywordMatch = all.find((c) => {
+    const keywords = parseKeywords(c.config.keyword);
+    return keywords.length > 0 && matchesAllKeywords(text, keywords);
+  });
+  if (keywordMatch) return keywordMatch;
+  return all.find((c) => participants.get(c.contest.id)) ?? (await getActiveContestCtx());
+}
+
 /** Mensaje directo (o respuesta a historia, o mención en historia). Devuelve
  * `true` si lo manejó el concurso (y el agente de IA no debe contestar). */
 export async function handleContestMessage(input: {
@@ -579,10 +627,10 @@ export async function handleContestMessage(input: {
   storyReply?: boolean;
 }): Promise<boolean> {
   try {
-    const ctx = await getActiveContestCtx();
-    if (!ctx) return false;
     const db = await getDb();
     if (!db) return false;
+    const ctx = await pickCtxForMessage(db, input.igUserId, input.text);
+    if (!ctx) return false;
     const channel: Channel = { kind: 'dm', igUserId: input.igUserId, threadId: input.threadId };
     let participant = await getParticipant(db, ctx.contest.id, input.igUserId);
 
@@ -657,7 +705,7 @@ export async function handleContestMessage(input: {
         link_reel: ctx.contest.mediaPermalink ?? '',
         puntos_texto: chancesOf(created, ctx.config) === 1 ? '1 solo punto' : `${chancesOf(created, ctx.config)} puntos`,
       });
-      const positionLine = ctx.contest.drawnAt ? '' : `\n\n📊 Mira quién va arriba y cómo subir: ${positionLink(created.inviteCode)}`;
+      const positionLine = ctx.contest.drawnAt || ctx.contest.template !== 'ranking' ? '' : `\n\n📊 Mira quién va arriba y cómo subir: ${positionLink(created.inviteCode)}`;
       await send(channel, `${renderContestTemplate(ctx.config.messages.storyToReel, vars)}${positionLine}`, { title: 'Comprar a mi precio', url: `${APP_URL}/p/${created.inviteCode}` });
       return true;
     }
@@ -701,11 +749,27 @@ export async function contestOnOrderApproved(order: {
   try {
     const db = await getDb();
     if (!db) return;
-    const [contest] = await db.select().from(contests)
-      .where(and(eq(contests.eventId, order.eventId), eq(contests.status, 'active'))).orderBy(desc(contests.id)).limit(1);
-    if (!contest) return;
-    const ctx = await loadCtx(db, contest);
-    if (!ctx) return;
+    const rows = await db.select().from(contests)
+      .where(and(eq(contests.eventId, order.eventId), eq(contests.status, 'active'))).orderBy(desc(contests.id));
+    for (const contest of rows) {
+      try {
+        const ctx = await loadCtx(db, contest);
+        if (ctx) await orderApprovedFor(db, ctx, order);
+      } catch (err) {
+        console.error(`[Concurso] Error procesando la compra en el concurso ${contest.id}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error('[Concurso] Error procesando la compra:', err);
+  }
+}
+
+async function orderApprovedFor(db: Db, ctx: ContestCtx, order: {
+  id: number; eventId: number; buyerEmail: string; discountCodeId: number | null;
+  utmMedium?: string | null; utmCampaign?: string | null; utmContent?: string | null;
+}): Promise<void> {
+  const contest = ctx.contest;
+  {
     const buyerEmail = order.buyerEmail.trim().toLowerCase();
 
     let code: string | null = null;
@@ -784,8 +848,6 @@ export async function contestOnOrderApproved(order: {
         }
       }
     }
-  } catch (err) {
-    console.error('[Concurso] Error procesando la compra:', err);
   }
 }
 
@@ -844,7 +906,7 @@ async function drawPools(db: Db, ctx: ContestCtx): Promise<{ double: number; vip
     const weights = people.map((p) => ({ id: p.id, weight: chancesOf(p, ctx.config) }));
     // El 1º del ranking gana seguro uno de los premios (empate arriba: se
     // sortea entre los empatados); el resto se sortea sin él.
-    const leaderId = winners > 0 ? pickGuaranteedLeader(weights, secureRandom) : null;
+    const leaderId = winners > 0 && prizes.guaranteedLeader ? pickGuaranteedLeader(weights, secureRandom) : null;
     log[pool] = { participants: people.length, tickets: weights.reduce((s, w) => s + w.weight, 0), guaranteed: leaderId };
     if (winners <= 0) continue;
     const picked = [
@@ -877,7 +939,7 @@ async function safeActivateWinner(db: Db, ctx: ContestCtx, row: ContestWinner): 
     console.error(`[Concurso] No se pudo avisar al ganador ${row.id}:`, err);
     // Sin premio hasta verificar: el ganador de entrada doble sin compra queda
     // "verificando"; los demás, esperando que escriban.
-    const needsVerify = row.pool === 'double';
+    const needsVerify = row.pool === 'double' && ctx.config.verify.enabled;
     await db.update(contestWinners).set({
       status: needsVerify ? 'verifying' : 'notified', notifiedAt: new Date(), claimDeadline: new Date(Date.now() + ctx.config.claimHours * 60 * 60 * 1000),
     }).where(and(eq(contestWinners.id, row.id), eq(contestWinners.status, 'alternate')));
@@ -893,7 +955,7 @@ async function activateWinner(db: Db, ctx: ContestCtx, row: ContestWinner): Prom
     return;
   }
   // Entrada doble sin compra: antes del premio se verifica que pueda asistir.
-  if (row.pool === 'double') {
+  if (row.pool === 'double' && ctx.config.verify.enabled) {
     await startVerification(db, ctx, row, participant);
     return;
   }
@@ -1293,11 +1355,23 @@ export async function syncContestComments(contestId: number): Promise<{ processe
 
 /** Todo lo que el concurso hace solo (cada 15 min). */
 export async function runContestCron(now: Date = new Date()): Promise<Record<string, unknown>> {
-  const ctx = await getActiveContestCtx();
-  if (!ctx) return { active: false };
+  const all = await getActiveContestCtxs();
+  if (all.length === 0) return { active: false };
   const db = await getDb();
   if (!db) return { active: false };
-  const result: Record<string, unknown> = { active: true, contestId: ctx.contest.id };
+  const results: Record<string, unknown>[] = [];
+  for (const ctx of all) {
+    results.push(await runContestCronFor(db, ctx, now).catch((err) => ({
+      contestId: ctx.contest.id, error: err instanceof Error ? err.message : 'Error',
+    })));
+  }
+  // Los precios congelados se recalculan una vez por evento, no por concurso.
+  const priceLocks = await refreshContestPriceLocks();
+  return { active: true, contests: results, priceLocks };
+}
+
+async function runContestCronFor(db: Db, ctx: ContestCtx, now: Date): Promise<Record<string, unknown>> {
+  const result: Record<string, unknown> = { contestId: ctx.contest.id, template: ctx.contest.template };
   // Pasó la fiesta: se cierra solo.
   if (now.getTime() > new Date(ctx.event.eventDate).getTime() + 24 * 60 * 60 * 1000) {
     await db.update(contests).set({ status: 'finished' }).where(eq(contests.id, ctx.contest.id));
@@ -1316,7 +1390,6 @@ export async function runContestCron(now: Date = new Date()): Promise<Record<str
     result.expired = await expireUnclaimed(db, ctx);
     result.choicesClosed = await closeExpiredChoices(db, ctx);
   }
-  result.priceLocks = await refreshContestPriceLocks(ctx.event.id);
   return result;
 }
 
@@ -1368,12 +1441,20 @@ export async function listContests() {
       .where(inArray(contestParticipants.contestId, rows.map((r) => r.id))).groupBy(contestParticipants.contestId)
     : [];
   return rows.map((r) => ({
-    id: r.id, title: r.title, eventId: r.eventId, status: r.status, drawnAt: r.drawnAt, createdAt: r.createdAt,
+    id: r.id, title: r.title, template: r.template, eventId: r.eventId, status: r.status, drawnAt: r.drawnAt, createdAt: r.createdAt,
     participants: Number(counts.find((c) => c.contestId === r.id)?.n ?? 0),
   }));
 }
 
-export async function createContest(eventId: number, title?: string) {
+export interface CreateContestOptions {
+  template?: ContestTemplateKey;
+  prizeTicketTypeId?: number | null;
+  mediaId?: string | null; mediaPermalink?: string | null; mediaImage?: string | null;
+  startsAt?: string; drawAt?: string;
+  keyword?: string; keywordPhrase?: string;
+}
+
+export async function createContest(eventId: number, title?: string, opts: CreateContestOptions = {}) {
   const db = await getDb();
   if (!db) throw new Error('Base de datos no disponible.');
   const [event] = await db.select().from(events).where(eq(events.id, eventId)).limit(1);
@@ -1382,16 +1463,20 @@ export async function createContest(eventId: number, title?: string) {
     .from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
   // Propuesta: el Dúo del evento como "entrada doble".
   const duo = types.find((t) => t.category === 'acceso' && /duo|dúo|pareja/i.test(`${t.accesoSlug ?? ''} ${t.name}`));
-  const config = normalizeContestConfig({
-    startsAt: new Date().toISOString(),
-    // 3 días antes de la fiesta; si ya no alcanza, mañana a esta hora.
-    drawAt: new Date(defaultDrawAt(event.eventDate)).getTime() > Date.now()
+  const template = getContestTemplate(opts.template);
+  const config = buildTemplateConfig(template.key, {
+    startsAt: opts.startsAt ?? new Date().toISOString(),
+    // Sin fecha elegida: 3 días antes de la fiesta; si ya no alcanza, mañana a esta hora.
+    drawAt: opts.drawAt ?? (new Date(defaultDrawAt(event.eventDate)).getTime() > Date.now()
       ? defaultDrawAt(event.eventDate)
-      : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    prizes: { prizeTicketTypeId: duo?.id ?? null },
+      : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()),
+    prizeTicketTypeId: opts.prizeTicketTypeId !== undefined ? opts.prizeTicketTypeId : duo?.id ?? null,
+    keyword: opts.keyword,
+    keywordPhrase: opts.keywordPhrase,
   });
   const [inserted] = await db.insert(contests).values({
-    title: (title?.trim() || `Concurso ${event.title}`).slice(0, 160), eventId, status: 'draft', config,
+    title: (title?.trim() || `${template.name} · ${event.title}`).slice(0, 160), eventId, status: 'draft', config, template: template.key,
+    mediaId: opts.mediaId ?? null, mediaPermalink: opts.mediaPermalink ?? null, mediaImage: opts.mediaImage ?? null,
   });
   return { id: (inserted as unknown as { insertId: number }).insertId };
 }
@@ -1429,8 +1514,12 @@ export async function setContestStatus(id: number, status: 'active' | 'paused' |
   if (status === 'active') {
     const blockers = launchBlockers(ctx);
     if (blockers.length) throw new Error(blockers.join(' '));
-    const [other] = await db.select({ id: contests.id }).from(contests).where(and(eq(contests.status, 'active'), sql`${contests.id} <> ${id}`)).limit(1);
-    if (other) throw new Error('Ya hay otro concurso activo. Páusalo o ciérralo antes.');
+    // Pueden correr varios a la vez, pero cada uno con su propia publicación.
+    if (ctx.contest.mediaId) {
+      const [other] = await db.select({ id: contests.id, title: contests.title }).from(contests)
+        .where(and(eq(contests.status, 'active'), eq(contests.mediaId, ctx.contest.mediaId), sql`${contests.id} <> ${id}`)).limit(1);
+      if (other) throw new Error(`«${other.title}» ya está activo con esta misma publicación. Cada concurso necesita su propio reel.`);
+    }
   }
   await db.update(contests).set({ status }).where(eq(contests.id, id));
   // Al lanzar: recoge de una los comentarios que ya había en el post.
@@ -1592,6 +1681,7 @@ export async function getPublicContest() {
   const top = (rows: typeof ranking.double) => rows.slice(0, 10).map((r) => ({ position: r.position, username: r.username, points: r.points }));
   return {
     title: ctx.contest.title,
+    template: ctx.contest.template,
     ranking: { double: top(ranking.double), vip: top(ranking.vip), totals: ranking.totals, doubleCount: ranking.double.length, vipCount: ranking.vip.length },
     eventTitle: ctx.event.title,
     eventSlug: ctx.event.slug,
@@ -1642,7 +1732,8 @@ export async function listContestTicketTypes(eventId: number) {
 /** Llamado a participar para el correo de la entrada y la pantalla de compra
  * exitosa: solo con un concurso activo, en vivo y antes del sorteo. */
 export async function getContestInviteForEvent(eventId: number): Promise<{ permalink: string; drawText: string; multiplier: number } | null> {
-  const ctx = await getActiveContestCtx();
-  if (!ctx || ctx.event.id !== eventId || !ctx.contest.mediaPermalink || contestPhase(ctx.contest, ctx.config) !== 'live') return null;
-  return { permalink: ctx.contest.mediaPermalink, drawText: drawDateText(ctx.config), multiplier: ctx.config.chances.buyerMultiplier };
+  const all = (await getActiveContestCtxs()).filter((c) => c.event.id === eventId && c.contest.mediaPermalink && contestPhase(c.contest, c.config) === 'live');
+  const ctx = all.find((c) => c.contest.template === 'ranking') ?? all[0];
+  if (!ctx) return null;
+  return { permalink: ctx.contest.mediaPermalink!, drawText: drawDateText(ctx.config), multiplier: ctx.config.chances.buyerMultiplier };
 }

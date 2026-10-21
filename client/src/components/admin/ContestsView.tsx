@@ -17,6 +17,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StatTile } from '@/components/admin/StatTile';
+import { getContestTemplate } from '@shared/contestTemplates';
+import { ContestWizard } from '@/components/admin/ContestWizard';
 import { ContestRankingPanel } from '@/components/admin/ContestRankingPanel';
 import { DEFAULT_CONTEST_MESSAGES, commentEnrolls, dmEnrolls, missingKeywords, parseKeywords, type ContestConfig, type ContestMessages } from '@shared/contest';
 
@@ -195,7 +197,7 @@ export function ContestsView() {
   const list = trpc.contests.list.useQuery(undefined, { retry: false });
   const { data: events } = trpc.events.listAll.useQuery();
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [newEventId, setNewEventId] = useState<string>('');
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   useEffect(() => {
     if (selectedId === null && list.data && list.data.length > 0) setSelectedId(list.data[0].id);
@@ -205,14 +207,6 @@ export function ContestsView() {
     () => (events ?? []).filter((e: any) => e.status === 'published' && new Date(e.eventDate).getTime() > Date.now()),
     [events],
   );
-  useEffect(() => {
-    if (!newEventId && upcoming[0]) setNewEventId(String(upcoming[0].id));
-  }, [upcoming, newEventId]);
-
-  const create = trpc.contests.create.useMutation({
-    onSuccess: (r) => { utils.contests.list.invalidate(); setSelectedId(r.id); toast.success('Concurso creado con los valores propuestos. Revísalo y lánzalo.'); },
-    onError,
-  });
 
   if (list.error) {
     return <Card><CardContent className="py-8 text-sm text-muted-foreground">{list.error.message}</CardContent></Card>;
@@ -237,28 +231,20 @@ export function ContestsView() {
                   <SelectTrigger className="mt-1"><SelectValue placeholder="Elegir" /></SelectTrigger>
                   <SelectContent>
                     {list.data!.map((c) => (
-                      <SelectItem key={c.id} value={String(c.id)}>{c.title} · {c.participants} participantes</SelectItem>
+                      <SelectItem key={c.id} value={String(c.id)}>{getContestTemplate(c.template).emoji} {c.title} · {c.participants} participantes</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
             )}
-            <div className="min-w-[240px]">
-              <Label>Nuevo concurso para</Label>
-              <Select value={newEventId} onValueChange={setNewEventId}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Elige la fiesta" /></SelectTrigger>
-                <SelectContent>
-                  {upcoming.map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <WriteButton disabled={!newEventId || create.isPending} onClick={() => create.mutate({ eventId: Number(newEventId) })}>
-              {create.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Crear concurso
+            <WriteButton onClick={() => setWizardOpen(true)}>
+              <Plus className="w-4 h-4" /> Nuevo concurso
             </WriteButton>
           </div>
         </CardContent>
       </Card>
 
+      <ContestWizard open={wizardOpen} onOpenChange={setWizardOpen} events={upcoming.map((e: any) => ({ id: e.id, title: e.title }))} onCreated={setSelectedId} />
       {selectedId && <ContestDetail key={selectedId} id={selectedId} />}
     </div>
   );
@@ -422,7 +408,7 @@ function ContestDetail({ id }: { id: number }) {
           <TabsTrigger value="config">Configuración</TabsTrigger>
           <TabsTrigger value="messages">Mensajes</TabsTrigger>
           <TabsTrigger value="people">Participantes ({s.participants})</TabsTrigger>
-          <TabsTrigger value="ranking">Ranking</TabsTrigger>
+          {data.contest.template === 'ranking' && <TabsTrigger value="ranking">Ranking</TabsTrigger>}
           <TabsTrigger value="winners">Sorteo y ganadores</TabsTrigger>
         </TabsList>
 

@@ -45,6 +45,8 @@ export interface ContestPrizes {
   /** Producto de la Carta de regalo para quien ya tiene entrada. */
   holderGiftTicketTypeId: number | null;
   holderPlaycoins: number;
+  /** El 1º del ranking de cada tabla gana seguro (apagado en el sorteo simple). */
+  guaranteedLeader: boolean;
 }
 
 export interface ContestMessages {
@@ -85,6 +87,11 @@ export interface ContestRankingConfig {
   emailBuyers: boolean;
 }
 
+/** Verificación del ganador antes de entregar el premio (server/contests.ts). */
+export interface ContestVerifyConfig {
+  enabled: boolean;
+}
+
 export interface ContestConfig {
   /** Palabras clave separadas por coma; el comentario tiene que traerlas TODAS
    * (ej. "quiero, entrada" calza con "quiero mi entrada doble"). */
@@ -101,6 +108,7 @@ export interface ContestConfig {
   prizes: ContestPrizes;
   messages: ContestMessages;
   ranking: ContestRankingConfig;
+  verify: ContestVerifyConfig;
 }
 
 export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
@@ -190,9 +198,11 @@ export const DEFAULT_CONTEST_CONFIG: ContestConfig = {
     friendPercent: 20,
     holderGiftTicketTypeId: null,
     holderPlaycoins: 2000,
+    guaranteedLeader: true,
   },
   messages: DEFAULT_CONTEST_MESSAGES,
   ranking: { dailyComment: true, dailyHour: 20, publicReplies: true, maxRepliesPerDay: 15, dmTips: true, emailBuyers: true },
+  verify: { enabled: true },
 };
 
 function int(v: unknown, fallback: number, min: number, max: number): number {
@@ -225,6 +235,7 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
   const p = (r.prizes && typeof r.prizes === 'object' ? r.prizes : {}) as Record<string, unknown>;
   const m = (r.messages && typeof r.messages === 'object' ? r.messages : {}) as Record<string, unknown>;
   const k = (r.ranking && typeof r.ranking === 'object' ? r.ranking : {}) as Record<string, unknown>;
+  const v = (r.verify && typeof r.verify === 'object' ? r.verify : {}) as Record<string, unknown>;
   const d = DEFAULT_CONTEST_CONFIG;
   const replies = Array.isArray(m.publicReplies)
     ? m.publicReplies.filter((s): s is string => typeof s === 'string' && s.trim().length > 0).map((s) => s.slice(0, 300)).slice(0, 10)
@@ -260,6 +271,7 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       friendPercent: int(p.friendPercent, d.prizes.friendPercent, 0, 100),
       holderGiftTicketTypeId: idOrNull(p.holderGiftTicketTypeId),
       holderPlaycoins: int(p.holderPlaycoins, d.prizes.holderPlaycoins, 0, 100_000),
+      guaranteedLeader: typeof p.guaranteedLeader === 'boolean' ? p.guaranteedLeader : d.prizes.guaranteedLeader,
     },
     messages: {
       noTicket: text(m.noTicket, d.messages.noTicket),
@@ -291,6 +303,7 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       dmTips: typeof k.dmTips === 'boolean' ? k.dmTips : d.ranking.dmTips,
       emailBuyers: typeof k.emailBuyers === 'boolean' ? k.emailBuyers : d.ranking.emailBuyers,
     },
+    verify: { enabled: typeof v.enabled === 'boolean' ? v.enabled : d.verify.enabled },
   };
 }
 

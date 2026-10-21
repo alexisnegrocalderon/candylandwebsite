@@ -17,7 +17,7 @@ import { countEmailsSentToday, getDb } from './db';
 import { buildContestRankingEmail, sendEmail } from './email';
 import { commentOnOwnMedia, replyToComment } from './instagramSend';
 import {
-  CONTEST_APP_URL, drawDateText, getActiveContestCtx, getCtxById, loadRankingFor, positionLink, reachableChannel, send, BASES_URL,
+  CONTEST_APP_URL, drawDateText, getActiveContestCtxs, getCtxById, loadRankingFor, positionLink, reachableChannel, send, BASES_URL,
   type ContestCtx,
 } from './contests';
 import { contestPhase, parseKeywords } from '../shared/contest';
@@ -265,14 +265,20 @@ async function emailBuyers(db: Db, ctx: ContestCtx, ranking: Ranking, participan
 /** Todo el empuje automático del ranking (se enchufa en el cron cada 15 min).
  * Va ANTES de runContestCron para que el último aviso salga antes del sorteo. */
 export async function runContestRankingCron(now: Date = new Date()): Promise<Record<string, unknown>> {
-  const ctx = await getActiveContestCtx();
-  if (!ctx) return { active: false };
+  const ctxs = (await getActiveContestCtxs()).filter((c) => c.contest.template === 'ranking');
+  if (ctxs.length === 0) return { active: false };
   const db = await getDb();
   if (!db) return { active: false };
-  if (contestPhase(ctx.contest, ctx.config, now) !== 'live') return { active: true, phase: contestPhase(ctx.contest, ctx.config, now) };
+  const results: Record<string, unknown>[] = [];
+  for (const ctx of ctxs) results.push(await rankingCronFor(db, ctx, now));
+  return { active: true, contests: results };
+}
+
+async function rankingCronFor(db: NonNullable<Awaited<ReturnType<typeof getDb>>>, ctx: ContestCtx, now: Date): Promise<Record<string, unknown>> {
+  if (contestPhase(ctx.contest, ctx.config, now) !== 'live') return { contestId: ctx.contest.id, phase: contestPhase(ctx.contest, ctx.config, now) };
   const day = chileDateKey(now);
   const { participants, ranking } = await loadRankingFor(db, ctx);
-  const result: Record<string, unknown> = { active: true, contestId: ctx.contest.id };
+  const result: Record<string, unknown> = { contestId: ctx.contest.id };
   result.dailyComment = await dailyComment(db, ctx, ranking, now, day).catch((err) => `error: ${err instanceof Error ? err.message : err}`);
   result.replies = await publicReplies(db, ctx, ranking, participants, now, day).catch((err) => `error: ${err instanceof Error ? err.message : err}`);
   result.emails = await emailBuyers(db, ctx, ranking, participants, now, day).catch((err) => `error: ${err instanceof Error ? err.message : err}`);
@@ -287,13 +293,16 @@ export async function runContestRankingCron(now: Date = new Date()): Promise<Rec
  * con su respuesta normal). Nunca lanza. */
 export async function handleRankingDm(input: { igUserId: string; text: string; threadId: number | null }): Promise<boolean> {
   try {
-    const ctx = await getActiveContestCtx();
-    if (!ctx || contestPhase(ctx.contest, ctx.config) !== 'live') return false;
     const db = await getDb();
     if (!db) return false;
-    const [p] = await db.select().from(contestParticipants)
-      .where(and(eq(contestParticipants.contestId, ctx.contest.id), eq(contestParticipants.igUserId, input.igUserId))).limit(1);
-    if (!p || p.disqualified) return false;
+    let ctx: ContestCtx | null = null;
+    let p: ContestParticipant | undefined;
+    for (const c of (await getActiveContestCtxs()).filter((x) => x.contest.template === 'ranking' && contestPhase(x.contest, x.config) === 'live')) {
+      [p] = await db.select().from(contestParticipants)
+        .where(and(eq(contestParticipants.contestId, c.contest.id), eq(contestParticipants.igUserId, input.igUserId))).limit(1);
+      if (p) { ctx = c; break; }
+    }
+    if (!ctx || !p || p.disqualified) return false;
     const asks = asksAboutRanking(input.text);
     if (!asks) {
       if (!ctx.config.ranking.dmTips) return false;
