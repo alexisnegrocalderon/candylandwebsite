@@ -2729,6 +2729,8 @@ export const contests = mysqlTable("contests", {
   mediaId: varchar("mediaId", { length: 64 }),
   mediaPermalink: varchar("mediaPermalink", { length: 300 }),
   mediaImage: text("mediaImage"),
+  // Plantilla (mecánica) del concurso: ranking | draw (shared/contestTemplates.ts).
+  template: varchar("template", { length: 30 }).default("ranking").notNull(),
   // shared/contest.ts (normalizeContestConfig): fechas, chances, premios y mensajes.
   config: json("config"),
   // Resumen del sorteo (boletos totales por sorteo) para mostrarlo/auditarlo.

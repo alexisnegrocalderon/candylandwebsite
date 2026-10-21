@@ -792,6 +792,13 @@
       "when": 1792506400000,
       "tag": "0112_contest_verify",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "5",
+      "when": 1792592800000,
+      "tag": "0113_contest_template",
+      "breakpoints": true
     }
   ]
 }
