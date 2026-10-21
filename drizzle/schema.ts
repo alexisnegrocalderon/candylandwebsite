@@ -2848,6 +2848,24 @@ export const contestLog = mysqlTable("contestLog", {
   refIdx: uniqueIndex("contest_log_ref_idx").on(t.contestId, t.kind, t.refId),
 }));
 
+// Fotos del concurso de fotos/disfraz: llegan por mención en historia o por DM
+// y quedan en una galería para que el jurado (el admin) elija a los ganadores.
+export const contestEntries = mysqlTable("contestEntries", {
+  id: int("id").autoincrement().primaryKey(),
+  contestId: int("contestId").notNull(),
+  participantId: int("participantId").notNull(),
+  kind: mysqlEnum("kind", ["story", "dm"]).notNull(),
+  imageUrl: text("imageUrl").notNull(),
+  mid: varchar("mid", { length: 100 }).notNull(),
+  hidden: int("hidden").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (t) => ({
+  midIdx: uniqueIndex("contest_entries_mid_idx").on(t.contestId, t.mid),
+  personIdx: index("contest_entries_person_idx").on(t.contestId, t.participantId),
+}));
+
+export type ContestEntry = typeof contestEntries.$inferSelect;
+
 // Acompañantes de órdenes web aprobadas (nombre + RUT que el comprador cargó
 // en el checkout). No tienen correo, así que NO viven en `customers` (email
 // obligatorio y único, y todo el mailing sale de ahí): esta tabla los deja

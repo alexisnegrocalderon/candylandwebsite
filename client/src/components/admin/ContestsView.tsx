@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { StatTile } from '@/components/admin/StatTile';
 import { getContestTemplate } from '@shared/contestTemplates';
 import { ContestWizard } from '@/components/admin/ContestWizard';
+import { ContestPhotoGallery } from '@/components/admin/ContestPhotoGallery';
 import { ContestRankingPanel } from '@/components/admin/ContestRankingPanel';
 import { DEFAULT_CONTEST_MESSAGES, commentEnrolls, dmEnrolls, missingKeywords, parseKeywords, type ContestConfig, type ContestMessages } from '@shared/contest';
 
@@ -108,6 +109,8 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'extraChances', label: 'DM al compartir en historia', help: '' },
   { key: 'emailNotFound', label: 'DM si el correo no tiene compra', help: '' },
   { key: 'storyToReel', label: 'DM a quien responde la historia (entra con puntos base)', help: 'Lo inscribe con los puntos base y lo invita a comentar el reel para sumar más. Variables: {{link_reel}}, {{frase}}.' },
+  { key: 'photoReceived', label: 'Foto recibida', help: 'Se manda cuando llega su primera foto. Variables: {{max_fotos}}.' },
+  { key: 'photoLimit', label: 'Tope de fotos', help: 'Cuando ya mandó el máximo de fotos. Variables: {{max_fotos}}, {{s}}.' },
   { key: 'countdownUnlock', label: 'Cuenta regresiva: meta alcanzada (comentario en el reel)', help: 'Variables: {{vendidas}}, {{ganadores_actuales}}, {{s}}, {{meta_texto}}.' },
   { key: 'countdownDaily', label: 'Cuenta regresiva: parcial diario (comentario en el reel)', help: 'Además: {{link_compra}}, {{frase}}, {{fecha_sorteo}}.' },
   { key: 'countdownFinal', label: 'Cuenta regresiva: cierre con ganadores', help: 'Se publica al cerrar si se desbloqueó al menos una meta.' },
@@ -136,7 +139,7 @@ const MESSAGE_FIELDS: { key: Exclude<keyof ContestMessages, 'publicReplies'>; la
   { key: 'afterDraw', label: 'DM a quien comenta después del sorteo', help: '' },
 ];
 
-const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}} {{congelado_hasta}} {{link_elegir}} {{monto_devolucion}} {{link_reel}} {{frase}} {{faltante}} {{puntos_texto}} {{puntos_quiz}} {{puntos_total}} {{aciertos}} {{total_preguntas}} {{intentos}} {{s}} {{max_intentos}} {{puesto}} {{premio_flash}} {{codigo_flash}} {{porcentaje_flash}} {{ganadores}} {{vendidas}} {{ganadores_actuales}} {{proxima_meta}} {{proximos_ganadores}} {{faltan_meta}} {{meta_texto}} {{link_compra}}';
+const PLACEHOLDERS = '{{nombre}} {{chances}} {{cupon}} {{porcentaje}} {{horas}} {{link_invitar}} {{fecha_sorteo}} {{link_bases}} {{premio}} {{premio_singular}} {{premio_vip}} {{ganadores_doble}} {{codigo_amigo}} {{porcentaje_amigo}} {{lista_regalos}} {{codigo_premio}} {{plazo}} {{evento}} {{por_etiqueta}} {{max_etiquetas}} {{bonus_historia}} {{bonus_compra_amigo}} {{multiplicador}} {{congelado_hasta}} {{link_elegir}} {{monto_devolucion}} {{link_reel}} {{frase}} {{faltante}} {{puntos_texto}} {{puntos_quiz}} {{puntos_total}} {{aciertos}} {{total_preguntas}} {{intentos}} {{s}} {{max_intentos}} {{puesto}} {{premio_flash}} {{codigo_flash}} {{porcentaje_flash}} {{ganadores}} {{vendidas}} {{ganadores_actuales}} {{proxima_meta}} {{proximos_ganadores}} {{faltan_meta}} {{meta_texto}} {{link_compra}} {{max_fotos}}';
 
 /* ── Ruleta para grabar el sorteo ─────────────────────────────────────────── */
 
@@ -421,6 +424,7 @@ function ContestDetail({ id }: { id: number }) {
         <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="config">Configuración</TabsTrigger>
           <TabsTrigger value="messages">Mensajes</TabsTrigger>
+          {data.contest.template === 'photo' && <TabsTrigger value="gallery">Galería</TabsTrigger>}
           <TabsTrigger value="people">Participantes ({s.participants})</TabsTrigger>
           {data.contest.template === 'ranking' && <TabsTrigger value="ranking">Ranking</TabsTrigger>}
           <TabsTrigger value="winners">Sorteo y ganadores</TabsTrigger>
@@ -493,6 +497,21 @@ function ContestDetail({ id }: { id: number }) {
               </label>
             </CardContent>
           </Card>
+
+          {data.contest.template === 'photo' && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Concurso de fotos o disfraz</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  La gente participa mencionando la cuenta en una historia con su foto o mandándola por DM (sirve con cuentas privadas). Las fotos aparecen en la pestaña Galería, donde tú eliges a los ganadores y suplentes.
+                  Instagram entrega la foto de la mención solo por unas horas: el sistema la copia a nuestro almacenamiento apenas llega.
+                </p>
+                <div className="max-w-xs">
+                  <NumberField label="Fotos por persona" value={config.photo.maxPerPerson} min={1} onChange={(n) => patch((c) => ({ ...c, photo: { maxPerPerson: n } }))} />
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {data.contest.template === 'countdown' && (
             <Card>
@@ -760,6 +779,11 @@ function ContestDetail({ id }: { id: number }) {
           </Card>
         </TabsContent>
 
+        {data.contest.template === 'photo' && (
+          <TabsContent value="gallery">
+            <ContestPhotoGallery contestId={id} winners={config.prizes.doubleWinners} alternates={config.prizes.doubleAlternates} drawn={!!data.contest.drawnAt} onChanged={invalidate} />
+          </TabsContent>
+        )}
         <TabsContent value="people">
           <ParticipantsTable contestId={id} participants={data.participants} onChanged={invalidate} />
         </TabsContent>
@@ -957,6 +981,12 @@ function WinnersPanel({ data, onChanged, onWheel }: { data: AdminData; onChanged
             <p className="text-muted-foreground">
               Al cierre ganan quienes más compras lograron con su link (empate = quien entró antes) y se publica la tabla final en el reel.
               {data.config.ranking.dailyComment ? ` Cada día desde las ${data.config.ranking.dailyHour}:00 se comenta la tabla parcial.` : ''} Cada ganador pasa por la verificación antes de recibir el premio.
+            </p>
+          )}
+          {data.contest.template === 'photo' && (
+            <p className="text-muted-foreground">
+              El jurado eres tú: en la pestaña Galería eliges, en orden, a los ganadores y suplentes. Al elegirlos se cierra el concurso, se les avisa por DM y empieza su verificación.
+              El concurso no se cierra solo a la hora de cierre.
             </p>
           )}
           {data.contest.template === 'countdown' && (

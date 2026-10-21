@@ -57,6 +57,8 @@ export interface ContestMessages {
   emailNotFound: string;
   boughtUpgrade: string;
   storyToReel: string;
+  photoReceived: string;
+  photoLimit: string;
   countdownUnlock: string;
   countdownDaily: string;
   countdownFinal: string;
@@ -115,6 +117,12 @@ export interface ContestMilestonesConfig {
   steps: ContestMilestoneStep[];
   /** El código del hito dura estas horas desde el último hito alcanzado. */
   hours: number;
+}
+
+/** Concurso de fotos / disfraz: galería y jurado (el admin elige). */
+export interface ContestPhotoConfig {
+  /** Fotos por persona. */
+  maxPerPerson: number;
 }
 
 /** Cuenta regresiva de ventas: a más entradas vendidas, más ganadores. */
@@ -188,6 +196,7 @@ export interface ContestConfig {
   quiz: ContestQuizConfig;
   flash: ContestFlashConfig;
   countdown: ContestCountdownConfig;
+  photo: ContestPhotoConfig;
 }
 
 export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
@@ -219,6 +228,10 @@ export const DEFAULT_CONTEST_MESSAGES: ContestMessages = {
     + '👥 +{{por_etiqueta}} por cada amigo que etiquetes\n'
     + '🛒 +{{bonus_compra_amigo}} por cada amigo que compre con tu link\n'
     + '👉 Comenta "{{frase}}" en el reel: {{link_reel}}',
+  photoReceived:
+    '📸 ¡Recibimos tu foto, {{nombre}}! Ya estás en la galería: el jurado elige a los ganadores y te avisamos por aquí 🍬\n\n'
+    + '🔒 Mientras, tu cupón {{cupon}} congela el precio de hoy hasta el {{congelado_hasta}} (+{{porcentaje}}% extra si compras en {{horas}} h).',
+  photoLimit: 'Ya tienes {{max_fotos}} foto{{s}} en el concurso, {{nombre}} 📸 ¡Mucha suerte!',
   countdownUnlock: '🔥 ¡{{vendidas}} entradas vendidas! Desbloqueamos {{ganadores_actuales}} ganador{{s}} para el sorteo de {{premio_singular}} 🎉 {{meta_texto}}',
   countdownDaily: '⏳ CUENTA REGRESIVA: llevamos {{vendidas}} entradas vendidas. Ganadores desbloqueados: {{ganadores_actuales}}. {{meta_texto}}\nComenta "{{frase}}" para entrar al sorteo del {{fecha_sorteo}} y compra la tuya 👉 {{link_compra}}',
   countdownFinal: '🎉 ¡Cerró la cuenta regresiva! Se vendieron {{vendidas}} entradas y se desbloquearon {{ganadores_actuales}} ganador{{s}}. Los avisamos por DM 💌',
@@ -299,6 +312,7 @@ export const DEFAULT_CONTEST_CONFIG: ContestConfig = {
   ranking: { dailyComment: true, dailyHour: 20, publicReplies: true, maxRepliesPerDay: 15, dmTips: true, emailBuyers: true },
   verify: { enabled: true },
   quiz: { questions: [] },
+  photo: { maxPerPerson: 2 },
   countdown: { steps: [{ tickets: 25, winners: 1 }, { tickets: 50, winners: 2 }, { tickets: 100, winners: 3 }] },
   flash: {
     question: '', answers: [], maxAttempts: 3, hintEnabled: true, hintText: '', alternates: 1, consolationPercent: 10, announce: true,
@@ -462,6 +476,8 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
       emailNotFound: text(m.emailNotFound, d.messages.emailNotFound),
       boughtUpgrade: text(m.boughtUpgrade, d.messages.boughtUpgrade),
       storyToReel: text(m.storyToReel, d.messages.storyToReel),
+      photoReceived: text(m.photoReceived, d.messages.photoReceived, 900),
+      photoLimit: text(m.photoLimit, d.messages.photoLimit, 300),
       countdownUnlock: text(m.countdownUnlock, d.messages.countdownUnlock, 800),
       countdownDaily: text(m.countdownDaily, d.messages.countdownDaily, 1500),
       countdownFinal: text(m.countdownFinal, d.messages.countdownFinal, 800),
@@ -501,6 +517,7 @@ export function normalizeContestConfig(raw: unknown): ContestConfig {
     verify: { enabled: typeof v.enabled === 'boolean' ? v.enabled : d.verify.enabled },
     quiz: { questions: normalizeQuestions(qz.questions) },
     flash: normalizeFlash(fl, d.flash),
+    photo: { maxPerPerson: int((r.photo as { maxPerPerson?: unknown } | undefined)?.maxPerPerson, d.photo.maxPerPerson, 1, 10) },
     countdown: { steps: normalizeCountdownSteps((r.countdown as { steps?: unknown } | undefined)?.steps, d.countdown.steps) },
     milestones: { steps: normalizeSteps(ms.steps, d.milestones.steps), hours: int(ms.hours, d.milestones.hours, 1, 720) },
   };

@@ -45,6 +45,7 @@ import { buildTemplateConfig, getContestTemplate, type ContestTemplateKey } from
 import { milestoneState } from '../shared/contestMilestones';
 import { answerMatches } from '../shared/contestQuiz';
 import { flashBlockers } from '../shared/contestFlash';
+import type { PhotoAttachment } from '../shared/contestPhoto';
 import { countdownMetaText, countdownState } from '../shared/contestCountdown';
 import { ageOn, isVerifyComplete, missingVerifyFields, parseVerifyReply } from '../shared/contestVerify';
 
@@ -664,7 +665,7 @@ export async function handleContestComment(input: {
 /** Con varios concursos activos, ¿a cuál va este mensaje? 1º el que tiene un
  * premio esperando a esta persona; 2º el que usa estas palabras clave; 3º en
  * el que ya participa; si nada calza, el principal. */
-async function pickCtxForMessage(db: Db, igUserId: string, text: string): Promise<ContestCtx | null> {
+async function pickCtxForMessage(db: Db, igUserId: string, text: string, hasPhotos = false): Promise<ContestCtx | null> {
   const all = await getActiveContestCtxs();
   if (all.length <= 1) return all[0] ?? null;
   const participants = new Map<number, ContestParticipant | null>();
@@ -677,6 +678,10 @@ async function pickCtxForMessage(db: Db, igUserId: string, text: string): Promis
       inArray(contestWinners.status, ['notified', 'verifying', 'review', 'choosing']),
     )).limit(1);
     if (pending) return c;
+  }
+  if (hasPhotos) {
+    const photoCtx = all.find((c) => c.contest.template === 'photo');
+    if (photoCtx) return photoCtx;
   }
   const keywordMatch = all.find((c) => {
     const keywords = parseKeywords(c.config.keyword);
@@ -698,11 +703,13 @@ export async function handleContestMessage(input: {
   storyReply?: boolean;
   /** El mensaje trae una imagen (captura de su historia, cuentas privadas). */
   hasImage?: boolean;
+  /** Fotos del mensaje (mención en historia o imagen por DM). */
+  photos?: PhotoAttachment[];
 }): Promise<boolean> {
   try {
     const db = await getDb();
     if (!db) return false;
-    const ctx = await pickCtxForMessage(db, input.igUserId, input.text);
+    const ctx = await pickCtxForMessage(db, input.igUserId, input.text, (input.photos?.length ?? 0) > 0);
     if (!ctx) return false;
     const channel: Channel = { kind: 'dm', igUserId: input.igUserId, threadId: input.threadId };
     let participant = await getParticipant(db, ctx.contest.id, input.igUserId);
@@ -734,6 +741,15 @@ export async function handleContestMessage(input: {
         await sendBuyerWinnerMessage(ctx, choosing, participant, channel);
         return true;
       }
+    }
+
+    // Concurso de fotos: las fotos (mención en historia o imagen por DM) son la inscripción.
+    if (ctx.contest.template === 'photo') {
+      if (!accepting(ctx) || ctx.contest.drawnAt) return false;
+      if (ctx.config.drawAt && Date.now() > new Date(ctx.config.drawAt).getTime()) return false;
+      return (await import('./contestPhoto')).handlePhotoEntry(db, ctx, {
+        igUserId: input.igUserId, username: input.username, photos: input.photos ?? [], mid: input.mid, channel,
+      });
     }
 
     // 1b. Captura de su historia (cuenta privada): queda por revisar en el panel.
@@ -955,6 +971,8 @@ export async function runContestDraw(contestId: number): Promise<{ double: numbe
   if (!db) return null;
   const ctx = await getCtxById(contestId);
   if (!ctx || ctx.contest.drawnAt || ctx.contest.status !== 'active') return null;
+  // Concurso de fotos: lo cierra el jurado desde la galería, no la hora.
+  if (ctx.contest.template === 'photo') return null;
   // Se marca primero (condicional) para que dos crons no sorteen dos veces.
   const [res] = await db.update(contests).set({ drawnAt: new Date() }).where(and(eq(contests.id, contestId), isNull(contests.drawnAt)));
   if ((res as unknown as { affectedRows: number }).affectedRows !== 1) return null;
@@ -1659,7 +1677,7 @@ export async function updateContest(id: number, patch: {
 export function launchBlockers(ctx: ContestCtx): string[] {
   const out: string[] = [];
   if (ctx.contest.template === 'flash') out.push(...flashBlockers(ctx.config.flash));
-  if (!ctx.contest.mediaId && ctx.contest.template !== 'quiz' && ctx.contest.template !== 'flash') out.push('Elige la publicación de Instagram del concurso.');
+  if (!ctx.contest.mediaId && ctx.contest.template !== 'quiz' && ctx.contest.template !== 'flash' && ctx.contest.template !== 'photo') out.push('Elige la publicación de Instagram del concurso.');
   if (ctx.contest.template === 'quiz' && !ctx.config.quiz.questions.some((q) => q.text && q.answers.length > 0)) out.push('Agrega al menos una pregunta con sus respuestas aceptadas.');
   if (ctx.contest.template !== 'flash' && ctx.config.prizes.doubleWinners > 0 && !ctx.config.prizes.prizeTicketTypeId) out.push('Elige qué entrada se regala como premio.');
   if (!ctx.config.drawAt) out.push('Pon la fecha del sorteo.');
