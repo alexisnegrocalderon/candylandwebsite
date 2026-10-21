@@ -30,6 +30,7 @@ import { generateCostumeIdeas, fallbackResult as fallbackCostumeResult } from ".
 import { ORACLE_VIBES, ORACLE_COMPANY, ORACLE_LEVELS, ORACLE_SKIN, ORACLE_ITEMS, ORACLE_EXTRA_MAX } from "../shared/costumeOracle";
 import * as applications from "./ambassadorApplications";
 import * as birthdayApplications from "./birthdayApplications";
+import * as homeSummary from "./homeSummary";
 import * as birthdayProgram from "./birthdayProgram";
 import * as eventBudget from "./eventBudget";
 import {
@@ -2498,6 +2499,15 @@ export const appRouter = router({
       if (!dashboard) return null;
       return { eventTitle: event.title, insideCount: dashboard.insideCount, expectedCount: dashboard.expectedCount };
     }),
+  }),
+
+  // Resumen de Inicio del admin (server/homeSummary.ts): un endpoint por
+  // bloque. Plata es solo del administrador (igual que Finanzas); los otros
+  // dos son conteos y los abre también el invitado de demostración.
+  home: router({
+    evento: adminReadProcedure.input(z.object({ eventId: z.number().int().positive() })).query(({ input }) => homeSummary.getHomeEvento(input.eventId)),
+    plata: adminProcedure.query(() => homeSummary.getHomePlata()),
+    gente: adminReadProcedure.input(z.object({ eventId: z.number().int().positive().nullish() }).optional()).query(({ input }) => homeSummary.getHomeGente(input?.eventId ?? null)),
   }),
 
   // Burbujas con números sobre cada ítem del menú del admin: el dueño tenía

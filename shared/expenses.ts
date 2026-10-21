@@ -330,3 +330,10 @@ export function computePnl(input: PnlInput): PnlResult {
 /** Plazo para "Deshacer" un gasto recién cargado en el terminal sin pedir la
  * clave de admin (expenses.undoCreate). Pasado esto se borra desde la lista. */
 export const UNDO_EXPENSE_WINDOW_MS = 2 * 60 * 1000;
+
+/** Gastos agrupados por categoría (mayor primero), para el resumen de Inicio. */
+export function expensesByCategory(rows: { category: string; amountTotal: number | string }[]): { category: string; amount: number }[] {
+  const sums = new Map<string, number>();
+  for (const r of rows) sums.set(r.category, (sums.get(r.category) ?? 0) + Number(r.amountTotal));
+  return Array.from(sums, ([category, amount]) => ({ category, amount })).filter((c) => c.amount > 0).sort((a, b) => b.amount - a.amount);
+}

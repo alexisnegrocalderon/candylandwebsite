@@ -10,6 +10,12 @@ import {
 import { trpc } from '@/lib/trpc';
 import { formatChileDate } from '@shared/chileDate';
 import { EmptyState } from '@/components/admin/EmptyState';
+import { useIsDemo } from '@/lib/demoMode';
+import { buildHomeAlerts } from '@shared/homeAlerts';
+import { AlertsStrip } from '@/components/admin/home/AlertsStrip';
+import { EventoBlock, useEvento } from '@/components/admin/home/EventoBlock';
+import { PlataBlock, usePlata } from '@/components/admin/home/PlataBlock';
+import { GenteBlock, useGente } from '@/components/admin/home/GenteBlock';
 
 /** Pantalla de entrada del panel: cómo va el próximo evento, qué está
  * esperando una respuesta y atajos a lo que más se usa. Solo lee -- toda
@@ -68,6 +74,25 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
   const { data: byDay } = trpc.orders.salesByDay.useQuery({ eventId }, opts);
   const { data: byOrigin } = trpc.orders.salesByOrigin.useQuery({ eventId }, opts);
 
+  // Bloques de resumen (Evento, Plata, Gente) y la franja de alertas. La
+  // plata real es solo del administrador: al invitado de demostración no se
+  // le pide ni se le muestra.
+  const isDemo = useIsDemo();
+  const evento = useEvento(eventId);
+  const plata = usePlata(!isDemo);
+  const gente = useGente(eventId);
+  const alerts = useMemo(() => buildHomeAlerts({
+    liveAlerts: evento.data?.pulse?.alerts ?? null,
+    siiNext: plata.data?.sii?.next ?? null,
+    siiEventsToReview: plata.data?.sii?.eventsToReview ?? 0,
+    cashPending: plata.data?.cash?.pendingCount ?? 0,
+    tickets: evento.data?.tickets?.map((t) => ({ name: t.name, remaining: t.remaining, total: t.total, status: t.status })) ?? null,
+    badges: badgeCounts,
+    handoffsPending: gente.data?.mensajes?.handoffsPending ?? 0,
+    emailDaily: gente.data?.mensajes?.email ? { remaining: gente.data.mensajes.email.remaining, cap: gente.data.mensajes.email.dailyCap } : null,
+    cajaAlerts: evento.data?.cajaAlerts ?? null,
+  }), [evento.data, plata.data, gente.data, badgeCounts]);
+
   const webRevenue = Number(web?.totalRevenue ?? 0);
   const webOrders = Number(web?.approvedOrders ?? 0);
   const cajaRevenue = Number(caja?.totalRevenue ?? 0);
@@ -108,6 +133,8 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
           </button>
         </div>
       </section>
+
+      <AlertsStrip alerts={alerts} onOpen={onOpen} />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 md:gap-4">
@@ -234,6 +261,11 @@ export function HomeView({ badgeCounts, onOpen }: { badgeCounts: Record<string, 
           )}
         </section>
       </div>
+
+      {/* Resumen de todas las secciones */}
+      {eventId && <EventoBlock data={evento.data} loading={evento.isLoading} onOpen={onOpen} />}
+      {!isDemo && <PlataBlock data={plata.data} loading={plata.isLoading} onOpen={onOpen} />}
+      <GenteBlock data={gente.data} loading={gente.isLoading} badgeCounts={badgeCounts} onOpen={onOpen} />
     </div>
   );
 }
