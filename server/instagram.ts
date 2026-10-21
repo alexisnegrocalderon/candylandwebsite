@@ -24,6 +24,8 @@ import {
 } from './db';
 import { runInstagramAgent } from './instagramAgent';
 import { handleIncomingComment } from './instagramComments';
+import { handleContestComment, handleContestMessage } from './contests';
+import { handleRankingDm } from './contestRanking';
 import { sendInstagramMessage, sendPrivateReply, sendButtonMessage, sendImageMessage, fetchInstagramProfile, canReplyWithinWindow } from './instagramSend';
 import { resolveInstagramBuyLink, resolveEventCardImage } from './instagramInteractive';
 import { resolvePageLink, splitIntoBubbles } from './agentLinks';
@@ -273,6 +275,24 @@ async function handleMessagingEvent(event: MetaMessaging): Promise<void> {
   // una entrega que ya contestamos. Cortar acá es lo que evita responder dos
   // veces lo mismo.
   if (!saved) return;
+
+  // Concurso de Instagram activo (server/contests.ts): mención en historia,
+  // palabra clave, correo de la compra o ganador que viene a reclamar. Si lo
+  // maneja el concurso, el agente no contesta encima.
+  const storyMention = Array.isArray(attachments) && attachments.some((a) => (a as { type?: string } | null)?.type === 'story_mention');
+  if (await handleContestMessage({
+    igUserId: senderId,
+    username: profile.username ?? thread.username ?? null,
+    threadId: thread.id,
+    text,
+    mid: message.mid ?? null,
+    storyMention,
+    storyReply: !!message.reply_to?.story,
+  })) return;
+
+  // Ranking del concurso: si el participante pregunta por sus puntos se le
+  // contesta aquí; si no, recibe sus tips una vez al día y el agente sigue.
+  if (text.length > 0 && await handleRankingDm({ igUserId: senderId, text, threadId: thread.id })) return;
 
   // Automatización por palabra clave (respuesta a historia): independiente
   // del agente conversacional de IA -- funciona aunque el agente esté
@@ -569,6 +589,9 @@ export async function handleCommentChange(value: { id?: string; text?: string; f
   const igUserId = value?.from?.id;
   const text = (value?.text ?? '').trim();
   if (!commentId || !igUserId || text.length === 0) return;
+
+  // Comentario en el post del concurso activo: lo maneja el concurso.
+  if (await handleContestComment({ commentId, mediaId: value?.media?.id ?? null, igUserId, username: value?.from?.username ?? null, text })) return;
 
   const automation = await matchKeywordTrigger(text, igUserId, 'comment');
   if (!automation) {

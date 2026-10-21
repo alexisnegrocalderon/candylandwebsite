@@ -8,6 +8,8 @@ import { useAuth } from '@/_core/hooks/useAuth';
 import { NOT_ADMIN_ERR_MSG } from '@shared/const';
 import { canOpenAdmin, isPartnerRole, useIsDemo, DEMO_TOOLTIP } from '@/lib/demoMode';
 import { WriteButton, DownloadLink } from '@/components/admin/WriteButton';
+import { CartaManager } from '@/components/admin/carta/CartaManager';
+import { MAX_AMBASSADOR_BUYER_DISCOUNT } from '@shared/ambassadorDiscount';
 import { Switch } from '@/components/ui/switch';
 import { trpc } from '@/lib/trpc';
 import FinanzasView from './Finanzas';
@@ -19,7 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Home, Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones, ListChecks, Image as ImageIcon } from 'lucide-react';
+import { Home, Calendar, DollarSign, Ticket, Users, Plus, Edit, ShoppingBag, Store, Percent, Trophy, LayoutDashboard, Settings as SettingsIcon, LogOut, Contact, X, Upload, Download, Mail, History, ChevronDown, ChevronUp, Gift, MessageCircle, Trash2, Crown, Martini, Instagram, UserPlus, QrCode, Share2, Ban, Receipt, Eye, Fingerprint, Compass, Sparkles, Loader2, ImageOff, ArrowRight, Car, Send, ShieldAlert, Zap, Cake, Calculator, Star, Copy, ArrowUpCircle, BellOff, FlaskConical, CalendarClock, Palette, UserCheck, Banknote, Landmark, Link2, RotateCcw, Headphones, ListChecks, Image as ImageIcon, PartyPopper } from 'lucide-react';
 import { PnlWarnings } from '@/components/admin/PnlWarnings';
 import { AdminPasswordDialog } from '@/components/admin/AdminPasswordDialog';
 import { ExpenseTerminal } from '@/components/admin/expenses/ExpenseTerminal';
@@ -52,6 +54,7 @@ import { SalesStrategyView } from '@/components/admin/SalesStrategyView';
 import { EventSurveyView } from '@/components/admin/EventSurveyView';
 import { WinbackView } from '@/components/admin/WinbackView';
 import { ContentPlanView } from '@/components/admin/ContentPlanView';
+import { ContestsView } from '@/components/admin/ContestsView';
 import { ProfileAuditView } from '@/components/admin/ProfileAuditView';
 import { OPEN_SECTION_EVENT } from '@/components/admin/studio/handoff';
 import { parseAdminDeepLink } from '@shared/adminDeepLink';
@@ -3538,7 +3541,15 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-heading text-2xl">{channel === 'caja' ? 'Ventas en Caja' : 'Ventas Web'}</h2>
         <div className="flex flex-wrap items-center gap-2">
-          <Input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Buscar por nombre, acompañante, email o N° de orden…" className="max-w-xs" />
+          {/* El placeholder largo se cortaba ("…email o N"): versión corta
+              visible, la descripción completa va en el aria-label. */}
+          <Input
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Buscar nombre, email u orden…"
+            aria-label="Buscar por nombre, acompañante, email o N° de orden"
+            className="min-w-56 flex-1"
+          />
           <Select value={eventFilter === 'auto' ? 'all' : eventFilter} onValueChange={setEventFilter}>
             <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -3546,8 +3557,16 @@ function OrdersView({ channel }: { channel: 'web' | 'caja' }) {
               {(eventsList ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-36" aria-label="Desde" />
-          <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-36" aria-label="Hasta" />
+          {/* En Safari/iPad un <input type="date"> vacío se pinta como una
+              caja en blanco sin pista de qué es: se le pone etiqueta visible. */}
+          <label className="flex items-center gap-1.5 text-xs text-[var(--admin-muted)]">
+            Desde
+            <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="w-36 text-[var(--admin-text)]" />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-[var(--admin-muted)]">
+            Hasta
+            <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="w-36 text-[var(--admin-text)]" />
+          </label>
           <DownloadLink href={exportUrl()}>
             <Button variant="outline" className="interactive">Descargar CSV</Button>
           </DownloadLink>
@@ -5779,7 +5798,7 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
   stats: { exclusiveSales: number; existingSales: number; eventRevenue: number; eventCommission: number; totalCommission: number } | undefined;
   expanded: boolean;
   onToggleExpand: () => void;
-  onUpdate: (data: { name?: string; code?: string; commissionPercent?: number | null; contact?: string; email?: string; instagram?: string; active?: number }) => Promise<unknown>;
+  onUpdate: (data: { name?: string; code?: string; commissionPercent?: number | null; buyerDiscountPercent?: number | null; contact?: string; email?: string; instagram?: string; active?: number }) => Promise<unknown>;
   onDelete: (adminPassword: string) => Promise<unknown>;
   updating: boolean;
   deleting: boolean;
@@ -5789,6 +5808,9 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
   const [code, setCode] = useState(ambassador.code);
   const [commissionPercent, setCommissionPercent] = useState(
     ambassador.commissionPercent === null || ambassador.commissionPercent === undefined ? '' : String(ambassador.commissionPercent),
+  );
+  const [buyerDiscount, setBuyerDiscount] = useState(
+    Number(ambassador.buyerDiscountPercent) > 0 ? String(Number(ambassador.buyerDiscountPercent)) : '',
   );
   const [contact, setContact] = useState(ambassador.contact ?? '');
   const [email, setEmail] = useState(ambassador.email ?? '');
@@ -5801,6 +5823,8 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
       code: code.toUpperCase(),
       // Vacío = null = usar la escala global, no 0%.
       commissionPercent: commissionPercent.trim() === '' ? null : Number(commissionPercent) || 0,
+      // Vacío o 0 = sin descuento para quien compra con su código.
+      buyerDiscountPercent: Number(buyerDiscount) > 0 ? Number(buyerDiscount) : null,
       contact: contact || undefined,
       email: email || undefined,
     });
@@ -5813,6 +5837,7 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
         <td className="py-2 px-3"><Input value={name} onChange={(e) => setName(e.target.value)} className="h-8" /></td>
         <td className="py-2 px-3"><Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} className="h-8 font-mono" /></td>
         <td className="py-2 px-3"><Input type="number" value={commissionPercent} onChange={(e) => setCommissionPercent(e.target.value)} placeholder="Escala" className="h-8 w-20" /></td>
+        <td className="py-2 px-3"><Input type="number" min={0} max={MAX_AMBASSADOR_BUYER_DISCOUNT} value={buyerDiscount} onChange={(e) => setBuyerDiscount(e.target.value)} placeholder="Sin desc." className="h-8 w-20" /></td>
         <td className="py-2 px-3 text-muted-foreground">{s.exclusiveSales}</td>
         <td className="py-2 px-3 text-muted-foreground">${s.eventRevenue.toLocaleString('es-CL')}</td>
         <td className="py-2 px-3 text-muted-foreground">${s.eventCommission.toLocaleString('es-CL')}</td>
@@ -5840,6 +5865,11 @@ function AmbassadorRow({ ambassador, stats, expanded, onToggleExpand, onUpdate, 
         {ambassador.commissionPercent === null || ambassador.commissionPercent === undefined
           ? <span className="text-muted-foreground text-xs">Escala</span>
           : `${ambassador.commissionPercent}%`}
+      </td>
+      <td className="py-2 px-3">
+        {Number(ambassador.buyerDiscountPercent) > 0
+          ? <span className="rounded-full bg-pink-500/15 px-2 py-0.5 text-xs font-semibold text-pink-500">{Number(ambassador.buyerDiscountPercent)}%</span>
+          : <span className="text-muted-foreground text-xs">Sin descuento</span>}
       </td>
       <td className="py-2 px-3">
         {s.exclusiveSales}
@@ -5897,7 +5927,7 @@ function AmbassadorProfileRow({ ambassadorId, eventId, deliveredKeys, onMarkBene
   const sales = data?.sales ?? [];
 
   if (!data) {
-    return <tr className="border-b border-border/50 bg-muted/10"><td colSpan={9} className="py-3 px-3 text-xs text-muted-foreground">Cargando ficha…</td></tr>;
+    return <tr className="border-b border-border/50 bg-muted/10"><td colSpan={10} className="py-3 px-3 text-xs text-muted-foreground">Cargando ficha…</td></tr>;
   }
 
   const progreso = stats?.nextTarget
@@ -5906,7 +5936,7 @@ function AmbassadorProfileRow({ ambassadorId, eventId, deliveredKeys, onMarkBene
 
   return (
     <tr className="border-b border-border/50 bg-muted/10">
-      <td colSpan={9} className="py-4 px-3">
+      <td colSpan={10} className="py-4 px-3">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
           <div className="p-3 rounded-xl bg-background border border-border">
             <p className="text-xs text-muted-foreground">Comisión actual</p>
@@ -6136,7 +6166,7 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
   const refreshAll = () => { refetch(); refetchRanking(); };
 
   const createAmbassador = trpc.ambassadors.create.useMutation({
-    onSuccess: () => { refreshAll(); toast.success('Embajador creado'); setShowForm(false); setNewAmbassador({ name: '', code: '', commissionPercent: '', contact: '', email: '' }); },
+    onSuccess: () => { refreshAll(); toast.success('Embajador creado'); setShowForm(false); setNewAmbassador({ name: '', code: '', commissionPercent: '', buyerDiscountPercent: '', contact: '', email: '' }); },
     onError: onMutationError,
   });
   const updateAmbassador = trpc.ambassadors.update.useMutation({ onSuccess: refreshAll, onError: onMutationError });
@@ -6161,7 +6191,7 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
   });
 
   const [showForm, setShowForm] = useState(false);
-  const [newAmbassador, setNewAmbassador] = useState({ name: '', code: '', commissionPercent: '', contact: '', email: '' });
+  const [newAmbassador, setNewAmbassador] = useState({ name: '', code: '', commissionPercent: '', buyerDiscountPercent: '', contact: '', email: '' });
   const [search, setSearch] = useState('');
   const [estado, setEstado] = useState<'all' | 'active' | 'inactive'>('all');
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -6181,6 +6211,7 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
         name: newAmbassador.name,
         code: newAmbassador.code.toUpperCase(),
         commissionPercent: newAmbassador.commissionPercent.trim() === '' ? null : Number(newAmbassador.commissionPercent) || 0,
+        buyerDiscountPercent: Number(newAmbassador.buyerDiscountPercent) > 0 ? Number(newAmbassador.buyerDiscountPercent) : null,
         contact: newAmbassador.contact || undefined,
         email: newAmbassador.email || undefined,
       });
@@ -6210,18 +6241,22 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
       {showForm && (
         <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
           <CardContent className="pt-6 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
               <div><Label>Nombre</Label><Input value={newAmbassador.name} onChange={(e) => setNewAmbassador({ ...newAmbassador, name: e.target.value })} className="mt-1" /></div>
               <div><Label>Código</Label><Input value={newAmbassador.code} onChange={(e) => setNewAmbassador({ ...newAmbassador, code: e.target.value.toUpperCase() })} className="mt-1 font-mono" placeholder="SOFIA" /></div>
               <div>
                 <Label>% fijo (opcional)</Label>
                 <Input type="number" value={newAmbassador.commissionPercent} onChange={(e) => setNewAmbassador({ ...newAmbassador, commissionPercent: e.target.value })} className="mt-1" placeholder="Escala" />
               </div>
+              <div>
+                <Label>Descuento al comprador %</Label>
+                <Input type="number" min={0} max={MAX_AMBASSADOR_BUYER_DISCOUNT} value={newAmbassador.buyerDiscountPercent} onChange={(e) => setNewAmbassador({ ...newAmbassador, buyerDiscountPercent: e.target.value })} className="mt-1" placeholder="Sin descuento" />
+              </div>
               <div><Label>Correo</Label><Input value={newAmbassador.email} onChange={(e) => setNewAmbassador({ ...newAmbassador, email: e.target.value })} className="mt-1" placeholder="Para el correo semanal" /></div>
               <div><Label>Contacto (opcional)</Label><Input value={newAmbassador.contact} onChange={(e) => setNewAmbassador({ ...newAmbassador, contact: e.target.value })} className="mt-1" placeholder="Teléfono o Instagram" /></div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Deja el "% fijo" vacío para que use la escala del programa (30% a 50% según sus ventas del evento). Solo
+              «Descuento al comprador»: % que se descuenta del acceso (nunca de los extras) a quien compra con el código o link de este embajador (máx. {MAX_AMBASSADOR_BUYER_DISCOUNT}%). Si el comprador además trae un código de descuento, se aplica el mayor, no se suman; la comisión se calcula sobre lo que pagó. Deja el "% fijo" vacío para que use la escala del programa (30% a 50% según sus ventas del evento). Solo
               ponle un número si ese embajador tiene un trato distinto al resto.
             </p>
             <div className="flex gap-2">
@@ -6241,6 +6276,7 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
                   <th className="text-left py-2 px-3">Embajador</th>
                   <th className="text-left py-2 px-3">Código</th>
                   <th className="text-left py-2 px-3">% Comisión</th>
+                  <th className="text-left py-2 px-3">Desc. comprador</th>
                   <th className="text-left py-2 px-3">Ventas del evento</th>
                   <th className="text-left py-2 px-3">Monto vendido</th>
                   <th className="text-left py-2 px-3">Comisión del evento</th>
@@ -6276,7 +6312,7 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
                   </Fragment>
                 ))}
                 {visibles.length === 0 && (
-                  <tr><td colSpan={9} className="py-8 text-center text-muted-foreground">
+                  <tr><td colSpan={10} className="py-8 text-center text-muted-foreground">
                     {ambassadors.length === 0 ? 'Sin embajadores todavía. Crea el primero con el botón de arriba.' : 'Ningún embajador coincide con el filtro.'}
                   </td></tr>
                 )}
@@ -6284,7 +6320,7 @@ function AmbassadorsListTab({ eventId }: { eventId: number }) {
               {visibles.length > 0 && (
                 <tfoot>
                   <tr className="border-t border-border font-semibold">
-                    <td colSpan={4} className="py-2 px-3 text-right">Total del evento</td>
+                    <td colSpan={5} className="py-2 px-3 text-right">Total del evento</td>
                     <td className="py-2 px-3">${totalVendido.toLocaleString('es-CL')}</td>
                     <td className="py-2 px-3 text-primary">${totalComision.toLocaleString('es-CL')}</td>
                     <td colSpan={3}></td>
@@ -10662,545 +10698,6 @@ function EmailTemplatesManager() {
 }
 
 
-/* ─── Carta de la fiesta ──────────────────────────────────────────────────
- * Los tragos, la comida, la guardarropía y el merch son `ticketTypes` con
- * categoría propia (consumo/locker/merch) del evento -- no una tabla nueva
- * (docs/ARQUITECTURA-CAJA.md §12). La ventaja concreta de reusar esa tabla:
- * la venta queda como `orders` con channel='caja', así que el reporte, el
- * CSV y el PDF del admin ya las ven sin tocar nada.
- *
- * Y la ventaja de que sean categorías propias en vez de 'extra': el checkout
- * de la web lista addons filtrando `category === 'extra'`, así que un trago
- * NO aparece en el sitio, no emite ticket y no manda correo. Se vende solo
- * en la barra, que es lo que corresponde. */
-
-const CARTA_CATEGORIES = [
-  { id: 'consumo', label: 'Tragos y comida', emoji: '🍹', color: '#f472b6', help: 'Todo lo que se consume en la fiesta: tragos, cervezas, bebidas, comida.' },
-  { id: 'locker', label: 'Guardarropía', emoji: '🧥', color: '#818cf8', help: 'Se cobra igual que un producto; al confirmar, la caja pide el número de la percha.' },
-  { id: 'merch', label: 'Merch', emoji: '🎁', color: '#fbbf24', help: 'Poleras, stickers, lo que se venda de recuerdo.' },
-  { id: 'extra', label: 'Extras de la web', emoji: '🎫', color: '#34d399', help: 'Estacionamiento, covers y demás addons que TAMBIÉN se ofrecen en el checkout del sitio.' },
-] as const;
-
-type CartaCategory = typeof CARTA_CATEGORIES[number]['id'];
-
-// Emojis sugeridos para no tener que ir a buscarlos a otro lado. El dueño
-// eligió emoji + color en vez de fotos: se lee mejor que una miniatura en una
-// tablet a oscuras, y no obliga a construir subida de imágenes (que hoy no
-// existe en el proyecto).
-const EMOJI_SUGGESTIONS: Record<CartaCategory, string[]> = {
-  consumo: ['🍹', '🍺', '🍷', '🥃', '🍸', '🥤', '💧', '⚡', '🍔', '🌭', '🍕', '🌮', '🍟', '🍫'],
-  locker: ['🧥', '🎒', '👜', '🧣', '☂️'],
-  merch: ['👕', '🧢', '🩲', '🏷️', '💿', '✨'],
-  extra: ['🅿️', '⭐', '🎫', '🎟️', '🛋️'],
-};
-
-const COLOR_PALETTE = ['#f472b6', '#fb7185', '#f59e0b', '#fbbf24', '#34d399', '#22d3ee', '#60a5fa', '#818cf8', '#a78bfa', '#e879f9'];
-
-const emptyProduct = (category: CartaCategory) => ({
-  name: '',
-  category,
-  groupName: '',
-  emoji: EMOJI_SUGGESTIONS[category][0],
-  color: CARTA_CATEGORIES.find((c) => c.id === category)!.color as string,
-  price: 0,
-  costPrice: 0,
-  totalStock: 100,
-  sortOrder: 0,
-  toKitchen: category === 'consumo' ? 0 : 0,
-  // Ingredientes/sabores especiales -- se muestra en /caja al mantener
-  // presionada la tarjeta, para que la cajera pueda responder preguntas del
-  // cliente sin ir a buscarlo.
-  description: '',
-  // Solo tiene sentido en la pestaña "Extras de la web" (mismo criterio que
-  // el formulario de Eventos → "+ Entrada"): con un valor acá, este producto
-  // acredita saldo prepagado en vez de venderse como un derecho canjeable.
-  topupAmount: 0,
-  // Opcional -- normalmente se genera solo a partir del nombre
-  // (fallbackInternalCode en server/caja/displayCode.ts). Solo hace falta
-  // escribirlo a mano cuando otro sistema necesita reconocer este producto
-  // por un código fijo en vez de por su nombre (ej. los premios del programa
-  // Cumpleañeros, ver shared/birthdayTiers.ts).
-  internalCode: '',
-});
-
-/** Arma el form-state de edición de un producto a partir de la fila del
- * server -- mismo shape que `emptyProduct()`. */
-function productFormFromP(p: any) {
-  return {
-    name: p.name as string,
-    category: p.category as CartaCategory,
-    groupName: (p.groupName ?? '') as string,
-    emoji: (p.emoji ?? EMOJI_SUGGESTIONS[p.category as CartaCategory][0]) as string,
-    color: (p.color ?? CARTA_CATEGORIES.find((c) => c.id === p.category)!.color) as string,
-    price: Number(p.price),
-    costPrice: p.costPrice != null ? Number(p.costPrice) : 0,
-    totalStock: Number(p.totalStock),
-    sortOrder: Number(p.sortOrder ?? 0),
-    toKitchen: Number(p.toKitchen ?? 0),
-    description: (p.description ?? '') as string,
-    topupAmount: p.topupAmount ? Number(p.topupAmount) : 0,
-    internalCode: (p.internalCode ?? '') as string,
-  };
-}
-
-/** Card de un producto de la carta: edita en el lugar (estado local
- * `editing`), mismo criterio que AmbassadorRow/StockPoolRow/TicketTypeRow/
- * EventCard. Antes el formulario de editar vivía en una card fija ANTES de
- * toda la grilla de productos -- editar el producto #8 de 15 mandaba arriba
- * de todo. Acá el formulario reemplaza directamente el contenido de LA card
- * de ese producto. `toggleSoldOut`/borrar quedan en CartaManager (mismas
- * mutations para toda la grilla, no hace falta una por card). */
-function CartaProductCard({ p, meta, onToggleSoldOut, toggling, onDelete }: {
-  p: any;
-  meta: typeof CARTA_CATEGORIES[number];
-  onToggleSoldOut: (id: number, nextStatus: 'active' | 'soldout') => void;
-  toggling: boolean;
-  onDelete: (id: number, adminPassword: string) => Promise<void>;
-}) {
-  const utils = trpc.useUtils();
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState(() => productFormFromP(p));
-  const updateType = trpc.events.updateTicketType.useMutation({
-    onSuccess: () => { utils.events.listTicketTypes.invalidate(); toast.success('Producto actualizado'); setEditing(false); },
-    onError: onMutationError,
-  });
-
-  const handleSave = () => {
-    if (!form.name.trim()) { toast.error('Ponle un nombre al producto'); return; }
-    if (form.price <= 0) { toast.error('El precio tiene que ser mayor a 0'); return; }
-    updateType.mutate({
-      id: p.id,
-      name: form.name.trim(),
-      category: form.category,
-      groupName: form.groupName.trim() || undefined,
-      emoji: form.emoji || undefined,
-      color: form.color,
-      price: form.price,
-      costPrice: form.costPrice || undefined,
-      totalStock: form.totalStock,
-      sortOrder: form.sortOrder,
-      toKitchen: form.toKitchen,
-      description: form.description.trim() || undefined,
-      topupAmount: form.category === 'extra' ? (form.topupAmount || null) : null,
-      internalCode: form.internalCode.trim() ? form.internalCode.trim().toUpperCase() : undefined,
-    });
-  };
-
-  if (editing) {
-    return (
-      <Card className="rounded-2xl border-0 shadow-md shadow-black/5 md:col-span-2">
-        <CardContent className="pt-6 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2">
-              <Label>Nombre</Label>
-              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="Ej: Piscola" />
-            </div>
-            <div>
-              <Label>Sección</Label>
-              <Input value={form.groupName} onChange={(e) => setForm({ ...form, groupName: e.target.value })} className="mt-1" placeholder="Ej: Tragos" />
-              <p className="text-muted-foreground text-xs mt-1">Arma las pestañas de la grilla en /caja.</p>
-            </div>
-          </div>
-
-          <div>
-            <Label>Ingredientes / sabores especiales</Label>
-            <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1" placeholder="Ej: Pisco, jugo de maracuyá natural, un toque de menta" rows={2} />
-            <p className="text-muted-foreground text-xs mt-1">Opcional. Aparece en /caja al mantener presionada la tarjeta del producto, para que la cajera pueda responder preguntas del cliente.</p>
-          </div>
-
-          <div>
-            <Label>Código interno (opcional)</Label>
-            <Input value={form.internalCode} onChange={(e) => setForm({ ...form, internalCode: e.target.value.toUpperCase() })} className="mt-1 font-mono" placeholder="Ej: BDESP" maxLength={10} />
-            <p className="text-muted-foreground text-xs mt-1">
-              Déjalo vacío salvo que otro sistema necesite reconocer este producto por un código fijo (ej. los
-              premios del programa Cumpleañeros: BDESP, BDBOT, BDCOV, BDBEB).
-            </p>
-          </div>
-
-          <div>
-            <Label>Ícono</Label>
-            <div className="flex flex-wrap gap-2 mt-1">
-              {EMOJI_SUGGESTIONS[form.category].map((em) => (
-                <button
-                  key={em}
-                  onClick={() => setForm({ ...form, emoji: em })}
-                  className={`w-11 h-11 rounded-xl text-2xl leading-none flex items-center justify-center border transition-colors interactive ${form.emoji === em ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted'}`}
-                >
-                  {em}
-                </button>
-              ))}
-              <Input
-                value={form.emoji}
-                onChange={(e) => setForm({ ...form, emoji: e.target.value.slice(0, 4) })}
-                className="w-20 h-11 text-center text-xl"
-                aria-label="Otro emoji"
-              />
-            </div>
-          </div>
-
-          <div>
-            <Label>Color del botón</Label>
-            <div className="flex flex-wrap gap-2 mt-1">
-              {COLOR_PALETTE.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setForm({ ...form, color: c })}
-                  style={{ backgroundColor: c }}
-                  className={`w-9 h-9 rounded-full transition-transform interactive ${form.color === c ? 'ring-2 ring-offset-2 ring-foreground scale-110' : ''}`}
-                  aria-label={`Color ${c}`}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div><Label>Precio</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} className="mt-1" /></div>
-            <div>
-              <Label>Costo</Label>
-              <Input type="number" value={form.costPrice} onChange={(e) => setForm({ ...form, costPrice: Number(e.target.value) })} className="mt-1" />
-              <p className="text-muted-foreground text-xs mt-1">Para ver el margen. Si no se carga, ese dato se pierde para siempre.</p>
-            </div>
-            <div>
-              <Label>Stock</Label>
-              <Input type="number" value={form.totalStock} onChange={(e) => setForm({ ...form, totalStock: Number(e.target.value) })} className="mt-1" />
-              <p className="text-muted-foreground text-xs mt-1">Solo avisa: nunca impide vender.</p>
-            </div>
-            <div>
-              <Label>Orden</Label>
-              <Input type="number" value={form.sortOrder} onChange={(e) => setForm({ ...form, sortOrder: Number(e.target.value) })} className="mt-1" />
-              <p className="text-muted-foreground text-xs mt-1">Menor = más arriba. Pon los más vendidos primero.</p>
-            </div>
-          </div>
-
-          {form.category === 'extra' && (
-            <div>
-              <Label>Carga de saldo (CLP, opcional)</Label>
-              <Input type="number" value={form.topupAmount || ''} onChange={(e) => setForm({ ...form, topupAmount: Number(e.target.value) })} className="mt-1" placeholder="Ej: 10000 -- convierte este extra en 'Cargar saldo'" />
-              <p className="text-muted-foreground text-xs mt-1">Con un valor acá, este extra no paga recargo por servicio, no genera ticket ni QR, y acredita saldo prepagado en la tarjeta de membresía en vez de un derecho canjeable.</p>
-            </div>
-          )}
-
-          <label className="flex items-start gap-3 cursor-pointer">
-            <Checkbox checked={form.toKitchen === 1} onCheckedChange={(v) => setForm({ ...form, toKitchen: v ? 1 : 0 })} className="mt-0.5" />
-            <span className="text-sm">
-              Lo prepara la cocina
-              <span className="block text-muted-foreground text-xs">Al venderse genera una comanda en la pantalla de cocina con el número de pedido.</span>
-            </span>
-          </label>
-
-          <div className="flex gap-2">
-            <WriteButton onClick={handleSave} disabled={updateType.isPending}>Guardar cambios</WriteButton>
-            <Button variant="outline" onClick={() => { setForm(productFormFromP(p)); setEditing(false); }}>Cancelar</Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const left = Number(p.totalStock) - Number(p.soldCount);
-  return (
-    <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-      <CardContent className="pt-4 flex items-center gap-3">
-        <div
-          className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0"
-          style={{ backgroundColor: (p.color || meta.color) + '22' }}
-        >
-          {p.emoji || meta.emoji}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="font-semibold truncate flex items-center gap-2">
-            {p.name}
-            {p.status === 'soldout' && (
-              <span className="text-[10px] font-bold uppercase tracking-wide text-red-600 bg-red-100 px-1.5 py-0.5 rounded">Agotado</span>
-            )}
-          </p>
-          <p className="text-muted-foreground text-sm">
-            ${Number(p.price).toLocaleString('es-CL')}
-            {p.costPrice != null && <span className="ml-2 text-xs">margen ${(Number(p.price) - Number(p.costPrice)).toLocaleString('es-CL')}</span>}
-          </p>
-          <p className={`text-xs mt-0.5 ${left <= 0 ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}>
-            {left <= 0 ? 'Sin stock (igual se puede vender)' : `Quedan ${left}`}
-            {Number(p.toKitchen) === 1 && <span className="ml-2">· va a cocina</span>}
-          </p>
-        </div>
-        <div className="flex gap-2 shrink-0">
-          <WriteButton
-            variant="outline"
-            size="sm"
-            disabled={toggling}
-            onClick={() => onToggleSoldOut(p.id, p.status === 'soldout' ? 'active' : 'soldout')}
-            className={p.status === 'soldout' ? 'text-green-600 border-green-300' : 'text-red-600 border-red-300'}
-          >
-            {p.status === 'soldout' ? 'Reponer' : <><Ban className="w-3 h-3 mr-1" /> Agotar</>}
-          </WriteButton>
-          <Button variant="outline" size="sm" onClick={() => setEditing(true)}><Edit className="w-3 h-3" /></Button>
-          <ConfirmDeleteButton description={`Vas a eliminar "${p.name}" de la carta.`} onConfirm={(adminPassword) => onDelete(p.id, adminPassword)} />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function CartaManager() {
-  const { data: events } = trpc.events.listAll.useQuery();
-  const [eventId, setEventId] = useState<number | null>(null);
-  const activeId = eventId ?? events?.[0]?.id ?? null;
-
-  const utils = trpc.useUtils();
-  const { data: allTypes, refetch } = trpc.events.listTicketTypes.useQuery({ eventId: activeId! }, { enabled: !!activeId });
-
-  const [tab, setTab] = useState<CartaCategory>('consumo');
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(emptyProduct('consumo'));
-
-  const createType = trpc.events.createTicketType.useMutation({
-    onSuccess: () => {
-      utils.events.listTicketTypes.invalidate();
-      refetch();
-      toast.success('Producto creado');
-      setShowForm(false);
-    },
-    onError: onMutationError,
-  });
-  const deleteType = trpc.events.deleteTicketType.useMutation({ onSuccess: () => refetch(), onError: onMutationError });
-  // Todo evento nuevo ya nace con la carta del anterior copiada sola --
-  // este botón es para repetirlo a mano (ej. arreglar un evento que quedó
-  // sin carta, o volver a copiar si hace falta).
-  const copyCarta = trpc.events.copyCartaFromPrevious.useMutation({
-    onSuccess: (r) => { utils.events.listTicketTypes.invalidate(); refetch(); toast.success(`Copiados ${r.copied} productos de "${r.from}"`); },
-    onError: onMutationError,
-  });
-  // Mismo endpoint que edita el producto (events.updateTicketType ya acepta
-  // `status`) -- así el admin puede agotar/reponer sin depender de /cocina.
-  const toggleSoldOut = trpc.events.updateTicketType.useMutation({
-    onSuccess: () => { utils.events.listTicketTypes.invalidate(); refetch(); },
-    onError: onMutationError,
-  });
-
-  const products = (allTypes ?? []).filter((t: any) => t.category === tab);
-  const meta = CARTA_CATEGORIES.find((c) => c.id === tab)!;
-
-  const openNew = () => { setForm(emptyProduct(tab)); setShowForm(true); };
-
-  const save = async () => {
-    if (!activeId) return;
-    if (!form.name.trim()) { toast.error('Ponle un nombre al producto'); return; }
-    if (form.price <= 0) { toast.error('El precio tiene que ser mayor a 0'); return; }
-    const payload = {
-      name: form.name.trim(),
-      category: form.category,
-      groupName: form.groupName.trim() || undefined,
-      emoji: form.emoji || undefined,
-      color: form.color,
-      price: form.price,
-      costPrice: form.costPrice || undefined,
-      totalStock: form.totalStock,
-      sortOrder: form.sortOrder,
-      toKitchen: form.toKitchen,
-      description: form.description.trim() || undefined,
-      topupAmount: form.category === 'extra' ? (form.topupAmount || undefined) : undefined,
-      internalCode: form.internalCode.trim() ? form.internalCode.trim().toUpperCase() : undefined,
-    };
-    try {
-      await createType.mutateAsync({ eventId: activeId, ...payload });
-    } catch {
-      // onMutationError ya avisó; se deja el formulario abierto para reintentar
-    }
-  };
-
-  const handleDelete = async (id: number, adminPassword: string) => { await deleteType.mutateAsync({ id, adminPassword }); };
-  const handleToggleSoldOut = (id: number, nextStatus: 'active' | 'soldout') => { toggleSoldOut.mutate({ id, status: nextStatus }); };
-
-  // Agrupadas por sección para que la lista se lea como la carta de verdad.
-  const groups = products.reduce((acc: Record<string, any[]>, p: any) => {
-    const key = p.groupName || 'Sin sección';
-    (acc[key] ||= []).push(p);
-    return acc;
-  }, {});
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap justify-between items-start gap-3">
-        <div>
-          <h2 className="font-heading text-2xl">Carta de la fiesta</h2>
-          <p className="text-muted-foreground text-sm mt-1">
-            Lo que se vende en la barra: tragos, comida, guardarropía y merch. Aparece como botón en /caja y <strong>no</strong> se muestra en el sitio web.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Select value={activeId ? String(activeId) : ''} onValueChange={(v) => setEventId(Number(v))}>
-            <SelectTrigger className="w-[220px]"><SelectValue placeholder="Evento" /></SelectTrigger>
-            <SelectContent>
-              {(events ?? []).map((e: any) => <SelectItem key={e.id} value={String(e.id)}>{e.title}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="outline"
-            disabled={!activeId || copyCarta.isPending}
-            onClick={() => {
-              if (!activeId) return;
-              if (window.confirm('¿Copiar la carta del evento anterior acá? Si ya hay productos cargados, se suman (no se reemplazan).')) {
-                copyCarta.mutate({ eventId: activeId });
-              }
-            }}
-          >
-            {copyCarta.isPending ? 'Copiando…' : 'Copiar carta del evento anterior'}
-          </Button>
-          <WriteButton onClick={openNew} className="interactive"><Plus className="w-4 h-4 mr-2" /> Nuevo producto</WriteButton>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {CARTA_CATEGORIES.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => { setTab(c.id); setShowForm(false); }}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-colors interactive ${tab === c.id ? 'bg-primary text-white' : 'bg-muted text-muted-foreground hover:bg-muted/70'}`}
-          >
-            {c.emoji} {c.label}
-          </button>
-        ))}
-      </div>
-      <p className="text-muted-foreground text-xs -mt-3">{meta.help}</p>
-
-      {showForm && (
-        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-          <CardContent className="pt-6 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-2">
-                <Label>Nombre</Label>
-                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="Ej: Piscola" />
-              </div>
-              <div>
-                <Label>Sección</Label>
-                <Input value={form.groupName} onChange={(e) => setForm({ ...form, groupName: e.target.value })} className="mt-1" placeholder="Ej: Tragos" />
-                <p className="text-muted-foreground text-xs mt-1">Arma las pestañas de la grilla en /caja.</p>
-              </div>
-            </div>
-
-            <div>
-              <Label>Ingredientes / sabores especiales</Label>
-              <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="mt-1" placeholder="Ej: Pisco, jugo de maracuyá natural, un toque de menta" rows={2} />
-              <p className="text-muted-foreground text-xs mt-1">Opcional. Aparece en /caja al mantener presionada la tarjeta del producto, para que la cajera pueda responder preguntas del cliente.</p>
-            </div>
-
-            <div>
-              <Label>Código interno (opcional)</Label>
-              <Input value={form.internalCode} onChange={(e) => setForm({ ...form, internalCode: e.target.value.toUpperCase() })} className="mt-1 font-mono" placeholder="Ej: BDESP" maxLength={10} />
-              <p className="text-muted-foreground text-xs mt-1">
-                Déjalo vacío salvo que otro sistema necesite reconocer este producto por un código fijo (ej. los
-                premios del programa Cumpleañeros: BDESP, BDBOT, BDCOV, BDBEB).
-              </p>
-            </div>
-
-            <div>
-              <Label>Ícono</Label>
-              <div className="flex flex-wrap gap-2 mt-1">
-                {EMOJI_SUGGESTIONS[form.category].map((em) => (
-                  <button
-                    key={em}
-                    onClick={() => setForm({ ...form, emoji: em })}
-                    className={`w-11 h-11 rounded-xl text-2xl leading-none flex items-center justify-center border transition-colors interactive ${form.emoji === em ? 'border-primary bg-primary/10' : 'border-border hover:bg-muted'}`}
-                  >
-                    {em}
-                  </button>
-                ))}
-                <Input
-                  value={form.emoji}
-                  onChange={(e) => setForm({ ...form, emoji: e.target.value.slice(0, 4) })}
-                  className="w-20 h-11 text-center text-xl"
-                  aria-label="Otro emoji"
-                />
-              </div>
-            </div>
-
-            <div>
-              <Label>Color del botón</Label>
-              <div className="flex flex-wrap gap-2 mt-1">
-                {COLOR_PALETTE.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setForm({ ...form, color: c })}
-                    style={{ backgroundColor: c }}
-                    className={`w-9 h-9 rounded-full transition-transform interactive ${form.color === c ? 'ring-2 ring-offset-2 ring-foreground scale-110' : ''}`}
-                    aria-label={`Color ${c}`}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div><Label>Precio</Label><Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} className="mt-1" /></div>
-              <div>
-                <Label>Costo</Label>
-                <Input type="number" value={form.costPrice} onChange={(e) => setForm({ ...form, costPrice: Number(e.target.value) })} className="mt-1" />
-                <p className="text-muted-foreground text-xs mt-1">Para ver el margen. Si no se carga, ese dato se pierde para siempre.</p>
-              </div>
-              <div>
-                <Label>Stock</Label>
-                <Input type="number" value={form.totalStock} onChange={(e) => setForm({ ...form, totalStock: Number(e.target.value) })} className="mt-1" />
-                <p className="text-muted-foreground text-xs mt-1">Solo avisa: nunca impide vender.</p>
-              </div>
-              <div>
-                <Label>Orden</Label>
-                <Input type="number" value={form.sortOrder} onChange={(e) => setForm({ ...form, sortOrder: Number(e.target.value) })} className="mt-1" />
-                <p className="text-muted-foreground text-xs mt-1">Menor = más arriba. Pon los más vendidos primero.</p>
-              </div>
-            </div>
-
-            {form.category === 'extra' && (
-              <div>
-                <Label>Carga de saldo (CLP, opcional)</Label>
-                <Input type="number" value={form.topupAmount || ''} onChange={(e) => setForm({ ...form, topupAmount: Number(e.target.value) })} className="mt-1" placeholder="Ej: 10000 -- convierte este extra en 'Cargar saldo'" />
-                <p className="text-muted-foreground text-xs mt-1">Con un valor acá, este extra no paga recargo por servicio, no genera ticket ni QR, y acredita saldo prepagado en la tarjeta de membresía en vez de un derecho canjeable.</p>
-              </div>
-            )}
-
-            <label className="flex items-start gap-3 cursor-pointer">
-              <Checkbox checked={form.toKitchen === 1} onCheckedChange={(v) => setForm({ ...form, toKitchen: v ? 1 : 0 })} className="mt-0.5" />
-              <span className="text-sm">
-                Lo prepara la cocina
-                <span className="block text-muted-foreground text-xs">Al venderse genera una comanda en la pantalla de cocina con el número de pedido.</span>
-              </span>
-            </label>
-
-            <div className="flex gap-2">
-              <WriteButton onClick={save} disabled={createType.isPending}>Crear producto</WriteButton>
-              <Button variant="outline" onClick={() => setShowForm(false)}>Cancelar</Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {products.length === 0 && !showForm && (
-        <Card className="rounded-2xl border-0 shadow-md shadow-black/5">
-          <CardContent className="pt-6 text-center text-muted-foreground text-sm">
-            Todavía no hay nada cargado en «{meta.label}». Apreta «Nuevo producto» para empezar la carta.
-          </CardContent>
-        </Card>
-      )}
-
-      {Object.entries(groups).map(([groupName, items]) => (
-        <div key={groupName} className="space-y-2">
-          <h3 className="font-heading text-lg">{groupName}</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {(items as any[]).map((p) => (
-              <CartaProductCard
-                key={p.id}
-                p={p}
-                meta={meta}
-                onToggleSoldOut={handleToggleSoldOut}
-                toggling={toggleSoldOut.isPending}
-                onDelete={handleDelete}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /** Vista "Evento": la noche completa en una sola pantalla.
  *
  * El dueño marcó los cuatro dolores del admin -- tener que saltar entre
@@ -11483,6 +10980,7 @@ const ADMIN_SECTIONS = [
   ) },
   { id: 'profile-audit', label: 'Revisar mi perfil', hub: 'contenido', icon: UserCheck, render: () => <ProfileAuditView /> },
 
+  { id: 'contests', label: 'Concursos', hub: 'comunidad', icon: PartyPopper, render: () => <ContestsView /> },
   { id: 'referrals', label: 'Referidos', hub: 'comunidad', icon: Trophy, render: () => <ReferralsView /> },
   { id: 'ambassadors', label: 'Embajadores VIP', hub: 'comunidad', icon: Crown, render: () => <AmbassadorsView /> },
 

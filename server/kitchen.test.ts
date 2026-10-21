@@ -28,8 +28,8 @@ describe("canTransitionKitchenTicket", () => {
     expect(canTransitionKitchenTicket("entregado", "aprobado")).toBe(true);
   });
 
-  it("rechaza volver a pendiente desde cualquier lado", () => {
-    expect(canTransitionKitchenTicket("aprobado", "pendiente")).toBe(false);
+  it("solo se vuelve a pendiente desde aprobado (deshacer un Aprobar)", () => {
+    expect(canTransitionKitchenTicket("aprobado", "pendiente")).toBe(true); // deshacer un Aprobar
     expect(canTransitionKitchenTicket("entregado", "pendiente")).toBe(false);
   });
 
@@ -156,3 +156,28 @@ describe("updateKitchenTicket", () => {
 /* La comanda mixta (tragos + comida) se prueba desde `createCajaSale`
  * directamente en server/caja/sale.test.ts -- acá solo se prueban las
  * partes propias de este módulo. */
+
+describe("resumen de comandas", () => {
+  const t = (items: { name: string; quantity: number }[]) => ({ items });
+
+  it("suma cada producto entre comandas, los más pedidos primero", async () => {
+    const { summarizeKitchenItems } = await import("../shared/kitchen");
+    const out = summarizeKitchenItems([
+      t([{ name: "Papas", quantity: 1 }, { name: "Hamburguesa", quantity: 2 }]),
+      t([{ name: "Hamburguesa", quantity: 3 }]),
+      t([{ name: "Alitas", quantity: 1 }]),
+    ]);
+    expect(out).toEqual([{ name: "Hamburguesa", quantity: 5 }, { name: "Alitas", quantity: 1 }, { name: "Papas", quantity: 1 }]);
+  });
+
+  it("promedio de espera: solo entregadas con hora de entrega", async () => {
+    const { averageWaitSeconds, formatElapsed } = await import("../shared/kitchen");
+    const base = new Date("2026-10-19T00:00:00Z").getTime();
+    const at = (s: number) => new Date(base + s * 1000);
+    expect(averageWaitSeconds([])).toBeNull();
+    expect(averageWaitSeconds([{ createdAt: at(0), deliveredAt: null }])).toBeNull();
+    expect(averageWaitSeconds([{ createdAt: at(0), deliveredAt: at(300) }, { createdAt: at(0), deliveredAt: at(500) }])).toBe(400);
+    expect(formatElapsed(125)).toBe("2:05");
+    expect(formatElapsed(-5)).toBe("0:00");
+  });
+});

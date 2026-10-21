@@ -27,7 +27,14 @@ async function mp(path: string, init?: RequestInit): Promise<Response> {
 
 type SyncResult = { payments: number; movements: number; balance: number | null; reportStatus: string; errors: string[] };
 
-export async function syncMercadoPago(days = 45): Promise<SyncResult> {
+/** Días desde el 1 del mes anterior (mínimo 45): así el mes en curso y el
+ * anterior quedan completos aunque la sincronización se corra el día 1. */
+export function defaultSyncDays(now = new Date()): number {
+  const firstPrev = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1);
+  return Math.max(45, Math.ceil((now.getTime() - firstPrev) / 86_400_000) + 1);
+}
+
+export async function syncMercadoPago(days = defaultSyncDays()): Promise<SyncResult> {
   const conn = await db.getDb();
   if (!conn) throw new Error("Database not available");
   const errors: string[] = [];
@@ -81,20 +88,26 @@ export async function syncMercadoPago(days = 45): Promise<SyncResult> {
         const iDate = col("DATE"), iSrc = col("SOURCE_ID"), iDesc = col("DESCRIPTION"), iCredit = col("NET_CREDIT_AMOUNT"), iDebit = col("NET_DEBIT_AMOUNT"), iBal = col("BALANCE_AMOUNT");
         for (const r of rows.slice(1)) {
           const desc = (r[iDesc] ?? "").toLowerCase();
-          if (!desc || desc === "payment") continue; // las ventas ya vienen de /payments
+          if (!desc) continue;
           const credit = parseClp(r[iCredit]) ?? 0, debit = parseClp(r[iDebit]) ?? 0;
           const amount = credit - debit;
           if (!amount) continue;
+          // Un `payment` con crédito es una venta (ya viene de /payments). Con
+          // débito es un pago que hizo la cuenta (compra, QR, suscripción):
+          // antes se descartaba y esos gastos no aparecían.
+          const outgoingPayment = desc === "payment" && amount < 0;
+          if (desc === "payment" && !outgoingPayment) continue;
           const when = r[iDate] ? new Date(r[iDate]) : new Date();
           const bal = iBal >= 0 ? parseClp(r[iBal]) : null;
           if (bal !== null) balance = bal;
-          const label = desc === "payout" ? "Retiro a tu cuenta bancaria" : desc === "refund" ? "Devolución" : desc === "chargeback" ? "Contracargo" : r[iDesc];
+          const label = outgoingPayment ? "Pago con Mercado Pago" : desc === "payout" ? "Retiro a tu cuenta bancaria" : desc === "refund" ? "Devolución" : desc === "chargeback" ? "Contracargo" : r[iDesc];
           const values = {
             source: "mercadopago" as const,
-            externalId: `rr:${r[iSrc] ?? ""}:${desc}:${r[iDate] ?? ""}`.slice(0, 120),
+            // El pago usa el mismo id que la cartola (`mpst:<id>`): subirla después no lo duplica.
+            externalId: (outgoingPayment && r[iSrc] ? `mpst:${r[iSrc]}` : `rr:${r[iSrc] ?? ""}:${desc}:${r[iDate] ?? ""}`).slice(0, 120),
             occurredAt: Number.isNaN(when.getTime()) ? new Date() : when,
             amountClp: amount, description: String(label).slice(0, 255), kind: desc.slice(0, 40),
-            classification: suggestClass(String(label), amount, "mercadopago") as any,
+            classification: (outgoingPayment ? "por_clasificar" : suggestClass(String(label), amount, "mercadopago")) as any,
             balanceAfter: bal, raw: Object.fromEntries(header.map((h, i) => [h, r[i]])),
           };
           await conn.insert(accountMovements).values(values).onDuplicateKeyUpdate({ set: { amountClp: values.amountClp, balanceAfter: values.balanceAfter } });

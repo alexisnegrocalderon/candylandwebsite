@@ -6,6 +6,7 @@ import { eventImage, absoluteImageUrl, isBlockedBlobUrl } from "../shared/eventI
 import { dropSupersededTickets } from "../shared/liveTickets";
 import { getPartnerCampaignBySlug } from "./partnerCampaigns";
 import { getCoproductionBySlug } from "./coproduction";
+import { getPublicContest } from "./contests";
 import { normalizeLanding } from "../shared/coproduction";
 import { PARTNER_DEFAULT_HEADLINE } from "../shared/partnerCampaign";
 import { EVENT_BRAND } from "../shared/eventBrand";
@@ -203,6 +204,34 @@ export function registerSsrMetaRoutes(app: Express) {
       }));
     } catch (err) {
       console.error("[ssrMeta] /playroomdalmore falló, sirviendo template sin inyectar:", err);
+      sendHtml(res, template);
+    }
+  });
+
+  // Bases del concurso de Instagram activo: vista previa con el premio al
+  // compartir el link (server/contests.ts).
+  app.get("/concurso", async (_req: Request, res: Response) => {
+    const template = loadTemplateOrFail(res);
+    if (!template) return;
+    try {
+      const contest = await getPublicContest().catch(() => null);
+      const title = contest
+        ? `🎉 Concurso: gana ${contest.prizes.doubleLabel} para ${contest.eventTitle} · Mansion Playroom`
+        : "Concurso · Mansion Playroom";
+      const description = contest
+        ? `Comenta y etiqueta a tus amigos en nuestro post de Instagram. Todos los que participan reciben premio. Bases y condiciones.`
+        : "Bases y condiciones de los concursos de Mansion Playroom.";
+      const image = await resolveDefaultOgImage();
+      const url = `${SITE_URL}/concurso`;
+      sendHtml(res, injectMeta(template, {
+        title, description,
+        ogTitle: title, ogDescription: description, ogUrl: url, ogImage: image,
+        twitterTitle: title, twitterDescription: description, twitterImage: image,
+        canonical: url,
+        robots: "noindex, nofollow",
+      }));
+    } catch (err) {
+      console.error("[ssrMeta] /concurso falló, sirviendo template sin inyectar:", err);
       sendHtml(res, template);
     }
   });

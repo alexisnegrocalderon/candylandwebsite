@@ -1,3 +1,4 @@
+import { MAX_AMBASSADOR_BUYER_DISCOUNT, normalizeBuyerDiscountPercent } from '../shared/ambassadorDiscount';
 import { COOKIE_NAME, ONE_YEAR_MS, CAJA_COOKIE_NAME, CAJA_SESSION_MS, CAJA_DEVICE_COOKIE_NAME, ADMIN_NOTIFICATION_EMAIL } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { pushTitle } from "../shared/pushText";
@@ -81,6 +82,10 @@ import { computeCustomerLevel } from "../shared/customerInsights";
 import { checkSaleAlerts, alertSaleVoided, alertWrongAdminPassword, alertShiftClosed, listCajaAlerts } from "./caja/alerts";
 import { BRAND } from "../shared/eventBrand";
 import * as partnerSvc from "./partnerCampaigns";
+import * as contestSvc from "./contests";
+import * as rankingSvc from "./contestRanking";
+import { fetchOwnMedia } from "./instagramSend";
+import { normalizeMedia } from "../shared/instagramShowcase";
 import * as staffSvc from "./staff";
 import * as siiSvc from "./sii";
 import * as cashSvc from "./cash";
@@ -293,6 +298,11 @@ async function checkAdminPassword(ctx: any, password: string | undefined, keyPre
   const ipKey = `${keyPrefix}:${clientIp(ctx)}`;
   if (!(await db.checkIpRateLimit(ipKey))) {
     throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+  }
+  if (password?.startsWith(FACEID_GRANT_PREFIX)) {
+    if (await verifyFaceIdDeleteGrant(password.slice(FACEID_GRANT_PREFIX.length))) return true;
+    await db.recordIpFailedAttempt(ipKey);
+    return false;
   }
   const adminPassword = process.env.ADMIN_PASSWORD;
   // `safeCompare` y no `!==`: tiempo constante, mismo criterio que ya usa
@@ -543,16 +553,91 @@ async function requireAdminStepTicket(ticket: string) {
  * servidor -- mismo criterio que signAdminStepTicket para el paso 1 de TOTP.
  * Dura 2 minutos: alcanza de sobra para completar el prompt de Face
  * ID/Touch ID, y no vale la pena dejarlo vivo más que eso. */
-async function signWebauthnTicket(kind: 'reg' | 'auth', challenge: string): Promise<string> {
+async function signWebauthnTicket(kind: 'reg' | 'auth' | 'reauth', challenge: string): Promise<string> {
   return sdk.signSession({ openId: `webauthn:${kind}`, appId: 'candyland-admin-webauthn', name: challenge }, { expiresInMs: 2 * 60 * 1000 });
 }
 
-async function requireWebauthnTicket(kind: 'reg' | 'auth', ticket: string): Promise<string> {
+async function requireWebauthnTicket(kind: 'reg' | 'auth' | 'reauth', ticket: string): Promise<string> {
   const payload = await sdk.verifySession(ticket).catch(() => null);
   if (payload?.openId !== `webauthn:${kind}`) {
     throw new TRPCError({ code: 'UNAUTHORIZED', message: 'El código expiró, intenta de nuevo.' });
   }
   return payload.name;
+}
+
+/** Borrar con Face ID en vez de la clave de admin: después de verificar el
+ * passkey (`auth.webauthnReauthVerify`) el servidor entrega este permiso
+ * firmado, y el cliente lo manda en el MISMO campo `adminPassword` de
+ * siempre con el prefijo `faceid:` -- así las ~26 acciones protegidas no
+ * cambian su input. Dura 60 s: alcanza para la mutación que sigue al
+ * prompt, no para guardarlo. `checkAdminPassword` lo acepta como si fuera
+ * la clave. El `openId` propio impide pasar acá la cookie de sesión u otro
+ * vale firmado con el mismo secreto. */
+const FACEID_GRANT_PREFIX = 'faceid:';
+const FACEID_GRANT_OPEN_ID = 'webauthn:delete-grant';
+
+async function signFaceIdDeleteGrant(): Promise<string> {
+  const token = await sdk.signSession({ openId: FACEID_GRANT_OPEN_ID, appId: 'candyland-admin-webauthn', name: 'delete' }, { expiresInMs: 60 * 1000 });
+  return `${FACEID_GRANT_PREFIX}${token}`;
+}
+
+async function verifyFaceIdDeleteGrant(token: string): Promise<boolean> {
+  const payload = await sdk.verifySession(token).catch(() => null);
+  return payload?.openId === FACEID_GRANT_OPEN_ID;
+}
+
+/** Verifica una respuesta de passkey contra las llaves registradas del
+ * dueño. Compartido por el login con Face ID y la re-verificación para
+ * borrar. Tira TRPCError si no pasa; los intentos fallidos cuentan para el
+ * límite por IP de `ipKey`. */
+async function verifyAdminPasskey(ctx: any, params: { kind: 'auth' | 'reauth'; ticket: string; response: any; ipKey: string }) {
+  const { ipKey } = params;
+  if (!(await db.checkIpRateLimit(ipKey))) {
+    throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
+  }
+  const challenge = await requireWebauthnTicket(params.kind, params.ticket);
+
+  const credentialId: string | undefined = typeof params.response?.id === 'string' ? params.response.id : undefined;
+  const credentialRow = credentialId ? await db.getAdminWebauthnCredentialById(credentialId) : null;
+  const { rpID, origin } = getRpIdAndOrigin(ctx.req);
+  if (!credentialRow) {
+    // No cuenta como intento fallido: con el Face ID automático, una llave
+    // vieja del llavero no debe dejar al dueño sin poder usar la contraseña.
+    console.warn(`[webauthn] ${params.kind} fallido: llave no registrada`, { credentialId: credentialId?.slice(0, 12), origin, rpID });
+    // `UNKNOWN_CREDENTIAL:<id>` le permite al cliente avisarle al
+    // llavero que esa llave ya no sirve (Signal API) y que iOS la quite.
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: `UNKNOWN_CREDENTIAL:${credentialId ?? ''}` });
+  }
+
+  let verification;
+  try {
+    verification = await verifyAuthentication({
+      response: params.response,
+      expectedChallenge: challenge,
+      expectedOrigin: origin,
+      expectedRPID: rpID,
+      credential: {
+        id: credentialRow.credentialId,
+        publicKey: new Uint8Array(Buffer.from(credentialRow.publicKey, 'base64url')),
+        counter: credentialRow.counter,
+        transports: (credentialRow.transports as any) ?? undefined,
+      },
+    });
+  } catch (err) {
+    console.warn(`[webauthn] ${params.kind} fallido: verificación rechazada`, {
+      credentialId: credentialId?.slice(0, 12), origin, rpID, reason: err instanceof Error ? err.message : String(err),
+    });
+    await db.recordIpFailedAttempt(ipKey);
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No se pudo verificar tu identidad. Intenta de nuevo o usa la contraseña.' });
+  }
+  if (!verification.verified) {
+    console.warn(`[webauthn] ${params.kind} fallido: firma no verificada`, { credentialId: credentialId?.slice(0, 12), origin, rpID });
+    await db.recordIpFailedAttempt(ipKey);
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No se pudo verificar tu identidad.' });
+  }
+
+  await db.touchAdminWebauthnCredential(credentialRow.id, verification.authenticationInfo.newCounter);
+  await db.resetIpRateLimit(ipKey);
 }
 
 /** La sesión de admin baja de UN AÑO a 7 días. Un año era demasiado para
@@ -900,55 +985,28 @@ export const appRouter = router({
       ticket: z.string(),
       response: z.any(),
     })).mutation(async ({ input, ctx }) => {
-      const ipKey = adminIpKey(ctx);
-      if (!(await db.checkIpRateLimit(ipKey))) {
-        throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Espera unos minutos.' });
-      }
-      const challenge = await requireWebauthnTicket('auth', input.ticket);
-
-      const credentialId: string | undefined = typeof input.response?.id === 'string' ? input.response.id : undefined;
-      const credentialRow = credentialId ? await db.getAdminWebauthnCredentialById(credentialId) : null;
-      const { rpID, origin } = getRpIdAndOrigin(ctx.req);
-      if (!credentialRow) {
-        // No cuenta como intento fallido: con el Face ID automático, una llave
-        // vieja del llavero no debe dejar al dueño sin poder usar la contraseña.
-        console.warn('[webauthn] login fallido: llave no registrada', { credentialId: credentialId?.slice(0, 12), origin, rpID });
-        // `UNKNOWN_CREDENTIAL:<id>` le permite al cliente avisarle al
-        // llavero que esa llave ya no sirve (Signal API) y que iOS la quite.
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: `UNKNOWN_CREDENTIAL:${credentialId ?? ''}` });
-      }
-
-      let verification;
-      try {
-        verification = await verifyAuthentication({
-          response: input.response,
-          expectedChallenge: challenge,
-          expectedOrigin: origin,
-          expectedRPID: rpID,
-          credential: {
-            id: credentialRow.credentialId,
-            publicKey: new Uint8Array(Buffer.from(credentialRow.publicKey, 'base64url')),
-            counter: credentialRow.counter,
-            transports: (credentialRow.transports as any) ?? undefined,
-          },
-        });
-      } catch (err) {
-        console.warn('[webauthn] login fallido: verificación rechazada', {
-          credentialId: credentialId?.slice(0, 12), origin, rpID, reason: err instanceof Error ? err.message : String(err),
-        });
-        await db.recordIpFailedAttempt(ipKey);
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No se pudo verificar tu identidad. Intenta de nuevo o entra con contraseña.' });
-      }
-      if (!verification.verified) {
-        console.warn('[webauthn] login fallido: firma no verificada', { credentialId: credentialId?.slice(0, 12), origin, rpID });
-        await db.recordIpFailedAttempt(ipKey);
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'No se pudo verificar tu identidad.' });
-      }
-
-      await db.touchAdminWebauthnCredential(credentialRow.id, verification.authenticationInfo.newCounter);
-      await db.resetIpRateLimit(ipKey);
+      await verifyAdminPasskey(ctx, { kind: 'auth', ticket: input.ticket, response: input.response, ipKey: adminIpKey(ctx) });
       await issueAdminSession(ctx);
       return { success: true } as const;
+    }),
+
+    // Borrar con Face ID: mismo passkey del login, pero con la sesión ya
+    // abierta. Devuelve el permiso de 60 s que reemplaza la clave de admin
+    // en las acciones destructivas (ver signFaceIdDeleteGrant). Mismo
+    // límite por IP que la clave en esas acciones ('admin-reauth').
+    webauthnReauthOptions: adminProcedure.mutation(async ({ ctx }) => {
+      const { rpID } = getRpIdAndOrigin(ctx.req);
+      const options = await buildAuthenticationOptions({ rpID });
+      const ticket = await signWebauthnTicket('reauth', options.challenge);
+      return { options, ticket } as const;
+    }),
+
+    webauthnReauthVerify: adminProcedure.input(z.object({
+      ticket: z.string(),
+      response: z.any(),
+    })).mutation(async ({ input, ctx }) => {
+      await verifyAdminPasskey(ctx, { kind: 'reauth', ticket: input.ticket, response: input.response, ipKey: `admin-reauth:${clientIp(ctx)}` });
+      return { grant: await signFaceIdDeleteGrant() } as const;
     }),
 
     webauthnCredentialsList: adminProcedure.query(async () => {
@@ -1273,7 +1331,7 @@ export const appRouter = router({
 
       const ambassador = await db.getActiveExclusiveAmbassadorByCode(clean);
       if (ambassador) {
-        return { type: 'ambassador' as const, name: ambassador.name, code: ambassador.code };
+        return { type: 'ambassador' as const, name: ambassador.name, code: ambassador.code, buyerDiscountPercent: normalizeBuyerDiscountPercent(ambassador.buyerDiscountPercent) };
       }
 
       // Crédito de acceso ("1 Acceso Dúo" que quedó vigente de otra fiesta).
@@ -1676,6 +1734,13 @@ export const appRouter = router({
         return { id: operator.id, name: operator.name, role: operator.role };
       }),
 
+    // Cerrar sesión / cambiar de persona en el mismo celular.
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(CAJA_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
+
     me: publicProcedure.query(({ ctx }) => ctx.operator),
 
     /* El evento sale del operador que inició sesión (`operators.eventId`),
@@ -1695,7 +1760,11 @@ export const appRouter = router({
     // Mismo snapshot que la caja: la puerta lo guarda en el mismo IndexedDB
     // y por eso funciona sin señal.
     snapshot: doorProcedure.input(z.object({ eventId: z.number() })).query(async ({ input }) => {
-      return db.getCajaSnapshot(input.eventId);
+      const snapshot = await db.getCajaSnapshot(input.eventId);
+      if (!snapshot) return snapshot;
+      // Precio del estacionamiento y lo del local por auto: la puerta cobra
+      // estacionamiento y tiene que mostrar el monto antes de cobrar.
+      return { ...snapshot, parking: await db.getParkingPricing(input.eventId) };
     }),
 
     checkin: doorProcedure.input(z.object({
@@ -1724,6 +1793,9 @@ export const appRouter = router({
         z.object({ type: z.literal('checkin'), opId: z.string(), ticketCode: z.string(), clientAt: z.string() }),
         z.object({
           type: z.literal('parking_paid'), opId: z.string(), ticketCode: z.string(),
+          // Qué estacionamiento se cobró (normal o VIP). Opcional: los cobros
+          // anotados antes de que existiera esta elección no lo traen.
+          ticketTypeId: z.number().optional(),
           paymentMethod: z.enum(['efectivo', 'debito', 'credito']), clientAt: z.string(),
         }),
       ])).max(50),
@@ -1742,7 +1814,7 @@ export const appRouter = router({
           } else {
             results[op.opId] = await sellParkingAtDoor(rawDb, {
               opId: op.opId, ticketCode: op.ticketCode, eventId: input.eventId,
-              paymentMethod: op.paymentMethod, operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
+              paymentMethod: op.paymentMethod, ticketTypeId: op.ticketTypeId, operatorId: ctx.operator.operatorId, clientAt: new Date(op.clientAt),
             });
           }
         } catch (err) {
@@ -1775,6 +1847,13 @@ export const appRouter = router({
         ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
         return { id: operator.id, name: operator.name, role: operator.role };
       }),
+
+    // Cerrar sesión / cambiar de persona en el mismo celular.
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(CAJA_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
 
     me: publicProcedure.query(({ ctx }) => ctx.operator),
 
@@ -1865,6 +1944,13 @@ export const appRouter = router({
         ctx.res.cookie(CAJA_COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: CAJA_SESSION_MS });
         return { id: operator.id, name: operator.name, role: operator.role };
       }),
+
+    // Cerrar sesión / cambiar de persona en el mismo celular.
+    logout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(CAJA_COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
+    }),
 
     me: publicProcedure.query(({ ctx }) => ctx.operator),
 
@@ -3654,6 +3740,151 @@ export const appRouter = router({
     }),
   }),
 
+  /* Concursos de Instagram (admin → Comunidad → Concursos). El motor que
+   * corre solo (webhook, compras, sorteo) vive en server/contests.ts. */
+  contests: router({
+    public: publicProcedure.query(() => contestSvc.getPublicContest().catch(() => null)),
+    list: adminReadProcedure.query(() => contestSvc.listContests().catch(() => {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Falta correr la migración 0109 (concursos) en la base.' });
+    })),
+    get: adminReadProcedure.input(z.object({ id: z.number().int() })).query(({ input }) => contestSvc.getContestAdmin(input.id)),
+    ticketTypes: adminReadProcedure.input(z.object({ eventId: z.number().int() })).query(({ input }) => contestSvc.listContestTicketTypes(input.eventId)),
+    /* Últimas publicaciones de la cuenta, para elegir la del concurso. */
+    media: adminReadProcedure.query(async () => {
+      try {
+        return normalizeMedia(await fetchOwnMedia(25));
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron leer las publicaciones.' });
+      }
+    }),
+    create: adminProcedure.input(z.object({ eventId: z.number().int(), title: z.string().max(160).optional() })).mutation(async ({ input, ctx }) => {
+      const result = await contestSvc.createContest(input.eventId, input.title);
+      await db.recordAdminAudit({ action: 'contest.create', targetType: 'contest', targetId: result.id, ip: clientIp(ctx) });
+      return result;
+    }),
+    update: adminProcedure.input(z.object({
+      id: z.number().int(),
+      title: z.string().max(160).optional(),
+      config: z.unknown().optional(),
+      mediaId: z.string().max(64).nullable().optional(),
+      mediaPermalink: z.string().max(300).nullable().optional(),
+      mediaImage: z.string().max(2000).nullable().optional(),
+    })).mutation(async ({ input, ctx }) => {
+      const { id, ...patch } = input;
+      const result = await contestSvc.updateContest(id, patch);
+      await db.recordAdminAudit({ action: 'contest.update', targetType: 'contest', targetId: id, ip: clientIp(ctx) });
+      return result;
+    }),
+    setStatus: adminProcedure.input(z.object({ id: z.number().int(), status: z.enum(['draft', 'active', 'paused', 'finished']) })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.setContestStatus(input.id, input.status);
+        await db.recordAdminAudit({ action: `contest.${input.status}`, targetType: 'contest', targetId: input.id, payload: result, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo cambiar el estado.' });
+      }
+    }),
+    /* Ranking: la tabla del panel, el botón «publicar ahora» y la página
+     * personal «mi posición» (pública, por el código de invitación). */
+    rankingAdmin: adminReadProcedure.input(z.object({ id: z.number().int() })).query(({ input }) => rankingSvc.getRankingAdmin(input.id)),
+    publishRanking: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await rankingSvc.publishRankingNow(input.id);
+        await db.recordAdminAudit({ action: 'contest.publishRanking', targetType: 'contest', targetId: input.id, payload: result, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo publicar el ranking.' });
+      }
+    }),
+    position: publicProcedure.input(z.object({ code: z.string().max(32) })).query(({ input }) => rankingSvc.getPersonalPosition(input.code).catch(() => null)),
+    resendWelcomes: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.resendWelcomeDms(input.id);
+        await db.recordAdminAudit({ action: 'contest.resendWelcomes', targetType: 'contest', targetId: input.id, payload: result, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo reenviar.' });
+      }
+    }),
+    syncNow: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input }) => {
+      try {
+        return await contestSvc.syncContestComments(input.id);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudieron leer los comentarios.' });
+      }
+    }),
+    drawNow: adminProcedure.input(z.object({ id: z.number().int() })).mutation(async ({ input, ctx }) => {
+      const result = await contestSvc.runContestDraw(input.id);
+      if (!result) throw new TRPCError({ code: 'BAD_REQUEST', message: 'El concurso no está activo o ya se sorteó.' });
+      await db.recordAdminAudit({ action: 'contest.draw', targetType: 'contest', targetId: input.id, payload: result, ip: clientIp(ctx) });
+      return result;
+    }),
+    wheel: adminReadProcedure.input(z.object({ id: z.number().int() })).query(({ input }) => contestSvc.getDrawWheel(input.id)),
+    setDisqualified: adminProcedure.input(z.object({ participantId: z.number().int(), disqualified: z.boolean(), reason: z.string().max(200).nullable().optional() })).mutation(async ({ input, ctx }) => {
+      await contestSvc.setParticipantDisqualified(input.participantId, input.disqualified, input.reason);
+      await db.recordAdminAudit({ action: 'contest.disqualify', targetType: 'contestParticipant', targetId: input.participantId, payload: input, ip: clientIp(ctx) });
+      return { success: true };
+    }),
+    markHolder: adminProcedure.input(z.object({ participantId: z.number().int(), email: z.string().trim().email().max(320) })).mutation(async ({ input }) => {
+      try {
+        await contestSvc.markParticipantHolder(input.participantId, input.email);
+        return { success: true };
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo marcar.' });
+      }
+    }),
+    markRefundDone: adminProcedure.input(z.object({ winnerId: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        await contestSvc.markRefundDone(input.winnerId);
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo marcar.' });
+      }
+      await db.recordAdminAudit({ action: 'contest.refundDone', targetType: 'contestWinner', targetId: input.winnerId, ip: clientIp(ctx) });
+      return { success: true };
+    }),
+    /* Página pública /concurso/premio/:token: el ganador que ya había
+     * comprado elige devolución o una entrada doble para regalar. */
+    choice: router({
+      get: publicProcedure.input(z.object({ token: z.string().max(64) })).query(({ input }) => contestSvc.getWinnerChoice(input.token)),
+      submit: publicProcedure.input(z.object({ token: z.string().max(64), choice: z.enum(['refund', 'gift']) })).mutation(async ({ input, ctx }) => {
+        const ipKey = `contest-choice:${clientIp(ctx)}`;
+        if (!(await db.checkIpRateLimit(ipKey))) {
+          throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Prueba de nuevo en un rato.' });
+        }
+        await db.recordIpAttempt(ipKey, 30, 30 * 60 * 1000);
+        try {
+          return await contestSvc.submitWinnerChoice(input.token, input.choice);
+        } catch (err) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo guardar tu elección.' });
+        }
+      }),
+    }),
+    approveWinner: adminProcedure.input(z.object({ winnerId: z.number().int() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.approveWinner(input.winnerId);
+        await db.recordAdminAudit({ action: 'contest.approveWinner', targetType: 'contestWinner', targetId: input.winnerId, payload: result, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo aprobar.' });
+      }
+    }),
+    rejectWinner: adminProcedure.input(z.object({ winnerId: z.number().int(), note: z.string().max(500).optional() })).mutation(async ({ input, ctx }) => {
+      try {
+        const result = await contestSvc.rejectWinner(input.winnerId, input.note);
+        await db.recordAdminAudit({ action: 'contest.rejectWinner', targetType: 'contestWinner', targetId: input.winnerId, payload: { ...result, note: input.note ?? null }, ip: clientIp(ctx) });
+        return result;
+      } catch (err) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: err instanceof Error ? err.message : 'No se pudo rechazar.' });
+      }
+    }),
+    checkFollows: adminProcedure.input(z.object({ winnerId: z.number().int() })).mutation(({ input }) => contestSvc.checkWinnerFollows(input.winnerId)),
+    skipWinner: adminProcedure.input(z.object({ winnerId: z.number().int() })).mutation(async ({ input, ctx }) => {
+      const result = await contestSvc.skipWinner(input.winnerId);
+      await db.recordAdminAudit({ action: 'contest.skipWinner', targetType: 'contestWinner', targetId: input.winnerId, payload: result, ip: clientIp(ctx) });
+      return result;
+    }),
+  }),
+
   leads: router({
     // Público: se llama desde LeadCaptureInline en Home.tsx, sin login.
     create: publicProcedure.input(z.object({
@@ -3813,6 +4044,20 @@ export const appRouter = router({
       try { return await cashSvc.classifyMovement({ ...input, userId: ctx.user.id }); }
       catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo clasificar' }); }
     }),
+    classifyMany: adminProcedure.input(z.object({
+      ids: z.array(z.number().int().positive()).min(1).max(300),
+      classification: z.enum(['venta', 'comision', 'gasto_evento', 'gasto_empresa', 'retiro_dueno', 'traspaso', 'otro', 'por_clasificar']),
+      eventId: z.number().int().positive().nullish(), category: z.string().max(40).optional(),
+      documentType: z.enum(['boleta', 'factura', 'boleta_honorarios', 'sin_documento']).optional(),
+    })).mutation(async ({ input, ctx }) => {
+      try {
+        const r = await cashSvc.classifyMany({ ...input, userId: ctx.user.id });
+        await db.recordAdminAudit({ action: 'cash.classifyMany', targetType: 'accountMovements', payload: { count: r.done, classification: input.classification }, ip: clientIp(ctx) });
+        return r;
+      } catch (e: any) { throw new TRPCError({ code: 'BAD_REQUEST', message: e?.message ?? 'No se pudo clasificar' }); }
+    }),
+    accountMonth: adminProcedure.input(z.object({ monthKey: z.string().regex(/^\d{4}-\d{2}$/), source: z.enum(['mercadopago', 'banco']).default('mercadopago') }))
+      .query(({ input }) => cashSvc.getAccountMonth(input.monthKey, input.source)),
     importStatement: adminProcedure.input(z.object({ text: z.string().min(1).max(3_000_000), preview: z.boolean() })).mutation(async ({ input, ctx }) => {
       const r = await cashSvc.importBankStatement(input.text, input.preview);
       if (!input.preview) await db.recordAdminAudit({ action: 'cash.importStatement', targetType: 'accountMovements', payload: { imported: r.imported }, ip: clientIp(ctx) });
@@ -4119,6 +4364,8 @@ export const appRouter = router({
       code: z.string().min(1),
       // `null` = usar la escala global del programa (lo normal).
       commissionPercent: z.number().min(0).max(100).nullable().optional(),
+      // % de descuento al comprador sobre el acceso (vacío/0 = sin descuento).
+      buyerDiscountPercent: z.number().min(0).max(MAX_AMBASSADOR_BUYER_DISCOUNT).nullable().optional(),
       contact: z.string().optional(),
       email: z.string().email().optional(),
       instagram: z.string().optional(),
@@ -4130,6 +4377,7 @@ export const appRouter = router({
       name: z.string().optional(),
       code: z.string().optional(),
       commissionPercent: z.number().min(0).max(100).nullable().optional(),
+      buyerDiscountPercent: z.number().min(0).max(MAX_AMBASSADOR_BUYER_DISCOUNT).nullable().optional(),
       contact: z.string().optional(),
       email: z.string().email().optional(),
       instagram: z.string().optional(),

@@ -268,3 +268,66 @@ export function matchPaymentsToOrders(payments: MpPayment[], orders: SystemOrder
   const unmatchedOrders = orders.filter((o) => !usedOrders.has(o.orderId));
   return { matchedById, matchedByAmount, unmatchedPayments, unmatchedOrders };
 }
+
+/* ─── Pestaña Mercado Pago: resumen del mes ──── */
+
+/** Un movimiento como lo muestra la pestaña Mercado Pago. */
+export type MovementView = {
+  id: number;
+  date: string | Date;
+  amount: number;
+  description: string | null;
+  kind: string | null;
+  classification: MovementClass;
+  eventId: number | null;
+  /** Categoría del gasto que nació de este movimiento (si es un gasto). */
+  category: string | null;
+  /** Comisión de Mercado Pago de una venta (el monto ya viene neto). */
+  fee: number;
+};
+
+/** Normaliza una glosa para agrupar "dónde se fue la plata" (sin números de operación). */
+export function destinationKey(description: string | null): string {
+  return (description ?? 'Sin descripción').replace(/\s+#?\d{4,}.*$/, '').replace(/\s+/g, ' ').trim() || 'Sin descripción';
+}
+
+/** Totales del mes. "Personal" = retiros del dueño (lo que pagaste o sacaste
+ * para ti con la cuenta): baja lo que queda en la empresa, no la ganancia. */
+export function summarizeMovements(list: MovementView[]) {
+  const s = {
+    entro: 0, salio: 0, ventas: 0, comisiones: 0, playroom: 0, personal: 0, traspasos: 0, otros: 0,
+    porClasificar: 0, porClasificarMonto: 0,
+    byCategory: [] as { category: string; amount: number }[],
+    topDestinos: [] as { name: string; amount: number; count: number }[],
+  };
+  const cats = new Map<string, number>();
+  const dest = new Map<string, { amount: number; count: number }>();
+  for (const m of list) {
+    const abs = Math.abs(m.amount);
+    if (m.amount > 0) s.entro += m.amount; else s.salio += abs;
+    s.comisiones += m.fee;
+    switch (m.classification) {
+      case 'venta': s.ventas += m.amount; break;
+      case 'comision': s.comisiones += abs; break;
+      case 'gasto_evento': case 'gasto_empresa': {
+        s.playroom += abs;
+        const c = m.category ?? 'otros';
+        cats.set(c, (cats.get(c) ?? 0) + abs);
+        break;
+      }
+      case 'retiro_dueno': s.personal += abs; break;
+      case 'traspaso': s.traspasos += abs; break;
+      case 'por_clasificar': s.porClasificar++; s.porClasificarMonto += abs; break;
+      default: s.otros += m.amount;
+    }
+    if (m.amount < 0 && m.classification !== 'traspaso') {
+      const k = destinationKey(m.description);
+      const d = dest.get(k) ?? { amount: 0, count: 0 };
+      d.amount += abs; d.count++;
+      dest.set(k, d);
+    }
+  }
+  s.byCategory = Array.from(cats, ([category, amount]) => ({ category, amount })).sort((a, b) => b.amount - a.amount);
+  s.topDestinos = Array.from(dest, ([name, d]) => ({ name, ...d })).sort((a, b) => b.amount - a.amount).slice(0, 5);
+  return s;
+}

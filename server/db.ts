@@ -3,6 +3,8 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { randomBytes } from "crypto";
 import { normalizeStatusCounts } from "../shared/ordersPagination";
 import { creditAvailability, creditDiscount, normalizeCreditCode, type CreditAvailability } from "../shared/accessCredit";
+import { computeCodeDiscount } from "../shared/discountCode";
+import { ambassadorBuyerDiscount, bestBuyerDiscount } from "../shared/ambassadorDiscount";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
 import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage } from "../drizzle/schema";
@@ -25,7 +27,7 @@ import { deriveAmounts, computePnl, prorationWeights, cashCollectedFromOrders, t
 import { matchesKeyword } from './instagramAutomations';
 import type { EmailTemplateConfig } from '../shared/emailTemplateConfig';
 import type { AdminAlertsConfig } from '../shared/adminAlertsConfig';
-import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
+import { isParkingTicketType, isAnyParkingTicketType, classifyParkingOrigin, summarizeParkingCounts, listDoorParkingOptions, PLACEHOLDER_BUYER_EMAILS } from '../shared/parking';
 import { normalizeRut } from '../shared/rut';
 import { escapeLikePattern } from '../shared/sqlLike';
 import { computeCustomerLevel, hasBirthdayInMonth, mergeFromOrder, parseLockedFields } from '../shared/customerInsights';
@@ -498,6 +500,10 @@ export async function advanceTanda(
   if (next) {
     await db.update(events).set({ tandaPhaseIndex: next.index }).where(eq(events.id, eventId));
   }
+
+  // Concurso de Instagram: los cupones de precio congelado cubren al tiro la
+  // diferencia de la tanda nueva (import dinámico: contests.ts importa db.ts).
+  await import('./contests').then((m) => m.refreshContestPriceLocks(eventId)).catch(() => {});
 
   return { success: true, count, newPhaseIndex: next ? next.index : event.tandaPhaseIndex };
 }
@@ -1402,6 +1408,7 @@ export async function createOrder(input: {
   // todavía más: solo sobre los accesos cuyo ticketTypeId esté en esa lista.
   let discountAmount = 0;
   let discountCodeId: number | undefined;
+  let pendingCodeUse: number | undefined;
   // Crédito de acceso ("1 Acceso Dúo" que quedó vigente de otra fiesta): va
   // antes que los códigos de descuento porque es otra cosa -- vale UNA unidad
   // de ese acceso, no un monto ni un % del carrito.
@@ -1426,30 +1433,59 @@ export async function createOrder(input: {
     if (validation.valid && validation.discount) {
       const disc = validation.discount;
       discountCodeId = disc.id;
-      const scopeIds = disc.applicableTicketTypeIds as number[] | null;
-      // basedOnOriginalPrice (hoy solo códigos del programa Cumpleañeros):
-      // el % se calcula sobre el precio general (originalPrice), no sobre el
-      // precio vigente de la tanda -- ver el comentario de esa columna en
-      // drizzle/schema.ts. `preTotal` más abajo igual se clampa a 0, así que
-      // un % generoso sobre un originalPrice alto nunca deja el total
-      // negativo aunque supere el subtotal real de la tanda vigente.
-      const priceForDiscount = (ticketTypeId: number): number => {
-        if (!disc.basedOnOriginalPrice) return unitPrices.get(ticketTypeId) ?? 0;
-        const tt = tts.find((t) => t.id === ticketTypeId);
-        return tt ? Number(tt.originalPrice ?? tt.price) : 0;
-      };
-      const eligibleSubtotal = (scopeIds && scopeIds.length > 0
-        ? input.items.filter((item) => tts.find((t) => t.id === item.ticketTypeId)?.category === 'acceso' && scopeIds.includes(item.ticketTypeId))
-        : input.items.filter((item) => tts.find((t) => t.id === item.ticketTypeId)?.category === 'acceso')
-      ).reduce((sum, item) => sum + priceForDiscount(item.ticketTypeId) * item.quantity, 0);
-      if (disc.discountType === 'percentage') {
-        discountAmount = Math.round(eligibleSubtotal * Number(disc.discountValue) / 100);
-      } else {
-        discountAmount = Math.min(Number(disc.discountValue), eligibleSubtotal);
-      }
-      // Increment used count
-      await db.update(discountCodes).set({ usedCount: sql`usedCount + 1` }).where(eq(discountCodes.id, disc.id));
+      // Regla única (shared/discountCode.ts): solo líneas `acceso`, nunca
+      // extras. basedOnOriginalPrice (hoy solo códigos del programa
+      // Cumpleañeros): el % se calcula sobre el precio general
+      // (originalPrice), no sobre el de la tanda vigente -- ver el
+      // comentario de esa columna en drizzle/schema.ts. `preTotal` más abajo
+      // igual se clampa a 0, así que un % generoso sobre un originalPrice
+      // alto nunca deja el total negativo.
+      discountAmount = computeCodeDiscount(
+        {
+          discountType: disc.discountType,
+          discountValue: disc.discountValue,
+          applicableTicketTypeIds: disc.applicableTicketTypeIds as number[] | null,
+          basedOnOriginalPrice: disc.basedOnOriginalPrice,
+        },
+        input.items.map((item) => {
+          const tt = tts.find((t) => t.id === item.ticketTypeId);
+          return {
+            ticketTypeId: item.ticketTypeId,
+            category: tt?.category,
+            unitPrice: unitPrices.get(item.ticketTypeId) ?? 0,
+            originalPrice: tt ? Number(tt.originalPrice ?? tt.price) : null,
+            quantity: item.quantity,
+          };
+        }),
+        'web',
+      );
+      // El contador de usos se sube más abajo, una vez que se sabe si el
+      // descuento del embajador no lo supera (ver `pendingCodeUse`).
+      pendingCodeUse = disc.id;
     }
+  }
+
+  // Descuento del embajador VIP: quien compra con el código/link de un
+  // embajador que tiene `buyerDiscountPercent` recibe ese % sobre el acceso.
+  // No va con crédito de acceso ni con el precio de una campaña aliada, y si
+  // además trae un código de descuento NO se suman: gana el mayor
+  // (shared/ambassadorDiscount.ts). El servidor lo recalcula siempre; nunca
+  // confía en el monto que muestra el cliente.
+  if (!partnerCampaign && !creditHit && input.ambassadorCode) {
+    const amb = await getActiveExclusiveAmbassadorByCode(input.ambassadorCode);
+    const ambAmount = amb ? ambassadorBuyerDiscount(amb.buyerDiscountPercent, input.items.map((item) => {
+      const tt = tts.find((t) => t.id === item.ticketTypeId);
+      return { ticketTypeId: item.ticketTypeId, category: tt?.category, unitPrice: unitPrices.get(item.ticketTypeId) ?? 0, quantity: item.quantity };
+    })) : 0;
+    const best = bestBuyerDiscount(discountAmount, ambAmount);
+    if (best.ambassadorWins) {
+      discountAmount = best.amount;
+      discountCodeId = undefined;
+      pendingCodeUse = undefined;
+    }
+  }
+  if (pendingCodeUse !== undefined) {
+    await db.update(discountCodes).set({ usedCount: sql`usedCount + 1` }).where(eq(discountCodes.id, pendingCodeUse));
   }
 
   // Confirm community access code (Soltero / Dúo Dos Hombres) — defense in depth,
@@ -2582,7 +2618,7 @@ export function computeAmbassadorCommission(baseAmount: number, commissionPercen
  * queda como override fijo para ese embajador. */
 export async function createExclusiveAmbassador(data: {
   eventId?: number | null; name: string; code: string;
-  commissionPercent?: number | null; contact?: string; email?: string; instagram?: string;
+  commissionPercent?: number | null; buyerDiscountPercent?: number | null; contact?: string; email?: string; instagram?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -2599,6 +2635,7 @@ export async function createExclusiveAmbassador(data: {
       name: data.name,
       code,
       commissionPercent: data.commissionPercent === null || data.commissionPercent === undefined ? null : String(data.commissionPercent),
+      buyerDiscountPercent: data.buyerDiscountPercent ? String(data.buyerDiscountPercent) : null,
       contact: data.contact,
       email: data.email ? data.email.trim().toLowerCase() : null,
       instagram: data.instagram,
@@ -2622,7 +2659,7 @@ export async function listExclusiveAmbassadors(eventId?: number) {
 }
 
 export async function updateExclusiveAmbassador(id: number, data: {
-  name?: string; code?: string; commissionPercent?: number | null;
+  name?: string; code?: string; commissionPercent?: number | null; buyerDiscountPercent?: number | null;
   contact?: string; email?: string; instagram?: string; active?: number;
 }) {
   const db = await getDb();
@@ -2637,6 +2674,9 @@ export async function updateExclusiveAmbassador(id: number, data: {
   }
   if (data.commissionPercent !== undefined) {
     updateData.commissionPercent = data.commissionPercent === null ? null : String(data.commissionPercent);
+  }
+  if (data.buyerDiscountPercent !== undefined) {
+    updateData.buyerDiscountPercent = data.buyerDiscountPercent ? String(data.buyerDiscountPercent) : null;
   }
   if (data.email !== undefined) updateData.email = data.email ? data.email.trim().toLowerCase() : null;
   try {
@@ -4540,6 +4580,17 @@ export async function getPnlComparison(eventIds?: number[]) {
         marginPercent: pnl.marginPercent,
       };
     });
+}
+
+/** Lo que el celular de la puerta necesita para cobrar estacionamiento: las
+ * opciones del evento (normal y VIP, cada una con su precio) y lo que le
+ * corresponde al local por auto. */
+export async function getParkingPricing(eventId: number) {
+  const db = await getDb();
+  const venueFeePerCarClp = Number((await getSiteSettings()).parkingVenueFeeClp ?? 3000);
+  if (!db) return { options: [] as ReturnType<typeof listDoorParkingOptions>, venueFeePerCarClp };
+  const eventTicketTypes = await db.select().from(ticketTypes).where(eq(ticketTypes.eventId, eventId));
+  return { options: listDoorParkingOptions(eventTicketTypes as any[]), venueFeePerCarClp };
 }
 
 /** Conteo exacto de autos por origen (online / puerta / staff), para poder

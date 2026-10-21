@@ -20,7 +20,7 @@ import { forgetOffline, useOfflineFallback } from './offlineGate';
 import { canRedeem, clampRedeemAmount, PLAYCOINS_MIN_REDEEM_BALANCE } from '@shared/playcoins';
 import { formatChileDateTime } from '@shared/chileDate';
 import { getFavoriteIds, toggleFavorite } from './favorites';
-import { SalesHistory } from './SalesHistory';
+import { SalesHistory, SalesStrip } from './SalesHistory';
 import { RejectedOps } from './RejectedOps';
 
 /* Módulo /caja (docs/ARQUITECTURA-CAJA.md Fase 3) -- offline-first: la
@@ -1374,41 +1374,24 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     setCustomerSearchResults([]);
   };
 
-  // Código de descuento (opcional): se PREVISUALIZA acá contra el mismo
-  // endpoint que usa el checkout web, pero el monto real que se cobra lo
-  // recalcula el servidor al aplicar la venta -- nunca se confía en este
-  // preview para el cobro final.
-  const [discountCode, setDiscountCode] = useState('');
+  // Promo relámpago aplicada (única forma de descuento en caja): solo vista
+  // previa, el monto real lo recalcula el servidor al aplicar la venta.
   const [discountResult, setDiscountResult] = useState<{ valid: boolean; message?: string; discount?: any } | null>(null);
-  const validateDiscount = trpc.orders.validateDiscount.useMutation();
-  const applyDiscount = async () => {
-    if (!discountCode.trim()) return;
-    try {
-      const r = await validateDiscount.mutateAsync({ code: discountCode.trim(), eventId });
-      setDiscountResult(r);
-      if (!r.valid) toast.error(r.message || 'Código no válido');
-    } catch {
-      setDiscountResult({ valid: false, message: 'No se pudo validar (¿sin conexión?)' });
-    }
-  };
-
   // Promo relámpago: mismo ritmo que el catálogo (60s, ver `caja.snapshot`
   // más arriba) para que la insignia aparezca/desaparezca sola.
   const { data: flashPromo } = trpc.flashPromo.active.useQuery({ eventId }, { refetchInterval: 60_000 });
   const flashPromoActive = !!flashPromo && new Date(flashPromo.expiresAt) > new Date();
 
-  // Si el carrito tiene algún producto en promo relámpago y la cajera NO
-  // escribió un código a mano, se aplica solo -- el código manual, si lo
-  // hay, siempre manda (por si la cajera prefiere aplicar otro).
+  // Si el carrito tiene algún producto en promo relámpago, se aplica sola.
   useEffect(() => {
-    if (!flashPromoActive || discountCode.trim()) return;
+    if (!flashPromoActive) return;
     const hasFlashItem = Object.entries(cart).some(([id, qty]) => qty > 0 && flashPromo!.ticketTypeIds.includes(Number(id)));
     if (hasFlashItem && discountResult?.discount?.code !== flashPromo!.code) {
       setDiscountResult({ valid: true, discount: { code: flashPromo!.code, discountType: flashPromo!.discountType, discountValue: flashPromo!.discountValue } });
     } else if (!hasFlashItem && discountResult?.discount?.code === flashPromo?.code) {
       setDiscountResult(null);
     }
-  }, [cart, flashPromoActive, flashPromo, discountCode]);
+  }, [cart, flashPromoActive, flashPromo]);
 
   // Guardarropía: el número de la percha lo genera la propia tablet al
   // confirmar (nextLockerTagNumber) -- acá solo se pide el nombre del
@@ -1462,7 +1445,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
   // código de descuento ya no redibuja todas las tarjetas. Los handlers usan
   // refs y setters de estado, así que no importa que sean de otro render.
   const productGrid = useMemo(() => (
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 min-[900px]:landscape:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 min-[900px]:grid-cols-3 xl:grid-cols-4 gap-3 content-start">
               {productsInTab.map((p) => {
                 const left = p.totalStock - p.soldCount;
                 const noStock = left <= 0;
@@ -1644,7 +1627,6 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
     setAssociatedName(null);
     setCustomerSearch('');
     setCustomerSearchResults([]);
-    setDiscountCode('');
     setDiscountResult(null);
     setLockerCustomerName('');
     setCustomerName('');
@@ -1693,7 +1675,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
       {catalog.length === 0 ? (
         <p className="text-white/50 text-sm">Todavía no hay productos cargados para este evento. Se cargan desde Admin → Carta de la Fiesta.</p>
       ) : (
-        <div className="flex-1 min-h-0 flex flex-col gap-5 min-[900px]:landscape:flex-row">
+        <div className="flex-1 min-h-0 flex flex-col gap-5 md:flex-row">
           <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-5">
             {/* Categorías como círculos, en fila -- con scroll horizontal si no caben. */}
             <div className="shrink-0 flex gap-4 overflow-x-auto pb-1">
@@ -1719,12 +1701,12 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
             {productGrid}
 
             {/* Ventas de la noche (pedido explícito del dueño): con nombre del cliente, quién cobró, buscador y scroll propio; tocar una fila abre el detalle y la anulación con clave admin. Alto acotado: nunca empuja el resto de la pantalla. */}
-            <div className="hidden min-[900px]:landscape:block">
-              <SalesHistory compact eventId={eventId} registerId={registerId} isOnline={isOnline} />
+            <div className="hidden md:block">
+              <SalesStrip eventId={eventId} registerId={registerId} isOnline={isOnline} />
             </div>
 
-            {/* Barra de total (celular y tablet vertical): abre el carrito. */}
-            <div className="shrink-0 min-[900px]:landscape:hidden">
+            {/* Barra de total (solo celular): abre el carrito. Desde tablet el carrito va fijo a la derecha. */}
+            <div className="shrink-0 md:hidden">
               <button type="button" onClick={() => setCartOpen(true)} disabled={!hasItems}
                 className="admin-glass-panel flex w-full items-center gap-3 px-4 py-3 text-left disabled:opacity-60">
                 <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10">
@@ -1741,7 +1723,7 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
           </div>
 
           {cartOpen && (
-            <div className="fixed inset-0 z-20 bg-black/60 backdrop-blur-sm min-[900px]:landscape:hidden" onClick={() => setCartOpen(false)} aria-hidden="true" />
+            <div className="fixed inset-0 z-20 bg-black/60 backdrop-blur-sm md:hidden" onClick={() => setCartOpen(false)} aria-hidden="true" />
           )}
 
           {/* Panel de carrito persistente al costado -- antes era una barra pegada abajo, ahora siempre visible mientras se arma la venta. */}
@@ -1755,8 +1737,8 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
               `overflow-y-auto`) y la grilla recupera la mitad de la
               pantalla. `lg:` en adelante (tablet en horizontal/desktop) usa
               `self-stretch` de siempre, sin cambios. */}
-          <aside aria-label="Carrito" className={`${cartOpen ? 'fixed inset-x-0 bottom-0 z-30 flex max-h-[88dvh] rounded-t-3xl admin-glass-sheet pb-[max(env(safe-area-inset-bottom),1rem)]' : 'hidden'} flex-col overflow-y-auto overscroll-contain p-4 space-y-4 min-[900px]:landscape:static min-[900px]:landscape:z-auto min-[900px]:landscape:flex min-[900px]:landscape:max-h-none min-[900px]:landscape:w-96 min-[900px]:landscape:shrink-0 min-[900px]:landscape:self-stretch min-[900px]:landscape:rounded-3xl min-[900px]:landscape:pb-4 caja-cart-panel`}>
-            <div className="flex items-center justify-between min-[900px]:landscape:hidden">
+          <aside aria-label="Carrito" className={`${cartOpen ? 'fixed inset-x-0 bottom-0 z-30 flex max-h-[88dvh] rounded-t-3xl admin-glass-sheet pb-[max(env(safe-area-inset-bottom),1rem)]' : 'hidden'} flex-col overflow-y-auto overscroll-contain p-4 space-y-4 md:static md:z-auto md:flex md:max-h-none md:w-72 min-[820px]:w-80 min-[900px]:w-96 md:shrink-0 md:self-stretch md:rounded-3xl md:pb-4 caja-cart-panel`}>
+            <div className="flex items-center justify-between md:hidden">
               <p className="font-heading text-lg">Carrito</p>
               <button type="button" onClick={() => setCartOpen(false)} aria-label="Cerrar carrito" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10"><X className="h-5 w-5" /></button>
             </div>
@@ -1918,35 +1900,14 @@ function NewSale({ eventId, registerId, catalogVersion, isOnline, onSale }: {
               )}
             </div>
 
-            {/* Código de descuento -- solo vista previa, el servidor lo
-                revalida al cobrar. Sin señal simplemente no se puede aplicar. */}
-            <div className="space-y-1">
-              {discountResult?.valid && !discountCode.trim() && discountResult.discount?.code === flashPromo?.code ? (
-                <p className="text-xs text-amber-400">
-                  🔥 Promo Flash aplicada automáticamente: {discountResult.discount.discountValue}% -- no hace falta código.
-                </p>
-              ) : (
-                <>
-                  <div className="flex gap-2">
-                    <Input
-                      value={discountCode}
-                      onChange={(e) => { setDiscountCode(e.target.value.toUpperCase()); setDiscountResult(null); }}
-                      placeholder="Código de descuento"
-                      className="h-10 bg-white/10 border-white/15 text-white placeholder:text-white/60"
-                    />
-                    <Button size="sm" variant="outline" className="border-white/15 text-white shrink-0" disabled={!discountCode.trim() || validateDiscount.isPending} onClick={applyDiscount}>
-                      {validateDiscount.isPending ? '…' : 'Aplicar'}
-                    </Button>
-                  </div>
-                  {discountResult?.valid && discountResult.discount && (
-                    <p className="text-xs text-green-400">✓ Descuento aplicado: {discountResult.discount.discountType === 'percentage' ? `${discountResult.discount.discountValue}%` : `$${Number(discountResult.discount.discountValue).toLocaleString('es-CL')}`}</p>
-                  )}
-                  {discountResult && !discountResult.valid && (
-                    <p className="text-xs text-red-400">{discountResult.message || 'Código no válido'}</p>
-                  )}
-                </>
-              )}
-            </div>
+            {/* En caja no hay códigos de descuento: solo la promo relámpago, que
+                se aplica sola cuando el carrito trae esos productos (el
+                servidor la revalida al cobrar). */}
+            {discountResult?.valid && discountResult.discount?.code === flashPromo?.code && (
+              <p className="text-xs text-amber-400">
+                🔥 Promo Flash aplicada automáticamente: {discountResult.discount.discountValue}% -- no hace falta código.
+              </p>
+            )}
 
             <div className="flex justify-between text-lg font-bold border-t border-white/10 pt-3">
               <span>Total</span>

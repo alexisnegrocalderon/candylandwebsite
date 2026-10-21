@@ -14,14 +14,17 @@ import { CANDYLAND, EVENTO, CAMPOS_COMPRADOR, formatCLP, whatsappComunidadLink, 
 import { isMissionActiveForEvent, missionDepositPrice, missionCutoff, missionCapPrice } from '@shared/mission300';
 import { isValidRut, isValidPassport, isValidChileanPhone, formatRutLive } from '@shared/rut';
 import { isTopupProduct } from '@shared/prepaid';
+import { computeCodeDiscount } from '@shared/discountCode';
 import { playcoinsEarnedForPurchase } from '@shared/playcoins';
 import { dropSupersededTickets } from '@shared/liveTickets';
 import { useSeo } from '@/hooks/useSeo';
 import { getStoredUtmParams } from '@/lib/utm';
 import { getStoredAmbassadorRef } from '@/lib/ambassadorRef';
+import { ambassadorBuyerDiscount, bestBuyerDiscount } from '@shared/ambassadorDiscount';
 import { BRAND } from '@shared/eventBrand';
 import { PARTNER_EXISTING_CUSTOMER_MESSAGE } from '@shared/partnerCampaign';
 import './Checkout.walletPreview.css';
+import { ContestBuyerInvite } from '@/components/ContestBuyerInvite';
 
 /** Mini vista previa de la Tarjeta Playroom, mostrada justo donde se pide el
  * PIN -- para que quede claro que el PIN protege ESTA tarjeta (saldo +
@@ -585,10 +588,14 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
   const [code, setCode] = useState('');
   const [codeResult, setCodeResult] = useState<
     | { type: 'discount'; discount: any }
-    | { type: 'ambassador'; name: string; code: string }
+    | { type: 'ambassador'; name: string; code: string; buyerDiscountPercent?: number }
     | { type: 'credit'; code: string; accesoSlug: string; accesoName: string }
     | null
   >(null);
+  // Embajador del link/código: se guarda aparte de `codeResult` para que su
+  // descuento (si tiene) siga contando aunque la persona escriba además un
+  // código de descuento -- no se suman, se aplica el mayor.
+  const [refAmbassador, setRefAmbassador] = useState<{ name: string; code: string; buyerDiscountPercent: number } | null>(null);
   const [codeError, setCodeError] = useState('');
   const [communityCodeInput, setCommunityCodeInput] = useState('');
   const [communityCodeStatus, setCommunityCodeStatus] = useState<'idle' | 'valid' | 'invalid'>('idle');
@@ -722,11 +729,31 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
   // Crédito de acceso: vale UNA unidad del mismo acceso (mismo cálculo que
   // `creditDiscount` en shared/accessCredit.ts, que es el que cobra el servidor).
   const creditApplies = codeResult?.type === 'credit' && codeResult.accesoSlug === accesoSlug && qty > 0;
-  const discountAmount = codeResult?.type === 'discount'
-    ? codeResult.discount.discountType === 'percentage'
-      ? Math.round(subtotal * Number(codeResult.discount.discountValue) / 100)
-      : Number(codeResult.discount.discountValue)
+  // Descuento por código: misma función que usa el servidor al cobrar
+  // (shared/discountCode.ts) -- solo sobre el acceso, nunca sobre extras, y el
+  // monto fijo nunca pasa del precio del acceso.
+  const accesoTicketType = useConfig ? undefined : accesoTickets.find((t: any) => String(t.id) === accesoId);
+  const codeDiscountAmount = codeResult?.type === 'discount'
+    ? computeCodeDiscount(
+      codeResult.discount,
+      [{
+        ticketTypeId: Number(accesoId),
+        category: 'acceso',
+        unitPrice: acceso?.precio ?? 0,
+        originalPrice: accesoTicketType ? Number((accesoTicketType as any).originalPrice ?? (accesoTicketType as any).price) : null,
+        quantity: qty,
+      }],
+      'web',
+    )
     : creditApplies ? (acceso?.precio ?? 0) : 0;
+  // Descuento del embajador (shared/ambassadorDiscount.ts, la misma regla que
+  // cobra el servidor): solo sobre el acceso, no va con crédito ni con precio
+  // de campaña aliada, y gana el mayor frente al código de descuento.
+  const ambassadorDiscountAmount = !creditApplies && !isPartner && refAmbassador
+    ? ambassadorBuyerDiscount(refAmbassador.buyerDiscountPercent, [{ ticketTypeId: Number(accesoId), category: 'acceso', unitPrice: acceso?.precio ?? 0, quantity: qty }])
+    : 0;
+  const discountAmount = bestBuyerDiscount(codeDiscountAmount, ambassadorDiscountAmount).amount;
+  const ambassadorDiscountWins = ambassadorDiscountAmount > codeDiscountAmount;
   const dbExtrasTotal = extraTickets.reduce((s: number, t: any) => s + (dbExtraQty[t.id] || 0) * Number(t.price), 0);
   // Carga de saldo (ticketTypes.topupAmount, pedido explícito del dueño): NO
   // paga el recargo por servicio -- el monto cargado entra completo. Mismo
@@ -753,7 +780,8 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
       if (result.type === 'discount') {
         setCodeResult({ type: 'discount', discount: result.discount });
       } else if (result.type === 'ambassador') {
-        setCodeResult({ type: 'ambassador', name: result.name, code: result.code });
+        setCodeResult({ type: 'ambassador', name: result.name, code: result.code, buyerDiscountPercent: result.buyerDiscountPercent });
+        setRefAmbassador({ name: result.name, code: result.code, buyerDiscountPercent: result.buyerDiscountPercent });
       } else if (result.type === 'credit') {
         setCodeResult({ type: 'credit', code: result.code, accesoSlug: result.accesoSlug, accesoName: result.accesoName });
       } else {
@@ -785,7 +813,10 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
     setCode(stored);
     validateCode.mutateAsync({ code: stored, eventId: event.id }).then((result) => {
       if (result.type === 'discount') setCodeResult({ type: 'discount', discount: result.discount });
-      else if (result.type === 'ambassador') setCodeResult({ type: 'ambassador', name: result.name, code: result.code });
+      else if (result.type === 'ambassador') {
+        setCodeResult({ type: 'ambassador', name: result.name, code: result.code, buyerDiscountPercent: result.buyerDiscountPercent });
+        setRefAmbassador({ name: result.name, code: result.code, buyerDiscountPercent: result.buyerDiscountPercent });
+      }
       else if (result.type === 'credit') setCodeResult({ type: 'credit', code: result.code, accesoSlug: result.accesoSlug, accesoName: result.accesoName });
       // Si el código precargado ya no es válido (embajador dado de baja,
       // promo vencida, etc.) se deja el campo cargado en silencio -- no
@@ -892,7 +923,10 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
         // para embajador) -- así funciona aunque la persona nunca haya
         // apretado "Aplicar".
         discountCode: isPartner ? undefined : code.trim() || undefined,
-        ambassadorCode: isPartner ? undefined : code.trim() || undefined,
+        // Si ya hay un embajador identificado (link o código) se manda su
+        // código aunque la persona haya escrito después un descuento: así la
+        // venta se le acredita y el servidor aplica el mayor de los dos.
+        ambassadorCode: isPartner ? undefined : (codeResult?.type !== 'credit' && refAmbassador?.code) || code.trim() || undefined,
         partnerSlug,
         partnerRef,
         communityCode: requiresCommunityCode ? values['acceso__codigo_acceso'] : undefined,
@@ -983,6 +1017,7 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
           <p className="text-muted-foreground text-sm mb-8">
             Si no lo encuentras, revisa tu carpeta de <span className="font-semibold text-foreground">spam o correo no deseado</span> — dependiendo del filtro de tu correo, puede haberse ido para allá.
           </p>
+          {!isPartner && <ContestBuyerInvite eventSlug={event?.slug} />}
           {isPartner && partner && (
             <div className="glass-candy rounded-2xl p-5 mb-6 text-left space-y-3">
               <p className="text-sm font-bold">{partner.emoji} Nos vemos en la Pista Tech</p>
@@ -1569,7 +1604,14 @@ export default function Checkout({ partnerSlug }: { partnerSlug?: string } = {})
                     )}
                     {codeResult?.type === 'discount' && <p className="text-sm text-green-400 mt-1">{codeResult.discount.giftTicketTypeId ? '¡Regalo incluido en tu compra! 🎁' : 'Descuento aplicado ✓'}</p>}
                     {codeResult?.type === 'ambassador' && (
-                      <p className="text-sm text-green-400 mt-1">Le vamos a acreditar la venta a {codeResult.name} ✓</p>
+                      <p className="text-sm text-green-400 mt-1">
+                        {(codeResult.buyerDiscountPercent ?? 0) > 0
+                          ? `Tienes ${codeResult.buyerDiscountPercent}% de descuento en tu entrada por la invitación de ${codeResult.name} ✓`
+                          : `Le vamos a acreditar la venta a ${codeResult.name} ✓`}
+                      </p>
+                    )}
+                    {codeResult?.type === 'discount' && ambassadorDiscountWins && refAmbassador && (
+                      <p className="text-sm text-green-400 mt-1">Se aplica el descuento de {refAmbassador.name} ({refAmbassador.buyerDiscountPercent}%) porque es mayor ✓</p>
                     )}
                     {codeError && <p className="text-sm text-destructive mt-1" role="alert">{codeError}</p>}
                     <p className="text-xs text-muted-foreground mt-2">Si no tienes ningún código, solo aprieta Continuar.</p>
