@@ -3,7 +3,7 @@
  * Toma el splash oscuro (#initial-loader) que ya está en pantalla y, en vez de
  * desvanecerlo, lo convierte en la intro: el logo se "dibuja" de abajo hacia
  * arriba como un tubo apagado, titila, se enciende con brillo rosa y azul, y
- * aparece "MANSION PLAYROOM" letra por letra antes de subir y dar paso a la
+ * aparece "PLAYROOM" letra por letra antes de subir y dar paso a la
  * pantalla (que ya está montada debajo). Estilos en client/src/admin.css
  * (`.neon-intro`).
  *
@@ -38,8 +38,8 @@ function markSeen() {
   try { localStorage.setItem(DAY_KEY + appKey(), today()); } catch { /* sin storage: se verá de nuevo, no pasa nada */ }
 }
 
-const WORD_TOP = 'MANSION';
-const WORD_BOTTOM = 'PLAYROOM';
+// Solo "PLAYROOM" (pedido del dueño), sin el "MANSION" de arriba.
+const WORD = 'PLAYROOM';
 
 function letters(word: string, className: string, startIndex: number): string {
   // --i: orden de aparición global; --j/--n: posición dentro de la palabra,
@@ -58,7 +58,7 @@ export function playNeonIntro(el: HTMLElement, done: () => void): void {
   const logoSrc = el.querySelector('img')?.getAttribute('src') ?? '/candyland/logo-isotipo-transparent.png';
   el.classList.add('neon-intro', short ? 'neon-intro--short' : 'neon-intro--full');
   if (still) el.classList.add('neon-intro--still');
-  el.setAttribute('aria-label', 'Mansion Playroom');
+  el.setAttribute('aria-label', 'Playroom');
   el.innerHTML = `
     <div class="neon-intro-stage">
       <div class="neon-intro-logo">
@@ -66,8 +66,7 @@ export function playNeonIntro(el: HTMLElement, done: () => void): void {
         <img class="neon-intro-light" src="${logoSrc}" alt="" />
       </div>
       <div class="neon-intro-word">
-        ${letters(WORD_TOP, 'neon-intro-top', 0)}
-        ${letters(WORD_BOTTOM, 'neon-intro-bottom font-heading', WORD_TOP.length)}
+        ${letters(WORD, 'neon-intro-bottom font-heading', 0)}
       </div>
     </div>
     <span class="neon-intro-skip">Toca para entrar</span>`;

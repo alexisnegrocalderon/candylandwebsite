@@ -515,9 +515,8 @@ html[data-admin-theme="dark-glass"] body {
 }
 
 #initial-loader.neon-intro .neon-intro-word { display: flex; flex-direction: column; align-items: center; line-height: 1; }
-#initial-loader.neon-intro .neon-intro-top { font-size: 11px; font-weight: 600; letter-spacing: 0.55em; color: rgba(255, 255, 255, 0.7); margin-right: -0.55em; }
 #initial-loader.neon-intro .neon-intro-bottom {
-  margin-top: 8px; font-size: 30px; letter-spacing: 0.08em;
+  font-size: 32px; letter-spacing: 0.1em; margin-right: -0.1em;
   filter: drop-shadow(0 0 10px rgba(255, 79, 195, 0.35));
 }
 /* Cada letra lleva su tramo del degradado de la palabra (rosa → violeta → celeste). */
@@ -529,7 +528,7 @@ html[data-admin-theme="dark-glass"] body {
 }
 #initial-loader.neon-intro .neon-intro-letter {
   display: inline-block; opacity: 0; transform: translateY(8px); filter: blur(4px);
-  animation: neon-letter calc(0.4s * var(--u)) cubic-bezier(0.2, 0.7, 0.2, 1) calc((1.35s + var(--i) * 0.045s) * var(--u)) forwards;
+  animation: neon-letter calc(0.4s * var(--u)) cubic-bezier(0.2, 0.7, 0.2, 1) calc((1.3s + var(--i) * 0.06s) * var(--u)) forwards;
 }
 
 #initial-loader.neon-intro .neon-intro-skip {
