@@ -8,15 +8,15 @@ export function useGente(eventId: number | undefined) {
   return trpc.home.gente.useQuery({ eventId: eventId ?? null }, { refetchInterval: 300_000, refetchIntervalInBackground: false });
 }
 
-export function GenteBlock({ data, loading, badgeCounts, onOpen }: { data: GenteData; loading: boolean; badgeCounts: Record<string, number>; onOpen: (s: string) => void }) {
-  if (loading && !data) return <HomeBlock id="gente" title="Gente" subtitle="Cargando…" icon={Users}><p className="text-sm text-muted-foreground">Cargando…</p></HomeBlock>;
+export function GenteBlock({ data, loading, badgeCounts, onOpen, onClose }: { data: GenteData; loading: boolean; badgeCounts: Record<string, number>; onOpen: (s: string) => void; onClose?: () => void }) {
+  if (loading && !data) return <HomeBlock onClose={onClose} id="gente" title="Gente" subtitle="Cargando…" icon={Users}><p className="text-sm text-muted-foreground">Cargando…</p></HomeBlock>;
   if (!data) return null;
   const { clientes, embajadores, mensajes, concursos, comunidad } = data;
   const mail = mensajes?.email;
   const mailPct = mail && mail.dailyCap > 0 ? Math.round((mail.sentToday / mail.dailyCap) * 100) : 0;
 
   return (
-    <HomeBlock id="gente" title="Gente" subtitle="Clientes, embajadores, mensajes y comunidad" icon={Users}>
+    <HomeBlock onClose={onClose} id="gente" title="Gente" subtitle="Clientes, embajadores, mensajes y comunidad" icon={Users}>
       <Widget title="Clientes" onMore={() => onOpen('customers')}>
         {!clientes ? <Unavailable /> : (
           <div className="grid grid-cols-2 gap-3">

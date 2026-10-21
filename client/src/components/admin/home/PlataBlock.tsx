@@ -17,8 +17,8 @@ export function usePlata(enabled: boolean) {
   return trpc.home.plata.useQuery(undefined, { enabled, refetchInterval: 300_000, refetchIntervalInBackground: false, retry: false });
 }
 
-export function PlataBlock({ data, loading, onOpen }: { data: PlataData; loading: boolean; onOpen: (s: string) => void }) {
-  if (loading && !data) return <HomeBlock id="plata" title="Plata" subtitle="Cargando…" icon={Banknote}><p className="text-sm text-muted-foreground">Cargando…</p></HomeBlock>;
+export function PlataBlock({ data, loading, onOpen, onClose }: { data: PlataData; loading: boolean; onOpen: (s: string) => void; onClose?: () => void }) {
+  if (loading && !data) return <HomeBlock onClose={onClose} id="plata" title="Plata" subtitle="Cargando…" icon={Banknote}><p className="text-sm text-muted-foreground">Cargando…</p></HomeBlock>;
   if (!data) return null;
   const { cash, payables, sii, company, spend } = data;
   const mp = cash?.balances.find((b: any) => b.source === 'mercadopago');
@@ -26,7 +26,7 @@ export function PlataBlock({ data, loading, onOpen }: { data: PlataData; loading
   const maxCat = Math.max(1, ...(spend?.byCategory ?? []).map((c: any) => c.amount));
 
   return (
-    <HomeBlock id="plata" title="Plata" subtitle={`${monthLabel(data.monthKey)} · caja, deudas, impuestos y resultado`} icon={Banknote}>
+    <HomeBlock onClose={onClose} id="plata" title="Plata" subtitle={`${monthLabel(data.monthKey)} · caja, deudas, impuestos y resultado`} icon={Banknote}>
       <Widget title="Caja real" onMore={() => onOpen('finanzas')}>
         {!cash ? <Unavailable /> : (
           <div className="space-y-3">
