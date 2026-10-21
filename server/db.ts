@@ -8057,6 +8057,14 @@ export async function logEmailSent(input: { to: string; subject?: string; succes
  * Resend (server/routers.ts mailing.getDailyEmailUsage). Cuenta todo intento
  * (éxito y fallo): un correo rechazado por Resend igual gastó un intento
  * contra la cuota del minuto/día en su lado. */
+/** Correos del período de facturación de Resend (desde el último día 21). */
+export async function countEmailsSentSince(since: Date): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const [row] = await db.select({ count: sql<number>`count(*)` }).from(emailLog).where(gte(emailLog.sentAt, since));
+  return Number(row?.count ?? 0);
+}
+
 export async function countEmailsSentToday(now: Date = new Date()): Promise<number> {
   const db = await getDb();
   if (!db) return 0;

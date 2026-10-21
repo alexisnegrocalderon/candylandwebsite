@@ -1785,7 +1785,7 @@ export async function getContestAdmin(id: number) {
 
 /** Tope de correos del día para estos envíos (el resto queda para las entradas). */
 const HOLDER_INVITE_DAILY_LIMIT = CONTEST_EMAIL_DAILY_LIMIT;
-const HOLDER_INVITES_PER_CLICK = 40;
+const HOLDER_INVITES_PER_CLICK = 120;
 const holderInviteKey = (email: string) => `holder-mail:${crypto.createHash('sha1').update(email).digest('hex').slice(0, 20)}`;
 
 /** Compradores aprobados del evento que todavía no comentaron (no son
@@ -1842,6 +1842,7 @@ export async function sendHolderInvites(contestId: number): Promise<{ sent: numb
     if ((await countEmailsSentToday()) >= HOLDER_INVITE_DAILY_LIMIT) { stoppedByBudget = true; break; }
     if (!(await claimLog(db, contestId, 'comment', holderInviteKey(person.email), null))) continue;
     const result = await sendEmail({
+      marketing: true,
       to: person.email,
       subject: `🎁 ${person.name}, tu entrada también participa: comenta el reel`,
       html: buildContestHolderInviteEmail({
@@ -1851,6 +1852,8 @@ export async function sendHolderInvites(contestId: number): Promise<{ sent: numb
     }).catch(() => ({ success: false }));
     if (result.success) sent++;
     else await db.delete(contestLog).where(and(eq(contestLog.contestId, contestId), eq(contestLog.kind, 'comment'), eq(contestLog.refId, holderInviteKey(person.email)))).catch(() => {});
+    // Resend deja 2 envíos por segundo.
+    await new Promise((resolve) => setTimeout(resolve, 550));
   }
   return { sent, pending: Math.max(0, pending.length - sent), stoppedByBudget };
 }

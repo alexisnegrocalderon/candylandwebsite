@@ -62,6 +62,7 @@ const Cocina = lazy(() => import("./pages/Cocina"));
 const Guardarropia = lazy(() => import("./pages/Guardarropia"));
 const Prices = lazy(() => import("./pages/Prices"));
 const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
+const Baja = lazy(() => import("./pages/Baja"));
 const Concurso = lazy(() => import("./pages/Concurso"));
 const ConcursoPremio = lazy(() => import("./pages/ConcursoPremio"));
 const ConcursoPosicion = lazy(() => import("./pages/ConcursoPosicion"));
@@ -146,6 +147,7 @@ function Router() {
           <Route path="/guardarropia" component={Guardarropia} />
           <Route path="/entradas" component={Prices} />
           <Route path="/politica-de-reembolso" component={RefundPolicy} />
+          <Route path="/baja" component={Baja} />
           <Route path="/concurso" component={Concurso} />
           <Route path="/concurso/premio/:token" component={ConcursoPremio} />
           <Route path="/concurso/mi-posicion/:code" component={ConcursoPosicion} />

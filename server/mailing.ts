@@ -121,9 +121,9 @@ export type MailingSendResult = {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** Sin rate limiting conocido/confirmado del plan de Resend en este proyecto
- * -- se deja como env var configurable en vez de un número fijo hardcodeado. */
-const THROTTLE_MS = Number(process.env.MAILING_THROTTLE_MS) || 250;
+/** Resend permite 2 envíos por segundo por API (también en Pro): 550 ms entre
+ * correos deja margen. Se puede cambiar con la variable MAILING_THROTTLE_MS. */
+const THROTTLE_MS = Number(process.env.MAILING_THROTTLE_MS) || 550;
 
 export async function sendMailingBatch(
   customerIds: number[],
@@ -169,7 +169,7 @@ export async function sendMailingBatch(
       priceList: extras?.priceList,
       remaining: extras?.remaining,
     });
-    const sent = await sendEmail({ to: customer.email, subject: content.subject, html });
+    const sent = await sendEmail({ to: customer.email, subject: content.subject, html, marketing: true });
     results.push({ customerId: customer.id, email: customer.email, success: sent.success, reason: sent.reason });
 
     // Tagueo automático (pedido explícito del usuario): con el límite de
@@ -262,8 +262,8 @@ const CRON_MAX_PER_RUN = Number(process.env.MAILING_CRON_RUN_CAP) || 25;
  * confirmación de compra con el QR de la entrada -- se quedarían sin cupo.
  *
  * El default deja margen para los transaccionales. Súbelo con la env var
- * `AUTOMATED_EMAIL_DAILY_CAP` al pasar a un plan de Resend más grande. */
-export const AUTOMATED_EMAIL_DAILY_CAP = Number(process.env.AUTOMATED_EMAIL_DAILY_CAP) || 60;
+ * `AUTOMATED_EMAIL_DAILY_CAP` si hace falta más (600 desde Resend Pro, 21/10). */
+export const AUTOMATED_EMAIL_DAILY_CAP = Number(process.env.AUTOMATED_EMAIL_DAILY_CAP) || 600;
 
 export type MailingCronResult = {
   processed: number;
@@ -348,7 +348,7 @@ export async function processMailingCronBatch(): Promise<MailingCronResult> {
       eventInfo: eventSections ? eventInfo : null,
       eventSections,
     });
-    const result = await sendEmail({ to: recipient.email, subject: content.subject, html });
+    const result = await sendEmail({ to: recipient.email, subject: content.subject, html, marketing: true });
     await db.markMailingRecipientResult(recipient.id, recipient.campaignId, result.success, result.reason);
     campaignsTouched.add(recipient.campaignId);
 
