@@ -7,7 +7,7 @@ import { computeCodeDiscount } from "../shared/discountCode";
 import { ambassadorBuyerDiscount, bestBuyerDiscount } from "../shared/ambassadorDiscount";
 import { normalizeIgHandle, saysAlreadyBought, type BuyerCandidate } from "../shared/igCustomerLink";
 import { computeFans, FAN_WINDOW_DAYS } from "../shared/igEngagement";
-import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage } from "../drizzle/schema";
+import { InsertUser, users, events, ticketTypes, ticketStockHistory, stockPools, StockPool, orders, orderItems, tickets, discountCodes, communityCodes, leads, blockedCustomers, referrals, siteSettings, operators, InsertOperator, ops, registers, rateLimits, devices, customers, shifts, playcoinsLedger, prepaidLedger, mailingCampaigns, mailingRecipients, mailingSendLog, exclusiveAmbassadors, ambassadorCommissions, ambassadorClients, ambassadorProgramConfig, ambassadorApplications, adminTotp, adminWebauthnCredentials, partyGifts, partyProfiles, partyConnections, partyMessages, partyBlocks, partyReports, partyPhotos, partySwipes, expenses, kitchenTickets, lockerItems, adminAuditLog, pushSubscriptions, partyPushSubscriptions, igThreads, igMessages, type IgThread, type IgMessage, waThreads, waMessages, type WaThread, type WaMessage, igKeywordAutomations, igKeywordRedemptions, type IgKeywordAutomation, agentHandoffLog, type AgentHandoffLog, emailLog, eventSurveys, eventSurveySettings, accessCredits, type AccessCredit, igComments, type IgComment, igReferrals, type IgReferralRow, igLinkClicks, staffMembers, staffShifts, aiUsage, attendeeContacts } from "../drizzle/schema";
 import { ENV } from './_core/env';
 import { nanoid } from 'nanoid';
 import { isMissionActiveForEvent, missionDepositPrice, personasForAccesoSlug, personasForTicket } from '../shared/mission300';
@@ -1167,6 +1167,61 @@ export function parseAttendees(attendeeDataJson: string | null | undefined): { n
   }
 }
 
+/** Texto de búsqueda sin tildes ni mayúsculas. */
+function foldSearch(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+/** RUT/pasaporte reducido a letras y números ("12.345.678-k" → "12345678k"). */
+function rutDigits(value: string): string {
+  return value.replace(/[^0-9a-zA-Z]/g, '').toLowerCase();
+}
+
+/** Cuando lo buscado parece un RUT (≥4 caracteres, solo números y K), la
+ * búsqueda compara sin puntos ni guion: "12.345.678-9", "12345678-9" y
+ * "123456789" son lo mismo. */
+function looksLikeRutSearch(term: string): boolean {
+  return /^[0-9kK.\-\s]+$/.test(term) && /^[0-9k]{4,}$/i.test(term.replace(/[.\-\s]/g, ''));
+}
+
+/** Condición SQL de la búsqueda de órdenes: comprador, email, número de orden
+ * y attendeeData (nombres y RUT de acompañantes), sin distinguir mayúsculas y
+ * con el RUT tolerante a puntos/guion. */
+function orderSearchCondition(term: string) {
+  const lowered = term.toLowerCase();
+  const pattern = `%${escapeLikePattern(lowered)}%`;
+  const parts = [
+    sql`LOWER(${orders.buyerName}) LIKE ${pattern}`,
+    sql`LOWER(${orders.buyerEmail}) LIKE ${pattern}`,
+    sql`LOWER(${orders.orderNumber}) LIKE ${pattern}`,
+    sql`LOWER(${orders.attendeeData}) LIKE ${pattern}`,
+  ];
+  if (looksLikeRutSearch(term)) {
+    const digits = `%${rutDigits(term)}%`;
+    parts.push(sql`REPLACE(REPLACE(REPLACE(LOWER(${orders.attendeeData}), '.', ''), '-', ''), ' ', '') LIKE ${digits}`);
+  }
+  return or(...parts)!;
+}
+
+export type MatchedAttendee = { name: string; rut: string | null; isBuyer: boolean };
+
+/** Quién de la orden coincide con lo buscado (el titular o un acompañante),
+ * para que la lista diga POR QUÉ apareció esa orden. null si solo coincide
+ * por email/número de orden o no coincide ninguna persona. */
+export function findMatchedAttendee(attendeeData: string | null | undefined, buyerName: string | null | undefined, term: string): MatchedAttendee | null {
+  const needle = foldSearch(term);
+  if (!needle) return null;
+  const rutSearch = looksLikeRutSearch(term) ? rutDigits(term) : null;
+  const buyerFolded = buyerName ? foldSearch(buyerName) : '';
+  for (const a of parseAttendees(attendeeData)) {
+    const nameHit = foldSearch(a.name).includes(needle);
+    const rutHit = !!rutSearch && !!a.rut && rutDigits(a.rut).includes(rutSearch);
+    if (!nameHit && !rutHit) continue;
+    return { name: a.name, rut: a.rut, isBuyer: !!buyerFolded && foldSearch(a.name) === buyerFolded };
+  }
+  return null;
+}
+
 /** RUT del comprador (no de acompañantes) de una orden, para Puerta -- lee
  * específicamente la clave `buyer__rut` de attendeeData, la fuente de
  * verdad real (a diferencia de customers.rut, ver upsertCustomerFromOrder). */
@@ -2039,13 +2094,7 @@ export async function getAllOrders(opts: {
   // letra traería casi todo, así que se pide al menos 2.
   const term = opts.search?.trim();
   if (term && term.length >= 2) {
-    const pattern = `%${escapeLikePattern(term)}%`;
-    conditions.push(or(
-      like(orders.buyerName, pattern),
-      like(orders.buyerEmail, pattern),
-      like(orders.orderNumber, pattern),
-      like(orders.attendeeData, pattern),
-    )!);
+    conditions.push(orderSearchCondition(term));
   }
   const where = conditions.length ? and(...conditions) : undefined;
 
@@ -2101,6 +2150,7 @@ export async function getAllOrders(opts: {
     ...o,
     extras: extrasByOrderId.get(o.id) ?? [],
     attendees: parseAttendees(o.attendeeData),
+    matchedAttendee: term && term.length >= 2 ? findMatchedAttendee(o.attendeeData, o.buyerName, term) : null,
     attendeeSlots: listAttendeeSlots(o.attendeeData, o.buyerName),
     accesoSlug: accesoByOrderId.get(o.id)?.slug ?? null,
     accesoName: accesoByOrderId.get(o.id)?.name ?? null,
@@ -2116,15 +2166,14 @@ export async function findOrdersMatching(term: string, limit = 20) {
   const db = await getDb();
   const needle = term.trim();
   if (!db || needle.length < 2) return [];
-  const pattern = `%${escapeLikePattern(needle)}%`;
   const rows = await db.select({
     id: orders.id, orderNumber: orders.orderNumber, buyerName: orders.buyerName, buyerEmail: orders.buyerEmail,
     eventId: orders.eventId, channel: orders.channel, paymentStatus: orders.paymentStatus, total: orders.total, createdAt: orders.createdAt,
-    eventTitle: events.title,
+    eventTitle: events.title, attendeeData: orders.attendeeData,
   }).from(orders).leftJoin(events, eq(orders.eventId, events.id))
-    .where(or(like(orders.buyerName, pattern), like(orders.buyerEmail, pattern), like(orders.orderNumber, pattern), like(orders.attendeeData, pattern))!)
+    .where(orderSearchCondition(needle))
     .orderBy(desc(orders.createdAt)).limit(limit);
-  return rows.map((r) => ({ ...r, total: Number(r.total) }));
+  return rows.map(({ attendeeData, ...r }) => ({ ...r, total: Number(r.total), matchedAttendee: findMatchedAttendee(attendeeData, r.buyerName, needle) }));
 }
 
 /** Todos los tickets (entrada principal + extras) de una orden, para el
@@ -5269,6 +5318,81 @@ export async function upsertCustomerFromOrder(order: any, accesoSlugs: string[])
   }
 }
 
+// --- Acompañantes como contactos (sin correo, nunca entran al mailing) ---
+
+/** Registra a cada acompañante (no al titular) de una orden aprobada en
+ * `attendee_contacts`. Une por RUT, o por nombre sin tildes si no dieron RUT;
+ * idempotente por orden (reprocesar la misma orden no duplica nada). */
+export async function upsertAttendeeContactsFromOrder(order: any): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const buyerFolded = order.buyerName ? foldSearch(order.buyerName) : '';
+  const buyerRut = parseBuyerRut(order.attendeeData);
+  const buyerRutKey = buyerRut ? rutDigits(buyerRut) : '';
+  let saved = 0;
+  for (const a of parseAttendees(order.attendeeData)) {
+    const rutKey = a.rut ? rutDigits(a.rut) : '';
+    // El titular ya es un cliente (con correo): no se repite como acompañante.
+    if (rutKey && rutKey === buyerRutKey) continue;
+    if (!rutKey && foldSearch(a.name) === buyerFolded) continue;
+    const matchKey = rutKey || `n:${foldSearch(a.name)}`;
+    const [existing] = await db.select().from(attendeeContacts).where(eq(attendeeContacts.matchKey, matchKey)).limit(1);
+    const asIds = (v: unknown): number[] => (Array.isArray(v) ? v.filter((n) => typeof n === 'number') : []);
+    if (existing) {
+      const orderIds = Array.from(new Set([...asIds(existing.orderIds), order.id]));
+      const eventIds = Array.from(new Set([...asIds(existing.eventIds), ...(order.eventId ? [order.eventId] : [])]));
+      await db.update(attendeeContacts).set({
+        fullName: a.name,
+        rut: a.rut ?? existing.rut,
+        buyerEmail: order.buyerEmail ?? existing.buyerEmail,
+        buyerName: order.buyerName ?? existing.buyerName,
+        lastOrderId: Math.max(order.id, existing.lastOrderId ?? 0),
+        orderIds, eventIds,
+      }).where(eq(attendeeContacts.id, existing.id));
+    } else {
+      await db.insert(attendeeContacts).values({
+        rut: a.rut, matchKey, fullName: a.name, docType: a.docType,
+        buyerEmail: order.buyerEmail ?? null, buyerName: order.buyerName ?? null,
+        firstOrderId: order.id, lastOrderId: order.id,
+        orderIds: [order.id], eventIds: order.eventId ? [order.eventId] : [],
+      });
+    }
+    saved++;
+  }
+  return saved;
+}
+
+/** Carga única del histórico: pasa por todas las órdenes web aprobadas.
+ * Seguro de repetir (cada acompañante se une por RUT/nombre). */
+export async function backfillAttendeeContacts(): Promise<{ orders: number; contacts: number }> {
+  const db = await getDb();
+  if (!db) return { orders: 0, contacts: 0 };
+  const rows = await db.select().from(orders)
+    .where(and(eq(orders.paymentStatus, 'approved'), sql`${orders.channel} != 'caja'`))
+    .orderBy(orders.id);
+  let contacts = 0;
+  for (const o of rows) contacts += await upsertAttendeeContactsFromOrder(o);
+  const [{ count }] = await db.select({ count: sql<number>`COUNT(*)` }).from(attendeeContacts);
+  return { orders: rows.length, contacts: Number(count) };
+}
+
+/** Lista de acompañantes para Clientes, con búsqueda por nombre o RUT. */
+export async function listAttendeeContacts(search?: string) {
+  const db = await getDb();
+  if (!db) return [];
+  let rows = await db.select().from(attendeeContacts).orderBy(desc(attendeeContacts.updatedAt));
+  const term = search?.trim();
+  if (term) {
+    const needle = foldSearch(term);
+    const rutSearch = looksLikeRutSearch(term) ? rutDigits(term) : null;
+    rows = rows.filter((c) =>
+      foldSearch(c.fullName).includes(needle) ||
+      (!!rutSearch && !!c.rut && rutDigits(c.rut).includes(rutSearch)) ||
+      (!!c.buyerName && foldSearch(c.buyerName).includes(needle)));
+  }
+  return rows;
+}
+
 // --- Playcoins (pedido explícito del usuario, reemplaza el sistema de
 // puntos de Shopify): 25 Playcoins por cada $1.000 CLP gastados, 1 Playcoin
 // = $1 CLP al canjear, mínimo 5.000 de saldo para poder canjear (parcial
@@ -5719,10 +5843,12 @@ export async function listCustomers(filters: CustomerListFilters = {}) {
 
   if (filters.search) {
     const needle = filters.search.toLowerCase();
+    const rutSearch = looksLikeRutSearch(filters.search.trim()) ? rutDigits(filters.search) : null;
     rows = rows.filter((c: any) =>
       c.email.toLowerCase().includes(needle) ||
       (c.fullName && c.fullName.toLowerCase().includes(needle)) ||
-      (c.phone && c.phone.includes(filters.search!))
+      (c.phone && c.phone.includes(filters.search!)) ||
+      (!!rutSearch && !!c.rut && rutDigits(c.rut).includes(rutSearch))
     );
   }
   if (filters.accessType) {

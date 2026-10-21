@@ -2847,3 +2847,27 @@ export const contestLog = mysqlTable("contestLog", {
 }, (t) => ({
   refIdx: uniqueIndex("contest_log_ref_idx").on(t.contestId, t.kind, t.refId),
 }));
+
+// Acompañantes de órdenes web aprobadas (nombre + RUT que el comprador cargó
+// en el checkout). No tienen correo, así que NO viven en `customers` (email
+// obligatorio y único, y todo el mailing sale de ahí): esta tabla los deja
+// visibles en Clientes y buscables sin que nunca reciban correos.
+export const attendeeContacts = mysqlTable("attendee_contacts", {
+  id: int("id").autoincrement().primaryKey(),
+  // RUT/pasaporte normalizado (sin puntos, mayúsculas). Vacío si no lo dieron.
+  rut: varchar("rut", { length: 20 }),
+  // Clave de unión: el RUT, o el nombre sin tildes si no hay RUT.
+  matchKey: varchar("matchKey", { length: 320 }).notNull(),
+  fullName: varchar("fullName", { length: 255 }).notNull(),
+  docType: varchar("docType", { length: 16 }).default("rut").notNull(),
+  buyerEmail: varchar("buyerEmail", { length: 320 }),
+  buyerName: varchar("buyerName", { length: 255 }),
+  firstOrderId: int("firstOrderId"),
+  lastOrderId: int("lastOrderId"),
+  orderIds: json("orderIds"), // number[] de órdenes donde apareció
+  eventIds: json("eventIds"), // number[] de eventos
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (t) => ({
+  matchKeyIdx: uniqueIndex("attendee_contacts_match_key_idx").on(t.matchKey),
+}));
