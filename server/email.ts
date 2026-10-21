@@ -42,6 +42,29 @@ function resolveFromHeader(): string {
   return `${BRAND_NAME} <${address}>`;
 }
 
+function postToResend(apiKey: string, from: string, input: SendEmailInput): Promise<Response> {
+  return fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      from,
+      to: input.to,
+      subject: input.subject,
+      html: input.html,
+      ...(input.cc ? { cc: input.cc } : {}),
+      ...(input.attachments?.length ? {
+        attachments: input.attachments.map((a) => ({
+          filename: a.filename,
+          content: Buffer.isBuffer(a.content) ? a.content.toString('base64') : a.content,
+        })),
+      } : {}),
+    }),
+  });
+}
+
 export async function sendEmail(input: SendEmailInput) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = resolveFromHeader();
@@ -52,26 +75,12 @@ export async function sendEmail(input: SendEmailInput) {
   }
 
   try {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        from,
-        to: input.to,
-        subject: input.subject,
-        html: input.html,
-        ...(input.cc ? { cc: input.cc } : {}),
-        ...(input.attachments?.length ? {
-          attachments: input.attachments.map((a) => ({
-            filename: a.filename,
-            content: Buffer.isBuffer(a.content) ? a.content.toString('base64') : a.content,
-          })),
-        } : {}),
-      }),
-    });
+    // Resend permite 2 envíos por segundo: si responde 429 se espera y se reintenta (máx. 2 veces).
+    let response = await postToResend(apiKey, from, input);
+    for (let retry = 0; retry < 2 && response.status === 429; retry++) {
+      await new Promise((resolve) => setTimeout(resolve, 800 * (retry + 1)));
+      response = await postToResend(apiKey, from, input);
+    }
 
     if (!response.ok) {
       console.error('[Email] Resend error:', await response.text());

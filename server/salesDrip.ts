@@ -34,7 +34,7 @@ import { formatChileDate, formatChileTime, startOfChileDay } from '../shared/chi
 import { normalizeTandaSchedule, nextPhase, computePhasePrice } from '../shared/tandaSchedule';
 
 /** Cuántos correos de aviso de venta (drip + avisos por tanda) salen como máximo por día. */
-export const SALES_DRIP_DAILY_TARGET = Number(process.env.SALES_DRIP_DAILY_CAP) || 50;
+export const SALES_DRIP_DAILY_TARGET = Number(process.env.SALES_DRIP_DAILY_CAP) || 300;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

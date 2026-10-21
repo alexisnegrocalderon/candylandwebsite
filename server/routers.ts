@@ -101,6 +101,7 @@ import { currentLoginCode, verifyLoginCode, signTopupSession, verifyTopupSession
 import { identityFromTicketCode, identityFromEmail, getTopupOptions, createTopupOrder, resetCardPin, maskEmail, type TopupIdentity } from "./playcardTopup";
 import { formatChileDate, formatChileTime } from "../shared/chileDate";
 import { normalizeOrderEmailConfig, type OrderEmailConfig } from "../shared/emailTemplateConfig";
+import { billingPeriodStart, RESEND_DAILY_DEFAULT, RESEND_MONTHLY_LIMIT } from "../shared/emailQuota";
 import { normalizeAdminAlertsConfig } from "../shared/adminAlertsConfig";
 import { normalizeInstagramAgentConfig, DEFAULT_INSTAGRAM_AGENT_CONFIG, IG_MAX_REPLY_CHARS } from "../shared/instagramAgentConfig";
 import { sendManualInstagramReply } from "./instagram";
@@ -5594,11 +5595,16 @@ export const appRouter = router({
     // Contador diario de TODOS los correos (server/db.ts countEmailsSentToday)
     // -- pedido explícito del dueño para cuidar el cupo de ~100/día de
     // Resend. `dailyCap` es informativo (RESEND_DAILY_EMAIL_CAP, default
-    // 100): no bloquea nada, no hay forma de leer la cuota real de Resend.
+    // 1500 con Resend Pro): no bloquea nada; el límite real es mensual (50.000).
     getDailyEmailUsage: adminReadProcedure.query(async () => {
       const sentToday = await db.countEmailsSentToday();
-      const dailyCap = Number(process.env.RESEND_DAILY_EMAIL_CAP) || 100;
-      return { sentToday, dailyCap, remaining: Math.max(0, dailyCap - sentToday) };
+      const dailyCap = Number(process.env.RESEND_DAILY_EMAIL_CAP) || RESEND_DAILY_DEFAULT;
+      const periodStart = billingPeriodStart();
+      const sentMonth = await db.countEmailsSentSince(periodStart);
+      return {
+        sentToday, dailyCap, remaining: Math.max(0, dailyCap - sentToday),
+        sentMonth, monthlyLimit: RESEND_MONTHLY_LIMIT, periodStart: periodStart.toISOString(),
+      };
     }),
     getCampaignRecipients: adminReadProcedure.input(z.object({ campaignId: z.number() })).query(async ({ input }) => {
       return db.getMailingCampaignRecipients(input.campaignId);

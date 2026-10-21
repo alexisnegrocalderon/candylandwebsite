@@ -15,6 +15,7 @@ import {
   countEmailsSentToday,
 } from './db';
 import { AUTOMATED_EMAIL_DAILY_CAP } from './mailing';
+import { RESEND_DAILY_DEFAULT, TRANSACTIONAL_RESERVE } from '../shared/emailQuota';
 import { sendEmail, buildEventSurveyEmail } from './email';
 import { EMAIL_BASE_URL } from './emailLayout';
 import { ADMIN_NOTIFICATION_EMAIL } from '../shared/const';
@@ -48,7 +49,7 @@ export function surveyUrl(token: string): string {
  * corto) y por eso salieron menos de los pedidos -- lo pendiente sale mañana. */
 /** Correos que se dejan SIEMPRE libres para los transaccionales (la
  * confirmación de compra con el QR) en el total del día. */
-export const TRANSACTIONAL_EMAIL_RESERVE = 30;
+export const TRANSACTIONAL_EMAIL_RESERVE = TRANSACTIONAL_RESERVE;
 
 /** Cuántas encuestas se pueden mandar todavía hoy. Es el MENOR de dos
  * topes:
@@ -61,7 +62,7 @@ export const TRANSACTIONAL_EMAIL_RESERVE = 30;
  * pasarse del plan, y lo primero que se rompería es la confirmación de compra. */
 export async function surveyEmailBudget(): Promise<number> {
   const [automatedToday, totalToday] = await Promise.all([countAutomatedEmailsSentToday(), countEmailsSentToday()]);
-  const dailyCap = Number(process.env.RESEND_DAILY_EMAIL_CAP) || 100;
+  const dailyCap = Number(process.env.RESEND_DAILY_EMAIL_CAP) || RESEND_DAILY_DEFAULT;
   return Math.min(AUTOMATED_EMAIL_DAILY_CAP - automatedToday, dailyCap - TRANSACTIONAL_EMAIL_RESERVE - totalToday);
 }
 

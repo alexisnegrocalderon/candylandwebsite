@@ -252,7 +252,7 @@ async function emailBuyers(db: Db, ctx: ContestCtx, ranking: Ranking, participan
   if (day !== eve) return 0;
   let sent = 0;
   for (const p of participants) {
-    if (sent >= 40 || p.disqualified || !p.hasTicket || !p.email) continue;
+    if (sent >= 100 || p.disqualified || !p.hasTicket || !p.email) continue;
     if ((await countEmailsSentToday(now)) >= RANKING_EMAIL_DAILY_LIMIT) break;
     const view = personalView(ctx, ranking, p);
     if (!view) continue;
@@ -274,6 +274,7 @@ async function emailBuyers(db: Db, ctx: ContestCtx, ranking: Ranking, participan
     }).catch(() => ({ success: false }));
     if (result.success) sent++;
     else await release(db, ctx.contest.id, key);
+    await new Promise((resolve) => setTimeout(resolve, 550)); // Resend: 2 envíos por segundo
   }
   return sent;
 }
